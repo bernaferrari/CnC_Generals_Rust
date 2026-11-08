@@ -1,14 +1,11 @@
 //! HAnim (Hierarchy Animation) base class implementation
 //!
-//! This module mirrors the legacy `HRawAnimClass` container and sampling logic. Channels are
-//! stored per pivot and evaluated with the same frame wrapping and interpolation semantics used
-//! by the original WW3D engine.
+//! Playback wrapper over the canonical [`HRawAnimClass`] channel owner; all
+//! sampling is delegated to it.
 
 use super::htree::HTreeClass;
+use crate::hraw_anim::HRawAnimClass;
 use glam::{Mat4, Quat, Vec3};
-use std::array;
-
-const FRAME_EPS: f32 = 1e-5;
 
 /// Animation playback modes matching C++ RenderObjClass::AnimMode
 /// Reference: rendobj.h:331-339
@@ -47,183 +44,8 @@ impl AnimationEvent {
     }
 }
 
-/// Axis helper used by translation and rotation channels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Axis {
-    X,
-    Y,
-    Z,
-}
-
-/// Motion channel variants supported by the classic animation system.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MotionChannelType {
-    Translation(Axis),
-    RotationAxis(Axis),
-    Quaternion,
-    Visibility,
-    Unknown(u16),
-}
-
-impl MotionChannelType {
-    pub fn from_flags(flags: u16) -> Self {
-        match flags {
-            0 => MotionChannelType::Translation(Axis::X),
-            1 => MotionChannelType::Translation(Axis::Y),
-            2 => MotionChannelType::Translation(Axis::Z),
-            3 => MotionChannelType::RotationAxis(Axis::X),
-            4 => MotionChannelType::RotationAxis(Axis::Y),
-            5 => MotionChannelType::RotationAxis(Axis::Z),
-            6 => MotionChannelType::Quaternion,
-            7 => MotionChannelType::Translation(Axis::X), // time coded variants; fall back for now
-            8 => MotionChannelType::Translation(Axis::Y),
-            9 => MotionChannelType::Translation(Axis::Z),
-            10 => MotionChannelType::Quaternion,
-            11 => MotionChannelType::Translation(Axis::X), // adaptive delta; handled later
-            12 => MotionChannelType::Translation(Axis::Y),
-            13 => MotionChannelType::Translation(Axis::Z),
-            14 => MotionChannelType::Quaternion,
-            15 => MotionChannelType::Visibility,
-            other => MotionChannelType::Unknown(other),
-        }
-    }
-}
-
-/// Motion channel with decoded keyframe payload.
-#[derive(Debug, Clone)]
-pub struct MotionChannel {
-    channel_type: MotionChannelType,
-    pivot_idx: usize,
-    vector_len: usize,
-    first_frame: u16,
-    last_frame: u16,
-    data: Vec<f32>,
-}
-
-impl MotionChannel {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        channel_type: MotionChannelType,
-        pivot_idx: usize,
-        first_frame: u16,
-        last_frame: u16,
-        vector_len: usize,
-        data: Vec<f32>,
-    ) -> Self {
-        Self {
-            channel_type,
-            pivot_idx,
-            vector_len,
-            first_frame,
-            last_frame,
-            data,
-        }
-    }
-
-    pub fn channel_type(&self) -> MotionChannelType {
-        self.channel_type
-    }
-
-    pub fn pivot(&self) -> usize {
-        self.pivot_idx
-    }
-
-    fn frame_in_range(&self, frame_index: usize) -> bool {
-        frame_index >= self.first_frame as usize && frame_index <= self.last_frame as usize
-    }
-
-    fn sample_scalar(&self, frame_index: usize) -> f32 {
-        if self.vector_len == 0 || !self.frame_in_range(frame_index) {
-            return 0.0;
-        }
-
-        let local = (frame_index - self.first_frame as usize) * self.vector_len;
-        self.data
-            .get(local)
-            .copied()
-            .unwrap_or_else(|| *self.data.last().unwrap_or(&0.0))
-    }
-
-    fn sample_quaternion(&self, frame_index: usize) -> Quat {
-        let mut components = [0.0f32; 4];
-        if self.vector_len < 4 || !self.sample_vector_into(frame_index, &mut components) {
-            return Quat::IDENTITY;
-        }
-
-        Quat::from_xyzw(components[0], components[1], components[2], components[3]).normalize()
-    }
-
-    fn sample_vector_into(&self, frame_index: usize, dst: &mut [f32]) -> bool {
-        if self.vector_len == 0 || !self.frame_in_range(frame_index) {
-            return false;
-        }
-
-        let vector_len = self.vector_len.min(dst.len());
-        let local = (frame_index - self.first_frame as usize) * self.vector_len;
-        let end = local + vector_len;
-        if end > self.data.len() {
-            return false;
-        }
-
-        dst[..vector_len].copy_from_slice(&self.data[local..end]);
-        true
-    }
-}
-
-/// Bit channel for compressed animation data.
-#[derive(Debug, Clone)]
-pub struct BitChannel {
-    pub pivot_idx: usize,
-    pub channel_type: MotionChannelType,
-    pub data: Vec<u8>,
-    pub first_frame: u16,
-    pub last_frame: u16,
-    pub default_value: u8,
-}
-
-impl BitChannel {
-    pub fn get_bit(&self, frame_index: usize) -> u8 {
-        if frame_index < self.first_frame as usize || frame_index > self.last_frame as usize {
-            return self.default_value;
-        }
-
-        let offset = frame_index - self.first_frame as usize;
-        let byte = offset / 8;
-        let bit = offset % 8;
-        self.data
-            .get(byte)
-            .map(|value| (value >> bit) & 1)
-            .unwrap_or(self.default_value)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum VisibilityBinding {
-    Scalar(usize),
-    Bit(usize),
-}
-
-#[derive(Debug, Clone)]
-struct PivotMotion {
-    translation: [Option<usize>; 3],
-    rotation: Option<usize>,
-    visibility: Option<VisibilityBinding>,
-    #[allow(dead_code)] // C++ parity
-    rotation_axes: [Option<usize>; 3],
-}
-
-impl Default for PivotMotion {
-    fn default() -> Self {
-        Self {
-            translation: array::from_fn(|_| None),
-            rotation: None,
-            visibility: None,
-            rotation_axes: array::from_fn(|_| None),
-        }
-    }
-}
-
-/// Base animation class for all W3D animation formats.
+/// Playable classic animation: the canonical [`HRawAnimClass`] channels plus
+/// the caller-owned playback cursor of this port's `HAnimClass` users.
 #[derive(Debug, Clone)]
 pub struct HAnimClass {
     pub name: String,
@@ -231,9 +53,7 @@ pub struct HAnimClass {
     pub num_frames: u32,
     pub frame_rate: f32,
     pub total_time: f32,
-    channels: Vec<MotionChannel>,
-    pivot_motions: Vec<PivotMotion>,
-    bit_channels: Vec<BitChannel>,
+    raw: HRawAnimClass,
     embedded_sound_bone_index: Option<usize>,
     // Playback state
     mode: AnimationMode,
@@ -247,21 +67,24 @@ pub struct HAnimClass {
 impl HAnimClass {
     /// Create a new animation container without any channels.
     pub fn new(name: &str, hierarchy_name: &str, num_frames: u32, frame_rate: f32) -> Self {
-        let total_time = if frame_rate > 0.0 {
-            num_frames as f32 / frame_rate
-        } else {
-            0.0
-        };
+        let mut anim = Self::from_raw(HRawAnimClass::new(name, hierarchy_name, num_frames, 0));
+        anim.frame_rate = frame_rate;
+        anim.total_time = total_time(num_frames, frame_rate);
+        anim
+    }
 
+    /// Play a loaded canonical raw animation.
+    pub fn from_raw(raw: HRawAnimClass) -> Self {
+        // `HAnimClass::Get_Frame_Rate` returns the authored integer as float.
+        #[allow(clippy::cast_precision_loss)]
+        let frame_rate = raw.get_frame_rate() as f32;
         Self {
-            name: name.to_string(),
-            hierarchy_name: hierarchy_name.to_string(),
-            num_frames,
+            name: raw.get_name().to_string(),
+            hierarchy_name: raw.get_hierarchy_name().to_string(),
+            num_frames: raw.get_num_frames(),
             frame_rate,
-            total_time,
-            channels: Vec::new(),
-            pivot_motions: Vec::new(),
-            bit_channels: Vec::new(),
+            total_time: total_time(raw.get_num_frames(), frame_rate),
+            raw,
             embedded_sound_bone_index: None,
             mode: AnimationMode::Loop,
             current_frame: 0.0,
@@ -272,65 +95,9 @@ impl HAnimClass {
         }
     }
 
-    /// Construct an animation with the pivot count of its authored hierarchy.
-    /// Channels outside that hierarchy are discarded, as in hrawanim.cpp:219-243.
-    pub fn with_channels(
-        name: &str,
-        hierarchy_name: &str,
-        num_frames: u32,
-        frame_rate: f32,
-        num_pivots: usize,
-        channels: Vec<MotionChannel>,
-        bit_channels: Vec<BitChannel>,
-    ) -> Self {
-        let mut anim = Self::new(name, hierarchy_name, num_frames, frame_rate);
-        anim.pivot_motions.resize_with(num_pivots, PivotMotion::default);
-        for channel in channels {
-            anim.install_channel(channel);
-        }
-        for bit_channel in bit_channels {
-            anim.install_bit_channel(bit_channel);
-        }
-        anim
-    }
-
-    fn install_channel(&mut self, channel: MotionChannel) {
-        let pivot = channel.pivot();
-        if pivot >= self.pivot_motions.len() {
-            return;
-        }
-
-        self.channels.push(channel);
-        let index = self.channels.len() - 1;
-        match self.channels[index].channel_type() {
-            MotionChannelType::Translation(axis) => {
-                self.pivot_motions[pivot].translation[axis_index(axis)] = Some(index);
-            }
-            MotionChannelType::Quaternion => {
-                self.pivot_motions[pivot].rotation = Some(index);
-            }
-            MotionChannelType::RotationAxis(axis) => {
-                self.pivot_motions[pivot].rotation_axes[axis_index(axis)] = Some(index);
-            }
-            MotionChannelType::Visibility => {
-                self.pivot_motions[pivot].visibility = Some(VisibilityBinding::Scalar(index));
-            }
-            MotionChannelType::Unknown(_) => {}
-        }
-    }
-
-    fn install_bit_channel(&mut self, channel: BitChannel) {
-        if channel.pivot_idx >= self.pivot_motions.len() {
-            return;
-        }
-        let pivot = channel.pivot_idx;
-        if matches!(channel.channel_type, MotionChannelType::Visibility) {
-            let index = self.bit_channels.len();
-            self.bit_channels.push(channel);
-            self.pivot_motions[pivot].visibility = Some(VisibilityBinding::Bit(index));
-        } else {
-            self.bit_channels.push(channel);
-        }
+    /// The canonical channels.
+    pub fn raw(&self) -> &HRawAnimClass {
+        &self.raw
     }
 
     pub fn get_name(&self) -> &str {
@@ -362,19 +129,19 @@ impl HAnimClass {
     }
 
     pub fn num_pivots(&self) -> usize {
-        self.pivot_motions.len()
+        self.raw.get_num_pivots()
     }
 
     pub fn has_translation_x(&self, pivot_idx: usize) -> bool {
-        self.has_translation_axis(pivot_idx, Axis::X)
+        self.raw.has_x_translation(pivot_idx)
     }
 
     pub fn has_translation_y(&self, pivot_idx: usize) -> bool {
-        self.has_translation_axis(pivot_idx, Axis::Y)
+        self.raw.has_y_translation(pivot_idx)
     }
 
     pub fn has_translation_z(&self, pivot_idx: usize) -> bool {
-        self.has_translation_axis(pivot_idx, Axis::Z)
+        self.raw.has_z_translation(pivot_idx)
     }
 
     pub fn has_translation(&self, pivot_idx: usize) -> bool {
@@ -383,187 +150,36 @@ impl HAnimClass {
             || self.has_translation_z(pivot_idx)
     }
 
-    /// Determine whether the specified translation axis is present.
-    pub fn has_translation_axis(&self, pivot_idx: usize, axis: Axis) -> bool {
-        self.pivot_motions
-            .get(pivot_idx)
-            .and_then(|motion| motion.translation[axis_index(axis)])
-            .is_some()
-    }
-
-    /// Determine whether a quaternion rotation channel exists for the pivot.
-    pub fn has_quaternion_rotation(&self, pivot_idx: usize) -> bool {
-        self.pivot_motions
-            .get(pivot_idx)
-            .and_then(|motion| motion.rotation)
-            .is_some()
-    }
-
-    /// Determine whether any rotation information exists for the pivot.
+    /// Whether the pivot has a `Q` channel (the only orientation source).
     pub fn has_rotation(&self, pivot_idx: usize) -> bool {
-        self.has_quaternion_rotation(pivot_idx)
-            || self
-                .pivot_motions
-                .get(pivot_idx)
-                .map(|motion| motion.rotation_axes.iter().any(|entry| entry.is_some()))
-                .unwrap_or(false)
+        self.raw.has_rotation(pivot_idx)
     }
 
-    /// Determine whether a visibility channel exists.
     pub fn has_visibility(&self, pivot_idx: usize) -> bool {
-        self.pivot_motions
-            .get(pivot_idx)
-            .and_then(|motion| motion.visibility)
-            .is_some()
+        self.raw.has_visibility(pivot_idx)
     }
 
-    /// Retrieve a local transform matrix for the pivot at `frame`.
+    /// Local `Build_Matrix3D(q)` with the translation column set.
     pub fn get_transform(&self, pivot_idx: usize, frame: f32) -> Mat4 {
-        let translation = self.get_translation(pivot_idx, frame);
-        let rotation = self.get_orientation(pivot_idx, frame);
-        Mat4::from_rotation_translation(rotation, translation)
+        Mat4::from_rotation_translation(
+            self.get_orientation(pivot_idx, frame),
+            self.get_translation(pivot_idx, frame),
+        )
     }
 
-    fn resolve_frames(&self, frame: f32) -> (usize, usize, f32) {
-        let frame_count = self.num_frames.max(1) as usize;
-        if frame_count == 1 {
-            return (0, 0, 0.0);
-        }
-
-        let mut wrapped = frame % frame_count as f32;
-        if wrapped < 0.0 {
-            wrapped += frame_count as f32;
-        }
-
-        let frame0 = wrapped.floor() as usize;
-        let mut ratio = wrapped - frame0 as f32;
-        if ratio < 0.0 {
-            ratio += 1.0;
-        }
-        let frame1 = if frame0 + 1 >= frame_count {
-            0
-        } else {
-            frame0 + 1
-        };
-
-        (frame0, frame1, ratio.clamp(0.0, 1.0))
-    }
-
-    /// Get translation for a pivot at a specific frame.
+    /// `HRawAnimClass::Get_Translation`.
     pub fn get_translation(&self, pivot_idx: usize, frame: f32) -> Vec3 {
-        if pivot_idx >= self.pivot_motions.len() {
-            return Vec3::ZERO;
-        }
-
-        let pivot_motion = &self.pivot_motions[pivot_idx];
-        let (frame0, frame1, ratio) = self.resolve_frames(frame);
-
-        let mut t0 = Vec3::ZERO;
-        if let Some(idx) = pivot_motion.translation[0] {
-            t0.x = self.channels[idx].sample_scalar(frame0);
-        }
-        if let Some(idx) = pivot_motion.translation[1] {
-            t0.y = self.channels[idx].sample_scalar(frame0);
-        }
-        if let Some(idx) = pivot_motion.translation[2] {
-            t0.z = self.channels[idx].sample_scalar(frame0);
-        }
-
-        if ratio <= FRAME_EPS {
-            return t0;
-        }
-
-        let mut t1 = Vec3::ZERO;
-        if let Some(idx) = pivot_motion.translation[0] {
-            t1.x = self.channels[idx].sample_scalar(frame1);
-        }
-        if let Some(idx) = pivot_motion.translation[1] {
-            t1.y = self.channels[idx].sample_scalar(frame1);
-        }
-        if let Some(idx) = pivot_motion.translation[2] {
-            t1.z = self.channels[idx].sample_scalar(frame1);
-        }
-
-        t0.lerp(t1, ratio)
+        self.raw.get_translation(pivot_idx, frame)
     }
 
-    /// Get orientation for a pivot at a specific frame.
+    /// `HRawAnimClass::Get_Orientation`.
     pub fn get_orientation(&self, pivot_idx: usize, frame: f32) -> Quat {
-        if pivot_idx >= self.pivot_motions.len() {
-            return Quat::IDENTITY;
-        }
-
-        let pivot_motion = &self.pivot_motions[pivot_idx];
-        let (frame0, frame1, ratio) = self.resolve_frames(frame);
-
-        if let Some(channel_index) = pivot_motion.rotation {
-            let q0 = self.channels[channel_index].sample_quaternion(frame0);
-            if ratio <= FRAME_EPS {
-                return q0;
-            }
-
-            let q1 = self.channels[channel_index].sample_quaternion(frame1);
-            return q0.slerp(q1, ratio);
-        }
-
-        self.sample_axis_rotation(pivot_motion, frame0, frame1, ratio)
+        self.raw.get_orientation(pivot_idx, frame)
     }
 
-    fn sample_axis_rotation(
-        &self,
-        motion: &PivotMotion,
-        frame0: usize,
-        frame1: usize,
-        ratio: f32,
-    ) -> Quat {
-        let mut euler0 = Vec3::ZERO;
-        let mut euler1 = Vec3::ZERO;
-
-        if let Some(idx) = motion.rotation_axes[0] {
-            euler0.x = self.channels[idx].sample_scalar(frame0);
-            euler1.x = self.channels[idx].sample_scalar(frame1);
-        }
-        if let Some(idx) = motion.rotation_axes[1] {
-            euler0.y = self.channels[idx].sample_scalar(frame0);
-            euler1.y = self.channels[idx].sample_scalar(frame1);
-        }
-        if let Some(idx) = motion.rotation_axes[2] {
-            euler0.z = self.channels[idx].sample_scalar(frame0);
-            euler1.z = self.channels[idx].sample_scalar(frame1);
-        }
-
-        if ratio <= FRAME_EPS {
-            return euler_to_quat(euler0);
-        }
-
-        let blended = euler0.lerp(euler1, ratio);
-        euler_to_quat(blended)
-    }
-
-    /// Get visibility flag for a pivot at the given frame.
+    /// `HRawAnimClass::Get_Visibility`.
     pub fn get_visibility(&self, pivot_idx: usize, frame: f32) -> bool {
-        if pivot_idx >= self.pivot_motions.len() {
-            return true;
-        }
-
-        let motion = &self.pivot_motions[pivot_idx];
-        let Some(binding) = motion.visibility else {
-            return true;
-        };
-
-        let (frame0, _, _) = self.resolve_frames(frame);
-        match binding {
-            VisibilityBinding::Scalar(index) => self
-                .channels
-                .get(index)
-                .map(|channel| channel.sample_scalar(frame0) > 0.5)
-                .unwrap_or(true),
-            VisibilityBinding::Bit(index) => self
-                .bit_channels
-                .get(index)
-                .map(|ch| ch.get_bit(frame0) != 0)
-                .unwrap_or(true),
-        }
+        self.raw.get_visibility(pivot_idx, frame)
     }
 
     /// Set animation playback mode
@@ -739,25 +355,15 @@ impl HAnimClass {
     }
 }
 
-fn axis_index(axis: Axis) -> usize {
-    match axis {
-        Axis::X => 0,
-        Axis::Y => 1,
-        Axis::Z => 2,
+fn total_time(num_frames: u32, frame_rate: f32) -> f32 {
+    if frame_rate > 0.0 {
+        // Display-only duration; frame counts are bounded by the file format.
+        #[allow(clippy::cast_precision_loss)]
+        let frames = num_frames as f32;
+        frames / frame_rate
+    } else {
+        0.0
     }
-}
-
-fn euler_to_quat(euler: Vec3) -> Quat {
-    let (sx, cx) = (euler.x * 0.5).sin_cos();
-    let (sy, cy) = (euler.y * 0.5).sin_cos();
-    let (sz, cz) = (euler.z * 0.5).sin_cos();
-
-    Quat::from_xyzw(
-        sx * cy * cz + cx * sy * sz,
-        cx * sy * cz - sx * cy * sz,
-        cx * cy * sz + sx * sy * cz,
-        cx * cy * cz - sx * sy * sz,
-    )
 }
 
 #[cfg(test)]

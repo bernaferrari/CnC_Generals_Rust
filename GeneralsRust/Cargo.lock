@@ -15327,7 +15327,6 @@ dependencies = [
  "math_utilities",
  "thiserror 2.0.20",
  "wgpu",
- "ww3d-assets",
  "ww3d-core",
 ]
 

@@ -8,7 +8,7 @@
 
 use crate::hanim::{AnimationEvent, AnimationMode};
 use crate::motion_channels::{
-    AdaptiveDeltaMotionChannelClass, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,
+    AdaptiveDeltaMotionChannelClass, AnimChannelKind, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,
 };
 use glam::{Mat4, Quat, Vec3};
 
@@ -190,10 +190,10 @@ impl HCompressedAnimClass {
         if let NodeCompressedMotion::TimeCoded { x, y, z, q, .. } = &mut self.node_motion[pivot_idx]
         {
             match channel.get_type() {
-                0 => *x = Some(channel), // ANIM_CHANNEL_X
-                1 => *y = Some(channel), // ANIM_CHANNEL_Y
-                2 => *z = Some(channel), // ANIM_CHANNEL_Z
-                6 => *q = Some(channel), // ANIM_CHANNEL_Q
+                AnimChannelKind::X => *x = Some(channel),
+                AnimChannelKind::Y => *y = Some(channel),
+                AnimChannelKind::Z => *z = Some(channel),
+                AnimChannelKind::Quaternion => *q = Some(channel),
                 _ => {}
             }
         }
@@ -215,10 +215,10 @@ impl HCompressedAnimClass {
             &mut self.node_motion[pivot_idx]
         {
             match channel.get_type() {
-                0 => *x = Some(channel),  // ANIM_CHANNEL_X
-                1 => *y = Some(channel),  // ANIM_CHANNEL_Y
-                2 => *z = Some(channel),  // ANIM_CHANNEL_Z
-                6 => *q = Some(channel), // ANIM_CHANNEL_Q
+                AnimChannelKind::X => *x = Some(channel),
+                AnimChannelKind::Y => *y = Some(channel),
+                AnimChannelKind::Z => *z = Some(channel),
+                AnimChannelKind::Quaternion => *q = Some(channel),
                 _ => {}
             }
         }

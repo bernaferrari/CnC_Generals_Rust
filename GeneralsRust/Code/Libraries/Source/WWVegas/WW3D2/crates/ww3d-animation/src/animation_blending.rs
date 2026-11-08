@@ -8,7 +8,7 @@
 use crate::combo::{HAnimCombo, HAnimComboData};
 use crate::manager::HAnimManager;
 use crate::{
-    AnimatedSoundMgr, AnimationChannel, HAnimClass, HTreeClass, embedded_sound_bone, has_embedded_sounds,
+    AnimatedSoundMgr, HAnimClass, HTreeClass, embedded_sound_bone, has_embedded_sounds,
     trigger_sound,
 };
 use glam::Mat4;
@@ -147,7 +147,6 @@ pub struct AdvancedAnimatable3DObj {
     pub states: HashMap<String, AnimationState>,
     pub parameters: HashMap<String, AnimationParameter>,
     pub bone_matrices: Vec<Mat4>,
-    pub animation_channels: Vec<AnimationChannel>, // Animation data storage
     combo: HAnimCombo,
     root_transform: Mat4,
     #[cfg(feature = "renderer-3d")]
@@ -175,7 +174,6 @@ impl AdvancedAnimatable3DObj {
             states: HashMap::new(),
             parameters: HashMap::new(),
             bone_matrices: vec![Mat4::IDENTITY; bone_count],
-            animation_channels: Vec::new(),
             combo: HAnimCombo::new(),
             root_transform: Mat4::IDENTITY,
             sound_mgr: Arc::new(AnimatedSoundMgr::new()),
@@ -809,14 +807,6 @@ impl AnimationController {
 
     pub fn add_animation_arc(&mut self, animation: Arc<HAnimClass>) {
         self.anim_manager.add_anim(animation);
-    }
-
-    pub fn load_animation_prototype(
-        &mut self,
-        proto: &ww3d_assets::prototypes::AnimationPrototype,
-        assets: &ww3d_assets::AssetManager,
-    ) -> Option<Arc<HAnimClass>> {
-        self.anim_manager.load_prototype(proto, assets)
     }
 
     pub fn set_object_animation(

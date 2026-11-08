@@ -1,8 +1,10 @@
-//! Canonical W3D compressed channels (motchan.cpp).
+//! Canonical W3D motion and bit channels (`motchan.h`, `motchan.cpp`).
 //!
-//! Payloads and packet checkpoints are immutable; independent players borrow
-//! them without sharing mutable decoder state. See OWNERSHIP_AND_AUTHORITY.md
-//! for the intentional corrections to the original adaptive random-seek bugs.
+//! Raw per-frame channels, compressed timecoded/adaptive-delta channels and
+//! both bit-channel forms live here and nowhere else. Payloads and packet
+//! checkpoints are immutable; independent players borrow them without
+//! sharing mutable decoder state. See OWNERSHIP_AND_AUTHORITY.md for the
+//! intentional corrections to the original adaptive random-seek bugs.
 
 use glam::Quat;
 use math_utilities::wwmath::{EPSILON2, WWMath};
@@ -11,60 +13,252 @@ use std::sync::LazyLock;
 const FLAG: u32 = 0x8000_0000;
 const PACKET_SIZE: usize = 9;
 
+/// Motion channel kinds (`ANIM_CHANNEL_*`, `w3d_file.h:1373-1392`).
+///
+/// Raw animations store these values in `W3dAnimChannelStruct::Flags`;
+/// compressed channels store them in the channel `Flags` byte. Values 7..=15
+/// (timecoded/adaptive aliases and visibility) are never installed by the
+/// source animation classes, so they have no variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AnimChannelKind {
+    X,
+    Y,
+    Z,
+    XRotation,
+    YRotation,
+    ZRotation,
+    Quaternion,
+}
+
+impl AnimChannelKind {
+    /// Decode the source `Flags` value; `None` for kinds no animation installs.
+    pub fn from_flags(flags: u16) -> Option<Self> {
+        Some(match flags {
+            0 => Self::X,
+            1 => Self::Y,
+            2 => Self::Z,
+            3 => Self::XRotation,
+            4 => Self::YRotation,
+            5 => Self::ZRotation,
+            6 => Self::Quaternion,
+            _ => return None,
+        })
+    }
+
+    /// Components per frame. A different authored `VectorLen` would make the
+    /// source write past its three-float translation or read past its
+    /// quaternion, so loaders reject it.
+    pub fn vector_len(self) -> usize {
+        match self {
+            Self::Quaternion => 4,
+            _ => 1,
+        }
+    }
+
+    /// Translation axis index for X/Y/Z channels.
+    pub fn translation_axis(self) -> Option<usize> {
+        match self {
+            Self::X => Some(0),
+            Self::Y => Some(1),
+            Self::Z => Some(2),
+            _ => None,
+        }
+    }
+}
+
+/// Bit channel kinds (`BIT_CHANNEL_*`, `w3d_file.h:1418-1422`). Only
+/// visibility is installed by `HRawAnimClass` and `HCompressedAnimClass`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BitChannelKind {
+    Visibility,
+}
+
+impl BitChannelKind {
+    pub fn from_flags(flags: u16) -> Option<Self> {
+        (flags == 0).then_some(Self::Visibility)
+    }
+}
+
 /// Source Fast_Slerp: hemisphere correction, epsilon-squared linear branch,
 /// and no normalization of authored/compressed values.
 pub fn fast_slerp(a: Quat, b: Quat, t: f32) -> Quat {
     let mut cosine = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
     let flip = cosine < 0.0;
-    if flip { cosine = -cosine; }
+    if flip {
+        cosine = -cosine;
+    }
     let (beta, alpha) = if 1.0 - cosine < EPSILON2 {
         (1.0 - t, t)
     } else {
         let theta = WWMath::fast_acos(cosine);
         let inverse_sine = 1.0 / WWMath::fast_sin(theta);
-        (WWMath::fast_sin(theta - t * theta) * inverse_sine,
-            WWMath::fast_sin(t * theta) * inverse_sine)
+        (
+            WWMath::fast_sin(theta - t * theta) * inverse_sine,
+            WWMath::fast_sin(t * theta) * inverse_sine,
+        )
     };
     let alpha = if flip { -alpha } else { alpha };
-    Quat::from_xyzw(beta * a.x + alpha * b.x, beta * a.y + alpha * b.y,
-        beta * a.z + alpha * b.z, beta * a.w + alpha * b.w)
+    Quat::from_xyzw(
+        beta * a.x + alpha * b.x,
+        beta * a.y + alpha * b.y,
+        beta * a.z + alpha * b.z,
+        beta * a.w + alpha * b.w,
+    )
 }
 
+/// `AdaptiveDeltaMotionChannelClass` constructor table (`motchan.cpp:15-33`,
+/// `824-830`): sixteen authored powers of ten, then
+/// `1 - Sin(DEG_TO_RAD(90 * i / 240))`. `DEG_TO_RAD` widens to double before
+/// `WWMath::Sin` narrows its argument back to float.
 fn generate_filter_table() -> [f32; 256] {
+    const WWMATH_PI: f32 = 3.141_592_654;
     let mut table = [0.0; 256];
     table[..16].copy_from_slice(&[
-        1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1,
-        1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0, 10000000.0,
+        1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0, 1000.0, 10000.0,
+        100000.0, 1000000.0, 10000000.0,
     ]);
-    for i in 0..240 {
-        table[16 + i] = 1.0 - (i as f32 / 240.0 * std::f32::consts::FRAC_PI_2).sin();
+    for (index, slot) in (0u8..240).zip(table[16..].iter_mut()) {
+        let ratio = f32::from(index) / 240.0;
+        let radians = f64::from(90.0 * ratio) * f64::from(WWMATH_PI) / 180.0;
+        // Float narrowing at the original `Sin(float)` call boundary.
+        #[allow(clippy::cast_possible_truncation)]
+        let radians = radians as f32;
+        *slot = 1.0 - radians.sin();
     }
     table
 }
 
 // Existing immutable format table, never playback state.
 static FILTER_TABLE: LazyLock<[f32; 256]> = LazyLock::new(generate_filter_table);
-fn get_filter_table() -> &'static [f32; 256] {
-    &FILTER_TABLE
+
+/// Classic per-frame motion (`MotionChannelClass`, `motchan.h:24-112`).
+///
+/// Frames outside `[FirstFrame, LastFrame]` produce the channel identity:
+/// zero for scalar kinds, `(0, 0, 0, 1)` for quaternions. Authored
+/// quaternions are returned exactly, never normalized.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MotionChannelClass {
+    pivot_idx: u32,
+    kind: AnimChannelKind,
+    first_frame: u16,
+    last_frame: u16,
+    data: Box<[f32]>,
 }
 
-fn valid_shape(kind: u16, len: usize) -> bool {
-    matches!((kind, len), (0..=2, 1) | (6, 4))
+impl MotionChannelClass {
+    /// `data` must hold exactly `(last - first + 1) * kind.vector_len()`
+    /// values; loaders discard the exporter's trailing surplus first.
+    pub fn try_new(
+        pivot_idx: u32,
+        kind: AnimChannelKind,
+        first_frame: u16,
+        last_frame: u16,
+        data: Vec<f32>,
+    ) -> Result<Self, &'static str> {
+        let frames = Self::frame_count(first_frame, last_frame)?;
+        if frames.checked_mul(kind.vector_len()) != Some(data.len()) {
+            return Err("raw motion payload does not match its frame range");
+        }
+        Ok(Self { pivot_idx, kind, first_frame, last_frame, data: data.into_boxed_slice() })
+    }
+
+    /// Number of authored frames, or an error for an inverted range (the
+    /// source computes an unsigned wrap and fails its read).
+    pub fn frame_count(first_frame: u16, last_frame: u16) -> Result<usize, &'static str> {
+        last_frame
+            .checked_sub(first_frame)
+            .map(|span| usize::from(span) + 1)
+            .ok_or("inverted raw channel frame range")
+    }
+
+    pub fn get_type(&self) -> AnimChannelKind {
+        self.kind
+    }
+
+    pub fn get_pivot(&self) -> u32 {
+        self.pivot_idx
+    }
+
+    fn authored(&self, frame: i32) -> Option<&[f32]> {
+        if frame < i32::from(self.first_frame) || frame > i32::from(self.last_frame) {
+            return None;
+        }
+        let len = self.kind.vector_len();
+        let start = usize::try_from(frame - i32::from(self.first_frame)).ok()? * len;
+        self.data.get(start..start + len)
+    }
+
+    /// `MotionChannelClass::Get_Vector` for a scalar channel.
+    pub fn get_scalar(&self, frame: i32) -> f32 {
+        self.authored(frame).map_or(0.0, |values| values[0])
+    }
+
+    /// `MotionChannelClass::Get_Vector_As_Quat`.
+    pub fn get_vector_as_quat(&self, frame: i32) -> Quat {
+        match self.authored(frame) {
+            Some(&[x, y, z, w]) => Quat::from_xyzw(x, y, z, w),
+            _ => Quat::IDENTITY,
+        }
+    }
+}
+
+/// Classic per-frame bits (`BitChannelClass`, `motchan.h:116-167`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BitChannelClass {
+    pivot_idx: u32,
+    default_val: u8,
+    first_frame: u16,
+    last_frame: u16,
+    bits: Box<[u8]>,
+}
+
+impl BitChannelClass {
+    /// `bits` must hold exactly `ceil((last - first + 1) / 8)` bytes.
+    pub fn try_new(
+        pivot_idx: u32,
+        default_val: u8,
+        first_frame: u16,
+        last_frame: u16,
+        bits: Vec<u8>,
+    ) -> Result<Self, &'static str> {
+        let frames = MotionChannelClass::frame_count(first_frame, last_frame)?;
+        if frames.div_ceil(8) != bits.len() {
+            return Err("raw bit payload does not match its frame range");
+        }
+        Ok(Self { pivot_idx, default_val, first_frame, last_frame, bits: bits.into_boxed_slice() })
+    }
+
+    pub fn get_pivot(&self) -> u32 {
+        self.pivot_idx
+    }
+
+    /// `BitChannelClass::Get_Bit`: the raw `DefaultVal` byte outside the
+    /// authored range (callers compare with one, so a default of two hides),
+    /// otherwise the LSB-first packed bit.
+    pub fn get_bit(&self, frame: i32) -> u8 {
+        if frame < i32::from(self.first_frame) || frame > i32::from(self.last_frame) {
+            return self.default_val;
+        }
+        let Ok(bit) = usize::try_from(frame - i32::from(self.first_frame)) else {
+            return self.default_val;
+        };
+        u8::from(self.bits[bit / 8] & (1 << (bit % 8)) != 0)
+    }
 }
 
 /// Sparse timecoded motion. Movement flags belong to the destination key.
 #[derive(Debug, Clone)]
 pub struct TimeCodedMotionChannelClass {
     pivot_idx: u32,
-    channel_type: u16,
+    kind: AnimChannelKind,
     vector_len: usize,
     data: Vec<u32>,
 }
 
 impl TimeCodedMotionChannelClass {
-    pub fn try_new(pivot_idx: u32, channel_type: u16, num_timecodes: u32,
+    pub fn try_new(pivot_idx: u32, kind: AnimChannelKind, num_timecodes: u32,
         vector_len: usize, data: Vec<u32>) -> Result<Self, &'static str> {
-        if !valid_shape(channel_type, vector_len) || num_timecodes == 0 {
+        if kind.vector_len() != vector_len || num_timecodes == 0 {
             return Err("invalid timecoded channel shape/count");
         }
         let size = vector_len + 1;
@@ -82,16 +276,16 @@ impl TimeCodedMotionChannelClass {
         if data.chunks_exact(size).any(|p| p[1..].iter().any(|v| !f32::from_bits(*v).is_finite())) {
             return Err("non-finite motion value");
         }
-        Ok(Self { pivot_idx, channel_type, vector_len, data })
+        Ok(Self { pivot_idx, kind, vector_len, data })
     }
 
     /// Construct trusted in-memory data. File loaders use `try_new`.
-    pub fn new(pivot_idx: u32, channel_type: u16, num_timecodes: u32,
+    pub fn new(pivot_idx: u32, kind: AnimChannelKind, num_timecodes: u32,
         vector_len: usize, data: Vec<u32>) -> Self {
-        Self::try_new(pivot_idx, channel_type, num_timecodes, vector_len, data)
+        Self::try_new(pivot_idx, kind, num_timecodes, vector_len, data)
             .expect("invalid timecoded channel")
     }
-    pub fn get_type(&self) -> u16 { self.channel_type }
+    pub fn get_type(&self) -> AnimChannelKind { self.kind }
     pub fn get_pivot(&self) -> u32 { self.pivot_idx }
     pub fn last_frame(&self) -> u32 { self.data[self.data.len() - self.vector_len - 1] & !FLAG }
 
@@ -140,7 +334,7 @@ impl TimeCodedMotionChannelClass {
 #[derive(Debug, Clone)]
 pub struct AdaptiveDeltaMotionChannelClass {
     pivot_idx: u32,
-    channel_type: u16,
+    kind: AnimChannelKind,
     vector_len: usize,
     num_frames: u32,
     scale: f32,
@@ -149,9 +343,9 @@ pub struct AdaptiveDeltaMotionChannelClass {
 }
 
 impl AdaptiveDeltaMotionChannelClass {
-    pub fn try_new(pivot_idx: u32, channel_type: u16, vector_len: usize,
+    pub fn try_new(pivot_idx: u32, kind: AnimChannelKind, vector_len: usize,
         num_frames: u32, scale: f32, data: Vec<u8>) -> Result<Self, &'static str> {
-        if !valid_shape(channel_type, vector_len) || num_frames == 0 || num_frames > (1 << 24) || !scale.is_finite() {
+        if kind.vector_len() != vector_len || num_frames == 0 || num_frames > (1 << 24) || !scale.is_finite() {
             return Err("invalid adaptive channel shape/count/scale");
         }
         let blocks = ((num_frames - 1) as usize).div_ceil(16);
@@ -160,7 +354,7 @@ impl AdaptiveDeltaMotionChannelClass {
         // A writer may retain a full final unused packet at an exact boundary.
         // No bytes used by sampling may be missing.
         if data.len() < required { return Err("truncated adaptive payload"); }
-        let mut channel = Self { pivot_idx, channel_type, vector_len, num_frames, scale,
+        let mut channel = Self { pivot_idx, kind, vector_len, num_frames, scale,
             data, checkpoints: Vec::with_capacity((num_frames as usize).div_ceil(16) * vector_len) };
         let mut values = [0.0; 4];
         for (i, value) in values.iter_mut().take(vector_len).enumerate() {
@@ -181,18 +375,18 @@ impl AdaptiveDeltaMotionChannelClass {
         }
         Ok(channel)
     }
-    pub fn new(pivot_idx: u32, channel_type: u16, vector_len: usize,
+    pub fn new(pivot_idx: u32, kind: AnimChannelKind, vector_len: usize,
         num_frames: u32, scale: f32, data: Vec<u8>) -> Self {
-        Self::try_new(pivot_idx, channel_type, vector_len, num_frames, scale, data)
+        Self::try_new(pivot_idx, kind, vector_len, num_frames, scale, data)
             .expect("invalid adaptive channel")
     }
-    pub fn get_type(&self) -> u16 { self.channel_type }
+    pub fn get_type(&self) -> AnimChannelKind { self.kind }
     pub fn get_pivot(&self) -> u32 { self.pivot_idx }
     pub fn num_frames(&self) -> u32 { self.num_frames }
 
     fn packet(&self, block: usize, component: usize) -> (f32, &[u8]) {
         let offset = self.vector_len * 4 + (block * self.vector_len + component) * PACKET_SIZE;
-        (get_filter_table()[self.data[offset] as usize] * self.scale, &self.data[offset + 1..offset + 9])
+        (FILTER_TABLE[usize::from(self.data[offset])] * self.scale, &self.data[offset + 1..offset + 9])
     }
 
     fn delta(packet: &[u8], filter: f32, delta: usize) -> f32 {
@@ -241,34 +435,42 @@ impl AdaptiveDeltaMotionChannelClass {
     }
 }
 
-/// Compressed visibility holds the first key before its time and the final
-/// key afterward. Unlike raw bits, its header default is not sampled.
+/// Compressed visibility (`TimeCodedBitChannelClass`) holds the first key
+/// before its time and the final key afterward. Unlike raw bits, its header
+/// default is not sampled. Only `BIT_CHANNEL_VIS` channels are constructed;
+/// loaders skip other kinds exactly as `add_bit_channel` ignores them.
 #[derive(Debug, Clone)]
 pub struct TimeCodedBitChannelClass {
     pivot_idx: u32,
-    channel_type: u16,
     bits: Vec<u32>,
 }
+
 impl TimeCodedBitChannelClass {
-    pub fn try_new(pivot_idx: u32, channel_type: u16, _default_val: i32,
-        num_timecodes: u32, bits: Vec<u32>) -> Result<Self, &'static str> {
-        if channel_type != 0 || num_timecodes == 0 || bits.len() != num_timecodes as usize
-            || bits.windows(2).any(|p| (p[0] & !FLAG) > (p[1] & !FLAG)) {
+    pub fn try_new(pivot_idx: u32, num_timecodes: u32, bits: Vec<u32>) -> Result<Self, &'static str> {
+        if num_timecodes == 0
+            || usize::try_from(num_timecodes) != Ok(bits.len())
+            || bits.windows(2).any(|p| (p[0] & !FLAG) > (p[1] & !FLAG))
+        {
             return Err("invalid compressed bit channel");
         }
-        Ok(Self { pivot_idx, channel_type, bits })
+        Ok(Self { pivot_idx, bits })
     }
-    pub fn new(pivot_idx: u32, channel_type: u16, default_val: i32,
-        num_timecodes: u32, bits: Vec<u32>) -> Self {
-        Self::try_new(pivot_idx, channel_type, default_val, num_timecodes, bits)
-            .expect("invalid compressed bit channel")
+
+    pub fn new(pivot_idx: u32, num_timecodes: u32, bits: Vec<u32>) -> Self {
+        Self::try_new(pivot_idx, num_timecodes, bits).expect("invalid compressed bit channel")
     }
-    pub fn get_type(&self) -> u16 { self.channel_type }
-    pub fn get_pivot(&self) -> u32 { self.pivot_idx }
-    pub fn last_frame(&self) -> u32 { self.bits[self.bits.len() - 1] & !FLAG }
+
+    pub fn get_pivot(&self) -> u32 {
+        self.pivot_idx
+    }
+
+    pub fn last_frame(&self) -> u32 {
+        self.bits[self.bits.len() - 1] & !FLAG
+    }
+
     pub fn get_bit(&self, frame: i32) -> i32 {
-        assert!(frame >= 0, "invalid compressed sample frame");
-        let index = self.bits.partition_point(|key| (key & !FLAG) <= frame as u32).saturating_sub(1);
+        let frame = u32::try_from(frame).expect("invalid compressed sample frame");
+        let index = self.bits.partition_point(|key| (key & !FLAG) <= frame).saturating_sub(1);
         i32::from(self.bits[index] & FLAG != 0)
     }
 }
