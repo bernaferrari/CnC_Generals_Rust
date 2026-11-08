@@ -2931,6 +2931,8 @@ deadline, and expiry reloads the receiving owner's clips.
 Profiler timing blocks borrow their session's clock cache for their entire
 lifetime. Safe callers cannot move or destroy the session before its block
 records its final timing.
+Function-level profiler guards likewise borrow their session and, when active,
+remain on the thread that recorded their entry.
 
 Main's crate-death roll reads the receiving world's parsed crate definitions;
 one world's cache can no longer select another world's crate. Core's separate

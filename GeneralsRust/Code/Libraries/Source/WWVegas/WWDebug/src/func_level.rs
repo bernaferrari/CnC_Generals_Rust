@@ -486,18 +486,29 @@ impl Default for ProfileFuncLevel {
     }
 }
 
-/// Automatic function profiling helper
-/// Use this in functions you want to profile manually
-pub struct FunctionProfiler {
-    _address: usize,
+/// Records a function entry until this guard is dropped.
+///
+/// The guard borrows its session, including when function-level profiling is
+/// disabled, so it cannot outlive or move the session:
+///
+/// ```compile_fail
+/// use profile::{func_level::FunctionProfiler, WwDebugSession};
+/// let session = WwDebugSession::new();
+/// let guard = FunctionProfiler::new(&session, file!(), "example", line!()).unwrap();
+/// drop(session);
+/// drop(guard);
+/// ```
+pub struct FunctionProfiler<'session> {
+    func_level: &'session ProfileFuncLevel,
+    // Exits must run on the thread that recorded the entry.
     #[cfg(feature = "function-level")]
-    func_level: *const ProfileFuncLevel,
+    _thread_bound: std::marker::PhantomData<std::sync::MutexGuard<'session, ()>>,
 }
 
-impl FunctionProfiler {
+impl<'session> FunctionProfiler<'session> {
     /// Create a new function profiler
     pub fn new(
-        session: &crate::WwDebugSession,
+        session: &'session crate::WwDebugSession,
         source_file: &str,
         function_name: &str,
         line_param: u32,
@@ -515,9 +526,9 @@ impl FunctionProfiler {
         }
 
         Ok(Self {
-            _address: address,
+            func_level: &session.profiler.func_level,
             #[cfg(feature = "function-level")]
-            func_level: &session.profiler.func_level as *const ProfileFuncLevel,
+            _thread_bound: std::marker::PhantomData,
         })
     }
 
@@ -530,18 +541,18 @@ impl FunctionProfiler {
     }
 }
 
-impl Drop for FunctionProfiler {
+impl Drop for FunctionProfiler<'_> {
     fn drop(&mut self) {
         #[cfg(feature = "function-level")]
         {
-            // SAFETY: func_level is valid for the session that created this profiler.
-            let func_level = unsafe { &*self.func_level };
-            let _ = func_level.function_exit(None);
+            let _ = self.func_level.function_exit(None);
         }
     }
 }
 
-/// Macro to automatically profile a function
+/// Macro to profile a function until the surrounding scope ends.
+///
+/// The guard borrows the supplied session for the remainder of the scope.
 #[macro_export]
 macro_rules! profile_function {
     ($session:expr) => {
@@ -560,6 +571,64 @@ mod tests {
     use super::*;
     use std::thread;
     use std::time::Duration;
+
+    #[cfg(feature = "function-level")]
+    #[test]
+    fn function_profiler_records_exits_in_independent_sessions() {
+        let first = crate::WwDebugSession::new();
+        let second = crate::WwDebugSession::new();
+
+        let first_guard = FunctionProfiler::new(&first, "first.rs", "first", 10).unwrap();
+        let second_guard = FunctionProfiler::new(&second, "second.rs", "second", 20).unwrap();
+        let first_func = first
+            .profiler
+            .func_level
+            .enum_threads(0)
+            .unwrap()
+            .enum_profile(0)
+            .unwrap();
+        let second_func = second
+            .profiler
+            .func_level
+            .enum_threads(0)
+            .unwrap()
+            .enum_profile(0)
+            .unwrap();
+        assert_eq!(first_func.get_function(), Some("first"));
+        assert_eq!(second_func.get_function(), Some("second"));
+        assert_eq!(first_func.get_calls(ProfileFuncId::TOTAL), 0);
+        assert_eq!(second_func.get_calls(ProfileFuncId::TOTAL), 0);
+
+        drop(first_guard);
+        assert_eq!(first_func.get_calls(ProfileFuncId::TOTAL), 1);
+        assert_eq!(second_func.get_calls(ProfileFuncId::TOTAL), 0);
+        drop(second_guard);
+        assert_eq!(second_func.get_calls(ProfileFuncId::TOTAL), 1);
+    }
+
+    #[cfg(feature = "function-level")]
+    #[test]
+    fn profile_function_macro_records_until_scope_exit() {
+        let session = crate::WwDebugSession::new();
+        let function;
+        {
+            crate::profile_function!(session);
+            function = session.profiler.func_level.enum_threads(0).unwrap().enum_profile(0).unwrap();
+            assert_eq!(function.get_calls(ProfileFuncId::TOTAL), 0);
+        }
+        assert_eq!(function.get_calls(ProfileFuncId::TOTAL), 1);
+    }
+
+    #[cfg(not(feature = "function-level"))]
+    #[test]
+    fn function_profiler_is_a_noop_when_disabled() {
+        let session = crate::WwDebugSession::new();
+        {
+            let _guard = FunctionProfiler::new(&session, "test.rs", "test", 1).unwrap();
+            crate::profile_function!(session);
+        }
+        assert_eq!(session.profiler.func_level.get_thread_count(), 0);
+    }
 
     #[test]
     fn test_function_profiling() {
