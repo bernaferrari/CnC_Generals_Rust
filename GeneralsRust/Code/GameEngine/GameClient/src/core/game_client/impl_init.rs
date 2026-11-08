@@ -212,13 +212,18 @@ impl GameClient {
         Ok(client)
     }
 
-    /// Bind the native application's shared audio device to this receiving
-    /// client. Construction remains inert; callers invoke this during app
-    /// startup after the application audio service has been created.
+    /// Bind or replace the native application's audio device for this client.
+    /// An already initialized audio subsystem must follow the new binding too.
     pub fn bind_native_audio_device(
         &mut self,
         device: std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
     ) {
+        if let Some(audio) = self.subsystem_manager.audio.as_ref() {
+            audio
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .bind_common_audio_device(std::sync::Arc::clone(&device));
+        }
         self.native_audio_device = Some(device);
     }
 

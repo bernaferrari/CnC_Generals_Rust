@@ -37,7 +37,6 @@ use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
-use gamelogic::common::audio::AudioEventRts as LogicAudioEventRts;
 use gamelogic::helpers::{
     TerrainTreeRegistration, TheAudio, TheFXList, TheGameLogic, TheScriptEngine,
 };
@@ -2084,9 +2083,7 @@ pub enum RadarPingKind {
 /// backend; diagnostic state belongs to this subsystem's client.
 pub struct AudioSubsystem {
     debug_state: AudioDebugState,
-    /// Bound application service for this receiving GameClient. Standalone
-    /// compatibility clients retain the TheAudio adapter when no service was
-    /// supplied by their host.
+    /// Application service belonging to this receiving GameClient.
     common_audio_device:
         Option<std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>>,
 }
@@ -2148,8 +2145,6 @@ impl SubsystemInterface for AudioSubsystem {
                 )
             })?;
             audio.update();
-        } else if let Some(audio) = TheAudio::get() {
-            audio.update();
         }
         Ok(())
     }
@@ -2163,29 +2158,26 @@ impl crate::audio::GameAudio for AudioSubsystem {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.record_event(event, position.clone());
         let translated = translate_audio_event(event);
-        let mut audio_event = LogicAudioEventRts::new(translated);
+        let Some(device) = self.common_audio_device.as_ref() else {
+            log::debug!("AudioSubsystem::play_event: {translated} [no receiving audio manager]");
+            return Ok(());
+        };
+        let mut audio_event =
+            game_engine::common::audio::AudioEventRts::with_event_name(translated);
         if let Some(pos) = position.as_ref() {
-            audio_event.set_position(&(pos.x, pos.y, pos.z));
+            audio_event.set_position(&game_engine::common::audio::Coord3D {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            });
         }
-
-        if let Some(audio) = TheAudio::get() {
-            let handle = audio.add_audio_event(&audio_event);
-            audio_event.set_playing_handle(handle);
-        } else {
-            match position.as_ref() {
-                Some(pos) => log::debug!(
-                    "AudioSubsystem::play_event: {} @ ({:.1}, {:.1}, {:.1}) [no audio manager]",
-                    translated,
-                    pos.x,
-                    pos.y,
-                    pos.z
-                ),
-                None => log::debug!(
-                    "AudioSubsystem::play_event: {} [no audio manager]",
-                    translated
-                ),
-            }
-        }
+        let mut audio = device.lock().map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "receiving Common AudioManager lock poisoned",
+            )
+        })?;
+        audio.add_audio_event(&audio_event);
 
         Ok(())
     }
@@ -3148,6 +3140,71 @@ mod missing_client_snapshot_tests {
 #[cfg(test)]
 mod client_audio_diagnostic_owner_tests {
     use super::*;
+    use crate::audio::GameAudio;
+    use game_engine::common::audio::{AudioEventInfo, AudioEventRts, AudioManager, SoundPlaybackHook, ST_GLOBAL};
+    use std::sync::{Arc, Mutex};
+
+    struct Receipt(Arc<Mutex<Vec<(u32, f32, Option<(f32, f32, f32)>)>>>);
+
+    impl SoundPlaybackHook for Receipt {
+        fn play(&self, event: &AudioEventRts) -> Result<(), String> {
+            let position = event.get_position().map(|p| (p.x, p.y, p.z));
+            self.0.lock().unwrap().push((
+                event.get_playing_handle(),
+                event.get_audio_event_info().unwrap().volume,
+                position,
+            ));
+            Ok(())
+        }
+        fn stop(&self, _: u32) {}
+        fn pause(&self, _: u32) {}
+        fn resume(&self, _: u32) {}
+        fn is_playing(&self, _: u32) -> bool { true }
+    }
+
+    fn receiving_audio(volume: f32, receipts: Arc<Mutex<Vec<(u32, f32, Option<(f32, f32, f32)>)>>>) -> Arc<Mutex<AudioManager>> {
+        let mut manager = AudioManager::with_playback_hook(Box::new(Receipt(receipts)));
+        manager.init();
+        manager.register_audio_event_info(AudioEventInfo {
+            audio_name: "OwnedDirectCue".into(),
+            sounds: vec!["owned_sample".into()],
+            type_field: ST_GLOBAL,
+            volume,
+            limit: 1,
+            ..Default::default()
+        });
+        Arc::new(Mutex::new(manager))
+    }
+
+    #[test]
+    fn direct_cues_use_receiving_manager_definition_and_playback() {
+        crate::test_support::ensure_ambient_host();
+        let receipts_a = Arc::new(Mutex::new(Vec::new()));
+        let receipts_b = Arc::new(Mutex::new(Vec::new()));
+        let device_a = receiving_audio(0.4, Arc::clone(&receipts_a));
+        let device_b = receiving_audio(0.8, Arc::clone(&receipts_b));
+        let mut a = AudioSubsystem::new().unwrap();
+        let mut b = AudioSubsystem::new().unwrap();
+        a.bind_common_audio_device(Arc::clone(&device_a));
+        b.bind_common_audio_device(Arc::clone(&device_b));
+        a.play_event("OwnedDirectCue", Some(Coord3D::new(1.0, 2.0, 3.0))).unwrap();
+        assert_eq!(device_a.lock().unwrap().pending_play_request_count_for("OwnedDirectCue"), 1);
+        assert_eq!(device_b.lock().unwrap().pending_play_request_count_for("OwnedDirectCue"), 0);
+        b.play_event("OwnedDirectCue", Some(Coord3D::new(4.0, 5.0, 6.0))).unwrap();
+        a.play_event("OwnedDirectCue", None).unwrap();
+        assert_eq!(device_a.lock().unwrap().pending_play_request_count_for("OwnedDirectCue"), 1);
+        device_a.lock().unwrap().process_request_list();
+        device_b.lock().unwrap().process_request_list();
+        let first = receipts_a.lock().unwrap();
+        let second = receipts_b.lock().unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert!(first[0].0 >= 1000 && second[0].0 >= 1000);
+        assert_eq!((first[0].1, first[0].2), (0.4, Some((1.0, 2.0, 3.0))));
+        assert_eq!((second[0].1, second[0].2), (0.8, Some((4.0, 5.0, 6.0))));
+        assert!(device_a.lock().unwrap().is_currently_playing(first[0].0));
+        assert!(device_b.lock().unwrap().is_currently_playing(second[0].0));
+    }
 
     #[test]
     fn diagnostics_construct_without_an_unused_device_and_stay_client_owned() {

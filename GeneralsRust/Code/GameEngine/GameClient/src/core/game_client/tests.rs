@@ -36,6 +36,42 @@ use crate::message_stream::game_message::GameMessageType;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
+    #[test]
+    fn rebinding_initialized_client_routes_direct_cues_to_new_device() {
+        use crate::audio::GameAudio;
+        use game_engine::common::audio::{AudioEventInfo, AudioManager, ST_GLOBAL};
+        use std::sync::Mutex;
+
+        crate::test_support::ensure_ambient_host();
+        let make_device = || {
+            let mut manager = AudioManager::new();
+            manager.init();
+            manager.register_audio_event_info(AudioEventInfo {
+                audio_name: "ReboundDirectCue".into(),
+                sounds: vec!["owned_sample".into()],
+                type_field: ST_GLOBAL,
+                limit: 0,
+                ..Default::default()
+            });
+            Arc::new(Mutex::new(manager))
+        };
+        let first = make_device();
+        let second = make_device();
+        let mut client = GameClient::new().unwrap();
+        client.bind_native_audio_device(Arc::clone(&first));
+        client.init_audio_subsystems().unwrap();
+        let audio = Arc::clone(client.subsystem_manager.audio.as_ref().unwrap());
+        audio.lock().unwrap().play_event("ReboundDirectCue", None).unwrap();
+        assert_eq!(first.lock().unwrap().pending_play_request_count_for("ReboundDirectCue"), 1);
+        assert_eq!(second.lock().unwrap().pending_play_request_count_for("ReboundDirectCue"), 0);
+
+        client.bind_native_audio_device(Arc::clone(&second));
+        first.lock().unwrap().remove_all_audio_requests();
+        audio.lock().unwrap().play_event("ReboundDirectCue", None).unwrap();
+        assert_eq!(first.lock().unwrap().pending_play_request_count_for("ReboundDirectCue"), 0);
+        assert_eq!(second.lock().unwrap().pending_play_request_count_for("ReboundDirectCue"), 1);
+    }
+
     struct StubCommandTranslator;
 
     impl CommandTranslator for StubCommandTranslator {

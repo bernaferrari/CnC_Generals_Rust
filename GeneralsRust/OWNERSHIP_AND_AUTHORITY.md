@@ -3105,3 +3105,7 @@ manager's playback state.
 Parachute construction uses the session random range operation, which does not
 consume a logic draw for equal endpoints. Cross-module constructor ordering
 remains incomplete.
+
+Direct AudioSubsystem cues submit to the client's bound audio manager, and
+rebinding an initialized client updates that subsystem. Other cue producers and
+reset-generation behavior still require an ownership audit.
