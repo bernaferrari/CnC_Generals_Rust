@@ -3089,3 +3089,7 @@ contain independent unsafe wasm trait implementations.
 Materialized projectiles retain their launch owner, including Neutral, across
 launcher ID reuse and snapshot continuation. Impact OCL still needs a real
 projectile object and original update-scheduler ownership.
+
+Standalone camera tracking borrows the receiving GameClient's View during its
+update rather than resolving the live-client slot. Other view consumers still
+use the ambient tactical-view bridge.

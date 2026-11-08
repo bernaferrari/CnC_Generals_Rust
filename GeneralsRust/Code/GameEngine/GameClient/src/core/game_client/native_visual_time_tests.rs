@@ -411,32 +411,36 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
             .is_some_and(|ui| ui.is_camera_tracking_drawable()),
         "native empty peer must not clear foreign tracking"
     );
-    owner.update_camera_tracking_drawable();
-    assert_ne!(
-        position(),
-        before,
-        "retained standalone adapter still follows installed selection"
-    );
+    let mut owner_view = crate::display::view::View::new();
+    let mut peer_view = crate::display::view::View::new();
+    let mut empty_view = crate::display::view::View::new();
+    register_live_game_client(&mut peer);
+    let mut peer = Box::new(peer);
+    owner.update_camera_tracking_drawable(&mut owner_view);
+    assert_eq!((owner_view.position().x, owner_view.position().y), (125., 225.));
+    assert_eq!(position(), before, "tracking must not mutate the published Core view");
     assert!(owner
         .in_game_ui_subsystem()
         .is_some_and(|ui| ui.is_camera_tracking_drawable()));
-    let owner_position = position();
-    peer.update_camera_tracking_drawable();
-    assert_ne!(
-        position(),
-        owner_position,
-        "same ID resolves the standalone receiving Client's drawable"
-    );
+    peer.update_camera_tracking_drawable(&mut peer_view);
+    assert_eq!((peer_view.position().x, peer_view.position().y), (325., 425.));
+    assert_eq!((owner_view.position().x, owner_view.position().y), (125., 225.));
+    assert_eq!(position(), before);
     assert!(peer
         .in_game_ui_subsystem()
         .is_some_and(|ui| ui.is_camera_tracking_drawable()));
-    empty.update_camera_tracking_drawable();
+    empty.update_camera_tracking_drawable(&mut empty_view);
     assert!(
         empty
             .in_game_ui_subsystem()
             .is_some_and(|ui| !ui.is_camera_tracking_drawable()),
         "standalone empty selection retains original clear"
     );
+    drop(peer);
+    owner_view.set_position(&Point3::new(1., 2., 0.));
+    owner.update_camera_tracking_drawable(&mut owner_view);
+    assert_eq!((owner_view.position().x, owner_view.position().y), (125., 225.));
+    assert_eq!(position(), before);
         });
     }
 

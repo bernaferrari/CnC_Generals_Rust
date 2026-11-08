@@ -77,7 +77,7 @@ impl GameClient {
         // C++ GameClient.cpp:560-565 — snow + Anim2D before input.
         self.update_cpp_snow_and_anim2d(visual_delta);
         // C++ GameClient.cpp:587-597 — camera follows first selected drawable.
-        self.update_camera_tracking_drawable();
+        self.update_camera_tracking_drawable(view);
 
         // C++ lines 612-619: window manager and video player update BEFORE drawables
         self.update_pre_draw_ui()?;
@@ -229,7 +229,7 @@ impl GameClient {
     }
 
     /// C++ GameClient.cpp:587-597 — follow first selected drawable or clear flag.
-    fn update_camera_tracking_drawable(&mut self) {
+    fn update_camera_tracking_drawable(&mut self, view: &mut crate::display::view::View) {
         if !self
             .subsystem_manager
             .in_game_ui
@@ -259,9 +259,7 @@ impl GameClient {
             }
         }
         if let Some((_, pos)) = first {
-            crate::display::view::with_tactical_view(|view| {
-                view.look_at(&crate::display::view::Point3::new(pos.x, pos.y, pos.z));
-            });
+            view.look_at(&crate::display::view::Point3::new(pos.x, pos.y, pos.z));
         } else {
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
                 ui.set_camera_tracking_drawable(false);
