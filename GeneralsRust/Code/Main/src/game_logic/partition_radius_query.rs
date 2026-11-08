@@ -103,14 +103,9 @@ fn minimum_bucket(offset: [i64; 2], cell_size: f32) -> i32 {
     source_ceil_nonnegative((distance / f64::from(cell_size)) as f32)
 }
 
-/// BaseType.h204/225 fast_float_ceil + fast_float_trunc, followed by signed32
-/// FISTP. This kernel only supplies finite nonnegative values <=1,000,000:
-/// maxDist<HUGE_DIST with admitted size>=1, or sqrtf(1e12)/size. The truncated
-/// float is integral and exactly representable by i32, so NEAR conversion is
-/// identical to this cast. No out-of-range x87 or physical-hardware claim.
+/// BaseType.h:204-226 `REAL_TO_INT_CEIL`, shared with every source conversion.
 fn source_ceil_nonnegative(value: f32) -> i32 {
-    let adjusted = value + f32::from_bits(0x3f7f_ffff);
-    adjusted.trunc() as i32
+    game_engine::base_type::real_to_int_ceil(value)
 }
 
 #[cfg(test)]
