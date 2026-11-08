@@ -51,7 +51,8 @@ fn overlapping_fences_do_not_replace_an_existing_obstacle_owner() {
             12,
             Some(2),
             Some(Team::GLA),
-            false
+            false,
+            true
         )
         .is_some()
     );

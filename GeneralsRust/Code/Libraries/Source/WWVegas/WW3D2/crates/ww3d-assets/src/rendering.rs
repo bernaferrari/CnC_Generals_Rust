@@ -161,8 +161,9 @@ pub struct GpuSkinnedMesh {
     pub material: Option<Arc<Material>>,
 }
 
-/// Rendering backend trait
-pub trait RenderBackend: Send + Sync {
+/// Rendering backend trait. Callers that share a backend across native threads
+/// can require `Send + Sync` on their concrete type or trait object.
+pub trait RenderBackend {
     /// Create vertex buffer
     fn create_vertex_buffer(&mut self, data: &[u8], size: u64) -> W3DResult<BufferHandle>;
 
@@ -204,9 +205,12 @@ pub trait RenderBackend: Send + Sync {
     fn end_frame(&mut self);
 }
 
-/// Renderer managing GPU resources and rendering
-pub struct Renderer {
-    backend: Box<dyn RenderBackend>,
+/// Renderer managing GPU resources and rendering through an exclusively borrowed backend.
+///
+/// The backend stays owned by its caller and can be borrowed again after the
+/// renderer is dropped. Thread-safety follows the backend's own auto traits.
+pub struct Renderer<'a, B: RenderBackend + ?Sized> {
+    backend: &'a mut B,
     meshes: HashMap<String, GpuMesh>,
     skinned_meshes: HashMap<String, GpuSkinnedMesh>,
     textures: HashMap<String, TextureHandle>,
@@ -215,8 +219,8 @@ pub struct Renderer {
     next_handle_id: u64,
 }
 
-impl Renderer {
-    pub fn new(backend: Box<dyn RenderBackend>) -> Self {
+impl<'a, B: RenderBackend + ?Sized> Renderer<'a, B> {
+    pub fn new(backend: &'a mut B) -> Self {
         Self {
             backend,
             meshes: HashMap::new(),
@@ -635,19 +639,6 @@ pub struct WgpuRenderBackend {
     command_encoder: Option<wgpu::CommandEncoder>,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The wgpu handles in `buffers`, `textures`, `pipelines`
-// and `command_encoder` are `Rc`-backed and `!Send` on the web backend, but
-// wasm32 has no threads, so they can never move to or be observed from
-// another thread. The impl only satisfies the `Send`/`Sync` bounds of the
-// backend's owners. Native keeps the auto traits.
-unsafe impl Send for WgpuRenderBackend {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&WgpuRenderBackend` is never accessed from two threads and the handles'
-// `!Sync` default is unreachable.
-unsafe impl Sync for WgpuRenderBackend {}
-
 impl WgpuRenderBackend {
     /// Create a new WGPU render backend
     pub fn new(device: std::sync::Arc<ww3d_gpu::device::GpuDevice>) -> Self {
@@ -1042,20 +1033,65 @@ mod tests {
         assert_eq!(max, Vec3::new(1.0, 1.0, 1.0));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn test_renderer_with_null_backend() {
-        let backend = Box::new(NullRenderBackend);
-        let mut renderer = Renderer::new(backend);
+    fn renderer_borrows_and_reuses_wgpu_backend() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        })).expect("a GPU adapter is required");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("asset-renderer-borrow-test"),
+            required_limits: adapter.limits(),
+            ..Default::default()
+        })).expect("a GPU device is required");
+        let device = Arc::new(ww3d_gpu::device::GpuDevice::new(device, queue));
+        let mut backend = WgpuRenderBackend::new(device);
+        let mut mesh = MeshData::new();
+        mesh.vertices.push(Vertex {
+            position: Vec3::ZERO,
+            normal: Vec3::Z,
+            uv: Vec2::ZERO,
+            color: Vec4::ONE,
+        });
+        mesh.indices.push(0);
+        {
+            let backend: &mut dyn RenderBackend = &mut backend;
+            let mut renderer = Renderer::new(backend);
+            renderer.upload_mesh("test".to_string(), &mesh, None).unwrap();
+            assert_eq!(renderer.mesh_count(), 1);
+            renderer.remove_mesh("test");
+            assert_eq!(renderer.mesh_count(), 0);
+        }
 
-        let mesh = MeshData::new();
-        assert!(
-            renderer
-                .upload_mesh("test".to_string(), &mesh, None)
-                .is_ok()
-        );
+        let mut renderer = Renderer::new(&mut backend);
+        renderer.upload_mesh("again".to_string(), &mesh, None).unwrap();
         assert_eq!(renderer.mesh_count(), 1);
-
-        renderer.remove_mesh("test");
+        renderer.clear();
         assert_eq!(renderer.mesh_count(), 0);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn wasm_renderer_accepts_wgpu_backend() {
+        fn borrow_backend(backend: &mut WgpuRenderBackend) {
+            let _renderer = Renderer::new(backend);
+        }
+        let _ = borrow_backend as fn(&mut WgpuRenderBackend);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_wgpu_backend_and_renderer_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<WgpuRenderBackend>();
+        assert_send_sync::<Renderer<'static, WgpuRenderBackend>>();
+        assert_send_sync::<Renderer<'static, dyn RenderBackend + Send + Sync>>();
     }
 }

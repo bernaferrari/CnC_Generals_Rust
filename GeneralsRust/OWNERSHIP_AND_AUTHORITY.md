@@ -3081,3 +3081,7 @@ unique per-world ownership remains required.
 
 Admitted cliff texture UV flips no longer alter the extra-blend alpha diagonal;
 the latter follows the authored blend flags and cliff-height rule.
+
+The asset renderer exclusively borrows its WGPU backend. The backend and GPU
+device no longer assert wasm Send or Sync unsafely; other GPU wrappers still
+contain independent unsafe wasm trait implementations.

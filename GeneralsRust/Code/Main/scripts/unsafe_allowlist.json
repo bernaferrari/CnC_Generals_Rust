@@ -180,10 +180,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets/src/rendering.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision/src/aabtree_optimized.rs": {
       "constructs": 3,
       "undocumented": 0
@@ -197,10 +193,6 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/buffer.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/device.rs": {
       "constructs": 2,
       "undocumented": 0
     },
