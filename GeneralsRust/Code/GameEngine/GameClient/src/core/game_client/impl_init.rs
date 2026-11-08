@@ -1882,7 +1882,7 @@ impl GameClient {
             return Ok(());
         }
         // Standalone Core retains its original command queue route.
-        route_commands_to_gamelogic(completed_messages, self.frame).map_err(|err| {
+        route_commands_to_gamelogic(self, completed_messages, self.frame).map_err(|err| {
             GameClientError::SubsystemError(format!("Failed to route commands: {err}"))
         })?;
         Ok(())

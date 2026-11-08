@@ -18,72 +18,21 @@ use gamelogic::common::{
 use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, IRegion2D,
 };
-use std::sync::{Arc, Mutex};
-
-type HostCommandAuthority = dyn Fn(&[GameMessage]) + Send + Sync;
-
-#[cfg(test)]
-thread_local! {
-    static TEST_HOST_COMMAND_AUTHORITY: std::cell::RefCell<Option<Arc<HostCommandAuthority>>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Register the live Main command authority sink on the live GameClient
-/// (or cfg(test) TLS fallback when no client is published).
-///
-/// C++ `RecorderClass::updatePlayback` (Recorder.cpp:415) appends file
-/// commands to `TheCommandList`; `GameLogic::processCommandList` then
-/// executes them. Rust AuthorityOnly skips the crate queue, so playback
-/// must also feed Main.
-pub fn set_host_command_authority(sink: Option<Arc<HostCommandAuthority>>) {
-    if crate::core::game_client::with_live_game_client_mut(|client| {
-        client.set_host_command_authority(sink.clone());
-    })
-    .is_some()
-    {
-        return;
-    }
-    #[cfg(test)]
-    {
-        TEST_HOST_COMMAND_AUTHORITY.with(|slot| {
-            *slot.borrow_mut() = sink;
-        });
-    }
-    #[cfg(not(test))]
-    {
-        let _ = sink;
-    }
-}
-
-fn deliver_to_host_command_authority(messages: &[GameMessage]) {
-    if messages.is_empty() {
-        return;
-    }
-    let host = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.host_command_authority()
-    })
-    .flatten();
-    if let Some(host) = host {
-        host(messages);
-        return;
-    }
-    #[cfg(test)]
-    {
-        if let Some(host) = TEST_HOST_COMMAND_AUTHORITY.with(|slot| slot.borrow().clone()) {
-            host(messages);
-        }
-    }
-}
 
 /// Convert messages into crate GameLogic commands and also deliver them to
-/// the registered Main host authority (C++ Recorder.cpp:415 → TheCommandList).
+/// the receiving client's host authority (C++ Recorder.cpp:415 → TheCommandList).
 pub fn route_commands_to_gamelogic(
+    client: &crate::core::game_client::GameClient,
     messages: Vec<GameMessage>,
     current_frame: u32,
 ) -> Result<usize, CommandRoutingError> {
-    // Replay / CommandList survivors must reach Main even when the crate
-    // queue is unused under AuthorityOnly.
-    deliver_to_host_command_authority(&messages);
+    // Replay / CommandList survivors must reach the receiving authority even
+    // when the crate queue is unused under AuthorityOnly.
+    if !messages.is_empty() {
+        if let Some(host) = client.host_command_authority() {
+            host(&messages);
+        }
+    }
 
     let mut pending = Vec::with_capacity(messages.len());
 
@@ -770,7 +719,8 @@ mod tests {
         // AuthorityOnly must not drop them on the crate-only queue.
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen_for_sink = seen.clone();
-        set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
+        let mut client = crate::core::game_client::GameClient::new().unwrap();
+        client.set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
             seen_for_sink
                 .lock()
                 .expect("host sink mutex")
@@ -779,7 +729,7 @@ mod tests {
 
         let pos = Coord3D::new(10.0, 2.0, 4.0);
         let msg = GameMessage::with_player(GameMessageType::SetReplayCamera(pos, 0.3, 1.2), 1);
-        let _ = route_commands_to_gamelogic(vec![msg], 12);
+        let _ = route_commands_to_gamelogic(&client, vec![msg], 12);
 
         let types = seen.lock().expect("host sink mutex");
         assert!(
@@ -788,7 +738,6 @@ mod tests {
                 .any(|ty| matches!(ty, GameMessageType::SetReplayCamera(..))),
             "host authority must receive MSG_SET_REPLAY_CAMERA"
         );
-        set_host_command_authority(None);
     }
 
     #[test]
@@ -798,7 +747,8 @@ mod tests {
         // bookkeeping: consumed by the translators, never a routed command.
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen_for_sink = seen.clone();
-        set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
+        let mut client = crate::core::game_client::GameClient::new().unwrap();
+        client.set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
             seen_for_sink
                 .lock()
                 .expect("host sink mutex")
@@ -806,7 +756,7 @@ mod tests {
         })));
 
         let msg = GameMessage::with_player(GameMessageType::FrameTick(42), 0);
-        let routed = route_commands_to_gamelogic(vec![msg], 7).expect("frame tick routing");
+        let routed = route_commands_to_gamelogic(&client, vec![msg], 7).expect("frame tick routing");
         assert_eq!(
             routed, 0,
             "FrameTick is stream bookkeeping and must not queue a command"
@@ -819,6 +769,35 @@ mod tests {
                 .any(|ty| matches!(ty, GameMessageType::FrameTick(42))),
             "host authority must still receive FrameTick for replay parity"
         );
-        set_host_command_authority(None);
+    }
+
+    #[test]
+    fn routing_uses_receiving_clients_callback_after_moves_and_peer_drop() {
+        crate::test_support::ensure_ambient_host();
+        let first_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let second_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut first = crate::core::game_client::GameClient::new().unwrap();
+        let mut second = crate::core::game_client::GameClient::new().unwrap();
+        let first_sink = first_seen.clone();
+        first.set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
+            first_sink.lock().unwrap().extend(messages.iter().map(|m| m.get_player_index()));
+        })));
+        let second_sink = second_seen.clone();
+        second.set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
+            second_sink.lock().unwrap().extend(messages.iter().map(|m| m.get_player_index()));
+        })));
+        crate::core::game_client::register_live_game_client(&mut second);
+
+        let tick = || GameMessage::with_player(GameMessageType::FrameTick(42), 7);
+        route_commands_to_gamelogic(&first, vec![tick()], 42).unwrap();
+        let second = Box::new(second);
+        route_commands_to_gamelogic(&second, vec![tick()], 42).unwrap();
+        let first = Box::new(first);
+        route_commands_to_gamelogic(&first, vec![tick()], 42).unwrap();
+        drop(second);
+        route_commands_to_gamelogic(&first, vec![tick()], 42).unwrap();
+
+        assert_eq!(*first_seen.lock().unwrap(), vec![7, 7, 7]);
+        assert_eq!(*second_seen.lock().unwrap(), vec![7]);
     }
 }

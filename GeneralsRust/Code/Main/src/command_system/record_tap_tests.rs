@@ -1037,7 +1037,8 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
             let mut peer = GameLogic::new();
             let ambient_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let callback_calls = Arc::clone(&ambient_calls);
-            game_client::message_stream::command_router::set_host_command_authority(Some(
+            let mut foreign_client = game_client::core::GameClient::new().unwrap();
+            foreign_client.set_host_command_authority(Some(
                 Arc::new(move |_| {
                     callback_calls.fetch_add(1, Ordering::SeqCst);
                 }),
@@ -1114,9 +1115,9 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
                 )
                 .unwrap_err();
             assert!(error.to_string().contains("receiving rejection"));
-            game_client::message_stream::command_router::set_host_command_authority(None);
             let legacy_error =
                 game_client::message_stream::command_router::route_commands_to_gamelogic(
+                    &foreign_client,
                     vec![first],
                     7,
                 )
@@ -1140,7 +1141,8 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
         || {
             let foreign_seen = Arc::new(Mutex::new(Vec::new()));
             let callback_seen = Arc::clone(&foreign_seen);
-            game_client::message_stream::command_router::set_host_command_authority(Some(
+            let mut foreign_client = game_client::core::GameClient::new().unwrap();
+            foreign_client.set_host_command_authority(Some(
                 Arc::new(move |messages| {
                     callback_seen
                         .lock()
@@ -1161,6 +1163,7 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
             bind_host_replay_authority(&second.replay_pending);
             let foreign = GameMessage::with_player(GameMessageType::DoStop, 0);
             let error = game_client::message_stream::command_router::route_commands_to_gamelogic(
+                &foreign_client,
                 vec![foreign],
                 7,
             )

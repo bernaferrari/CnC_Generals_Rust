@@ -509,9 +509,9 @@ impl GameClient {
     pub fn host_command_authority(
         &self,
     ) -> Option<
-        std::sync::Arc<dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync>,
+        &(dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync),
     > {
-        self.host_command_authority.clone()
+        self.host_command_authority.as_deref()
     }
 
     pub fn ensure_font_library(

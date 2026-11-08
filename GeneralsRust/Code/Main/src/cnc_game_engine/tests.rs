@@ -1408,7 +1408,8 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
             };
             let calls = Arc::new(AtomicUsize::new(0));
             let foreign = Arc::clone(&calls);
-            game_client::message_stream::command_router::set_host_command_authority(Some(
+            let mut foreign_client = game_client::core::GameClient::new().unwrap();
+            foreign_client.set_host_command_authority(Some(
                 Arc::new(move |_| {
                     foreign.fetch_add(1, Ordering::SeqCst);
                 }),
@@ -1474,6 +1475,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
             );
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             let error = game_client::message_stream::command_router::route_commands_to_gamelogic(
+                &foreign_client,
                 vec![GameMessage::with_player(GameMessageType::DoStop, 0)],
                 7,
             )

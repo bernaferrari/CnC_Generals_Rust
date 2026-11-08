@@ -3021,3 +3021,7 @@ explicitly mapless archives retain their owned terrain data.
 Stealth opacity pulse rate and phase belong to the receiving object and survive
 snapshot transfer. Interleaved worlds retain separate client RNG streams;
 mixed-module constructor ordering remains to be compared against C++.
+
+Command routing borrows the receiving GameClient's host callback instead of
+consulting the live-client slot. Other consumers of that raw slot remain and
+must migrate before the slot's aliasing and lifetime risks are removed.
