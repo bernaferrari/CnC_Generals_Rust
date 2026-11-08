@@ -16,50 +16,34 @@ impl Drop for GameEngineLifecycleGuard {
     }
 }
 
-/// Main entry point for the game system (exact C++ GameMain signature)
+/// Runs the game with owned command-line arguments.
 ///
-/// void GameMain(int argc, char *argv[])
+/// The number of arguments is derived from the vector; no independent count or
+/// C pointer array is accepted. The future owns the strings even before it is
+/// first polled.
 ///
-/// This matches the C++ GameMain() function exactly:
-/// 1. Creates the game engine using factory function (TheGameEngine = CreateGameEngine())
-/// 2. Initializes it with command line arguments (TheGameEngine->init(argc, argv))
-/// 3. Runs the main execute loop (TheGameEngine->execute())
-/// 4. Cleans up when done (delete TheGameEngine)
+/// Raw C arguments cannot be passed to the safe entry point:
+///
+/// ```compile_fail
+/// use game_engine::common::game_main::game_main;
+/// let _future = game_main(1, std::ptr::null_mut());
+/// ```
+///
+/// Nor can a count be supplied separately from the owned arguments:
+///
+/// ```compile_fail
+/// use game_engine::common::game_main::game_main;
+/// let _future = game_main(100, vec!["generals".to_owned()]);
+/// ```
 pub async fn game_main(
-    argc: i32,
-    argv: *mut *mut i8,
+    args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!(
         "GameMain: Starting Command & Conquer Generals Zero Hour - Rust Edition (argc={})",
-        argc
+        args.len()
     );
 
-    // Convert C-style argc/argv to Rust Vec<String> for internal use
-    // SAFETY: caller (FFI entry) guarantees argv points to `argc` valid
-    // C strings or the argc<=0/null guard below short-circuits; slice
-    // length equals argc and each pointer is checked before use.
-    let args = unsafe {
-        if argc <= 0 || argv.is_null() {
-            vec!["generals".to_string()]
-        } else {
-            let argv_slice = std::slice::from_raw_parts(argv, argc as usize);
-            argv_slice
-                .iter()
-                .filter_map(|&arg_ptr| {
-                    if arg_ptr.is_null() {
-                        None
-                    } else {
-                        std::ffi::CStr::from_ptr(arg_ptr)
-                            .to_str()
-                            .ok()
-                            .map(|s| s.to_string())
-                    }
-                })
-                .collect()
-        }
-    };
-
-    info!("GameMain: Converted arguments: {:?}", args);
+    info!("GameMain: Arguments: {:?}", args);
 
     // Initialize the game engine using factory function (matching C++ CreateGameEngine()).
     // The global slot mirrors TheGameEngine in the original C++ startup path.
@@ -103,20 +87,9 @@ pub async fn game_main(
     Ok(())
 }
 
-/// Simple wrapper that mimics the C++ GameMain signature for compatibility
-pub async fn game_main_c_style(argc: usize, argv: Vec<String>) -> i32 {
-    // Convert Vec<String> to C-style argc/argv for the real game_main function
-    let c_strings: Vec<std::ffi::CString> = argv
-        .iter()
-        .map(|s| {
-            std::ffi::CString::new(s.as_str())
-                .unwrap_or_else(|_| std::ffi::CString::new("").unwrap())
-        })
-        .collect();
-    let mut c_argv: Vec<*mut i8> = c_strings.iter().map(|cs| cs.as_ptr() as *mut i8).collect();
-    c_argv.push(std::ptr::null_mut()); // Null terminate
-
-    match game_main(argc as i32, c_argv.as_mut_ptr()).await {
+/// Run the game with owned arguments and return a process-style exit code.
+pub async fn game_main_with_exit_code(args: Vec<String>) -> i32 {
+    match game_main(args).await {
         Ok(()) => 0,
         Err(e) => {
             error!("Fatal error in game_main: {}", e);
@@ -128,16 +101,55 @@ pub async fn game_main_c_style(argc: usize, argv: Vec<String>) -> i32 {
 /// Convenience function to run game main from regular environment args
 pub async fn run_from_env() -> i32 {
     let args: Vec<String> = env::args().collect();
-    game_main_c_style(args.len(), args).await
+    game_main_with_exit_code(args).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::common_services::CommonServicesScope;
     use crate::common::game_engine::{
         clear_game_client_factory, clear_game_engine, get_game_engine,
         register_successful_game_client_fixture,
     };
+
+    #[test]
+    fn owned_arguments_survive_until_future_is_polled() {
+        match crate::test_process::run_bounded(
+            module_path!(),
+            "owned_arguments_survive_until_future_is_polled",
+        ) {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
+        let _scope = CommonServicesScope::new();
+        let init_calls = register_successful_game_client_fixture();
+        let future = {
+            let source = String::from("game\0name");
+            game_main(vec![
+                source.clone(),
+                "-max-runtime".to_owned(),
+                "0".to_owned(),
+            ])
+        };
+        assert!(pollster::block_on(future).is_ok());
+        assert_eq!(init_calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert!(get_game_engine().is_none());
+        clear_game_client_factory();
+    }
+
+    #[test]
+    fn empty_argument_vector_is_safe() {
+        match crate::test_process::run_bounded(module_path!(), "empty_argument_vector_is_safe") {
+            crate::test_process::TestProcess::ParentVerified => return,
+            crate::test_process::TestProcess::Child => {}
+        }
+        let _scope = CommonServicesScope::new();
+        clear_game_client_factory();
+        let error = pollster::block_on(game_main(Vec::new())).unwrap_err();
+        assert!(error.to_string().contains("No game client factory registered"));
+        assert!(get_game_engine().is_none());
+    }
 
     #[test]
     fn test_game_main_minimal() {
@@ -145,6 +157,7 @@ mod tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
+        let _scope = CommonServicesScope::new();
         pollster::block_on(async {
             let init_calls = register_successful_game_client_fixture();
             let args = vec!["game.exe".to_string()];
@@ -178,6 +191,7 @@ mod tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
+        let _scope = CommonServicesScope::new();
         pollster::block_on(async {
             let init_calls = register_successful_game_client_fixture();
             let args = vec![
@@ -220,6 +234,7 @@ mod tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
+        let _scope = CommonServicesScope::new();
         clear_game_engine();
         let _engine = crate::common::game_engine::set_game_engine(create_game_engine());
         assert!(get_game_engine().is_some());

@@ -8,10 +8,6 @@
       "constructs": 3,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/game_main.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/system/game_memory/ptr_identity.rs": {
       "constructs": 13,
       "undocumented": 0
