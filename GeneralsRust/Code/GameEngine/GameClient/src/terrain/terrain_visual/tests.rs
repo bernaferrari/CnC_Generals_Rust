@@ -678,6 +678,39 @@ mod tests {
     }
 
     #[test]
+    fn admitted_cliff_uv_flip_does_not_change_extra_blend_diagonal() {
+        use crate::terrain::textures::{BlendTileInfo, INVERTED_MASK};
+        crate::test_support::ensure_ambient_host();
+        let mut map = HeightMap::new(3, 3, 0.0, 1.0);
+        map.adjust_cliff_textures = true;
+        map.cliff_info = vec![
+            crate::terrain::TCliffInfo::default(),
+            crate::terrain::TCliffInfo { flip: true, tile_index: 4, ..Default::default() },
+        ];
+        map.cliff_info_ndxes[0] = 1;
+        let mut extra = BlendTileInfo::new();
+        extra.blend_ndx = 4;
+        extra.right_diagonal = 1;
+        extra.inverted = INVERTED_MASK;
+        map.blended_tiles = vec![BlendTileInfo::new(), extra];
+        map.extra_blend_tile_ndxes[0] = 1;
+        let mut visual = TerrainVisualImpl::new();
+        visual.set_use_3way_terrain_blends(1);
+        visual.load_heightmap_from_data(map, None, None).unwrap();
+
+        let mesh = visual.build_extra_blend_draw_mesh();
+        assert_eq!(mesh.vertices.len(), 6);
+        // Retail starts at corner 0 for an inverted right diagonal. A cliff
+        // UV's own flip flag is not an alpha triangle flip.
+        assert_eq!(mesh.vertices[0].position, [0.0, 0.0, 0.0]);
+        assert_eq!(mesh.vertices[1].position, [1.0, 0.0, 1.0]);
+        assert_eq!(mesh.vertices[2].position, [0.0, 0.0, 1.0]);
+        assert_eq!(mesh.vertices[0].color[3], 0.0);
+        assert_eq!(mesh.vertices[1].color[3], 0.0);
+        assert_eq!(mesh.vertices[2].color[3], 0.0);
+    }
+
+    #[test]
     fn water_tracks_flush_is_called_from_live_water_record() {
         crate::test_support::ensure_ambient_host();
         // C++ WaterTracksRenderSystem::flush (W3DWaterTracks.cpp) is invoked

@@ -3078,3 +3078,6 @@ on independent managers; physical playback remains unverified.
 Factory Xfer has a two-world ordering and identity regression, but still creates
 an aliased mutable ModuleData reference. The regression is not a safety proof;
 unique per-world ownership remains required.
+
+Admitted cliff texture UV flips no longer alter the extra-blend alpha diagonal;
+the latter follows the authored blend flags and cliff-height rule.

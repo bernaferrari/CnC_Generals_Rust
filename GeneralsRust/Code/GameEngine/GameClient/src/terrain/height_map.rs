@@ -1226,9 +1226,6 @@ impl HeightMap {
         data.u = uv.u;
         data.v = uv.v;
         data.cliff = uv.stretched;
-        if uv.flip {
-            data.need_flip = true;
-        }
 
         if blend.horiz != 0 {
             data.need_flip = (blend.inverted & FLIPPED_MASK) != 0;
