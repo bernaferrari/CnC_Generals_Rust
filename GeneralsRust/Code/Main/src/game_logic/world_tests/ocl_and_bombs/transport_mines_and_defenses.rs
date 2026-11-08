@@ -2804,3 +2804,58 @@ fn patriot_re_ask_replaces_pending_assist_and_resets_clip() {
     assert_eq!(mine[0].requester_id, requester_id);
     assert_eq!(mine[0].shots_remaining, assist.clip_size, "clip reset to full");
 }
+
+/// hq-2qedt.270: an accepted assist clip records the assistant's laser family
+/// from its authored PRIMARY (Lazr WeaponSet), never from a `Lazr_` prefix.
+#[test]
+fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_base_defense::{
+        LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
+        PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (name, primary, secondary, expected_laser) in [
+        ("AmericaPatriotBattery", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
+        ("Lazr_AmericaPatriotBattery", PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON, false),
+    ] {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(primary)
+            .set_secondary_weapon_name(secondary);
+        game_logic.templates.insert(name.to_string(), tpl);
+        let requester = game_logic.create_object(name, Team::USA, Vec3::ZERO).expect("requester");
+        let helper = game_logic
+            .create_object(name, Team::USA, Vec3::new(-PATRIOT_REQUEST_ASSIST_RANGE * 0.25, 0.0, 0.0))
+            .expect("helper");
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("enemy");
+        for id in [requester, helper] {
+            let o = game_logic.host_object_mut(id).unwrap();
+            for slot in 0..3u8 {
+                if let Some(w) = o.weapon_slot_mut(slot) {
+                    w.last_fire_time = -10.0;
+                }
+            }
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        game_logic.frame = 1;
+        game_logic.process_patriot_assist_request(requester, enemy, 0);
+        let clip = game_logic
+            .pending_patriot_assists
+            .iter()
+            .find(|p| p.assistant_id == helper)
+            .unwrap_or_else(|| panic!("{name}: helper must accept the assist request"));
+        assert_eq!(clip.assistant_laser, expected_laser, "{name}");
+    }
+}
