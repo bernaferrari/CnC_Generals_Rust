@@ -258,7 +258,7 @@ impl RodioPlaybackHook {
     }
 
     fn effective_volume(&self, state: &RodioSinkState) -> Real {
-        let base = state.base_volume.clamp(0.0, 1.0);
+        let base = state.base_volume;
         if let Some(pos) = state.position.as_ref() {
             base * self.calculate_3d_volume_falloff(pos, state.min_distance, state.max_distance)
         } else {
@@ -526,7 +526,8 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         let Some(state) = sinks.get_mut(&handle) else {
             return;
         };
-        state.base_volume = volume.clamp(0.0, 1.0);
+        // Miles receives the raw event × slider product, including gain above one.
+        state.base_volume = volume;
         state.sink.set_volume(state.base_volume);
     }
 

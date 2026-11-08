@@ -88,6 +88,98 @@ fn finite_pcm(sample: f32, frames: usize) -> rodio_compat::SamplesBuffer {
 }
 
 #[test]
+fn offline_managers_keep_live_stream_sliders_and_pause_on_the_receiving_sinks() {
+    if std::env::var_os(CHILD_MODE).is_none() {
+        run_exact_child("offline_managers_keep_live_stream_sliders_and_pause_on_the_receiving_sinks");
+        return;
+    }
+
+    fn manager() -> (AudioManager, rodio::mixer::MixerSource) {
+        let (mixer, output) = offline_mixer();
+        let hook = empty_hook();
+        let mut events = Vec::new();
+        for (handle, kind) in [(1001, AudioType::Music), (1002, AudioType::Streaming)] {
+            let sink = Sink::connect_new(&mixer);
+            sink.append(finite_pcm(0.1, 128).repeat_infinite());
+            hook.sinks.lock().unwrap().insert(
+                handle,
+                RodioSinkState::new(
+                    RodioVoice::Flat(sink),
+                    1.0,
+                    None,
+                    (10.0, 100.0),
+                    kind == AudioType::Music,
+                    None,
+                ),
+            );
+            let mut event = AudioEventRts::with_event_name("Stream");
+            event.set_playing_handle(handle);
+            event.set_audio_event_info(
+                AudioEventInfo {
+                    audio_name: "Stream".into(),
+                    sound_type: kind,
+                    ..Default::default()
+                }
+                .into(),
+            );
+            event.set_volume(1.0);
+            event.set_volume_shift(2.0);
+            events.push(event);
+        }
+        let mut manager = AudioManager::with_playback_hook(Box::new(hook));
+        for event in events {
+            manager.active_audio_events.insert(event.get_playing_handle(), event);
+        }
+        (manager, output)
+    }
+    fn peak(output: &mut rodio::mixer::MixerSource) -> f32 {
+        // Rodio applies Player controls every 5 ms; discard the transition,
+        // then check the steady-state PCM rather than a peak from the old gain.
+        for _ in output.by_ref().take(2048) {}
+        output.by_ref().take(4096).map(f32::abs).fold(0.0, f32::max)
+    }
+    fn assert_peak(output: &mut rodio::mixer::MixerSource, expected: f32, tolerance: f32) {
+        let actual = peak(output);
+        assert!(
+            (actual - expected).abs() < tolerance,
+            "steady PCM peak {actual}, expected {expected} ± {tolerance}"
+        );
+    }
+    fn service(manager: &mut AudioManager) {
+        manager.process_playing_list(&mut |_| true);
+    }
+
+    // Real Rodio players and PCM, without a physical output device: this
+    // cannot establish hardware routing or that a human heard the result.
+    let (mut a, mut out_a) = manager();
+    let (mut b, mut out_b) = manager();
+    for manager in [&mut a, &mut b] {
+        manager.set_volume(1.0, AudioAffect::MusicSystemSetting);
+        manager.set_volume(1.0, AudioAffect::SpeechSystemSetting);
+        manager.pause_audio(AudioAffect::Speech);
+        service(manager);
+    }
+    assert_peak(&mut out_a, 0.2, 0.01);
+    assert_peak(&mut out_b, 0.2, 0.01);
+
+    a.set_volume(0.25, AudioAffect::MusicSystemSetting);
+    service(&mut a);
+    assert_peak(&mut out_a, 0.05, 0.01);
+    assert_peak(&mut out_b, 0.2, 0.01);
+
+    a.pause_audio(AudioAffect::Music);
+    assert_peak(&mut out_a, 0.0, 1.0e-6);
+    a.set_volume(0.75, AudioAffect::SpeechSystemSetting);
+    service(&mut a);
+    a.resume_audio(AudioAffect::Speech);
+    assert_peak(&mut out_a, 0.15, 0.01);
+    assert_peak(&mut out_b, 0.2, 0.01);
+    a.pause_audio(AudioAffect::Speech);
+    a.resume_audio(AudioAffect::Music);
+    assert_peak(&mut out_a, 0.05, 0.01);
+}
+
+#[test]
 fn offline_flat_voice_preserves_pause_volume_completion_and_registry_removal() {
     if std::env::var_os(CHILD_MODE).is_none() {
         run_exact_child(

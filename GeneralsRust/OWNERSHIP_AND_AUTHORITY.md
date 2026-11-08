@@ -3070,3 +3070,11 @@ weights still have four-layer limits.
 Main construction completion refreshes its structure's current footprint,
 preserving overlapping foreign obstacles. The Core construction callback still
 needs an explicit owning-pathfinder borrow.
+
+Native Rodio voices retain the event-volume and slider gain product, including
+values above unity. Offline sink tests exercise live music and speech controls
+on independent managers; physical playback remains unverified.
+
+Factory Xfer has a two-world ordering and identity regression, but still creates
+an aliased mutable ModuleData reference. The regression is not a safety proof;
+unique per-world ownership remains required.

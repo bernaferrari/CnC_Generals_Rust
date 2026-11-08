@@ -364,8 +364,8 @@ impl Snapshotable for PostLoadErrorData {
         Ok(())
     }
 
-    fn xfer(&mut self, _: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_unsigned_int(&mut self.payload).map_err(|e| e.to_string())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -460,4 +460,53 @@ fn factory_post_load_preserves_aliased_registered_data_identity_and_payload() {
     drop(alias);
     drop(data);
     assert_eq!(Arc::strong_count(&factory.module_data_list[0]), 1);
+}
+
+#[test]
+fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
+    use crate::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    fn bytes(first: u32, second: u32) -> Vec<u8> {
+        let mut bytes = vec![1];
+        bytes.extend_from_slice(&first.to_ne_bytes());
+        bytes.extend_from_slice(&second.to_ne_bytes());
+        bytes
+    }
+
+    fn payload(data: &dyn ModuleData) -> u32 {
+        data.as_any().downcast_ref::<PostLoadErrorData>().unwrap().payload
+    }
+
+    let mut first = post_load_error_factory();
+    let mut second = post_load_error_factory();
+    let first_data = [new_post_load_error_data(&mut first), new_post_load_error_data(&mut first)];
+    let second_data = [new_post_load_error_data(&mut second), new_post_load_error_data(&mut second)];
+    let first_module = first.new_module(
+        Arc::new(Owner), "PostLoadErrorProbe", Arc::clone(&first_data[0]), ModuleType::Behavior,
+    ).unwrap();
+    let second_module = second.new_module(
+        Arc::new(Owner), "PostLoadErrorProbe", Arc::clone(&second_data[0]), ModuleType::Behavior,
+    ).unwrap();
+
+    for round in 0..3 {
+        let first_values = (10 + round, 20 + round);
+        let second_values = (30 + round, 40 + round);
+        first.xfer(&mut XferLoad::new(Cursor::new(bytes(first_values.0, first_values.1)), 1)).unwrap();
+        assert_eq!(payload(first_module.get_module_data()), first_values.0);
+        assert_eq!(payload(first_data[1].as_ref()), first_values.1);
+        assert_eq!(payload(second_module.get_module_data()), if round == 0 { 17 } else { second_values.0 - 1 });
+        second.xfer(&mut XferLoad::new(Cursor::new(bytes(second_values.0, second_values.1)), 1)).unwrap();
+        assert_eq!(payload(second_module.get_module_data()), second_values.0);
+        assert_eq!(payload(second_data[1].as_ref()), second_values.1);
+        assert_eq!(payload(first_module.get_module_data()), first_values.0);
+        assert!(std::ptr::eq(first_module.get_module_data(), first_data[0].as_ref()));
+        assert!(std::ptr::eq(second_module.get_module_data(), second_data[0].as_ref()));
+
+        for (factory, expected) in [(&mut first, first_values), (&mut second, second_values)] {
+            let mut saved = Vec::new();
+            factory.xfer(&mut XferSave::new(Cursor::new(&mut saved), 1)).unwrap();
+            assert_eq!(saved, bytes(expected.0, expected.1));
+        }
+    }
 }
