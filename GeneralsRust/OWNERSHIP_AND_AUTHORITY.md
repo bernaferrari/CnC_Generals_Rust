@@ -2990,3 +2990,10 @@ snapshot transfer still has an unsound mutable alias and needs an owner cutover.
 The save-description dialog disables its owning menu's actions while open.
 Closing or reinitializing the cached popup restores its list and action frame
 and dismisses child dialogs.
+
+Restored projectile IDs may come from the world's object allocator rather than
+the separate standalone combat cursor. Continuation retains those identities;
+standalone allocation skips IDs already occupied by live flights.
+
+The tertiary suicide command reads the firing object's selected receiving
+weapon row. Other FIRE_WEAPON timing and effect behavior remains separate work.

@@ -67,15 +67,30 @@ impl GameLogic {
             return false;
         }
         let team = object.team;
-        let Some(weapon_name) = object.authored_weapon_name_for_slot(2).map(str::to_owned) else {
+        let template = &object.thing().template;
+        let weapon = if template.has_receiving_weapon_sets() {
+            let Some(rule) = object.selected_native_weapon_rule(2) else {
+                return false;
+            };
+            (rule.affects_mask.bits(), rule.damage_type, rule.death_type)
+        } else if template.receiving_client_template.is_some() {
+            // An admitted object with no receiving row must not consult the
+            // process-global catalog (including a legacy pre-bound row).
             return false;
+        } else if let Some(rule) = object.selected_native_weapon_rule(2) {
+            (rule.affects_mask.bits(), rule.damage_type, rule.death_type)
+        } else {
+            let Some(name) = object.authored_weapon_name_for_slot(2) else {
+                return false;
+            };
+            let Ok(Some(rule)) = crate::game_logic::weapon_bootstrap::with_host_weapon_store(
+                |store| store.find_weapon_template(name).cloned(),
+            ) else {
+                return false;
+            };
+            (rule.affects_mask.bits(), rule.damage_type, rule.death_type)
         };
-        let Ok(Some(weapon)) = crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-            store.find_weapon_template(&weapon_name).cloned()
-        }) else {
-            return false;
-        };
-        if weapon.affects_mask.bits()
+        if weapon.0
             & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF
             == 0
         {
@@ -85,8 +100,8 @@ impl GameLogic {
             unit_id,
             HUGE_DAMAGE_AMOUNT,
             Some(unit_id),
-            crate::game_logic::combat::DamageType::from_store(weapon.damage_type),
-            crate::game_logic::host_usa_pilot::HostDeathType::from_store(weapon.death_type),
+            crate::game_logic::combat::DamageType::from_store(weapon.1),
+            crate::game_logic::host_usa_pilot::HostDeathType::from_store(weapon.2),
             None,
             effects,
         ) {

@@ -31,8 +31,10 @@ impl LiveProjectileArenaSnapshot {
         }
         let mut projectiles = HashMap::with_capacity(self.projectiles.len());
         for projectile in self.projectiles {
-            if projectile.id.0 == 0 || projectile.id.0 >= self.next_projectile_id.0 {
-                return Err("Invalid combat projectile identity/cursor".into());
+            // Production projectile IDs come from the world's object cursor,
+            // not this arena's standalone allocation cursor.
+            if projectile.id.0 == 0 {
+                return Err("Invalid combat projectile identity".into());
             }
             validate_projectile(&projectile)?;
             if projectiles.insert(projectile.id, projectile).is_some() {
@@ -162,12 +164,29 @@ mod tests {
         assert!(p.flight.is_none());
     }
     #[test]
+    fn restored_world_identity_does_not_collide_with_standalone_cursor() {
+        let mut saved = record();
+        saved.next_projectile_id = saved.projectiles[0].id;
+        let mut combat = CombatSystem::new();
+        combat.restore_live_projectile_arena(saved.validate().unwrap());
+        let id = combat.fire_projectile(
+            Vec3::ZERO,
+            Vec3::X,
+            &Weapon::default(),
+            ObjectId(7),
+            None,
+            10.0,
+        );
+        assert_eq!(id, ObjectId(100001));
+        assert_eq!(combat.projectile_count(), 2);
+    }
+    #[test]
     fn malformed_arena_is_rejected_detached() {
         let mut duplicate = record();
         duplicate.projectiles.push(duplicate.projectiles[0].clone());
         assert!(duplicate.validate().is_err());
         let mut cursor = record();
-        cursor.next_projectile_id = ObjectId(100000);
+        cursor.next_projectile_id = ObjectId(0);
         assert!(cursor.validate().is_err());
         let mut nonfinite = record();
         nonfinite.projectiles[0].velocity.x = f32::NAN;

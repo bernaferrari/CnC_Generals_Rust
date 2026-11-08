@@ -72,6 +72,44 @@ fn move_target(world: &mut GameLogic) {
 }
 
 #[test]
+fn high_world_object_ids_survive_projectile_continuation_in_independent_worlds() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "high_world_object_ids_survive_projectile_continuation_in_independent_worlds",
+        || {
+            let mut first = world(16);
+            let mut second = world(80);
+            first.set_next_object_id_for_restore(ObjectId(100000));
+            second.set_next_object_id_for_restore(ObjectId(100000));
+            let id = initialize(&mut first);
+            assert_eq!(id, initialize(&mut second));
+            let encoded = serde_json::to_vec(&first.combat_system.live_projectile_arena_snapshot()).unwrap();
+            let saved: LiveProjectileArenaSnapshot = serde_json::from_slice(&encoded).unwrap();
+            let mut restored = world(16);
+            restored.combat_system.restore_live_projectile_arena(saved.validate().unwrap());
+            restored.set_next_object_id_for_restore(id);
+            let mut shot = tests::lifecycle_test_pending_projectile(
+                "ReceivingGroundProjectile",
+                Some(ObjectId(42)),
+                Vec3::new(120., 20., 30.),
+            );
+            shot.shooter_pos = Vec3::new(20., 20., 30.);
+            shot.speed = 30.;
+            restored.materialize_owned_passive_shot(shot, None);
+            assert_eq!(restored.combat_system.projectiles.len(), 2);
+            assert!(restored.combat_system.projectiles.contains_key(&ObjectId(100001)));
+            first.update_owned_projectile_impacts(1. / 30.);
+            restored.update_owned_projectile_impacts(1. / 30.);
+            assert_eq!(
+                first.combat_system.projectiles[&id].position,
+                restored.combat_system.projectiles[&id].position,
+            );
+            assert_eq!(second.combat_system.projectiles[&id].lifetime, 0.);
+        },
+    );
+}
+
+#[test]
 fn dumb_projectile_aims_and_retargets_to_box_geometry_center() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

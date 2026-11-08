@@ -171,8 +171,13 @@ impl CombatSystem {
         speed: f32,
         is_homing: bool,
     ) -> ObjectId {
-        let projectile_id = self.next_projectile_id;
-        self.next_projectile_id = ObjectId(self.next_projectile_id.0 + 1);
+        let projectile_id = loop {
+            let id = self.next_projectile_id;
+            self.next_projectile_id.0 = self.next_projectile_id.0.wrapping_add(1);
+            if id.0 != 0 && !self.projectiles.contains_key(&id) {
+                break id;
+            }
+        };
 
         self.fire_projectile_ex_with_id(
             projectile_id,
