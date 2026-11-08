@@ -238,12 +238,19 @@ impl<T: Clone> VectorClass<T> {
             return 0;
         }
 
-        let base_ptr = self.vector.as_ptr();
-        // SAFETY: [Category 11 — provenance] `ptr` points at an element of this same Vec allocation (caller contract), so offset_from is well-defined and range-checked right after.
-        let offset = unsafe { ptr.offset_from(base_ptr) };
-
-        if offset >= 0 && (offset as usize) < self.vector.len() {
-            offset as i32
+        let size = std::mem::size_of::<T>();
+        if size == 0 {
+            return if ptr == self.vector.as_ptr() { 0 } else { -1 };
+        }
+        let Some(bytes) = ptr.addr().checked_sub(self.vector.as_ptr().addr()) else {
+            return -1;
+        };
+        if bytes % size != 0 {
+            return -1;
+        }
+        let index = bytes / size;
+        if index < self.vector.len() {
+            i32::try_from(index).unwrap_or(-1)
         } else {
             -1
         }
@@ -830,6 +837,20 @@ impl<T: Clone> DynamicVectorClass<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_lookup_rejects_unrelated_and_unaligned_addresses() {
+        let values = VectorClass::new(3, Some(&[10_u32, 20, 30]));
+        let slice = values.as_slice();
+        assert_eq!(values.id_by_ptr(&slice[1]), 1);
+        assert_eq!(values.id_by_ptr(slice.as_ptr().wrapping_add(3)), -1);
+        assert_eq!(values.id_by_ptr(slice.as_ptr().cast::<u8>().wrapping_add(1).cast()), -1);
+        assert_eq!(values.id_by_ptr(std::ptr::null()), -1);
+        let other = 17_u32;
+        assert_eq!(values.id_by_ptr(&other), -1);
+        let zst = VectorClass::new(2, Some(&[(), ()]));
+        assert_eq!(zst.id_by_ptr(zst.as_slice().as_ptr()), 0);
+    }
 
     #[test]
     fn test_vector_class_creation() {

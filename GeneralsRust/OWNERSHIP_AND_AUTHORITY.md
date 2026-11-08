@@ -49,6 +49,8 @@ retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.
 WWLib surface writes use an exclusive mutable borrow, including blits and
 font rendering; the lock exposes bounded slices rather than mutable pointers.
+WWLib vector pointer lookup validates addresses and alignment without computing
+an offset between unrelated pointers; zero-sized elements resolve to index zero.
 The Common game entrypoint owns its argument vector before the async future
 is polled; no caller-supplied raw pointer array or separate count is accepted.
 
