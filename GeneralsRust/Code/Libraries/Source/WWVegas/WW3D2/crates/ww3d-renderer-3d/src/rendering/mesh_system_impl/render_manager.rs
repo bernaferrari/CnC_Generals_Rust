@@ -34,6 +34,7 @@ pub struct PreparedMeshModel {
     /// stream of `index_buffer`: the CPU geometry the sorting renderer's
     /// per-triangle depth sort reads (C++ sorting vertex/index buffers).
     positions: Arc<[glam::Vec3]>,
+    influences: Arc<[([u32; 4], [f32; 4])]>,
     indices: Arc<[u32]>,
 }
 
@@ -84,6 +85,7 @@ impl PreparedMeshModel {
         }
 
         let mut vertex_data: Vec<f32> = Vec::with_capacity(model.vertices.len() * stride);
+        let mut influences = Vec::with_capacity(if is_skinned { model.vertices.len() } else { 0 });
         for index in 0..model.vertices.len() {
             let vertex = &model.vertices[index];
             vertex_data.push(vertex.x);
@@ -109,6 +111,7 @@ impl PreparedMeshModel {
 
             if is_skinned {
                 let (indices, weights) = model.vertex_influence_view(index);
+                influences.push((indices, weights));
                 for &idx in &indices {
                     vertex_data.push(f32::from_bits(idx));
                 }
@@ -177,6 +180,7 @@ impl PreparedMeshModel {
             source_revision: model.revision(),
             pass_index_ranges,
             positions,
+            influences: Arc::from(influences),
             indices: Arc::from(index_data),
         })
     }
@@ -761,6 +765,9 @@ impl MeshRenderManager {
             );
         }
 
+        // Shared by every sorted material pass of this mesh instance.
+        let mut sorted_skin_positions = None;
+
         for pass in &prepared.material_passes {
             self.draw_material_pass(
                 mesh,
@@ -770,6 +777,7 @@ impl MeshRenderManager {
                 render_pass,
                 arena,
                 resources,
+                &mut sorted_skin_positions,
             )?;
         }
 
@@ -782,6 +790,7 @@ impl MeshRenderManager {
                 render_pass,
                 arena,
                 resources,
+                &mut sorted_skin_positions,
             )?;
         }
 
@@ -1027,6 +1036,7 @@ impl MeshRenderManager {
         render_pass: &mut wgpu::RenderPass<'_>,
         arena: &mut FrameUniformArena,
         resources: &mut RenderPassResources,
+        sorted_skin_positions: &mut Option<Arc<[glam::Vec4]>>,
     ) -> W3dResult<()> {
         let uv_override_pass = mesh
             .uv_offset_override()
@@ -1238,6 +1248,18 @@ impl MeshRenderManager {
             let world_view = render_info.camera.get_cached_view_matrix() * mesh.transform;
             // Group 1 (model) is the only dynamic-offset group.
             let offsets = vec![Vec::new(), model_offsets];
+            let posed_positions = if prepared.is_skinned {
+                let identity_palette = [Mat4::IDENTITY];
+                let palette = mesh.bone_palette_view()
+                    .map(|view| view.matrices)
+                    .filter(|matrices| !matrices.is_empty())
+                    .unwrap_or(&identity_palette);
+                Some(Arc::clone(sorted_skin_positions.get_or_insert_with(|| {
+                    ww3d_gpu::skin_sorting_positions(&prepared.positions, &prepared.influences, palette)
+                })))
+            } else {
+                None
+            };
             self.enqueue_sorted_material_pass(
                 prepared,
                 pass,
@@ -1245,6 +1267,7 @@ impl MeshRenderManager {
                 sorted_groups,
                 offsets,
                 world_view,
+                posed_positions,
             );
         } else {
             self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
@@ -1259,8 +1282,6 @@ impl MeshRenderManager {
     }
 
     /// C++ `SortingRendererClass::Insert_Triangles` for one material pass.
-    /// Skinned meshes sort by their bind-pose positions (the GPU skins them;
-    /// C++ sorts the software-skinned vertices).
     fn enqueue_sorted_material_pass(
         &mut self,
         prepared: &PreparedMeshModel,
@@ -1269,6 +1290,7 @@ impl MeshRenderManager {
         bind_groups: Vec<Arc<wgpu::BindGroup>>,
         bind_group_offsets: Vec<Vec<u32>>,
         world_view: Mat4,
+        skinned_positions: Option<Arc<[glam::Vec4]>>,
     ) {
         let pass_index = pass.get_pass_index();
         let (start_index, count) = prepared
@@ -1288,6 +1310,7 @@ impl MeshRenderManager {
             },
             geometry: ww3d_gpu::SortingGeometry {
                 positions: Arc::clone(&prepared.positions),
+                skinned_positions,
                 indices: Arc::clone(&prepared.indices),
                 index_range: start_index..start_index + count,
                 world_view,
@@ -2496,6 +2519,7 @@ mod sorting_queue_isolation_tests {
                     glam::Vec3::new(1.0, 0.0, z),
                     glam::Vec3::new(0.0, 1.0, z),
                 ]),
+                skinned_positions: None,
                 indices: Arc::from(vec![0, 1, 2]),
                 index_range: 0..3,
                 world_view: Mat4::IDENTITY,
@@ -2599,6 +2623,157 @@ mod sorting_queue_isolation_tests {
         assert_eq!(second.sorted_batch_count(), 1, "peer queue is untouched");
         second.discard_sorted();
         assert_eq!(second.sorted_batch_count(), 0);
+    }
+
+    #[test]
+    fn skinned_mesh_submission_sorts_using_current_palette() {
+        use crate::rendering::camera_system::CameraClass;
+
+        let Some(gpu) = test_gpu() else {
+            eprintln!("skipping posed sorting: no WGPU adapter");
+            return;
+        };
+        let device = gpu.wgpu_device();
+        let mut manager = MeshRenderManager::new(gpu.clone());
+        manager.set_render_formats(wgpu::TextureFormat::Rgba8Unorm, Some(ww3d_gpu::SCENE_DEPTH_FORMAT));
+        let runtime = Arc::new(crate::process_state::Renderer3dRuntime::new());
+        StaticSortManager::set_sorting_enabled(&runtime, true);
+        manager.renderer_3d = Some(runtime);
+
+        let mut model = MeshModelClass::new("posed_sorting");
+        model.vertices = [
+            (-4.0, -4.0, -2.0), (4.0, -4.0, -2.0), (0.0, 4.0, -2.0),
+            (-4.0, -4.0, -4.0), (4.0, -4.0, -4.0), (0.0, 4.0, -4.0),
+        ].into_iter().map(|(x, y, z)| W3dVectorStruct { x, y, z }).collect();
+        model.triangles = [[0, 1, 2], [3, 4, 5]].into_iter().map(|vindex| W3dTriangleStruct {
+            vindex,
+            attributes: 0,
+            normal: W3dVectorStruct { x: 0.0, y: 0.0, z: 1.0 },
+            distance: 0.0,
+        }).collect();
+        model.vertex_count = 6;
+        model.index_count = 6;
+        model.set_vertex_bone_links(vec![0, 0, 0, 1, 1, 1]);
+        model.set_flag(MeshGeometryClass::SORT, true);
+        let mut material = VertexMaterialClass::new("unlit");
+        material.diffuse = Vec3::ONE;
+        material.specular = Vec3::ZERO;
+        let mut material_pass = MaterialPassClass::new();
+        material_pass.shader = crate::rendering::shader_system::shader::ShaderClass::get_alpha_shader();
+        material_pass.vertex_material = Some(Arc::new(material));
+        material_pass.diffuse_vertex_colors = Some(vec![
+            glam::Vec4::new(1.0, 0.0, 0.0, 1.0); 3
+        ].into_iter().chain(vec![
+            glam::Vec4::new(0.0, 0.0, 1.0, 1.0); 3
+        ]).collect());
+        model.material_passes.push(material_pass);
+        let model = Arc::new(model);
+
+        let mut camera = CameraClass::new();
+        camera.set_view_matrix(Mat4::IDENTITY);
+        camera.set_projection_matrix(Mat4::orthographic_rh(-5.0, 5.0, -5.0, 5.0, 0.1, 100.0));
+        let mut info = RenderInfoClass::new(Arc::new(camera));
+        info.override_flags = RenderInfoOverrideFlags::FORCE_TWO_SIDED;
+        let mut arena = crate::rendering::frame_uniform_arena::FrameUniformArena::new(&gpu, 1 << 20);
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("posed-sorting-target"),
+            size: wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let depth = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("posed-sorting-depth"),
+            size: wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: ww3d_gpu::SCENE_DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut pixels = Vec::new();
+        for bone in [
+            Mat4::IDENTITY,
+            Mat4::from_translation(Vec3::new(0.0, 0.0, -10.0)),
+        ] {
+            arena.reset();
+            manager.begin_frame_caches();
+            let mut mesh = MeshClass::new();
+            mesh.model = Some(Arc::clone(&model));
+            mesh.set_presentation_opacity(0.5);
+            mesh.set_bone_palette_slice(&[bone, Mat4::IDENTITY]);
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("posed-sorting-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                manager.render_pass(&mut pass, &[], &[Arc::new(mesh)], &info, &mut arena)
+                    .expect("skinned mesh submission");
+                manager.flush_sorted(&mut pass);
+            }
+            let readback = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("posed-sorting-readback"),
+                size: 256 * 8,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            encoder.copy_texture_to_buffer(
+                target.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(256),
+                        rows_per_image: Some(8),
+                    },
+                },
+                wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            );
+            gpu.queue().submit([encoder.finish()]);
+            let slice = readback.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = tx.send(result);
+            });
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            rx.recv().expect("readback callback").expect("readback mapping");
+            let data = slice.get_mapped_range().expect("mapped readback");
+            let offset = 4 * 256 + 4 * 4;
+            pixels.push([data[offset], data[offset + 1], data[offset + 2]]);
+            drop(data);
+            readback.unmap();
+        }
+        eprintln!("posed sorting pixels: {pixels:?}");
+        // The nearer triangle is composited last: red before posing, blue after.
+        assert!(pixels[0][0] > pixels[0][2].saturating_add(20) && pixels[0][2] > 20, "{:?}", pixels);
+        assert!(pixels[1][2] > pixels[1][0].saturating_add(20) && pixels[1][0] > 20, "{:?}", pixels);
     }
 }
 

@@ -20,6 +20,8 @@ use std::sync::Arc;
 pub struct SortingGeometry {
     /// Model-space positions, numbered like the node's vertex buffer.
     pub positions: Arc<[glam::Vec3]>,
+    /// Posed homogeneous positions, when the vertex shader performs skinning.
+    pub skinned_positions: Option<Arc<[glam::Vec4]>>,
     /// Triangle list indices into `positions` / the vertex buffer.
     pub indices: Arc<[u32]>,
     /// The node's triangles within `indices` (multiple of 3 long).
@@ -33,6 +35,26 @@ impl SortingGeometry {
     fn triangle_count(&self) -> u32 {
         (self.index_range.end.saturating_sub(self.index_range.start)) / 3
     }
+}
+
+/// Sample the same palette and influences as the live skinned vertex shader.
+/// The homogeneous component is retained: shader weights are not normalized.
+pub fn skin_sorting_positions(
+    positions: &[glam::Vec3],
+    influences: &[([u32; 4], [f32; 4])],
+    palette: &[glam::Mat4],
+) -> Arc<[glam::Vec4]> {
+    assert_eq!(positions.len(), influences.len());
+    assert!(!palette.is_empty());
+    positions.iter().zip(influences).map(|(position, (indices, weights))| {
+        let mut result = glam::Vec4::ZERO;
+        for (&index, &weight) in indices.iter().zip(weights) {
+            if weight > 0.0 {
+                result += (palette[(index as usize).min(palette.len() - 1)] * position.extend(1.0)) * weight;
+            }
+        }
+        result
+    }).collect()
 }
 
 /// Render state a node was inserted with (C++ `RenderStateStruct`).
@@ -92,16 +114,20 @@ fn pool_triangles<'a>(
             continue;
         };
         for (triangle, corners) in indices.chunks_exact(3).enumerate() {
-            let Some(sum) = corners.iter().try_fold(glam::Vec3::ZERO, |sum, &index| {
-                geometry.positions.get(index as usize).map(|position| sum + *position)
+            let Some(sum) = corners.iter().try_fold(glam::Vec4::ZERO, |sum, &index| {
+                let index = index as usize;
+                let position = match &geometry.skinned_positions {
+                    Some(positions) => *positions.get(index)?,
+                    None => geometry.positions.get(index)?.extend(1.0),
+                };
+                Some(sum + position)
             }) else {
                 continue;
             };
-            let centroid = sum / 3.0;
             pool.push(PooledTriangle {
                 node: node_index as u32,
                 first_index: geometry.index_range.start + triangle as u32 * 3,
-                depth: depth_row.dot(centroid.extend(1.0)),
+                depth: depth_row.dot(sum / 3.0),
             });
         }
     }
@@ -298,6 +324,7 @@ mod tests {
         ]);
         SortingGeometry {
             positions,
+            skinned_positions: None,
             indices: Arc::from(vec![0, 1, 2, 3, 4, 5]),
             index_range: 0..6,
             world_view: view() * world,
@@ -333,6 +360,36 @@ mod tests {
         let b = quad_geometry(-20.0, glam::Mat4::IDENTITY);
         let order = sorted_triangle_order([&a, &b]);
         assert_eq!(order, vec![(0, 3), (1, 3), (0, 0), (1, 0)]);
+    }
+
+    #[test]
+    fn posed_vertices_interleave_with_other_nodes() {
+        let mut skin = quad_geometry(-20.0, glam::Mat4::IDENTITY);
+        let influences = [
+            ([0, 1, 0, 0], [0.5, 0.5, 0.0, 0.0]),
+            ([0, 1, 0, 0], [0.5, 0.5, 0.0, 0.0]),
+            ([0, 1, 0, 0], [0.5, 0.5, 0.0, 0.0]),
+            ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]),
+            ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]),
+            ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]),
+        ];
+        let bones = [glam::Mat4::IDENTITY, glam::Mat4::from_translation(glam::Vec3::new(0.0, 0.0, -20.0))];
+        skin.skinned_positions = Some(skin_sorting_positions(&skin.positions, &influences, &bones));
+        let rigid = quad_geometry(-35.0, glam::Mat4::IDENTITY);
+        assert_eq!(sorted_triangle_order([&skin, &rigid]), vec![(0, 3), (1, 3), (1, 0), (0, 0)]);
+    }
+
+    #[test]
+    fn skinning_keeps_shader_homogeneous_weight_and_clamps_bone_index() {
+        let mut skin = quad_geometry(-20.0, glam::Mat4::from_translation(glam::Vec3::new(0.0, 0.0, -40.0)));
+        skin.index_range = 0..3;
+        let influences = [([0, 99, 0, 0], [0.0, 0.5, 0.0, 0.0]); 6];
+        let bones = [glam::Mat4::IDENTITY, glam::Mat4::from_translation(glam::Vec3::new(0.0, 0.0, -20.0))];
+        skin.skinned_positions = Some(skin_sorting_positions(&skin.positions, &influences, &bones));
+        let mut rigid = quad_geometry(-35.0, glam::Mat4::IDENTITY);
+        rigid.index_range = 0..3;
+        // Shader position: 0.5 * (-20 - 20 - 40) = -40, not -60.
+        assert_eq!(sorted_triangle_order([&rigid, &skin]), vec![(1, 0), (0, 0)]);
     }
 
     #[test]
