@@ -149,7 +149,6 @@ impl GameClient {
             display_letter_boxed: false,
             terrain_texture_caches: crate::terrain::textures::TerrainTextureCaches::default(),
             terrain_visual_gpu: std::sync::Arc::new(parking_lot::Mutex::new(None)),
-            fx_next_id: std::sync::atomic::AtomicU64::new(1),
             render_bridge_next_line_id: std::sync::atomic::AtomicU64::new(1),
             win_draw_image_commands: std::sync::atomic::AtomicUsize::new(0),
             shipped_ui_draw_commands: std::sync::atomic::AtomicUsize::new(0),

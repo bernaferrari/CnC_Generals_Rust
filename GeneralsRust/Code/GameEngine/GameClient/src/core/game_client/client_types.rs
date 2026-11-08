@@ -100,7 +100,6 @@ pub struct GameClient {
     pub(crate) terrain_visual_gpu: std::sync::Arc<
         parking_lot::Mutex<Option<crate::terrain::terrain_visual::TerrainVisualImpl>>,
     >,
-    fx_next_id: std::sync::atomic::AtomicU64,
     render_bridge_next_line_id: std::sync::atomic::AtomicU64,
     win_draw_image_commands: std::sync::atomic::AtomicUsize,
     shipped_ui_draw_commands: std::sync::atomic::AtomicUsize,

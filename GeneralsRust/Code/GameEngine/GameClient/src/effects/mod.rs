@@ -58,7 +58,6 @@ pub mod particles;
 pub mod ray_effect_system;
 pub mod ray_effect_registry;
 pub mod ray_effects;
-pub mod runtime_fx;
 pub mod shadow_system;
 pub mod tracer_fx;
 pub mod weather_complete;

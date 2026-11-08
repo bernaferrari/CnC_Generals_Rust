@@ -526,11 +526,6 @@ impl GameClient {
             .clone()
     }
 
-    pub fn next_fx_id(&self) -> u64 {
-        self.fx_next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    }
-
     pub fn next_render_bridge_line_id(&self) -> u64 {
         self.render_bridge_next_line_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)

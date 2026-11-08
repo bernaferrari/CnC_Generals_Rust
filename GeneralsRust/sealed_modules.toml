@@ -564,11 +564,6 @@ cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Input/Mouse.cpp"
 note = "Mouse Arc on GameClient; the_mouse peels live client; cfg(test) TLS fallback only."
 
 [[module]]
-path = "Code/GameEngine/GameClient/src/effects/runtime_fx.rs"
-cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
-note = "FX next-id on GameClient atomic; no process AtomicU64."
-
-[[module]]
 path = "Code/GameEngine/GameClient/src/render_bridge.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
 note = "Render-bridge line ids on GameClient atomic; the GameLogic scene-submission sink and W3D ghost-capture hook (per-world services) reach the receiving client's own RenderBridge; no process bridge."

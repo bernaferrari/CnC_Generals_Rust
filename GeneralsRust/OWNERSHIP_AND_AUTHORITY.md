@@ -3025,3 +3025,7 @@ mixed-module constructor ordering remains to be compared against C++.
 Command routing borrows the receiving GameClient's host callback instead of
 consulting the live-client slot. Other consumers of that raw slot remain and
 must migrate before the slot's aliasing and lifetime risks are removed.
+
+The disconnected runtime FX factory and its private ID counters were removed;
+production FX dispatch continues through the tracer, ray and particle systems.
+Those live effect paths still require receiving-owner migration.
