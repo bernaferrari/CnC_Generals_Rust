@@ -11,6 +11,10 @@ fn garrison_world(
     crate::game_logic::ObjectId,
 ) {
     let mut logic = GameLogic::new();
+    let weapon = gamelogic::weapon::with_weapon_store(|store| {
+        store.find_weapon_template("AuthoredRangeBonus").unwrap().as_ref().clone()
+    }).unwrap();
+    logic.admit_receiving_weapon_snapshot(vec![("AuthoredRangeBonus".into(), weapon)]).unwrap();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.add_player(Player::new(1, Team::GLA, "GLA", true));
     let mut bunker = ThingTemplate::new("AuthoredRangeBunker");
@@ -159,6 +163,45 @@ fn garrison_named_range_rejects_beyond_native_bonus_boundary() {
         "raw100 * RANGE1.33 cannot admit beyond native130.5"
     );
     assert!(!logic.honesty_garrison_fire_ok());
+    assert_eq!(logic.objects[&source].ai_state(), AIState::Garrisoned);
+}
+
+#[test]
+fn garrison_fire_does_not_target_enemy_inside_enclosing_garrison() {
+    let _serial = crate::game_logic::combat::tests::combat_test_guard();
+    let _restore = RestoreInputs::install();
+    let (mut logic, source, _) = garrison_world(1000.0);
+
+    let mut infantry = ThingTemplate::new("EnclosedEnemyInfantry");
+    infantry.set_health(100.0);
+    infantry.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Attackable);
+    infantry.transport_slot_count = Some(1);
+    logic.templates.insert(infantry.name.clone(), infantry);
+    let bunker = logic
+        .create_object("AuthoredRangeBunker", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
+        .unwrap();
+    let passenger = logic
+        .create_object("EnclosedEnemyInfantry", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
+        .unwrap();
+    assert!(logic.unit_command_order_enter(passenger, bunker));
+    logic.update();
+    assert_eq!(logic.objects[&passenger].contained_by, Some(bunker));
+    assert!(logic.objects[&bunker].contained_units().contains(&passenger));
+
+    // A window position can be closer to the shooter than the building center.
+    assert!(logic.set_owned_object_position_with_effects(
+        passenger,
+        Vec3::new(20.0, 0.0, 0.0),
+        logic.frame,
+        &mut crate::game_logic::ScriptPresentationEffects::default(),
+    ));
+    logic.frame = 600;
+    let passenger_health = logic.objects[&passenger].health.current;
+    let bunker_health = logic.objects[&bunker].health.current;
+    logic.try_garrison_residual_fire(source);
+    assert_eq!(logic.objects[&passenger].health.current, passenger_health);
+    assert_eq!(logic.objects[&bunker].health.current, bunker_health - 13.0);
+    assert_eq!(logic.objects[&passenger].contained_by, Some(bunker));
     assert_eq!(logic.objects[&source].ai_state(), AIState::Garrisoned);
 }
 

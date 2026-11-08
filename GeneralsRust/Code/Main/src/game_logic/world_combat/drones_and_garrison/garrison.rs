@@ -115,6 +115,15 @@ impl GameLogic {
             let Some(target_obj) = self.objects.get(&cand.id) else {
                 continue;
             };
+            // WeaponSet::getAbleToAttackSpecificObject forbids attacking an
+            // occupant directly when its container encloses it.
+            if target_obj
+                .contained_by
+                .and_then(|id| self.objects.get(&id))
+                .is_some_and(|container| container.is_enclosing_container_for(target_obj))
+            {
+                continue;
+            }
             let Some(attacker) = self.objects.get(&garrisoned_id) else {
                 return;
             };

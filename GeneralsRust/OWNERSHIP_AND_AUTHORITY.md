@@ -44,6 +44,8 @@ An initial-burst budding spawn invokes its structure producer's exit callback
 even when reservation finds no door, then restores the parent producer and
 consumes the burst. Weapon continuation queries the receiving partition and
 excludes targets exactly at the authored range boundary.
+Garrison fire excludes targets inside enclosing containers, matching the
+WeaponSet direct-target guard; the enclosing building remains targetable.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.
