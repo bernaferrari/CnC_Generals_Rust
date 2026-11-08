@@ -699,6 +699,19 @@ impl AIPlayer {
         factory_id: ObjectID,
         unit_id: ObjectID,
     ) -> Result<(), AiError> {
+        self.on_unit_produced_with_dock(world, player, factory_id, unit_id, |ai, id| {
+            ai.ai_dock(id, CommandSourceType::FromPlayer);
+        })
+    }
+
+    pub(super) fn on_unit_produced_with_dock(
+        &mut self,
+        world: &crate::system::game_logic::GameLogic,
+        player: &RwLock<Player>,
+        factory_id: ObjectID,
+        unit_id: ObjectID,
+        mut dock: impl FnMut(&Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>, ObjectID),
+    ) -> Result<(), AiError> {
         // C++: factory could be NULL at start of game.
         if factory_id == INVALID_ID {
             return Ok(());
@@ -813,8 +826,8 @@ impl AIPlayer {
                 }
                 if supply_truck {
                     Self::visit_supply_gatherer_slots(player, world, |dock_id| {
-                        ai.ai_dock(dock_id, CommandSourceType::FromPlayer);
-                    });
+                        dock(&ai, dock_id);
+                    })?;
                 }
             }
         }

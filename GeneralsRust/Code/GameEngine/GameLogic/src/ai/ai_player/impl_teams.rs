@@ -138,28 +138,40 @@ impl AIPlayer {
         (Coord3D::new(0.0, 0.0, 0.0), false)
     }
 
-    /// Visit the receiving player's canonical BuildList, releasing its lock for
-    /// each dock callback. Box-linked rows have no stable cursor across that
-    /// release, so rescan by index; reentrant insertion/removal before the
-    /// cursor cannot preserve the original C++ node identity.
+    /// Visit the live BuildList in native link order. The callback runs without
+    /// the player lock; the current node must survive it, just as C++ requires
+    /// before dereferencing `info->getNext()` after `aiDock`.
     pub(super) fn visit_supply_gatherer_slots(
         player: &RwLock<Player>,
         world: &crate::system::game_logic::GameLogic,
         mut dock: impl FnMut(ObjectID),
-    ) {
-        let mut index = 0;
+    ) -> Result<(), AiError> {
+        let mut cursor = None;
         loop {
             let selected = {
-                let Ok(mut player) = player.write() else {
-                    return;
-                };
+                let mut player = player.write().map_err(|_| AiError::LockFailed)?;
+                player.build_list_cursor_sequence = player.build_list_cursor_sequence
+                    .checked_add(1)
+                    .ok_or(AiError::InvalidObject)?;
+                let next_identity = player.build_list_cursor_sequence;
                 let mut node = player.get_build_list_mut();
-                for _ in 0..index {
-                    node = node.and_then(|row| row.get_next_mut());
+                if let Some(identity) = cursor {
+                    loop {
+                        let row = node.ok_or(AiError::InvalidObject)?;
+                        if row.cursor_identity() == identity {
+                            node = row.get_next_mut();
+                            break;
+                        }
+                        node = row.get_next_mut();
+                    }
                 }
                 let Some(row) = node else {
-                    return;
+                    return Ok(());
                 };
+                if row.cursor_identity() == 0 {
+                    row.set_cursor_identity(next_identity);
+                }
+                cursor = Some(row.cursor_identity());
                 let id = row.get_object_id();
                 if row.is_supply_building()
                     && row.get_desired_gatherers() > 0
@@ -173,7 +185,6 @@ impl AIPlayer {
                     None
                 }
             };
-            index += 1;
             if let Some(id) = selected {
                 dock(id);
             }

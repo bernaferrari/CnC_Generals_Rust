@@ -2830,8 +2830,6 @@ lazy_static::lazy_static! {
     static ref EVENT_MANAGER: Arc<EventManager> = Arc::new(EventManager::new());
     static ref NAMED_OBJECT_TRACKER: Arc<NamedObjectTracker> = Arc::new(NamedObjectTracker::new());
     static ref AREA_TRACKER: Arc<AreaTracker> = Arc::new(AreaTracker::new());
-    static ref VTUNE_ENABLED_STATE: RwLock<bool> = RwLock::new(false);
-    static ref SKATE_DISTANCE_OVERRIDE_STATE: RwLock<f32> = RwLock::new(0.0);
 }
 
 // Re-entrancy for nested CALL_SUBROUTINE / timer / flag mutations.
@@ -3183,45 +3181,6 @@ pub fn initialize_script_engine() -> GameLogicResult<()> {
 /// Get reference to global script engine
 pub fn get_script_engine() -> ScriptEngineHandle {
     SCRIPT_ENGINE.clone()
-}
-
-/// ScriptEngine parity state for `ScriptEngine::setEnableVTune/getEnableVTune`.
-pub fn set_enable_vtune(enabled: bool) {
-    if let Ok(mut guard) = VTUNE_ENABLED_STATE.write() {
-        *guard = enabled;
-    }
-}
-
-/// ScriptEngine parity state for `ScriptEngine::setEnableVTune/getEnableVTune`.
-pub fn get_enable_vtune() -> bool {
-    VTUNE_ENABLED_STATE
-        .read()
-        .map(|guard| *guard)
-        .unwrap_or(false)
-}
-
-/// Debug parity state for `TheSkateDistOverride` command plumbing.
-pub fn set_skate_distance_override(value: f32) {
-    if let Ok(mut guard) = SKATE_DISTANCE_OVERRIDE_STATE.write() {
-        *guard = value;
-    }
-}
-
-/// Debug parity state for `TheSkateDistOverride` command plumbing.
-pub fn adjust_skate_distance_override(delta: f32) -> f32 {
-    if let Ok(mut guard) = SKATE_DISTANCE_OVERRIDE_STATE.write() {
-        *guard += delta;
-        return *guard;
-    }
-    0.0
-}
-
-/// Debug parity state for `TheSkateDistOverride` command plumbing.
-pub fn get_skate_distance_override() -> f32 {
-    SKATE_DISTANCE_OVERRIDE_STATE
-        .read()
-        .map(|guard| *guard)
-        .unwrap_or(0.0)
 }
 
 /// Get reference to global event manager

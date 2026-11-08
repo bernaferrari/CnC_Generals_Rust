@@ -610,34 +610,6 @@ fn subtract_millisecond_script_seconds_can_drive_timer_negative() {
     assert_eq!(counter.value, -2);
 }
 
-#[test]
-fn vtune_enable_parity_state_round_trips_through_script_engine() {
-    let _lock = crate::test_sync::lock();
-    set_enable_vtune(false);
-
-    let mut engine = ScriptEngine::new().unwrap();
-    assert!(!engine.get_enable_vtune());
-    engine.set_enable_vtune(true);
-    assert!(engine.get_enable_vtune());
-    engine.set_enable_vtune(false);
-    assert!(!engine.get_enable_vtune());
-}
-
-#[test]
-fn skate_override_parity_state_matches_cxx_delta_steps() {
-    let _lock = crate::test_sync::lock();
-    set_skate_distance_override(0.0);
-
-    let mut engine = ScriptEngine::new().unwrap();
-    let up = engine.adjust_skate_distance_override(0.25);
-    assert!((up - 0.25).abs() < f32::EPSILON);
-    assert!((engine.get_skate_distance_override() - 0.25).abs() < f32::EPSILON);
-
-    let down = engine.adjust_skate_distance_override(-0.25);
-    assert!(down.abs() < f32::EPSILON);
-    assert!(engine.get_skate_distance_override().abs() < f32::EPSILON);
-}
-
 /// C++ `ScriptEngine::executeActions` handles `CALL_SUBROUTINE` by calling
 /// `callSubroutine` → `executeScript` **immediately**, then continues the
 /// remaining outer actions. Nested `with_script_engine_mut` must not panic

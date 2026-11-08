@@ -6,6 +6,17 @@ use crate::common::{
     UnsignedInt,
 };
 
+// Runtime-only cursor identity. A duplicated build list is a new set of
+// native nodes, even when every serialized field is identical.
+#[derive(Debug, Default)]
+struct CursorIdentity(u64);
+
+impl Clone for CursorIdentity {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BuildListInfo {
     building_name: AsciiString,
@@ -16,6 +27,7 @@ pub struct BuildListInfo {
     initially_built: Bool,
     num_rebuilds: UnsignedInt,
     next_build_list: Option<Box<BuildListInfo>>,
+    cursor_identity: CursorIdentity,
     script: AsciiString,
     health: Int,
     whiner: Bool,
@@ -52,6 +64,7 @@ impl BuildListInfo {
             initially_built: false,
             num_rebuilds: 0,
             next_build_list: None,
+            cursor_identity: CursorIdentity::default(),
             script: AsciiString::new(),
             health: 100,
             whiner: true,
@@ -75,6 +88,14 @@ impl BuildListInfo {
 
     pub fn get_next_mut(&mut self) -> Option<&mut BuildListInfo> {
         self.next_build_list.as_deref_mut()
+    }
+
+    pub(crate) fn cursor_identity(&self) -> u64 {
+        self.cursor_identity.0
+    }
+
+    pub(crate) fn set_cursor_identity(&mut self, identity: u64) {
+        self.cursor_identity.0 = identity;
     }
 
     /// Visit this entry and every following linked build-list entry in the

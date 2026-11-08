@@ -110,6 +110,8 @@ pub struct Player {
 
     // AI build list (skirmish plans)
     pub(super) build_list: Option<Box<BuildListInfo>>,
+    // Runtime-only, monotonic within this player; never part of the snapshot.
+    pub(crate) build_list_cursor_sequence: u64,
 
     // Skirmish AI tracking
     pub(super) is_skirmish_ai: Bool,
@@ -205,6 +207,7 @@ impl Player {
 
             owned_objects: Vec::new(),
             build_list: None,
+            build_list_cursor_sequence: 0,
 
             is_skirmish_ai: false,
             current_enemy_player_index: None,
@@ -244,7 +247,7 @@ impl Player {
         info.set_angle(angle);
         info.set_object_id(object_id);
         info.set_num_rebuilds(0); // can't rebuild placed factories
-        info.set_next_build_list(self.build_list.take().map(|b| *b));
+        info.set_next_build_list_boxed(self.build_list.take());
         self.build_list = Some(Box::new(info));
     }
 
@@ -261,7 +264,7 @@ impl Player {
         info.set_angle(angle);
         info.mark_priority_build();
         info.set_num_rebuilds(1); // build once
-        info.set_next_build_list(self.build_list.take().map(|b| *b));
+        info.set_next_build_list_boxed(self.build_list.take());
         self.build_list = Some(Box::new(info));
     }
 

@@ -535,6 +535,9 @@ evaluator and callback queue rather than publishing an engine. Main retains
 platform callbacks and startup wiring. Root/group order, immediate enable changes,
 entered-group gating and exact authored names are preserved. The shared callback
 queue and live ScriptEngine ambient services still require ownership migration.
+Unused ScriptEngine VTune and skate-debug facades no longer maintain duplicate
+process-wide state. The live debug commands retain their UI-owned state; this
+does not migrate the ambient interpreter or named-object tracker.
 
 The bounded extraction records are hq-nuwyh, hq-8ur0z, hq-mltxr, hq-8dkja,
 hq-9707l and hq-g7bxq. Regression fixtures establish Rust behavior and source
@@ -2780,8 +2783,9 @@ each eligible dock command in order, updating its gatherer count before the
 command. Core delivery receives its world and player explicitly and releases
 the player lock for the callback. Main retains the ledger on its per-player AI
 and includes it in world snapshots. C++ reference: AIPlayer.cpp:1024–1095.
-The Core linked-list cursor currently rescans by index after each callback;
-reentrant edits before the cursor cannot preserve C++ node identity.
+The Core linked-list cursor uses transient per-player node identities and follows
+the current node's live successor after a callback. Removing that current node
+returns an error; C++ dereferences the removed node and has undefined behavior.
 Supply-center selection uses only an acquired AI enemy, and an enemy without
 structures has origin bounds (AIPlayer.cpp:2156–2212). Demand-driven enemy
 acquisition and reentrant AI roster access remain unresolved.

@@ -695,34 +695,6 @@ impl ScriptEngine {
         self.with_inner(|inner| inner.choose_victim_always_uses_normal)
     }
 
-    /// Mirrors C++ `ScriptEngine::setEnableVTune`.
-    ///
-    /// C++ stores this as static script-engine runtime state; Rust keeps the same
-    /// singleton-style behavior in `engine.rs` shared state.
-    pub fn set_enable_vtune(&mut self, enabled: bool) {
-        set_enable_vtune(enabled);
-    }
-
-    /// Mirrors C++ `ScriptEngine::getEnableVTune`.
-    pub fn get_enable_vtune(&self) -> bool {
-        get_enable_vtune()
-    }
-
-    /// Command-level parity hook for `TheSkateDistOverride` style debug state.
-    pub fn set_skate_distance_override(&mut self, value: f32) {
-        set_skate_distance_override(value);
-    }
-
-    /// Command-level parity hook for `TheSkateDistOverride` style debug state.
-    pub fn adjust_skate_distance_override(&mut self, delta: f32) -> f32 {
-        adjust_skate_distance_override(delta)
-    }
-
-    /// Command-level parity hook for `TheSkateDistOverride` style debug state.
-    pub fn get_skate_distance_override(&self) -> f32 {
-        get_skate_distance_override()
-    }
-
     /// Freeze only definition keys for one script read/write operation, in C++ enum order.
     pub(super) fn script_template_lookup(
         &self,
