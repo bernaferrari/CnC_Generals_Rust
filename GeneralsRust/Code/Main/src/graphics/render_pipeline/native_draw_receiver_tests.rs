@@ -480,6 +480,21 @@ fn same_named_w3d_receivers_keep_distinct_owned_models_and_caches() {
             ).unwrap();
             let mut first_pipeline = RenderPipeline::initialize(engine.clone(), &first_graphics).unwrap();
             let mut second_pipeline = RenderPipeline::initialize(engine.clone(), &second_graphics).unwrap();
+            // A request before the receiving owner is bound is deferred, not
+            // negatively cached; the same pipeline must retry after binding.
+            let mut budget = 1;
+            assert!(matches!(
+                RenderPipeline::ensure_render_model_loaded(
+                    None,
+                    &mut first_pipeline.failed_model_resolutions,
+                    &mut first_graphics,
+                    "NativeReceiver",
+                    "CameraModel",
+                    true,
+                    &mut budget,
+                ),
+                RenderModelLoadResult::Deferred
+            ));
             first_pipeline.bind_application_assets(Arc::clone(&first_assets));
             second_pipeline.bind_application_assets(Arc::clone(&second_assets));
             let mut first_client = GameClient::new().unwrap();
@@ -488,11 +503,14 @@ fn same_named_w3d_receivers_keep_distinct_owned_models_and_caches() {
             let mut second_world = GameLogic::new();
             first_world.bind_application_assets(Arc::clone(&first_assets));
             second_world.bind_application_assets(Arc::clone(&second_assets));
-            const DRAW_ONLY: &str = "Draw = W3DModelDraw First\n DefaultConditionState\n Model = CameraModel\n End\nEnd\n";
+            const DRAW_ONLY: &str = "Draw = W3DModelDraw First\n DefaultConditionState\n Model = CameraModel\n End\n ConditionState = MOVING\n Model = CameraModel\n End\nEnd\n";
             admit(&mut first_world, DRAW_ONLY, 0.);
             admit(&mut second_world, DRAW_ONLY, 0.);
+            second_world.host_object_mut(ID).unwrap().status.moving = true;
             let first_source = source(&mut first_world);
             let second_source = source(&mut second_world);
+            assert_eq!(first_source.first_object_draw().unwrap().unwrap().selected_condition_state_index, 0);
+            assert_eq!(second_source.first_object_draw().unwrap().unwrap().selected_condition_state_index, 1);
             sync(&mut first_client, &mut first_pipeline, &mut first_graphics, &first_source, 0);
             let first_pose = eye(&mut first_pipeline, &mut first_graphics, &first_source, "CAMERA").unwrap();
             sync(&mut second_client, &mut second_pipeline, &mut second_graphics, &second_source, 0);
