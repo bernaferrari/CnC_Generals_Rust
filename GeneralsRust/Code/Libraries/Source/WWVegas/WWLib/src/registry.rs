@@ -537,7 +537,7 @@ impl RegistryClass {
         {
             if !self.is_valid {
                 if let Some(default_string) = default_string {
-                    let _ = string.set_str(default_string.as_str());
+                    let _ = string.set_str(&default_string.as_str());
                 } else {
                     string.clear();
                 }
@@ -581,7 +581,7 @@ impl RegistryClass {
             }
 
             if let Some(default_string) = default_string {
-                let _ = string.set_str(default_string.as_str());
+                let _ = string.set_str(&default_string.as_str());
             } else {
                 string.clear();
             }
@@ -590,7 +590,7 @@ impl RegistryClass {
         {
             let _ = name;
             if let Some(default_string) = default_string {
-                let _ = string.set_str(default_string.as_str());
+                let _ = string.set_str(&default_string.as_str());
             } else {
                 string.clear();
             }

@@ -269,10 +269,9 @@ impl VideoStreamInterface for BinkVideoStream {
             return;
         }
 
-        let mem = buffer.lock();
-        if mem.is_null() {
+        let Some(mem) = buffer.lock() else {
             return;
-        }
+        };
 
         let bpp: usize = match buf_format {
             VideoBufferType::X8R8G8B8 => 4,
@@ -296,48 +295,36 @@ impl VideoStreamInterface for BinkVideoStream {
 
         if !self.current_rgba.is_empty() && self.current_rgba.len() >= vid_w * vid_h * 4 {
             // Use decoded RGBA data from the BinkDecoder.
-            for row in 0..copy_h {
-                let dst_row = y_offset + row;
-                // SAFETY: `mem` is the non-null locked buffer base (checked above);
-                // SAFETY: dst_row < buf_height and x_offset * bpp is within a row,
-                // SAFETY: so the byte offset stays inside the allocation.
-                let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
-                for col in 0..copy_w {
+            for (row, row_data) in mem.chunks_exact_mut(buf_pitch)
+                .skip(y_offset).take(copy_h).enumerate()
+            {
+                for (col, dst) in row_data.chunks_exact_mut(bpp)
+                    .skip(x_offset).take(copy_w).enumerate()
+                {
                     let src_index = (row * vid_w + col) * 4;
                     let rgba = &self.current_rgba[src_index..src_index + 4];
-                    // SAFETY: col < copy_w <= buf_width - x_offset, so col * bpp
-                    // SAFETY: stays within the pitch bytes of the current row.
-                    let dst = unsafe { row_base.add(col * bpp) };
-                    // SAFETY: dst targets writable in-bounds row memory sized for
-                    // SAFETY: buf_format (see write_pixel contract).
-                    unsafe { write_pixel(dst, buf_format, rgba[0], rgba[1], rgba[2], rgba[3]) };
+                    write_pixel(dst, buf_format, rgba[0], rgba[1], rgba[2], rgba[3]);
                 }
             }
         } else {
             // Fallback: checkerboard placeholder when no decoder data is available.
             let checker_size = 16usize;
             let frame_idx = self.current_frame as usize;
-            for row in 0..copy_h {
-                let dst_row = y_offset + row;
-                // SAFETY: `mem` is the non-null locked buffer base (checked above);
-                // SAFETY: dst_row < buf_height and x_offset * bpp is within a row,
-                // SAFETY: so the byte offset stays inside the allocation.
-                let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
-                for col in 0..copy_w {
+            for (row, row_data) in mem.chunks_exact_mut(buf_pitch)
+                .skip(y_offset).take(copy_h).enumerate()
+            {
+                for (col, dst) in row_data.chunks_exact_mut(bpp)
+                    .skip(x_offset).take(copy_w).enumerate()
+                {
                     let checker_x = (col + frame_idx * 2) / checker_size;
                     let checker_y = row / checker_size;
                     let is_light = (checker_x + checker_y) % 2 == 0;
-                    // SAFETY: col < copy_w <= buf_width - x_offset, so col * bpp
-                    // SAFETY: stays within the pitch bytes of the current row.
-                    let dst = unsafe { row_base.add(col * bpp) };
                     let (r, g, b) = if is_light {
                         (80u8, 100, 180)
                     } else {
                         (30u8, 40, 100)
                     };
-                    // SAFETY: dst targets writable in-bounds row memory sized for
-                    // SAFETY: buf_format (see write_pixel contract).
-                    unsafe { write_pixel(dst, buf_format, r, g, b, 0xFF) };
+                    write_pixel(dst, buf_format, r, g, b, 0xFF);
                 }
             }
         }
@@ -371,30 +358,19 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 }
 
-// SAFETY: `dst` must point to writable memory of at least the format's byte
-// SAFETY: width (4 for X8R8G8B8, 3 for R8G8B8, 2 for R5G6B5/X1R5G5B5).
-// SAFETY: Callers pass row offsets into a locked video buffer, which the
-// SAFETY: frame_render loops keep inside pitch * buf_height bytes.
-unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, r: u8, g: u8, b: u8, a: u8) {
+fn write_pixel(dst: &mut [u8], format: VideoBufferType, r: u8, g: u8, b: u8, a: u8) {
     match format {
         VideoBufferType::X8R8G8B8 => {
-            *dst = b;
-            *dst.add(1) = g;
-            *dst.add(2) = r;
-            *dst.add(3) = a;
+            dst.copy_from_slice(&[b, g, r, a]);
         }
         VideoBufferType::R8G8B8 => {
-            *dst = r;
-            *dst.add(1) = g;
-            *dst.add(2) = b;
+            dst.copy_from_slice(&[r, g, b]);
         }
         VideoBufferType::R5G6B5 => {
             let packed = (((r as u16 >> 3) & 0x1F) << 11)
                 | (((g as u16 >> 2) & 0x3F) << 5)
                 | ((b as u16 >> 3) & 0x1F);
-            let bytes = packed.to_le_bytes();
-            *dst = bytes[0];
-            *dst.add(1) = bytes[1];
+            dst.copy_from_slice(&packed.to_le_bytes());
         }
         VideoBufferType::X1R5G5B5 => {
             let alpha_bit = if a >= 128 { 1u16 } else { 0u16 };
@@ -402,9 +378,7 @@ unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, r: u8, g: u8, b: u8
                 | (((r as u16 >> 3) & 0x1F) << 10)
                 | (((g as u16 >> 3) & 0x1F) << 5)
                 | ((b as u16 >> 3) & 0x1F);
-            let bytes = packed.to_le_bytes();
-            *dst = bytes[0];
-            *dst.add(1) = bytes[1];
+            dst.copy_from_slice(&packed.to_le_bytes());
         }
         _ => {}
     }
@@ -654,6 +628,52 @@ mod tests {
     }
 
     #[test]
+    fn decoded_frame_respects_offsets_formats_and_padding() {
+        use game_client_rust::video_buffer::SoftwareVideoBuffer;
+
+        for (format, pixel) in [
+            (VideoBufferType::R8G8B8, &[255, 128, 0][..]),
+            (VideoBufferType::X8R8G8B8, &[0, 128, 255, 127][..]),
+            (VideoBufferType::R5G6B5, &[0x00, 0xfc][..]),
+            (VideoBufferType::X1R5G5B5, &[0x00, 0x7e][..]),
+        ] {
+            let mut stream = BinkVideoStream::new_from_dims(2, 1, 1);
+            stream.current_rgba = [255, 128, 0, 127].repeat(2);
+            let mut buffer = SoftwareVideoBuffer::new(format);
+            assert!(buffer.allocate(3, 2));
+            buffer.set_pos(1, 1);
+            let pitch = buffer.pitch() as usize;
+            buffer.lock().unwrap().fill(0x55);
+            buffer.unlock();
+            stream.frame_render(&mut buffer);
+            let pixels = buffer.lock().unwrap();
+            let bpp = pixel.len();
+            assert!(pixels[..pitch + bpp].iter().all(|&byte| byte == 0x55));
+            assert_eq!(&pixels[pitch + bpp..pitch + 2 * bpp], pixel);
+            assert_eq!(&pixels[pitch + 2 * bpp..pitch + 3 * bpp], pixel);
+            assert!(pixels[pitch + 3 * bpp..].iter().all(|&byte| byte == 0x55));
+            buffer.unlock();
+        }
+    }
+
+    #[test]
+    fn checkerboard_frame_keeps_its_colors_and_padding() {
+        use game_client_rust::video_buffer::SoftwareVideoBuffer;
+
+        let mut stream = BinkVideoStream::new_from_dims(17, 1, 1);
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
+        assert!(buffer.allocate(17, 1));
+        buffer.lock().unwrap().fill(0x55);
+        buffer.unlock();
+        stream.frame_render(&mut buffer);
+        let pixels = buffer.lock().unwrap();
+        assert_eq!(&pixels[..4], &[180, 100, 80, 255]);
+        assert_eq!(&pixels[16 * 4..17 * 4], &[100, 40, 30, 255]);
+        assert!(pixels[17 * 4..].iter().all(|&byte| byte == 0x55));
+        buffer.unlock();
+    }
+
+    #[test]
     fn test_bink_video_stream_frame_render_writes_to_buffer() {
         use game_client_rust::video_buffer::{SoftwareVideoBuffer, VideoBuffer as _};
 
@@ -670,10 +690,7 @@ mod tests {
 
         // Verify buffer is initially zeroed.
         {
-            let ptr = buffer.lock();
-            // SAFETY: the buffer is a 720x486 X8R8G8B8 allocation of exactly
-            // SAFETY: 720*486*4 bytes and lock() returned its valid base pointer.
-            let slice = unsafe { std::slice::from_raw_parts(ptr, 720 * 486 * 4) };
+            let slice = buffer.lock().unwrap();
             assert!(slice.iter().all(|&b| b == 0));
             buffer.unlock();
         }
@@ -682,10 +699,7 @@ mod tests {
         stream.frame_render(&mut buffer);
 
         {
-            let ptr = buffer.lock();
-            // SAFETY: the buffer is a 720x486 X8R8G8B8 allocation of exactly
-            // SAFETY: 720*486*4 bytes and lock() returned its valid base pointer.
-            let slice = unsafe { std::slice::from_raw_parts(ptr, 720 * 486 * 4) };
+            let slice = buffer.lock().unwrap();
             // At least some bytes should be non-zero now.
             let non_zero_count = slice.iter().filter(|&&b| b != 0).count();
             assert!(non_zero_count > 0, "frame_render should write pixel data");
@@ -697,10 +711,7 @@ mod tests {
         stream.frame_render(&mut buffer);
 
         {
-            let ptr = buffer.lock();
-            // SAFETY: the buffer is a 720x486 X8R8G8B8 allocation of exactly
-            // SAFETY: 720*486*4 bytes and lock() returned its valid base pointer.
-            let slice = unsafe { std::slice::from_raw_parts(ptr, 720 * 486 * 4) };
+            let slice = buffer.lock().unwrap();
             let non_zero_count = slice.iter().filter(|&&b| b != 0).count();
             assert!(non_zero_count > 0, "second frame should also write data");
             buffer.unlock();
@@ -718,10 +729,7 @@ mod tests {
         let mut stream = BinkVideoStream::new_from_dims(64, 64, 10);
         stream.frame_render(&mut buffer);
 
-        let ptr = buffer.lock();
-        // SAFETY: the buffer is a 64x64 R5G6B5 allocation of exactly 64*64*2
-        // SAFETY: bytes and lock() returned its valid base pointer.
-        let slice = unsafe { std::slice::from_raw_parts(ptr, 64 * 64 * 2) };
+        let slice = buffer.lock().unwrap();
         let non_zero = slice.iter().filter(|&&b| b != 0).count();
         assert!(non_zero > 0);
         buffer.unlock();
@@ -739,13 +747,11 @@ mod tests {
         stream.frame_render(&mut buffer);
 
         // Pixels outside the 32..96 region should remain zero.
-        let ptr = buffer.lock();
+        let pixels = buffer.lock().unwrap();
         let row_bytes = 128 * 4;
 
         // Check top-left corner (row 0, col 0) — should be zero.
-        // SAFETY: reads the first 4 bytes of a 128x128 X8R8G8B8 allocation
-        // SAFETY: (65536 bytes); lock() returned its valid base pointer.
-        let top_left = unsafe { std::slice::from_raw_parts(ptr, 4) };
+        let top_left = &pixels[..4];
         assert!(
             top_left.iter().all(|&b| b == 0),
             "top-left should be untouched"
@@ -753,9 +759,7 @@ mod tests {
 
         // Check pixel at (32, 32) — should be non-zero.
         let offset_32_32 = (32 * row_bytes) + (32 * 4);
-        // SAFETY: offset 32*512 + 32*4 = 16512, and reading 4 bytes there
-        // SAFETY: stays inside the 65536-byte 128x128 X8R8G8B8 allocation.
-        let pixel = unsafe { std::slice::from_raw_parts(ptr.add(offset_32_32), 4) };
+        let pixel = &pixels[offset_32_32..offset_32_32 + 4];
         assert!(
             pixel.iter().any(|&b| b != 0),
             "pixel at offset should be written"

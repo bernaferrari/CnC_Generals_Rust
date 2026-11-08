@@ -56,9 +56,12 @@ impl ZoneBlock {
     }
 
     /// Calculate zones for this block
+    ///
+    /// The column-major map is indexed relative to `bounds.lo`; `None`
+    /// represents a missing cell.
     pub fn block_calculate_zones(
         &mut self,
-        map: &[Vec<*const PathfindCell>],
+        map: &[Vec<Option<PathfindCell>>],
         _layers: &[PathfindLayer],
         bounds: &IRegion2D,
     ) {
@@ -71,11 +74,7 @@ impl ZoneBlock {
         for y in bounds.lo.y..=bounds.hi.y {
             for x in bounds.lo.x..=bounds.hi.x {
                 if let Some(cell) = self.get_cell_from_map(map, x, y, bounds) {
-                    // SAFETY: `cell` comes from `get_cell_from_map`, which
-                    // null-checks; it points into the pathfinder cell grid,
-                    // which is stable and unmodified for the duration of this
-                    // read-only scan.
-                    let zone = unsafe { (*cell).get_zone() };
+                    let zone = cell.get_zone();
                     min_zone = min_zone.min(zone);
                     max_zone = max_zone.max(zone);
                 }
@@ -108,9 +107,7 @@ impl ZoneBlock {
                 let Some(cell) = self.get_cell_from_map(map, x, y, bounds) else {
                     continue;
                 };
-                // SAFETY: same grid invariant as above — non-null pointer
-                // into the stable pathfinder cell grid, shared read only.
-                let cell_zone = unsafe { (*cell).get_zone() };
+                let cell_zone = cell.get_zone();
                 if cell_zone == 0 {
                     continue;
                 }
@@ -119,15 +116,9 @@ impl ZoneBlock {
                     let Some(left_cell) = self.get_cell_from_map(map, x - 1, y, bounds) else {
                         continue;
                     };
-                    // SAFETY: both pointers are distinct null-checked cells
-                    // of the stable grid; reading their zones is race-free.
-                    if cell_zone != unsafe { (*left_cell).get_zone() } {
-                        // SAFETY: distinct null-checked cells of the stable
-                        // grid; shared borrows only.
-                        let cell_ref = unsafe { &*cell };
-                        // SAFETY: distinct null-checked cells of the stable
-                        // grid; shared borrows only.
-                        let left_ref = unsafe { &*left_cell };
+                    if cell_zone != left_cell.get_zone() {
+                        let cell_ref = cell;
+                        let left_ref = left_cell;
 
                         if water_ground(cell_ref, left_ref) {
                             apply_block_zone(
@@ -168,15 +159,9 @@ impl ZoneBlock {
                     let Some(top_cell) = self.get_cell_from_map(map, x, y - 1, bounds) else {
                         continue;
                     };
-                    // SAFETY: both pointers are distinct null-checked cells
-                    // of the stable grid; reading their zones is race-free.
-                    if cell_zone != unsafe { (*top_cell).get_zone() } {
-                        // SAFETY: distinct null-checked cells of the stable
-                        // grid; shared borrows only.
-                        let cell_ref = unsafe { &*cell };
-                        // SAFETY: distinct null-checked cells of the stable
-                        // grid; shared borrows only.
-                        let top_ref = unsafe { &*top_cell };
+                    if cell_zone != top_cell.get_zone() {
+                        let cell_ref = cell;
+                        let top_ref = top_cell;
                         if water_ground(cell_ref, top_ref) {
                             apply_block_zone(
                                 cell,
@@ -371,31 +356,21 @@ impl ZoneBlock {
     }
 
     /// Get cell from map at given coordinates
-    fn get_cell_from_map(
+    fn get_cell_from_map<'a>(
         &self,
-        map: &[Vec<*const PathfindCell>],
+        map: &'a [Vec<Option<PathfindCell>>],
         x: i32,
         y: i32,
         bounds: &IRegion2D,
-    ) -> Option<*const PathfindCell> {
-        if x >= bounds.lo.x && x <= bounds.hi.x && y >= bounds.lo.y && y <= bounds.hi.y {
-            let map_x = (x - bounds.lo.x) as usize;
-            let map_y = (y - bounds.lo.y) as usize;
-
-            if map_x < map.len() && map_y < map[map_x].len() {
-                let cell_ptr = map[map_x][map_y];
-                if !cell_ptr.is_null() {
-                    Some(cell_ptr)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
+    ) -> Option<&'a PathfindCell> {
+        if x < bounds.lo.x || x > bounds.hi.x || y < bounds.lo.y || y > bounds.hi.y {
+            return None;
         }
+        let map_x = usize::try_from(x.checked_sub(bounds.lo.x)?).ok()?;
+        let map_y = usize::try_from(y.checked_sub(bounds.lo.y)?).ok()?;
+        map.get(map_x)?.get(map_y)?.as_ref()
     }
+
 }
 
 fn water_ground(target: &PathfindCell, source: &PathfindCell) -> bool {
@@ -459,18 +434,13 @@ fn resolve_block_zones(
 }
 
 fn apply_block_zone(
-    target: *const PathfindCell,
-    source: *const PathfindCell,
+    target: &PathfindCell,
+    source: &PathfindCell,
     zone_equivalency: &mut [ZoneStorageType],
     first_zone: ZoneStorageType,
 ) {
-    // SAFETY: callers pass null-checked cells from the same stable pathfinder
-    // cell grid (see `get_cell_from_map`); only `get_zone` is called, so no
-    // aliasing mutation occurs.
-    let src_zone = unsafe { (*source).get_zone() };
-    // SAFETY: `target` is a null-checked cell from the same stable grid as
-    // `source` above; shared read of its zone.
-    let target_zone = unsafe { (*target).get_zone() };
+    let src_zone = source.get_zone();
+    let target_zone = target.get_zone();
     if src_zone < first_zone || target_zone < first_zone {
         return;
     }

@@ -550,20 +550,15 @@ pub fn video_buffer_rgba_mut(buffer: &mut dyn VideoBuffer) -> Option<(u32, u32, 
         return None;
     }
     let byte_len = (pitch as usize).saturating_mul(height as usize);
-    let ptr = buffer.lock();
-    if ptr.is_null() || byte_len == 0 {
-        buffer.unlock();
-        return None;
-    }
-    // SAFETY: ptr came from buffer.lock() (non-null checked above) and points at
-    // SAFETY: the locked buffer's backing store; byte_len = pitch*height bounds the
-    // SAFETY: readable region. The slice is consumed before buffer.unlock() below.
-    let src = unsafe { std::slice::from_raw_parts(ptr, byte_len) };
-    let data = match buffer.format() {
-        VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),
-        VideoBufferType::R8G8B8 => convert_r8g8b8(src, width, height, pitch),
-        _ => None,
-    };
+    let format = buffer.format();
+    let data = buffer.lock().and_then(|pixels| {
+        let src = pixels.get(..byte_len).filter(|src| !src.is_empty())?;
+        match format {
+            VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),
+            VideoBufferType::R8G8B8 => convert_r8g8b8(src, width, height, pitch),
+            _ => None,
+        }
+    });
     buffer.unlock();
     data.map(|data| (width, height, data))
 }
@@ -937,6 +932,33 @@ pub fn apply_draw_image_color(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_frame_reads_padded_rows_and_rejects_short_storage() {
+        use crate::video_buffer::SoftwareVideoBuffer;
+
+        for (format, pixel) in [
+            (VideoBufferType::X8R8G8B8, &[3, 2, 1, 42][..]),
+            (VideoBufferType::R8G8B8, &[3, 2, 1][..]),
+        ] {
+            let mut buffer = SoftwareVideoBuffer::new(format);
+            assert!(buffer.allocate(3, 2));
+            let pitch = buffer.pitch() as usize;
+            for row in buffer.lock().unwrap().chunks_exact_mut(pitch).take(2) {
+                for dst in row.chunks_exact_mut(pixel.len()).take(3) {
+                    dst.copy_from_slice(pixel);
+                }
+            }
+            buffer.unlock();
+            let (width, height, data) = video_buffer_rgba_mut(&mut buffer).unwrap();
+            assert_eq!((width, height), (3, 2));
+            assert_eq!(data, [1, 2, 3, 255].repeat(6));
+        }
+
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
+        assert!(buffer.allocate(1, 4097));
+        assert!(video_buffer_rgba_mut(&mut buffer).is_none());
+    }
 
     #[test]
     fn gamma_identity_at_defaults() {

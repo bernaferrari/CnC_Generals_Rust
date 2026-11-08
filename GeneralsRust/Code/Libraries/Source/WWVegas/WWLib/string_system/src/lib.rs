@@ -12,6 +12,7 @@
 use base_types::*;
 use std::alloc::{Layout, alloc, dealloc};
 use std::cmp::Ordering;
+use std::ffi::CStr;
 use std::fmt;
 use std::ptr;
 use std::sync::atomic::{AtomicU16, Ordering as AtomicOrdering};
@@ -157,7 +158,11 @@ impl AsciiStringData {
     fn increment_ref_count(data: *mut Self) {
         // SAFETY: [Category 3 — dangling] `data` points to live string data; the atomic increment needs no uniqueness.
         unsafe {
-            (*data).ref_count.fetch_add(1, AtomicOrdering::Relaxed);
+            (*data).ref_count.fetch_update(
+                AtomicOrdering::Relaxed,
+                AtomicOrdering::Relaxed,
+                |count| count.checked_add(1),
+            ).expect("AsciiString reference count overflow");
         }
     }
 
@@ -242,21 +247,13 @@ impl AsciiString {
         Ok(Self { data })
     }
 
-    /// Create an AsciiString from a C-style string pointer
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn from_c_str(s: *const libc::c_char) -> Result<Self, String> {
-        if s.is_null() {
+    /// Create an AsciiString from a borrowed C string, or empty for a null input.
+    pub fn from_c_str(s: Option<&CStr>) -> Result<Self, String> {
+        let Some(s) = s else {
             return Ok(Self::THE_EMPTY_STRING);
-        }
-
-        // SAFETY: [Category 8 — FFI] `s` is a valid NUL-terminated C string per the from_c_str contract; libc::strlen stays within it.
-        unsafe {
-            let len = libc::strlen(s);
-            let slice = std::slice::from_raw_parts(s as *const u8, len);
-            let rust_str =
-                std::str::from_utf8(slice).map_err(|e| format!("Invalid UTF-8 sequence: {}", e))?;
-            Self::from_str(rust_str)
-        }
+        };
+        let rust_str = s.to_str().map_err(|e| format!("Invalid UTF-8 sequence: {}", e))?;
+        Self::from_str(rust_str)
     }
 
     /// Get the length of the string in characters
@@ -318,19 +315,8 @@ impl AsciiString {
 
     /// Set the string from another AsciiString
     pub fn set(&mut self, other: &AsciiString) {
-        if !self.data.is_null() {
-            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
-            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
-            unsafe {
-                if AsciiStringData::decrement_ref_count(self.data) {
-                    AsciiStringData::free(self.data);
-                }
-            }
-        }
-
-        self.data = other.data;
-        if !self.data.is_null() {
-            AsciiStringData::increment_ref_count(self.data);
+        if self.data != other.data {
+            *self = other.clone();
         }
     }
 
@@ -628,10 +614,19 @@ impl std::ops::AddAssign<&str> for AsciiString {
 
 #[cfg(feature = "unicode")]
 /// UnicodeString - Reference-counted Unicode string with copy-on-write semantics
-#[derive(Clone)]
 pub struct UnicodeString {
     /// Pointer to the reference-counted string data
     data: *mut UnicodeStringData,
+}
+
+#[cfg(feature = "unicode")]
+impl Clone for UnicodeString {
+    fn clone(&self) -> Self {
+        if !self.data.is_null() {
+            UnicodeStringData::increment_ref_count(self.data);
+        }
+        Self { data: self.data }
+    }
 }
 
 #[cfg(feature = "unicode")]
@@ -766,20 +761,17 @@ impl UnicodeString {
         }
     }
 
-    /// Get as UTF-8 string
-    pub fn as_str(&self) -> &str {
+    /// Convert to an owned UTF-8 string, replacing invalid UTF-16 sequences.
+    pub fn as_str(&self) -> String {
         if self.data.is_null() {
-            ""
+            String::new()
         } else {
             // SAFETY: [Category 10 — OOB / Category 5 — invalid values] slice covers exactly get_length() code units of the NUL-terminated payload written by from_str.
             unsafe {
                 let data_ptr = UnicodeStringData::data_ptr_const(self.data);
                 let len = self.get_length();
                 let utf16_slice = std::slice::from_raw_parts(data_ptr, len);
-                let utf8: String = String::from_utf16_lossy(utf16_slice);
-                // This is not ideal - we should return a Cow or similar
-                // For now, we'll leak the string to return a static reference
-                Box::leak(utf8.into_boxed_str())
+                String::from_utf16_lossy(utf16_slice)
             }
         }
     }
@@ -787,7 +779,7 @@ impl UnicodeString {
     /// Convert to AsciiString (lossy conversion)
     pub fn to_ascii(&self) -> AsciiString {
         let utf8 = self.as_str();
-        AsciiString::from_str(utf8).unwrap_or(AsciiString::THE_EMPTY_STRING)
+        AsciiString::from_str(&utf8).unwrap_or(AsciiString::THE_EMPTY_STRING)
     }
 }
 
@@ -811,7 +803,11 @@ impl UnicodeStringData {
     fn increment_ref_count(data: *mut Self) {
         // SAFETY: [Category 3 — dangling] `data` points to live string data; the atomic increment needs no uniqueness.
         unsafe {
-            (*data).ref_count.fetch_add(1, AtomicOrdering::Relaxed);
+            (*data).ref_count.fetch_update(
+                AtomicOrdering::Relaxed,
+                AtomicOrdering::Relaxed,
+                |count| count.checked_add(1),
+            ).expect("UnicodeString reference count overflow");
         }
     }
 
@@ -986,11 +982,68 @@ mod tests {
 
     #[cfg(feature = "unicode")]
     #[test]
+    fn unicode_clone_survives_mutation_and_drop_order() {
+        let original = UnicodeString::from_str("original").unwrap();
+        let mut changed = original.clone();
+        let survivor = original.clone();
+        changed.set_str("changed").unwrap();
+        drop(original);
+        assert_eq!(survivor.as_str(), "original");
+        assert_eq!(changed.as_str(), "changed");
+        drop(changed);
+        assert_eq!(survivor.as_str(), "original");
+
+        let survivor = {
+            let source = UnicodeString::from_str("retained").unwrap();
+            source.clone()
+        };
+        assert_eq!(survivor.as_str(), "retained");
+    }
+
+    #[test]
+    fn ascii_clone_overflow_panics_without_invalidating_owners() {
+        let original = AsciiString::from_str("retained").unwrap();
+        let copies: Vec<_> = (1..u16::MAX).map(|_| original.clone()).collect();
+        let mut destination = AsciiString::from_str("destination").unwrap();
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            destination.set(&original);
+        })).is_err());
+        assert_eq!(destination.as_str(), "destination");
+        assert!(std::panic::catch_unwind(|| original.clone()).is_err());
+        drop(copies);
+        assert_eq!(original.as_str(), "retained");
+    }
+
+    #[cfg(feature = "unicode")]
+    #[test]
+    fn unicode_clone_overflow_panics_without_invalidating_owners() {
+        let original = UnicodeString::from_str("retained").unwrap();
+        let copies: Vec<_> = (1..u16::MAX).map(|_| original.clone()).collect();
+        assert!(std::panic::catch_unwind(|| original.clone()).is_err());
+        drop(copies);
+        assert_eq!(original.as_str(), "retained");
+    }
+
+    #[cfg(feature = "unicode")]
+    #[test]
     fn test_ascii_to_unicode_conversion() {
         let ascii = AsciiString::from_str("Hello World").unwrap();
         let unicode = ascii.to_unicode();
         let back_to_ascii = unicode.to_ascii();
 
         assert_eq!(ascii.as_str(), back_to_ascii.as_str());
+    }
+
+    #[cfg(feature = "unicode")]
+    #[test]
+    fn repeated_unicode_conversion_produces_independent_owned_text() {
+        let mut value = UnicodeString::from_str("A😀Z").unwrap();
+        let first = value.as_str();
+        let second = value.as_str();
+        assert_eq!(value.get_length(), 4);
+        value.set_str("updated").unwrap();
+        assert_eq!(first, "A😀Z");
+        assert_eq!(second, "A😀Z");
+        assert_eq!(value.to_ascii().as_str(), "updated");
     }
 }

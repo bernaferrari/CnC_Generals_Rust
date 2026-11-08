@@ -89,15 +89,11 @@
       "undocumented": 1
     },
     "Code/GameEngine/Common/src/memory/allocator.rs": {
-      "constructs": 26,
+      "constructs": 25,
       "undocumented": 0
     },
     "Code/GameEngine/Common/src/memory/generation.rs": {
       "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/memory/tests.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngine/Common/tests/function_lexicon.rs": {
@@ -124,10 +120,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/bink.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/core/game_client/global_boundary_fixture.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -144,10 +136,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/display/display_fx.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/display/image.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -160,19 +148,11 @@
       "constructs": 3,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/gui/game_window/callbacks.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/gui/ui_renderer.rs": {
       "constructs": 2,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/terrain/terrain_visual/visual_struct.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/video_stream.rs": {
       "constructs": 1,
       "undocumented": 0
     },
@@ -336,14 +316,6 @@
       "constructs": 7,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/path/zone_block.rs": {
-      "constructs": 10,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/path/zone_manager.rs": {
-      "constructs": 21,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/stealth_update.rs": {
       "constructs": 1,
       "undocumented": 0
@@ -409,7 +381,7 @@
       "undocumented": 0
     },
     "Code/GameEngineDevice/src/VideoDevice/Bink/bink_video_player.rs": {
-      "constructs": 14,
+      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_game_font.rs": {
@@ -484,16 +456,8 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets/src/shatter.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision/src/aabtree_optimized.rs": {
       "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision/src/physics_integration.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine/src/frame_submit.rs": {
@@ -669,7 +633,7 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/blit.rs": {
-      "constructs": 10,
+      "constructs": 6,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/blitter.rs": {
@@ -700,10 +664,6 @@
       "constructs": 26,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WWLib/src/rlerle.rs": {
-      "constructs": 41,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWLib/src/surface.rs": {
       "constructs": 3,
       "undocumented": 0
@@ -725,7 +685,7 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/string_system/src/lib.rs": {
-      "constructs": 47,
+      "constructs": 45,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWSaveLoad/src/pointerremap.rs": {

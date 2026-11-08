@@ -185,57 +185,63 @@ pub fn rle_blit_clipped(
         return false;
     }
 
-    let leftmargin = srect.x - scliprect.x;
-    let mut topmargin = srect.y - scliprect.y;
-
-    let dpoint = Point2D::new(dcliprect.x + drect.x, dcliprect.y + drect.y);
-    let mut dbuffer = match dest.lock(Point2D::new(0, 0)) {
+    let Some(leftmargin) = srect.x.checked_sub(scliprect.x).and_then(|v| usize::try_from(v).ok()) else {
+        return false;
+    };
+    let Some(topmargin) = srect.y.checked_sub(scliprect.y).and_then(|v| usize::try_from(v).ok()) else {
+        return false;
+    };
+    let (Some(x), Some(y), Ok(width), Ok(height)) = (
+        dcliprect.x.checked_add(drect.x).and_then(|v| usize::try_from(v).ok()),
+        dcliprect.y.checked_add(drect.y).and_then(|v| usize::try_from(v).ok()),
+        usize::try_from(srect.width.min(drect.width)),
+        usize::try_from(srect.height.min(drect.height)),
+    ) else {
+        return false;
+    };
+    let pixel_size = dest.bytes_per_pixel();
+    if pixel_size != blitter.pixel_size() {
+        return false;
+    }
+    let stride = dest.stride();
+    let Some(x_offset) = x.checked_mul(pixel_size) else { return false };
+    let Some(row_bytes) = width.checked_mul(pixel_size) else { return false };
+    if x_offset.checked_add(row_bytes).map_or(true, |end| end > stride) {
+        return false;
+    }
+    let source_lock = match source.lock(Point2D::new(0, 0)) {
         Ok(lock) => lock,
         Err(_) => return false,
     };
-    let mut sbuffer = match source.lock(Point2D::new(0, 0)) {
-        Ok(lock) => lock,
-        Err(_) => return false,
+    let source_bytes = source_lock.bytes();
+    let dest_bytes = match dest.rle_buffer_mut() {
+        Some(bytes) => bytes,
+        None => return false,
     };
 
-    // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
-    let mut dptr = unsafe {
-        dbuffer
-            .get_pixel_ptr(dpoint)
-            .unwrap_or(std::ptr::null_mut())
-    };
-    if dptr.is_null() {
-        return false;
-    }
-
-    // SAFETY: [Category 3 — dangling] raw data pointer of the locked surface, valid while the lock is held.
-    let mut sptr = unsafe { sbuffer.data_ptr() };
-    if sptr.is_null() {
-        return false;
-    }
-
-    // SAFETY: [Category 10 — OOB] walks the well-formed compressed shape stream (u16 line length header per row), staying inside the source buffer.
-    unsafe {
-        while topmargin > 0 {
-            let line_len = *(sptr as *const u16) as i32;
-            sptr = sptr.add(line_len as usize);
-            topmargin -= 1;
+    let mut source_offset = 0usize;
+    for row in 0..topmargin.saturating_add(height) {
+        let Some(header) = source_bytes.get(source_offset..source_offset.saturating_add(2)) else {
+            return false;
+        };
+        let line_len = u16::from_ne_bytes([header[0], header[1]]) as usize;
+        if line_len < 2 {
+            return false;
         }
-    }
-
-    let dstride = dest.stride() as i32;
-    let height = srect.height.min(drect.height);
-    for _ in 0..height {
-        // SAFETY: [Category 10 — OOB] walks the well-formed compressed shape stream (u16 line length header per row), staying inside the source buffer.
-        unsafe {
-            let line_len = *(sptr as *const u16) as i32;
-            let line_data = sptr.add(2);
-            blitter.blit(dptr, line_data, srect.width, leftmargin);
-            sptr = sptr.add(line_len as usize);
-            dptr = dptr.offset(dstride as isize);
+        let Some(end) = source_offset.checked_add(line_len) else { return false };
+        let Some(line) = source_bytes.get(source_offset + 2..end) else { return false };
+        if row >= topmargin {
+            let Some(offset) = y.checked_add(row - topmargin)
+                .and_then(|row| row.checked_mul(stride))
+                .and_then(|offset| offset.checked_add(x_offset)) else { return false };
+            let Some(end) = offset.checked_add(row_bytes) else { return false };
+            let Some(target) = dest_bytes.get_mut(offset..end) else { return false };
+            if !blitter.blit(target, line, width, leftmargin) {
+                return false;
+            }
         }
+        source_offset = end;
     }
-
     true
 }
 
@@ -356,4 +362,36 @@ fn prep_for_blit<'a>(
             _source_lock: source_lock,
         },
     ))
+}
+
+#[cfg(test)]
+mod rle_tests {
+    use super::*;
+    use crate::rlerle::RLEBlitTransXlat;
+    use crate::surface::PixelFormat;
+
+    #[test]
+    fn rle_surface_blit_clips_and_uses_line_lengths() {
+        let mut source = Surface::new(4, 3, PixelFormat::Palette8).unwrap();
+        let mut encoded = [0u8; 12];
+        encoded[..2].copy_from_slice(&5u16.to_ne_bytes());
+        encoded[2..5].copy_from_slice(&[1, 0, 3]);
+        encoded[5..7].copy_from_slice(&6u16.to_ne_bytes());
+        encoded[7..11].copy_from_slice(&[2, 0, 2, 3]);
+        source.rle_buffer_mut().unwrap().copy_from_slice(&encoded);
+        let mut dest = Surface::new(4, 2, PixelFormat::Palette8).unwrap();
+        dest.rle_buffer_mut().unwrap().fill(99);
+        let translate = [0u8, 11, 22, 33];
+        assert!(rle_blit(&mut dest, Rect::new(-1, 0, 4, 2), &source,
+                         Rect::new(0, 0, 4, 2), &RLEBlitTransXlat::new(&translate)));
+        assert_eq!(dest.rle_buffer_mut().unwrap(), &[99, 99, 99, 99, 99, 99, 33, 99]);
+    }
+
+    #[test]
+    fn rle_surface_blit_rejects_truncated_line_header() {
+        let source = Surface::new(1, 1, PixelFormat::Palette8).unwrap();
+        let mut dest = Surface::new(1, 1, PixelFormat::Palette8).unwrap();
+        assert!(!rle_blit(&mut dest, Rect::new(0, 0, 1, 1), &source,
+                          Rect::new(0, 0, 1, 1), &RLEBlitTransXlat::new(&[0u8; 256])));
+    }
 }

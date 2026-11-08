@@ -200,21 +200,17 @@ pub(crate) fn read_video_frame(buffer: &VideoBufferHandle) -> Option<VideoFrameD
         return None;
     }
     let byte_len = (pitch as usize).saturating_mul(height as usize);
-    let ptr = guard.lock();
-    if ptr.is_null() || byte_len == 0 {
-        guard.unlock();
-        return None;
-    }
-    // SAFETY: ptr from guard.lock(), null-checked above; byte_len = pitch*height
-    // SAFETY: bounds the locked backing store, and the slice dies before unlock().
-    let src = unsafe { std::slice::from_raw_parts(ptr, byte_len) };
-    let data = match guard.format() {
-        VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),
-        VideoBufferType::R8G8B8 => convert_r8g8b8(src, width, height, pitch),
-        VideoBufferType::R5G6B5 => convert_r5g6b5(src, width, height, pitch),
-        VideoBufferType::X1R5G5B5 => convert_x1r5g5b5(src, width, height, pitch),
-        VideoBufferType::Unknown => None,
-    };
+    let format = guard.format();
+    let data = guard.lock().and_then(|pixels| {
+        let src = pixels.get(..byte_len).filter(|src| !src.is_empty())?;
+        match format {
+            VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),
+            VideoBufferType::R8G8B8 => convert_r8g8b8(src, width, height, pitch),
+            VideoBufferType::R5G6B5 => convert_r5g6b5(src, width, height, pitch),
+            VideoBufferType::X1R5G5B5 => convert_x1r5g5b5(src, width, height, pitch),
+            VideoBufferType::Unknown => None,
+        }
+    });
     guard.unlock();
     data.map(|data| VideoFrameData {
         width,
@@ -467,5 +463,42 @@ pub(crate) fn char_input_event(key: WindowMsgData, state: WindowMsgData) -> Opti
         Some(InputEvent::KeyUp { key, modifiers })
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod video_frame_tests {
+    use super::*;
+    use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer};
+
+    #[test]
+    fn window_frame_reads_each_format_with_padded_rows() {
+        for (format, pixel, expected) in [
+            (VideoBufferType::R8G8B8, &[255, 0, 0][..], [255, 0, 0, 255]),
+            (VideoBufferType::X8R8G8B8, &[0, 0, 255, 42][..], [255, 0, 0, 255]),
+            (VideoBufferType::R5G6B5, &[0x00, 0xf8][..], [255, 0, 0, 255]),
+            (VideoBufferType::X1R5G5B5, &[0x00, 0x7c][..], [255, 0, 0, 255]),
+        ] {
+            let mut buffer = SoftwareVideoBuffer::new(format);
+            assert!(buffer.allocate(3, 2));
+            let pitch = buffer.pitch() as usize;
+            for row in buffer.lock().unwrap().chunks_exact_mut(pitch).take(2) {
+                for dst in row.chunks_exact_mut(pixel.len()).take(3) {
+                    dst.copy_from_slice(pixel);
+                }
+            }
+            buffer.unlock();
+            let handle = VideoBufferHandle::new(buffer);
+            let frame = read_video_frame(&handle).unwrap();
+            assert_eq!((frame.width, frame.height), (3, 2));
+            assert_eq!(frame.data, expected.repeat(6));
+        }
+    }
+
+    #[test]
+    fn window_frame_rejects_dimensions_beyond_allocated_texture() {
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::R8G8B8);
+        assert!(buffer.allocate(1, 4097));
+        assert!(read_video_frame(&VideoBufferHandle::new(buffer)).is_none());
     }
 }

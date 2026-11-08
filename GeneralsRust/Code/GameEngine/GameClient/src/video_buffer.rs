@@ -70,7 +70,8 @@ impl Default for RectClass {
 pub trait VideoBuffer: Send {
     fn allocate(&mut self, width: UnsignedInt, height: UnsignedInt) -> Bool;
     fn free(&mut self);
-    fn lock(&mut self) -> *mut u8;
+    /// Borrows the backing storage until the caller finishes using the pixels.
+    fn lock(&mut self) -> Option<&mut [u8]>;
     fn unlock(&mut self);
     fn valid(&self) -> Bool;
     fn x_pos(&self) -> UnsignedInt;
@@ -251,8 +252,12 @@ impl VideoBuffer for SoftwareVideoBuffer {
         self.base.free_base();
     }
 
-    fn lock(&mut self) -> *mut u8 {
-        self.data.as_mut_ptr()
+    fn lock(&mut self) -> Option<&mut [u8]> {
+        if self.data.is_empty() {
+            None
+        } else {
+            Some(&mut self.data)
+        }
     }
 
     fn unlock(&mut self) {}

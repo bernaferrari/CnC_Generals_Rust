@@ -349,6 +349,11 @@ impl<'a> SurfaceLock<'a> {
         self.stride
     }
 
+    /// Access the locked surface's bytes for the lifetime of this borrow.
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.surface.buffer
+    }
+
     /// Get the raw data pointer.
     ///
     /// # Safety
@@ -423,6 +428,14 @@ pub struct Surface {
 }
 
 impl Surface {
+    /// Borrow the complete backing store exclusively, provided it is not locked.
+    pub(crate) fn rle_buffer_mut(&mut self) -> Option<&mut [u8]> {
+        if *self.is_locked.lock().unwrap() {
+            return None;
+        }
+        Some(&mut self.buffer)
+    }
+
     /// Create a new surface with the specified dimensions and pixel format.
     ///
     /// # Arguments  

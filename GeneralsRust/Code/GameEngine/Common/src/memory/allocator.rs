@@ -94,12 +94,12 @@ impl<T> Slab<T> {
 
     /// Get a pointer to a specific slot.
     #[inline]
-    // SAFETY: caller contract below — index < capacity, so offset
-    // index*slot_stride stays inside this slab allocation.
-    pub unsafe fn slot_ptr(&self, index: usize) -> *mut SlotEntry<T> {
+    // Computing a raw pointer is safe even if an index is invalid; callers
+    // must still establish bounds and initialization before dereferencing it.
+    pub(crate) fn slot_ptr(&self, index: usize) -> *mut SlotEntry<T> {
         debug_assert!(index < self.capacity);
         (self.ptr.as_ptr() as *mut u8)
-            .add(index.saturating_mul(self.slot_stride))
+            .wrapping_add(index.saturating_mul(self.slot_stride))
             .cast()
     }
 
@@ -791,6 +791,26 @@ mod tests {
         let value = allocator.dealloc(idx).unwrap();
         assert_eq!(value, 42);
         assert_eq!(allocator.len(), 0);
+    }
+
+    #[test]
+    fn public_allocator_preserves_alignment_and_rejects_out_of_bounds() {
+        let config = PoolConfigBuilder::new("aligned")
+            .with_initial_capacity(8)
+            .with_alignment(64)
+            .fixed_size()
+            .build();
+        let mut allocator = PoolAllocator::new(config).unwrap();
+        for value in 0..8_u8 {
+            let index = allocator.alloc(value).unwrap();
+            let stored = allocator.get(index).unwrap();
+            assert_eq!(*stored, value);
+            assert_eq!((stored as *const u8 as usize) % 64, 0);
+        }
+        assert!(allocator.alloc(8).is_err());
+        assert!(allocator.get(8).is_none());
+        assert!(allocator.get_mut(8).is_none());
+        assert!(allocator.dealloc(8).is_err());
     }
 
     #[test]

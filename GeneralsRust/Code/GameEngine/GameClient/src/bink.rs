@@ -362,23 +362,19 @@ impl VideoStreamInterface for BinkVideoStream {
         let copy_width = width.min(buffer.width() as usize);
         let copy_height = height.min(buffer.height() as usize);
         let pitch = buffer.pitch() as usize;
-        let dst = buffer.lock();
-        if dst.is_null() {
+        let format = buffer.format();
+        let bpp = bytes_per_pixel(format);
+        let Some(dst) = buffer.lock() else {
             return;
-        }
+        };
 
-        for y in 0..copy_height {
-            for x in 0..copy_width {
-                let src_index = (y * width + x) * 4;
-                let rgba = &self.current_rgba[src_index..src_index + 4];
-                let dst_index = y * pitch + x * bytes_per_pixel(buffer.format());
-                // SAFETY: dst comes from buffer.lock() (null-checked above) and points
-                // SAFETY: into the locked VideoBuffer backing store; dst_index stays
-                // SAFETY: within pitch*height because copy_width/copy_height are min'd
-                // SAFETY: against the buffer dimensions and bytes_per_pixel matches format.
-
-                unsafe {
-                    write_pixel(dst.add(dst_index), buffer.format(), rgba);
+        if pitch != 0 && bpp != 0 {
+            let copy_width = copy_width.min(pitch / bpp);
+            for (y, row) in dst.chunks_exact_mut(pitch).take(copy_height).enumerate() {
+                for (x, pixel) in row.chunks_exact_mut(bpp).take(copy_width).enumerate() {
+                    let src_index = (y * width + x) * 4;
+                    let rgba = &self.current_rgba[src_index..src_index + 4];
+                    write_pixel(pixel, format, rgba);
                 }
             }
         }
@@ -650,34 +646,23 @@ fn bytes_per_pixel(format: VideoBufferType) -> usize {
     }
 }
 
-// SAFETY: `dst` must point to at least bytes_per_pixel(format) writable bytes
-// SAFETY: within a locked VideoBuffer; `rgba` must have 4 readable elements.
-// SAFETY: Callers satisfy this via the bounds-checked copy loop in frame_render.
-
-unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, rgba: &[u8]) {
+fn write_pixel(dst: &mut [u8], format: VideoBufferType, rgba: &[u8]) {
     let r = rgba[0];
     let g = rgba[1];
     let b = rgba[2];
     let a = rgba[3];
     match format {
         VideoBufferType::X8R8G8B8 => {
-            *dst = b;
-            *dst.add(1) = g;
-            *dst.add(2) = r;
-            *dst.add(3) = a;
+            dst.copy_from_slice(&[b, g, r, a]);
         }
         VideoBufferType::R8G8B8 => {
-            *dst = r;
-            *dst.add(1) = g;
-            *dst.add(2) = b;
+            dst.copy_from_slice(&[r, g, b]);
         }
         VideoBufferType::R5G6B5 => {
             let packed = (((r as u16 >> 3) & 0x1F) << 11)
                 | (((g as u16 >> 2) & 0x3F) << 5)
                 | ((b as u16 >> 3) & 0x1F);
-            let bytes = packed.to_le_bytes();
-            *dst = bytes[0];
-            *dst.add(1) = bytes[1];
+            dst.copy_from_slice(&packed.to_le_bytes());
         }
         VideoBufferType::X1R5G5B5 => {
             let alpha_bit = if a >= 128 { 1u16 } else { 0u16 };
@@ -685,9 +670,7 @@ unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, rgba: &[u8]) {
                 | (((r as u16 >> 3) & 0x1F) << 10)
                 | (((g as u16 >> 3) & 0x1F) << 5)
                 | ((b as u16 >> 3) & 0x1F);
-            let bytes = packed.to_le_bytes();
-            *dst = bytes[0];
-            *dst.add(1) = bytes[1];
+            dst.copy_from_slice(&packed.to_le_bytes());
         }
         VideoBufferType::Unknown => {}
     }
@@ -718,6 +701,45 @@ mod tests {
             *byte = i as u8;
         }
         bytes
+    }
+
+    #[test]
+    fn frame_render_converts_pixels_and_preserves_row_padding() {
+        use crate::video_buffer::SoftwareVideoBuffer;
+
+        let decoder = BinkDecoder::from_bytes(make_bink_blob(*b"BIKi")).unwrap();
+        let mut stream = BinkVideoStream {
+            decoder,
+            current_rgba: (0..16)
+                .flat_map(|i| [255, 128, 0, if i % 2 == 0 { 127 } else { 128 }])
+                .collect(),
+            frame_accumulator: Duration::ZERO,
+            last_update: Instant::now(),
+            state: PlaybackState::Playing,
+            volume: 1.0,
+        };
+        for (format, even, odd) in [
+            (VideoBufferType::R8G8B8, &[255, 128, 0][..], &[255, 128, 0][..]),
+            (VideoBufferType::X8R8G8B8, &[0, 128, 255, 127][..], &[0, 128, 255, 128][..]),
+            (VideoBufferType::R5G6B5, &[0x00, 0xfc][..], &[0x00, 0xfc][..]),
+            (VideoBufferType::X1R5G5B5, &[0x00, 0x7e][..], &[0x00, 0xfe][..]),
+        ] {
+            let mut buffer = SoftwareVideoBuffer::new(format);
+            assert!(buffer.allocate(3, 2));
+            let pitch = buffer.pitch() as usize;
+            buffer.lock().unwrap().fill(0x55);
+            buffer.unlock();
+            stream.frame_render(&mut buffer);
+            let pixels = buffer.lock().unwrap();
+            let bpp = even.len();
+            for row in pixels.chunks_exact(pitch).take(2) {
+                assert_eq!(&row[..bpp], even);
+                assert_eq!(&row[bpp..2 * bpp], odd);
+                assert_eq!(&row[2 * bpp..3 * bpp], even);
+                assert!(row[3 * bpp..].iter().all(|&byte| byte == 0x55));
+            }
+            buffer.unlock();
+        }
     }
 
     #[test]

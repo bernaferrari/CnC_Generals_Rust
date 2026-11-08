@@ -28,7 +28,6 @@ const ZONE_UPDATE_FREQUENCY: u32 = 300;
 pub struct PathfindZoneManager {
     // Zone block management
     block_of_zone_blocks: Vec<ZoneBlock>, // Zone blocks - Info for hierarchical pathfinding at a "blocky" level
-    zone_blocks: Vec<Vec<*mut ZoneBlock>>, // Zone blocks as a matrix - contains matrix indexing into the map
     zone_block_extent: ICoord2D, // Zone block extents. Not the same scale as the pathfind extents
 
     // Zone tracking
@@ -50,7 +49,6 @@ impl PathfindZoneManager {
     pub fn new() -> Self {
         Self {
             block_of_zone_blocks: Vec::new(),
-            zone_blocks: Vec::new(),
             zone_block_extent: ICoord2D::new(0, 0),
             max_zone: 0,
             next_frame_to_calculate_zones: 0,
@@ -91,9 +89,12 @@ impl PathfindZoneManager {
     }
 
     /// Update zones for structure modification
+    ///
+    /// The column-major map is indexed relative to `global_bounds.lo`; `None`
+    /// represents a missing cell.
     pub fn update_zones_for_modify(
         &mut self,
-        map: &[Vec<*mut PathfindCell>],
+        map: &mut [Vec<Option<PathfindCell>>],
         layers: &[PathfindLayer],
         structure_bounds: &IRegion2D,
         global_bounds: &IRegion2D,
@@ -135,72 +136,23 @@ impl PathfindZoneManager {
 
                 for y in block_bounds.lo.y..=block_bounds.hi.y {
                     for x in block_bounds.lo.x..=block_bounds.hi.x {
-                        let Some(cell_ptr) = self.get_cell_from_map(map, x, y, global_bounds)
-                        else {
+                        let Some(cell) = Self::get_cell_from_map(map, x, y, global_bounds) else {
                             continue;
                         };
-                        // SAFETY: `cell_ptr` comes from `get_cell_from_map`,
-                        // which null-checks; it points into the pathfinder
-                        // cell grid, which is stable and exclusively owned by
-                        // this call for its duration.
-                        let cell_ref = unsafe { &mut *cell_ptr };
-                        if cell_ref.get_zone() != UNINITIALIZED_ZONE {
+                        if cell.get_zone() != UNINITIALIZED_ZONE {
                             continue;
                         }
-
-                        if x > block_bounds.lo.x {
-                            if let Some(left_ptr) =
-                                self.get_cell_from_map(map, x - 1, y, global_bounds)
-                            {
-                                // SAFETY: `left_ptr` is a distinct
-                                // null-checked cell of the same stable grid;
-                                // shared read only.
-                                let left_ref = unsafe { &*left_ptr };
-                                if types_match(cell_ref, left_ref) {
-                                    cell_ref.set_zone(left_ref.get_zone());
-                                    if cell_ref.get_zone() != UNINITIALIZED_ZONE {
-                                        continue;
-                                    }
-                                }
-                            }
+                        if x > block_bounds.lo.x
+                            && inherit_zone(map, global_bounds, (x, y), (x - 1, y), None)
+                        {
+                            continue;
                         }
-
                         if y > block_bounds.lo.y {
-                            if let Some(top_ptr) =
-                                self.get_cell_from_map(map, x, y - 1, global_bounds)
-                            {
-                                // SAFETY: distinct null-checked cell of the
-                                // stable grid; shared read only.
-                                let top_ref = unsafe { &*top_ptr };
-                                if types_match(cell_ref, top_ref) {
-                                    cell_ref.set_zone(top_ref.get_zone());
-                                    if cell_ref.get_zone() != UNINITIALIZED_ZONE {
-                                        continue;
-                                    }
-                                }
+                            if inherit_zone(map, global_bounds, (x, y), (x, y - 1), None) {
+                                continue;
                             }
-
                             if x < block_bounds.hi.x {
-                                let diag_ptr =
-                                    self.get_cell_from_map(map, x + 1, y - 1, global_bounds);
-                                let right_ptr =
-                                    self.get_cell_from_map(map, x + 1, y, global_bounds);
-                                if let (Some(diag_ptr), Some(right_ptr)) = (diag_ptr, right_ptr) {
-                                    // SAFETY: distinct null-checked cells of
-                                    // the stable grid; shared reads only.
-                                    let diag_ref = unsafe { &*diag_ptr };
-                                    // SAFETY: distinct null-checked cells of
-                                    // the stable grid; shared reads only.
-                                    let right_ref = unsafe { &*right_ptr };
-                                    if types_match(cell_ref, diag_ref)
-                                        && types_match(cell_ref, right_ref)
-                                    {
-                                        cell_ref.set_zone(diag_ref.get_zone());
-                                        if cell_ref.get_zone() != UNINITIALIZED_ZONE {
-                                            continue;
-                                        }
-                                    }
-                                }
+                                inherit_zone(map, global_bounds, (x, y), (x + 1, y - 1), Some((x + 1, y)));
                             }
                         }
                     }
@@ -208,69 +160,23 @@ impl PathfindZoneManager {
 
                 for y in (block_bounds.lo.y..=block_bounds.hi.y).rev() {
                     for x in (block_bounds.lo.x..=block_bounds.hi.x).rev() {
-                        let Some(cell_ptr) = self.get_cell_from_map(map, x, y, global_bounds)
-                        else {
+                        let Some(cell) = Self::get_cell_from_map(map, x, y, global_bounds) else {
                             continue;
                         };
-                        // SAFETY: same stable-grid invariant as the forward
-                        // pass above; `&mut` deref is exclusive for this call.
-                        let cell_ref = unsafe { &mut *cell_ptr };
-                        if cell_ref.get_zone() != UNINITIALIZED_ZONE {
+                        if cell.get_zone() != UNINITIALIZED_ZONE {
                             continue;
                         }
-
-                        if x < block_bounds.hi.x {
-                            if let Some(right_ptr) =
-                                self.get_cell_from_map(map, x + 1, y, global_bounds)
-                            {
-                                // SAFETY: distinct null-checked cell of the
-                                // stable grid; shared read only.
-                                let right_ref = unsafe { &*right_ptr };
-                                if types_match(cell_ref, right_ref) {
-                                    cell_ref.set_zone(right_ref.get_zone());
-                                    if cell_ref.get_zone() != UNINITIALIZED_ZONE {
-                                        continue;
-                                    }
-                                }
-                            }
+                        if x < block_bounds.hi.x
+                            && inherit_zone(map, global_bounds, (x, y), (x + 1, y), None)
+                        {
+                            continue;
                         }
-
                         if y < block_bounds.hi.y {
-                            if let Some(bottom_ptr) =
-                                self.get_cell_from_map(map, x, y + 1, global_bounds)
-                            {
-                                // SAFETY: distinct null-checked cell of the
-                                // stable grid; shared read only.
-                                let bottom_ref = unsafe { &*bottom_ptr };
-                                if types_match(cell_ref, bottom_ref) {
-                                    cell_ref.set_zone(bottom_ref.get_zone());
-                                    if cell_ref.get_zone() != UNINITIALIZED_ZONE {
-                                        continue;
-                                    }
-                                }
+                            if inherit_zone(map, global_bounds, (x, y), (x, y + 1), None) {
+                                continue;
                             }
-
                             if x < block_bounds.hi.x {
-                                let diag_ptr =
-                                    self.get_cell_from_map(map, x + 1, y + 1, global_bounds);
-                                let right_ptr =
-                                    self.get_cell_from_map(map, x + 1, y, global_bounds);
-                                if let (Some(diag_ptr), Some(right_ptr)) = (diag_ptr, right_ptr) {
-                                    // SAFETY: distinct null-checked cells of
-                                    // the stable grid; shared reads only.
-                                    let diag_ref = unsafe { &*diag_ptr };
-                                    // SAFETY: distinct null-checked cells of
-                                    // the stable grid; shared reads only.
-                                    let right_ref = unsafe { &*right_ptr };
-                                    if types_match(cell_ref, diag_ref)
-                                        && types_match(cell_ref, right_ref)
-                                    {
-                                        cell_ref.set_zone(diag_ref.get_zone());
-                                        if cell_ref.get_zone() != UNINITIALIZED_ZONE {
-                                            continue;
-                                        }
-                                    }
-                                }
+                                inherit_zone(map, global_bounds, (x, y), (x + 1, y + 1), Some((x + 1, y)));
                             }
                         }
                     }
@@ -280,9 +186,12 @@ impl PathfindZoneManager {
     }
 
     /// Calculate zones for the entire map
+    ///
+    /// The column-major map is indexed relative to `bounds.lo`; `None`
+    /// represents a missing cell.
     pub fn calculate_zones(
         &mut self,
-        map: &[Vec<*mut PathfindCell>],
+        map: &mut [Vec<Option<PathfindCell>>],
         layers: &mut [PathfindLayer],
         bounds: &IRegion2D,
     ) {
@@ -308,54 +217,24 @@ impl PathfindZoneManager {
                 let block_bounds = Self::make_block_bounds(bounds, block_x, block_y);
                 for y in block_bounds.lo.y..=block_bounds.hi.y {
                     for x in block_bounds.lo.x..=block_bounds.hi.x {
-                        let Some(cell_ptr) = self.get_cell_from_map(map, x, y, bounds) else {
+                        let Some(cell) = Self::get_cell_from_map_mut(map, x, y, bounds) else {
                             continue;
                         };
-                        // SAFETY: `calculate_zones` owns the whole cell map
-                        // for its duration; `cell_ptr` is null-checked and
-                        // this mutable deref is exclusive per iteration.
-                        let cell_ref = unsafe { &mut *cell_ptr };
-                        cell_ref.set_zone(0);
+                        cell.set_zone(0);
 
                         if x > block_bounds.lo.x {
-                            if let Some(left_ptr) = self.get_cell_from_map(map, x - 1, y, bounds) {
-                                // SAFETY: distinct null-checked cell from the
-                                // owned map; shared read to compare types.
-                                let left_ref = unsafe { &*left_ptr };
-                                if cell_ref.get_type() == left_ref.get_type() {
-                                    apply_zone(
-                                        cell_ptr,
-                                        left_ptr,
-                                        &mut zone_equivalency,
-                                        self.max_zone,
-                                    );
-                                }
-                            }
+                            apply_neighbor_zone(map, bounds, (x, y), (x - 1, y), &mut zone_equivalency, self.max_zone);
                         }
-
                         if y > block_bounds.lo.y {
-                            if let Some(top_ptr) = self.get_cell_from_map(map, x, y - 1, bounds) {
-                                // SAFETY: distinct null-checked cell from the
-                                // owned map; shared read to compare types.
-                                let top_ref = unsafe { &*top_ptr };
-                                if cell_ref.get_type() == top_ref.get_type() {
-                                    apply_zone(
-                                        cell_ptr,
-                                        top_ptr,
-                                        &mut zone_equivalency,
-                                        self.max_zone,
-                                    );
-                                }
-                            }
+                            apply_neighbor_zone(map, bounds, (x, y), (x, y - 1), &mut zone_equivalency, self.max_zone);
                         }
 
-                        if cell_ref.get_zone() == 0 {
-                            cell_ref.set_zone(self.max_zone);
+                        let cell = Self::get_cell_from_map_mut(map, x, y, bounds).expect("cell was checked above");
+                        if cell.get_zone() == 0 {
+                            cell.set_zone(self.max_zone);
                             self.max_zone = self.max_zone.saturating_add(1);
                         }
-
-                        if (cell_ref.get_connect_layer() as u8) > (PathfindLayerEnum::Ground as u8)
-                        {
+                        if (cell.get_connect_layer() as u8) > (PathfindLayerEnum::Ground as u8) {
                             if let Some(block) = self.get_zone_block_mut(block_x, block_y) {
                                 block.set_interacts_with_bridge(true);
                             }
@@ -385,13 +264,10 @@ impl PathfindZoneManager {
 
         for y in bounds.lo.y..=bounds.hi.y {
             for x in bounds.lo.x..=bounds.hi.x {
-                if let Some(cell_ptr) = self.get_cell_from_map(map, x, y, bounds) {
-                    // SAFETY: exclusive ownership of the cell map for this
-                    // call; `cell_ptr` is null-checked and non-aliased here.
-                    let cell_ref = unsafe { &mut *cell_ptr };
-                    let zone = cell_ref.get_zone() as usize;
+                if let Some(cell) = Self::get_cell_from_map_mut(map, x, y, bounds) {
+                    let zone = cell.get_zone() as usize;
                     let collapsed = collapsed_zones.get(zone).copied().unwrap_or(0);
-                    cell_ref.set_zone(collapsed);
+                    cell.set_zone(collapsed);
                 }
             }
         }
@@ -426,14 +302,12 @@ impl PathfindZoneManager {
     /// Calculate zone blocks for hierarchical pathfinding
     fn calculate_zone_blocks(
         &mut self,
-        map: &[Vec<*mut PathfindCell>],
+        map: &[Vec<Option<PathfindCell>>],
         layers: &[PathfindLayer],
         bounds: &IRegion2D,
     ) {
         let blocks_x = ((bounds.hi.x - bounds.lo.x) / ZONE_BLOCK_SIZE) + 1;
         let blocks_y = ((bounds.hi.y - bounds.lo.y) / ZONE_BLOCK_SIZE) + 1;
-
-        let const_map = Self::convert_map_to_const(map);
 
         for block_y in 0..blocks_y {
             for block_x in 0..blocks_x {
@@ -445,7 +319,7 @@ impl PathfindZoneManager {
                     block.set_cell_origin(origin);
 
                     let block_bounds = Self::make_block_bounds(bounds, block_x, block_y);
-                    block.block_calculate_zones(&const_map, layers, &block_bounds);
+                    block.block_calculate_zones(map, layers, &block_bounds);
                 }
             }
         }
@@ -466,7 +340,7 @@ impl PathfindZoneManager {
     /// Build equivalency tables for different locomotor types
     fn build_equivalency_tables(
         &mut self,
-        map: &[Vec<*mut PathfindCell>],
+        map: &mut [Vec<Option<PathfindCell>>],
         layers: &[PathfindLayer],
         bounds: &IRegion2D,
     ) {
@@ -487,125 +361,33 @@ impl PathfindZoneManager {
 
         for y in bounds.lo.y..=bounds.hi.y {
             for x in bounds.lo.x..=bounds.hi.x {
-                let Some(cell_ptr) = self.get_cell_from_map(map, x, y, bounds) else {
+                let Some(cell) = Self::get_cell_from_map(map, x, y, bounds) else {
                     continue;
                 };
-                // SAFETY: `build_equivalency_tables` reads the stable cell
-                // grid without mutating it; `cell_ptr` is null-checked and
-                // only shared borrows are taken in this loop body.
-                let cell_ref = unsafe { &*cell_ptr };
-
-                if (cell_ref.get_connect_layer() as u8) > (PathfindLayerEnum::Ground as u8)
-                    && cell_ref.get_type() == PathfindCellType::Clear
+                if (cell.get_connect_layer() as u8) > (PathfindLayerEnum::Ground as u8)
+                    && cell.get_type() == PathfindCellType::Clear
                 {
-                    let layer_idx = cell_ref.get_connect_layer() as usize;
+                    let layer_idx = cell.get_connect_layer() as usize;
                     if let Some(layer) = layers.get(layer_idx) {
                         let layer_zone = layer.get_zone();
                         if layer_zone > 0 {
-                            resolve_zones(
-                                cell_ref.get_zone(),
-                                layer_zone as ZoneStorageType,
-                                &mut self.hierarchical_zones,
-                                max_zone as usize,
-                            );
+                            resolve_zones(cell.get_zone(), layer_zone as ZoneStorageType,
+                                &mut self.hierarchical_zones, max_zone as usize);
                         }
                     }
                 }
 
                 if x > bounds.lo.x {
-                    let Some(left_ptr) = self.get_cell_from_map(map, x - 1, y, bounds) else {
+                    if Self::get_cell_from_map(map, x - 1, y, bounds).is_none() {
                         continue;
-                    };
-                    // SAFETY: distinct null-checked cell of the stable grid;
-                    // shared read only.
-                    let left_ref = unsafe { &*left_ptr };
-                    if cell_ref.get_zone() != left_ref.get_zone() {
-                        if cell_ref.get_type() == left_ref.get_type() {
-                            apply_zone(cell_ptr, left_ptr, &mut self.hierarchical_zones, max_zone);
-                        } else {
-                            let mut not_terrain_or_crusher = true;
-                            if terrain_match(cell_ref, left_ref) {
-                                apply_zone(cell_ptr, left_ptr, &mut self.terrain_zones, max_zone);
-                                not_terrain_or_crusher = false;
-                            }
-                            if crusher_ground(cell_ref, left_ref) {
-                                apply_zone(cell_ptr, left_ptr, &mut self.crusher_zones, max_zone);
-                                not_terrain_or_crusher = false;
-                            }
-                            if not_terrain_or_crusher {
-                                if water_ground(cell_ref, left_ref) {
-                                    apply_zone(
-                                        cell_ptr,
-                                        left_ptr,
-                                        &mut self.ground_water_zones,
-                                        max_zone,
-                                    );
-                                } else if ground_rubble(cell_ref, left_ref) {
-                                    apply_zone(
-                                        cell_ptr,
-                                        left_ptr,
-                                        &mut self.ground_rubble_zones,
-                                        max_zone,
-                                    );
-                                } else if ground_cliff(cell_ref, left_ref) {
-                                    apply_zone(
-                                        cell_ptr,
-                                        left_ptr,
-                                        &mut self.ground_cliff_zones,
-                                        max_zone,
-                                    );
-                                }
-                            }
-                        }
                     }
+                    self.merge_neighbor(map, bounds, (x, y), (x - 1, y), max_zone);
                 }
-
                 if y > bounds.lo.y {
-                    let Some(top_ptr) = self.get_cell_from_map(map, x, y - 1, bounds) else {
+                    if Self::get_cell_from_map(map, x, y - 1, bounds).is_none() {
                         continue;
-                    };
-                    // SAFETY: distinct null-checked cell of the stable grid;
-                    // shared read only.
-                    let top_ref = unsafe { &*top_ptr };
-                    if cell_ref.get_zone() != top_ref.get_zone() {
-                        if cell_ref.get_type() == top_ref.get_type() {
-                            apply_zone(cell_ptr, top_ptr, &mut self.hierarchical_zones, max_zone);
-                        } else {
-                            let mut not_terrain_or_crusher = true;
-                            if terrain_match(cell_ref, top_ref) {
-                                apply_zone(cell_ptr, top_ptr, &mut self.terrain_zones, max_zone);
-                                not_terrain_or_crusher = false;
-                            }
-                            if crusher_ground(cell_ref, top_ref) {
-                                apply_zone(cell_ptr, top_ptr, &mut self.crusher_zones, max_zone);
-                                not_terrain_or_crusher = false;
-                            }
-                            if not_terrain_or_crusher {
-                                if water_ground(cell_ref, top_ref) {
-                                    apply_zone(
-                                        cell_ptr,
-                                        top_ptr,
-                                        &mut self.ground_water_zones,
-                                        max_zone,
-                                    );
-                                } else if ground_rubble(cell_ref, top_ref) {
-                                    apply_zone(
-                                        cell_ptr,
-                                        top_ptr,
-                                        &mut self.ground_rubble_zones,
-                                        max_zone,
-                                    );
-                                } else if ground_cliff(cell_ref, top_ref) {
-                                    apply_zone(
-                                        cell_ptr,
-                                        top_ptr,
-                                        &mut self.ground_cliff_zones,
-                                        max_zone,
-                                    );
-                                }
-                            }
-                        }
                     }
+                    self.merge_neighbor(map, bounds, (x, y), (x, y - 1), max_zone);
                 }
             }
         }
@@ -746,13 +528,15 @@ impl PathfindZoneManager {
     }
 
     /// Get zone for hierarchical pathfinding at block level
+    ///
+    /// The column-major map is indexed by the supplied nonnegative cell coordinates.
     pub fn get_block_zone(
         &self,
         acceptable_surfaces: LocomotorSurfaceTypeMask,
         crusher: bool,
         cell_x: i32,
         cell_y: i32,
-        map: &[Vec<*const PathfindCell>],
+        map: &[Vec<Option<PathfindCell>>],
     ) -> ZoneStorageType {
         let block_x = cell_x / ZONE_BLOCK_SIZE;
         let block_y = cell_y / ZONE_BLOCK_SIZE;
@@ -766,16 +550,10 @@ impl PathfindZoneManager {
         }
         let cell_x = cell_x as usize;
         let cell_y = cell_y as usize;
-        let Some(cell_ptr) = map.get(cell_x).and_then(|col| col.get(cell_y)).copied() else {
+        let Some(cell) = map.get(cell_x).and_then(|col| col.get(cell_y)).and_then(Option::as_ref) else {
             return 0;
         };
-        if cell_ptr.is_null() {
-            return 0;
-        }
-
-        // SAFETY: `cell_ptr` was null-checked above and points into the
-        // stable pathfinder cell grid; shared read of its zone.
-        let zone = unsafe { (*cell_ptr).get_zone() };
+        let zone = cell.get_zone();
         let effective = block.get_effective_zone(acceptable_surfaces, crusher, zone);
         if effective >= self.max_zone {
             debug_assert!(
@@ -804,19 +582,7 @@ impl PathfindZoneManager {
         self.block_of_zone_blocks
             .resize_with(total_blocks, ZoneBlock::default);
 
-        // Allocate index matrix
-        self.zone_blocks.clear();
-        self.zone_blocks.resize(blocks_x as usize, Vec::new());
 
-        for x in 0..blocks_x {
-            self.zone_blocks[x as usize].resize(blocks_y as usize, std::ptr::null_mut());
-
-            for y in 0..blocks_y {
-                let index = (y * blocks_x + x) as usize;
-                self.zone_blocks[x as usize][y as usize] =
-                    &mut self.block_of_zone_blocks[index] as *mut ZoneBlock;
-            }
-        }
     }
 
     /// Clear passable flags on all blocks
@@ -921,69 +687,41 @@ impl PathfindZoneManager {
         }
     }
 
-    /// Helper to convert mutable map to const map
-    fn convert_map_to_const(map: &[Vec<*mut PathfindCell>]) -> Vec<Vec<*const PathfindCell>> {
-        map.iter()
-            .map(|row| {
-                row.iter()
-                    .map(|&cell_ptr| cell_ptr as *const PathfindCell)
-                    .collect()
-            })
-            .collect()
+    fn get_cell_from_map<'a>(
+        map: &'a [Vec<Option<PathfindCell>>], x: i32, y: i32, bounds: &IRegion2D,
+    ) -> Option<&'a PathfindCell> {
+        let (x, y) = cell_index(x, y, bounds)?;
+        map.get(x)?.get(y)?.as_ref()
     }
 
-    /// Get cell from mutable map
-    fn get_cell_from_map(
-        &self,
-        map: &[Vec<*mut PathfindCell>],
-        x: i32,
-        y: i32,
-        bounds: &IRegion2D,
-    ) -> Option<*mut PathfindCell> {
-        if x >= bounds.lo.x && x <= bounds.hi.x && y >= bounds.lo.y && y <= bounds.hi.y {
-            let map_x = (x - bounds.lo.x) as usize;
-            let map_y = (y - bounds.lo.y) as usize;
-
-            if map_x < map.len() && map_y < map[map_x].len() {
-                let cell_ptr = map[map_x][map_y];
-                if !cell_ptr.is_null() {
-                    Some(cell_ptr)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    fn get_cell_from_map_mut<'a>(
+        map: &'a mut [Vec<Option<PathfindCell>>], x: i32, y: i32, bounds: &IRegion2D,
+    ) -> Option<&'a mut PathfindCell> {
+        let (x, y) = cell_index(x, y, bounds)?;
+        map.get_mut(x)?.get_mut(y)?.as_mut()
     }
 
-    /// Get cell from const map
-    fn get_cell_from_const_map(
-        &self,
-        map: &[Vec<*const PathfindCell>],
-        x: i32,
-        y: i32,
-        bounds: &IRegion2D,
-    ) -> Option<*const PathfindCell> {
-        if x >= bounds.lo.x && x <= bounds.hi.x && y >= bounds.lo.y && y <= bounds.hi.y {
-            let map_x = (x - bounds.lo.x) as usize;
-            let map_y = (y - bounds.lo.y) as usize;
-
-            if map_x < map.len() && map_y < map[map_x].len() {
-                let cell_ptr = map[map_x][map_y];
-                if !cell_ptr.is_null() {
-                    Some(cell_ptr)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    fn merge_neighbor(
+        &mut self, map: &mut [Vec<Option<PathfindCell>>], bounds: &IRegion2D,
+        target: (i32, i32), source: (i32, i32), max_zone: ZoneStorageType,
+    ) {
+        let Some(target_cell) = Self::get_cell_from_map(map, target.0, target.1, bounds) else { return };
+        let Some(source_cell) = Self::get_cell_from_map(map, source.0, source.1, bounds) else { return };
+        if target_cell.get_zone() == source_cell.get_zone() { return; }
+        let source_zone = source_cell.get_zone();
+        let same = types_match(target_cell, source_cell);
+        let terrain = !same && terrain_match(target_cell, source_cell);
+        let crusher = !same && crusher_ground(target_cell, source_cell);
+        let water = !same && !terrain && !crusher && water_ground(target_cell, source_cell);
+        let rubble = !same && !terrain && !crusher && !water && ground_rubble(target_cell, source_cell);
+        let cliff = !same && !terrain && !crusher && !water && !rubble && ground_cliff(target_cell, source_cell);
+        let target_cell = Self::get_cell_from_map_mut(map, target.0, target.1, bounds).expect("cell was checked above");
+        if same { apply_zone(target_cell, source_zone, &mut self.hierarchical_zones, max_zone); }
+        if terrain { apply_zone(target_cell, source_zone, &mut self.terrain_zones, max_zone); }
+        if crusher { apply_zone(target_cell, source_zone, &mut self.crusher_zones, max_zone); }
+        if water { apply_zone(target_cell, source_zone, &mut self.ground_water_zones, max_zone); }
+        if rubble { apply_zone(target_cell, source_zone, &mut self.ground_rubble_zones, max_zone); }
+        if cliff { apply_zone(target_cell, source_zone, &mut self.ground_cliff_zones, max_zone); }
     }
 
     /// Allocate zone equivalency arrays
@@ -1027,7 +765,6 @@ impl PathfindZoneManager {
     /// Free zone blocks
     fn free_blocks(&mut self) {
         self.block_of_zone_blocks.clear();
-        self.zone_blocks.clear();
         self.zone_block_extent = ICoord2D::new(0, 0);
     }
 }
@@ -1165,16 +902,43 @@ fn flatten_zones(
     }
 }
 
+fn cell_index(x: i32, y: i32, bounds: &IRegion2D) -> Option<(usize, usize)> {
+    if x < bounds.lo.x || x > bounds.hi.x || y < bounds.lo.y || y > bounds.hi.y {
+        return None;
+    }
+    Some((usize::try_from(x.checked_sub(bounds.lo.x)?).ok()?, usize::try_from(y.checked_sub(bounds.lo.y)?).ok()?))
+}
+
+fn inherit_zone(map: &mut [Vec<Option<PathfindCell>>], bounds: &IRegion2D,
+    target: (i32, i32), source: (i32, i32), guard: Option<(i32, i32)>) -> bool {
+    let Some(target_cell) = PathfindZoneManager::get_cell_from_map(map, target.0, target.1, bounds) else { return false };
+    let Some(source_cell) = PathfindZoneManager::get_cell_from_map(map, source.0, source.1, bounds) else { return false };
+    if !types_match(target_cell, source_cell) { return false; }
+    if let Some((x, y)) = guard {
+        let Some(guard_cell) = PathfindZoneManager::get_cell_from_map(map, x, y, bounds) else { return false };
+        if !types_match(target_cell, guard_cell) { return false; }
+    }
+    let zone = source_cell.get_zone();
+    PathfindZoneManager::get_cell_from_map_mut(map, target.0, target.1, bounds).expect("cell was checked above").set_zone(zone);
+    zone != UNINITIALIZED_ZONE
+}
+
+fn apply_neighbor_zone(map: &mut [Vec<Option<PathfindCell>>], bounds: &IRegion2D,
+    target: (i32, i32), source: (i32, i32), equivalency: &mut [ZoneStorageType], max_zone: ZoneStorageType) {
+    let Some(target_cell) = PathfindZoneManager::get_cell_from_map(map, target.0, target.1, bounds) else { return };
+    let Some(source_cell) = PathfindZoneManager::get_cell_from_map(map, source.0, source.1, bounds) else { return };
+    if !types_match(target_cell, source_cell) { return; }
+    let source_zone = source_cell.get_zone();
+    let target_cell = PathfindZoneManager::get_cell_from_map_mut(map, target.0, target.1, bounds).expect("cell was checked above");
+    apply_zone(target_cell, source_zone, equivalency, max_zone);
+}
+
 fn apply_zone(
-    target: *mut PathfindCell,
-    source: *const PathfindCell,
+    target: &mut PathfindCell,
+    src_zone: ZoneStorageType,
     zone_equivalency: &mut [ZoneStorageType],
     max_zone: ZoneStorageType,
 ) {
-    // SAFETY: callers (`calculate_zones`, `build_equivalency_tables`) pass
-    // null-checked cells out of the cell map they hold for the whole call,
-    // so these raw derefs cannot dangle or race.
-    let src_zone = unsafe { (*source).get_zone() };
     if src_zone == 0 || src_zone > max_zone {
         return;
     }
@@ -1182,15 +946,9 @@ fn apply_zone(
         .get(src_zone as usize)
         .copied()
         .unwrap_or(src_zone);
-    // SAFETY: `target` is a cell from the same caller-owned, null-checked map
-    // as `source`; these derefs are exclusive for the duration of the call.
-    let target_zone = unsafe { (*target).get_zone() };
+    let target_zone = target.get_zone();
     if target_zone == 0 {
-        // SAFETY: same caller-owned, null-checked `target` cell as the
-        // read above; exclusive for this call.
-        unsafe {
-            (*target).set_zone(src_zone);
-        }
+        target.set_zone(src_zone);
         return;
     }
 
@@ -1218,6 +976,49 @@ impl Default for PathfindZoneManager {
 mod tests {
     use super::*;
     use crate::path::SURFACE_GROUND;
+
+    #[test]
+    fn neighbor_union_handles_same_cell_and_missing_neighbors() {
+        let bounds = IRegion2D {
+            lo: ICoord2D::new(4, 7),
+            hi: ICoord2D::new(6, 7),
+        };
+        let mut left = PathfindCell::new();
+        left.set_zone(2);
+        let mut map = vec![vec![Some(left)], vec![Some(PathfindCell::new())], vec![None]];
+        let mut equivalency = vec![0, 1, 2, 3];
+
+        apply_neighbor_zone(&mut map, &bounds, (5, 7), (4, 7), &mut equivalency, 3);
+        assert_eq!(map[1][0].as_ref().unwrap().get_zone(), 2);
+        apply_neighbor_zone(&mut map, &bounds, (5, 7), (5, 7), &mut equivalency, 3);
+        apply_neighbor_zone(&mut map, &bounds, (5, 7), (6, 7), &mut equivalency, 3);
+        apply_neighbor_zone(&mut map, &bounds, (5, 7), (3, 7), &mut equivalency, 3);
+        assert_eq!(map[1][0].as_ref().unwrap().get_zone(), 2);
+        assert_eq!(equivalency, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn forward_sweep_joins_matching_neighbors_only() {
+        let bounds = IRegion2D {
+            lo: ICoord2D::new(0, 0),
+            hi: ICoord2D::new(2, 1),
+        };
+        let mut water = PathfindCell::new();
+        water.set_type(PathfindCellType::Water);
+        let mut map = vec![
+            vec![Some(PathfindCell::new()), Some(PathfindCell::new())],
+            vec![Some(water), Some(PathfindCell::new())],
+            vec![None, Some(PathfindCell::new())],
+        ];
+        let mut manager = PathfindZoneManager::new();
+        manager.calculate_zones(&mut map, &mut [], &bounds);
+        let zone = map[0][0].as_ref().unwrap().get_zone();
+        assert_ne!(zone, 0);
+        assert_eq!(map[0][1].as_ref().unwrap().get_zone(), zone);
+        assert_eq!(map[1][1].as_ref().unwrap().get_zone(), zone);
+        assert_eq!(map[2][1].as_ref().unwrap().get_zone(), zone);
+        assert_ne!(map[1][0].as_ref().unwrap().get_zone(), zone);
+    }
 
     #[test]
     fn test_zone_manager_creation() {

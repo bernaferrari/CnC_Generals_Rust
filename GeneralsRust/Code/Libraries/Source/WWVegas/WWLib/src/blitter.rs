@@ -7,8 +7,13 @@ pub trait Blitter {
     fn blit_backward(&self, dest: *mut u8, source: *const u8, length: i32);
 }
 
+/// Decodes one bounded RLE row into native-endian destination pixels.
 pub trait RLEBlitter {
-    fn blit(&self, dest: *mut u8, source: *const u8, length: i32, leadskip: i32);
+    /// Destination pixel width in bytes.
+    fn pixel_size(&self) -> usize;
+    /// Returns false on truncated input, insufficient output, or a short table.
+    /// Pixels decoded before an error remain written.
+    fn blit(&self, dest: &mut [u8], source: &[u8], length: usize, leadskip: usize) -> bool;
 }
 
 pub struct BlitPlainU8;

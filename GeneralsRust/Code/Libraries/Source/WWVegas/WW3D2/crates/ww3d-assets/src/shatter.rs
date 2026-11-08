@@ -983,40 +983,10 @@ impl ShatterSystem {
             polygons_to_clip.push(polygon);
         }
 
-        // Clip all polygons - need to avoid simultaneous borrows
-        // Split borrow: get clipper reference and clip_pools mutable reference separately
-        let clipper_ref = if pattern_index < data.shatter_patterns.len() {
-            Some(&data.shatter_patterns[pattern_index] as *const BSP)
-        } else {
-            None
-        };
-
-        if let Some(clipper_ptr) = clipper_ref {
-            // Safety: We hold the lock on data for the entire operation,
-            // and we're only reading from shatter_patterns while writing to clip_pools.
-            //
-            // Justification:
-            // 1. clipper_ptr is immediately derived from &data.shatter_patterns[pattern_index]
-            // 2. pattern_index is bounds-checked above (pattern_index < shatter_patterns.len())
-            // 3. data mutex lock is held for the entire function, preventing invalidation
-            // 4. No other mutable references exist to shatter_patterns
-            // 5. clip_pools is mutable and only accessed within this function
-            // 6. The pointer is dereferenced exactly once per polygon, immediately
-            // SAFETY: `clipper_ptr` was derived from a live reference to
-            // `data.shatter_patterns[pattern_index]` (bounds-checked above), the `data`
-            // lock is held for this entire function, and nothing mutates
-            // `shatter_patterns` in between, so the pointee is still valid. The raw
-            // pointer exists only to split borrows: this loop immutably reads the BSP
-            // through `clipper_ptr` while mutating the disjoint `data.clip_pools` field,
-            // so no two accesses alias.
-            // SAFETY: clipper_ptr points into data.shatter_patterns via a
-            // bounds-checked shared reference; the mutex guard on `data` is
-            // held across this block so the vector cannot move or drop.
-            unsafe {
-                let clipper = &*clipper_ptr;
-                for polygon in polygons_to_clip {
-                    clipper.clip_polygon(&polygon, &mut data.clip_pools);
-                }
+        // The pattern and output pools are disjoint fields of the owned data.
+        if let Some(clipper) = data.shatter_patterns.get(pattern_index) {
+            for polygon in polygons_to_clip {
+                clipper.clip_polygon(&polygon, &mut data.clip_pools);
             }
         }
 
