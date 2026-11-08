@@ -222,7 +222,12 @@ pub fn exercise_presentation_paths() -> (bool, String) {
     let mut tpl = ParticleSystemTemplate::default();
     tpl.name = "RCExplosion".into();
     tpl.system_lifetime = 30;
-    let system = ParticleSystem::new(1, Arc::new(tpl), 0);
+    let system = ParticleSystem::new(
+        1,
+        Arc::new(tpl),
+        0,
+        &mut game_engine::common::random_value::RandomState::default(),
+    );
     let particles_ok = !system.is_destroyed && system.id == 1;
 
     // Shell / HUD: main-menu state enum + player color palette used by HUD.

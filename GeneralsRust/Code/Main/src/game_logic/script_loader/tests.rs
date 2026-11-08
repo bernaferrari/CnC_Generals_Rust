@@ -69,7 +69,7 @@ mod tests {
         // C++ ScriptActions.cpp:3804 TheSnowManager->setVisible
         #[cfg(feature = "game_client")]
         {
-            let snow = game_client::snow::initialize_snow_manager();
+            let snow = game_client::snow::initialize_snow_manager(&mut Default::default());
             snow.lock().expect("snow lock").set_visible(true);
             let mut logic = crate::game_logic::GameLogic::new();
             logic.set_weather_visible(false);

@@ -16,12 +16,8 @@ fn with_meta_map<R>(f: impl FnOnce(&mut MetaMap) -> R) -> R {
     }
     #[cfg(not(test))]
     {
-        if crate::core::game_client::live_game_client_frame().is_some() {
-            return crate::core::game_client::with_live_game_client_mut(|client| {
-                f(&mut client.meta_map)
-            })
-            .expect("live client frame implies registered client");
-        }
+        // Ownerless: INI parse callbacks populate the CommandMap with no
+        // receiving client reachable, so production sees an empty table.
         let mut ephemeral = MetaMap::default();
         f(&mut ephemeral)
     }
@@ -213,7 +209,7 @@ fn apply_extent_adjust_to_local_selection(
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) {
     // Wave 976: host empty dual-world still routes extent adjust through TheGameLogic IDs.
-    for object_id in local_selection_object_ids() {
+    for object_id in local_selection_object_ids(ui.local_player_id()) {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             continue;
         };

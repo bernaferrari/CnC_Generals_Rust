@@ -141,18 +141,6 @@ fn with_state_on_owner<R>(
             f.take().expect("skirmish")(&mut guard)
         });
     }
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_skirmish_game_options_mut(|state| {
-                let mut guard = state
-                    .try_borrow_mut()
-                    .expect("skirmish options re-entrant mut borrow on live GameClient owner");
-                f.take().expect("skirmish")(&mut guard)
-            })
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_SKIRMISH_GAME_OPTIONS.with(|s| {
@@ -181,13 +169,6 @@ fn with_skirmish_map_select_layout_on_owner<R>(
             f.take().expect("skirmish layout")(layout)
         });
     }
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_skirmish_map_select_layout_mut(|layout| f.take().expect("skirmish layout")(layout))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_SKIRMISH_MAP_SELECT_LAYOUT.with(|layout| {
@@ -202,8 +183,8 @@ fn with_skirmish_map_select_layout_on_owner<R>(
 
 fn with_skirmish_map_select_layout<R>(
     f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R,
-) -> R {
-    with_skirmish_map_select_layout_on_owner(None, f)
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> R {
+    with_skirmish_map_select_layout_on_owner(owner, f)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -787,6 +768,7 @@ pub(crate) fn destroy_skirmish_map_select_overlay(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
+    let owner = effects.window_manager_owner;
     with_skirmish_map_select_layout(|layout| {
         let Some(layout) = layout.take() else {
             return;
@@ -794,7 +776,7 @@ pub(crate) fn destroy_skirmish_map_select_overlay(
         (|manager: &mut crate::gui::window_manager::WindowManager| {
             manager.destroy_layout(&layout, effects)
         })(receiving_manager);
-    });
+    }, owner);
 }
 
 pub(crate) fn refresh_skirmish_game_options_from_setup(
@@ -2407,7 +2389,7 @@ pub fn skirmish_game_options_menu_system(
                         .create_layout_with_windows("Menus/SkirmishMapSelectMenu.wnd", effects)
                         .ok()
                 }) {
-                    with_skirmish_map_select_layout(|current| *current = Some(layout.clone()));
+                    with_skirmish_map_select_layout(|current| *current = Some(layout.clone()), effects.window_manager_owner);
                     layout.borrow().run_init(None);
                     let mut layout_mut = layout.borrow_mut();
                     layout_mut.hide_receiving(false, effects);

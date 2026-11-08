@@ -237,19 +237,12 @@ fn seed_global_logic_random(seed: u32) {
     with_global_logic_rng(|global| global.seed_random(seed));
 }
 
-/// Initialize random number generators with specific seed
+/// C++ `InitRandom(seed)`, logic half. The client and audio halves are
+/// seeded by their receiving presentation/audio owners (a fresh owner equals
+/// `InitRandom(0)`), never through process-visible services.
 pub fn init_random_with_seed(seed: u32) {
-    init_client_audio_random_with_seed(seed);
     seed_global_logic_random(seed);
     crate::common::common_services::common_services().random.logic_base_seed.store(seed, Ordering::SeqCst);
-}
-
-/// Reset application presentation streams without changing any match stream.
-/// Main uses this for the C++ mission-restart/initial-map presentation reset.
-pub fn init_client_audio_random_with_seed(seed: u32) {
-    let services = crate::common::common_services::common_services();
-    services.random.with_client_mut(|client| client.seed_random(seed));
-    services.random.with_audio_mut(|audio| audio.seed_random(seed));
 }
 
 /// Initialize the standalone/process logic fallback. This never reseeds a
@@ -335,33 +328,7 @@ fn logic_integer_with_draw(lo: i32, hi: i32, draw: impl FnOnce() -> u32) -> i32 
     ((random_val % delta) as i32).wrapping_add(lo)
 }
 
-/// Get game client random integer value
-pub fn get_game_client_random_value(lo: i32, hi: i32) -> i32 {
-    // Same C++ shape as the logic stream (RandomValue.cpp:217/220/223).
-    let delta = hi.wrapping_sub(lo).wrapping_add(1) as u32;
-    if delta == 0 {
-        return hi;
-    }
 
-    let random_val = crate::common::common_services::common_services()
-        .random
-        .with_client_mut(|client| client.next_value());
-    ((random_val % delta) as i32).wrapping_add(lo)
-}
-
-/// Get game audio random integer value
-pub fn get_game_audio_random_value(lo: i32, hi: i32) -> i32 {
-    // Same C++ shape as the logic stream (RandomValue.cpp:240/243/246).
-    let delta = hi.wrapping_sub(lo).wrapping_add(1) as u32;
-    if delta == 0 {
-        return hi;
-    }
-
-    let random_val = crate::common::common_services::common_services()
-        .random
-        .with_audio_mut(|audio| audio.next_value());
-    ((random_val % delta) as i32).wrapping_add(lo)
-}
 
 /// Get game logic random real value
 pub fn get_game_logic_random_value_real(lo: f32, hi: f32) -> f32 {
@@ -375,49 +342,23 @@ pub fn get_game_logic_random_value_real(lo: f32, hi: f32) -> f32 {
     (random_val as f32 * MULT_FACTOR) * delta + lo
 }
 
-/// Get game client random real value
-pub fn get_game_client_random_value_real(lo: f32, hi: f32) -> f32 {
-    let delta = hi - lo;
-    if delta <= 0.0 {
-        return hi;
-    }
-
-    let random_val = crate::common::common_services::common_services()
-        .random
-        .with_client_mut(|client| client.next_value());
-    (random_val as f32 * MULT_FACTOR) * delta + lo
-}
 
 /// Run a fallible presentation-state decode with a private copy of the current
 /// client stream. Only successful admission advances the application stream.
 /// The operation must use its borrowed stream and never reenter client helpers.
 /// This uses the existing presentation synchronization boundary, not a second
 /// generator or a different random algorithm.
-pub fn with_game_client_random_transaction<T, E>(
+pub fn with_client_random_transaction<T, E>(
+    stream: &mut RandomState,
     operation: impl FnOnce(&mut RandomState) -> Result<T, E>,
 ) -> Result<T, E> {
-    crate::common::common_services::common_services()
-        .random
-        .with_client_mut(|stream| {
-            let mut candidate = stream.clone();
-            let result = operation(&mut candidate)?;
-            *stream = candidate;
-            Ok(result)
-        })
+    let mut candidate = stream.clone();
+    let result = operation(&mut candidate)?;
+    *stream = candidate;
+    Ok(result)
 }
 
-/// Get game audio random real value
-pub fn get_game_audio_random_value_real(lo: f32, hi: f32) -> f32 {
-    let delta = hi - lo;
-    if delta <= 0.0 {
-        return hi;
-    }
 
-    let random_val = crate::common::common_services::common_services()
-        .random
-        .with_audio_mut(|audio| audio.next_value());
-    (random_val as f32 * MULT_FACTOR) * delta + lo
-}
 
 /// Distribution types for random variables
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -504,22 +445,19 @@ impl GameClientRandomVariable {
         self.distribution_type
     }
 
-    /// Get a value from the random distribution
-    pub fn get_value(&self) -> f32 {
+    /// C++ `GameClientRandomVariable::getValue` drawing from the receiving
+    /// presentation owner's client stream (RandomValue.cpp:355-370).
+    pub fn get_value_with(&self, rng: &mut RandomState) -> f32 {
         match self.distribution_type {
             DistributionType::Constant => {
                 if self.low == self.high {
                     self.low
                 } else {
-                    get_game_client_random_value_real(self.low, self.high)
+                    rng.next_real(self.low, self.high)
                 }
             }
-            DistributionType::Uniform => get_game_client_random_value_real(self.low, self.high),
-            _ => {
-                // C++ GameClientRandomVariable::getValue (RandomValue.cpp:366-369):
-                // DEBUG_CRASH then return 0.0f — release builds just return 0.0.
-                0.0
-            }
+            DistributionType::Uniform => rng.next_real(self.low, self.high),
+            _ => 0.0,
         }
     }
 

@@ -59,13 +59,6 @@ fn map_select_state_on_owner(
     if let Some(owner) = owner {
         return owner.skirmish_map_select_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .skirmish_map_select_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_SKIRMISH_MAP_SELECT_STATE.with(|cell| {

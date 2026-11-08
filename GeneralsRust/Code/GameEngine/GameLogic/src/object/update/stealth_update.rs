@@ -18,7 +18,7 @@
 use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::damage::DamageType;
-use crate::helpers::{TheAudio, TheGameLogic, game_client_random_value_real};
+use crate::helpers::{TheAudio, TheGameLogic};
 use crate::modules::StealthControllerExt;
 use crate::modules::{UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
@@ -276,7 +276,7 @@ impl StealthUpdateController {
         let enabled = !data.team_disguised; // Bomb truck starts disabled
 
         // C++ uses GameClientRandomValueReal for the visual pulse phase.
-        let pulse_phase = game_client_random_value_real(0.0, PI);
+        let pulse_phase = crate::system::engine_stores::active_services().client_random_value_real(0.0, PI);
 
         Self {
             data,

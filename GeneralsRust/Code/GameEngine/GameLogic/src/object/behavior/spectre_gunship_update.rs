@@ -1078,8 +1078,8 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
 
                 if local_visible {
                     let mut impact = self.gattling_target_position;
-                    impact.x += crate::GameClientRandomValueReal!(-5.0, 5.0);
-                    impact.y += crate::GameClientRandomValueReal!(-5.0, 5.0);
+                    impact.x += crate::system::engine_stores::active_services().client_random_value_real(-5.0, 5.0);
+                    impact.y += crate::system::engine_stores::active_services().client_random_value_real(-5.0, 5.0);
                     impact.z = TheTerrainLogic::get()
                         .map(|terrain| terrain.get_ground_height(impact.x, impact.y, None))
                         .unwrap_or(impact.z);

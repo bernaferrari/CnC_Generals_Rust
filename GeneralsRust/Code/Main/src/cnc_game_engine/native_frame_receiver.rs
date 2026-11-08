@@ -89,7 +89,11 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
         } else {
             None
         };
-        self.world.host_physics_visuals.complete_input(input, frame);
+        self.world.host_physics_visuals.complete_input(
+            input,
+            frame,
+            &mut self.world.session_view.client_random,
+        );
         Ok(instance)
     }
     fn direct_scene_decisions(

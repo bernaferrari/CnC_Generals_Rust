@@ -13,7 +13,6 @@ use crate::core::DrawableId;
 use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::random_value::get_game_client_random_value_real;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -44,12 +43,12 @@ pub use generals_particles::{
 /// Temporary engine RNG adapter. The extracted primitives accept an explicit
 /// random stream; this extension preserves current production draw timing.
 pub trait SampleParticleRandomVariable {
-    fn sample(&self) -> f32;
+    fn sample(&self, rng: &mut game_engine::common::random_value::RandomState) -> f32;
 }
 
 impl SampleParticleRandomVariable for GameClientRandomVariable {
-    fn sample(&self) -> f32 {
-        self.sample_with(get_game_client_random_value_real)
+    fn sample(&self, rng: &mut game_engine::common::random_value::RandomState) -> f32 {
+        self.sample_with(|lo, hi| rng.next_real(lo, hi))
     }
 }
 
@@ -1424,19 +1423,12 @@ pub fn with_particle_system_slot_mut<R>(
     }
     #[cfg(not(test))]
     {
-        if crate::core::game_client::live_game_client_frame().is_none() {
-            return Err(ParticleSystemError::InitializationFailed(
-                "no live GameClient particle slot".to_string(),
-            ));
-        }
-        crate::core::game_client::with_live_game_client_mut(|client| {
-            f(&mut client.drawables.particles)
-        })
-        .ok_or_else(|| {
-            ParticleSystemError::InitializationFailed(
-                "live GameClient particle slot unavailable".to_string(),
-            )
-        })
+        // Ownerless free API: the particle manager lives on the receiving
+        // GameClient's drawables, which is not reachable from here.
+        let _ = f;
+        Err(ParticleSystemError::InitializationFailed(
+            "no receiving GameClient particle slot".to_string(),
+        ))
     }
 }
 
@@ -1959,7 +1951,7 @@ mod tests {
         let var = GameClientRandomVariable::new(1.0, 5.0);
 
         for _ in 0..100 {
-            let sample = var.sample();
+            let sample = var.sample(&mut Default::default());
             assert!(sample >= 1.0 && sample <= 5.0);
         }
     }

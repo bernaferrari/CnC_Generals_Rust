@@ -47,23 +47,7 @@ use crate::common::thing::thing_factory::ThingBridgeSlots;
 use parking_lot::RwLock as ParkingRwLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::ThreadId;
 
-
-/// Untyped live GameClient snapshot bridge (address + frame).
-/// Typed register/borrow APIs live in the GameClient crate.
-#[derive(Clone, Copy, Default)]
-pub struct LiveGameClientBridge {
-    pub raw: Option<usize>,
-    pub owner_thread: Option<ThreadId>,
-    pub generation: u64,
-    /// Identity of the registered client (its `live_slot_token`); the address
-    /// above is only the snapshot access path and is not used for ownership.
-    pub token: u64,
-    pub borrowed: bool,
-    /// Cached frame so readers avoid aliasing `GameClient::update`.
-    pub frame: u32,
-}
 
 /// One game-instance owned system-manager bag.
 pub struct SystemStores {
@@ -167,8 +151,6 @@ pub struct SystemStores {
     pub audio_shroud_resolver: Mutex<Option<Arc<dyn AudioShroudResolver>>>,
     pub speech_registry: Arc<ParkingRwLock<std::collections::HashMap<String, crate::common::audio::game_speech::Speech>>>,
     pub effects_next_handle: std::sync::atomic::AtomicU32,
-    /// Live GameClient snapshot bridge (same-thread exclusive borrow).
-    pub live_game_client: Mutex<LiveGameClientBridge>,
     /// Type-erased published terrain visual of the live GameClient (C++
     /// `TheTerrainVisual`); GameClient downcasts.
     pub terrain_visual_any: Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>>,
@@ -255,7 +237,6 @@ impl SystemStores {
             audio_shroud_resolver: Mutex::new(None),
             speech_registry: Arc::new(ParkingRwLock::new(std::collections::HashMap::new())),
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
-            live_game_client: Mutex::new(LiveGameClientBridge::default()),
             terrain_visual_any: Mutex::new(None),
             post_load_hooks: Arc::new(Mutex::new(PostLoadHooks::default())),
             academy_local_player_mines: AtomicU32::new(0),

@@ -96,7 +96,7 @@ impl GUICommandTranslator {
             z: 0.0,
         });
 
-        let local_player = get_local_player_id();
+        let local_player = ui.local_player_id();
         let local_player_u32 = if local_player >= 0 {
             Some(local_player as u32)
         } else {

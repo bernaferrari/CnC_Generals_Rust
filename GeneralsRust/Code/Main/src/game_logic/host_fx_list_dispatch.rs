@@ -555,6 +555,10 @@ impl crate::game_logic::GameLogic {
         let target = session_view.target;
         let rules = session_view.camera.shake_policy.current();
         let impulse = &mut session_view.impulse;
+        // The view's shake sink and the nuggets draw from the one session stream.
+        let client_random =
+            std::cell::RefCell::new(std::mem::take(&mut session_view.client_random));
+        let mut client_real = |lo: f32, hi: f32| client_random.borrow_mut().next_real(lo, hi);
         let mut shake =
             |position: &gamelogic::common::Coord3D,
              kind: game_client::display::view::CameraShakeType| {
@@ -563,7 +567,7 @@ impl crate::game_logic::GameLogic {
                     target,
                     kind.into(),
                     &rules,
-                    &mut game_engine::common::random_value::get_game_client_random_value_real,
+                    &mut client_real,
                 );
             };
         let mut find_list =
@@ -580,7 +584,7 @@ impl crate::game_logic::GameLogic {
                 gamelogic::system::shroud_manager::ShroudState::Visible
             )
         };
-        run(&mut game_client::fx_list::FxViewServices {
+        let result = run(&mut game_client::fx_list::FxViewServices {
             add_scorch,
             shake: &mut shake,
             find_list: &mut find_list,
@@ -588,7 +592,10 @@ impl crate::game_logic::GameLogic {
             create_light_pulse: &mut (|_| false),
             play_fx_audio: &mut (|_, _| false),
             position_visible: &mut position_visible,
-        })
+            client_random: &client_random,
+        });
+        session_view.client_random = client_random.into_inner();
+        result
     }
 
     /// Same fail-closed policy as the original emission boundary; no Core local identity.

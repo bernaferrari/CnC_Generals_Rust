@@ -171,7 +171,7 @@ fn exit_quit_menu(effects: &mut WindowEventEffects<'_>) {
         && !TheGameLogic::is_in_skirmish_game()
         && !session_is_sandbox(effects.window_manager_owner)
     {
-        let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
+        let local_player = effects.ui.as_ref().map_or(0, |ui| ui.local_player_id()) as u32;
         effects
             .emitted_messages
             .push(GameMessage::new(GameMessageType::SelfDestruct(
@@ -220,7 +220,7 @@ fn surrender_quit_menu(effects: &mut WindowEventEffects<'_>) {
         return;
     }
 
-    let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
+    let local_player = effects.ui.as_ref().map_or(0, |ui| ui.local_player_id()) as u32;
     effects
         .emitted_messages
         .push(GameMessage::new(GameMessageType::SelfDestruct(

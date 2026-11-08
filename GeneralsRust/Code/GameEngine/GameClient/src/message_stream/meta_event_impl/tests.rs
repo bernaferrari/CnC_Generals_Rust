@@ -5,7 +5,6 @@ mod tests {
     use crate::test_support::with_receiving_ui;
 
     use super::*;
-    use crate::message_stream::player_state::get_local_player_id;
     use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
     use gamelogic::player::Player;
     use gamelogic::system::game_logic::{GAME_LAN, GAME_NONE, GAME_SINGLE_PLAYER, get_game_logic};
@@ -96,6 +95,15 @@ mod tests {
     ) -> Option<GameMessageDisposition> {
         let mut display = noop_display_dispatch;
         dispatch_map_entry(record, &mut display, ui)
+    }
+
+    fn dispatch_shared(
+        state: &mut crate::core::subsystems::InGameUISubsystem,
+        record: &MetaMapRec,
+    ) -> Option<GameMessageDisposition> {
+        let mut ui = crate::message_stream::ReceivingUi::new(state, 0, 0);
+        let mut emitted = Vec::new();
+        ui.with_emission_sink(&mut emitted, |ui| dispatch_on(ui, record))
     }
 
     fn dispatch_for_test(record: &MetaMapRec) -> Option<GameMessageDisposition> {
@@ -1047,10 +1055,10 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_SINGLE_PLAYER);
         }
-        set_local_player_id(0);
+        let mut state = crate::core::subsystems::InGameUISubsystem::default();
 
         assert_eq!(
-            dispatch_for_test(&alias_record("CHEAT_SWITCH_TEAMS")),
+            dispatch_shared(&mut state, &alias_record("CHEAT_SWITCH_TEAMS")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -1060,10 +1068,10 @@ mod tests {
                 .get_local_player_index(),
             1
         );
-        assert_eq!(get_local_player_id(), 1);
+        assert_eq!(state.local_player_id(), 1);
 
         assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_SWITCH_TEAMS_CHINA_USA")),
+            dispatch_shared(&mut state, &alias_record("DEMO_SWITCH_TEAMS_CHINA_USA")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -1073,7 +1081,7 @@ mod tests {
                 .get_local_player_index(),
             0
         );
-        assert_eq!(get_local_player_id(), 0);
+        assert_eq!(state.local_player_id(), 0);
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
@@ -1110,13 +1118,13 @@ mod tests {
             list.add_player(Arc::clone(&player_china));
             list.set_local_player_index(0);
         }
-        set_local_player_id(0);
+        let mut state = crate::core::subsystems::InGameUISubsystem::default();
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_LAN);
         }
 
         assert_eq!(
-            dispatch_for_test(&alias_record("CHEAT_SWITCH_TEAMS")),
+            dispatch_shared(&mut state, &alias_record("CHEAT_SWITCH_TEAMS")),
             None
         );
         assert_eq!(
@@ -1126,7 +1134,7 @@ mod tests {
                 .get_local_player_index(),
             0
         );
-        assert_eq!(get_local_player_id(), 0);
+        assert_eq!(state.local_player_id(), 0);
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
@@ -1150,7 +1158,7 @@ mod tests {
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
         }
-        set_local_player_id(0);
+        
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_LAN);
         }
@@ -1540,7 +1548,7 @@ if let Ok(mut manager) = __arc_bind.write() {
                 selection.clear_selection();
             }
         }
-        set_local_player_id(0);
+        
 
         assert_eq!(
             dispatch_for_test(&alias_record("CHEAT_KILL_SELECTION")),
@@ -1584,7 +1592,7 @@ if let Ok(mut manager) = __arc_bind.write() {
                 selection.clear_selection();
             }
         }
-        set_local_player_id(0);
+        
 
         with_tactical_view(|view| view.set_camera_lock(Some(42)));
         assert_eq!(

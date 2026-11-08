@@ -32,23 +32,6 @@ pub fn get_game_logic_random_value_real(lo: Real, hi: Real) -> Real {
     game_engine::common::random_value::get_game_logic_random_value_real(lo, hi)
 }
 
-/// Client-side random value (visual-only; not network-synchronized).
-/// Unified with Common client stream residual.
-pub fn game_client_random_value(lo: Int, hi: Int) -> Int {
-    if hi < lo {
-        return hi;
-    }
-    game_engine::common::random_value::get_game_client_random_value(lo, hi)
-}
-
-/// Client-side random real (visual-only; not network-synchronized).
-pub fn game_client_random_value_real(lo: Real, hi: Real) -> Real {
-    if hi <= lo {
-        return hi;
-    }
-    game_engine::common::random_value::get_game_client_random_value_real(lo, hi)
-}
-
 /// Gets the CRC of the game logic random seed state (matching C++ GetGameLogicRandomSeedCRC)
 /// CRITICAL for network synchronization - ensures all players have same random state.
 ///
@@ -77,14 +60,6 @@ macro_rules! GameLogicRandomValue {
 macro_rules! GameLogicRandomValueReal {
     ($lo:expr, $hi:expr) => {
         $crate::helpers::get_game_logic_random_value_real($lo, $hi)
-    };
-}
-
-/// Client random real value macro (matching C++ GameClientRandomValueReal macro)
-#[macro_export]
-macro_rules! GameClientRandomValueReal {
-    ($lo:expr, $hi:expr) => {
-        $crate::helpers::game_client_random_value_real($lo, $hi)
     };
 }
 

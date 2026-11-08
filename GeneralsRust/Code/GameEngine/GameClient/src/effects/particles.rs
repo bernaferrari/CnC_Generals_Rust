@@ -267,7 +267,11 @@ impl ParticleEmitter {
     }
 
     /// Update emitter and emit particles
-    pub fn update(&mut self, delta_time: f32) -> Vec<Particle> {
+    pub fn update(
+        &mut self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+        delta_time: f32,
+    ) -> Vec<Particle> {
         if !self.active {
             return Vec::new();
         }
@@ -294,6 +298,7 @@ impl ParticleEmitter {
         for _ in 0..particles_to_emit {
             // Generate random properties
             let velocity = utils::random_cone_velocity(
+                client_random,
                 self.direction,
                 self.spread_angle,
                 self.speed_range.0,
@@ -383,7 +388,12 @@ impl ParticleSystem {
     }
 
     /// Update the particle system
-    pub fn update(&mut self, delta_time: f32, config: &EffectsConfig) {
+    pub fn update(
+        &mut self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+        delta_time: f32,
+        config: &EffectsConfig,
+    ) {
         if !self.active {
             return;
         }
@@ -416,7 +426,7 @@ impl ParticleSystem {
         // Update emitters and add new particles
         let mut new_particles = Vec::new();
         for emitter in &mut self.emitters {
-            let mut emitted = emitter.update(effective_delta_time);
+            let mut emitted = emitter.update(client_random, effective_delta_time);
 
             // Apply LOD by potentially discarding some particles
             if lod_multiplier < 1.0 {
@@ -744,7 +754,7 @@ mod tests {
         let mut emitter = ParticleEmitter::new(Vec3::new(0.0, 0.0, 0.0));
         emitter.emission_rate = 100.0; // 100 particles per second
 
-        let particles = emitter.update(0.1); // 0.1 second
+        let particles = emitter.update(&mut Default::default(), 0.1); // 0.1 second
         // Should emit approximately 10 particles (100 * 0.1)
         assert!(particles.len() >= 8 && particles.len() <= 12); // Some variance due to accumulator
     }
@@ -764,7 +774,7 @@ mod tests {
         assert_eq!(system.active_particle_count(), 0);
 
         // Update should create particles
-        system.update(0.1, &config);
+        system.update(&mut Default::default(), 0.1, &config);
         assert!(system.active_particle_count() > 0);
 
         // System should not be finished while emitters are active

@@ -47,14 +47,9 @@ const STARTUP_SHELL_IMAGE_NAMES: [&str; 4] = [
 ];
 
 fn log_startup_shell_image_once(name: &str, message: String) {
-    let key = format!("{name}:{message}");
-    let should_log = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.note_startup_shell_image_log(&key)
-    })
-    .unwrap_or(true);
-    if should_log {
-        debug!("startup shell image: name={name} {message}");
-    }
+    // Ownerless image-collection callers: native Main never had the per-client
+    // dedupe set (live slot unregistered), so every message logs.
+    debug!("startup shell image: name={name} {message}");
 }
 
 /// Image-related error types
@@ -868,11 +863,6 @@ impl SubsystemInterface for ImageCollection {
 /// Prefers the live GameClient slot; otherwise the published world's
 /// headless collection (typed Arc on WorldServices). No process FALLBACK.
 pub fn ensure_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_mapped_image_collection()
-    }) {
-        return handle;
-    }
     let services = gamelogic::system::engine_stores::try_active_services().expect(
         "ensure_mapped_image_collection requires a live GameClient or published WorldServices",
     );
@@ -1610,14 +1600,11 @@ mod tests {
 
     #[test]
     fn win_draw_image_queues_command_when_gpu_texture_missing() {
-        let _client = crate::test_support::park_live_game_client();
+        crate::test_support::ensure_ambient_host();
         let mut image = Image::with_name("StageENoGpu");
         image.set_filename("stage_e_missing_no_gpu.tga");
         let client = ensure_mapped_image_collection();
         client.write().add_image(image);
-
-        crate::gui::w3d_gadget_draw::reset_shipped_ui_draw_command_count();
-        crate::gui::game_window_global::reset_win_draw_image_queued_count();
 
         let manager = crate::gui::window_manager::WindowManager::new();
         let gui_image = crate::gui::game_window::Image {
@@ -1633,6 +1620,7 @@ mod tests {
             manager: Some(&manager),
             receiving_power: None,
             receiving_images: None,
+            ..Default::default()
         };
         manager.win_draw_image(
             &gui_image,
@@ -1644,8 +1632,8 @@ mod tests {
             &mut draw_context,
         );
 
-        let shipped = crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count();
-        let queued = crate::gui::game_window_global::win_draw_image_queued_count();
+        let shipped = draw_context.shipped_ui_draw_commands;
+        let queued = draw_context.win_draw_image_commands;
         let renderer_queued = draw_context
             .renderer
             .as_ref()

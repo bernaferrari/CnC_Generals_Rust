@@ -35,13 +35,6 @@ fn with_popup_communicator_mut<R>(
     if let Some(owner) = owner {
         return owner.with_popup_communicator_mut(|state| f.take().expect("popcom")(state));
     }
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_popup_communicator_mut(|state| f.take().expect("popcom")(state))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_POPUP_COMMUNICATOR.with(|slot| f.take().expect("popcom")(&mut slot.borrow_mut()));

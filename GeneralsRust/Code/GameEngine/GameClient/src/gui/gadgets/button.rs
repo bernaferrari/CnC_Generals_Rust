@@ -40,77 +40,6 @@ pub type ButtonCallback = Box<dyn Fn(GadgetId) + Send + Sync>;
 pub type ButtonAudioHook = Box<dyn FnMut(&str) + Send + Sync>;
 
 // THREAD: main thread only — push-button clicks dispatch audio on the GUI thread.
-// Owned on WindowManagerOwner.button_audio (live client peel / cfg(test) TLS).
-#[cfg(test)]
-thread_local! {
-    static TEST_BUTTON_AUDIO: RefCell<Option<ButtonAudioHook>> = const { RefCell::new(None) };
-}
-
-/// Register button audio dispatch.
-///
-/// C++ push buttons call `TheAudio->addAudioEvent()` on accepted mouse-down
-/// events. The hook keeps that behavior injectable for the Rust client.
-pub fn register_button_audio_hook(hook: ButtonAudioHook) {
-    let mut hook = Some(hook);
-    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .register_button_audio_hook(hook.take().expect("button audio hook"));
-    }) {
-        return;
-    }
-    let hook = hook.expect("button audio hook");
-    #[cfg(test)]
-    {
-        TEST_BUTTON_AUDIO.with_borrow_mut(|slot| {
-            slot.replace(hook);
-        });
-        return;
-    }
-    #[cfg(not(test))]
-    {
-        let _ = hook;
-    }
-}
-
-#[cfg(test)]
-fn clear_button_audio_hook() {
-    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
-        let _ = client.window_manager_owner_ref().take_button_audio_hook();
-    }) {
-        return;
-    }
-    TEST_BUTTON_AUDIO.with_borrow_mut(Option::take);
-}
-
-fn with_button_audio<F: FnOnce(&mut ButtonAudioHook)>(f: F) {
-    let mut f = Some(f);
-    if let Some(Some(())) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_button_audio_mut(|hook| {
-                f.take().expect("button audio")(hook);
-            })
-    }) {
-        return;
-    }
-    if f.is_none() {
-        return;
-    }
-    #[cfg(test)]
-    {
-        TEST_BUTTON_AUDIO.with_borrow_mut(|guard| {
-            if let Some(hook) = guard.as_mut() {
-                f.take().expect("button audio")(hook);
-            }
-        });
-        return;
-    }
-    #[cfg(not(test))]
-    {
-        let _ = f;
-    }
-}
 
 /// Clock display mode for progress indicators
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,6 +141,8 @@ pub struct PushButton {
     // Event handling
     callback: Option<ButtonCallback>,
     right_click_callback: Option<ButtonCallback>,
+    /// Click-sound sink owned by this button (C++ `TheAudio->addAudioEvent`).
+    audio_hook: Option<ButtonAudioHook>,
     accepts_right_click: bool,
 
     // State tracking
@@ -247,6 +178,7 @@ impl PushButton {
 
             callback: None,
             right_click_callback: None,
+            audio_hook: None,
             accepts_right_click: false,
 
             mouse_inside: false,
@@ -479,14 +411,24 @@ impl PushButton {
         self.mouse_inside
     }
 
-    fn play_click_sound(&self) {
+    fn play_click_sound(&mut self) {
         let event_name = self
             .style
             .alt_sound
             .as_deref()
             .filter(|name| !name.is_empty())
             .unwrap_or("GUIClick");
-        with_button_audio(|hook| hook(event_name));
+        if let Some(hook) = self.audio_hook.as_mut() {
+            hook(event_name);
+        }
+    }
+
+    /// Install the click-sound hook for this button.
+    ///
+    /// C++ push buttons call `TheAudio->addAudioEvent()` on accepted mouse-down
+    /// events. The hook keeps that behavior injectable for the Rust client.
+    pub fn set_audio_hook(&mut self, hook: Option<ButtonAudioHook>) {
+        self.audio_hook = hook;
     }
 
     /// Build renderer-facing commands for the current button state.
@@ -1072,70 +1014,8 @@ impl PushButtonBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::marker::PhantomData;
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
-
-    struct ButtonAudioTestGuard {
-        previous: Option<ButtonAudioHook>,
-        _thread: PhantomData<Rc<()>>,
-    }
-
-    fn audio_test_guard() -> ButtonAudioTestGuard {
-        // GUI hooks are already owned by this test thread. Preserve an outer
-        // fixture while giving this one an empty hook slot; no global lock.
-        ButtonAudioTestGuard {
-            previous: {
-                if let Some(prev) = crate::core::game_client::with_live_game_client_mut(|client| {
-                    client.window_manager_owner_ref().take_button_audio_hook()
-                }) {
-                    prev
-                } else {
-                    TEST_BUTTON_AUDIO.with_borrow_mut(Option::take)
-                }
-            },
-            _thread: PhantomData,
-        }
-    }
-
-    impl Drop for ButtonAudioTestGuard {
-        fn drop(&mut self) {
-            if let Some(prev) = self.previous.take() {
-                register_button_audio_hook(prev);
-            } else {
-                clear_button_audio_hook();
-            }
-        }
-    }
-
-    #[test]
-    fn audio_fixture_restores_outer_hook_after_normal_drop_and_panic() {
-        crate::test_support::ensure_ambient_host();
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        let _outer = audio_test_guard();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let hook_calls = Arc::clone(&calls);
-        register_button_audio_hook(Box::new(move |_| {
-            hook_calls.fetch_add(1, Ordering::SeqCst);
-        }));
-
-        {
-            let _inner = audio_test_guard();
-            register_button_audio_hook(Box::new(|_| {}));
-        }
-        with_button_audio(|hook| hook("GUIClick"));
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-
-        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _inner = audio_test_guard();
-            register_button_audio_hook(Box::new(|_| {}));
-            panic!("fixture unwind witness");
-        }));
-        assert!(failure.is_err());
-        with_button_audio(|hook| hook("GUIClick"));
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
 
     #[test]
     fn test_button_creation() {
@@ -1486,17 +1366,17 @@ mod tests {
     #[test]
     fn test_left_click_plays_default_gui_click_sound() {
         crate::test_support::ensure_ambient_host();
-        let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);
-        register_button_audio_hook(Box::new(move |event| {
+        let hook: ButtonAudioHook = Box::new(move |event| {
             captured_events
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .push(event.to_string());
-        }));
+        });
 
         let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.set_audio_hook(Some(hook));
         button.handle_input(&InputEvent::MouseDown {
             x: 50,
             y: 15,
@@ -1505,23 +1385,22 @@ mod tests {
 
         let played = events.lock().unwrap_or_else(|err| err.into_inner()).clone();
         assert_eq!(played, vec!["GUIClick"]);
-        clear_button_audio_hook();
     }
 
     #[test]
     fn test_click_uses_alt_sound_when_present() {
         crate::test_support::ensure_ambient_host();
-        let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);
-        register_button_audio_hook(Box::new(move |event| {
+        let hook: ButtonAudioHook = Box::new(move |event| {
             captured_events
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .push(event.to_string());
-        }));
+        });
 
         let mut button = PushButton::new(1, 0, 0, 100, 30).with_alt_sound("GUICommandBarClick");
+        button.set_audio_hook(Some(hook));
         button.handle_input(&InputEvent::MouseDown {
             x: 50,
             y: 15,
@@ -1530,23 +1409,22 @@ mod tests {
 
         let played = events.lock().unwrap_or_else(|err| err.into_inner()).clone();
         assert_eq!(played, vec!["GUICommandBarClick"]);
-        clear_button_audio_hook();
     }
 
     #[test]
     fn test_ignored_right_click_does_not_play_audio() {
         crate::test_support::ensure_ambient_host();
-        let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);
-        register_button_audio_hook(Box::new(move |event| {
+        let hook: ButtonAudioHook = Box::new(move |event| {
             captured_events
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .push(event.to_string());
-        }));
+        });
 
         let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.set_audio_hook(Some(hook));
         button.handle_input(&InputEvent::MouseDown {
             x: 50,
             y: 15,
@@ -1557,7 +1435,6 @@ mod tests {
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .is_empty());
-        clear_button_audio_hook();
     }
 
     #[test]
@@ -1592,17 +1469,17 @@ mod tests {
     #[test]
     fn checkbox_keyboard_toggle_is_silent_like_cpp() {
         crate::test_support::ensure_ambient_host();
-        let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);
-        register_button_audio_hook(Box::new(move |event| {
+        let hook: ButtonAudioHook = Box::new(move |event| {
             captured_events
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .push(event.to_string());
-        }));
+        });
 
         let mut button = PushButton::new(1, 0, 0, 100, 30).as_checkbox(false);
+        button.set_audio_hook(Some(hook));
         button.set_focus(true);
         let messages = button.handle_input(&InputEvent::KeyDown {
             key: KeyCode::Enter,
@@ -1616,6 +1493,29 @@ mod tests {
         ));
         let played = events.lock().unwrap_or_else(|err| err.into_inner()).clone();
         assert!(played.is_empty());
-        clear_button_audio_hook();
+    }
+
+    #[test]
+    fn click_sound_hooks_are_per_button_instance() {
+        crate::test_support::ensure_ambient_host();
+        let a_events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let b_events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut a = PushButton::new(1, 0, 0, 100, 30);
+        let mut b = PushButton::new(2, 0, 0, 100, 30);
+        let hook_a = Arc::clone(&a_events);
+        a.set_audio_hook(Some(Box::new(move |event| {
+            hook_a.lock().unwrap().push(event.to_string());
+        })));
+        let hook_b = Arc::clone(&b_events);
+        b.set_audio_hook(Some(Box::new(move |event| {
+            hook_b.lock().unwrap().push(event.to_string());
+        })));
+        a.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Left,
+        });
+        assert_eq!(*a_events.lock().unwrap(), vec!["GUIClick"]);
+        assert!(b_events.lock().unwrap().is_empty());
     }
 }

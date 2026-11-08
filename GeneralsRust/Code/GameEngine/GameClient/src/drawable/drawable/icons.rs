@@ -191,7 +191,12 @@ impl IconInfo {
                     let mut template_name = String::new();
                     xfer.xfer_ascii_string(&mut template_name)
                         .map_err(|e| format!("{:?}", e))?;
-                    let icon = Anim2DIcon::from_template_name(&template_name)?;
+                    let icon = // Snapshot load restores the saved frame; the start-frame draw has no
+                    // receiving stream here (ownerless Xfer path).
+                    Anim2DIcon::from_template_name(
+                        &template_name,
+                        &mut game_engine::common::random_value::RandomState::default(),
+                    )?;
                     icon.xfer(xfer)?;
 
                     self.icons.insert(icon_type, Arc::new(icon));
@@ -284,22 +289,26 @@ impl Anim2DIcon {
     pub fn new(
         template: Arc<RwLock<Anim2DTemplate>>,
         collection: Option<Arc<Mutex<Anim2DCollection>>>,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Self {
         let template_name = template.read().get_name().as_str().to_string();
-        let anim = Anim2D::new(template, collection);
+        let anim = Anim2D::new(template, collection, client_random);
         Self {
             anim,
             template_name,
         }
     }
 
-    pub fn from_template_name(name: &str) -> Result<Self, String> {
+    pub fn from_template_name(
+        name: &str,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<Self, String> {
         let template_name = name.to_string();
         let name_key = AsciiString::from(name);
         let template = get_anim2d_collection()
             .and_then(|collection| collection.read().find_template(&name_key))
             .ok_or_else(|| format!("Unknown Anim2D template '{}'", template_name))?;
-        Ok(Self::new(template, None))
+        Ok(Self::new(template, None, client_random))
     }
 
     pub fn template_name(&self) -> &str {

@@ -433,7 +433,7 @@ fn tick_impulse_shake_seeds_and_decays_offset() {
     let mut view = View::new();
     view.init();
     view.set_position(&Point3::origin());
-    view.shake(&Point3::origin(), CameraShakeType::Severe);
+    view.shake(&Point3::origin(), CameraShakeType::Severe, &mut game_engine::common::random_value::RandomState::default());
     let pending = view.impulse_shake_offset();
     assert_eq!((pending.x, pending.y), (0.0, 0.0));
     let before = view.camera_shake_intensity();

@@ -69,14 +69,12 @@ use crate::effects::{DecalManager, EffectsConfig};
 use crate::fx_list::init_fx_list_store;
 use crate::game_text::GameText;
 
-use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::window_manager::WindowManagerOwner;
 use crate::gui::{UIRenderer, WindowStatus};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
 use crate::message_stream::command_router::route_commands_to_gamelogic;
 use crate::message_stream::game_message::GameMessageType;
-use crate::message_stream::player_state::set_local_player_id;
 use crate::message_stream::translators::{
     CommandTranslator as CommandTranslatorImpl, TranslatorFactory,
 };

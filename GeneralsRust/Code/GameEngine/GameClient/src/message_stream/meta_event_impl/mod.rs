@@ -34,7 +34,6 @@ use crate::display::view::{FilterMode, FilterType, with_tactical_view};
 use crate::drawable::drawable_manager::with_drawable_manager_ref;
 
 use crate::helpers::TheControlBar;
-use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use crate::presentation_translator_residual::{
     translator_entry_has_kind, translator_entry_is_local, with_translator_catalog,

@@ -122,11 +122,6 @@ fn wol_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_lobby_menu_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_lobby_menu_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_LOBBY_STATE.with(|cell| {
@@ -140,8 +135,8 @@ fn wol_state_on_owner(
     }
 }
 
-fn wol_state() -> Rc<RefCell<WolLobbyState>> {
-    wol_state_on_owner(None)
+fn wol_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolLobbyState>> {
+    wol_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -204,7 +199,7 @@ fn lookup_small_rank_image(side: i32, rank_points: i32) -> Option<(String, u32, 
     Some((image_name, width, height))
 }
 
-fn handle_lobby_slash_commands(message: &str, listbox_id: i32) -> bool {
+fn handle_lobby_slash_commands(message: &str, listbox_id: i32, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> bool {
     if !message.starts_with('/') {
         return false;
     }
@@ -248,8 +243,8 @@ fn handle_lobby_slash_commands(message: &str, listbox_id: i32) -> bool {
             false
         }
         "refresh" => {
-            refresh_game_list(true);
-            refresh_player_list(true);
+            refresh_game_list(true, owner);
+            refresh_player_list(true, owner);
             true
         }
         _ => false,
@@ -315,16 +310,16 @@ fn show_sort_icons(state: &WolLobbyState) {
     }
 }
 
-fn set_sort_mode(state: &mut WolLobbyState, sort_type: GameSortType) {
+fn set_sort_mode(state: &mut WolLobbyState, sort_type: GameSortType, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     state.sort_type = sort_type;
     show_sort_icons(state);
-    refresh_game_list_boxes();
+    refresh_game_list_boxes(owner);
 }
 
-fn toggle_sort_buddies(state: &mut WolLobbyState) {
+fn toggle_sort_buddies(state: &mut WolLobbyState, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     state.sort_buddies = !state.sort_buddies;
     show_sort_icons(state);
-    refresh_game_list_boxes();
+    refresh_game_list_boxes(owner);
 }
 
 fn insert_player_in_listbox(
@@ -352,9 +347,9 @@ fn insert_player_in_listbox(
     index
 }
 
-pub fn populate_lobby_player_listbox() {
+pub fn populate_lobby_player_listbox(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let (listbox_id, listbox_window) = {
-        let state_slot = wol_state();
+        let state_slot = wol_state(owner);
         let state = state_slot.borrow_mut();
         (
             state.listbox_lobby_players_id,
@@ -519,8 +514,8 @@ fn populate_group_room_listbox(combo_window: &Rc<RefCell<GameWindow>>) {
     }
 }
 
-fn refresh_game_list(force_refresh: bool) {
-    let state_slot = wol_state();
+fn refresh_game_list(force_refresh: bool, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     let now = now_ms();
     if force_refresh
@@ -536,16 +531,16 @@ fn refresh_game_list(force_refresh: bool) {
             .unwrap_or(false);
         if changed {
             drop(state);
-            refresh_game_list_boxes();
-            let state_slot = wol_state();
+            refresh_game_list_boxes(owner);
+            let state_slot = wol_state(owner);
             let mut state = state_slot.borrow_mut();
             state.game_list_refresh_time = now;
         }
     }
 }
 
-fn refresh_player_list(force_refresh: bool) {
-    let state_slot = wol_state();
+fn refresh_player_list(force_refresh: bool, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     let now = now_ms();
     if force_refresh
@@ -553,8 +548,8 @@ fn refresh_player_list(force_refresh: bool) {
         || now.saturating_sub(state.player_list_refresh_time) >= PLAYER_LIST_REFRESH_INTERVAL_MS
     {
         drop(state);
-        populate_lobby_player_listbox();
-        let state_slot = wol_state();
+        populate_lobby_player_listbox(owner);
+        let state_slot = wol_state(owner);
         let mut state = state_slot.borrow_mut();
         state.player_list_refresh_time = now;
     }
@@ -595,7 +590,7 @@ fn get_game_info_list_box() -> Option<Rc<RefCell<GameWindow>>> {
     owner.with_manager(|manager| manager.get_window_by_id(id))
 }
 
-fn toggle_game_list_type(state: &mut WolLobbyState) {
+fn toggle_game_list_type(state: &mut WolLobbyState, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     state.is_small_game_list = !state.is_small_game_list;
     let parent_large_id = name_to_id("WOLCustomLobby.wnd:ParentGameListLarge");
     if let Some(parent_large) =
@@ -603,10 +598,10 @@ fn toggle_game_list_type(state: &mut WolLobbyState) {
     {
         let _ = parent_large.borrow_mut().hide(state.is_small_game_list);
     }
-    refresh_game_list_boxes();
+    refresh_game_list_boxes(owner);
 }
 
-pub fn refresh_game_list_boxes() {
+pub fn refresh_game_list_boxes(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let Some(listbox_window) = get_game_list_box() else {
         return;
     };
@@ -653,11 +648,11 @@ pub fn refresh_game_list_boxes() {
         .map(|buddy| buddy.location_string.to_lowercase())
         .collect();
     let sort_type = {
-        let slot = wol_state();
+        let slot = wol_state(owner);
         slot.borrow().sort_type
     };
     let sort_buddies = {
-        let slot = wol_state();
+        let slot = wol_state(owner);
         slot.borrow().sort_buddies
     };
     let ladder_arc = get_ladder_list();
@@ -1030,7 +1025,7 @@ pub fn wol_lobby_menu_init(
     }
 
     if CustomMatchPreferences::new().uses_long_game_list() {
-        toggle_game_list_type(&mut state);
+        toggle_game_list_type(&mut state, effects.window_manager_owner);
     }
 
     show_sort_icons(&state);
@@ -1085,8 +1080,8 @@ pub fn wol_lobby_menu_init(
     set_dont_show_main_menu(effects, true);
 }
 
-fn shutdown_complete(layout: &WindowLayout) {
-    let state_slot = wol_state();
+fn shutdown_complete(layout: &WindowLayout, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     state.is_shutting_down = false;
     layout.hide(true);
@@ -1137,7 +1132,7 @@ pub fn wol_lobby_menu_shutdown(
     set_dont_show_main_menu(effects, false);
 
     if pop_immediate {
-        shutdown_complete(layout);
+        shutdown_complete(layout, effects.window_manager_owner);
         return;
     }
 
@@ -1206,8 +1201,8 @@ fn handle_persistent_storage_responses() {
     }
 }
 
-pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = wol_state();
+pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
 
     if state.just_entered {
@@ -1230,7 +1225,7 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
         && owner.with_manager(|manager| manager.transitions_finished())
     {
         drop(state);
-        shutdown_complete(layout);
+        shutdown_complete(layout, owner);
         return;
     }
 
@@ -1292,12 +1287,12 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                                 }
                             }
                             if let Some(combo) = {
-                                let slot = wol_state();
+                                let slot = wol_state(owner);
                                 slot.borrow().combo_lobby_group_rooms.clone()
                             } {
                                 populate_group_room_listbox(&combo);
                             }
-                            refresh_player_list(true);
+                            refresh_player_list(true, owner);
                         }
                         PeerResponseType::PlayerChangedFlags
                         | PeerResponseType::PlayerChangedNick
@@ -1369,7 +1364,7 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                         }
                         PeerResponseType::CreateStagingRoom => {
                             saw_important = true;
-                            let state_slot = wol_state();
+                            let state_slot = wol_state(owner);
                             let mut state = state_slot.borrow_mut();
                             state.trying_to_host_or_join = false;
                             if resp.create_staging_result == 0 {
@@ -1386,7 +1381,7 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                         }
                         PeerResponseType::JoinStagingRoom => {
                             saw_important = true;
-                            let state_slot = wol_state();
+                            let state_slot = wol_state(owner);
                             let mut state = state_slot.borrow_mut();
                             state.trying_to_host_or_join = false;
                             if resp.join_staging_ok {
@@ -1465,11 +1460,11 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
             }
         }
 
-        refresh_player_list(false);
-        refresh_game_list(false);
+        refresh_player_list(false, owner);
+        refresh_game_list(false, owner);
     }
 
-    flush_gamespy_chat_entries();
+    flush_gamespy_chat_entries(owner);
 }
 
 fn fill_player_info(resp: &PeerResponse) -> PlayerInfo {
@@ -1486,9 +1481,9 @@ fn fill_player_info(resp: &PeerResponse) -> PlayerInfo {
     info
 }
 
-fn flush_gamespy_chat_entries() {
+fn flush_gamespy_chat_entries(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let Some(listbox_window) = ({
-        let slot = wol_state();
+        let slot = wol_state(owner);
         slot.borrow().listbox_lobby_chat.clone()
     }) else {
         return;
@@ -1742,14 +1737,14 @@ pub fn wol_lobby_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
     // C++ WOLLobbyMenu.cpp:1327-1342 — KEY_ESC always MSG_HANDLED; GBM_SELECTED only on key up.
     if (data2 & KEY_STATE_UP) != 0 {
         let (parent, back_id) = {
-            let slot = wol_state();
+            let slot = wol_state(owner);
             let state = slot.borrow();
             (state.parent.clone(), state.button_back_id)
         };
@@ -1763,7 +1758,7 @@ pub fn wol_lobby_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::InputFocus => {
             return WindowMsgHandled::Handled;
@@ -1771,7 +1766,7 @@ pub fn wol_lobby_menu_system(
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
             if control_id == get_game_list_box_id() {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
                 let selected = get_game_list_box().and_then(|win| {
                     win.borrow().widget().and_then(|widget| match widget {
@@ -1794,7 +1789,7 @@ pub fn wol_lobby_menu_system(
                 }
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ComboBoxGroupRooms") {
                 if let Some(combo) = {
-                    let slot = wol_state();
+                    let slot = wol_state(owner);
                     slot.borrow().combo_lobby_group_rooms.clone()
                 } {
                     let selected = combo.borrow().widget().and_then(|widget| match widget {
@@ -1809,7 +1804,7 @@ pub fn wol_lobby_menu_system(
                                     info.join_group_room(group_id);
                                     if GameSpyConfig::new_sync().restrict_games_to_lobby() {
                                         info.clear_staging_room_list();
-                                        refresh_game_list_boxes();
+                                        refresh_game_list_boxes(owner);
                                         let mut req = PeerRequest::default();
                                         req.request_type = PeerRequestType::StartGameList;
                                         req.restrict_game_list = true;
@@ -1829,7 +1824,7 @@ pub fn wol_lobby_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let (sort_alpha_id, sort_ping_id, sort_buddies_id) = {
-                let slot = wol_state();
+                let slot = wol_state(owner);
                 let state = slot.borrow();
                 (
                     state.button_sort_alpha_id,
@@ -1838,7 +1833,7 @@ pub fn wol_lobby_menu_system(
                 )
             };
             if control_id == name_to_id("WOLCustomLobby.wnd:ButtonBack") {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
@@ -1853,10 +1848,10 @@ pub fn wol_lobby_menu_system(
                 state.next_screen = Some("Menus/WOLWelcomeMenu.wnd".to_string());
                 let _ = get_shell().pop();
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonRefresh") {
-                refresh_game_list(true);
-                refresh_player_list(true);
+                refresh_game_list(true, owner);
+                refresh_player_list(true, owner);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonHost") {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
@@ -1868,7 +1863,7 @@ pub fn wol_lobby_menu_system(
                     .unwrap_or(0);
                 open_overlay(GameSpyOverlayType::GameOptions);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonJoin") {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
@@ -1960,36 +1955,36 @@ pub fn wol_lobby_menu_system(
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonBuddy") {
                 toggle_overlay(GameSpyOverlayType::Buddy);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonGameListToggle") {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
-                toggle_game_list_type(&mut state);
+                toggle_game_list_type(&mut state, owner);
             } else if control_id == sort_alpha_id {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
                 if state.sort_type == GameSortType::AlphaAscending {
-                    set_sort_mode(&mut state, GameSortType::AlphaDescending);
+                    set_sort_mode(&mut state, GameSortType::AlphaDescending, owner);
                 } else {
-                    set_sort_mode(&mut state, GameSortType::AlphaAscending);
+                    set_sort_mode(&mut state, GameSortType::AlphaAscending, owner);
                 }
             } else if control_id == sort_ping_id {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
                 if state.sort_type == GameSortType::PingAscending {
-                    set_sort_mode(&mut state, GameSortType::PingDescending);
+                    set_sort_mode(&mut state, GameSortType::PingDescending, owner);
                 } else {
-                    set_sort_mode(&mut state, GameSortType::PingAscending);
+                    set_sort_mode(&mut state, GameSortType::PingAscending, owner);
                 }
             } else if control_id == sort_buddies_id {
-                let state_slot = wol_state();
+                let state_slot = wol_state(owner);
                 let mut state = state_slot.borrow_mut();
-                toggle_sort_buddies(&mut state);
+                toggle_sort_buddies(&mut state, owner);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonEmote") {
                 if let Some(entry) = {
-                    let slot = wol_state();
+                    let slot = wol_state(owner);
                     slot.borrow().text_entry_chat.clone()
                 } {
                     let listbox_id = {
-                        let slot = wol_state();
+                        let slot = wol_state(owner);
                         slot.borrow().listbox_lobby_players_id as u32
                     };
                     if let Some(widget) = entry.borrow_mut().text_entry_mut() {
@@ -2008,7 +2003,7 @@ pub fn wol_lobby_menu_system(
         }
         WindowMessage::GadgetEditDone => {
             let control_id = data1 as i32;
-            let state_slot = wol_state();
+            let state_slot = wol_state(owner);
             let state = state_slot.borrow_mut();
             if control_id == state.text_entry_chat_id {
                 if let Some(entry) = state.text_entry_chat.as_ref() {
@@ -2017,7 +2012,7 @@ pub fn wol_lobby_menu_system(
                         widget.set_text("");
                         if !text.is_empty() {
                             let listbox_id = state.listbox_lobby_players_id as u32;
-                            if !handle_lobby_slash_commands(&text, listbox_id as i32) {
+                            if !handle_lobby_slash_commands(&text, listbox_id as i32, owner) {
                                 if let Some(slot) = get_gamespy_info() {
                                     if let Ok(mut info) = slot.lock() {
                                         let _ = info.send_chat(text, false, Some(listbox_id));
@@ -2031,7 +2026,7 @@ pub fn wol_lobby_menu_system(
         }
         WindowMessage::GadgetRightClick => {
             let control_id = data1 as i32;
-            let state_slot = wol_state();
+            let state_slot = wol_state(owner);
             let state = state_slot.borrow_mut();
             if control_id == state.listbox_lobby_players_id {
                 let Some(listbox_window) = state.listbox_lobby_players.as_ref() else {
@@ -2216,14 +2211,14 @@ mod tests {
     #[test]
     fn lobby_slash_commands_ignore_plain_chat() {
         crate::test_support::ensure_ambient_host();
-        assert!(!handle_lobby_slash_commands("hello", 1));
-        assert!(!handle_lobby_slash_commands("", 1));
+        assert!(!handle_lobby_slash_commands("hello", 1, None));
+        assert!(!handle_lobby_slash_commands("", 1, None));
     }
 
     #[test]
     fn lobby_slash_refresh_is_recognized() {
         crate::test_support::ensure_ambient_host();
-        assert!(handle_lobby_slash_commands("/refresh", 1));
+        assert!(handle_lobby_slash_commands("/refresh", 1, None));
     }
 
     #[test]

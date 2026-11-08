@@ -36,11 +36,6 @@ fn popup_join_state_on_owner(
     if let Some(owner) = owner {
         return owner.popup_join_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().popup_join_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_POPUP_JOIN_STATE.with(|cell| {
@@ -55,8 +50,8 @@ fn popup_join_state_on_owner(
     }
 }
 
-fn popup_join_state() -> Rc<RefCell<PopupJoinState>> {
-    popup_join_state_on_owner(None)
+fn popup_join_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<PopupJoinState>> {
+    popup_join_state_on_owner(owner)
 }
 
 pub fn popup_join_game_init(
@@ -127,7 +122,7 @@ pub fn popup_join_game_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char {
         return WindowMsgHandled::Ignored;
     }
@@ -143,7 +138,7 @@ pub fn popup_join_game_input(
     // C++ PopupJoinGame.cpp:116-118 — close overlay on ESC up; no GBM_SELECTED.
     close_overlay(GameSpyOverlayType::GamePassword);
     set_lobby_attempt_host_join(false);
-    let state_slot = popup_join_state();
+    let state_slot = popup_join_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent = None;
     state.text_entry = None;
@@ -156,14 +151,14 @@ pub fn popup_join_game_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_slot = popup_join_state();
+            let state_slot = popup_join_state(owner);
             let mut state = state_slot.borrow_mut();
             if control_id == state.button_cancel_id.unwrap_or(0) {
                 close_overlay(GameSpyOverlayType::GamePassword);
@@ -175,7 +170,7 @@ pub fn popup_join_game_system(
         }
         WindowMessage::GadgetEditDone => {
             let control_id = data1 as i32;
-            let state_slot = popup_join_state();
+            let state_slot = popup_join_state(owner);
             let mut state = state_slot.borrow_mut();
             if control_id == state.text_entry_id.unwrap_or(0) {
                 if let Some(text_entry) = state.text_entry.as_ref() {
@@ -184,7 +179,7 @@ pub fn popup_join_game_system(
                         let input = widget.text().trim().to_string();
                         widget.set_text("");
                         if !input.is_empty() {
-                            join_game(input);
+                            join_game(input, owner);
                         }
                     }
                 }
@@ -195,11 +190,11 @@ pub fn popup_join_game_system(
     }
 }
 
-fn join_game(password: String) {
+fn join_game(password: String, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let Some(room_id) = current_staging_room_id() else {
         close_overlay(GameSpyOverlayType::GamePassword);
         set_lobby_attempt_host_join(false);
-        let state_slot = popup_join_state();
+        let state_slot = popup_join_state(owner);
         let mut state = state_slot.borrow_mut();
         state.parent = None;
         state.text_entry = None;
@@ -209,7 +204,7 @@ fn join_game(password: String) {
     if find_staging_room_by_id(room_id).is_none() {
         close_overlay(GameSpyOverlayType::GamePassword);
         set_lobby_attempt_host_join(false);
-        let state_slot = popup_join_state();
+        let state_slot = popup_join_state(owner);
         let mut state = state_slot.borrow_mut();
         state.parent = None;
         state.text_entry = None;
@@ -218,7 +213,7 @@ fn join_game(password: String) {
 
     queue_join_request(room_id, password);
     close_overlay(GameSpyOverlayType::GamePassword);
-    let state_slot = popup_join_state();
+    let state_slot = popup_join_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent = None;
     state.text_entry = None;

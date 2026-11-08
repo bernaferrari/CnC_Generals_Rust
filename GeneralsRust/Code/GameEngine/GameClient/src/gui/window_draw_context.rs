@@ -18,6 +18,12 @@ pub struct WindowDrawContext<'a> {
     /// inner `None` means that owner has no selected/local player. Standalone
     /// Core callbacks leave this unset and keep their compatibility lookup.
     pub receiving_power: Option<Option<ReceivingPowerObservation>>,
+    /// Visible `win_draw_image` submits recorded by this draw pass (tests read
+    /// this when no GPU renderer is bound).
+    pub win_draw_image_commands: usize,
+    /// Shipped gadget/HUD draw ops recorded by this draw pass even when no
+    /// UIRenderer/GPU is bound.
+    pub shipped_ui_draw_commands: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,7 +42,15 @@ impl<'a> WindowDrawContext<'a> {
             receiving_images: None,
             ime: None,
             receiving_power: None,
+            win_draw_image_commands: 0,
+            shipped_ui_draw_commands: 0,
         }
+    }
+    pub fn note_win_draw_image_command(&mut self) {
+        self.win_draw_image_commands += 1;
+    }
+    pub fn note_shipped_ui_draw_commands(&mut self, count: usize) {
+        self.shipped_ui_draw_commands += count;
     }
     pub fn set_receiving_images(&mut self, images: &'a mut crate::display::image::ImageCollection) {
         self.receiving_images = Some(images);

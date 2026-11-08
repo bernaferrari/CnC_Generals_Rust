@@ -12,8 +12,6 @@ use std::sync::Mutex;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
-use crate::core::game_client::live_game_client_frame;
-use crate::display::view::with_tactical_view_ref;
 use crate::effects::particle_manager::get_particle_system_manager_mut;
 use gamelogic::helpers::TheScriptEngine;
 
@@ -54,47 +52,29 @@ impl ViewAabb {
     }
 }
 
-fn with_draw_schedule<R>(f: impl FnOnce(&mut ClientDrawScheduleState) -> R) -> R {
-    let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("draw schedule callback")(client.draw_schedule_mut())
-    }) {
-        return result;
-    }
-    f.take().expect("draw schedule callback")(&mut ClientDrawScheduleState::default())
-}
 #[cfg(test)]
 static PHASE_LOG: Mutex<Vec<ClientDrawPhase>> = Mutex::new(Vec::new());
 #[cfg(test)]
 static DRAW_ID_LOG: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 
-pub fn extra_freeze_from_engine() -> bool {
-    let camera_frozen =
-        with_tactical_view_ref(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
-    camera_frozen
-        || TheScriptEngine::is_time_frozen_debug()
-        || TheScriptEngine::is_time_frozen_script()
-        || TheGameLogic::is_game_paused()
+pub fn compute_w3d_display_freeze(
+    state: &mut ClientDrawScheduleState,
+    extra_freeze: bool,
+    client_frame: u32,
+) -> bool {
+    let last = state.swap_last_display_frame(client_frame);
+    extra_freeze || last == client_frame
 }
 
-pub fn compute_w3d_display_freeze(extra_freeze: bool, client_frame: u32) -> bool {
-    with_draw_schedule(|state| {
-        let last = state.swap_last_display_frame(client_frame);
-        extra_freeze || last == client_frame
-    })
+pub fn advance_visual_sync(state: &mut ClientDrawScheduleState, freeze_time: bool) -> u32 {
+    let previous = state.sync_time_ms;
+    let sync_time = state.advance_sync(freeze_time, W3D_FRAME_LENGTH_MS);
+    sync_time.wrapping_sub(previous)
 }
 
-pub fn advance_visual_sync(freeze_time: bool) -> u32 {
-    with_draw_schedule(|state| {
-        let previous = state.sync_time_ms;
-        let sync_time = state.advance_sync(freeze_time, W3D_FRAME_LENGTH_MS);
-        sync_time.wrapping_sub(previous)
-    })
-}
-
-/// Current visual sync clock (ms) owned by the live GameClient draw schedule.
-pub fn current_visual_sync_ms() -> u32 {
-    with_draw_schedule(|state| state.sync_time_ms)
+/// Current visual sync clock (ms) owned by the receiving GameClient draw schedule.
+pub fn current_visual_sync_ms(state: &ClientDrawScheduleState) -> u32 {
+    state.sync_time_ms
 }
 
 pub fn should_draw_drawables(frame_time_ms: u32) -> bool {
@@ -128,26 +108,32 @@ pub fn drawables_in_region_order(ids_and_pos: &[(u32, [f32; 3])], region: ViewAa
         .collect()
 }
 
-pub fn run_dual_world_cpu_phases() {
+pub fn run_dual_world_cpu_phases(
+    schedule: &mut ClientDrawScheduleState,
+    view: &crate::display::view::View,
+    client_frame: u32,
+) {
     if OBJECT_REGISTRY.is_empty() {
         return;
     }
-    let client_frame = live_game_client_frame().unwrap_or_else(TheGameLogic::get_frame);
-    if with_draw_schedule(|state| {
-        let last = state.last_cpu_phase_frame;
-        state.last_cpu_phase_frame = client_frame;
-        last
-    }) == client_frame {
+    let last_cpu_phase_frame = schedule.last_cpu_phase_frame;
+    schedule.last_cpu_phase_frame = client_frame;
+    if last_cpu_phase_frame == client_frame {
         return;
     }
-    let freeze = compute_w3d_display_freeze(extra_freeze_from_engine(), client_frame);
-    let frame_time = advance_visual_sync(freeze);
+    let camera_frozen = view.is_time_frozen() && !view.is_camera_movement_finished();
+    let extra_freeze = camera_frozen
+        || TheScriptEngine::is_time_frozen_debug()
+        || TheScriptEngine::is_time_frozen_script()
+        || TheGameLogic::is_game_paused();
+    let freeze = compute_w3d_display_freeze(schedule, extra_freeze, client_frame);
+    let frame_time = advance_visual_sync(schedule, freeze);
     #[cfg(test)]
     let mut phases = Vec::new();
     #[cfg(test)]
     phases.push(ClientDrawPhase::SyncTime);
 
-    let (region, time) = with_tactical_view_ref(|view| {
+    let (region, time) = {
         (
             view_aabb_from_tactical(view),
             gamelogic::helpers::DrawTimeObservation::new(
@@ -162,7 +148,7 @@ pub fn run_dual_world_cpu_phases() {
                     .unwrap_or(true),
             ),
         )
-    });
+    };
     #[cfg(test)]
     let mut drawn = Vec::new();
     if should_draw_drawables(frame_time) {
@@ -269,33 +255,35 @@ pub fn take_draw_id_log() -> Vec<u32> {
 }
 
 #[cfg(test)]
-pub fn reset_visual_sync_for_test() {
-    with_draw_schedule(|state| {
-        *state = ClientDrawScheduleState::default();
-    });
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn draw_advance_skipped_when_visual_time_frozen() {
-        let _client = crate::test_support::park_live_game_client();
-        reset_visual_sync_for_test();
-        assert!(!compute_w3d_display_freeze(false, 10));
-        assert_eq!(advance_visual_sync(false), W3D_FRAME_LENGTH_MS);
-        assert!(compute_w3d_display_freeze(false, 10));
-        assert_eq!(advance_visual_sync(true), 0);
+        let mut state = ClientDrawScheduleState::default();
+        assert!(!compute_w3d_display_freeze(&mut state, false, 10));
+        assert_eq!(advance_visual_sync(&mut state, false), W3D_FRAME_LENGTH_MS);
+        assert!(compute_w3d_display_freeze(&mut state, false, 10));
+        assert_eq!(advance_visual_sync(&mut state, true), 0);
         assert!(!should_draw_drawables(0));
-        assert!(compute_w3d_display_freeze(true, 11));
-        assert_eq!(advance_visual_sync(true), 0);
+        assert!(compute_w3d_display_freeze(&mut state, true, 11));
+        assert_eq!(advance_visual_sync(&mut state, true), 0);
+        assert_eq!(current_visual_sync_ms(&state), W3D_FRAME_LENGTH_MS);
+    }
+
+    #[test]
+    fn draw_schedule_state_is_isolated_per_client() {
+        let mut a = ClientDrawScheduleState::default();
+        let mut b = ClientDrawScheduleState::default();
+        assert_eq!(advance_visual_sync(&mut a, false), W3D_FRAME_LENGTH_MS);
+        assert_eq!(current_visual_sync_ms(&a), W3D_FRAME_LENGTH_MS);
+        assert_eq!(current_visual_sync_ms(&b), 0);
+        assert!(!compute_w3d_display_freeze(&mut b, false, 7));
+        assert!(!compute_w3d_display_freeze(&mut a, false, 8));
     }
 
     #[test]
     fn physics_loco_advances_once_per_drawn_frame_in_region_order() {
-        let _client = crate::test_support::park_live_game_client();
-        reset_visual_sync_for_test();
         let region = ViewAabb {
             lo: [0.0, 0.0, -10.0],
             hi: [10.0, 10.0, 10.0],
@@ -309,10 +297,11 @@ mod tests {
         assert_eq!(first, vec![3, 2]);
         let second = drawables_in_region_order(&candidates, region);
         assert_eq!(second, first);
-        assert!(!compute_w3d_display_freeze(false, 20));
-        assert!(should_draw_drawables(advance_visual_sync(false)));
-        assert!(compute_w3d_display_freeze(false, 20));
-        assert!(!should_draw_drawables(advance_visual_sync(true)));
+        let mut state = ClientDrawScheduleState::default();
+        assert!(!compute_w3d_display_freeze(&mut state, false, 20));
+        assert!(should_draw_drawables(advance_visual_sync(&mut state, false)));
+        assert!(compute_w3d_display_freeze(&mut state, false, 20));
+        assert!(!should_draw_drawables(advance_visual_sync(&mut state, true)));
     }
 
     #[test]

@@ -318,10 +318,10 @@ thread_local! {
 
 
 /// C++ `GameClientRandomValue(SCORCH_1, SCORCH_4)` when FX type is `RANDOM` / `< 0`.
-pub fn resolve_scorch_type(scorch: i32) -> i32 {
+pub fn resolve_scorch_type(rng: &mut game_engine::common::random_value::RandomState, scorch: i32) -> i32 {
     if scorch < 0 {
         // SCORCH_1 = 0 ..= SCORCH_4 = 3 (GameType.h:70-75).
-        crate::GameClientRandomValue!(0, 3)
+        crate::GameClientRandomValue!(rng, 0, 3)
     } else {
         scorch
     }
@@ -440,18 +440,20 @@ mod tests {
     #[test]
     fn random_scorch_type_comes_from_seeded_client_stream() {
         crate::test_support::ensure_ambient_host();
-        use game_engine::common::random_value::init_random_with_seed;
+        use game_engine::common::random_value::RandomState;
 
         // Explicit scorch types pass through untouched.
-        assert_eq!(resolve_scorch_type(2), 2);
+        assert_eq!(resolve_scorch_type(&mut Default::default(), 2), 2);
 
         // C++ FXList.cpp:433 draws GameClientRandomValue(SCORCH_1, SCORCH_4)
         // from the seeded client stream (RandomValue.cpp:353-371), so the same
         // seed must reproduce the same scorch. thread_rng was non-reproducible.
-        init_random_with_seed(20260829);
-        let first = resolve_scorch_type(-1);
-        init_random_with_seed(20260829);
-        let second = resolve_scorch_type(-1);
+        let mut rng = RandomState::default();
+        rng.seed_random(20260829);
+        let first = resolve_scorch_type(&mut rng, -1);
+        let mut rng = RandomState::default();
+        rng.seed_random(20260829);
+        let second = resolve_scorch_type(&mut rng, -1);
 
         assert!(
             (0..=3).contains(&first),

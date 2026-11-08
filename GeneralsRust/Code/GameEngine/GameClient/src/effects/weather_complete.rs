@@ -10,8 +10,8 @@ use super::particle_system::*;
 use glam::Vec3;
 use std::collections::VecDeque;
 
-fn client_real(lo: f32, hi: f32) -> f32 {
-    crate::GameClientRandomValueReal!(lo, hi)
+fn client_real(rng: &mut game_engine::common::random_value::RandomState, lo: f32, hi: f32) -> f32 {
+    crate::GameClientRandomValueReal!(rng, lo, hi)
 }
 
 /// Maximum weather particles based on quality
@@ -99,16 +99,16 @@ pub struct WeatherParticle {
 
 impl WeatherParticle {
     /// Create a new rain drop
-    pub fn new_rain_drop(spawn_pos: Vec3, wind: Vec3) -> Self {
+    pub fn new_rain_drop(rng: &mut game_engine::common::random_value::RandomState, spawn_pos: Vec3, wind: Vec3) -> Self {
         Self {
             position: spawn_pos,
             velocity: Vec3::new(
-                wind.x + client_real(-5.0, 5.0),
-                wind.y + client_real(-5.0, 5.0),
-                -80.0 + client_real(-20.0, 20.0), // Falling down
+                wind.x + client_real(rng, -5.0, 5.0),
+                wind.y + client_real(rng, -5.0, 5.0),
+                -80.0 + client_real(rng, -20.0, 20.0), // Falling down
             ),
-            size: client_real(0.5, 2.0),
-            alpha: client_real(0.6, 1.0),
+            size: client_real(rng, 0.5, 2.0),
+            alpha: client_real(rng, 0.6, 1.0),
             age: 0.0,
             lifetime: 5.0,
             rotation: 0.0,
@@ -118,41 +118,41 @@ impl WeatherParticle {
     }
 
     /// Create a new snowflake
-    pub fn new_snowflake(spawn_pos: Vec3, wind: Vec3) -> Self {
+    pub fn new_snowflake(rng: &mut game_engine::common::random_value::RandomState, spawn_pos: Vec3, wind: Vec3) -> Self {
         Self {
             position: spawn_pos,
             velocity: Vec3::new(
-                wind.x + client_real(-3.0, 3.0),
-                wind.y + client_real(-3.0, 3.0),
-                -15.0 + client_real(-5.0, 5.0), // Gentle fall
+                wind.x + client_real(rng, -3.0, 3.0),
+                wind.y + client_real(rng, -3.0, 3.0),
+                -15.0 + client_real(rng, -5.0, 5.0), // Gentle fall
             ),
-            size: client_real(1.0, 3.0),
-            alpha: client_real(0.8, 1.0),
+            size: client_real(rng, 1.0, 3.0),
+            alpha: client_real(rng, 0.8, 1.0),
             age: 0.0,
             lifetime: 10.0,
-            rotation: client_real(0.0, std::f32::consts::TAU),
-            rotation_speed: client_real(-2.0, 2.0),
+            rotation: client_real(rng, 0.0, std::f32::consts::TAU),
+            rotation_speed: client_real(rng, -2.0, 2.0),
             color: [1.0, 1.0, 1.0, 1.0], // Pure white
         }
     }
 
     /// Create a new dust particle
-    pub fn new_dust_particle(spawn_pos: Vec3, wind: Vec3) -> Self {
-        let dust_color_variation = client_real(0.8, 1.0);
+    pub fn new_dust_particle(rng: &mut game_engine::common::random_value::RandomState, spawn_pos: Vec3, wind: Vec3) -> Self {
+        let dust_color_variation = client_real(rng, 0.8, 1.0);
 
         Self {
             position: spawn_pos,
             velocity: Vec3::new(
-                wind.x * client_real(0.5, 1.5) + client_real(-10.0, 10.0),
-                wind.y * client_real(0.5, 1.5) + client_real(-10.0, 10.0),
-                client_real(-5.0, 5.0), // Some vertical motion
+                wind.x * client_real(rng, 0.5, 1.5) + client_real(rng, -10.0, 10.0),
+                wind.y * client_real(rng, 0.5, 1.5) + client_real(rng, -10.0, 10.0),
+                client_real(rng, -5.0, 5.0), // Some vertical motion
             ),
-            size: client_real(2.0, 8.0),
-            alpha: client_real(0.3, 0.7),
+            size: client_real(rng, 2.0, 8.0),
+            alpha: client_real(rng, 0.3, 0.7),
             age: 0.0,
             lifetime: 15.0,
-            rotation: client_real(0.0, std::f32::consts::TAU),
-            rotation_speed: client_real(-1.0, 1.0),
+            rotation: client_real(rng, 0.0, std::f32::consts::TAU),
+            rotation_speed: client_real(rng, -1.0, 1.0),
             color: [
                 0.7 * dust_color_variation,
                 0.6 * dust_color_variation,
@@ -163,7 +163,7 @@ impl WeatherParticle {
     }
 
     /// Update particle physics
-    pub fn update(&mut self, delta_time: f32, wind: Vec3, turbulence: f32) -> bool {
+    pub fn update(&mut self, rng: &mut game_engine::common::random_value::RandomState, delta_time: f32, wind: Vec3, turbulence: f32) -> bool {
         self.age += delta_time;
 
         if self.age >= self.lifetime {
@@ -172,9 +172,9 @@ impl WeatherParticle {
 
         // Apply turbulence
         let turbulence_force = Vec3::new(
-            client_real(-turbulence, turbulence),
-            client_real(-turbulence, turbulence),
-            client_real(-turbulence, turbulence),
+            client_real(rng, -turbulence, turbulence),
+            client_real(rng, -turbulence, turbulence),
+            client_real(rng, -turbulence, turbulence),
         );
 
         // Apply wind and turbulence
@@ -199,6 +199,7 @@ impl WeatherParticle {
 
 /// Rain weather system
 pub struct RainSystem {
+    random: game_engine::common::random_value::RandomState,
     particles: VecDeque<WeatherParticle>,
     settings: WeatherSettings,
     spawn_accumulator: f32,
@@ -211,6 +212,7 @@ impl RainSystem {
         Self {
             particles: VecDeque::with_capacity(MAX_RAIN_PARTICLES),
             settings,
+            random: Default::default(),
             spawn_accumulator: 0.0,
             camera_position: Vec3::ZERO,
             enabled: true,
@@ -223,10 +225,12 @@ impl RainSystem {
         }
 
         self.camera_position = camera_pos;
+        let mut rng = std::mem::take(&mut self.random);
 
         // Update existing particles
         self.particles.retain_mut(|particle| {
             particle.update(
+                &mut rng,
                 delta_time,
                 self.settings.wind_direction * self.settings.wind_strength,
                 self.settings.wind_turbulence,
@@ -256,22 +260,27 @@ impl RainSystem {
                 break;
             }
 
-            let spawn_pos = self.generate_spawn_position();
+            let spawn_pos = self.generate_spawn_position(&mut rng);
             let particle = WeatherParticle::new_rain_drop(
+                &mut rng,
                 spawn_pos,
                 self.settings.wind_direction * self.settings.wind_strength,
             );
             self.particles.push_back(particle);
         }
+        self.random = rng;
     }
 
-    fn generate_spawn_position(&self) -> Vec3 {
+    fn generate_spawn_position(
+        &self,
+        rng: &mut game_engine::common::random_value::RandomState,
+    ) -> Vec3 {
         let radius = self.settings.spawn_area_radius;
 
         Vec3::new(
-            self.camera_position.x + client_real(-radius, radius),
-            self.camera_position.y + client_real(-radius, radius),
-            self.camera_position.z + client_real(50.0, 150.0), // Spawn above
+            self.camera_position.x + client_real(rng, -radius, radius),
+            self.camera_position.y + client_real(rng, -radius, radius),
+            self.camera_position.z + client_real(rng, 50.0, 150.0), // Spawn above
         )
     }
 
@@ -293,6 +302,7 @@ impl RainSystem {
 
 /// Snow weather system
 pub struct SnowSystem {
+    random: game_engine::common::random_value::RandomState,
     particles: VecDeque<WeatherParticle>,
     settings: WeatherSettings,
     spawn_accumulator: f32,
@@ -305,6 +315,7 @@ impl SnowSystem {
         Self {
             particles: VecDeque::with_capacity(MAX_SNOW_PARTICLES),
             settings,
+            random: Default::default(),
             spawn_accumulator: 0.0,
             camera_position: Vec3::ZERO,
             enabled: true,
@@ -317,6 +328,7 @@ impl SnowSystem {
         }
 
         self.camera_position = camera_pos;
+        let mut rng = std::mem::take(&mut self.random);
 
         // Update existing particles with gentler motion
         self.particles.retain_mut(|particle| {
@@ -329,6 +341,7 @@ impl SnowSystem {
             particle.velocity.y += drift_y * delta_time;
 
             particle.update(
+                &mut rng,
                 delta_time,
                 self.settings.wind_direction * self.settings.wind_strength,
                 self.settings.wind_turbulence,
@@ -358,22 +371,27 @@ impl SnowSystem {
                 break;
             }
 
-            let spawn_pos = self.generate_spawn_position();
+            let spawn_pos = self.generate_spawn_position(&mut rng);
             let particle = WeatherParticle::new_snowflake(
+                &mut rng,
                 spawn_pos,
                 self.settings.wind_direction * self.settings.wind_strength,
             );
             self.particles.push_back(particle);
         }
+        self.random = rng;
     }
 
-    fn generate_spawn_position(&self) -> Vec3 {
+    fn generate_spawn_position(
+        &self,
+        rng: &mut game_engine::common::random_value::RandomState,
+    ) -> Vec3 {
         let radius = self.settings.spawn_area_radius;
 
         Vec3::new(
-            self.camera_position.x + client_real(-radius, radius),
-            self.camera_position.y + client_real(-radius, radius),
-            self.camera_position.z + client_real(50.0, 120.0),
+            self.camera_position.x + client_real(rng, -radius, radius),
+            self.camera_position.y + client_real(rng, -radius, radius),
+            self.camera_position.z + client_real(rng, 50.0, 120.0),
         )
     }
 
@@ -395,6 +413,7 @@ impl SnowSystem {
 
 /// Dust storm weather system
 pub struct DustStormSystem {
+    random: game_engine::common::random_value::RandomState,
     particles: VecDeque<WeatherParticle>,
     settings: WeatherSettings,
     spawn_accumulator: f32,
@@ -408,6 +427,7 @@ impl DustStormSystem {
         Self {
             particles: VecDeque::with_capacity(MAX_DUST_PARTICLES),
             settings,
+            random: Default::default(),
             spawn_accumulator: 0.0,
             camera_position: Vec3::ZERO,
             enabled: true,
@@ -421,6 +441,7 @@ impl DustStormSystem {
         }
 
         self.camera_position = camera_pos;
+        let mut rng = std::mem::take(&mut self.random);
 
         // Update storm pulse for dynamic intensity
         self.storm_intensity_pulse += delta_time * 0.5;
@@ -429,6 +450,7 @@ impl DustStormSystem {
         // Update existing particles with turbulent motion
         self.particles.retain_mut(|particle| {
             particle.update(
+                &mut rng,
                 delta_time,
                 self.settings.wind_direction * self.settings.wind_strength * pulse_factor,
                 self.settings.wind_turbulence * 2.0, // More turbulence for dust
@@ -459,22 +481,27 @@ impl DustStormSystem {
                 break;
             }
 
-            let spawn_pos = self.generate_spawn_position();
+            let spawn_pos = self.generate_spawn_position(&mut rng);
             let particle = WeatherParticle::new_dust_particle(
+                &mut rng,
                 spawn_pos,
                 self.settings.wind_direction * self.settings.wind_strength,
             );
             self.particles.push_back(particle);
         }
+        self.random = rng;
     }
 
-    fn generate_spawn_position(&self) -> Vec3 {
+    fn generate_spawn_position(
+        &self,
+        rng: &mut game_engine::common::random_value::RandomState,
+    ) -> Vec3 {
         let radius = self.settings.spawn_area_radius * 1.5;
 
         Vec3::new(
-            self.camera_position.x + client_real(-radius, radius),
-            self.camera_position.y + client_real(-radius, radius),
-            self.camera_position.z + client_real(-10.0, 30.0), // Ground level to low altitude
+            self.camera_position.x + client_real(rng, -radius, radius),
+            self.camera_position.y + client_real(rng, -radius, radius),
+            self.camera_position.z + client_real(rng, -10.0, 30.0), // Ground level to low altitude
         )
     }
 
@@ -707,6 +734,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn weather_random_streams_are_per_system_instance() {
+        crate::test_support::ensure_ambient_host();
+        let settings = WeatherSettings {
+            weather_type: WeatherType::Rain,
+            intensity: 0.5,
+            spawn_rate: 50.0,
+            ..Default::default()
+        };
+        let mut a = RainSystem::new(settings.clone());
+        let b = RainSystem::new(settings);
+        let before = b.random.seed_words();
+        a.update(0.1, Vec3::ZERO);
+        assert!(a.particle_count() > 0);
+        assert_ne!(a.random.seed_words(), before, "drawing advances the owner's stream");
+        assert_eq!(b.random.seed_words(), before, "peer stream is untouched");
+    }
+
+    #[test]
     fn test_rain_system() {
         crate::test_support::ensure_ambient_host();
         let settings = WeatherSettings {
@@ -768,7 +813,7 @@ mod tests {
         }
         // This deliberate foreign-service fixture stays in the existing bounded
         // test child. Local WeatherSystem instances have no retail snow owner.
-        let retail = crate::snow::initialize_snow_manager();
+        let retail = crate::snow::initialize_snow_manager(&mut Default::default());
         retail.lock().unwrap().set_visible(true);
         let mut owner = WeatherSystem::new();
         let mut peer = WeatherSystem::new();
@@ -812,11 +857,11 @@ mod tests {
         let spawn_pos = Vec3::new(0.0, 0.0, 100.0);
         let wind = Vec3::new(10.0, 0.0, 0.0);
 
-        let mut particle = WeatherParticle::new_rain_drop(spawn_pos, wind);
+        let mut particle = WeatherParticle::new_rain_drop(&mut Default::default(), spawn_pos, wind);
 
         // Update until particle dies
         let mut updates = 0;
-        while particle.update(0.1, wind, 0.1) && updates < 100 {
+        while particle.update(&mut Default::default(), 0.1, wind, 0.1) && updates < 100 {
             updates += 1;
         }
 

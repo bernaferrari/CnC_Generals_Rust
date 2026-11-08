@@ -286,11 +286,6 @@ std::thread_local! {
 
 fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("tracer callback")(&mut client.tracers_mut().tracers)
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_TRACER_STORE.with(|slot| f.take().expect("tracer callback")(&mut slot.borrow_mut()));
@@ -303,11 +298,6 @@ fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
 
 fn with_tracer_drawables<R>(f: impl FnOnce(&mut TracerDrawableStore) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("tracer drawable callback")(&mut client.tracers_mut().drawables)
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_TRACER_DRAWABLES.with(|slot| {
@@ -639,6 +629,7 @@ mod tests {
             bone_query: None,
             current_frame: spawn_frame,
             local_player_index: 0,
+            client_random: &mut Default::default(),
         };
         FXNugget::do_fx_pos(
             &nugget,
@@ -763,6 +754,7 @@ mod tests {
             bone_query: None,
             current_frame: 7,
             local_player_index: 0,
+            client_random: &mut Default::default(),
         };
         FXNugget::do_fx_pos(
             &nugget,

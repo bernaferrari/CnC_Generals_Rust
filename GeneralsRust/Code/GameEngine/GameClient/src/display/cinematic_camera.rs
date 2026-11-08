@@ -146,18 +146,24 @@ struct CameraShaker {
 impl CameraShaker {
     /// Create a new camera shaker
     /// C++ Reference: camerashakesystem.cpp lines 71-93
-    fn new(position: Vec3, radius: f32, duration: f32, intensity: f32) -> Self {
+    fn new(
+        client_random: &mut game_engine::common::random_value::RandomState,
+        position: Vec3,
+        radius: f32,
+        duration: f32,
+        intensity: f32,
+    ) -> Self {
         // Initialize random sinusoid values (C++ WWMath::Random_Float → client stream)
         let omega = Vec3::new(
-            crate::GameClientRandomValueReal!(MIN_OMEGA, MAX_OMEGA),
-            crate::GameClientRandomValueReal!(MIN_OMEGA, MAX_OMEGA),
-            crate::GameClientRandomValueReal!(MIN_OMEGA, MAX_OMEGA),
+            crate::GameClientRandomValueReal!(client_random, MIN_OMEGA, MAX_OMEGA),
+            crate::GameClientRandomValueReal!(client_random, MIN_OMEGA, MAX_OMEGA),
+            crate::GameClientRandomValueReal!(client_random, MIN_OMEGA, MAX_OMEGA),
         );
 
         let phi = Vec3::new(
-            crate::GameClientRandomValueReal!(MIN_PHI, MAX_PHI),
-            crate::GameClientRandomValueReal!(MIN_PHI, MAX_PHI),
-            crate::GameClientRandomValueReal!(MIN_PHI, MAX_PHI),
+            crate::GameClientRandomValueReal!(client_random, MIN_PHI, MAX_PHI),
+            crate::GameClientRandomValueReal!(client_random, MIN_PHI, MAX_PHI),
+            crate::GameClientRandomValueReal!(client_random, MIN_PHI, MAX_PHI),
         );
 
         Self {
@@ -183,7 +189,7 @@ impl CameraShaker {
 
     /// Compute rotation angles for camera shake
     /// C++ Reference: camerashakesystem.cpp lines 100-140
-    fn compute_rotations(&self, camera_position: Vec3) -> Vec3 {
+    fn compute_rotations(&self, client_random: &mut game_engine::common::random_value::RandomState, camera_position: Vec3) -> Vec3 {
         // Check if camera is within radius of effect
         let offset = camera_position - self.position;
         let distance_sq = offset.length_squared();
@@ -216,9 +222,9 @@ impl CameraShaker {
             // C++ creates and adds one secondary random vector inside the axis loop,
             // so the non-periodic perturbation is accumulated three times per shaker.
             let minor_intensity = intensity * 0.5;
-            angles.x += crate::GameClientRandomValueReal!(-minor_intensity, minor_intensity);
-            angles.y += crate::GameClientRandomValueReal!(-minor_intensity, minor_intensity);
-            angles.z += crate::GameClientRandomValueReal!(-minor_intensity, minor_intensity);
+            angles.x += crate::GameClientRandomValueReal!(client_random, -minor_intensity, minor_intensity);
+            angles.y += crate::GameClientRandomValueReal!(client_random, -minor_intensity, minor_intensity);
+            angles.z += crate::GameClientRandomValueReal!(client_random, -minor_intensity, minor_intensity);
         }
 
         angles
@@ -249,11 +255,18 @@ impl CameraShakeSystem {
     /// * `radius` - Radius of effect in world units
     /// * `duration` - Duration in seconds
     /// * `power` - Power in degrees of amplitude (converted to radians internally)
-    pub fn add_camera_shake(&mut self, position: Vec3, radius: f32, duration: f32, power: f32) {
+    pub fn add_camera_shake(
+        &mut self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+        position: Vec3,
+        radius: f32,
+        duration: f32,
+        power: f32,
+    ) {
         // Convert power from degrees to radians
         let power_radians = power * PI / 180.0;
 
-        let shaker = CameraShaker::new(position, radius, duration, power_radians);
+        let shaker = CameraShaker::new(client_random, position, radius, duration, power_radians);
         self.shakers.push(shaker);
     }
 
@@ -277,12 +290,12 @@ impl CameraShakeSystem {
 
     /// Compute accumulated shake angles for camera
     /// C++ Reference: camerashakesystem.cpp lines 227-263
-    pub fn update_camera_shaker(&self, camera_position: Vec3) -> Vec3 {
+    pub fn update_camera_shaker(&self, client_random: &mut game_engine::common::random_value::RandomState, camera_position: Vec3) -> Vec3 {
         let mut angles = Vec3::ZERO;
 
         // Accumulate effects of all active shakers
         for shaker in &self.shakers {
-            angles += shaker.compute_rotations(camera_position);
+            angles += shaker.compute_rotations(client_random, camera_position);
         }
 
         clamp_shake_angles(angles)
@@ -1280,12 +1293,17 @@ impl CinematicCameraSystem {
 
     /// Update all camera systems
     /// Returns updated camera parameters
-    pub fn update(&mut self, dt: f32, current_state: CameraState) -> CameraState {
+    pub fn update(
+        &mut self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+        dt: f32,
+        current_state: CameraState,
+    ) -> CameraState {
         let mut state = current_state;
 
         // Update shake system
         self.shake_system.timestep(dt);
-        let shake_angles = self.shake_system.update_camera_shaker(state.position);
+        let shake_angles = self.shake_system.update_camera_shaker(client_random, state.position);
 
         // Apply shake to rotation
         let shake_rotation = Quat::from_euler(
@@ -1414,16 +1432,16 @@ mod tests {
         let mut system = CameraShakeSystem::new();
 
         // Add a shake
-        system.add_camera_shake(Vec3::ZERO, 50.0, 1.5, 1.0);
+        system.add_camera_shake(&mut Default::default(), Vec3::ZERO, 50.0, 1.5, 1.0);
 
         assert!(system.is_camera_shaking());
 
         // Should produce shake angles at epicenter
-        let angles = system.update_camera_shaker(Vec3::ZERO);
+        let angles = system.update_camera_shaker(&mut Default::default(), Vec3::ZERO);
         assert!(angles.length() > 0.0);
 
         // Should produce no shake far away
-        let far_angles = system.update_camera_shaker(Vec3::new(1000.0, 1000.0, 0.0));
+        let far_angles = system.update_camera_shaker(&mut Default::default(), Vec3::new(1000.0, 1000.0, 0.0));
         assert_eq!(far_angles, Vec3::ZERO);
     }
 
@@ -1432,7 +1450,7 @@ mod tests {
         crate::test_support::ensure_ambient_host();
         let mut system = CameraShakeSystem::new();
 
-        system.add_camera_shake(Vec3::ZERO, 50.0, 0.1, 1.0);
+        system.add_camera_shake(&mut Default::default(), Vec3::ZERO, 50.0, 0.1, 1.0);
         assert!(system.is_camera_shaking());
 
         // Update past duration
@@ -1556,10 +1574,10 @@ mod tests {
         // Add shake
         system
             .shake_system
-            .add_camera_shake(Vec3::ZERO, 50.0, 1.0, 1.0);
+            .add_camera_shake(&mut Default::default(), Vec3::ZERO, 50.0, 1.0, 1.0);
 
         // Update system
-        let new_state = system.update(0.016, state);
+        let new_state = system.update(&mut Default::default(), 0.016, state);
 
         // Rotation should be affected by shake
         assert_ne!(new_state.rotation, state.rotation);

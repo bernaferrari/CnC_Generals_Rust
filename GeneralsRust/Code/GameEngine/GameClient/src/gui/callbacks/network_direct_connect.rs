@@ -52,11 +52,6 @@ fn network_direct_connect_state_on_owner(
     if let Some(owner) = owner {
         return owner.network_direct_connect_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().network_direct_connect_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_NETWORK_DIRECT_CONNECT_STATE.with(|cell| {
@@ -70,8 +65,8 @@ fn network_direct_connect_state_on_owner(
     }
 }
 
-fn network_direct_connect_state() -> Rc<RefCell<NetworkDirectConnectState>> {
-    network_direct_connect_state_on_owner(None)
+fn network_direct_connect_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<NetworkDirectConnectState>> {
+    network_direct_connect_state_on_owner(owner)
 }
 fn lan_api_cell() -> &'static tokio::sync::Mutex<Option<LanApi>> {
     the_lan()

@@ -35,11 +35,6 @@ fn wol_status_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_status_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_status_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_STATUS_STATE.with(|cell| {
@@ -53,15 +48,15 @@ fn wol_status_state_on_owner(
     }
 }
 
-fn wol_status_state() -> Rc<RefCell<WolStatusState>> {
-    wol_status_state_on_owner(None)
+fn wol_status_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolStatusState>> {
+    wol_status_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
 }
 
-pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let parent_id = name_to_id("WOLStatusMenu.wnd:WOLStatusMenuParent");
     let button_disconnect_id = name_to_id("WOLStatusMenu.wnd:ButtonDisconnect");
     let progress_text_id = name_to_id("WOLStatusMenu.wnd:ListboxStatus");
@@ -78,7 +73,7 @@ pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::
         let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let state_slot = wol_status_state();
+    let state_slot = wol_status_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_disconnect_id = button_disconnect_id;
@@ -102,7 +97,7 @@ pub fn wol_status_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
@@ -113,7 +108,7 @@ pub fn wol_status_menu_input(
     // C++ WOLStatusMenu.cpp:112-113 sends GBM_SELECTED then returns HANDLED.
     // Drop the RefCell borrow before dispatch (C++ file-statics are re-entrant).
     let (parent, button_id) = {
-        let slot = wol_status_state();
+        let slot = wol_status_state(owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_disconnect_id)
     };
@@ -165,11 +160,11 @@ mod tests {
         crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_input(&mut window, WindowMessage::Char, 0x41, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::Char, 0x41, KEY_STATE_UP, None),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            wol_status_menu_input(&mut window, WindowMessage::LeftDown, KEY_ESC, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::LeftDown, KEY_ESC, KEY_STATE_UP, None),
             WindowMsgHandled::Ignored
         );
     }
@@ -179,11 +174,11 @@ mod tests {
         crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, 0),
+            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, 0, None),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP, None),
             WindowMsgHandled::Handled
         );
     }

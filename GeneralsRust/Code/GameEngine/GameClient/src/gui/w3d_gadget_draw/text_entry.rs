@@ -152,12 +152,10 @@ pub(super) fn draw_text_entry_text(
         cursor_pos += display.get_width(entry.ime_cursor() as i32);
     }
 
-    let cnt = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .text_entry_draw_cnt()
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    })
-    .unwrap_or(0);
+    let cnt = draw_context
+        .manager
+        .map(crate::gui::window_manager::WindowManager::next_text_entry_draw_count)
+        .unwrap_or(0);
     if text_entry_caret_has_focus(window, draw_context) && (cnt >> 3) & 0x1 == 1 {
         crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
             manager.win_fill_rect(

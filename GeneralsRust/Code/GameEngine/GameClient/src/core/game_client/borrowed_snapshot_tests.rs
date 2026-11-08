@@ -14,7 +14,6 @@ fn receiving_snapshot_round_trips_while_foreign_client_is_registered() {
     let mut peer = GameClient::new().unwrap();
     owner.set_frame(37);
     peer.set_frame(91);
-    register_live_game_client(&mut peer);
     let file = tempfile::NamedTempFile::new().unwrap();
     let name = file.path().to_string_lossy().into_owned();
     let mut writer = game_engine::System::xfer_save::XferSave::new();
@@ -31,8 +30,6 @@ fn receiving_snapshot_round_trips_while_foreign_client_is_registered() {
     assert_eq!(receiving.get_frame(), 37);
     assert_eq!(owner.get_frame(), 37);
     assert_eq!(peer.get_frame(), 91);
-    assert_eq!(live_game_client_frame(), Some(91));
-    clear_live_game_client(&mut peer);
 }
 
 #[test]
@@ -61,7 +58,6 @@ fn moved_snapshot_owner_round_trips_same_id_without_changing_registered_peer() {
         .set_position(Vector3::new(11.0, 13.0, 17.0));
     peer.set_frame(91);
     assert_eq!(source_id, peer_id);
-    register_live_game_client(&mut peer);
 
     let old_factory = game_engine::common::thing::get_thing_factory()
         .unwrap()
@@ -94,6 +90,4 @@ fn moved_snapshot_owner_round_trips_same_id_without_changing_registered_peer() {
         peer.find_drawable_by_id(peer_id).unwrap().get_position(),
         Vector3::new(11.0, 13.0, 17.0)
     );
-    assert_eq!(live_game_client_frame(), Some(91));
-    clear_live_game_client(&mut peer);
 }

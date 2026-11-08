@@ -124,6 +124,8 @@ pub struct ParticleSystemPool {
     templates: HashMap<String, Arc<ParticleSystemTemplate>>,
     next_id: usize,
     max_pool_size: usize,
+    /// Client random stream owned by this pool (C++ GameClientRandomValue).
+    client_random: game_engine::common::random_value::RandomState,
 }
 
 impl ParticleSystemPool {
@@ -134,6 +136,7 @@ impl ParticleSystemPool {
             templates: HashMap::new(),
             next_id: 1,
             max_pool_size,
+            client_random: Default::default(),
         }
     }
 
@@ -156,7 +159,7 @@ impl ParticleSystemPool {
                 debug!("Reused particle system {} from pool", system_id);
             } else {
                 // Create new system
-                let system = ParticleSystem::new(system_id, template.clone(), frame_count);
+                let system = ParticleSystem::new(system_id, template.clone(), frame_count, &mut self.client_random);
                 self.active_systems.insert(system_id, system);
                 debug!("Created new particle system {}", system_id);
             }
@@ -205,7 +208,7 @@ impl ParticleSystemPool {
         let mut finished_systems = Vec::new();
 
         for (id, system) in &mut self.active_systems {
-            if !system.update(frame_count) {
+            if !system.update(frame_count, &mut self.client_random) {
                 finished_systems.push(*id);
             }
         }

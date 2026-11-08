@@ -75,18 +75,11 @@ impl Drop for NativeProjectedDecals {
     }
 }
 
-/// Reach the live client's projected decals, or a cfg(test) fallback so unit
-/// tests without a registered GameClient still exercise the same owner type.
+/// Ownerless accessor: clients reach their own `drawables.projected_decals`
+/// directly; only the cfg(test) fallback exists here.
 pub(crate) fn with_projected_decals_mut<R>(
     f: impl FnOnce(&mut NativeProjectedDecals) -> R,
 ) -> Option<R> {
-    // Probe without consuming `f` — `with_live_game_client_mut` would move the
-    // FnOnce into a closure even when no live client is registered.
-    if super::live_game_client_frame().is_some() {
-        return super::with_live_game_client_mut(|client| {
-            f(&mut client.drawables.projected_decals)
-        });
-    }
     #[cfg(test)]
     {
         return Some(TEST_PROJECTED_DECALS.with(|slot| f(&mut slot.borrow_mut())));

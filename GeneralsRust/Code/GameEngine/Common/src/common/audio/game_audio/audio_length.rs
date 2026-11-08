@@ -1,7 +1,7 @@
 use super::*;
 
 impl AudioManager {
-    pub fn get_audio_length_ms(&self, event: &AudioEventRts) -> Real {
+    pub fn get_audio_length_ms(&mut self, event: &AudioEventRts) -> Real {
         // C++ parity: clone event, resolve concrete filenames, then sum attack/main/decay lengths.
         let mut tmp_event = event.clone();
         if tmp_event.get_audio_event_info().is_none() {
@@ -13,8 +13,8 @@ impl AudioManager {
         }
 
         let paths = self.audio_paths();
-        tmp_event.generate_filename_with_settings(&paths);
-        tmp_event.generate_play_info_with_settings(&paths);
+        tmp_event.generate_filename_with_settings(&paths, &mut self.audio_random);
+        tmp_event.generate_play_info_with_settings(&paths, &mut self.audio_random);
 
         self.get_file_length_ms(tmp_event.get_attack_filename())
             + self.get_file_length_ms(tmp_event.get_filename())

@@ -179,12 +179,17 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn score_academy_advice(&self) -> AcademyAdviceInfo {
+    pub(crate) fn score_academy_advice(&mut self) -> AcademyAdviceInfo {
         let mut advice = AcademyAdviceInfo::default();
+        let context = self.score_academy_context();
         if let Some(player) = self.local_player_id().and_then(|id| self.players.get(&id)) {
             player
                 .academy_stats
-                .calculate_academy_advice_with_context(&mut advice, self.score_academy_context());
+                .calculate_academy_advice_with_context(
+                    &mut advice,
+                    &mut self.session_view.client_random,
+                    context,
+                );
         }
         advice
     }

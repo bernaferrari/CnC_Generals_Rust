@@ -3,7 +3,7 @@
 
 use crate::common::{ObjectID, ObjectStatusTypes};
 use crate::drawable::Drawable;
-use crate::helpers::{TheGameLogic, game_client_random_value_real};
+use crate::helpers::{TheGameLogic};
 use crate::object::drawable::DrawableArcExt;
 use crate::scripting::engine::{BreezeInfo, get_script_engine};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -115,12 +115,12 @@ impl SwayClientUpdateModule {
 
         let delta = info.randomness * 0.5;
         self.cur_angle_limit =
-            info.intensity * game_client_random_value_real(1.0 - delta, 1.0 + delta);
+            info.intensity * crate::system::engine_stores::active_services().client_random_value_real(1.0 - delta, 1.0 + delta);
 
         let period = info.breeze_period.max(1) as f32;
         self.cur_delta =
-            (2.0 * PI / period) * game_client_random_value_real(1.0 - delta, 1.0 + delta);
-        self.lean_angle = info.lean * game_client_random_value_real(1.0 - delta, 1.0 + delta);
+            (2.0 * PI / period) * crate::system::engine_stores::active_services().client_random_value_real(1.0 - delta, 1.0 + delta);
+        self.lean_angle = info.lean * crate::system::engine_stores::active_services().client_random_value_real(1.0 - delta, 1.0 + delta);
         self.cur_version = info.breeze_version;
     }
 }

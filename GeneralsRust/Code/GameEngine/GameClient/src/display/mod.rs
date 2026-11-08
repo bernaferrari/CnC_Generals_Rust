@@ -68,6 +68,7 @@ pub trait DisplayInterface: SubsystemInterface {
         client_frame: u32,
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<(), Box<dyn Error>>;
     fn draw_owned(
         &mut self,
@@ -80,6 +81,7 @@ pub trait DisplayInterface: SubsystemInterface {
         render_bridge: &mut crate::render_bridge::RenderBridge,
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<(), Box<dyn Error>>;
     fn preload_common_textures(&self) -> Result<(), Box<dyn Error>>;
 }

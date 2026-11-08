@@ -2543,4 +2543,25 @@ mod tests {
             "C++ removes wall occupancy in destroyObject before deferred cleanup"
         );
     }
+
+    /// hq-yac16: each owned world publishes its own rank cap (C++ GameLogic.cpp
+    /// setRankLevelLimit clamps to 1); two worlds never see each other's cap.
+    #[test]
+    fn rank_cap_publishes_to_owning_services_without_singleton_lock() {
+        let a = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        let b = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        let mut first = GameLogic::new_with_engine_stores(Arc::clone(&a));
+        let mut second = GameLogic::new_with_engine_stores(Arc::clone(&b));
+        let read = |s: &Arc<crate::system::engine_stores::EngineStores>| {
+            s.services()
+                .session_flags()
+                .rank_level_limit
+                .load(std::sync::atomic::Ordering::Relaxed)
+        };
+        first.set_rank_level_limit(2);
+        second.set_rank_level_limit(4);
+        assert_eq!((read(&a), read(&b)), (2, 4));
+        first.set_rank_level_limit(-5);
+        assert_eq!((read(&a), read(&b)), (1, 4));
+    }
 }
