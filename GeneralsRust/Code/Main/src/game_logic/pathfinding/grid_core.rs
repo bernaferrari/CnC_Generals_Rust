@@ -465,28 +465,6 @@ impl PathfindingGrid {
         true
     }
 
-    /// Remove only cells still owned by this object, preserving overlapping
-    /// foreign obstacles. Completion then reclassifies its current footprint.
-    pub(super) fn remove_owned_object_footprint(&mut self, object_id: u32) {
-        let cells: Vec<_> = self
-            .occ_obstacle_id
-            .iter()
-            .enumerate()
-            .filter_map(|(index, &id)| (id == object_id).then_some(index))
-            .collect();
-        let mut lo = GridPos::new(i32::MAX, i32::MAX);
-        let mut hi = GridPos::new(i32::MIN, i32::MIN);
-        for index in cells {
-            let pos = GridPos::new(index as i32 % self.width, index as i32 / self.width);
-            if self.clear_cell_obstacle_owned(pos, object_id) {
-                Self::expand_stamp_bounds(&mut lo, &mut hi, pos);
-            }
-        }
-        if lo.x <= hi.x && lo.y <= hi.y {
-            self.refresh_pinched_bounds(lo, hi);
-            self.rebuild_path_zones();
-        }
-    }
 
     /// C++ `PathfindCell::removeObstacle` (AIPathfind.cpp:1473-1483).
     pub fn clear_cell_obstacle_owned(&mut self, pos: GridPos, object_id: u32) -> bool {
@@ -716,6 +694,7 @@ impl PathfindingGrid {
         owner_player: Option<u32>,
         team: Option<Team>,
         as_rubble: bool,
+        insert: bool,
     ) -> Option<(GridPos, GridPos)> {
         if fence_width <= 0.0 {
             return None;
@@ -741,15 +720,19 @@ impl PathfindingGrid {
             for _ix in 0..num_steps_x {
                 let cell = self.classify_world_to_cell(x, z);
                 if self.is_valid_pos(cell) {
-                    self.classify_obstacle_if_available(
-                        cell,
-                        true,
-                        is_transparent,
-                        object_id,
-                        owner_player,
-                        team,
-                        as_rubble,
-                    );
+                    if insert {
+                        self.classify_obstacle_if_available(
+                            cell,
+                            true,
+                            is_transparent,
+                            object_id,
+                            owner_player,
+                            team,
+                            as_rubble,
+                        );
+                    } else {
+                        self.clear_cell_obstacle_owned(cell, object_id);
+                    }
                     Self::expand_stamp_bounds(&mut lo, &mut hi, cell);
                     did = true;
                 }
@@ -785,6 +768,17 @@ impl PathfindingGrid {
         as_rubble: bool,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<(GridPos, GridPos)> {
+        self.classify_object_footprint_change(obj, as_rubble, ground_source, true)
+    }
+
+    /// Apply the same footprint raster for C++ removal and admission.
+    pub(super) fn classify_object_footprint_change(
+        &mut self,
+        obj: &Object,
+        as_rubble: bool,
+        ground_source: &PathfindingGround<'_>,
+        insert: bool,
+    ) -> Option<(GridPos, GridPos)> {
         if obj.is_kind_of(KindOf::Mine)
             || obj.is_kind_of(KindOf::Projectile)
             || obj.is_kind_of(KindOf::BridgeTower)
@@ -803,6 +797,7 @@ impl PathfindingGrid {
                 obj.owner_player_id,
                 Some(obj.team),
                 as_rubble,
+                insert,
             );
         }
         if !obj.is_kind_of(KindOf::Structure) {
@@ -818,6 +813,9 @@ impl PathfindingGrid {
         let pos = obj.get_position();
         let height_above = pos.y - ground_source.height_at(pos);
         let is_blast_crater = obj.is_kind_of(KindOf::BlastCrater);
+        if !insert && is_blast_crater {
+            return None;
+        }
         // C++ skips airborne bounds unless KINDOF_BLAST_CRATER (AIPathfind.cpp:4168-4171).
         if height_above > self.grid_size && !is_blast_crater {
             return None;
@@ -830,15 +828,20 @@ impl PathfindingGrid {
             if !grid.is_valid_pos(cell) {
                 return false;
             }
-            let inserted = grid.classify_obstacle_if_available(
-                cell,
-                false,
-                is_transparent,
-                obj.id.0,
-                obj.owner_player_id,
-                Some(obj.team),
-                as_rubble,
-            );
+            let inserted = if insert {
+                grid.classify_obstacle_if_available(
+                    cell,
+                    false,
+                    is_transparent,
+                    obj.id.0,
+                    obj.owner_player_id,
+                    Some(obj.team),
+                    as_rubble,
+                )
+            } else {
+                grid.clear_cell_obstacle_owned(cell, obj.id.0);
+                false
+            };
             if inserted && is_blast_crater {
                 grid.permanent_blast_crater_cells.insert((cell.x, cell.y));
             }

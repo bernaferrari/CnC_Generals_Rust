@@ -130,6 +130,51 @@ fn same_id_construction_worlds_keep_factory_resources_and_builders_isolated() {
 }
 
 #[test]
+fn completion_refreshes_only_its_current_footprint_in_the_receiving_world() {
+    use crate::game_logic::pathfinding::{GridPos, PathfindingSystem};
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+
+    fn setup() -> (GameLogic, ObjectId, ObjectId, GridPos) {
+        let (mut world, _) = construction_world(1000, 0);
+        let template = world.templates.get_mut("OwnedScaffold").unwrap();
+        template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+        template.geometry_info.major_radius = 18.0;
+        template.geometry_info.authored = true;
+        world.pathfinding_system = PathfindingSystem::new(400.0, 400.0);
+        let position = Vec3::new(45.0, 0.0, 45.0);
+        let site = world.create_object_for_player("OwnedScaffold", 0, position).unwrap();
+        let other = world.create_object_for_player("OwnedScaffold", 0, position).unwrap();
+        let cell = world.pathfinding_system.grid.world_to_grid(position);
+        let grid = &mut world.pathfinding_system.grid;
+        grid.set_cell_type(cell, PathfindCellType::Rubble);
+        grid.set_cell_obstacle_owned(GridPos::new(cell.x + 1, cell.y), false, false, other.0, Some(0), Some(Team::USA));
+        grid.set_cell_obstacle_owned(GridPos::new(cell.x + 5, cell.y), false, false, site.0, Some(0), Some(Team::USA));
+        (world, site, other, cell)
+    }
+
+    let (mut owner, site, other, cell) = setup();
+    let (mut peer, peer_site, peer_other, peer_cell) = setup();
+    assert_eq!((site, other, cell), (peer_site, peer_other, peer_cell));
+    owner.frame = 17;
+    owner.notify_structure_construction_complete(site).unwrap();
+    assert_eq!(owner.script_object_count_changed_frame, 17);
+    assert_ne!(peer.script_object_count_changed_frame, 17);
+
+    let grid = &mut owner.pathfinding_system.grid;
+    assert_eq!(grid.cell_type(cell), PathfindCellType::Obstacle);
+    assert!(!grid.clear_cell_obstacle_owned(cell, other.0));
+    assert!(grid.clear_cell_obstacle_owned(cell, site.0));
+    let overlap = GridPos::new(cell.x + 1, cell.y);
+    assert!(!grid.clear_cell_obstacle_owned(overlap, site.0));
+    assert!(grid.clear_cell_obstacle_owned(overlap, other.0));
+    assert!(grid.clear_cell_obstacle_owned(GridPos::new(cell.x + 5, cell.y), site.0));
+
+    let grid = &mut peer.pathfinding_system.grid;
+    assert_eq!(grid.cell_type(peer_cell), PathfindCellType::Rubble);
+    assert!(grid.clear_cell_obstacle_owned(GridPos::new(peer_cell.x + 1, peer_cell.y), peer_other.0));
+}
+
+#[test]
 fn ordinary_scaffold_defers_create_module_completion_until_real_completion() {
     use crate::game_logic::host_preorder_create::has_preorder_model_bit;
     let (mut logic, constructor) = construction_world(1000, 7);

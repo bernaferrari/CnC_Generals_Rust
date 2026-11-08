@@ -3066,3 +3066,7 @@ Terrain draws use ordered material batches for base and extra-blend passes,
 allowing more than sixteen registered classes in a view without sharing
 bind-group state across terrain owners. Procedural rules and packed vertex
 weights still have four-layer limits.
+
+Main construction completion refreshes its structure's current footprint,
+preserving overlapping foreign obstacles. The Core construction callback still
+needs an explicit owning-pathfinder borrow.
