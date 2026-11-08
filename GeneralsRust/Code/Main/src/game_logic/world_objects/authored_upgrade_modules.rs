@@ -848,6 +848,10 @@ mod replay_tests {
         owner.add_completed_upgrade("Upgrade_AmericaComancheRocketPods");
         world.players.insert(0, owner);
         world.players.insert(1, Player::new(1, Team::USA, "Other", false));
+        // The completed name only contributes a mask through its template.
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, "Upgrade_AmericaComancheRocketPods", "PLAYER", 0, 1,
+        );
         world.admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "upgrade-factory-row.ini".into(),
