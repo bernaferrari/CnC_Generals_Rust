@@ -102,7 +102,9 @@ pub fn load_tga_from_memory(data: &[u8]) -> ImageDecodeResult<TgaData> {
     }
     let pixel_data_start = cursor.position() as usize;
     let color_map_data = if header.color_map_type != 0 {
-        Some(&data[cmap_offset..pixel_data_start])
+        Some(data.get(cmap_offset..pixel_data_start).ok_or_else(|| {
+            Error::InvalidData("TGA color map truncated".to_string())
+        })?)
     } else {
         None
     };
@@ -166,12 +168,27 @@ pub fn load_tga_from_memory(data: &[u8]) -> ImageDecodeResult<TgaData> {
         }
     };
 
-    // Check if image needs to be flipped vertically
-    let final_data = if header.image_descriptor & 0x20 == 0 {
-        flip_image_vertically(&rgba_data, width, height)
-    } else {
-        rgba_data
-    };
+    // TARGA.CPP:419-432 normalizes both descriptor origins after decoding.
+    let mut final_data = rgba_data;
+    let row_bytes = width as usize * 4;
+    if header.image_descriptor & 0x20 == 0 {
+        for y in 0..height as usize / 2 {
+            let top = y * row_bytes;
+            let bottom = (height as usize - 1 - y) * row_bytes;
+            let (before_bottom, from_bottom) = final_data.split_at_mut(bottom);
+            before_bottom[top..top + row_bytes].swap_with_slice(&mut from_bottom[..row_bytes]);
+        }
+    }
+    if header.image_descriptor & 0x10 != 0 && row_bytes != 0 {
+        for row in final_data.chunks_exact_mut(row_bytes) {
+            for x in 0..width as usize / 2 {
+                let opposite = width as usize - 1 - x;
+                for component in 0..4 {
+                    row.swap(x * 4 + component, opposite * 4 + component);
+                }
+            }
+        }
+    }
 
     Ok(TgaData {
         width,
@@ -279,13 +296,13 @@ fn convert_to_rgba(
             // 16-bit to RGBA (assuming A1R5G5B5 format)
             for chunk in data.chunks_exact(2) {
                 let pixel = u16::from_le_bytes([chunk[0], chunk[1]]);
-                let r = ((pixel >> 10) & 0x1F) as u8;
-                let g = ((pixel >> 5) & 0x1F) as u8;
-                let b = (pixel & 0x1F) as u8;
+                let r = (pixel >> 10) & 0x1F;
+                let g = (pixel >> 5) & 0x1F;
+                let b = pixel & 0x1F;
                 let a = if pixel & 0x8000 != 0 { 255 } else { 0 };
 
                 // Scale 5-bit values to 8-bit
-                rgba_data.extend_from_slice(&[(r * 255) / 31, (g * 255) / 31, (b * 255) / 31, a]);
+                rgba_data.extend_from_slice(&[((r * 255) / 31) as u8, ((g * 255) / 31) as u8, ((b * 255) / 31) as u8, a]);
             }
         }
         3 => {
@@ -306,20 +323,6 @@ fn convert_to_rgba(
     Ok(rgba_data)
 }
 
-/// Flip image data vertically
-fn flip_image_vertically(data: &[u8], width: u32, height: u32) -> Vec<u8> {
-    let bytes_per_row = (width * 4) as usize;
-    let mut flipped = Vec::with_capacity(data.len());
-
-    for y in (0..height).rev() {
-        let row_start = (y as usize) * bytes_per_row;
-        let row_end = row_start + bytes_per_row;
-        flipped.extend_from_slice(&data[row_start..row_end]);
-    }
-
-    flipped
-}
-
 /// Convert color-mapped pixel indices to RGBA using the TGA color map.
 fn convert_color_mapped_to_rgba(
     indices: &[u8],
@@ -331,6 +334,9 @@ fn convert_color_mapped_to_rgba(
 ) -> ImageDecodeResult<Vec<u8>> {
     let total_pixels = total_pixels as usize;
     let mut rgba = Vec::with_capacity(total_pixels * 4);
+    if !matches!(cmap_bytes_per_entry, 2..=4) {
+        return Err(Error::InvalidData("Unsupported color map entry size".to_string()));
+    }
 
     for i in 0..total_pixels {
         let idx_start = i * index_bytes;
@@ -350,7 +356,9 @@ fn convert_color_mapped_to_rgba(
             }
         };
 
-        let cmap_index = index - cmap_start_idx;
+        let cmap_index = index.checked_sub(cmap_start_idx).ok_or_else(|| {
+            Error::InvalidData("TGA color map index out of range".to_string())
+        })?;
         let cmap_entry_count = cmap.len() / cmap_bytes_per_entry;
         if cmap_index >= cmap_entry_count {
             return Err(Error::InvalidData(
@@ -364,11 +372,11 @@ fn convert_color_mapped_to_rgba(
         match cmap_bytes_per_entry {
             2 => {
                 let pixel = u16::from_le_bytes([entry[0], entry[1]]);
-                let r = ((pixel >> 10) & 0x1F) as u8;
-                let g = ((pixel >> 5) & 0x1F) as u8;
-                let b = (pixel & 0x1F) as u8;
+                let r = (pixel >> 10) & 0x1F;
+                let g = (pixel >> 5) & 0x1F;
+                let b = pixel & 0x1F;
                 let a = if pixel & 0x8000 != 0 { 255 } else { 0 };
-                rgba.extend_from_slice(&[(r * 255) / 31, (g * 255) / 31, (b * 255) / 31, a]);
+                rgba.extend_from_slice(&[((r * 255) / 31) as u8, ((g * 255) / 31) as u8, ((b * 255) / 31) as u8, a]);
             }
             3 => {
                 rgba.extend_from_slice(&[entry[2], entry[1], entry[0], 255]);
@@ -409,27 +417,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_image_flip() {
-        // 2x2 image data
-        let data = vec![
-            255, 0, 0, 255, // Red pixel (top-left)
-            0, 255, 0, 255, // Green pixel (top-right)
-            0, 0, 255, 255, // Blue pixel (bottom-left)
-            255, 255, 0, 255, // Yellow pixel (bottom-right)
-        ];
-
-        let flipped = flip_image_vertically(&data, 2, 2);
-
-        // Bottom row should become top row
-        assert_eq!(
-            flipped,
-            vec![
-                0, 0, 255, 255, // Blue pixel (now top-left)
-                255, 255, 0, 255, // Yellow pixel (now top-right)
-                255, 0, 0, 255, // Red pixel (now bottom-left)
-                0, 255, 0, 255, // Green pixel (now bottom-right)
-            ]
-        );
-    }
 }

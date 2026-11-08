@@ -43,6 +43,12 @@ classes (`b520a7871`), including extra-blend GPU readback. Missing-texture and
 legacy cliff adjustments, full extra-blend fidelity, a C++ image comparison
 and wasm remain unverified.
 
+The shared TGA decoder normalizes both horizontal and vertical origins in
+place, rejects truncated or invalid palettes, and expands 16-bit colors without
+integer overflow. Raw, RLE and palette origin cases pass; a right-origin TGA
+runtime smoke produced the expected pixel order. Grayscale format metadata and
+Main's palette/16-bit alpha classification remain open.
+
 The WW3D animation library resolves raw and compressed clip pivot counts from
 the named hierarchy rather than the highest animated channel. Missing
 hierarchies fail admission; single and blended hierarchy updates retain C++

@@ -132,6 +132,86 @@ fn tga_origin_and_bgr_channels_are_decoded_before_upload() {
 }
 
 #[test]
+fn tga_all_origins_normalize_raw_rle_and_palette_pixels() {
+    // TARGA.CPP:419-432 normalizes X and Y after decoding.
+    let bgr = [[0, 0, 255], [0, 255, 0], [255, 0, 0], [0, 255, 255]];
+    let expected = [
+        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
+    ];
+    for descriptor in [0x00, 0x10, 0x20, 0x30] {
+        let mut pixels = Vec::new();
+        let mut indices = Vec::new();
+        for source_y in 0..2 {
+            for source_x in 0..2 {
+                let y = if descriptor & 0x20 == 0 { 1 - source_y } else { source_y };
+                let x = if descriptor & 0x10 != 0 { 1 - source_x } else { source_x };
+                let index = y * 2 + x;
+                pixels.extend_from_slice(&bgr[index]);
+                indices.push(index as u8);
+            }
+        }
+        let raw = tga_bytes(descriptor, 2, 24, &pixels);
+        let mut rle_pixels = vec![3]; // Four literal pixels in one packet.
+        rle_pixels.extend_from_slice(&pixels);
+        let rle = tga_bytes(descriptor, 10, 24, &rle_pixels);
+        let mut header = tga::TgaHeader::zeroed();
+        header.width = 2;
+        header.height = 2;
+        header.image_type = 1;
+        header.color_map_type = 1;
+        header.color_map_spec = [0, 0, 4, 0, 24];
+        header.bits_per_pixel = 8;
+        header.image_descriptor = descriptor;
+        let mut palette = bytemuck::bytes_of(&header).to_vec();
+        for entry in bgr {
+            palette.extend_from_slice(&entry);
+        }
+        palette.extend_from_slice(&indices);
+        for bytes in [&raw, &rle, &palette] {
+            assert_eq!(load_tga_from_memory(bytes).unwrap().data, expected, "descriptor {descriptor:#04x}");
+        }
+    }
+}
+
+#[test]
+fn tga_palette_rejects_truncation_and_indices_before_palette_start() {
+    let mut header = tga::TgaHeader::zeroed();
+    header.width = 1;
+    header.height = 1;
+    header.image_type = 1;
+    header.color_map_type = 1;
+    header.color_map_spec = [1, 0, 1, 0, 24];
+    header.bits_per_pixel = 8;
+    header.image_descriptor = 0x20;
+    let mut bytes = bytemuck::bytes_of(&header).to_vec();
+    bytes.extend_from_slice(&[0, 0]); // Truncated palette, not a pixel.
+    assert!(matches!(load_tga_from_memory(&bytes), Err(ImageDecodeError::InvalidData(_))));
+    bytes.push(255);
+    bytes.push(0); // Index is below the authored starting index.
+    assert!(matches!(load_tga_from_memory(&bytes), Err(ImageDecodeError::InvalidData(_))));
+    header.color_map_spec[4] = 0;
+    let mut invalid = bytemuck::bytes_of(&header).to_vec();
+    invalid.push(1);
+    assert!(matches!(load_tga_from_memory(&invalid), Err(ImageDecodeError::InvalidData(_))));
+}
+
+#[test]
+fn tga_16_bit_palette_expands_full_color_range() {
+    let mut header = tga::TgaHeader::zeroed();
+    header.width = 1;
+    header.height = 1;
+    header.image_type = 1;
+    header.color_map_type = 1;
+    header.color_map_spec = [0, 0, 1, 0, 16];
+    header.bits_per_pixel = 8;
+    header.image_descriptor = 0x20;
+    let mut bytes = bytemuck::bytes_of(&header).to_vec();
+    bytes.extend_from_slice(&[0xff, 0xff, 0]);
+    assert_eq!(load_tga_from_memory(&bytes).unwrap().data, [255, 255, 255, 255]);
+    let direct = tga_bytes(0x20, 2, 16, &[0xff, 0xff].repeat(4));
+    assert_eq!(load_tga_from_memory(&direct).unwrap().data, [255; 16]);
+}
+#[test]
 fn tga_rle_retains_original_alpha_channel_depth() {
     let image = load_tga_from_memory(&tga_bytes(0x28, 10, 32, &[0x83, 10, 20, 30, 40])).unwrap();
     assert_eq!(image.bits_per_pixel, 32);
