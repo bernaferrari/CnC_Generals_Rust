@@ -529,10 +529,10 @@ impl Render2D {
     }
 
     /// Render the 2D geometry
-    pub fn render<'pass>(
-        &'pass mut self,
+    pub fn render(
+        &mut self,
         gpu: &mut Render2DGpuContext,
-        render_pass: &mut wgpu::RenderPass<'pass>,
+        render_pass: &mut wgpu::RenderPass<'_>,
     ) {
         if self.is_hidden || self.vertices.is_empty() {
             return;

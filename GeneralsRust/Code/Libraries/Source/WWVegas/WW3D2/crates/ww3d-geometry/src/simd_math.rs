@@ -439,7 +439,7 @@ pub mod matrix_ops {
     }
 }
 
-/// SIMD-optimized skinning for skeletal animation
+/// Skinning for skeletal animation
 pub mod skinning {
     use super::*;
 
@@ -452,7 +452,8 @@ pub mod skinning {
         pub bone_weights: [f32; 4],
     }
 
-    pub(super) fn skin_vertices_scalar(
+    /// Transform vertices by their weighted bone matrices.
+    pub fn skin_vertices(
         vertices: &[SkinnedVertex],
         bone_matrices: &[Mat4],
         output_positions: &mut [Vec3],
@@ -478,87 +479,6 @@ pub mod skinning {
 
             output_positions[i] = final_pos;
             output_normals[i] = final_normal.normalize_or_zero();
-        }
-    }
-
-    /// Transform vertices by bone matrices using SIMD
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "sse4.1")]
-    // SAFETY: requires sse4.1 (runtime-verified by skin_vertices); despite
-    // the name this body uses only scalar glam transforms — bone_indices
-    // are range-checked against bone_matrices.len() before each indexed
-    // access, and output writes are enumerate()-bounded to vertices.len(),
-    // which equals both output slices per the asserts.
-    pub unsafe fn skin_vertices_simd(
-        vertices: &[SkinnedVertex],
-        bone_matrices: &[Mat4],
-        output_positions: &mut [Vec3],
-        output_normals: &mut [Vec3],
-    ) {
-        assert_eq!(vertices.len(), output_positions.len());
-        assert_eq!(vertices.len(), output_normals.len());
-
-        for (i, vertex) in vertices.iter().enumerate() {
-            // Accumulate weighted transformations
-            let mut final_pos = Vec3::ZERO;
-            let mut final_normal = Vec3::ZERO;
-
-            for j in 0..4 {
-                let bone_idx = vertex.bone_indices[j] as usize;
-                let weight = vertex.bone_weights[j];
-
-                if weight > 0.0001 && bone_idx < bone_matrices.len() {
-                    let matrix = &bone_matrices[bone_idx];
-
-                    // Transform position
-                    let transformed_pos = matrix.transform_point3(vertex.position);
-                    final_pos += transformed_pos * weight;
-
-                    // Transform normal (use 3x3 part only)
-                    let transformed_normal = matrix.transform_vector3(vertex.normal);
-                    final_normal += transformed_normal * weight;
-                }
-            }
-
-            output_positions[i] = final_pos;
-            output_normals[i] = final_normal.normalize_or_zero();
-        }
-    }
-
-    /// Fallback for non-x86_64 platforms
-    #[cfg(not(target_arch = "x86_64"))]
-    pub fn skin_vertices_simd(
-        vertices: &[SkinnedVertex],
-        bone_matrices: &[Mat4],
-        output_positions: &mut [Vec3],
-        output_normals: &mut [Vec3],
-    ) {
-        skin_vertices_scalar(vertices, bone_matrices, output_positions, output_normals);
-    }
-
-    /// Safe wrapper for vertex skinning
-    pub fn skin_vertices(
-        vertices: &[SkinnedVertex],
-        bone_matrices: &[Mat4],
-        output_positions: &mut [Vec3],
-        output_normals: &mut [Vec3],
-    ) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("sse4.1") {
-                // SAFETY: sse4.1 presence established by the feature probe
-                // above, satisfying skin_vertices_simd's requirement.
-                unsafe {
-                    skin_vertices_simd(vertices, bone_matrices, output_positions, output_normals);
-                }
-            } else {
-                skin_vertices_scalar(vertices, bone_matrices, output_positions, output_normals);
-            }
-        }
-
-        #[cfg(not(target_arch = "x86_64"))]
-        {
-            skin_vertices_simd(vertices, bone_matrices, output_positions, output_normals);
         }
     }
 }
@@ -672,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn scalar_skinning_fallback_matches_production_dispatch() {
+    fn skinning_applies_valid_weighted_bones() {
         let vertices = [
             skinning::SkinnedVertex {
                 position: Vec3::new(1.0, 2.0, 3.0),
@@ -691,20 +611,13 @@ mod tests {
             Mat4::from_translation(Vec3::new(2.0, 0.0, -1.0)),
             Mat4::from_scale(Vec3::new(2.0, 1.0, 0.5)),
         ];
-        let mut scalar_positions = [Vec3::ZERO; 2];
-        let mut scalar_normals = [Vec3::ZERO; 2];
-        let mut simd_positions = [Vec3::ZERO; 2];
-        let mut simd_normals = [Vec3::ZERO; 2];
+        let mut positions = [Vec3::ZERO; 2];
+        let mut normals = [Vec3::ZERO; 2];
+        skinning::skin_vertices(&vertices, &bones, &mut positions, &mut normals);
 
-        skinning::skin_vertices_scalar(
-            &vertices,
-            &bones,
-            &mut scalar_positions,
-            &mut scalar_normals,
-        );
-        skinning::skin_vertices(&vertices, &bones, &mut simd_positions, &mut simd_normals);
-
-        assert_eq!(scalar_positions, simd_positions);
-        assert_eq!(scalar_normals, simd_normals);
+        assert_eq!(positions[0], Vec3::new(2.25, 2.0, 1.625));
+        assert_eq!(positions[1], Vec3::new(-2.0, 0.5, 2.5));
+        assert_eq!(normals[0], Vec3::Y);
+        assert!((normals[1] - Vec3::new(1.5, 1.0, 0.0).normalize()).length() < 1e-6);
     }
 }

@@ -62,19 +62,12 @@ impl WgpuDeviceManager {
         &self.adapter
     }
 
-    /// Create a surface for the provided window.
-    pub fn create_surface_from_window<W>(&self, window: &W) -> RendererResult<Arc<Surface<'static>>>
+    /// Create a surface that owns a reference to its window.
+    pub fn create_surface_from_window<W>(&self, window: Arc<W>) -> RendererResult<Arc<Surface<'static>>>
     where
-        W: wgpu::rwh::HasWindowHandle + wgpu::rwh::HasDisplayHandle + Send + Sync,
+        W: wgpu::rwh::HasWindowHandle + wgpu::rwh::HasDisplayHandle + Send + Sync + 'static,
     {
-        // SAFETY: `from_window` copies the raw handles out of `window`, whose
-        // HasWindowHandle/HasDisplayHandle impls guarantee they are valid
-        // (non-dangling); the caller must keep the window alive and not show
-        // it via another API while a surface built from this target exists.
-        let unsafe_target = unsafe { wgpu::SurfaceTargetUnsafe::from_window(window) }
-            .map_err(|e| Error::Generic(format!("Failed to get window handle: {e}")))?;
-        // SAFETY: the returned surface target keeps the window alive for the duration of the surface.
-        let surface = unsafe { self.instance.create_surface_unsafe(unsafe_target) }
+        let surface = self.instance.create_surface(window)
             .map_err(|e| Error::Generic(format!("Failed to create surface: {e}")))?;
         Ok(Arc::new(surface))
     }
