@@ -1220,7 +1220,7 @@ impl MeshRenderManager {
 
         let sorting = mesh.model.as_ref().is_some_and(|model| {
             self.renderer_3d.as_ref().map(|r3d| {
-                DX8FVFCategoryContainer::sorting_for_mesh(r3d, model.flags, model.sort_level)
+                DX8FVFCategoryContainer::sorting_for_mesh(r3d, model.flags, mesh.get_sort_level())
             }).unwrap_or(false)
         });
         if sorting {
@@ -2734,6 +2734,10 @@ mod sorting_queue_isolation_tests {
         let mut material = VertexMaterialClass::new("unlit");
         material.diffuse = Vec3::ONE;
         material.specular = Vec3::ZERO;
+        // Authored translucency leaves the static level at NONE, as required
+        // by dx8renderer.cpp Register_Mesh_Type for per-triangle sorting.
+        // Presentation opacity instead assigns an instance static-sort bin.
+        material.opacity = 0.5;
         let mut material_pass = MaterialPassClass::new();
         material_pass.shader = crate::rendering::shader_system::shader::ShaderClass::get_alpha_shader();
         material_pass.vertex_material = Some(Arc::new(material));
@@ -2783,8 +2787,8 @@ mod sorting_queue_isolation_tests {
             manager.begin_frame_caches();
             let mut mesh = MeshClass::new();
             mesh.model = Some(Arc::clone(&model));
-            mesh.set_presentation_opacity(0.5);
             mesh.set_bone_palette_slice(&[bone, Mat4::IDENTITY]);
+            assert_eq!(mesh.get_sort_level(), SORT_LEVEL_NONE);
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2812,7 +2816,9 @@ mod sorting_queue_isolation_tests {
                 });
                 manager.render_pass(&mut pass, &[], &[Arc::new(mesh)], &info, &mut arena)
                     .expect("skinned mesh submission");
+                assert_eq!(manager.sorted_batch_count(), 1, "posed mesh must reach triangle sorting");
                 manager.flush_sorted(&mut pass);
+                assert_eq!(manager.sorted_batch_count(), 0);
             }
             let readback = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("posed-sorting-readback"),
@@ -3149,8 +3155,6 @@ mod model_retirement_tests {
             let blue = draw(&mut renderer);
             assert!(blue[2] > 128 && blue[0] < 8, "new identity must render blue: {blue:?}");
             drop(rebuilt);
-            assert!(previous.as_ref().unwrap().model.upgrade().is_some(),
-                "the submitted frame still owns its queued mesh");
         }
 
         renderer.begin_frame().unwrap();

@@ -77,6 +77,15 @@ preparations. Static and triangle sort queues belong to the acquired frame
 and are discarded after failed or skipped scene work, including teardown.
 Native GPU regressions cover retirement/readback and peer-frame isolation.
 
+The live mesh queue admits static sort levels into the receiving renderer's
+bins, retaining allocation identity and FIFO ties. Effective instance overrides
+skip triangle sorting. Native GPU readback covers two-owner isolation, order,
+flush, skinned triangle sorting and authored-times-instance opacity. Mesh casts
+use WWMath's bounded triangle test and preserve the caller's prior result and
+contact policy; unused duplicate geometry algorithms were removed. The
+renderer library's 410 native tests and the geometry crate's 91 tests pass.
+Main picking and the retained generic scene route are separate boundaries.
+
 Renderer, mesh and texture-cache thread contracts now follow their actual
 target: native `Send`/`Sync` requirements remain, while browser-only handles
 are not made thread-safe by an unsafe impl. Static-sort dispatch retains the

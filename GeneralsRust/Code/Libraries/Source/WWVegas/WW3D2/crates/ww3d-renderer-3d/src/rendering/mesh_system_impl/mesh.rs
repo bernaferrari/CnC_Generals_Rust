@@ -276,8 +276,13 @@ impl MeshClass {
         self.sort_level = level;
     }
 
+    /// Resolve an instance override before the model's authored W3D sort level.
     pub fn get_sort_level(&self) -> u32 {
-        self.sort_level
+        if self.sort_level != SORT_LEVEL_NONE {
+            self.sort_level
+        } else {
+            self.model.as_ref().map_or(SORT_LEVEL_NONE, |model| model.sort_level)
+        }
     }
 
     pub fn set_hidden(&mut self, hidden: bool) {
@@ -311,7 +316,10 @@ impl MeshClass {
             return false;
         }
 
-        if (self.is_hidden || self.is_animation_hidden) && !raytest.check_hidden {
+        if (raytest.check_translucent && self.is_alpha())
+            || (self.is_hidden && !raytest.check_hidden)
+            || self.is_animation_hidden
+        {
             return false;
         }
 
@@ -332,16 +340,15 @@ impl MeshClass {
         };
         let world_to_obj = world.inverse();
         let mut obj_ray = raytest.transformed_by_matrix(world_to_obj);
-        obj_ray.result = RayCollisionResult::default();
-        obj_ray.collided_render_obj = None;
 
         if let Some(model) = &self.model {
             if model.cast_ray(&mut obj_ray) {
-                raytest.result = obj_ray.result.clone();
-                raytest.result.normal = world
-                    .transform_vector3(raytest.result.normal)
-                    .normalize_or_zero();
-                raytest.result.contact_point = world.transform_point3(obj_ray.result.contact_point);
+                raytest.result = obj_ray.result;
+                raytest.result.normal = world.transform_vector3(raytest.result.normal);
+                if raytest.result.compute_contact_point {
+                    raytest.result.contact_point =
+                        world.transform_point3(raytest.result.contact_point);
+                }
                 raytest.collided_render_obj = Some(self as *const MeshClass as usize);
                 return true;
             }

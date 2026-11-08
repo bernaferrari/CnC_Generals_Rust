@@ -5,16 +5,16 @@
 //! higher level systems (collision, rendering, spatial partitioning).
 //! Keeping these definitions central avoids each submodule re-defining
 //! incompatible representations.
+//!
+//! Segment/triangle casts use WWMath's `CollisionMath`; this crate owns
+//! geometry primitives and spatial bounds, not a second collision implementation.
 
 pub mod aabtree;
 pub mod bounding_volumes;
-pub mod collision;
 pub mod decal_mesh;
 pub mod dynamic_mesh;
 pub mod hlod;
 pub mod hlod_bounding_box;
-pub mod intersection;
-pub mod intersection_utils;
 pub mod math_utils;
 pub mod mesh_builder;
 pub mod mesh_damage;
@@ -32,15 +32,9 @@ pub mod meshgeometry;
 pub mod meshmatdesc;
 pub use aabtree::*;
 pub use bounding_volumes::*;
-pub use collision::*;
 pub use decal_mesh::*;
 pub use dynamic_mesh::*;
 pub use hlod::*;
-// Both modules export similar functions - intersection_utils provides optimized versions
-#[allow(ambiguous_glob_reexports)]
-pub use intersection::*;
-#[allow(ambiguous_glob_reexports)]
-pub use intersection_utils::*;
 pub use math_utils::*;
 pub use mesh_builder::*;
 pub use mesh_damage::*;

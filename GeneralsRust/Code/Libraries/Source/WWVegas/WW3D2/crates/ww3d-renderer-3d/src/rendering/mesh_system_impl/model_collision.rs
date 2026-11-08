@@ -10,60 +10,56 @@
 use super::*;
 
 impl MeshModelClass {
+    /// MeshGeometryClass::cast_ray_brute_force delegates bounded segments to
+    /// WWMath and changes the surface only when a triangle improves the result.
     pub fn cast_ray(&self, ray: &mut RayCollisionTestClass) -> bool {
-        let ray_direction = ray.line.end - ray.line.start;
-        let ray_length = ray_direction.length();
-        if ray_length <= RAY_EPSILON {
-            return false;
-        }
-
-        let normalized_direction = ray_direction / ray_length;
-        let origin = ray.line.start;
-
+        let line = MuLineSegment::new(
+            MuVec3::new(ray.line.start.x, ray.line.start.y, ray.line.start.z),
+            MuVec3::new(ray.line.end.x, ray.line.end.y, ray.line.end.z),
+        );
+        let mut result = MuCastResult {
+            start_bad: ray.result.start_bad,
+            fraction: ray.result.fraction,
+            normal: MuVec3::new(ray.result.normal.x, ray.result.normal.y, ray.result.normal.z),
+            surface_type: ray.result.surface_type,
+            compute_contact_point: ray.result.compute_contact_point,
+            contact_point: MuVec3::new(
+                ray.result.contact_point.x,
+                ray.result.contact_point.y,
+                ray.result.contact_point.z,
+            ),
+        };
         let mut hit = false;
-        let mut best_fraction = ray.result.fraction.min(1.0);
-        let mut best_point = Vec3::ZERO;
-        let mut best_normal = Vec3::ZERO;
-        let mut best_surface = ray.result.surface_type;
-
         for triangle in &self.triangles {
             let Some(verts) = triangle_vertices(triangle, &self.vertices) else {
                 continue;
             };
-
-            if let Some((distance, normal)) = ray_triangle_intersection(
-                origin,
-                normalized_direction,
-                ray_length,
-                verts[0],
-                verts[1],
-                verts[2],
-            ) {
-                let fraction = (distance / ray_length).clamp(0.0, 1.0);
-                if !hit || fraction < best_fraction {
-                    hit = true;
-                    best_fraction = fraction;
-                    best_point = origin + normalized_direction * distance;
-                    best_normal = normal;
-                    best_surface = triangle.attributes;
-                }
+            // Preserve the supplied polygon normal, including its magnitude;
+            // neither meshgeometry.cpp nor colmathline.cpp normalizes it here.
+            let tri = MuTriangle::with_normal(
+                MuVec3::new(verts[0].x, verts[0].y, verts[0].z),
+                MuVec3::new(verts[1].x, verts[1].y, verts[1].z),
+                MuVec3::new(verts[2].x, verts[2].y, verts[2].z),
+                w3d_to_mu_vec3(&triangle.normal),
+            );
+            if MuCollisionMath::collide_line_triangle(&line, &tri, &mut result) {
+                hit = true;
+                result.surface_type = triangle.attributes;
             }
         }
-
         if hit {
-            ray.result.start_bad = best_fraction == 0.0;
-            ray.result.fraction = best_fraction;
-            ray.result.normal = best_normal;
-            ray.result.surface_type = best_surface;
-            if ray.result.compute_contact_point {
-                ray.result.contact_point = origin + ray_direction * best_fraction;
-            } else {
-                ray.result.contact_point = best_point;
+            ray.result.fraction = result.fraction;
+            ray.result.normal = Vec3::new(result.normal.x, result.normal.y, result.normal.z);
+            ray.result.surface_type = result.surface_type;
+            if result.compute_contact_point {
+                ray.result.contact_point = Vec3::new(
+                    result.contact_point.x,
+                    result.contact_point.y,
+                    result.contact_point.z,
+                );
             }
-            return true;
         }
-
-        false
+        hit
     }
 
     pub fn cast_aabox(&self, boxtest: &mut AABoxCollisionTestClass) -> bool {
@@ -405,6 +401,207 @@ impl MeshModelClass {
             if MuCollisionMath::intersection_test_aabox_triangle(&mu_box, &local_triangle) {
                 apt.push(index as u32);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod ray_cast_tests {
+    use super::*;
+    use crate::render_object_system::RenderObjClass;
+    use std::sync::Arc;
+    use ww3d_geometry::LineSegment;
+
+    fn triangle_mesh() -> MeshClass {
+        let mut model = MeshModelClass::new("ray contract");
+        model.vertices = vec![
+            W3dVectorStruct { x: -1.0, y: -1.0, z: 0.0 },
+            W3dVectorStruct { x: 1.0, y: -1.0, z: 0.0 },
+            W3dVectorStruct { x: 0.0, y: 1.0, z: 0.0 },
+        ];
+        model.triangles = vec![W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 37,
+            // Deliberately non-unit and opposite to the winding.
+            normal: W3dVectorStruct { x: 0.0, y: 0.0, z: -2.0 },
+            distance: 0.0,
+        }];
+        let mut mesh = MeshClass::new();
+        mesh.set_collision_type(1);
+        mesh.model = Some(Arc::new(model));
+        mesh
+    }
+
+    fn cast(mesh: &MeshClass, ray: &mut RayCollisionTestClass, through_trait: bool) -> bool {
+        if through_trait {
+            let object: &dyn RenderObjClass = mesh;
+            object.cast_ray(ray)
+        } else {
+            mesh.cast_ray(ray)
+        }
+    }
+
+    fn ray(start: Vec3, end: Vec3) -> RayCollisionTestClass {
+        RayCollisionTestClass::new(LineSegment::new(start, end), 1)
+    }
+
+    #[test]
+    fn mesh_ray_preserves_nearer_and_equal_incoming_results() {
+        let mesh = triangle_mesh();
+        for through_trait in [false, true] {
+            for fraction in [0.25, 0.5] {
+                let mut test = ray(Vec3::Z, -Vec3::Z);
+                test.result.fraction = fraction;
+                test.result.normal = Vec3::X;
+                test.result.surface_type = 91;
+                test.result.contact_point = Vec3::splat(7.0);
+                test.result.compute_contact_point = true;
+                test.collided_render_obj = Some(123);
+                assert!(!cast(&mesh, &mut test, through_trait));
+                assert_eq!(test.result.fraction, fraction);
+                assert_eq!(test.result.normal, Vec3::X);
+                assert_eq!(test.result.surface_type, 91);
+                assert_eq!(test.result.contact_point, Vec3::splat(7.0));
+                assert!(test.result.compute_contact_point);
+                assert!(!test.result.start_bad);
+                assert_eq!(test.collided_render_obj, Some(123));
+            }
+        }
+    }
+
+    #[test]
+    fn mesh_ray_uses_exact_segment_and_parallel_boundaries() {
+        let mesh = triangle_mesh();
+        for through_trait in [false, true] {
+            for (start, end, limit, expected) in [
+                (Vec3::ZERO, -Vec3::Z, 1.0, Some(0.0)),
+                (Vec3::Z, Vec3::ZERO, 1.0, None),
+                (Vec3::Z, Vec3::ZERO, 2.0, Some(1.0)),
+                (Vec3::Z, Vec3::new(0.0, 0.0, 0.000001), 2.0, None),
+                (-Vec3::Z * 0.000001, -Vec3::Z, 1.0, None),
+                (Vec3::ZERO, Vec3::ZERO, 1.0, None),
+                (Vec3::ZERO, Vec3::X, 1.0, None),
+                (
+                    Vec3::new(-0.25, 0.0, 0.0000001),
+                    Vec3::new(0.25, 0.0, -0.0000001),
+                    1.0,
+                    Some(0.5),
+                ),
+                (Vec3::Z * 0.0000001, -Vec3::Z * 0.0000001, 1.0, Some(0.5)),
+            ] {
+                let mut test = ray(start, end);
+                test.result.fraction = limit;
+                test.result.compute_contact_point = true;
+                assert_eq!(cast(&mesh, &mut test, through_trait), expected.is_some());
+                assert_eq!(test.result.fraction, expected.unwrap_or(limit));
+                assert!(!test.result.start_bad);
+                if expected.is_some() {
+                    assert_eq!(test.result.contact_point, Vec3::ZERO);
+                    assert_eq!(test.result.normal, -Vec3::Z * 2.0);
+                    assert_eq!(test.result.surface_type, 37);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mesh_ray_preserves_contact_flag_and_supplied_normal_in_world_space() {
+        let mut mesh = triangle_mesh();
+        mesh.transform = Mat4::from_translation(Vec3::new(3.0, 4.0, 5.0))
+            * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+        for through_trait in [false, true] {
+            for compute_contact_point in [false, true] {
+                let mut test = ray(
+                    mesh.transform.transform_point3(Vec3::Z),
+                    mesh.transform.transform_point3(-Vec3::Z),
+                );
+                let sentinel = Vec3::new(11.0, 12.0, 13.0);
+                test.result.contact_point = sentinel;
+                test.result.compute_contact_point = compute_contact_point;
+                assert!(cast(&mesh, &mut test, through_trait));
+                assert_eq!(test.result.compute_contact_point, compute_contact_point);
+                assert!(!test.result.start_bad);
+                assert!((test.result.fraction - 0.5).abs() < 0.000001);
+                assert_eq!(test.result.surface_type, 37);
+                assert_eq!(
+                    test.result.normal,
+                    mesh.transform.transform_vector3(-Vec3::Z * 2.0),
+                );
+                if compute_contact_point {
+                    assert!((test.result.contact_point - mesh.transform.w_axis.truncate()).length() < 0.000001);
+                } else {
+                    assert_eq!(test.result.contact_point, sentinel);
+                }
+                assert_eq!(test.collided_render_obj, Some(&mesh as *const MeshClass as usize));
+            }
+        }
+    }
+
+    #[test]
+    fn mesh_ray_updates_surface_only_for_the_closest_accepted_triangle() {
+        let mut mesh = triangle_mesh();
+        let model = Arc::get_mut(mesh.model.as_mut().unwrap()).unwrap();
+        for (z, attributes) in [(0.5, 52), (0.5, 99), (-0.5, 73)] {
+            let first = model.vertices.len() as u32;
+            model.vertices.extend([
+                W3dVectorStruct { x: -1.0, y: -1.0, z },
+                W3dVectorStruct { x: 1.0, y: -1.0, z },
+                W3dVectorStruct { x: 0.0, y: 1.0, z },
+            ]);
+            model.triangles.push(W3dTriangleStruct {
+                vindex: [first, first + 1, first + 2],
+                attributes,
+                normal: W3dVectorStruct { x: 0.0, y: 0.0, z: -2.0 },
+                distance: 2.0 * z,
+            });
+        }
+        for through_trait in [false, true] {
+            let mut test = ray(Vec3::Z, -Vec3::Z);
+            assert!(cast(&mesh, &mut test, through_trait));
+            assert_eq!(test.result.fraction, 0.25);
+            assert_eq!(test.result.surface_type, 52);
+        }
+    }
+
+    #[test]
+    fn mesh_ray_public_callers_reject_start_bad_without_mutation() {
+        let mesh = triangle_mesh();
+        for through_trait in [false, true] {
+            let mut test = ray(Vec3::Z, -Vec3::Z);
+            test.result.start_bad = true;
+            test.result.contact_point = Vec3::X;
+            test.result.surface_type = 91;
+            assert!(!cast(&mesh, &mut test, through_trait));
+            assert!(test.result.start_bad);
+            assert_eq!(test.result.fraction, 1.0);
+            assert_eq!(test.result.contact_point, Vec3::X);
+            assert_eq!(test.result.surface_type, 91);
+            assert_eq!(test.collided_render_obj, None);
+        }
+    }
+
+    #[test]
+    fn mesh_ray_public_callers_share_source_admission_rules() {
+        for through_trait in [false, true] {
+            let mut mesh = triangle_mesh();
+            let mut test = ray(Vec3::Z, -Vec3::Z);
+            test.collision_type = 2;
+            assert!(!cast(&mesh, &mut test, through_trait));
+            test.collision_type = 1;
+            mesh.is_hidden = true;
+            assert!(!cast(&mesh, &mut test, through_trait));
+            test.check_hidden = true;
+            assert!(cast(&mesh, &mut test, through_trait));
+            test.result = RayCollisionResult::default();
+            mesh.is_animation_hidden = true;
+            assert!(!cast(&mesh, &mut test, through_trait));
+            mesh.is_hidden = false;
+            mesh.is_animation_hidden = false;
+            mesh.set_presentation_opacity(0.5);
+            test.check_translucent = true;
+            assert!(!cast(&mesh, &mut test, through_trait));
+            test.check_translucent = false;
+            assert!(cast(&mesh, &mut test, through_trait));
         }
     }
 }

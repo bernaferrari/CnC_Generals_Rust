@@ -3,7 +3,6 @@
 //! This module provides spatial partitioning data structures for efficient
 //! spatial queries and culling. Includes octrees, BSP trees, and portal systems.
 
-use crate::collision::sphere_aabb_intersect;
 use crate::*;
 use glam::Vec3;
 use std::collections::HashMap;
@@ -93,7 +92,7 @@ impl OctreeNode {
     pub fn query_sphere(&self, sphere: &Sphere) -> Vec<&SpatialObject> {
         let mut result = Vec::new();
 
-        if !sphere_aabb_intersect(sphere, &self.bounds) {
+        if !self.bounds.intersects_sphere(sphere) {
             return result;
         }
 
