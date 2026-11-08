@@ -306,42 +306,36 @@ impl Rect {
 /// Lock handle for direct surface access.
 /// When dropped, automatically unlocks the surface.
 pub struct SurfaceLock<'a> {
-    surface: &'a Surface,
-    data: *mut u8,
+    surface: &'a mut Surface,
     stride: usize,
     offset: Point2D,
 }
 
-impl<'a> SurfaceLock<'a> {
-    /// Get a pointer to pixel data at the given coordinates.
-    /// Returns None if coordinates are out of bounds.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer is only valid while the lock is held.
-    /// Caller must ensure proper bounds checking and pixel format alignment.
-    // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
-    pub unsafe fn get_pixel_ptr(&self, point: Point2D) -> Option<*mut u8> {
-        if point.x < 0
-            || point.y < 0
-            || point.x >= self.surface.width as i32
-            || point.y >= self.surface.height as i32
-        {
+impl SurfaceLock<'_> {
+    fn pixel_range(&self, point: Point2D) -> Option<std::ops::Range<usize>> {
+        if !self.surface.is_point_valid(point) {
             return None;
         }
-
-        let adjusted_x = point.x - self.offset.x;
-        let adjusted_y = point.y - self.offset.y;
-
-        if adjusted_x < 0 || adjusted_y < 0 {
+        let x = usize::try_from(point.x.checked_sub(self.offset.x)?).ok()?;
+        let y = usize::try_from(point.y.checked_sub(self.offset.y)?).ok()?;
+        if x >= self.surface.width as usize || y >= self.surface.height as usize {
             return None;
         }
+        let size = self.surface.bytes_per_pixel();
+        let start = y.checked_mul(self.stride)?.checked_add(x.checked_mul(size)?)?;
+        let end = start.checked_add(size)?;
+        (end <= self.surface.buffer.len()).then_some(start..end)
+    }
 
-        let offset = (adjusted_y as usize * self.stride)
-            + (adjusted_x as usize * self.surface.pixel_format.bytes_per_pixel());
+    /// Read a pixel's bytes, accounting for the lock offset and surface stride.
+    pub fn pixel(&self, point: Point2D) -> Option<&[u8]> {
+        self.surface.buffer.get(self.pixel_range(point)?)
+    }
 
-        // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
-        unsafe { Some(self.data.add(offset)) }
+    /// Mutate a pixel's bytes through the exclusive surface lock.
+    pub fn pixel_mut(&mut self, point: Point2D) -> Option<&mut [u8]> {
+        let range = self.pixel_range(point)?;
+        self.surface.buffer.get_mut(range)
     }
 
     /// Get the stride (bytes per row) of the locked surface.
@@ -349,19 +343,14 @@ impl<'a> SurfaceLock<'a> {
         self.stride
     }
 
-    /// Access the locked surface's bytes for the lifetime of this borrow.
-    pub(crate) fn bytes(&self) -> &[u8] {
+    /// Read the complete backing store.
+    pub fn bytes(&self) -> &[u8] {
         &self.surface.buffer
     }
 
-    /// Get the raw data pointer.
-    ///
-    /// # Safety
-    ///
-    /// Direct access to pixel data - caller must ensure proper bounds checking.
-    // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
-    pub unsafe fn data_ptr(&self) -> *mut u8 {
-        self.data
+    /// Mutate the complete backing store.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.surface.buffer
     }
 }
 
@@ -428,6 +417,14 @@ pub struct Surface {
 }
 
 impl Surface {
+    /// Borrow the complete backing store for reading, provided it is not locked.
+    pub(crate) fn buffer(&self) -> Option<&[u8]> {
+        if self.is_locked() {
+            return None;
+        }
+        Some(&self.buffer)
+    }
+
     /// Borrow the complete backing store exclusively, provided it is not locked.
     pub(crate) fn rle_buffer_mut(&mut self) -> Option<&mut [u8]> {
         if *self.is_locked.lock().unwrap() {
@@ -561,7 +558,14 @@ impl Surface {
     /// } // Surface automatically unlocked here
     /// # Ok::<(), wwlib_rust::surface::SurfaceError>(())
     /// ```
-    pub fn lock(&self, offset: Point2D) -> SurfaceResult<SurfaceLock> {
+    /// A shared surface cannot be locked for mutation:
+    /// ```compile_fail
+    /// use wwlib_rust::surface::{PixelFormat, Surface};
+    /// use wwlib_rust::point::Point2D;
+    /// let surface = Surface::new(1, 1, PixelFormat::RGB24).unwrap();
+    /// let _lock = (&surface).lock(Point2D::new(0, 0));
+    /// ```
+    pub fn lock(&mut self, offset: Point2D) -> SurfaceResult<SurfaceLock<'_>> {
         {
             let mut locked = self.is_locked.lock().unwrap();
             if *locked {
@@ -569,13 +573,8 @@ impl Surface {
             }
             *locked = true;
         }
-
-        Ok(SurfaceLock {
-            surface: self,
-            data: self.buffer.as_ptr() as *mut u8,
-            stride: self.stride(),
-            offset,
-        })
+        let stride = self.stride();
+        Ok(SurfaceLock { surface: self, stride, offset })
     }
 
     /// Unlock the surface (called automatically by SurfaceLock drop).
@@ -1236,19 +1235,18 @@ mod tests {
 
     #[test]
     fn test_surface_lock_unlock() {
-        let surface = Surface::new(100, 100, PixelFormat::RGB24).unwrap();
-
-        assert!(!surface.is_locked());
-
+        let mut surface = Surface::new(3, 2, PixelFormat::RGB24).unwrap();
         {
-            let _lock = surface.lock(Point2D::new(0, 0)).unwrap();
-            assert!(surface.is_locked());
-
-            // Should not be able to lock again
-            assert!(surface.lock(Point2D::new(0, 0)).is_err());
-        } // Lock should be released here
-
+            let mut lock = surface.lock(Point2D::new(1, 1)).unwrap();
+            assert_eq!(lock.stride(), 9);
+            lock.pixel_mut(Point2D::new(1, 1)).unwrap().copy_from_slice(&[1, 2, 3]);
+            assert_eq!(lock.pixel(Point2D::new(1, 1)).unwrap(), &[1, 2, 3]);
+            assert!(lock.pixel(Point2D::new(0, 1)).is_none());
+            assert!(lock.pixel_mut(Point2D::new(3, 1)).is_none());
+        }
         assert!(!surface.is_locked());
+        let lock = surface.lock(Point2D::new(0, 0)).unwrap();
+        assert_eq!(lock.pixel(Point2D::new(0, 0)).unwrap(), &[1, 2, 3]);
     }
 
     #[test]

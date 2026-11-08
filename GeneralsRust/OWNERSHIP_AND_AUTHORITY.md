@@ -14,6 +14,8 @@ ray and tracer cleanup still uses live-slot-gated global streams.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.
+WWLib surface writes use an exclusive mutable borrow, including blits and
+font rendering; the lock exposes bounded slices rather than mutable pointers.
 
 The legacy byte pool checks allocation-size arithmetic and tracks live slots
 before freeing them. Its address-only interface still cannot distinguish a

@@ -207,7 +207,7 @@ fn demo_memory_locking() -> Result<(), SurfaceError> {
     println!("\n5. Memory Locking Demo");
     println!("---------------------");
 
-    let surface = Surface::new(64, 64, PixelFormat::RGB24)?;
+    let mut surface = Surface::new(64, 64, PixelFormat::RGB24)?;
     println!("Created 64x64 RGB24 surface");
 
     println!("Surface locked status: {}", surface.is_locked());
@@ -216,27 +216,13 @@ fn demo_memory_locking() -> Result<(), SurfaceError> {
     {
         let lock = surface.lock(Point2D::new(0, 0))?;
         println!("Locked surface for direct memory access");
-        println!("Surface locked status: {}", surface.is_locked());
-
         println!("Lock stride: {} bytes", lock.stride());
 
-        // Demonstrate safe pixel pointer access
-        // SAFETY: [Category 3 — dangling] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; it is only printed as an address, never dereferenced.
-        unsafe {
-            if let Some(_ptr) = lock.get_pixel_ptr(Point2D::new(32, 32)) {
-                println!("Successfully got pixel pointer for (32, 32)");
-            }
-
-            // Try to get invalid pixel pointer
-            if lock.get_pixel_ptr(Point2D::new(100, 100)).is_none() {
-                println!("Correctly rejected out-of-bounds pixel pointer request");
-            }
+        if lock.pixel(Point2D::new(32, 32)).is_some() {
+            println!("Successfully accessed pixel (32, 32)");
         }
-
-        // Test double-lock protection
-        match surface.lock(Point2D::new(0, 0)) {
-            Ok(_) => println!("ERROR: Should not have been able to double-lock!"),
-            Err(e) => println!("Correctly prevented double-lock: {}", e),
+        if lock.pixel(Point2D::new(100, 100)).is_none() {
+            println!("Correctly rejected out-of-bounds pixel request");
         }
     } // Lock automatically released here
 

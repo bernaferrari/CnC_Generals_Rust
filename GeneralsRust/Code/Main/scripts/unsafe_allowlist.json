@@ -320,15 +320,7 @@
       "constructs": 12,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WWLib/examples/surface_demo.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWLib/src/always.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/blit.rs": {
       "constructs": 2,
       "undocumented": 0
     },
@@ -350,10 +342,6 @@
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/registry.rs": {
       "constructs": 26,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/surface.rs": {
-      "constructs": 3,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/vector_class.rs": {

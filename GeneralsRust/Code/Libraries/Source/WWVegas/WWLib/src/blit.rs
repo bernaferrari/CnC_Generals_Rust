@@ -2,73 +2,54 @@
 
 use crate::blitter::{Blitter, RLEBlitter};
 use crate::buff::Buffer;
-use crate::point::Point2D;
 use crate::surface::{Rect, Surface};
 
 pub fn buffer_size(surface: &Surface, width: i32, height: i32) -> i32 {
     width * height * surface.bytes_per_pixel() as i32
 }
 
-pub fn to_buffer(surface: &Surface, rect: Rect, buffer: &mut Buffer<'_>) -> bool {
+fn buffer_geometry(surface: &Surface, rect: Rect) -> Option<(usize, usize, usize, usize)> {
     if !rect.is_valid() {
-        return false;
+        return None;
     }
-    let Some(buf) = buffer.as_mut_slice() else {
-        return false;
-    };
-    let bytes_per_pixel = surface.bytes_per_pixel();
+    let x = usize::try_from(rect.x).ok()?;
+    let y = usize::try_from(rect.y).ok()?;
+    let width = usize::try_from(rect.width).ok()?;
+    let height = usize::try_from(rect.height).ok()?;
+    if x.checked_add(width)? > surface.get_width() as usize
+        || y.checked_add(height)? > surface.get_height() as usize {
+        return None;
+    }
     let stride = surface.stride();
-    let mut offset = 0usize;
-    let lock = match surface.lock(Point2D::new(0, 0)) {
-        Ok(lock) => lock,
-        Err(_) => return false,
-    };
+    let pixel = surface.bytes_per_pixel();
+    let start = y.checked_mul(stride)?.checked_add(x.checked_mul(pixel)?)?;
+    Some((start, width.checked_mul(pixel)?, height, stride))
+}
 
-    for y in rect.y..rect.y + rect.height {
-        for x in rect.x..rect.x + rect.width {
-            // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
-            unsafe {
-                if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(x, y)) {
-                    let dest = &mut buf[offset..offset + bytes_per_pixel];
-                    dest.copy_from_slice(std::slice::from_raw_parts(ptr, bytes_per_pixel));
-                } else {
-                    return false;
-                }
-            }
-            offset += bytes_per_pixel;
-        }
-        let _ = stride;
+pub fn to_buffer(surface: &Surface, rect: Rect, buffer: &mut Buffer<'_>) -> bool {
+    let Some((start, row_bytes, height, stride)) = buffer_geometry(surface, rect) else { return false };
+    let Some(source) = surface.buffer() else { return false };
+    let Some(dest) = buffer.as_mut_slice() else { return false };
+    let Some(total) = row_bytes.checked_mul(height) else { return false };
+    if dest.len() < total { return false; }
+    for row in 0..height {
+        let s = start + row * stride;
+        let d = row * row_bytes;
+        dest[d..d + row_bytes].copy_from_slice(&source[s..s + row_bytes]);
     }
-
     true
 }
 
 pub fn from_buffer(surface: &mut Surface, rect: Rect, buf: &[u8]) -> bool {
-    if !rect.is_valid() {
-        return false;
+    let Some((start, row_bytes, height, stride)) = buffer_geometry(surface, rect) else { return false };
+    let Some(total) = row_bytes.checked_mul(height) else { return false };
+    if buf.len() < total { return false; }
+    let Some(dest) = surface.rle_buffer_mut() else { return false };
+    for row in 0..height {
+        let d = start + row * stride;
+        let s = row * row_bytes;
+        dest[d..d + row_bytes].copy_from_slice(&buf[s..s + row_bytes]);
     }
-    let bytes_per_pixel = surface.bytes_per_pixel();
-    let mut offset = 0usize;
-    let lock = match surface.lock(Point2D::new(0, 0)) {
-        Ok(lock) => lock,
-        Err(_) => return false,
-    };
-
-    for y in rect.y..rect.y + rect.height {
-        for x in rect.x..rect.x + rect.width {
-            // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
-            unsafe {
-                if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(x, y)) {
-                    let src = &buf[offset..offset + bytes_per_pixel];
-                    std::slice::from_raw_parts_mut(ptr, bytes_per_pixel).copy_from_slice(src);
-                } else {
-                    return false;
-                }
-            }
-            offset += bytes_per_pixel;
-        }
-    }
-
     true
 }
 
@@ -101,11 +82,7 @@ pub fn bit_blit_clipped(
     else { return false };
     let (ds, ss) = (dest.stride(), source.stride());
     let (dp, sp) = (blitter.dest_pixel_size(), blitter.source_pixel_size());
-    let source_lock = match source.lock(Point2D::new(0, 0)) {
-        Ok(lock) => lock,
-        Err(_) => return false,
-    };
-    let source_bytes = source_lock.bytes();
+    let Some(source_bytes) = source.buffer() else { return false };
     let Some(dest_bytes) = dest.rle_buffer_mut() else { return false };
     for row in 0..height {
         let d = (dy + row) * ds + dx * dp;
@@ -227,11 +204,7 @@ pub fn rle_blit_clipped(
     if x_offset.checked_add(row_bytes).map_or(true, |end| end > stride) {
         return false;
     }
-    let source_lock = match source.lock(Point2D::new(0, 0)) {
-        Ok(lock) => lock,
-        Err(_) => return false,
-    };
-    let source_bytes = source_lock.bytes();
+    let Some(source_bytes) = source.buffer() else { return false };
     let dest_bytes = match dest.rle_buffer_mut() {
         Some(bytes) => bytes,
         None => return false,
@@ -339,6 +312,26 @@ mod rle_tests {
     use crate::rlerle::RLEBlitTransXlat;
     use crate::surface::PixelFormat;
 
+
+    #[test]
+    fn buffer_round_trip_respects_pixel_size_and_surface_pitch() {
+        for format in [PixelFormat::Palette8, PixelFormat::RGB16, PixelFormat::RGB24, PixelFormat::RGBA32] {
+            let mut surface = Surface::new(4, 3, format).unwrap();
+            let pixel = surface.bytes_per_pixel();
+            let data: Vec<u8> = (1..=(4 * pixel) as u8).collect();
+            assert!(from_buffer(&mut surface, Rect::new(1, 1, 2, 2), &data));
+            let mut out = Buffer::with_size(data.len() as i32);
+            assert!(to_buffer(&surface, Rect::new(1, 1, 2, 2), &mut out));
+            assert_eq!(out.as_slice().unwrap(), data.as_slice());
+            let bytes = surface.buffer().unwrap();
+            assert!(bytes[..5 * pixel].iter().all(|&byte| byte == 0));
+            assert!(bytes[7 * pixel..9 * pixel].iter().all(|&byte| byte == 0));
+            assert!(bytes[11 * pixel..].iter().all(|&byte| byte == 0));
+            assert!(!from_buffer(&mut surface, Rect::new(1, 1, 2, 2), &data[..data.len() - 1]));
+            assert!(!to_buffer(&surface, Rect::new(3, 1, 2, 2), &mut out));
+            assert!(!to_buffer(&surface, Rect::new(i32::MAX, 0, 2, 1), &mut out));
+        }
+    }
 
     #[test]
     fn ordinary_surface_blit_clips_and_self_overlap() {
