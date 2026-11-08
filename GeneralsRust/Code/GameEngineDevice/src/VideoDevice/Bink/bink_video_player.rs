@@ -13,10 +13,9 @@
 use std::fs::File;
 use std::io::{Read as IoRead, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Arc;
 
 use game_client_rust::video_buffer::{VideoBuffer, VideoBufferType};
-use game_client_rust::video_player::VideoStreamProvider;
+use game_client_rust::video_player::{VideoPlayer, VideoStreamProvider};
 use game_client_rust::video_stream::VideoStreamInterface;
 use log::warn;
 
@@ -392,8 +391,7 @@ fn write_pixel(dst: &mut [u8], format: VideoBufferType, r: u8, g: u8, b: u8, a: 
 ///
 /// Matches C++ `BinkVideoPlayer::open()` / `createStream()`.
 ///
-/// Implements `VideoStreamProvider` so it can be registered with the global
-/// `VideoPlayer` via `register_video_stream_provider()`.
+/// Implements `VideoStreamProvider` for registration on a receiving player.
 pub struct BinkVideoProvider;
 
 impl BinkVideoProvider {
@@ -441,33 +439,25 @@ impl VideoStreamProvider for BinkVideoProvider {
 /// the provider pattern separates concerns, so `BinkVideoPlayer` owns the
 /// provider registration lifecycle.
 pub struct BinkVideoProviderHandle {
-    registered: bool,
+    audio: game_client_rust::bink::BinkAudioState,
 }
 
 impl BinkVideoProviderHandle {
     pub fn new() -> Self {
-        Self { registered: false }
+        Self { audio: Default::default() }
     }
 
     /// Equivalent to C++ `BinkVideoPlayer::init()`.
     ///
-    /// Registers the Bink provider with the global VideoPlayer.
-    pub fn init(&mut self) {
-        if self.registered {
-            return;
-        }
-        let provider = Arc::new(BinkVideoProvider::new());
-        game_client_rust::video_player::register_video_stream_provider(provider);
-        self.registered = true;
+    /// Registers the Bink provider with the receiving player.
+    pub fn init(&mut self, player: &mut VideoPlayer) {
+        player.register_video_stream_provider(Box::new(BinkVideoProvider::new()));
     }
 
     /// Equivalent to C++ `BinkVideoPlayer::deinit()`.
-    pub fn deinit(&mut self) {
-        if !self.registered {
-            return;
-        }
-        game_client_rust::video_player::clear_video_stream_provider();
-        self.registered = false;
+    pub fn deinit(&mut self, player: &mut VideoPlayer) {
+        self.audio.release_handle_for_bink();
+        player.clear_video_stream_provider();
     }
 
     /// C++ `BinkVideoPlayer::notifyVideoPlayerOfNewProvider(Bool)`.
@@ -475,14 +465,12 @@ impl BinkVideoProviderHandle {
     /// Lost audio only releases the Miles handle and mutes the soundtrack
     /// (`BinkSetSoundTrack(0, 0)`). The Bink video provider stays registered
     /// so `VideoPlayer::open` still returns a stream.
-    pub fn notify_video_player_of_new_provider(&mut self, now_has_valid: bool) {
+    pub fn notify_video_player_of_new_provider(&mut self, player: &mut VideoPlayer, now_has_valid: bool) {
         if now_has_valid {
-            if !self.registered {
-                self.init();
-            }
-            game_client_rust::bink::notify_bink_of_new_provider(true);
+            self.init(player);
+            self.audio.notify_video_player_of_new_provider(true);
         } else {
-            game_client_rust::bink::notify_bink_of_new_provider(false);
+            self.audio.notify_video_player_of_new_provider(false);
         }
     }
 }
@@ -493,28 +481,19 @@ impl Default for BinkVideoProviderHandle {
     }
 }
 
-impl Drop for BinkVideoProviderHandle {
-    fn drop(&mut self) {
-        self.deinit();
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Convenience re-exports / registration helpers
 // ---------------------------------------------------------------------------
 
-/// Register the Bink video provider with the global VideoPlayer.
-///
-/// This is a one-shot call; subsequent calls are no-ops until
-/// `unregister_bink_provider()` is called.
-pub fn register_bink_provider() {
-    let provider = Arc::new(BinkVideoProvider::new());
-    game_client_rust::video_player::register_video_stream_provider(provider);
+/// Register the Bink video provider with the receiving player.
+pub fn register_bink_provider(player: &mut VideoPlayer) {
+    player.register_video_stream_provider(Box::new(BinkVideoProvider::new()));
 }
 
-/// Remove the Bink video provider from the global VideoPlayer.
-pub fn unregister_bink_provider() {
-    game_client_rust::video_player::clear_video_stream_provider();
+/// Remove the Bink video provider from the receiving player.
+pub fn unregister_bink_provider(player: &mut VideoPlayer) {
+    player.clear_video_stream_provider();
 }
 
 // ---------------------------------------------------------------------------

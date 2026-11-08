@@ -1,11 +1,11 @@
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use self::bink_decoder::BinkVideoDecoder;
 use crate::video_buffer::{VideoBuffer, VideoBufferType};
-use crate::video_player::{VideoStreamProvider, register_video_stream_provider};
+use crate::video_player::VideoStreamProvider;
 use crate::video_stream::{PlaybackState, VideoStreamInterface};
 
 #[path = "bink_decoder.rs"]
@@ -456,16 +456,6 @@ impl VideoStreamProvider for BuiltInBinkVideoProvider {
     }
 }
 
-static BUILTIN_PROVIDER_REGISTERED: OnceLock<()> = OnceLock::new();
-
-pub fn ensure_bink_provider_registered() {
-    if BUILTIN_PROVIDER_REGISTERED.get().is_some() {
-        return;
-    }
-
-    register_video_stream_provider(Arc::new(BuiltInBinkVideoProvider));
-    let _ = BUILTIN_PROVIDER_REGISTERED.set(());
-}
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
     let slice = bytes
@@ -701,6 +691,37 @@ mod tests {
             *byte = i as u8;
         }
         bytes
+    }
+
+    #[test]
+    fn independently_initialized_players_open_movies_after_peer_reset_and_drop() {
+        use crate::video_player::{VideoPlayer, VideoPlayerInterface};
+
+        crate::test_support::ensure_ambient_host();
+        let path = std::env::temp_dir().join(format!("bink_two_players_{}.bik", std::process::id()));
+        fs::write(&path, make_bink_blob(*b"BIKi")).expect("write Bink fixture");
+        let movie = path.to_str().expect("fixture path is UTF-8").to_owned();
+        for reverse in [false, true] {
+            let mut first = VideoPlayer::new();
+            let mut second = VideoPlayer::new();
+            if reverse {
+                second.init();
+                first.init();
+            } else {
+                first.init();
+                second.init();
+            }
+            let mut first_stream = first.open(movie.clone()).expect("first player opens Bink");
+            let mut second_stream = second.open(movie.clone()).expect("second player opens Bink");
+            first_stream.play();
+            second_stream.play();
+            first.reset();
+            drop(first);
+            second_stream.frame_next();
+            assert_eq!(second_stream.frame_index(), 1);
+            assert!(second.open(movie.clone()).is_some(), "peer still opens movies");
+        }
+        fs::remove_file(path).expect("remove Bink fixture");
     }
 
     #[test]

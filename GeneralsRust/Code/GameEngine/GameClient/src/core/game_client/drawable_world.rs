@@ -622,13 +622,4 @@ impl GameClient {
         self.video_player_slot.clone()
     }
 
-    pub fn ensure_video_stream_provider_slot(
-        &mut self,
-    ) -> std::sync::Arc<
-        std::sync::Mutex<Option<std::sync::Arc<dyn crate::video_player::VideoStreamProvider>>>,
-    > {
-        self.video_stream_provider_slot
-            .get_or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
-            .clone()
-    }
 }

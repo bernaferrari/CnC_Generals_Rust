@@ -2,9 +2,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, TryLockError, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
-use crate::bink::ensure_bink_provider_registered;
+use crate::bink::BuiltInBinkVideoProvider;
 use crate::video_stream::{PlaybackState, VideoStream, VideoStreamInterface};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
@@ -111,6 +111,7 @@ pub struct VideoPlayer {
     videos_available_for_play: Vec<Video>,
     first_stream: Option<Box<VideoStream>>,
     active_streams: Vec<Weak<Mutex<ManagedVideoStreamState>>>,
+    provider: Option<Box<dyn VideoStreamProvider>>,
     provider_is_valid: Bool,
     has_focus: Bool,
 }
@@ -121,9 +122,21 @@ impl VideoPlayer {
             videos_available_for_play: Vec::new(),
             first_stream: None,
             active_streams: Vec::new(),
+            provider: None,
             provider_is_valid: false,
             has_focus: true,
         }
+    }
+
+    /// Replace this player's provider without affecting any other player.
+    pub fn register_video_stream_provider(&mut self, provider: Box<dyn VideoStreamProvider>) {
+        self.provider = Some(provider);
+        self.notify_video_player_of_new_provider(true);
+    }
+
+    pub fn clear_video_stream_provider(&mut self) {
+        self.provider = None;
+        self.notify_video_player_of_new_provider(false);
     }
 
     pub fn remove(&mut self, stream_to_remove: *const VideoStream) {
@@ -255,9 +268,6 @@ impl VideoPlayer {
         });
     }
 
-    fn has_registered_provider() -> Bool {
-        get_video_stream_provider().is_some()
-    }
 
     fn provider_is_valid(&self) -> Bool {
         self.provider_is_valid
@@ -272,10 +282,12 @@ impl Default for VideoPlayer {
 
 impl VideoPlayerInterface for VideoPlayer {
     fn init(&mut self) {
-        ensure_bink_provider_registered();
         self.videos_available_for_play.clear();
         self.load_known_video_registry_files();
-        self.provider_is_valid = VideoPlayer::has_registered_provider();
+        if self.provider.is_none() {
+            self.register_video_stream_provider(Box::new(BuiltInBinkVideoProvider));
+        }
+        self.provider_is_valid = self.provider.is_some();
         self.has_focus = true;
     }
 
@@ -310,7 +322,7 @@ impl VideoPlayerInterface for VideoPlayer {
 
     fn open(&mut self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
         let resolved_path = self.resolve_movie_path(&movie_title)?;
-        let provider = match get_video_stream_provider() {
+        let provider = match self.provider.as_ref() {
             Some(p) => p,
             None => {
                 warn!(
@@ -327,7 +339,7 @@ impl VideoPlayerInterface for VideoPlayer {
 
     fn load(&mut self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
         let resolved_path = self.resolve_movie_path(&movie_title)?;
-        let provider = match get_video_stream_provider() {
+        let provider = match self.provider.as_ref() {
             Some(p) => p,
             None => {
                 warn!(
@@ -454,60 +466,37 @@ impl VideoPlayerInterface for VideoPlayer {
 thread_local! {
     static TEST_VIDEO_PLAYER: std::cell::RefCell<Option<Arc<Mutex<Option<VideoPlayer>>>>> =
         const { std::cell::RefCell::new(None) };
-    static TEST_VIDEO_STREAM_PROVIDER: std::cell::RefCell<
-        Option<Arc<Mutex<Option<Arc<dyn VideoStreamProvider>>>>>,
-    > = const { std::cell::RefCell::new(None) };
 }
 
-fn video_player_handle() -> Arc<Mutex<Option<VideoPlayer>>> {
+fn video_player_handle() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
     if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
         client.ensure_video_player_slot()
     }) {
-        return handle;
+        return Some(handle);
     }
     #[cfg(test)]
     {
-        return TEST_VIDEO_PLAYER.with(|slot| {
+        return Some(TEST_VIDEO_PLAYER.with(|slot| {
             slot.borrow_mut()
                 .get_or_insert_with(|| Arc::new(Mutex::new(None)))
                 .clone()
-        });
+        }));
     }
     #[cfg(not(test))]
     {
-        Arc::new(Mutex::new(None))
+        None
     }
 }
 
-fn video_stream_provider_handle() -> Arc<Mutex<Option<Arc<dyn VideoStreamProvider>>>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_video_stream_provider_slot()
-    }) {
-        return handle;
-    }
-    #[cfg(test)]
-    {
-        return TEST_VIDEO_STREAM_PROVIDER.with(|slot| {
-            slot.borrow_mut()
-                .get_or_insert_with(|| Arc::new(Mutex::new(None)))
-                .clone()
-        });
-    }
-    #[cfg(not(test))]
-    {
-        Arc::new(Mutex::new(None))
-    }
-}
 
 pub fn init_video_player() {
-    let player = video_player_handle();
+    let Some(player) = video_player_handle() else { return };
     if let Ok(mut guard) = player.lock() {
         if guard.is_none() {
-            let mut player = VideoPlayer::new();
-            if VideoPlayer::has_registered_provider() {
-                player.notify_video_player_of_new_provider(true);
-            }
+            let player = VideoPlayer::new();
             *guard = Some(player);
+        } else if let Some(player) = guard.as_mut() {
+            player.provider_is_valid = player.provider.is_some();
         }
     }
 }
@@ -528,20 +517,6 @@ pub fn get_video_player() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
     }
 }
 
-pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {
-    let handle = video_stream_provider_handle();
-    let mut slot = handle.lock().unwrap_or_else(|e| e.into_inner());
-    *slot = Some(provider);
-    drop(slot);
-    notify_video_player_provider_state(true);
-}
-
-pub fn clear_video_stream_provider() {
-    notify_video_player_provider_state(false);
-    let handle = video_stream_provider_handle();
-    let mut slot = handle.lock().unwrap_or_else(|e| e.into_inner());
-    *slot = None;
-}
 
 pub fn shutdown_video_player() {
     if let Some(player) = get_video_player() {
@@ -549,30 +524,14 @@ pub fn shutdown_video_player() {
         if let Some(player) = guard.as_mut() {
             player.deinit();
         }
-        *guard = None;
+    }
+}
+impl Drop for VideoPlayer {
+    fn drop(&mut self) {
+        self.deinit();
     }
 }
 
-fn get_video_stream_provider() -> Option<Arc<dyn VideoStreamProvider>> {
-    let handle = video_stream_provider_handle();
-    handle.lock().unwrap_or_else(|e| e.into_inner()).clone()
-}
-
-fn notify_video_player_provider_state(now_has_valid: Bool) -> Bool {
-    let Some(player) = get_video_player() else {
-        return false;
-    };
-    let mut guard = match player.try_lock() {
-        Ok(guard) => guard,
-        Err(TryLockError::Poisoned(error)) => error.into_inner(),
-        Err(TryLockError::WouldBlock) => return false,
-    };
-    let Some(player) = guard.as_mut() else {
-        return false;
-    };
-    player.notify_video_player_of_new_provider(now_has_valid);
-    true
-}
 
 struct ManagedVideoStreamState {
     inner: Option<Box<dyn VideoStreamInterface>>,
@@ -1241,179 +1200,86 @@ mod tests {
         );
     }
 
+    fn movie_fixture(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("generals_video_{}_{}.bik", name, std::process::id()));
+        fs::write(&path, b"fixture for custom provider").expect("write movie fixture");
+        path
+    }
+
     #[test]
-    fn tracked_provider_streams_are_updated_by_video_player() {
+    fn tracked_provider_streams_are_updated_and_closed_by_player() {
         crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
+        let path = movie_fixture("tracked");
         let updates = Arc::new(AtomicUsize::new(0));
         let closes = Arc::new(AtomicUsize::new(0));
-        register_video_stream_provider(Arc::new(MockProvider {
+        let mut player = VideoPlayer::new();
+        player.register_video_stream_provider(Box::new(MockProvider {
             updates: Arc::clone(&updates),
             closes: Arc::clone(&closes),
         }));
-
-        let mut player = VideoPlayer::new();
         player.init();
-        let _stream = player
-            .open("EALogoMovie".to_string())
-            .expect("provider-backed stream should open");
-
+        let mut stream = player.open(path.to_string_lossy().into_owned()).expect("open custom stream");
         player.update();
-
         assert_eq!(updates.load(Ordering::SeqCst), 1);
-        clear_video_stream_provider();
-    }
-
-    #[test]
-    fn close_all_streams_closes_provider_streams() {
-        crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
-        let updates = Arc::new(AtomicUsize::new(0));
-        let closes = Arc::new(AtomicUsize::new(0));
-        register_video_stream_provider(Arc::new(MockProvider {
-            updates,
-            closes: Arc::clone(&closes),
-        }));
-
-        let mut player = VideoPlayer::new();
-        player.init();
-        let mut stream = player
-            .open("EALogoMovie".to_string())
-            .expect("provider-backed stream should open");
-
         let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
         assert!(buffer.allocate(16, 16));
         stream.frame_render(&mut buffer);
-
         player.close_all_streams();
-
-        assert!(closes.load(Ordering::SeqCst) >= 1);
-        clear_video_stream_provider();
-    }
-
-    #[test]
-    fn register_video_stream_provider_notifies_existing_player() {
-        crate::test_support::ensure_ambient_host();
-        clear_video_stream_provider();
-        init_video_player();
-
-        let player = get_video_player().expect("video player singleton should exist");
-        {
-            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
-            let player = guard.as_mut().expect("video player should be initialized");
-            assert!(!player.provider_is_valid());
-        }
-
-        register_video_stream_provider(Arc::new(MockProvider {
-            updates: Arc::new(AtomicUsize::new(0)),
-            closes: Arc::new(AtomicUsize::new(0)),
-        }));
-
-        {
-            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
-            let player = guard.as_mut().expect("video player should be initialized");
-            assert!(player.provider_is_valid());
-        }
-
-        clear_video_stream_provider();
-        shutdown_video_player();
-    }
-
-    #[test]
-    fn provider_notification_skips_locked_global_player() {
-        crate::test_support::ensure_ambient_host();
-        init_video_player();
-
-        let player = get_video_player().expect("video player singleton should exist");
-        let guard = player.lock().unwrap_or_else(|e| e.into_inner());
-
-        assert!(!notify_video_player_provider_state(true));
-
-        drop(guard);
-        shutdown_video_player();
-    }
-
-    #[test]
-    fn clear_video_stream_provider_notifies_existing_player() {
-        crate::test_support::ensure_ambient_host();
-        init_video_player();
-        register_video_stream_provider(Arc::new(MockProvider {
-            updates: Arc::new(AtomicUsize::new(0)),
-            closes: Arc::new(AtomicUsize::new(0)),
-        }));
-
-        let player = get_video_player().expect("video player singleton should exist");
-        {
-            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
-            let player = guard.as_mut().expect("video player should be initialized");
-            assert!(player.provider_is_valid());
-        }
-
-        clear_video_stream_provider();
-
-        {
-            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
-            let player = guard.as_mut().expect("video player should be initialized");
-            assert!(!player.provider_is_valid());
-        }
-
-        shutdown_video_player();
-    }
-
-    // Hung the full lib suite (threads=1): re-init after shutdown contends on the
-    // video-player singleton / provider slot and never returns under isolation.
-    // Track separately from ordinary provider open/close coverage below.
-    #[test]
-    #[ignore = "hangs on video-player singleton re-init after shutdown (full-lib SIGKILL vicinity)"]
-    fn init_video_player_restores_provider_validity_after_shutdown() {
-        crate::test_support::ensure_ambient_host();
-        register_video_stream_provider(Arc::new(MockProvider {
-            updates: Arc::new(AtomicUsize::new(0)),
-            closes: Arc::new(AtomicUsize::new(0)),
-        }));
-        init_video_player();
-        shutdown_video_player();
-        init_video_player();
-
-        let player = get_video_player().expect("video player singleton should exist");
-        let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
-        let player = guard.as_mut().expect("video player should be initialized");
-        assert!(player.provider_is_valid());
-
-        clear_video_stream_provider();
-        shutdown_video_player();
-    }
-
-    #[test]
-    fn shutdown_video_player_deinitializes_active_streams() {
-        crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
-        let closes = Arc::new(AtomicUsize::new(0));
-        register_video_stream_provider(Arc::new(MockProvider {
-            updates: Arc::new(AtomicUsize::new(0)),
-            closes: Arc::clone(&closes),
-        }));
-
-        init_video_player();
-        let player = get_video_player().expect("video player singleton should exist");
-        {
-            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
-            let player = guard.as_mut().expect("video player should be initialized");
-            player.init();
-            let _stream = player
-                .open("EALogoMovie".to_string())
-                .expect("provider-backed stream should open");
-        }
-
-        shutdown_video_player();
         assert_eq!(closes.load(Ordering::SeqCst), 1);
+        fs::remove_file(path).expect("remove fixture");
+    }
 
-        clear_video_stream_provider();
+    #[test]
+    fn custom_providers_and_streams_are_isolated_across_players() {
+        crate::test_support::ensure_ambient_host();
+        let path = movie_fixture("isolated");
+        let movie = path.to_string_lossy().into_owned();
+        let first_updates = Arc::new(AtomicUsize::new(0));
+        let second_updates = Arc::new(AtomicUsize::new(0));
+        let first_closes = Arc::new(AtomicUsize::new(0));
+        let second_closes = Arc::new(AtomicUsize::new(0));
+        let mut first = VideoPlayer::new();
+        let mut second = VideoPlayer::new();
+        first.register_video_stream_provider(Box::new(MockProvider {
+            updates: Arc::clone(&first_updates), closes: Arc::clone(&first_closes),
+        }));
+        second.register_video_stream_provider(Box::new(MockProvider {
+            updates: Arc::clone(&second_updates), closes: Arc::clone(&second_closes),
+        }));
+        second.init();
+        first.init();
+        let _first_stream = first.open(movie.clone()).expect("first provider opens");
+        let _second_stream = second.open(movie.clone()).expect("second provider opens");
+        first.update();
+        assert_eq!(first_updates.load(Ordering::SeqCst), 1);
+        assert_eq!(second_updates.load(Ordering::SeqCst), 0);
+        first.reset();
+        first.clear_video_stream_provider();
+        drop(first);
+        assert_eq!(first_closes.load(Ordering::SeqCst), 1);
+        second.update();
+        assert_eq!(second_updates.load(Ordering::SeqCst), 1);
+        assert!(second.open(movie).is_some());
+        second.deinit();
+        assert!(second_closes.load(Ordering::SeqCst) >= 1);
+        fs::remove_file(path).expect("remove fixture");
+    }
+
+    #[test]
+    fn provider_registration_and_reinitialization_are_player_owned() {
+        crate::test_support::ensure_ambient_host();
+        let mut player = VideoPlayer::new();
+        assert!(!player.provider_is_valid());
+        player.register_video_stream_provider(Box::new(MockProvider {
+            updates: Arc::new(AtomicUsize::new(0)),
+            closes: Arc::new(AtomicUsize::new(0)),
+        }));
+        assert!(player.provider_is_valid());
+        player.deinit();
+        assert!(!player.provider_is_valid());
+        player.init();
+        assert!(player.provider_is_valid());
+        player.clear_video_stream_provider();
+        assert!(!player.provider_is_valid());
     }
 }
