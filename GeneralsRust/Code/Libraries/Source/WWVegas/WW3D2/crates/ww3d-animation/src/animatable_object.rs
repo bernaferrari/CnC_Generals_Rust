@@ -354,7 +354,8 @@ impl Animatable3DObjClass {
         self.is_tree_valid = false;
     }
 
-    /// Update sub-object transforms (apply animation to hierarchy)
+    /// Update sub-object transforms and advance each combo sound's previous
+    /// marker frame, so repeated hierarchy evaluations do not replay it.
     /// Reference: animobj.cpp:720-794 (Animatable3DObjClass::Update_Sub_Object_Transforms)
     pub fn update_sub_object_transforms(&mut self) {
         match self.cur_motion_mode {
@@ -450,7 +451,7 @@ impl Animatable3DObjClass {
             MotionMode::MultipleAnim => {
                 // Multiple animation combo update
                 // Reference: animobj.cpp:769-788
-                if let Some(ref combo) = self.mode_combo.anim_combo {
+                if let Some(combo) = &mut self.mode_combo.anim_combo {
                     self.htree.combo_update(self.transform, combo);
 
                     // Trigger embedded sounds for all animations in combo
@@ -460,7 +461,7 @@ impl Animatable3DObjClass {
                         if let Some(motion) = combo.peek_motion(index) {
                             if has_embedded_sounds(&self.sound_mgr, motion) {
                                 if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion) {
-                                    if let Some(bone_index) = self.get_bone_index(&bone_name) {
+                                    if let Some(bone_index) = self.htree.get_bone_index(&bone_name) {
                                         if let Some(bone_transform) =
                                             self.htree.get_transform(bone_index)
                                         {
@@ -468,14 +469,13 @@ impl Animatable3DObjClass {
                                                 combo.get_prev_frame(index),
                                                 combo.get_frame(index),
                                             ) {
-                                                let _new_prev_frame = trigger_sound(&self.sound_mgr, 
+                                                let new_prev_frame = trigger_sound(&self.sound_mgr, 
                                                     motion,
                                                     prev_frame,
                                                     current_frame,
                                                     &bone_transform,
                                                 );
-                                                // Update prev_frame in combo (would need mutable access)
-                                                // For now, we'll skip this update
+                                                combo.set_prev_frame(index, new_prev_frame);
                                             }
                                         }
                                     }
@@ -727,6 +727,46 @@ impl Default for Animatable3DObjClass {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combo_sound_marker_is_not_replayed_on_repeated_transform_updates() {
+        use crate::animated_sound::{initialize_from_bytes, set_sound_library, SoundLibraryBridge};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use ww3d_core::errors::W3DResult;
+
+        struct Sounds(AtomicUsize);
+        impl SoundLibraryBridge for Sounds {
+            fn play_3d_audio(&self, _: &str, _: &Mat4) -> W3DResult<()> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+            fn play_2d_audio(&self, _: &str) -> W3DResult<()> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+            fn stop_audio(&self, _: &str) -> W3DResult<()> {
+                Ok(())
+            }
+        }
+
+        let mut obj = Animatable3DObjClass::default();
+        initialize_from_bytes(
+            &obj.sound_mgr,
+            b"[TestAnim]\nBoneName = RootTransform\nEntry1 = 2, Fire, 2D\n",
+            "test",
+        )
+        .unwrap();
+        let sounds = Arc::new(Sounds(AtomicUsize::new(0)));
+        set_sound_library(&obj.sound_mgr, sounds.clone());
+        let mut combo = HAnimCombo::new();
+        combo.set_motion(0, Some(Arc::new(HAnimClass::new("TestAnim", "", 10, 30.0))));
+        combo.set_frame(0, 3.0);
+        obj.set_animation_combo(Some(combo));
+
+        obj.update_sub_object_transforms();
+        obj.update_sub_object_transforms();
+        assert_eq!(sounds.0.load(Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn test_animatable_object_creation() {

@@ -1,6 +1,11 @@
 //! ScriptEngine.cpp:6483-6639,8923-8941: ordered, live attack-priority rows.
 //! The ScriptEngine owns this table. Callers borrow it through the existing
 //! engine operation; this module adds no synchronization or ambient selection.
+//!
+//! Malformed snapshots with inconsistent or zero row counts are rejected
+//! atomically. C++ accepts those counts, potentially exposing stale rows or
+//! accessing outside its fixed array. Host-tail restore can supply more rows
+//! than that array; such a table remains readable but cannot be serialized.
 use super::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES, Xfer, XferMode, XferSnapshot, XferStatus};
 
 pub(super) struct AttackPriorityTable {
@@ -27,7 +32,7 @@ impl AttackPriorityTable {
         self.count = 1;
     }
 
-    /// C++ searches named rows from1; an empty named row is not the default.
+    /// C++ searches named rows from 1; an empty named row is not the default.
     pub(super) fn get(&self, name: &str) -> Option<&AttackPriorityInfo> {
         if self.rows.is_empty() {
             return None;
@@ -94,6 +99,13 @@ impl AttackPriorityTable {
 
     /// Keep the original ushort rows, row snapshots, then int count wire order.
     pub(super) fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        // Host-tail restore is not constrained by C++'s fixed array. Check
+        // before narrowing to ushort, including counts that would wrap.
+        if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc)
+            && self.count > MAX_ATTACK_PRIORITIES
+        {
+            return Err(XferStatus::InvalidData);
+        }
         let mut attack_priority_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
                 self.count as u16
@@ -102,7 +114,7 @@ impl AttackPriorityTable {
             };
         xfer.xfer_unsigned_short(&mut attack_priority_size)?;
         if attack_priority_size as usize > MAX_ATTACK_PRIORITIES {
-            return Err(XferStatus::InvalidParameters);
+            return Err(XferStatus::InvalidData);
         }
         if xfer.get_xfer_mode() == XferMode::Load {
             // Stage rows so a malformed load leaves the live table untouched.
@@ -114,7 +126,7 @@ impl AttackPriorityTable {
             }
             let mut num_attack_info: i32 = 0;
             xfer.xfer_int(&mut num_attack_info)?;
-            // C++ keeps m_numAttackInfo in 1..=MAX and allocates exactly that many rows.
+            // Unlike C++, reject inconsistent counts before publishing rows.
             if num_attack_info < 1
                 || num_attack_info as usize > MAX_ATTACK_PRIORITIES
                 || num_attack_info as usize != size

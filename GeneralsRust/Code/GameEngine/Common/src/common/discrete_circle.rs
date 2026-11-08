@@ -1,12 +1,14 @@
 // discrete_circle.rs - Port of DiscreteCircle.cpp (Bresenham midpoint circle)
 // Original: GeneralsMD/Code/GameEngine/Source/Common/DiscreteCircle.cpp
 
-/// Horizontal line segment produced by the circle rasterizer.
-/// Matches C++ HorzLine { xStart, xEnd, yPos }.
+/// An inclusive horizontal span produced by the circle rasterizer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HorzLine {
+    /// Inclusive left endpoint.
     pub x_start: i32,
+    /// Inclusive right endpoint.
     pub x_end: i32,
+    /// Scanline coordinate.
     pub y_pos: i32,
 }
 
@@ -21,29 +23,34 @@ pub struct DiscreteCircle {
 }
 
 impl DiscreteCircle {
+    /// Constructs the upper-half spans for a circle centered at `(x_center, y_center)`.
+    ///
+    /// `radius` must be nonnegative. As in the C++ implementation, coordinates
+    /// and intermediate circle arithmetic must fit in a signed 32-bit integer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `radius` is negative or an allocation fails.
     pub fn new(x_center: i32, y_center: i32, radius: i32) -> Self {
+        assert!(radius >= 0, "circle radius must be nonnegative");
         let y_pos_doubled = y_center * 2;
         let mut circle = Self {
             x_center,
             y_center,
             y_pos_doubled,
-            edges: Vec::with_capacity(radius as usize * 4 + 4),
+            edges: Vec::with_capacity(radius as usize * 2),
         };
         circle.generate_edge_pairs(radius);
         circle.remove_duplicates();
         circle
     }
 
-    pub fn get_radius(&self) -> i32 {
-        self.edges.len() as i32 / 2
-    }
-
-    /// Matches C++ DiscreteCircle::getEdges.
+    /// Returns upper-half spans in descending scanline order, including the center.
     pub fn get_edges(&self) -> &[HorzLine] {
         &self.edges
     }
 
-    /// Matches C++ DiscreteCircle::getEdgeCount.
+    /// Returns the number of upper-half spans.
     pub fn get_edge_count(&self) -> i32 {
         self.edges.len() as i32
     }
@@ -146,6 +153,21 @@ mod tests {
     }
 
     #[test]
+    fn radius_one_draws_upper_lower_then_center() {
+        let circle = DiscreteCircle::new(10, 20, 1);
+        let mut rows = Vec::new();
+        circle.draw_circle(|start, end, y| rows.push((start, end, y)));
+        assert_eq!(rows, vec![(10, 10, 21), (10, 10, 19), (10, 10, 20)]);
+        assert_eq!(circle.get_edge_count(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "circle radius must be nonnegative")]
+    fn negative_radius_is_rejected_before_allocation() {
+        DiscreteCircle::new(0, 0, -1);
+    }
+
+    #[test]
     fn remove_duplicates_keeps_last_same_y_span() {
         // C++ erase(it) drops the first of each consecutive same-y pair, so
         // radius 5's top row is the last Bresenham span (-2..2), not (0..0).
@@ -233,18 +255,6 @@ mod tests {
                 (2, 18, 20),
             ]
         );
-    }
-
-    #[test]
-    fn circle_is_symmetric() {
-        let c = DiscreteCircle::new(0, 0, 20);
-        let mut top_count = 0;
-        let mut bottom_count = 0;
-        for _edge in &c.edges {
-            top_count += 1;
-            bottom_count += 1;
-        }
-        assert_eq!(top_count, bottom_count);
     }
 
     #[test]

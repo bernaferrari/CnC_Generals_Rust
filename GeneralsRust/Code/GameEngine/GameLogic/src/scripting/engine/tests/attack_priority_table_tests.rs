@@ -264,3 +264,50 @@ fn malformed_attack_priority_count_load_rejects_and_preserves_table() {
     ok.xfer(&mut XferLoad::new(Cursor::new(wire), 1)).unwrap();
     assert_eq!(table_rows(&ok).len(), 3);
 }
+
+#[test]
+fn excessive_row_prefix_is_invalid_data_and_preserves_table() {
+    let _serial = crate::test_sync::lock();
+    let (mut table, _) = saved_table(&["Keep"]);
+    let before = table_rows(&table);
+    let wire = ((MAX_ATTACK_PRIORITIES + 1) as u16).to_le_bytes();
+    let result = table.xfer(&mut XferLoad::new(Cursor::new(wire), 1));
+    assert_eq!(result.err(), Some(XferStatus::InvalidData));
+    assert_eq!(table_rows(&table), before);
+}
+
+#[test]
+fn oversized_host_restore_cannot_be_serialized_even_after_u16_wrap() {
+    let _serial = crate::test_sync::lock();
+    let mut engine = ScriptEngine::new().unwrap();
+    let mut tail = engine.snapshot_xfer_tail();
+    tail.attack_priorities = (0..=MAX_ATTACK_PRIORITIES)
+        .map(|i| (format!("Row{i}"), i as i32, vec![]))
+        .collect();
+    engine.restore_xfer_tail(&tail);
+    assert_eq!(
+        priority(&engine, &format!("Row{MAX_ATTACK_PRIORITIES}")),
+        MAX_ATTACK_PRIORITIES as i32
+    );
+    let mut engine_out = Cursor::new(Vec::new());
+    assert_eq!(
+        engine.xfer(&mut XferSave::new(&mut engine_out, 1)).err(),
+        Some(XferStatus::InvalidData)
+    );
+    let mut out = Cursor::new(Vec::new());
+    let mut table = AttackPriorityTable::new();
+    table.restore(vec![AttackPriorityInfo::new(); MAX_ATTACK_PRIORITIES + 1]);
+    assert_eq!(
+        table.xfer(&mut XferSave::new(&mut out, 1)).err(),
+        Some(XferStatus::InvalidData)
+    );
+    assert!(out.into_inner().is_empty());
+
+    table.restore(vec![AttackPriorityInfo::new(); u16::MAX as usize + 1]);
+    let mut out = Cursor::new(Vec::new());
+    assert_eq!(
+        table.xfer(&mut XferSave::new(&mut out, 1)).err(),
+        Some(XferStatus::InvalidData)
+    );
+    assert!(out.into_inner().is_empty());
+}
