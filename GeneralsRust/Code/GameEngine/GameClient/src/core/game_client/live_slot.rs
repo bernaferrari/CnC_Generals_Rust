@@ -402,9 +402,10 @@ impl GameClient {
     /// Admit one successfully parsed Weather block, including its runtime refresh.
     pub fn admit_snow_definition(&mut self, definition: &crate::snow::WeatherSetting) {
         self.snow_definition = definition.clone();
+        let client_random = &mut self.client_random;
         self.snow
             .update_ini_settings_with_definition(definition, &mut |low, high| {
-                crate::GameClientRandomValue!(low, high)
+                crate::GameClientRandomValue!(client_random, low, high)
             });
     }
 }

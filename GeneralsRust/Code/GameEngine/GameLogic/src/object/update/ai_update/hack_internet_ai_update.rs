@@ -13,8 +13,7 @@ use crate::common::{
     VeterancyLevel,
 };
 use crate::helpers::{
-    TheAudio, TheGameLogic, TheGameText, TheInGameUI, game_client_random_value_real,
-};
+    TheAudio, TheGameLogic, TheGameText, TheInGameUI, };
 use crate::modules::ai_state_runtime::AiStateRuntime;
 use crate::modules::{AIUpdateInterface, HackInternetAIUpdateInterface};
 use crate::object::unit::UnitAiStateRuntime;
@@ -747,8 +746,8 @@ impl HackInternetAIUpdate {
                         let geom = container_guard.get_geometry_info();
                         let width = geom.get_major_radius() * 0.3;
                         let depth = geom.get_minor_radius() * 0.3;
-                        pos.x += game_client_random_value_real(-width, width);
-                        pos.y += game_client_random_value_real(-depth, depth);
+                        pos.x += crate::system::engine_stores::active_services().client_random_value_real(-width, width);
+                        pos.y += crate::system::engine_stores::active_services().client_random_value_real(-depth, depth);
                     },
                 );
             }

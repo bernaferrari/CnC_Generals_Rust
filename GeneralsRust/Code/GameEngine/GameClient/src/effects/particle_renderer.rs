@@ -468,7 +468,7 @@ pub fn begin_particle_heat_smudge_frame() {
 
 /// Convert a SMUD-prefixed particle-name system into `TheSmudgeManager` heat smudges.
 /// C++ `W3DParticleSys.cpp:142-172` — never drawn as sprites.
-pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
+pub fn feed_system_heat_smudges(system: &ParticleSystem, random: &mut dyn FnMut(f32, f32) -> f32) -> usize {
     if !system_is_heat_smudge(system) {
         return 0;
     }
@@ -496,8 +496,8 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
                 particle.position.z,
             );
             smudge.offset = glam::Vec2::new(
-                crate::GameClientRandomValueReal!(-0.06, 0.06),
-                crate::GameClientRandomValueReal!(-0.03, 0.03),
+                random(-0.06, 0.06),
+                random(-0.03, 0.03),
             );
             smudge.size = particle.size;
             smudge.opacity = particle.alpha;
@@ -1362,8 +1362,9 @@ impl ParticleRenderer {
         depth_view: &wgpu::TextureView,
         systems: &[&ParticleSystem],
         uniforms: &ParticleUniforms,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) {
-        let prepared = ParticleRenderFrame::prepare(systems, uniforms);
+        let prepared = ParticleRenderFrame::prepare(systems, uniforms, client_random);
         let mut render_pass = begin_load_pass(encoder, "Particle Render Pass", view, depth_view);
         self.render_prepared_particles(&mut render_pass, &prepared);
     }
@@ -2356,7 +2357,7 @@ mod tests {
         system.push_particle(culled);
 
         assert!(bake_particle_system_gpu_mesh(&system).is_empty());
-        assert_eq!(feed_system_heat_smudges(&system), 1);
+        assert_eq!(feed_system_heat_smudges(&system, &mut |lo, _| lo), 1);
 
         let items = get_smudge_manager()
             .lock()
@@ -2393,7 +2394,7 @@ mod tests {
         let mut system = smudge_named_system("SMUDjetExhaust.tga", ParticleType::Smudge);
         system.push_particle(live_particle(0.0, 0.0, 5.0, 3.0, 0.8));
 
-        let feed_count = feed_system_heat_smudges(&system);
+        let feed_count = feed_system_heat_smudges(&system, &mut |lo, _| lo);
         let empty_mesh = bake_particle_system_gpu_mesh(&system).is_empty();
         let empty_items = get_smudge_manager()
             .lock()
@@ -2418,7 +2419,7 @@ mod tests {
         assert!(system.is_using_smudge());
         assert!(!system_is_heat_smudge(&system));
         assert!(bake_particle_system_gpu_mesh(&system).is_empty());
-        assert_eq!(feed_system_heat_smudges(&system), 0);
+        assert_eq!(feed_system_heat_smudges(&system, &mut |lo, _| lo), 0);
     }
 
     #[test]
@@ -2432,7 +2433,7 @@ mod tests {
 
         assert!(!system.is_using_smudge());
         assert!(!system_is_heat_smudge(&system));
-        assert_eq!(feed_system_heat_smudges(&system), 0);
+        assert_eq!(feed_system_heat_smudges(&system, &mut |lo, _| lo), 0);
         assert_eq!(bake_particle_system_gpu_mesh(&system).len(), 1);
         assert!(
             get_smudge_manager()
@@ -2507,7 +2508,7 @@ mod tests {
             time: 3.0,
             ..Default::default()
         };
-        let frame = ParticleRenderFrame::prepare(&first.draw_particle_systems(), &uniforms);
+        let frame = ParticleRenderFrame::prepare(&first.draw_particle_systems(), &uniforms, &mut Default::default());
         let frozen = frame.clone();
         assert_eq!(frame.uniforms, uniforms);
         assert_eq!(frame.batches.len(), 2);
@@ -2517,7 +2518,7 @@ mod tests {
         assert_eq!(frame.batches[0].vertices.len(), 1);
         assert_eq!(frame.batches[0].vertices[0].position, [2.0, 0.0, 0.0]);
         assert_eq!(frame.batches[0].shader_type, ParticleShaderType::Alpha);
-        let other = ParticleRenderFrame::prepare(&peer.draw_particle_systems(), &uniforms);
+        let other = ParticleRenderFrame::prepare(&peer.draw_particle_systems(), &uniforms, &mut Default::default());
         assert_eq!(other.batches[0].vertices[0].position, [7.0, 0.0, 0.0]);
         peer.destroy_particle_system(19);
         peer.update(0, 1);
@@ -2529,7 +2530,7 @@ mod tests {
             "completed vertex/shader/texture/uniform data cannot follow either live owner"
         );
         assert_eq!(
-            ParticleRenderFrame::prepare(&first.draw_particle_systems(), &uniforms).batches[0]
+            ParticleRenderFrame::prepare(&first.draw_particle_systems(), &uniforms, &mut Default::default()).batches[0]
                 .vertices[0]
                 .position,
             [9.0, 0.0, 0.0]
@@ -2541,14 +2542,14 @@ mod tests {
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         let mut system = smudge_named_system("SMUDGE RESERVED", ParticleType::Smudge);
         system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));
-        let frame = ParticleRenderFrame::prepare(&[&system], &ParticleUniforms::default());
+        let frame = ParticleRenderFrame::prepare(&[&system], &ParticleUniforms::default(), &mut Default::default());
         assert!(frame.batches.is_empty());
         assert_eq!(frame.heat_smudges().len(), 1);
         assert_eq!(frame.heat_smudges()[0].world_pos, [4.0, 5.0, 6.0]);
         assert_eq!(frame.heat_smudges()[0].size, 2.5);
         assert_eq!(frame.heat_smudges()[0].opacity, 0.55);
         let before = frame.clone();
-        let empty = ParticleRenderFrame::prepare(&[], &ParticleUniforms::default());
+        let empty = ParticleRenderFrame::prepare(&[], &ParticleUniforms::default(), &mut Default::default());
         assert!(empty.heat_smudges().is_empty());
         assert_eq!(frame, before);
     }

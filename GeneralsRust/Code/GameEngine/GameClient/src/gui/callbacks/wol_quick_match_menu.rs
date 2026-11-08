@@ -36,7 +36,6 @@ use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::{LadderPref, LadderPreferences, QuickmatchPreferences};
-use game_engine::common::random_value::get_game_client_random_value;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_network::gamespy::config::GameSpyConfig;
 use game_network::gamespy::ladder_defs::{LadderInfo, get_ladder_list, init_ladder_list};
@@ -1584,7 +1583,8 @@ owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHan
             }
 
             if control_id == state.button_start_id {
-                start_quickmatch(&mut state);
+                // Ownerless window-system callback: private stream (no client stream lent).
+                start_quickmatch(&mut state, &mut game_engine::common::random_value::RandomState::default());
                 return WindowMsgHandled::Handled;
             }
 
@@ -1683,7 +1683,7 @@ fn firewall_behavior_from_int(value: i32) -> FirewallBehaviorType {
     }
 }
 
-fn start_quickmatch(state: &mut WolQuickMatchState) {
+fn start_quickmatch(state: &mut WolQuickMatchState, client_random: &mut game_engine::common::random_value::RandomState) {
     let mut req = PeerRequest::default();
     req.request_type = PeerRequestType::StartQuickMatch;
 
@@ -1745,7 +1745,7 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
     if let Some(ladder) = ladder_info.as_ref() {
         if ladder.random_factions && !ladder.valid_factions.is_empty() {
             let rand_index =
-                get_game_client_random_value(0, ladder.valid_factions.len() as i32 - 1) as usize;
+                client_random.next_int(0, ladder.valid_factions.len() as i32 - 1) as usize;
             if let Some(side_name) = ladder.valid_factions.get(rand_index) {
                 let store = get_player_template_store();
                 for idx in 0..store.get_player_template_count() {
@@ -1763,7 +1763,7 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
         while tries < 10 && side == PLAYERTEMPLATE_RANDOM {
             if let Some(combo) = combo_box_mut(&state.combo_box_side) {
                 let count = combo.items().len().max(1);
-                let rand_index = get_game_client_random_value(0, count as i32 - 1) as usize;
+                let rand_index = client_random.next_int(0, count as i32 - 1) as usize;
                 if let Some(item) = combo.items().get(rand_index) {
                     if let Some(data) = item.data {
                         side = data as i32;

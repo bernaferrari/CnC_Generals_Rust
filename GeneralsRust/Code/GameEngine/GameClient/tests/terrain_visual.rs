@@ -839,7 +839,7 @@ fn tree_vb_upload_uses_do_lighting_on_every_draw() {
         )
         .unwrap();
 
-    visual.update_tree_meshes();
+    visual.update_tree_meshes(Some(&mut Default::default()));
 
     let lights = [game_client_rust::terrain::TreeObjectLight {
         ambient: [0.2, 0.1, 0.0],
@@ -858,7 +858,7 @@ fn tree_vb_upload_uses_do_lighting_on_every_draw() {
     assert_eq!(gpu[0].position, [10.0, 3.0, 20.0]);
 
     // Second draw still ships the doLighting VB (C++ dirty skip keeps last fill).
-    visual.update_tree_meshes();
+    visual.update_tree_meshes(Some(&mut Default::default()));
     assert_eq!(visual.last_tree_gpu_vertices()[0].diffuse, up);
     assert_eq!(visual.last_tree_gpu_vertices()[2].diffuse, side);
 }
@@ -895,7 +895,7 @@ fn tree_atlas_mips_reach_terrain_visual_upload_path() {
         visual.tree_buffer_mut().num_tiles() > 0,
         "actual packed source tiles must exist before draw"
     );
-    visual.update_tree_meshes();
+    visual.update_tree_meshes(Some(&mut Default::default()));
     let expected_len = visual.tree_buffer_mut().atlas_mips().len() - 1;
     let uploaded = visual.last_tree_atlas_mips();
     assert!(!uploaded.is_empty());
@@ -935,7 +935,7 @@ fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
         visual.tree_buffer_mut().num_tiles() > 0,
         "actual packed source tiles must exist before draw"
     );
-    visual.update_tree_meshes();
+    visual.update_tree_meshes(Some(&mut Default::default()));
 
     let (width, height) = visual.tree_buffer_mut().texture_size();
     let loc = visual

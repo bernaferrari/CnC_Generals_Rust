@@ -520,7 +520,8 @@ impl AudioManager {
             return false;
         }
 
-        event.generate_filename_with_settings(&self.audio_paths());
+        let paths = self.audio_paths();
+        event.generate_filename_with_settings(&paths, &mut self.audio_random);
         if event.get_delay() > MSEC_PER_LOGICFRAME_REAL {
             let mut request = AudioRequest::new_with_event(RequestType::Play, event.clone());
             request.set_requires_check_for_sample(true);

@@ -408,6 +408,7 @@ mod tests {
             bone_query: None,
             current_frame: 0,
             local_player_index: 0,
+            client_random: &mut Default::default(),
         };
         FXNugget::do_fx_pos(
             &nugget,

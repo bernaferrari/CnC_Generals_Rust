@@ -9,8 +9,7 @@
 
 use game_engine::common::random_value::{
     DistributionType as CommonDistribution, GameClientRandomVariable as CommonClientVar,
-    get_game_client_random_value as common_client_int,
-    get_game_client_random_value_real as common_client_real,
+    RandomState,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,10 +74,11 @@ impl GameClientRandomVariable {
         self.distribution_type = distribution_type;
     }
 
-    pub fn get_value(&self) -> f32 {
+    /// Draw from the receiving presentation owner's client stream.
+    pub fn get_value_with(&self, rng: &mut game_engine::common::random_value::RandomState) -> f32 {
         let mut var = CommonClientVar::new();
         var.set_range(self.low, self.high, self.distribution_type.to_common());
-        var.get_value()
+        var.get_value_with(rng)
     }
 
     pub fn get_minimum_value(&self) -> f32 {
@@ -95,26 +95,26 @@ impl GameClientRandomVariable {
 }
 
 /// C++ `GetGameClientRandomValue` — integer client stream residual.
-pub fn get_game_client_random_value(lo: i32, hi: i32, _file: &str, _line: u32) -> i32 {
-    common_client_int(lo, hi)
+pub fn get_game_client_random_value(rng: &mut RandomState, lo: i32, hi: i32, _file: &str, _line: u32) -> i32 {
+    rng.next_int(lo, hi)
 }
 
 /// C++ `GetGameClientRandomValueReal` — real client stream residual.
-pub fn get_game_client_random_value_real(lo: f32, hi: f32, _file: &str, _line: u32) -> f32 {
-    common_client_real(lo, hi)
+pub fn get_game_client_random_value_real(rng: &mut RandomState, lo: f32, hi: f32, _file: &str, _line: u32) -> f32 {
+    rng.next_real(lo, hi)
 }
 
 /// Convenience macros matching C++ `GameClientRandomValue` / `GameClientRandomValueReal`.
 #[macro_export]
 macro_rules! GameClientRandomValue {
-    ($lo:expr, $hi:expr) => {
-        $crate::client_random_value::get_game_client_random_value($lo, $hi, file!(), line!())
+    ($rng:expr, $lo:expr, $hi:expr) => {
+        $crate::client_random_value::get_game_client_random_value($rng, $lo, $hi, file!(), line!())
     };
 }
 
 #[macro_export]
 macro_rules! GameClientRandomValueReal {
-    ($lo:expr, $hi:expr) => {
-        $crate::client_random_value::get_game_client_random_value_real($lo, $hi, file!(), line!())
+    ($rng:expr, $lo:expr, $hi:expr) => {
+        $crate::client_random_value::get_game_client_random_value_real($rng, $lo, $hi, file!(), line!())
     };
 }

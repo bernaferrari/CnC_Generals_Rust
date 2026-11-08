@@ -151,6 +151,11 @@ pub struct GameClient {
     host_contained_flash_queue: Vec<u32>,
     /// C++ TheAnim2DCollection residual.
     client_anim2d_instances: std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>>,
+    /// C++ GameClient random stream (`GameClientRandomValue`), owned by this
+    /// presentation instance rather than process-wide CommonServices.
+    pub(crate) client_random: game_engine::common::random_value::RandomState,
+    /// C++ GameAudio random stream (`GameAudioRandomValue`) for this instance.
+    pub(crate) audio_random: game_engine::common::random_value::RandomState,
 
     // Drawable management
     pub(crate) drawables: drawable_world::DrawableWorld,

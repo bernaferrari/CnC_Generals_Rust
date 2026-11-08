@@ -75,7 +75,7 @@ impl ParticleRenderFrame {
                     }
                 }
             } else {
-                frame.collect_system_particles(system, uniforms.camera_position);
+                frame.collect_system_particles(system, uniforms.camera_position, random);
             }
         }
         frame.preparation_time = started.elapsed();
@@ -84,7 +84,11 @@ impl ParticleRenderFrame {
 
     /// Call at the existing DoParticles phase after culling. SMUD reset and
     /// RNG consumption retain their original order relative to each system.
-    pub fn prepare(systems: &[&ParticleSystem], uniforms: &ParticleUniforms) -> Self {
+    pub fn prepare(
+        systems: &[&ParticleSystem],
+        uniforms: &ParticleUniforms,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Self {
         let preparation_started = std::time::Instant::now();
         begin_particle_heat_smudge_frame();
         let mut frame = Self {
@@ -97,7 +101,9 @@ impl ParticleRenderFrame {
             heat_smudges: Vec::new(),
         };
         for system in systems {
-            frame.collect_system_particles(system, uniforms.camera_position);
+            frame.collect_system_particles(system, uniforms.camera_position, &mut |lo, hi| {
+                client_random.next_real(lo, hi)
+            });
         }
         frame.heat_smudges = get_smudge_manager()
             .lock()
@@ -115,7 +121,12 @@ impl ParticleRenderFrame {
         &self.heat_smudges
     }
 
-    fn collect_system_particles(&mut self, system: &ParticleSystem, camera_position: [f32; 3]) {
+    fn collect_system_particles(
+        &mut self,
+        system: &ParticleSystem,
+        camera_position: [f32; 3],
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) {
         let info = system.info();
         if matches!(
             info.particle_type,
@@ -127,7 +138,7 @@ impl ParticleRenderFrame {
         // into heat smudges and continue — never submit as sprites
         // (`W3DParticleSys.cpp:142-172`).
         if system_is_heat_smudge(system) {
-            let _ = feed_system_heat_smudges(system);
+            let _ = feed_system_heat_smudges(system, random);
             return;
         }
         if info.shader_type == ParticleShaderType::Invalid {
@@ -259,7 +270,7 @@ mod owned_info_tests {
         };
         // Exercise the actual CPU collector without unrelated global SMUD
         // reset/collection: this is an ordinary sprite system.
-        frame.collect_system_particles(&loaded, [0.0; 3]);
+        frame.collect_system_particles(&loaded, [0.0; 3], &mut |lo, _| lo);
         assert_eq!(frame.particles_rendered, 1);
         assert_eq!(frame.source_particle_count, 1);
         assert_eq!(frame.batches.len(), 1);

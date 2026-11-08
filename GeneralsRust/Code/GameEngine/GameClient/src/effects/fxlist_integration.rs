@@ -65,6 +65,8 @@ pub struct FXContext<'a> {
     pub bone_query: Option<&'a dyn FXBoneQuery>,
     pub current_frame: u32,
     pub local_player_index: i32,
+    /// Receiving client's presentation random stream (C++ `GameClientRandomValue`).
+    pub client_random: &'a mut game_engine::common::random_value::RandomState,
 }
 
 /// Current client bone transform resolved from the primary object/drawable.
@@ -197,7 +199,7 @@ impl FXNugget for TracerFXNugget {
         context: &mut FXContext,
     ) {
         // Probability check (matches C++ FXList.cpp:150-151) — client stream.
-        if self.probability <= crate::GameClientRandomValueReal!(0.0, 1.0) {
+        if self.probability <= crate::GameClientRandomValueReal!(context.client_random, 0.0, 1.0) {
             return;
         }
 
@@ -353,7 +355,7 @@ impl FXNugget for ViewShakeFXNugget {
         _primary_speed: f32,
         _secondary: Option<Vec3>,
         _override_radius: f32,
-        _context: &mut FXContext,
+        context: &mut FXContext,
     ) {
         // C++ ViewShakeFXNugget::doFXPos → TheTacticalView->shake(primary, type)
         let kind = match self.shake_type {
@@ -368,6 +370,7 @@ impl FXNugget for ViewShakeFXNugget {
             view.shake(
                 &crate::display::view::Point3::new(primary.x, primary.y, primary.z),
                 kind,
+                &mut *context.client_random,
             );
         });
     }
@@ -415,7 +418,7 @@ impl FXNugget for TerrainScorchFXNugget {
             ScorchType::Scorch3 => 2,
             ScorchType::Scorch4 => 3,
             ScorchType::ShadowScorch => 4,
-            ScorchType::Random => crate::terrain::scorch_mesh::resolve_scorch_type(-1),
+            ScorchType::Random => crate::terrain::scorch_mesh::resolve_scorch_type(context.client_random, -1),
         };
         let _ = crate::terrain::scorch_mesh::add_terrain_scorch(
             [primary.x, primary.y, primary.z],
@@ -700,8 +703,9 @@ impl ParticleSystemFXNugget {
         primary_mtx: Option<&Mat3>,
         override_radius: f32,
         manager: &mut ParticleSystemManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Vec<ParticleSystemId> {
-        self.really_do_fx(primary, primary_mtx, None, override_radius, manager)
+        self.really_do_fx(primary, primary_mtx, None, override_radius, manager, client_random)
     }
 
     /// Execute the FX attached to an object
@@ -712,8 +716,9 @@ impl ParticleSystemFXNugget {
         primary_mtx: Option<&Mat3>,
         object_id: Option<ObjectId>,
         manager: &mut ParticleSystemManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Vec<ParticleSystemId> {
-        self.really_do_fx(primary, primary_mtx, object_id, 0.0, manager)
+        self.really_do_fx(primary, primary_mtx, object_id, 0.0, manager, client_random)
     }
 
     /// Actually create the particle systems
@@ -725,6 +730,7 @@ impl ParticleSystemFXNugget {
         object_id: Option<ObjectId>,
         override_radius: f32,
         manager: &mut ParticleSystemManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Vec<ParticleSystemId> {
         self.do_fx_with_services(
             primary,
@@ -732,7 +738,7 @@ impl ParticleSystemFXNugget {
             object_id,
             override_radius,
             manager,
-            &mut game_engine::common::random_value::get_game_client_random_value_real,
+            &mut |lo, hi| client_random.next_real(lo, hi),
             &mut |position| {
                 gamelogic::helpers::TheTerrainLogic::get().map(|terrain| {
                     let dest = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
@@ -877,6 +883,7 @@ impl FXNugget for ParticleSystemFXNugget {
             primary_mtx,
             override_radius,
             context.particle_manager,
+            context.client_random,
         );
     }
 }
@@ -911,9 +918,10 @@ impl FXListParticleBridge {
         position: Vec3,
         transform: Option<&Mat3>,
         manager: &mut ParticleSystemManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Vec<ParticleSystemId> {
         if let Some(nugget) = self.nuggets.get(name) {
-            let systems = nugget.do_fx_pos(position, transform, 0.0, manager);
+            let systems = nugget.do_fx_pos(position, transform, 0.0, manager, client_random);
             self.active_systems.extend(systems.clone());
             systems
         } else {
@@ -929,9 +937,10 @@ impl FXListParticleBridge {
         transform: Option<&Mat3>,
         object_id: ObjectId,
         manager: &mut ParticleSystemManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Vec<ParticleSystemId> {
         if let Some(nugget) = self.nuggets.get(name) {
-            let systems = nugget.do_fx_obj(position, transform, Some(object_id), manager);
+            let systems = nugget.do_fx_obj(position, transform, Some(object_id), manager, client_random);
             self.active_systems.extend(systems.clone());
             systems
         } else {
@@ -1116,6 +1125,7 @@ mod tests {
     fn test_context<'a>(
         manager: &'a mut ParticleSystemManager,
         bone_query: Option<&'a dyn FXBoneQuery>,
+        client_random: &'a mut game_engine::common::random_value::RandomState,
     ) -> FXContext<'a> {
         FXContext {
             particle_manager: manager,
@@ -1124,6 +1134,7 @@ mod tests {
             bone_query,
             current_frame: 0,
             local_player_index: 0,
+            client_random,
         }
     }
 
@@ -1180,7 +1191,8 @@ mod tests {
 
         let mut manager = ParticleSystemManager::new();
         let query = TestBoneQuery;
-        let mut context = test_context(&mut manager, Some(&query));
+        let mut random = game_engine::common::random_value::RandomState::default();
+        let mut context = test_context(&mut manager, Some(&query), &mut random);
 
         nugget.do_fx_obj(None, None, None, &mut context);
 
@@ -1217,7 +1229,8 @@ mod tests {
         let mut list = FXList::new();
         list.add_nugget(recorder.clone());
         let mut manager = ParticleSystemManager::new();
-        let mut context = test_context(&mut manager, None);
+        let mut random = game_engine::common::random_value::RandomState::default();
+        let mut context = test_context(&mut manager, None, &mut random);
         let primary = Vec3::new(100.0, 100.0, 0.0);
 
         list.execute_fx_pos(primary, None, 0.0, None, 0.0, &mut context);
@@ -1256,7 +1269,8 @@ mod tests {
         let mut list = FXList::new();
         list.add_nugget(recorder.clone());
         let mut manager = ParticleSystemManager::new();
-        let mut context = test_context(&mut manager, None);
+        let mut random = game_engine::common::random_value::RandomState::default();
+        let mut context = test_context(&mut manager, None, &mut random);
         context.local_player_index = -1;
         list.execute_fx_obj(Some(Vec3::new(10.0, 10.0, 0.0)), None, None, &mut context);
         assert!(

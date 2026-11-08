@@ -383,15 +383,19 @@ impl EffectsLOD {
 pub mod utils {
     use super::*;
 
-    fn client_real(lo: f32, hi: f32) -> f32 {
-        crate::GameClientRandomValueReal!(lo, hi)
+    fn client_real(rng: &mut game_engine::common::random_value::RandomState, lo: f32, hi: f32) -> f32 {
+        crate::GameClientRandomValueReal!(rng, lo, hi)
     }
 
     /// Generate random position within a sphere
-    pub fn random_sphere_position(center: Vec3, radius: f32) -> Vec3 {
-        let theta = client_real(0.0, 2.0 * std::f32::consts::PI);
-        let phi = client_real(0.0, std::f32::consts::PI);
-        let r = client_real(0.0, 1.0).powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
+    pub fn random_sphere_position(
+        rng: &mut game_engine::common::random_value::RandomState,
+        center: Vec3,
+        radius: f32,
+    ) -> Vec3 {
+        let theta = client_real(rng, 0.0, 2.0 * std::f32::consts::PI);
+        let phi = client_real(rng, 0.0, std::f32::consts::PI);
+        let r = client_real(rng, 0.0, 1.0).powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
 
         let x = r * phi.sin() * theta.cos();
         let y = r * phi.sin() * theta.sin();
@@ -402,14 +406,15 @@ pub mod utils {
 
     /// Generate random velocity within a cone
     pub fn random_cone_velocity(
+        rng: &mut game_engine::common::random_value::RandomState,
         direction: Vec3,
         angle_radians: f32,
         min_speed: f32,
         max_speed: f32,
     ) -> Vec3 {
         // Generate random direction within cone
-        let theta = client_real(0.0, 2.0 * std::f32::consts::PI);
-        let phi = client_real(0.0, angle_radians);
+        let theta = client_real(rng, 0.0, 2.0 * std::f32::consts::PI);
+        let phi = client_real(rng, 0.0, angle_radians);
 
         // Create rotation matrix to align with desired direction
         let up = if direction.y.abs() < 0.9 {
@@ -428,7 +433,7 @@ pub mod utils {
         let world_dir = direction * local_dir.z + right * local_dir.x + actual_up * local_dir.y;
 
         // Apply random speed
-        let speed = client_real(min_speed, max_speed);
+        let speed = client_real(rng, min_speed, max_speed);
         world_dir.normalize() * speed
     }
 
@@ -531,8 +536,9 @@ mod tests {
         let center = Vec3::new(0.0, 0.0, 0.0);
         let radius = 10.0;
 
+        let mut rng = game_engine::common::random_value::RandomState::default();
         for _ in 0..100 {
-            let pos = random_sphere_position(center, radius);
+            let pos = random_sphere_position(&mut rng, center, radius);
             let distance = (pos - center).length();
             assert!(distance <= radius);
         }

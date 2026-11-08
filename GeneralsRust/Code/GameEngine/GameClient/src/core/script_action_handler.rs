@@ -1155,7 +1155,8 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     fn screen_shake(&self, intensity: i32) -> GameLogicResult<()> {
         with_tactical_view(|view| {
             let epicenter = view.get_3d_camera_position();
-            view.shake(&epicenter, Self::map_shake_type(intensity));
+            // Ownerless ScriptActionHandler entry: private stream.
+            view.shake(&epicenter, Self::map_shake_type(intensity), &mut game_engine::common::random_value::RandomState::default());
         });
         Ok(())
     }
@@ -1181,7 +1182,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
             CameraShakeType::CineExtreme
         };
         with_tactical_view(|view| {
-            view.shake(&Point3::new(x, y, z), shake);
+            view.shake(&Point3::new(x, y, z), shake, &mut game_engine::common::random_value::RandomState::default());
         });
         Ok(())
     }

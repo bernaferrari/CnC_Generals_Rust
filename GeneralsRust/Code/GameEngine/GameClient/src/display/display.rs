@@ -922,6 +922,7 @@ impl Display {
         client_frame: u32,
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.draw_with_snow_state(
             Some(snow),
@@ -934,6 +935,7 @@ impl Display {
             None,
             client_fx,
             projected_decals,
+            client_random,
         )
     }
 
@@ -951,6 +953,7 @@ impl Display {
         render_bridge: &mut crate::render_bridge::RenderBridge,
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.draw_with_snow_state(
             Some(snow),
@@ -963,6 +966,7 @@ impl Display {
             Some(render_bridge),
             client_fx,
             projected_decals,
+            client_random,
         )
     }
 
@@ -978,6 +982,7 @@ impl Display {
         mut render_bridge: Option<&mut crate::render_bridge::RenderBridge>,
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (frame, view) = self
             .begin_frame()
@@ -1261,6 +1266,7 @@ impl Display {
                                 &self.depth_view,
                                 &systems,
                                 &uniforms,
+                                client_random,
                             );
                         }
                     }
@@ -1405,9 +1411,11 @@ impl DisplayInterface for Display {
         client_frame: u32,
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.draw_with_snow_state(
             None, fx, renderer, owner, ui, client_frame, None, None, client_fx, projected_decals,
+            client_random,
         )
     }
 
@@ -1422,6 +1430,7 @@ impl DisplayInterface for Display {
         render_bridge: &mut crate::render_bridge::RenderBridge,
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.draw_with_snow_state(
             None,
@@ -1434,6 +1443,7 @@ impl DisplayInterface for Display {
             Some(render_bridge),
             client_fx,
             projected_decals,
+            client_random,
         )
     }
 

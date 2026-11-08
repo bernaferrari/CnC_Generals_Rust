@@ -30,8 +30,7 @@ use crate::common::*;
 use crate::helpers::{
     BoneOverrideState, MeshUvOverrideState, ModelDrawState, ModelDrawWeaponBoneBindings,
     SubObjectVisibilityState, TheGameClient, TheGameLogic, TheGlobalData, TheParticleSystemManager,
-    game_client_random_value, game_client_random_value_real,
-};
+    };
 use crate::object::draw::client_visual::{
     TerrainDecalDesc, leftover_default_shadow_texture, object_should_animate, preload_draw_asset,
     terrain_decal_client, terrain_decal_texture_name, terrain_track_client,

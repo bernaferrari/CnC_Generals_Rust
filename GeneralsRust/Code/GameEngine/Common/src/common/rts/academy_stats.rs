@@ -6,7 +6,6 @@
 //!
 //! Based on C++ AcademyStats.cpp/h from GeneralsMD codebase.
 
-use crate::common::random_value::get_game_client_random_value;
 use crate::common::time;
 
 use super::handles::{CommandSetHandle, FrameNumber, PlayerHandle, ThingTemplateHandle};
@@ -39,9 +38,10 @@ fn maybe_choose_tip(
     remaining: &mut i32,
     max_advice_tips: usize,
     tip: &str,
+    client_random: &mut crate::common::random_value::RandomState,
 ) {
     if choosing && *remaining > 0 {
-        let rand = get_game_client_random_value(0, *remaining - 1);
+        let rand = client_random.next_int(0, *remaining - 1);
         let limit = max_advice_tips as i32 - info.num_tips as i32;
         if rand < limit {
             info.add_tip(tip.to_string());
@@ -764,9 +764,14 @@ impl AcademyStats {
 
     /// Calculate and provide academy advice based on player statistics
     /// Based on C++ AcademyStats.cpp:1034-1082
-    pub fn calculate_academy_advice(&self, info: &mut AcademyAdviceInfo) -> bool {
+    pub fn calculate_academy_advice(
+        &self,
+        info: &mut AcademyAdviceInfo,
+        client_random: &mut crate::common::random_value::RandomState,
+    ) -> bool {
         self.calculate_academy_advice_with_context(
             info,
+            client_random,
             AcademyAdviceContext {
                 frame: time::frame(),
                 use_alternate_mouse: crate::common::global_data::read_safe()
@@ -788,6 +793,7 @@ impl AcademyStats {
     pub fn calculate_academy_advice_with_context(
         &self,
         info: &mut AcademyAdviceInfo,
+        client_random: &mut crate::common::random_value::RandomState,
         context: AcademyAdviceContext,
     ) -> bool {
         // C++ lines 1044-1047: Early exit for unknown side
@@ -802,13 +808,13 @@ impl AcademyStats {
         }
 
         // C++ lines 1065-1078: Evaluate all tiers progressively
-        self.evaluate_tier1_advice(info, -1, context.frame);
+        self.evaluate_tier1_advice(info, -1, context.frame, client_random);
 
         if (info.num_tips as usize) < MAX_ADVICE_TIPS {
-            self.evaluate_tier2_advice(info, -1);
+            self.evaluate_tier2_advice(info, -1, client_random);
 
             if (info.num_tips as usize) < MAX_ADVICE_TIPS {
-                self.evaluate_tier3_advice(info, -1, context);
+                self.evaluate_tier3_advice(info, -1, context, client_random);
             }
         }
 
@@ -825,6 +831,7 @@ impl AcademyStats {
         info: &mut AcademyAdviceInfo,
         num_available_tips: i32,
         now: u32,
+        client_random: &mut crate::common::random_value::RandomState,
     ) {
         let max_advice_tips = MAX_ADVICE_TIPS;
         let mut remaining = num_available_tips;
@@ -839,6 +846,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:BuildSupplyCenterEarlier",
+                client_random,
             );
         }
         if !self.researched_radar {
@@ -849,6 +857,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:TryBuildingRadar",
+                client_random,
             );
         }
         if self.peons_built < 2 {
@@ -859,6 +868,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:BuildMorePeons",
+                client_random,
             );
         }
         if self.structures_captured == 0 {
@@ -869,6 +879,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:TryCapturingStructures",
+                client_random,
             );
         }
         if self.generals_points_spent == 0 {
@@ -879,6 +890,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:SpendGeneralsPoints",
+                client_random,
             );
         }
         if self.special_powers_used == 0 {
@@ -889,6 +901,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:TryUsingSuperweapons",
+                client_random,
             );
         }
         if self.structures_garrisoned == 0 {
@@ -899,6 +912,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:TryGarrisoningAStructure",
+                client_random,
             );
         }
         let idle_frames = now.saturating_sub(self.last_unit_built_frame);
@@ -914,6 +928,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:IdleBuildingUnits",
+                client_random,
             );
         }
         if self.drag_select_units == 0 {
@@ -924,6 +939,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:TryDragSelectingUnits",
+                client_random,
             );
         }
         if self.upgrades_purchased == 0 {
@@ -934,6 +950,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:ResearchUpgrades",
+                client_random,
             );
         }
         let mut max_power_out = self.power_out_max_frames;
@@ -951,6 +968,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:RanOutOfPower",
+                client_random,
             );
         }
         if self.gatherers_built == 0 {
@@ -961,6 +979,7 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:BuildMoreGatherers",
+                client_random,
             );
         }
         if self.heroes_built == 0 {
@@ -971,17 +990,18 @@ impl AcademyStats {
                 &mut remaining,
                 max_advice_tips,
                 "ACADEMY:BuildAHero",
+                client_random,
             );
         }
 
         if !choosing && available_tips > 0 {
-            self.evaluate_tier1_advice(info, available_tips, now);
+            self.evaluate_tier1_advice(info, available_tips, now, client_random);
         }
     }
 
     /// Evaluate tier 2 (intermediate) advice
     /// Based on C++ AcademyStats.cpp:708-851
-    fn evaluate_tier2_advice(&self, info: &mut AcademyAdviceInfo, num_available_tips: i32) {
+    fn evaluate_tier2_advice(&self, info: &mut AcademyAdviceInfo, num_available_tips: i32, client_random: &mut crate::common::random_value::RandomState) {
         let max_advice_tips = MAX_ADVICE_TIPS;
         let mut _num_available = num_available_tips;
         let choosing = num_available_tips != -1;
@@ -1061,7 +1081,7 @@ impl AcademyStats {
 
         // C++ lines 844-849: Recursive call to randomly choose if we were just counting
         if !choosing && available_tips > 0 {
-            self.evaluate_tier2_advice(info, available_tips);
+            self.evaluate_tier2_advice(info, available_tips, client_random);
         }
     }
 
@@ -1072,6 +1092,7 @@ impl AcademyStats {
         info: &mut AcademyAdviceInfo,
         num_available_tips: i32,
         context: AcademyAdviceContext,
+        client_random: &mut crate::common::random_value::RandomState,
     ) {
         let max_advice_tips = MAX_ADVICE_TIPS;
         let mut _num_available = num_available_tips;
@@ -1088,6 +1109,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:AlternateMouseInterface",
+                client_random,
             );
         }
 
@@ -1100,6 +1122,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:DoubleClickAttackMoveGuard",
+                client_random,
             );
         }
 
@@ -1112,6 +1135,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:BuildBarracksSooner",
+                client_random,
             );
         }
 
@@ -1124,6 +1148,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:BuildWarFactorySooner",
+                client_random,
             );
         }
 
@@ -1136,6 +1161,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:BuildTechStructureSooner",
+                client_random,
             );
         }
 
@@ -1153,6 +1179,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:NoIncome",
+                client_random,
             );
         }
 
@@ -1165,6 +1192,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:NoIncome",
+                client_random,
             );
         }
 
@@ -1177,6 +1205,7 @@ impl AcademyStats {
                 &mut _num_available,
                 max_advice_tips,
                 "ACADEMY:UnmannedVehicles",
+                client_random,
             );
         }
 
@@ -1200,7 +1229,7 @@ impl AcademyStats {
 
         // C++ lines 1025-1030: Recursive call to randomly choose if we were just counting
         if !choosing && available_tips > 0 {
-            self.evaluate_tier3_advice(info, available_tips, context);
+            self.evaluate_tier3_advice(info, available_tips, context, client_random);
         }
     }
 }
@@ -1640,7 +1669,7 @@ mod tests {
         let mut info = AcademyAdviceInfo::new();
 
         // Should get advice about building peons
-        stats.evaluate_tier1_advice(&mut info, -1, time::frame());
+        stats.evaluate_tier1_advice(&mut info, -1, time::frame(), &mut Default::default());
 
         // Should have at least one tip
         assert!(info.num_tips > 0);

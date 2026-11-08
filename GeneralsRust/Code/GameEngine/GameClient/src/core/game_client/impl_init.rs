@@ -170,6 +170,8 @@ impl GameClient {
             render_bridge: crate::render_bridge::RenderBridge::new(),
             drawable_manager: crate::drawable::DrawableManager::new(),
             host_contained_flash_queue: Vec::new(),
+            client_random: game_engine::common::random_value::RandomState::default(),
+            audio_random: game_engine::common::random_value::RandomState::default(),
             client_anim2d_instances: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::system::anim2_d::Anim2DCollection::new(),
             )),
@@ -936,6 +938,23 @@ impl GameClient {
     }
 
 
+    /// This presentation instance's client random stream.
+    pub fn client_random_mut(&mut self) -> &mut game_engine::common::random_value::RandomState {
+        &mut self.client_random
+    }
+
+    /// This presentation instance's audio random stream.
+    pub fn audio_random_mut(&mut self) -> &mut game_engine::common::random_value::RandomState {
+        &mut self.audio_random
+    }
+
+    /// C++ `InitRandom(seed)` presentation half: reseed this instance's
+    /// client and audio streams only.
+    pub fn seed_presentation_random(&mut self, seed: u32) {
+        self.client_random.seed_random(seed);
+        self.audio_random.seed_random(seed);
+    }
+
     pub(crate) fn client_anim2d_instances_handle(
         &self,
     ) -> std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>> {
@@ -1128,9 +1147,10 @@ impl GameClient {
                 .map(crate::snow::WeatherSetting::from_common)
                 .unwrap_or_default();
         self.snow_definition = self.snow_base_definition.clone();
+        let client_random = &mut self.client_random;
         self.snow
             .init_with_definition(&self.snow_definition, &mut |low, high| {
-                crate::GameClientRandomValue!(low, high)
+                crate::GameClientRandomValue!(client_random, low, high)
             });
 
         if self.subsystem_manager.video_player.is_none() {

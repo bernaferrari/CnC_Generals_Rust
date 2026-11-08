@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use game_engine::common::random_value::get_game_client_random_value_real;
+use game_engine::common::random_value::RandomState;
 use glam::{Mat4, Vec3};
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -121,9 +121,9 @@ impl RandomVariable {
         }
     }
 
-    pub fn get_value(&self) -> f32 {
+    pub fn get_value(&self, rng: &mut RandomState) -> f32 {
         // C++ GameClientRandomValueReal: if hi <= lo return hi
-        get_game_client_random_value_real(self.low, self.high)
+        rng.next_real(self.low, self.high)
     }
 }
 
@@ -464,14 +464,19 @@ pub struct ParticleSystem {
 }
 
 impl ParticleSystem {
-    pub fn new(id: usize, template: Arc<ParticleSystemTemplate>, frame_count: u32) -> Self {
+    pub fn new(
+        id: usize,
+        template: Arc<ParticleSystemTemplate>,
+        frame_count: u32,
+        rng: &mut RandomState,
+    ) -> Self {
         let system_lifetime = if template.system_lifetime == 0 {
             u32::MAX // Forever
         } else {
             template.system_lifetime
         };
 
-        let initial_delay = template.initial_delay.get_value() as u32;
+        let initial_delay = template.initial_delay.get_value(rng) as u32;
         let wind_angle = template.wind_angle;
         let wind_motion_state = template.wind_motion_moving_to_end;
 
@@ -501,7 +506,7 @@ impl ParticleSystem {
         }
     }
 
-    pub fn update(&mut self, frame_count: u32) -> bool {
+    pub fn update(&mut self, frame_count: u32, rng: &mut RandomState) -> bool {
         if self.is_destroyed && self.particles.is_empty() {
             return false;
         }
@@ -526,9 +531,9 @@ impl ParticleSystem {
         // Emit particles if not stopped
         if !self.is_stopped && !self.is_destroyed {
             if self.burst_delay_left == 0 {
-                self.emit_particles(frame_count);
+                self.emit_particles(frame_count, rng);
                 self.burst_delay_left =
-                    (self.template.burst_delay.get_value() * self.burst_delay_multiplier) as u32;
+                    (self.template.burst_delay.get_value(rng) * self.burst_delay_multiplier) as u32;
             } else {
                 self.burst_delay_left -= 1;
             }
@@ -541,27 +546,27 @@ impl ParticleSystem {
         true
     }
 
-    fn emit_particles(&mut self, frame_count: u32) {
+    fn emit_particles(&mut self, frame_count: u32, rng: &mut RandomState) {
         let burst_count =
-            (self.template.burst_count.get_value() * self.burst_count_multiplier) as u32;
+            (self.template.burst_count.get_value(rng) * self.burst_count_multiplier) as u32;
 
         for _ in 0..burst_count {
-            if let Some(particle_info) = self.generate_particle_info() {
+            if let Some(particle_info) = self.generate_particle_info(rng) {
                 let particle = Particle::new(particle_info, self.id, frame_count);
                 self.particles.push(particle);
             }
         }
     }
 
-    fn generate_particle_info(&mut self) -> Option<ParticleInfo> {
+    fn generate_particle_info(&mut self, rng: &mut RandomState) -> Option<ParticleInfo> {
         // Generate position based on emission volume
-        let position = self.compute_particle_position();
-        let velocity = self.compute_particle_velocity(&position);
+        let position = self.compute_particle_position(rng);
+        let velocity = self.compute_particle_velocity(&position, rng);
 
         // Generate other properties
-        let lifetime = self.template.lifetime.get_value() as u32;
-        let size = self.template.start_size.get_value() * self.size_multiplier;
-        let size_rate = self.template.size_rate.get_value();
+        let lifetime = self.template.lifetime.get_value(rng) as u32;
+        let size = self.template.start_size.get_value(rng) * self.size_multiplier;
+        let size_rate = self.template.size_rate.get_value(rng);
 
         self.personality_counter += 1;
 
@@ -570,16 +575,16 @@ impl ParticleSystem {
             velocity,
             emitter_pos: self.position,
             acceleration: Vec3::new(0.0, 0.0, -self.template.gravity),
-            angle_z: self.template.angle_z.get_value(),
-            angular_rate_z: self.template.angular_rate_z.get_value(),
-            angular_damping: self.template.angular_damping.get_value(),
-            vel_damping: self.template.vel_damping.get_value(),
+            angle_z: self.template.angle_z.get_value(rng),
+            angular_rate_z: self.template.angular_rate_z.get_value(rng),
+            angular_damping: self.template.angular_damping.get_value(rng),
+            vel_damping: self.template.vel_damping.get_value(rng),
             lifetime,
             lifetime_left: lifetime,
             create_timestamp: 0, // Will be set by Particle constructor
             size,
             size_rate,
-            size_rate_damping: self.template.size_rate_damping.get_value(),
+            size_rate_damping: self.template.size_rate_damping.get_value(rng),
             alpha: 1.0, // Will be computed from keyframes
             alpha_rate: 0.0,
             alpha_target_key: 0,
@@ -591,23 +596,23 @@ impl ParticleSystem {
                 .unwrap_or(Vec3::ONE),
             color_rate: Vec3::ZERO,
             color_target_key: 0,
-            color_scale: self.template.color_scale.get_value(),
-            wind_randomness: get_game_client_random_value_real(0.0, 1.0),
+            color_scale: self.template.color_scale.get_value(rng),
+            wind_randomness: rng.next_real(0.0, 1.0),
             particle_up_towards_emitter: self.template.is_particle_up_towards_emitter,
             personality: self.personality_counter,
             is_culled: false,
         })
     }
 
-    fn compute_particle_position(&self) -> Vec3 {
+    fn compute_particle_position(&self, rng: &mut RandomState) -> Vec3 {
         let local_pos = match self.template.emission_volume_type {
             EmissionVolumeType::Point => Vec3::ZERO,
             EmissionVolumeType::Box => {
                 if let Some(half_size) = self.template.box_params {
                     Vec3::new(
-                        get_game_client_random_value_real(-half_size.x, half_size.x),
-                        get_game_client_random_value_real(-half_size.y, half_size.y),
-                        get_game_client_random_value_real(-half_size.z, half_size.z),
+                        rng.next_real(-half_size.x, half_size.x),
+                        rng.next_real(-half_size.y, half_size.y),
+                        rng.next_real(-half_size.z, half_size.z),
                     )
                 } else {
                     Vec3::ZERO
@@ -615,12 +620,12 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Sphere => {
                 if let Some(radius) = self.template.sphere_radius {
-                    let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-                    let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI);
+                    let theta = rng.next_real(0.0, 2.0 * std::f32::consts::PI);
+                    let phi = rng.next_real(0.0, std::f32::consts::PI);
                     let r = if self.template.is_emission_volume_hollow {
                         radius
                     } else {
-                        get_game_client_random_value_real(0.0, radius)
+                        rng.next_real(0.0, radius)
                     };
 
                     Vec3::new(
@@ -634,14 +639,14 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Cylinder => {
                 if let Some((radius, length)) = self.template.cylinder_params {
-                    let angle = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let angle = rng.next_real(0.0, 2.0 * std::f32::consts::PI);
                     let r = if self.template.is_emission_volume_hollow {
                         radius
                     } else {
-                        get_game_client_random_value_real(0.0, radius)
+                        rng.next_real(0.0, radius)
                     };
                     let half_length = length * 0.5;
-                    let z = get_game_client_random_value_real(-half_length, half_length);
+                    let z = rng.next_real(-half_length, half_length);
 
                     Vec3::new(r * angle.cos(), r * angle.sin(), z)
                 } else {
@@ -650,7 +655,7 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Line => {
                 if let Some((start, end)) = self.template.line_params {
-                    let t = get_game_client_random_value_real(0.0, 1.0);
+                    let t = rng.next_real(0.0, 1.0);
                     start.lerp(end, t)
                 } else {
                     Vec3::ZERO
@@ -662,20 +667,20 @@ impl ParticleSystem {
         self.position + self.local_transform.transform_point3(local_pos)
     }
 
-    fn compute_particle_velocity(&self, position: &Vec3) -> Vec3 {
+    fn compute_particle_velocity(&self, position: &Vec3, rng: &mut RandomState) -> Vec3 {
         let velocity = match self.template.emission_velocity_type {
             EmissionVelocityType::Ortho => {
                 if let Some((x, y, z)) = self.template.ortho_velocity.as_ref() {
-                    Vec3::new(x.get_value(), y.get_value(), z.get_value())
+                    Vec3::new(x.get_value(rng), y.get_value(rng), z.get_value(rng))
                 } else {
                     Vec3::ZERO
                 }
             }
             EmissionVelocityType::Spherical => {
                 if let Some(speed) = self.template.spherical_speed.as_ref() {
-                    let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-                    let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI);
-                    let speed_value = speed.get_value();
+                    let theta = rng.next_real(0.0, 2.0 * std::f32::consts::PI);
+                    let phi = rng.next_real(0.0, std::f32::consts::PI);
+                    let speed_value = speed.get_value(rng);
 
                     Vec3::new(
                         speed_value * phi.sin() * theta.cos(),
@@ -688,9 +693,9 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Hemispherical => {
                 if let Some(speed) = self.template.spherical_speed.as_ref() {
-                    let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-                    let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI * 0.5); // Hemisphere
-                    let speed_value = speed.get_value();
+                    let theta = rng.next_real(0.0, 2.0 * std::f32::consts::PI);
+                    let phi = rng.next_real(0.0, std::f32::consts::PI * 0.5); // Hemisphere
+                    let speed_value = speed.get_value(rng);
 
                     Vec3::new(
                         speed_value * phi.sin() * theta.cos(),
@@ -703,9 +708,9 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Cylindrical => {
                 if let Some((radial, normal)) = self.template.cylindrical_params.as_ref() {
-                    let angle = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-                    let radial_speed = radial.get_value();
-                    let normal_speed = normal.get_value();
+                    let angle = rng.next_real(0.0, 2.0 * std::f32::consts::PI);
+                    let radial_speed = radial.get_value(rng);
+                    let normal_speed = normal.get_value(rng);
 
                     Vec3::new(
                         radial_speed * angle.cos(),
@@ -719,7 +724,7 @@ impl ParticleSystem {
             EmissionVelocityType::Outward => {
                 if let Some((speed, other_speed)) = self.template.outward_params.as_ref() {
                     let direction = (*position - self.position).normalize_or_zero();
-                    direction * speed.get_value() + Vec3::Z * other_speed.get_value()
+                    direction * speed.get_value(rng) + Vec3::Z * other_speed.get_value(rng)
                 } else {
                     Vec3::ZERO
                 }
@@ -837,9 +842,17 @@ pub struct ParticleSystemManager {
     enable_lod: bool,
     camera_position: Vec3,
     lod_distance_scale: f32,
+
+    /// Client random stream owned by this manager (C++ GameClientRandomValue).
+    client_random: RandomState,
 }
 
 impl ParticleSystemManager {
+    /// Seed this manager's own client stream.
+    pub fn seed_client_random(&mut self, seed: u32) {
+        self.client_random.seed_random(seed);
+    }
+
     pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, max_particles: usize) -> Self {
         let max_systems = max_particles / 100; // Estimate
 
@@ -996,6 +1009,7 @@ impl ParticleSystemManager {
             enable_lod: true,
             camera_position: Vec3::ZERO,
             lod_distance_scale: 100.0,
+            client_random: RandomState::default(),
         }
     }
 
@@ -1009,7 +1023,7 @@ impl ParticleSystemManager {
             let system_id = self.next_system_id;
             self.next_system_id += 1;
 
-            let system = ParticleSystem::new(system_id, template.clone(), self.frame_count);
+            let system = ParticleSystem::new(system_id, template.clone(), self.frame_count, &mut self.client_random);
             self.systems.insert(system_id, system);
 
             info!(
@@ -1043,7 +1057,7 @@ impl ParticleSystemManager {
         self.particle_count = 0;
 
         for (id, system) in &mut self.systems {
-            if !system.update(self.frame_count) {
+            if !system.update(self.frame_count, &mut self.client_random) {
                 finished_systems.push(*id);
             } else {
                 self.particle_count += system.get_particle_count();

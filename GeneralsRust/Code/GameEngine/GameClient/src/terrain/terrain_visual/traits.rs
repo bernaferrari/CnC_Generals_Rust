@@ -100,7 +100,7 @@ impl SubsystemInterface for TerrainVisualImpl {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_with_motion(None, false)
+        self.update_with_motion(None, false, None)
     }
 }
 
@@ -122,10 +122,11 @@ impl TerrainVisualImpl {
         projection: &Mat4,
         min_height: f32,
         snow: &crate::snow::SnowRenderState,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
     ) -> Result<(), TerrainError> {
         self.set_skybox_view(view);
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
-        self.render_with_snow_camera(view, projection, camera, Some(snow), None, false)
+        self.render_with_snow_camera(view, projection, camera, Some(snow), None, false, client_random)
     }
 
     /// Actual Main frame supplies its receiving script and physics observations.
@@ -136,10 +137,11 @@ impl TerrainVisualImpl {
         min_height: f32,
         snow: &crate::snow::SnowRenderState,
         motion: TerrainVisualMotion,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
     ) -> Result<(), TerrainError> {
         self.set_skybox_view(view);
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
-        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), false)
+        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), false, client_random)
     }
 
     /// The native render driver has completed each original tree callback.
@@ -157,7 +159,7 @@ impl TerrainVisualImpl {
             .map_err(|error| TerrainError::InvalidData(error.into()))?;
         self.set_skybox_view(view);
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
-        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), true)
+        self.render_with_snow_camera(view, projection, camera, Some(snow), Some(motion), true, None)
     }
     pub fn update_native_after_tree_cpu(
         &mut self,
@@ -166,7 +168,7 @@ impl TerrainVisualImpl {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.validate_owned_tree_draw(receipt)
             .map_err(|error| Box::<dyn std::error::Error>::from(error))?;
-        self.update_with_motion(Some(motion), true)
+        self.update_with_motion(Some(motion), true, None)
     }
     fn validate_owned_tree_draw(
         &self,
@@ -206,7 +208,7 @@ impl TerrainVisualImpl {
         self.set_client_skybox_view(view);
         let camera =
             snow_camera::SnowCamera::from_client_view(*view, *projection, self.snow_min_height());
-        self.render_with_snow_camera(view, projection, camera, Some(snow), None, false)
+        self.render_with_snow_camera(view, projection, camera, Some(snow), None, false, None)
     }
 
     fn snow_min_height(&self) -> f32 {
@@ -224,6 +226,7 @@ impl TerrainVisualImpl {
         snow: Option<&crate::snow::SnowRenderState>,
         motion: Option<TerrainVisualMotion>,
         tree_cpu_completed: bool,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
     ) -> Result<(), TerrainError> {
         if !self.enabled {
             return Ok(());
@@ -237,11 +240,11 @@ impl TerrainVisualImpl {
         }
 
         if tree_cpu_completed {
-            self.update_tree_meshes_after_cpu(motion);
+            self.update_tree_meshes_after_cpu(motion, None);
         } else {
             match motion {
-                Some(motion) => self.update_tree_meshes_for_motion(motion),
-                None => self.update_tree_meshes(),
+                Some(motion) => self.update_tree_meshes_for_motion(motion, client_random),
+                None => self.update_tree_meshes(client_random),
             }
         }
         // C++ W3DDisplay::draw: syncTime += TheW3DFrameLengthInMsec only when
@@ -343,6 +346,7 @@ impl TerrainVisual for TerrainVisualImpl {
             snow.as_ref(),
             None,
             false,
+            None,
         )
     }
 
@@ -466,13 +470,15 @@ impl TerrainVisualImpl {
     pub fn update_native(
         &mut self,
         motion: TerrainVisualMotion,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_with_motion(Some(motion), false)
+        self.update_with_motion(Some(motion), false, client_random)
     }
     fn update_with_motion(
         &mut self,
         motion: Option<TerrainVisualMotion>,
         tree_cpu_completed: bool,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.enabled {
             return Ok(());
@@ -571,11 +577,11 @@ impl TerrainVisualImpl {
             }
         }
         if tree_cpu_completed {
-            self.update_tree_meshes_after_cpu(motion);
+            self.update_tree_meshes_after_cpu(motion, None);
         } else {
             match motion {
-                Some(motion) => self.update_tree_meshes_for_motion(motion),
-                None => self.update_tree_meshes(),
+                Some(motion) => self.update_tree_meshes_for_motion(motion, client_random),
+                None => self.update_tree_meshes(client_random),
             }
         }
         let road_meshes_elapsed = road_meshes_started.elapsed();
@@ -637,8 +643,8 @@ mod native_motion_owner_tests {
             gravity,
             breeze: Default::default(),
         };
-        first.update_native(motion(-0.25)).unwrap();
-        second.update_native(motion(-2.0)).unwrap();
+        first.update_native(motion(-0.25), None).unwrap();
+        second.update_native(motion(-2.0), None).unwrap();
         let a = first.get_water_grid_height(0.0, 0.0).unwrap();
         let b = second.get_water_grid_height(0.0, 0.0).unwrap();
         assert!((a - 2.97).abs() < 0.00001, "receiving gravity: {a}");

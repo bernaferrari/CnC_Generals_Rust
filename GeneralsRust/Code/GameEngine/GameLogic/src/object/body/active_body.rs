@@ -18,7 +18,7 @@ use crate::common::{
 use crate::damage::{DamageInfoOutput, DeathType, is_subdual_damage};
 use crate::helpers::{
     TheAudio, TheParticleSystemManager, ThePartitionManager, TheThingFactory,
-    game_client_random_value, get_game_logic_random_value,
+    get_game_logic_random_value,
 };
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::Object;
@@ -1388,7 +1388,7 @@ impl ActiveBody {
 
         for i in 0..target_count {
             let slot_hi = (target_count - i - 1) as i32;
-            let pick = game_client_random_value(0, slot_hi) as usize;
+            let pick = crate::system::engine_stores::active_services().client_random_value(0, slot_hi) as usize;
 
             let mut selected_index = None;
             let mut free_count = 0usize;

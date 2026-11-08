@@ -8,6 +8,7 @@
 //! Author: John K. McDonald, March 2002
 //! Converted to Rust
 
+use crate::common::random_value::RandomState;
 use super::audio_paths::{AudioPathSettings, current_audio_path_settings};
 #[path = "audio_event_selection.rs"]
 mod selection;
@@ -631,16 +632,20 @@ impl AudioEventRts {
         &self.event_name
     }
 
-    pub fn generate_filename(&mut self) {
+    pub fn generate_filename(&mut self, audio_random: &mut RandomState) {
         if self.event_info.is_none() {
             return;
         }
-        self.generate_filename_with_settings(&current_audio_path_settings());
+        self.generate_filename_with_settings(&current_audio_path_settings(), audio_random);
     }
 
     /// The manager supplies its already-borrowed configuration, never a global lookup.
-    pub(crate) fn generate_filename_with_settings(&mut self, paths: &AudioPathSettings) {
-        self.generate_filename_with_selection(paths, &mut AmbientAudioSelection);
+    pub(crate) fn generate_filename_with_settings(
+        &mut self,
+        paths: &AudioPathSettings,
+        audio_random: &mut RandomState,
+    ) {
+        self.generate_filename_with_selection(paths, &mut AmbientAudioSelection(audio_random));
     }
 
     pub(crate) fn generate_filename_with_selection(
@@ -712,16 +717,20 @@ impl AudioEventRts {
         &self.filename_to_load
     }
 
-    pub fn generate_play_info(&mut self) {
+    pub fn generate_play_info(&mut self, audio_random: &mut RandomState) {
         if self.event_info.is_none() {
             self.is_logical_audio = false;
             return;
         }
-        self.generate_play_info_with_settings(&current_audio_path_settings());
+        self.generate_play_info_with_settings(&current_audio_path_settings(), audio_random);
     }
 
-    pub(crate) fn generate_play_info_with_settings(&mut self, paths: &AudioPathSettings) {
-        self.generate_play_info_with_selection(paths, &mut AmbientAudioSelection);
+    pub(crate) fn generate_play_info_with_settings(
+        &mut self,
+        paths: &AudioPathSettings,
+        audio_random: &mut RandomState,
+    ) {
+        self.generate_play_info_with_selection(paths, &mut AmbientAudioSelection(audio_random));
     }
 
     pub(crate) fn generate_play_info_with_selection(
@@ -985,14 +994,15 @@ impl AudioEventRts {
         let handle = event.playing_handle;
 
         if event.filename_to_load.is_empty() {
-            event.generate_filename();
+            // Detached playback task: no audio owner stream is lent here.
+            event.generate_filename(&mut RandomState::default());
         }
         if event.filename_to_load.is_empty() {
             if let Some(resolved) = event.resolve_filename() {
                 event.filename_to_load = resolved;
             }
         }
-        event.generate_play_info();
+        event.generate_play_info(&mut RandomState::default());
 
         if let Some(play_result) =
             super::game_audio::with_sound_playback_hook(|hook| hook.play(&event))

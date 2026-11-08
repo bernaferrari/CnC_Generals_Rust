@@ -14,6 +14,9 @@ pub struct FxViewServices<'a> {
     pub position_visible: &'a mut dyn FnMut(Option<&Coord3D>) -> bool,
     pub create_light_pulse: &'a mut dyn FnMut(DisplayLightPulse) -> bool,
     pub play_fx_audio: &'a mut dyn FnMut(&str, Option<MessageCoord3D>) -> bool,
+    /// Receiving client's presentation random stream.
+    /// Shared with the view's shake sink, which draws from the same stream.
+    pub client_random: &'a std::cell::RefCell<game_engine::common::random_value::RandomState>,
 }
 
 /// Retained Core entrypoints still use their own tactical driver. The adapter
@@ -22,9 +25,15 @@ pub struct FxViewServices<'a> {
 pub(super) fn with_tactical_fx_view_services<R>(
     run: impl FnOnce(&mut FxViewServices<'_>) -> R,
 ) -> R {
+    // Ownerless Core entrypoint: shake draws use a private stream.
+    let mut shake_random = game_engine::common::random_value::RandomState::default();
     let mut shake = |position: &Coord3D, kind| {
         with_tactical_view(|view| {
-            view.shake(&ViewPoint3::new(position.x, position.y, position.z), kind);
+            view.shake(
+                &ViewPoint3::new(position.x, position.y, position.z),
+                kind,
+                &mut shake_random,
+            );
         });
     };
     let mut find_list = |name: &str| crate::fx_list::with_fx_list_store(|s| s.find_fx_list(name));
@@ -36,6 +45,7 @@ pub(super) fn with_tactical_fx_view_services<R>(
     };
     // Ownerless Core entrypoint: no receiving FxClientState is reachable, so
     // light pulses go to a discarded scene and FX audio is not played.
+    let client_random = std::cell::RefCell::new(game_engine::common::random_value::RandomState::default());
     let mut ephemeral = DisplayLightScene::default();
     let mut create_light_pulse = |pulse: DisplayLightPulse| ephemeral.create_pulse(pulse);
     let mut play_fx_audio = |_name: &str, _position: Option<MessageCoord3D>| false;
@@ -47,6 +57,7 @@ pub(super) fn with_tactical_fx_view_services<R>(
         position_visible: &mut fx_pos_cell_is_clear,
         create_light_pulse: &mut create_light_pulse,
         play_fx_audio: &mut play_fx_audio,
+        client_random: &client_random,
     })
 }
 

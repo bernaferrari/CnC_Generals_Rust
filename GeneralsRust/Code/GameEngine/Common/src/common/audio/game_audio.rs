@@ -21,6 +21,7 @@ pub use animation_bridge::{
     get_global_audio_manager, initialize_global_audio_manager, load_audio_event_inis,
     register_animation_sound_library,
 };
+use crate::common::random_value::RandomState;
 use animation_bridge::{
     apply_loaded_audio_settings_to_manager, read_audio_settings_from_game_fs, AnimatedSoundBridge,
 };
@@ -682,6 +683,8 @@ struct FadingAudio {
 /// The return value from add_audio_event can be saved in case the sound needs to loop and/or be
 /// terminated at some point.
 pub struct AudioManager {
+    /// C++ `GameAudioRandomValue` stream owned by this audio manager.
+    audio_random: RandomState,
     /// Optional receiving backend. Absence retains the legacy installed backend.
     playback_recipient: playback::PlaybackRecipient,
     // Settings and configuration
@@ -743,8 +746,14 @@ pub struct AudioManager {
 }
 
 impl AudioManager {
+    /// Audio stream of this manager (seeded by the owner at C++ `InitRandom`).
+    pub fn audio_random_mut(&mut self) -> &mut RandomState {
+        &mut self.audio_random
+    }
+
     pub fn new() -> Self {
         AudioManager {
+            audio_random: RandomState::default(),
             playback_recipient: playback::PlaybackRecipient::default(),
             audio_settings: AudioSettings::default(),
             misc_audio: MiscAudio::default(),
@@ -977,13 +986,16 @@ impl AudioManager {
         event_to_add: &AudioEventRts,
         submission: AudioSubmission<'_>,
     ) -> AudioHandle {
-        self.add_audio_event_with_submission_and_selection(
+        let mut audio_random = std::mem::take(&mut self.audio_random);
+        let handle = self.add_audio_event_with_submission_and_selection(
             event_to_add,
             submission,
-            &mut super::audio_event_rts::AmbientAudioSelection,
+            &mut super::audio_event_rts::AmbientAudioSelection(&mut audio_random),
             false,
             None,
-        )
+        );
+        self.audio_random = audio_random;
+        handle
     }
 
     /// Resolve variation at the originating callback without publishing a play
@@ -1025,13 +1037,16 @@ impl AudioManager {
         event: &AudioEventRts,
         locality: &AudioSubmissionLocality,
     ) -> AudioHandle {
-        self.add_audio_event_with_submission_and_selection(
+        let mut audio_random = std::mem::take(&mut self.audio_random);
+        let handle = self.add_audio_event_with_submission_and_selection(
             event,
             AudioSubmission::Explicit(locality),
-            &mut super::audio_event_rts::AmbientAudioSelection,
+            &mut super::audio_event_rts::AmbientAudioSelection(&mut audio_random),
             true,
             None,
-        )
+        );
+        self.audio_random = audio_random;
+        handle
     }
 
     fn add_audio_event_with_submission_and_selection(
@@ -1909,8 +1924,8 @@ impl AudioManager {
         }
 
         let paths = self.audio_paths();
-        event.generate_filename_with_settings(&paths);
-        event.generate_play_info_with_settings(&paths);
+        event.generate_filename_with_settings(&paths, &mut self.audio_random);
+        event.generate_play_info_with_settings(&paths, &mut self.audio_random);
         for (name, volume) in &self.adjusted_volumes {
             if *name == event.get_event_name() {
                 event.set_volume(*volume);

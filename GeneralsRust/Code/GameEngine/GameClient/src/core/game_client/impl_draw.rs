@@ -63,6 +63,7 @@ impl GameClient {
                     &mut self.render_bridge,
                     &self.drawables.fx,
                     &self.drawables.projected_decals.manager,
+&mut self.client_random,
                 )?;
         }
         Ok(())
@@ -90,6 +91,7 @@ impl GameClient {
             message_stream: &mut self.message_stream,
             client_fx: &self.drawables.fx,
             projected_decals: &self.drawables.projected_decals.manager,
+client_random: &mut self.client_random,
             effects: crate::gui::game_window::WindowEventEffects {
                 cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
                 control_bar_observation: None,
@@ -753,7 +755,7 @@ impl GameClient {
 
         for overlay in &overlays {
             if let Some(renderer) = self.ui_renderer.as_mut() {
-                draw_overlay_anim2d_icons(renderer, overlay);
+                draw_overlay_anim2d_icons(renderer, overlay, &mut self.client_random);
             }
         }
     }
@@ -838,6 +840,7 @@ impl GameClient {
 fn draw_overlay_anim2d_icons(
     renderer: &mut crate::gui::ui_renderer::UIRenderer,
     overlay: &crate::drawable::drawable::DrawableOverlayData,
+    client_random: &mut game_engine::common::random_value::RandomState,
 ) {
     use crate::drawable::drawable::{Anim2DIcon, ICoord2D, Vector3};
     use crate::gui::ui_renderer::UIRect;
@@ -851,7 +854,7 @@ fn draw_overlay_anim2d_icons(
     let hi = ICoord2D::new(region.lo.x + region.width(), region.lo.y + region.height());
 
     let mut try_icon = |template: &str, x: f32, y: f32, w: f32, h: f32, fallback: [f32; 4]| {
-        if let Ok(icon) = Anim2DIcon::from_template_name(template) {
+        if let Ok(icon) = Anim2DIcon::from_template_name(template, client_random) {
             icon.render(
                 Vector3::new(x, y, 0.0),
                 Vector3::new(w.max(1.0), h.max(1.0), 0.0),

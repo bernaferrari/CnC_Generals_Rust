@@ -8,8 +8,7 @@ use crate::common::{
 };
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    TheFXListStore, TheGameLogic, TheObjectCreationListStore, game_client_random_value_real,
-};
+    TheFXListStore, TheGameLogic, TheObjectCreationListStore, };
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
@@ -546,11 +545,11 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
                     if let Ok(obj) = object_arc.read() {
                         if let Some(drawable) = obj.get_drawable() {
                             let shudder = Coord3D::new(
-                                game_client_random_value_real(
+                                crate::system::engine_stores::active_services().client_random_value_real(
                                     -self.module_data.max_shudder,
                                     self.module_data.max_shudder,
                                 ),
-                                game_client_random_value_real(
+                                crate::system::engine_stores::active_services().client_random_value_real(
                                     -self.module_data.max_shudder,
                                     self.module_data.max_shudder,
                                 ),
@@ -586,11 +585,11 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
 
                         if let Some(drawable) = obj.get_drawable() {
                             let shudder = Coord3D::new(
-                                game_client_random_value_real(
+                                crate::system::engine_stores::active_services().client_random_value_real(
                                     -self.module_data.max_shudder,
                                     self.module_data.max_shudder,
                                 ),
-                                game_client_random_value_real(
+                                crate::system::engine_stores::active_services().client_random_value_real(
                                     -self.module_data.max_shudder,
                                     self.module_data.max_shudder,
                                 ),

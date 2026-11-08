@@ -2122,22 +2122,39 @@ impl TerrainVisualImpl {
     }
 
     /// C++ `W3DTreeBuffer::drawTrees` VB fill + wgpu upload. Called every update/draw.
-    pub fn update_tree_meshes(&mut self) {
-        self.update_tree_meshes_observed(None);
+    pub fn update_tree_meshes(&mut self, client_random: Option<&mut game_engine::common::random_value::RandomState>) {
+        self.update_tree_meshes_observed(None, client_random);
     }
-    pub fn update_tree_meshes_for_motion(&mut self, motion: TerrainVisualMotion) {
-        self.update_tree_meshes_observed(Some(motion));
+    pub fn update_tree_meshes_for_motion(
+        &mut self,
+        motion: TerrainVisualMotion,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
+    ) {
+        self.update_tree_meshes_observed(Some(motion), client_random);
     }
-    fn update_tree_meshes_observed(&mut self, motion: Option<TerrainVisualMotion>) {
+    fn update_tree_meshes_observed(
+        &mut self,
+        motion: Option<TerrainVisualMotion>,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
+    ) {
         self.rebind_skybox_background_for_camera();
         self.tree_buffer
             .tick_cpu(false, |_| TreeShroudStatus::Clear);
-        self.finish_tree_meshes(motion, false);
+        self.finish_tree_meshes(motion, false, client_random);
     }
-    pub(super) fn update_tree_meshes_after_cpu(&mut self, motion: Option<TerrainVisualMotion>) {
-        self.finish_tree_meshes(motion, true);
+    pub(super) fn update_tree_meshes_after_cpu(
+        &mut self,
+        motion: Option<TerrainVisualMotion>,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
+    ) {
+        self.finish_tree_meshes(motion, true, client_random);
     }
-    fn finish_tree_meshes(&mut self, motion: Option<TerrainVisualMotion>, sway_completed: bool) {
+    fn finish_tree_meshes(
+        &mut self,
+        motion: Option<TerrainVisualMotion>,
+        sway_completed: bool,
+        client_random: Option<&mut game_engine::common::random_value::RandomState>,
+    ) {
         if self.tree_buffer.take_any_push_changed() {
             self.tree_buffer.force_vertex_rebuild();
         }
@@ -2151,8 +2168,11 @@ impl TerrainVisualImpl {
                 let breeze = motion
                     .map(|motion| motion.breeze)
                     .unwrap_or_else(script_tree_breeze);
-                if self.tree_buffer.cur_sway_version() != breeze.breeze_version {
-                    self.tree_buffer.update_sway(breeze, &mut GameClientSwayRng);
+                if let (true, Some(client_random)) = (
+                    self.tree_buffer.cur_sway_version() != breeze.breeze_version,
+                    client_random,
+                ) {
+                    self.tree_buffer.update_sway(breeze, &mut GameClientSwayRng(client_random));
                     self.overlay.last_sway_version = breeze.breeze_version;
                 }
             }
@@ -2816,15 +2836,15 @@ fn bgra_u32_to_rgba_f32(packed: u32) -> [f32; 4] {
 }
 
 /// Live `GameClientRandomValue` stream for C++ `W3DTreeBuffer::updateSway`.
-struct GameClientSwayRng;
+struct GameClientSwayRng<'a>(&'a mut game_engine::common::random_value::RandomState);
 
-impl crate::terrain::TreeRandom for GameClientSwayRng {
+impl crate::terrain::TreeRandom for GameClientSwayRng<'_> {
     fn int_range(&mut self, min: i32, max: i32) -> i32 {
-        crate::client_random_value::get_game_client_random_value(min, max, file!(), line!())
+        self.0.next_int(min, max)
     }
 
     fn real_range(&mut self, min: f32, max: f32) -> f32 {
-        crate::client_random_value::get_game_client_random_value_real(min, max, file!(), line!())
+        self.0.next_real(min, max)
     }
 }
 

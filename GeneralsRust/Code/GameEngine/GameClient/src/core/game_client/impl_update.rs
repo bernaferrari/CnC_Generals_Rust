@@ -2581,6 +2581,7 @@ impl GameClient {
                 &mut self.render_bridge,
                 &self.drawables.fx,
                 &self.drawables.projected_decals.manager,
+&mut self.client_random,
             )?;
             display.update_receiving(self.script_display.fx_mut())?;
         }
@@ -2650,6 +2651,7 @@ impl GameClient {
                 &mut self.render_bridge,
                 &self.drawables.fx,
                 &self.drawables.projected_decals.manager,
+&mut self.client_random,
             )?;
             thread::sleep(Duration::from_millis(100));
         }
@@ -2883,7 +2885,7 @@ impl GameClient {
 
         if self.input_authority == ClientInputAuthority::StandaloneCore {
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
-                crate::eva::update_eva_system(&mut ui.eva);
+                crate::eva::update_eva_system(&mut ui.eva, &mut self.client_random);
             }
         }
 

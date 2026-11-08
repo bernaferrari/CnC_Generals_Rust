@@ -410,7 +410,7 @@ impl SpeechSystem {
 
         // Pick a random sound file (client stream index in [0, n-1]).
         let filename = if !line.sound_files.is_empty() {
-            let idx = crate::GameClientRandomValue!(0, (line.sound_files.len() - 1) as i32) as usize;
+            let idx = crate::GameClientRandomValue!(engine.client_random_mut(), 0, (line.sound_files.len() - 1) as i32) as usize;
             line.sound_files
                 .get(idx)
                 .cloned()

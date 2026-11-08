@@ -7,7 +7,7 @@
 //! FILE: AutoDepositUpdate.cpp lines 1-268
 
 use crate::common::{AsciiString, Bool, Coord3D, Int, KindOf, ModuleData, ObjectID, UnsignedInt};
-use crate::helpers::{TheGameText, TheInGameUI, game_client_random_value_real};
+use crate::helpers::{TheGameText, TheInGameUI};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::CONSTRUCTION_COMPLETE;
 use crate::object::Object as GameObject;
@@ -306,8 +306,8 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                     let geom = obj_read.get_geometry_info();
                     let width = ((geom.bounds().max.x - geom.bounds().min.x).abs() * 0.5) * 0.3;
                     let depth = ((geom.bounds().max.y - geom.bounds().min.y).abs() * 0.5) * 0.3;
-                    pos.x += game_client_random_value_real(-width, width);
-                    pos.y += game_client_random_value_real(-depth, depth);
+                    pos.x += crate::system::engine_stores::active_services().client_random_value_real(-width, width);
+                    pos.y += crate::system::engine_stores::active_services().client_random_value_real(-depth, depth);
                 }
 
                 obj_read.with_controlling_player(|player_guard| {

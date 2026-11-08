@@ -13,7 +13,6 @@ use crate::core::DrawableId;
 use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::random_value::get_game_client_random_value_real;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -44,12 +43,12 @@ pub use generals_particles::{
 /// Temporary engine RNG adapter. The extracted primitives accept an explicit
 /// random stream; this extension preserves current production draw timing.
 pub trait SampleParticleRandomVariable {
-    fn sample(&self) -> f32;
+    fn sample(&self, rng: &mut game_engine::common::random_value::RandomState) -> f32;
 }
 
 impl SampleParticleRandomVariable for GameClientRandomVariable {
-    fn sample(&self) -> f32 {
-        self.sample_with(get_game_client_random_value_real)
+    fn sample(&self, rng: &mut game_engine::common::random_value::RandomState) -> f32 {
+        self.sample_with(|lo, hi| rng.next_real(lo, hi))
     }
 }
 
@@ -1952,7 +1951,7 @@ mod tests {
         let var = GameClientRandomVariable::new(1.0, 5.0);
 
         for _ in 0..100 {
-            let sample = var.sample();
+            let sample = var.sample(&mut Default::default());
             assert!(sample >= 1.0 && sample <= 5.0);
         }
     }

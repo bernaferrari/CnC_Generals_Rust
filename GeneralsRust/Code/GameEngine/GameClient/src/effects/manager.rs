@@ -16,6 +16,8 @@ use crate::system::SubsystemInterface;
 
 /// Central effects manager coordinating all visual effects
 pub struct EffectsManager {
+    /// This manager's own presentation stream (legacy standalone effects).
+    random: game_engine::common::random_value::RandomState,
     /// Configuration settings
     config: EffectsConfig,
 
@@ -47,6 +49,7 @@ impl EffectsManager {
     /// Create a new effects manager
     pub fn new() -> Self {
         Self {
+            random: Default::default(),
             config: EffectsConfig::default(),
             particle_systems: HashMap::new(),
             particle_renderer: GenericParticleRenderer::new(),
@@ -216,7 +219,7 @@ impl EffectsManager {
             system.set_lod(lod);
 
             // Update system
-            system.update(delta_time, &self.config);
+            system.update(&mut self.random, delta_time, &self.config);
 
             // Mark finished systems for removal
             if system.is_finished() {
