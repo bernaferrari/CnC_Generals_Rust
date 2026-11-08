@@ -575,3 +575,74 @@ fn authored_nested_bone_fx_borrows_same_session_impulse_and_world_visibility() {
     logic.session_view.advance_impulse();
     assert!(logic.session_view.impulse.offset.length_squared() > 0.0);
 }
+
+#[test]
+fn armor_damage_bone_fx_uses_each_receiving_view_after_world_move() {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::object::DamageHitContext;
+    use game_engine::common::ini::ini_damage_fx::{DamageFX, DamageType as IniDamageType};
+    use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
+
+    let mut catalog = install_session_shake_definition("FX_DamageBoneChild");
+    let mut list = FXList::new("FX_DamageBoneParent".into());
+    list.add_nugget(FXNugget::FXListAtBonePos {
+        fx_name: "FX_DamageBoneChild".into(),
+        bone_name: "Muzzle".into(),
+        orient_to_bone: false,
+    });
+    catalog.add_fx_list(
+        "FX_DamageBoneParent".into(),
+        game_client::fx_list::FXList::from_definition(&list),
+    );
+    let (mut first, id, _) = world(0, 10.0, &catalog);
+    let (mut second, peer_id, _) = world(0, 10.0, &catalog);
+    for (logic, victim) in [(&mut first, id), (&mut second, peer_id)] {
+        let mut definition = DamageFX::new();
+        definition.set_major_minor_fx(
+            IniDamageType::Unresistable,
+            Some("FX_DamageBoneParent".into()),
+            None,
+            0.0,
+        );
+        logic.damage_fx_definitions.add_damage_fx("DamageBone".into(), definition);
+        let mut template = logic.templates["FxOwnerUnit"].clone();
+        template.set_health(100.0);
+        template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: None,
+            damage_fx: Some("DamageBone".into()),
+        });
+        let mut object = crate::game_logic::Object::new(template, victim, Team::China);
+        object.owner_player_id = Some(8);
+        object.set_position(Vec3::new(10.0, 4.0, 12.0));
+        logic.objects.insert(victim, object);
+        reveal_fx_positions(logic, 0);
+        logic.session_view.target = Vec3::new(10.0, 0.0, 12.0);
+    }
+
+    let mut moved = Box::new(first);
+    let mut first_view = BoneView::new(17, id.0);
+    let mut second_view = BoneView::new(18, peer_id.0);
+    for (logic, victim, view) in [
+        (&mut *moved, id, &mut first_view),
+        (&mut second, peer_id, &mut second_view),
+    ] {
+        logic.apply_owned_damage_with_effects(
+            victim,
+            10.0,
+            None,
+            DamageType::Unresistable,
+            HostDeathType::Normal,
+            None,
+            &DamageHitContext::default(),
+            &mut crate::game_logic::ScriptPresentationEffects {
+                view: Some(view),
+                ..Default::default()
+            },
+        ).unwrap();
+        assert!(logic.session_view.impulse.intensity > 0.0);
+    }
+    assert_eq!(first_view.visits, vec![0, 1]);
+    assert_eq!(second_view.visits, vec![0, 1]);
+}
