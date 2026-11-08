@@ -7,8 +7,8 @@
 pub struct TheMessageStream;
 
 impl TheMessageStream {
-    /// Append a message - returns a builder that queues on drop.
-    pub fn append_message(msg_type: MessageType) -> crate::messages::MessageBuilder {
+    /// Build an ownerless message; this legacy path does not deliver it.
+    pub fn append_message(msg_type: MessageType) -> crate::messages::MessageBuilder<'static> {
         crate::messages::append_message(msg_type)
     }
 }

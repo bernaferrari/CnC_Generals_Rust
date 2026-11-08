@@ -3,20 +3,21 @@
 //!
 //! Memory-efficient cell information structure for A* pathfinding.
 //! This is allocated only when needed to save memory.
+//! This standalone cell-info facade is not Main's A* implementation; Main
+//! uses `ai::pathfind_astar`. Its link operations do not perform list sorting
+//! or automatically change the open/closed flags.
 
 use super::*;
 use crate::common::*;
-use std::ptr;
+use std::marker::PhantomData;
 
 /// PathfindCellInfo structure matching C++ PathfindCellInfo class
 #[derive(Debug)]
 pub struct PathfindCellInfo {
-    // A* search linked lists (using raw pointers to match C++ behavior)
-    next_open: *mut PathfindCellInfo, // for A* "open" list, shared by closed list
-    prev_open: *mut PathfindCellInfo, // for A* "open" list, shared by closed list
-
-    // A* search parent tracking
-    path_parent: *mut PathfindCellInfo, // "parent" cell from pathfinder
+    // Internal keys are resolved only through the owning pool's scope.
+    next_open: Option<CellKey>,
+    prev_open: Option<CellKey>,
+    path_parent: Option<CellKey>,
 
     // A* cost estimates
     total_cost: u16,  // total estimated cost (f = g + h)
@@ -49,9 +50,9 @@ impl PathfindCellInfo {
     /// Create a new PathfindCellInfo
     pub fn new(pos: &ICoord2D) -> Self {
         Self {
-            next_open: ptr::null_mut(),
-            prev_open: ptr::null_mut(),
-            path_parent: ptr::null_mut(),
+            next_open: None,
+            prev_open: None,
+            path_parent: None,
             total_cost: 0,
             cost_so_far: 0,
             pos: *pos,
@@ -217,64 +218,16 @@ impl PathfindCellInfo {
         }
     }
 
-    /// Get path parent (unsafe due to raw pointer)
-    pub fn get_path_parent(&self) -> Option<&PathfindCellInfo> {
-        if self.path_parent.is_null() {
-            None
-        } else {
-            // SAFETY: `path_parent` is either null or was set to a cell info
-            // owned by the A* pool, which outlives the search that reads it.
-            Some(unsafe { &*self.path_parent })
-        }
-    }
-
-    /// Set path parent
-    pub fn set_path_parent(&mut self, parent: *mut PathfindCellInfo) {
-        self.path_parent = parent;
-    }
-
-    /// Clear path parent
+    /// Clear path parent.
     pub fn clear_path_parent(&mut self) {
-        self.path_parent = ptr::null_mut();
-    }
-
-    /// Get next open list item (unsafe due to raw pointer)
-    pub fn get_next_open(&self) -> Option<&PathfindCellInfo> {
-        if self.next_open.is_null() {
-            None
-        } else {
-            // SAFETY: `next_open` points at another info owned by the same
-            // pool for the duration of the open-list walk; non-null here.
-            Some(unsafe { &*self.next_open })
-        }
-    }
-
-    /// Set next open list item
-    pub fn set_next_open(&mut self, next: *mut PathfindCellInfo) {
-        self.next_open = next;
-    }
-
-    /// Get previous open list item (unsafe due to raw pointer)
-    pub fn get_prev_open(&self) -> Option<&PathfindCellInfo> {
-        if self.prev_open.is_null() {
-            None
-        } else {
-            // SAFETY: `prev_open` points at another info owned by the same
-            // pool for the duration of the open-list walk; non-null here.
-            Some(unsafe { &*self.prev_open })
-        }
-    }
-
-    /// Set previous open list item
-    pub fn set_prev_open(&mut self, prev: *mut PathfindCellInfo) {
-        self.prev_open = prev;
+        self.path_parent = None;
     }
 
     /// Reset all values for reuse
     pub fn reset(&mut self, pos: &ICoord2D) {
-        self.next_open = ptr::null_mut();
-        self.prev_open = ptr::null_mut();
-        self.path_parent = ptr::null_mut();
+        self.next_open = None;
+        self.prev_open = None;
+        self.path_parent = None;
         self.total_cost = 0;
         self.cost_so_far = 0;
         self.pos = *pos;
@@ -292,67 +245,194 @@ impl Default for PathfindCellInfo {
     }
 }
 
-// Memory pool management for PathfindCellInfo (simplified version of C++ implementation)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CellKey {
+    index: usize,
+    generation: u64,
+}
+
+/// Identity valid only within the pool scope that produced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathfindCellId<'scope> {
+    key: CellKey,
+    // Invariance prevents identities from different scopes being mixed.
+    brand: PhantomData<fn(&'scope mut ()) -> &'scope mut ()>,
+}
+
+struct CellEntry {
+    info: PathfindCellInfo,
+    generation: u64,
+    allocated: bool,
+}
+
+/// Reusable storage for the standalone cell-info facade.
 pub struct PathfindCellInfoPool {
-    pool: Vec<Box<PathfindCellInfo>>,
-    free_list: Vec<*mut PathfindCellInfo>,
+    pool: Vec<CellEntry>,
+    free_list: Vec<usize>,
+}
+
+/// Exclusive access to a pool and its scoped cell identities.
+pub struct PathfindCellInfoScope<'scope> {
+    pool: &'scope mut PathfindCellInfoPool,
+    brand: PhantomData<fn(&'scope mut ()) -> &'scope mut ()>,
 }
 
 impl PathfindCellInfoPool {
-    /// Create a new pool
     pub fn new() -> Self {
-        Self {
-            pool: Vec::new(),
-            free_list: Vec::new(),
-        }
+        Self { pool: Vec::new(), free_list: Vec::new() }
     }
 
-    /// Allocate a PathfindCellInfo from the pool
-    pub fn allocate(&mut self, pos: &ICoord2D) -> *mut PathfindCellInfo {
-        if let Some(ptr) = self.free_list.pop() {
-            // SAFETY: `free_list` only ever holds pointers handed out by
-            // `allocate`, whose pointees stay alive inside `self.pool` until
-            // `clear` (which empties the free list too). Releasing requires
-            // `&mut self`, so no concurrent use is possible.
-            unsafe {
-                (*ptr).reset(pos);
-                ptr
-            }
-        } else {
-            let mut info = Box::new(PathfindCellInfo::new(pos));
-            let ptr = info.as_mut() as *mut PathfindCellInfo;
-            self.pool.push(info);
-            ptr
-        }
-    }
-
-    /// Release a PathfindCellInfo back to the pool
-    pub fn release(&mut self, ptr: *mut PathfindCellInfo) {
-        if !ptr.is_null() {
-            self.free_list.push(ptr);
-        }
-    }
-
-    /// Clear all allocations
-    pub fn clear(&mut self) {
-        self.pool.clear();
-        self.free_list.clear();
+    /// Identities cannot escape this closure or be used with another pool.
+    ///
+    /// ```compile_fail
+    /// use gamelogic::path::PathfindCellInfoPool;
+    /// use gamelogic::common::ICoord2D;
+    /// let (mut first, mut second) = (PathfindCellInfoPool::new(), PathfindCellInfoPool::new());
+    /// first.with_scope(|a| second.with_scope(|b| {
+    ///     let foreign = a.allocate(&ICoord2D::new(0, 0));
+    ///     b.get(foreign);
+    /// }));
+    /// ```
+    pub fn with_scope<R>(&mut self, f: impl for<'scope> FnOnce(&mut PathfindCellInfoScope<'scope>) -> R) -> R {
+        f(&mut PathfindCellInfoScope { pool: self, brand: PhantomData })
     }
 }
 
-// SAFETY: `free_list` holds `*mut PathfindCellInfo` into `pool` (`Box`es owned
-// by this struct). Those heap addresses do not change when the pool is moved,
-// so sending the pool is sound as long as no outstanding `allocate` pointer is
-// used after the move (callers treat returned pointers as borrows of the
-// pool). `allocate` / `release` / `clear` all require `&mut self`.
-//
-// Not `Sync`: the same raw pointers must not be used from two threads at once.
-// Share the pool only behind exclusive access (`Mutex` / `&mut`).
-// SAFETY: `free_list` holds raw pointers into `pool` (`Box`es owned by this
-// struct). Those heap addresses survive moves of the pool itself, so sending
-// it is sound provided callers never hold an outstanding `allocate` pointer
-// across the move. All mutating methods require `&mut self`.
-unsafe impl Send for PathfindCellInfoPool {}
+impl Default for PathfindCellInfoPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'scope> PathfindCellInfoScope<'scope> {
+    fn id(key: CellKey) -> PathfindCellId<'scope> {
+        PathfindCellId { key, brand: PhantomData }
+    }
+
+    fn valid(&self, key: CellKey) -> bool {
+        self.pool.pool.get(key.index)
+            .is_some_and(|slot| slot.allocated && slot.generation == key.generation)
+    }
+
+    pub fn allocate(&mut self, pos: &ICoord2D) -> PathfindCellId<'scope> {
+        let index = if let Some(index) = self.pool.free_list.pop() {
+            let slot = &mut self.pool.pool[index];
+            slot.info.reset(pos);
+            slot.allocated = true;
+            index
+        } else {
+            let index = self.pool.pool.len();
+            self.pool.pool.push(CellEntry {
+                info: PathfindCellInfo::new(pos),
+                generation: 0,
+                allocated: true,
+            });
+            index
+        };
+        Self::id(CellKey { index, generation: self.pool.pool[index].generation })
+    }
+
+    pub fn get(&self, id: PathfindCellId<'scope>) -> Option<&PathfindCellInfo> {
+        self.valid(id.key).then(|| &self.pool.pool[id.key.index].info)
+    }
+
+    fn get_mut(&mut self, id: PathfindCellId<'scope>) -> Option<&mut PathfindCellInfo> {
+        if self.valid(id.key) {
+            Some(&mut self.pool.pool[id.key.index].info)
+        } else {
+            None
+        }
+    }
+
+    pub fn set_costs(&mut self, id: PathfindCellId<'scope>, cost_so_far: u16, total_cost: u16) -> bool {
+        if let Some(info) = self.get_mut(id) {
+            info.set_cost_so_far(cost_so_far);
+            info.set_total_cost(total_cost);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_open(&mut self, id: PathfindCellId<'scope>, open: bool) -> bool {
+        if let Some(info) = self.get_mut(id) {
+            info.set_open(open);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_closed(&mut self, id: PathfindCellId<'scope>, closed: bool) -> bool {
+        if let Some(info) = self.get_mut(id) {
+            info.set_closed(closed);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Release a live cell; stale identities are rejected, including after reuse.
+    pub fn release(&mut self, id: PathfindCellId<'scope>) -> bool {
+        if !self.valid(id.key) {
+            return false;
+        }
+        let slot = &mut self.pool.pool[id.key.index];
+        slot.allocated = false;
+        // Retire the slot rather than wrapping its generation.
+        if let Some(next) = slot.generation.checked_add(1) {
+            slot.generation = next;
+            self.pool.free_list.push(id.key.index);
+        }
+        true
+    }
+
+    pub fn clear(&mut self) {
+        for index in 0..self.pool.pool.len() {
+            let slot = &self.pool.pool[index];
+            if slot.allocated {
+                let id = Self::id(CellKey { index, generation: slot.generation });
+                self.release(id);
+            }
+        }
+    }
+
+    fn link(&self, id: PathfindCellId<'scope>, select: impl FnOnce(&PathfindCellInfo) -> Option<CellKey>) -> Option<PathfindCellId<'scope>> {
+        let key = select(self.get(id)?)?;
+        self.valid(key).then(|| Self::id(key))
+    }
+
+    fn set_link(&mut self, id: PathfindCellId<'scope>, target: Option<PathfindCellId<'scope>>, select: impl FnOnce(&mut PathfindCellInfo) -> &mut Option<CellKey>) -> bool {
+        if target.is_some_and(|target| !self.valid(target.key)) {
+            return false;
+        }
+        if let Some(info) = self.get_mut(id) {
+            *select(info) = target.map(|target| target.key);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn path_parent(&self, id: PathfindCellId<'scope>) -> Option<PathfindCellId<'scope>> {
+        self.link(id, |info| info.path_parent)
+    }
+    pub fn set_path_parent(&mut self, id: PathfindCellId<'scope>, parent: Option<PathfindCellId<'scope>>) -> bool {
+        self.set_link(id, parent, |info| &mut info.path_parent)
+    }
+    pub fn next_open(&self, id: PathfindCellId<'scope>) -> Option<PathfindCellId<'scope>> {
+        self.link(id, |info| info.next_open)
+    }
+    pub fn set_next_open(&mut self, id: PathfindCellId<'scope>, next: Option<PathfindCellId<'scope>>) -> bool {
+        self.set_link(id, next, |info| &mut info.next_open)
+    }
+    pub fn prev_open(&self, id: PathfindCellId<'scope>) -> Option<PathfindCellId<'scope>> {
+        self.link(id, |info| info.prev_open)
+    }
+    pub fn set_prev_open(&mut self, id: PathfindCellId<'scope>, prev: Option<PathfindCellId<'scope>>) -> bool {
+        self.set_link(id, prev, |info| &mut info.prev_open)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -405,29 +485,44 @@ mod tests {
     }
 
     #[test]
-    fn test_pathfind_cell_info_pool() {
+    fn pool_links_and_reuse_are_scoped() {
         let mut pool = PathfindCellInfoPool::new();
-        let pos = ICoord2D::new(5, 10);
+        pool.with_scope(|cells| {
+            let a = cells.allocate(&ICoord2D::new(1, 0));
+            let b = cells.allocate(&ICoord2D::new(2, 0));
+            let c = cells.allocate(&ICoord2D::new(3, 0));
+            assert!(cells.set_costs(a, 10, 20));
+            assert!(cells.set_open(a, true));
+            assert_eq!(cells.get(a).unwrap().get_total_cost(), 20);
+            assert!(cells.get(a).unwrap().is_open());
+            assert!(cells.set_next_open(a, Some(b)));
+            assert!(cells.set_prev_open(b, Some(a)));
+            assert!(cells.set_next_open(b, Some(c)));
+            assert!(cells.set_prev_open(c, Some(b)));
+            assert!(cells.set_path_parent(c, Some(b)));
+            assert!(cells.set_path_parent(b, Some(a)));
+            assert_eq!(cells.next_open(a), Some(b));
+            assert_eq!(cells.prev_open(c), Some(b));
+            assert_eq!(cells.path_parent(c).and_then(|id| cells.path_parent(id)), Some(a));
 
-        let ptr = pool.allocate(&pos);
-        assert!(!ptr.is_null());
-
-        // SAFETY: `ptr` came from `pool.allocate` and its pointee is still
-        // alive inside `pool.pool` until released.
-        unsafe {
-            assert_eq!((*ptr).get_pos(), &pos);
-        }
-
-        pool.release(ptr);
-
-        // Allocate again should reuse the same object
-        let ptr2 = pool.allocate(&ICoord2D::new(15, 25));
-        assert_eq!(ptr, ptr2); // Should be the same pointer
-
-        // SAFETY: same as above: `ptr2` references an allocation owned by
-        // `pool.pool` that has not been dropped.
-        unsafe {
-            assert_eq!((*ptr2).get_pos(), &ICoord2D::new(15, 25));
-        }
+            // Remove the middle list member, preserving its neighbours.
+            assert!(cells.set_next_open(a, Some(c)));
+            assert!(cells.set_prev_open(c, Some(a)));
+            assert!(cells.release(b));
+            assert_eq!(cells.next_open(a), Some(c));
+            assert_eq!(cells.prev_open(c), Some(a));
+            assert_eq!(cells.path_parent(c), None);
+            assert!(cells.get(b).is_none());
+            assert!(!cells.release(b));
+            let reused = cells.allocate(&ICoord2D::new(4, 0));
+            assert_ne!(b, reused);
+            assert_eq!(cells.get(reused).unwrap().get_pos(), &ICoord2D::new(4, 0));
+            assert_eq!(cells.path_parent(c), None);
+            assert!(!cells.set_next_open(a, Some(b)));
+            cells.clear();
+            assert!(cells.get(a).is_none());
+            let after_clear = cells.allocate(&ICoord2D::new(5, 0));
+            assert_ne!(a, after_clear);
+        });
     }
 }

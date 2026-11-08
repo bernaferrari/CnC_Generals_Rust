@@ -137,7 +137,17 @@ impl GameMessageQueue {
     }
 
     /// Append and return a builder that commits into this queue on drop.
-    pub fn append(&mut self, message_type: MessageType) -> MessageBuilder {
+    ///
+    /// The builder retains the exclusive queue borrow until it is committed or dropped.
+    ///
+    /// ```compile_fail
+    /// # use gamelogic::messages::{GameMessageQueue, MSG_DO_STOP};
+    /// let mut queue = GameMessageQueue::new();
+    /// let builder = queue.append(MSG_DO_STOP);
+    /// drop(queue);
+    /// drop(builder);
+    /// ```
+    pub fn append(&mut self, message_type: MessageType) -> MessageBuilder<'_> {
         MessageBuilder::new_owned(message_type, self)
     }
 }
@@ -147,16 +157,16 @@ impl GameMessageQueue {
 /// A builder created without an owner (legacy `append_message`) drops the
 /// message on commit instead of touching process-wide state.
 #[derive(Debug)]
-pub struct MessageBuilder {
+pub struct MessageBuilder<'a> {
     message: Option<GameMessage>,
-    queue: Option<*mut GameMessageQueue>,
+    queue: Option<&'a mut GameMessageQueue>,
 }
 
-impl MessageBuilder {
-    fn new_owned(message_type: MessageType, queue: &mut GameMessageQueue) -> Self {
+impl<'a> MessageBuilder<'a> {
+    fn new_owned(message_type: MessageType, queue: &'a mut GameMessageQueue) -> Self {
         Self {
             message: Some(GameMessage::new(message_type)),
-            queue: Some(queue as *mut GameMessageQueue),
+            queue: Some(queue),
         }
     }
 
@@ -168,10 +178,8 @@ impl MessageBuilder {
     }
 
     fn push_into_sink(&mut self, msg: GameMessage) {
-        if let Some(ptr) = self.queue {
-            // SAFETY: pointer originates from GameMessageQueue::append and the
-            // builder cannot outlive that exclusive borrow.
-            unsafe { (*ptr).push(msg) }
+        if let Some(queue) = &mut self.queue {
+            queue.push(msg);
         } else {
             log::debug!(
                 "GameMessageQueue: dropping unowned message id={}",
@@ -188,7 +196,7 @@ impl MessageBuilder {
     }
 }
 
-impl Deref for MessageBuilder {
+impl Deref for MessageBuilder<'_> {
     type Target = GameMessage;
 
     fn deref(&self) -> &Self::Target {
@@ -198,7 +206,7 @@ impl Deref for MessageBuilder {
     }
 }
 
-impl DerefMut for MessageBuilder {
+impl DerefMut for MessageBuilder<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.message
             .as_mut()
@@ -206,7 +214,7 @@ impl DerefMut for MessageBuilder {
     }
 }
 
-impl Drop for MessageBuilder {
+impl Drop for MessageBuilder<'_> {
     fn drop(&mut self) {
         if let Some(msg) = self.message.take() {
             self.push_into_sink(msg);
@@ -219,7 +227,7 @@ impl Drop for MessageBuilder {
 ///
 /// Prefer `GameMessageQueue::append`. Without an owner the message is dropped
 /// on commit (no process-wide store).
-pub fn append_message(message_type: MessageType) -> MessageBuilder {
+pub fn append_message(message_type: MessageType) -> MessageBuilder<'static> {
     MessageBuilder::new_unowned(message_type)
 }
 

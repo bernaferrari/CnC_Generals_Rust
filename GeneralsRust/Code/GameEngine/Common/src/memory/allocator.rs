@@ -3,6 +3,10 @@
 //! This module implements the core slab allocator that manages
 //! memory blocks for typed objects. It handles allocation,
 //! deallocation, and memory layout.
+//!
+//! Slabs retain a runtime-configured alignment and stride while keeping object
+//! addresses stable across pool growth. Occupancy and generation metadata
+//! determine which slot payloads may be accessed as initialized objects.
 
 use super::config::PoolConfig;
 use super::generation::{FreeListEntry, Generation};
@@ -72,16 +76,12 @@ impl<T> Slab<T> {
 
     /// Allocate a new slab with the given capacity and alignment.
     pub fn new(capacity: usize, alignment: usize) -> Result<Self, String> {
-        let (align, slot_stride, layout) = Self::checked_layout(capacity, alignment)?;
+        let (_, slot_stride, layout) = Self::checked_layout(capacity, alignment)?;
 
-        // SAFETY: We just validated the layout
-        let ptr = unsafe {
-            let raw_ptr = alloc(layout);
-            if raw_ptr.is_null() {
-                return Err("Failed to allocate slab memory".to_string());
-            }
-            NonNull::new_unchecked(raw_ptr as *mut SlotEntry<T>)
-        };
+        // SAFETY: the layout is valid and has nonzero size.
+        let raw_ptr = unsafe { alloc(layout) };
+        let ptr = NonNull::new(raw_ptr.cast::<SlotEntry<T>>())
+            .ok_or_else(|| "Failed to allocate slab memory".to_string())?;
 
         Ok(Self {
             ptr,
@@ -105,20 +105,20 @@ impl<T> Slab<T> {
 
     /// Initialize a slot with a free list entry.
     #[inline]
-    // SAFETY: caller contract below — in bounds and slot currently
-    // free, so the `free` union arm is the initialized one.
+    // SAFETY: the caller must provide an in-bounds, vacant slot.
     pub unsafe fn init_free_slot(&mut self, index: usize, entry: FreeListEntry) {
         let slot = self.slot_ptr(index);
-        ptr::write(&mut (*slot).free, entry);
+        // Do not create a reference to the uninitialized free-list payload.
+        ptr::write(ptr::addr_of_mut!((*slot).free), entry);
     }
 
     /// Read the free list entry from a slot.
     #[inline]
-    // SAFETY: caller contract below — in bounds and slot currently
-    // free, so reading the `free` arm is initialized.
+    // SAFETY: the caller must provide an in-bounds free slot with an
+    // initialized free-list entry.
     pub unsafe fn read_free_entry(&self, index: usize) -> FreeListEntry {
         let slot = self.slot_ptr(index);
-        ptr::read(&(*slot).free)
+        ptr::read(ptr::addr_of!((*slot).free))
     }
 
     /// Write a value into a slot.
@@ -128,18 +128,19 @@ impl<T> Slab<T> {
     pub unsafe fn write_value(&mut self, index: usize, value: T) {
         let slot = self.slot_ptr(index);
         ptr::write(
-            &mut (*slot).value,
+            ptr::addr_of_mut!((*slot).value),
             ManuallyDrop::new(MaybeUninit::new(value)),
         );
     }
 
     /// Read a value from a slot.
     #[inline]
-    // SAFETY: caller contract below — in bounds and slot holds a
-    // live, fully-initialized T.
-    pub unsafe fn read_value(&self, index: usize) -> T {
+    // SAFETY: the caller must provide an in-bounds slot containing a live,
+    // fully initialized T. The exclusive borrow prevents aliases to the value
+    // while it is moved out.
+    pub unsafe fn read_value(&mut self, index: usize) -> T {
         let slot = self.slot_ptr(index);
-        ManuallyDrop::into_inner(ptr::read(&(*slot).value)).assume_init()
+        ManuallyDrop::into_inner(ptr::read(ptr::addr_of!((*slot).value))).assume_init()
     }
 
     /// Get a reference to a value in a slot.
@@ -549,15 +550,10 @@ impl<T> PoolAllocator<T> {
             remaining -= slab.capacity();
         }
 
-        // This should never happen if debug_assert passed
-        // But if it does in release mode, return last slab to avoid UB
-        let last_idx = self.slabs.len().saturating_sub(1);
-        let last_capacity = self.slabs.get(last_idx).map_or(0, |s| s.capacity());
-        eprintln!(
-            "CRITICAL: Index {} out of range in locate_slot (capacity: {}), returning last slot",
+        panic!(
+            "Index {} out of range in locate_slot (capacity: {})",
             index, self.total_capacity
-        );
-        (last_idx, last_capacity.saturating_sub(1))
+        )
     }
 
     /// Get memory usage in bytes.
@@ -665,25 +661,6 @@ impl<T> PoolAllocator<T> {
                 break;
             }
         }
-
-        // After removing slots, we need to update indices for all remaining slots
-        // that come after the removed range
-        if count > 0 {
-            self.reindex_free_list_after_removal(base_index, count);
-        }
-    }
-
-    /// Re-index free list after removing slots.
-    ///
-    /// When we remove slots, all indices above the removed range need to
-    /// be decremented by the number of slots removed.
-    fn reindex_free_list_after_removal(&mut self, _base_index: usize, _count: usize) {
-        // This is a simplification. In a production implementation, you would
-        // need to update all free list indices that reference slots above the
-        // removed range. For now, we accept that shrinking is an expensive operation.
-        //
-        // A better approach would be to use a more sophisticated free list structure
-        // that doesn't require reindexing, such as a separate tracking structure.
     }
 }
 
@@ -895,6 +872,58 @@ mod tests {
         assert!(!allocator.is_occupied(live));
         drop(allocator);
         assert_eq!(drops.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn aligned_growth_shrink_and_reuse_preserve_values_and_drop_once() {
+        use std::cell::Cell;
+
+        struct Tracked<'a> {
+            value: u8,
+            drops: &'a Cell<usize>,
+        }
+        impl Drop for Tracked<'_> {
+            fn drop(&mut self) {
+                self.drops.set(self.drops.get() + 1);
+            }
+        }
+
+        let drops = Cell::new(0);
+        let config = PoolConfigBuilder::new("aligned reuse")
+            .with_initial_capacity(1)
+            .with_grow_by(1)
+            .with_max_capacity(2)
+            .with_alignment(256)
+            .zero_on_alloc()
+            .zero_on_free()
+            .build();
+        let mut allocator = PoolAllocator::new(config).unwrap();
+        let first = allocator.alloc(Tracked { value: 1, drops: &drops }).unwrap();
+        let first_address = allocator.get(first).unwrap() as *const Tracked<'_> as usize;
+        assert_eq!(first_address % 256, 0);
+
+        let second = allocator.alloc(Tracked { value: 2, drops: &drops }).unwrap();
+        assert_eq!(allocator.get(first).unwrap() as *const Tracked<'_> as usize, first_address);
+        assert_eq!((allocator.get(second).unwrap() as *const Tracked<'_> as usize) % 256, 0);
+        let old_generation = allocator.generation(second).unwrap();
+        assert!(allocator.alloc(Tracked { value: 3, drops: &drops }).is_err());
+        assert_eq!(drops.get(), 1);
+        assert_eq!(allocator.get(first).unwrap().value, 1);
+        assert_eq!(allocator.get(second).unwrap().value, 2);
+
+        drop(allocator.dealloc(second).unwrap());
+        assert_eq!(drops.get(), 2);
+        assert!(allocator.get(second).is_none());
+        assert!(allocator.dealloc(second).is_err());
+        assert_eq!(allocator.shrink(1).unwrap(), 1);
+        assert!(allocator.generation(second).is_none());
+        let reused = allocator.alloc(Tracked { value: 4, drops: &drops }).unwrap();
+        assert_eq!(reused, second);
+        assert_ne!(allocator.generation(reused), Some(old_generation));
+        assert_eq!(allocator.get(reused).unwrap().value, 4);
+        assert_eq!(allocator.get(first).unwrap() as *const Tracked<'_> as usize, first_address);
+        drop(allocator);
+        assert_eq!(drops.get(), 4);
     }
 
     #[test]
