@@ -5,7 +5,6 @@
 
 use crate::combo::HAnimCombo;
 use glam::{Mat4, Quat, Vec3};
-use std::collections::HashMap;
 
 /// Pivot structure representing a bone in the hierarchy
 /// This closely matches the C++ PivotClass structure
@@ -19,6 +18,8 @@ pub struct Pivot {
     pub is_visible: bool,                // IsVisible in C++
     pub is_captured: bool,               // For bone capture functionality
     pub capture_transform: Option<Mat4>, // For captured bone override
+    /// Whether the captured translation is applied in world coordinates.
+    pub world_space_translation: bool,
 }
 
 /// HTreeClass - represents a hierarchy tree structure
@@ -27,7 +28,6 @@ pub struct Pivot {
 pub struct HTreeClass {
     pub name: String,
     pub pivots: Vec<Pivot>,
-    pub pivot_name_to_index: HashMap<String, usize>,
     pub scale_factor: f32, // ScaleFactor in C++
 }
 
@@ -37,7 +37,6 @@ impl HTreeClass {
         Self {
             name: String::new(),
             pivots: Vec::new(),
-            pivot_name_to_index: HashMap::new(),
             scale_factor: 1.0,
         }
     }
@@ -47,7 +46,6 @@ impl HTreeClass {
         Self {
             name: name.to_string(),
             pivots: Vec::new(),
-            pivot_name_to_index: HashMap::new(),
             scale_factor: 1.0,
         }
     }
@@ -56,7 +54,6 @@ impl HTreeClass {
     /// Matches C++ Init_Default()
     pub fn init_default(&mut self) {
         self.pivots.clear();
-        self.pivot_name_to_index.clear();
 
         let root_pivot = Pivot {
             name: "RootTransform".to_string(),
@@ -67,10 +64,9 @@ impl HTreeClass {
             is_visible: true,
             is_captured: false,
             capture_transform: None,
+            world_space_translation: false,
         };
 
-        self.pivot_name_to_index
-            .insert("RootTransform".to_string(), 0);
         self.pivots.push(root_pivot);
         self.scale_factor = 1.0;
     }
@@ -92,9 +88,9 @@ impl HTreeClass {
             is_visible: true,
             is_captured: false,
             capture_transform: None,
+            world_space_translation: false,
         };
 
-        self.pivot_name_to_index.insert(name.to_string(), index);
         self.pivots.push(pivot);
     }
 
@@ -110,8 +106,8 @@ impl HTreeClass {
             is_visible: true,
             is_captured: false,
             capture_transform: None,
+            world_space_translation: false,
         };
-        self.pivot_name_to_index.insert(name.to_string(), index);
         self.pivots.push(pivot);
     }
 
@@ -325,33 +321,37 @@ impl HTreeClass {
         self.pivots.get(bone_index).is_some_and(|p| p.is_captured)
     }
 
-    /// Control a captured bone with custom transform
-    pub fn control_bone(&mut self, bone_index: usize, relative_transform: Mat4) {
+    /// Apply a captured control transform after the evaluated pivot transform.
+    /// When `world_space_translation` is true its translation is in world axes.
+    pub fn control_bone(
+        &mut self,
+        bone_index: usize,
+        relative_transform: Mat4,
+        world_space_translation: bool,
+    ) {
         if let Some(pivot) = self.pivots.get_mut(bone_index) {
             if pivot.is_captured {
                 pivot.capture_transform = Some(relative_transform);
+                pivot.world_space_translation = world_space_translation;
             }
         }
     }
 
-    /// Update captured bone transform
+    /// Apply the control to the already evaluated base or animated transform.
     fn capture_update(&mut self, bone_index: usize) {
-        // Get parent index first to avoid borrow issues
-        let parent_idx = if bone_index < self.pivots.len() {
-            self.pivots[bone_index].parent_idx
-        } else {
-            -1
-        };
-
-        let parent_transform = if parent_idx >= 0 && (parent_idx as usize) < self.pivots.len() {
-            self.pivots[parent_idx as usize].transform
-        } else {
-            Mat4::IDENTITY
-        };
-
-        if let Some(pivot) = self.pivots.get_mut(bone_index) {
-            if let Some(capture_transform) = pivot.capture_transform {
-                pivot.transform = parent_transform * capture_transform;
+        let pivot = &mut self.pivots[bone_index];
+        if let Some(mut control) = pivot.capture_transform {
+            if pivot.world_space_translation {
+                let translation = control.w_axis.truncate();
+                control.w_axis.x = 0.0;
+                control.w_axis.y = 0.0;
+                control.w_axis.z = 0.0;
+                pivot.transform *= control;
+                pivot.transform.w_axis.x += translation.x;
+                pivot.transform.w_axis.y += translation.y;
+                pivot.transform.w_axis.z += translation.z;
+            } else {
+                pivot.transform *= control;
             }
         }
     }

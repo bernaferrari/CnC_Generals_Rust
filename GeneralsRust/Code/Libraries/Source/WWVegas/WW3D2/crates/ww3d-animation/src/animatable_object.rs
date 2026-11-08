@@ -295,8 +295,8 @@ impl Animatable3DObjClass {
 
     /// Control a captured bone with custom transform
     /// Reference: animobj.cpp:692-706 (Animatable3DObjClass::Control_Bone)
-    pub fn control_bone(&mut self, bone_index: usize, bone_transform: Mat4, _world_space: bool) {
-        self.htree.control_bone(bone_index, bone_transform);
+    pub fn control_bone(&mut self, bone_index: usize, bone_transform: Mat4, world_space: bool) {
+        self.htree.control_bone(bone_index, bone_transform, world_space);
         self.is_tree_valid = false;
     }
 

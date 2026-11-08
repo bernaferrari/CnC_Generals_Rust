@@ -63,3 +63,39 @@ fn hierarchy_scale_accumulates_on_bind_and_animated_translations() {
     );
     assert_eq!(tree.get_transform(1).unwrap().w_axis.truncate(), Vec3::new(18.0, 0.0, 0.0));
 }
+
+#[test]
+fn captured_bone_control_applies_local_or_world_translation_after_base_pose() {
+    let mut tree = HTreeClass::default();
+    tree.add_pivot("Turret", 0, Vec3::new(2.0, 0.0, 0.0), Quat::IDENTITY);
+    let mut object = Animatable3DObjClass::new(tree);
+    object.set_transform(Mat4::from_rotation_translation(
+        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Vec3::new(10.0, 20.0, 0.0),
+    ));
+    object.capture_bone(1);
+    let control = Mat4::from_rotation_translation(
+        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Vec3::new(3.0, 0.0, 0.0),
+    );
+
+    object.control_bone(1, control, false);
+    let local = object.get_bone_transform(1).unwrap();
+    assert!(local.w_axis.truncate().abs_diff_eq(Vec3::new(10.0, 25.0, 0.0), 0.00001));
+    assert!(local.x_axis.truncate().abs_diff_eq(Vec3::NEG_X, 0.00001));
+
+    object.control_bone(1, control, true);
+    let world = object.get_bone_transform(1).unwrap();
+    assert!(world.w_axis.truncate().abs_diff_eq(Vec3::new(13.0, 22.0, 0.0), 0.00001));
+    assert!(world.x_axis.truncate().abs_diff_eq(Vec3::NEG_X, 0.00001));
+
+    object.release_bone(1);
+    assert!(!object.is_bone_captured(1));
+    object.update_sub_object_transforms();
+    let released = object.get_bone_transform(1).unwrap();
+    assert!(released.w_axis.truncate().abs_diff_eq(Vec3::new(10.0, 22.0, 0.0), 0.00001));
+    object.capture_bone(1);
+    object.update_sub_object_transforms();
+    let recaptured = object.get_bone_transform(1).unwrap();
+    assert!(recaptured.w_axis.truncate().abs_diff_eq(Vec3::new(10.0, 22.0, 0.0), 0.00001));
+}

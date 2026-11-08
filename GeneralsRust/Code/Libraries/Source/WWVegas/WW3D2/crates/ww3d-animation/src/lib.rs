@@ -91,8 +91,6 @@ pub fn hanim_from_prototype(proto: &AnimationPrototype) -> HAnimClass {
 pub fn htree_from_hierarchy_prototype(proto: &HierarchyPrototype) -> HTreeClass {
     let mut tree = HTreeClass::new();
     tree.name = proto.name.clone();
-    tree.pivots.clear();
-    tree.pivot_name_to_index.clear();
 
     for pivot in &proto.pivots {
         let base_transform = pivot.base_transform();

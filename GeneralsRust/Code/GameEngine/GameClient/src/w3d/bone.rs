@@ -94,9 +94,9 @@ impl W3DHTree {
         self.inner.release_bone(index);
     }
 
-    /// Control a captured bone with a custom transform.
-    pub fn control_bone(&mut self, index: usize, relative_tm: Mat4) {
-        self.inner.control_bone(index, relative_tm);
+    /// Control a captured bone, optionally applying its translation in world space.
+    pub fn control_bone(&mut self, index: usize, relative_tm: Mat4, world_space: bool) {
+        self.inner.control_bone(index, relative_tm, world_space);
     }
 
     /// Check whether a bone is captured.
