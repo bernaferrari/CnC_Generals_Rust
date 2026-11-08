@@ -78,6 +78,7 @@ pub fn breadth_factions() -> BreadthCategoryResult {
     for faction in ["USA", "China", "GLA"] {
         let cfg = SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "BreadthMap".into(),
             random_seed: 0,
             old_factions_only: false,
@@ -151,6 +152,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     let mut logic = GameLogic::new();
     let cfg = SkirmishMatchConfig {
         source_game_info: None,
+        recorded_palette: None,
         map: "Econ".into(),
         random_seed: 0,
         old_factions_only: false,

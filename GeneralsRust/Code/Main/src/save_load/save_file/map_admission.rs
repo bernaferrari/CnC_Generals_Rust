@@ -138,6 +138,7 @@ mod tests {
         SavedSkirmishAdmission {
             config: SkirmishMatchConfig {
                 source_game_info: None,
+                recorded_palette: None,
                 map: source.map_name.clone(),
                 random_seed: 317,
                 old_factions_only: false,

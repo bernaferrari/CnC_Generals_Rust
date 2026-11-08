@@ -3007,8 +3007,8 @@ and inset the destination by the receiving pathfinding grid's cell size.
 
 Native skirmish setup and launch conversion borrow the receiving world's
 multiplayer definitions for shroud and palette selection; a launch descriptor
-retains its own fog setting. Replay admission still cannot recover palette
-identity from equal day colors when their night colors differ.
+retains its own fog setting. Replay admission retains recorded palette indices,
+including distinct night colors sharing the same day color.
 
 Continuous-fire promotion and coast use the rule of the weapon slot that fired,
 while the object retains one tracker across slot and weapon-set changes. Exact

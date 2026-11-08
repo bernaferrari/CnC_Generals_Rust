@@ -7,6 +7,9 @@ pub(crate) fn config_from_recorded_info(
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
     multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
 ) -> Result<Option<SkirmishMatchConfig>, String> {
+    if info.slots.len() != MAX_SLOTS {
+        return Err("recorded GameInfo has an invalid slot count".into());
+    }
     let occupied = info.slots.iter().any(|slot| slot.is_occupied);
     if !occupied {
         return Ok(None);
@@ -33,6 +36,9 @@ fn config_from_recorded_info_in(
     let mut slots = Vec::new();
     for (index, slot) in info.slots.iter().enumerate() {
         let active = slot.is_occupied;
+        if active && (slot.color < -1 || slot.color >= multiplayer.get_num_colors()) {
+            return Err(format!("recorded slot {index} has invalid color index {}", slot.color));
+        }
         let (faction, selection) = if active && (slot.is_observer || slot.player_template == -2) {
             ("Observer".into(), SkirmishPlayerTemplateSelection::Observer)
         } else if active && slot.player_template >= 0 {
@@ -72,7 +78,10 @@ fn config_from_recorded_info_in(
             is_active: active,
             player_template: selection,
             faction,
-            color_rgb: color_rgb_from_multiplayer_index(slot.color, index, multiplayer),
+            color_rgb: multiplayer.get_color_value(slot.color)
+                .filter(|_| slot.color >= 0)
+                .map(|packed| (((packed >> 16) & 255) as u8, ((packed >> 8) & 255) as u8, (packed & 255) as u8))
+                .unwrap_or((0, 0, 0)),
             team: slot.team,
             start_position: slot.start_pos,
             player_name: slot.name.clone(),
@@ -100,11 +109,9 @@ fn config_from_recorded_info_in(
         });
     }
     Ok(Some(SkirmishMatchConfig {
-        // A replay header is not an observed complete saved GameInfo v4 record.
-        // Consequently this projection currently loses recorded palette indices:
-        // equal day RGB entries with distinct night colors cannot be recovered
-        // from the native RGB alone. Do not claim original GameInfo provenance.
+        // A header is not a complete original saved GameInfo v4 record.
         source_game_info: None,
+        recorded_palette: Some(std::array::from_fn(|i| info.slots.get(i).map_or(-1, |s| s.color))),
         map: info.map.clone(),
         random_seed: info.seed,
         old_factions_only: info.old_factions_only,
@@ -181,29 +188,10 @@ pub(crate) fn recording_info(
         };
         let color = if let Some(source) = &admission.source {
             source.slots[slot.slot_index].color
+        } else if let Some(colors) = &config.recorded_palette {
+            colors[slot.slot_index]
         } else {
-            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
-                let mut matches = (0..settings.get_num_colors()).filter(|index| {
-                    settings.get_color_value(*index).is_some_and(|packed| {
-                        (
-                            ((packed >> 16) & 255) as u8,
-                            ((packed >> 8) & 255) as u8,
-                            (packed & 255) as u8,
-                        ) == slot.color_rgb
-                    })
-                });
-                match (matches.next(), matches.next()) {
-                    (Some(index), None) => Ok(index),
-                    (None, _) => Err(format!(
-                        "native recording slot {} color has no observed palette index",
-                        slot.slot_index
-                    )),
-                    (Some(_), Some(_)) => Err(format!(
-                        "native recording slot {} color has ambiguous palette identity",
-                        slot.slot_index
-                    )),
-                }
-            })?
+            return Err(format!("native recording slot {} has no observed palette index", slot.slot_index));
         };
         if color < 0 {
             // Old native saves may contain the former white observer sentinel.

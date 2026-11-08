@@ -478,6 +478,7 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     };
     let config = SkirmishMatchConfig {
         source_game_info: None,
+        recorded_palette: None,
         map: first_map.to_string_lossy().into_owned(),
         random_seed: 31,
         old_factions_only: false,

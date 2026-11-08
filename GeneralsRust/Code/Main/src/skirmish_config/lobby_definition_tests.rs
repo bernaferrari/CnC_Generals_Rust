@@ -34,3 +34,16 @@ pub(crate) fn admit_slot_definitions() {
     )
     .expect("admit slot identity definition inputs");
 }
+
+/// Give each receiving test world the same ordered authored startup content.
+pub(crate) fn admit_slot_world(
+    world: &mut crate::game_logic::GameLogic,
+    definitions: &game_engine::common::rts::player_template::PlayerTemplateStore,
+) {
+    world.admit_player_template_definitions(definitions.clone()).unwrap();
+    world.admit_object_ini_sources([(
+        "slot-owner-objects.ini".into(),
+        "Object AmericaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER\n Body = ActiveBody CommandCenterBody\n  MaxHealth = 5000\n  InitialHealth = 5000\n End\nEnd\n\
+         Object GLACommandCenter\n KindOf = STRUCTURE COMMANDCENTER\n Body = ActiveBody CommandCenterBody\n  MaxHealth = 5000\n  InitialHealth = 5000\n End\nEnd\n".into(),
+    )]).unwrap();
+}

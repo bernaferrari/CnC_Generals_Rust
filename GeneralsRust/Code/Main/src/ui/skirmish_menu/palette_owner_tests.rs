@@ -8,6 +8,8 @@ fn actual_fallback_start_keeps_duplicate_rgb_indices_through_admission_save_and_
         "actual_fallback_start_keeps_duplicate_rgb_indices_through_admission_save_and_rep_header",
         || {
             game_engine::common::ini::ensure_player_templates_loaded();
+            let definitions =
+                (*game_engine::common::rts::player_template::get_player_template_store()).clone();
             let first = game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| {
                 s.get_num_colors()
             });
@@ -25,6 +27,9 @@ End
                 |ini| ini.parse_current_file(),
             )
             .unwrap();
+            let settings = std::sync::Arc::new(
+                game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone),
+            );
             let mut menu = SkirmishMenu::new();
             menu.initialize().unwrap();
             assert!(menu.configure_slot_medium_ai(1));
@@ -61,6 +66,8 @@ End
             assert_eq!(source.slots[0].color, first + 1);
             assert_eq!(source.slots[1].color, first);
             let mut world = crate::game_logic::GameLogic::new();
+            crate::skirmish_config::lobby_definition_tests::admit_slot_world(&mut world, &definitions);
+            world.multiplayer_definitions = Some(settings.clone());
             apply_skirmish_config(&mut world, &config).unwrap();
             assert_eq!(
                 world.get_player(0).unwrap().color_night_rgb,
@@ -81,6 +88,8 @@ End
             assert_eq!(saved.source.as_ref().unwrap().slots[0].color, first + 1);
             assert_eq!(saved.source.as_ref().unwrap().slots[1].color, first);
             let mut restored = crate::game_logic::GameLogic::new();
+            crate::skirmish_config::lobby_definition_tests::admit_slot_world(&mut restored, &definitions);
+            restored.multiplayer_definitions = Some(settings.clone());
             saved.admit(&mut restored).unwrap();
             assert_eq!(
                 restored.get_player(0).unwrap().color_night_rgb,
@@ -126,6 +135,53 @@ End
                 "rep header must not infer first equal RGB index"
             );
             assert_eq!(reader.get_game_info().slots[1].color, first);
+            let replay_config = crate::skirmish_config::replay_admission::config_from_recorded_info(
+                reader.get_game_info(), Some(&definitions), Some(&settings),
+            ).unwrap().unwrap();
+            assert!(replay_config.source_game_info.is_none());
+            let mut missing_settings = crate::game_logic::GameLogic::new();
+            crate::skirmish_config::lobby_definition_tests::admit_slot_world(&mut missing_settings, &definitions);
+            assert!(crate::skirmish_config::apply_skirmish_config_for_mode(
+                &mut missing_settings, &replay_config, crate::game_logic::GameMode::Replay,
+            ).is_err());
+            let mut replay_world = crate::game_logic::GameLogic::new();
+            crate::skirmish_config::lobby_definition_tests::admit_slot_world(&mut replay_world, &definitions);
+            replay_world.multiplayer_definitions = Some(settings.clone());
+            crate::skirmish_config::apply_skirmish_config_for_mode(
+                &mut replay_world, &replay_config, crate::game_logic::GameMode::Replay,
+            ).unwrap();
+            assert_eq!(replay_world.get_player(0).unwrap().color_rgb, (19, 29, 39));
+            assert_eq!(replay_world.get_player(0).unwrap().color_night_rgb, (11, 13, 17));
+            assert_eq!(replay_world.get_player(1).unwrap().color_night_rgb, (3, 5, 7));
+            let replay_saved = replay_world.initial_skirmish_admission.as_ref().unwrap();
+            assert!(replay_saved.source.is_none());
+            assert_eq!(replay_saved.config.recorded_palette.as_ref().unwrap()[0], first + 1);
+            let mut another = crate::game_logic::GameLogic::new();
+            crate::skirmish_config::lobby_definition_tests::admit_slot_world(&mut another, &definitions);
+            another.multiplayer_definitions = Some(settings);
+            replay_saved.admit(&mut another).unwrap();
+            assert_eq!(another.get_player(0).unwrap().color_night_rgb, (11, 13, 17));
+            assert_eq!(another.initial_skirmish_admission.as_ref().unwrap().config.recorded_palette.as_ref().unwrap()[0], first + 1);
+            let mut invalid = reader.get_game_info().clone();
+            invalid.slots[0].color = -2;
+            assert!(crate::skirmish_config::replay_admission::config_from_recorded_info(
+                &invalid, Some(&definitions), another.multiplayer_definitions.as_deref(),
+            ).is_err());
+            invalid.slots[0].color = another.multiplayer_definitions.as_ref().unwrap().get_num_colors();
+            assert!(crate::skirmish_config::replay_admission::config_from_recorded_info(
+                &invalid, Some(&definitions), another.multiplayer_definitions.as_deref(),
+            ).is_err());
+            invalid.slots[0].color = -1;
+            let random = crate::skirmish_config::replay_admission::config_from_recorded_info(
+                &invalid, Some(&definitions), another.multiplayer_definitions.as_deref(),
+            ).unwrap().unwrap();
+            let mut random_world = crate::game_logic::GameLogic::new();
+            crate::skirmish_config::lobby_definition_tests::admit_slot_world(&mut random_world, &definitions);
+            random_world.multiplayer_definitions = another.multiplayer_definitions.clone();
+            crate::skirmish_config::apply_skirmish_config_for_mode(
+                &mut random_world, &random, crate::game_logic::GameMode::Replay,
+            ).unwrap();
+            assert!(random_world.initial_skirmish_admission.as_ref().unwrap().config.recorded_palette.unwrap()[0] >= 0);
         },
     );
 }

@@ -64,6 +64,9 @@ impl SavedSkirmishAdmission {
             if let Some(color) = selected.color {
                 slot.color_rgb = color.rgb;
             }
+            if let (Some(colors), Some(color)) = (&mut config_copy.recorded_palette, selected.color) {
+                colors[slot.slot_index] = color.index;
+            }
             if matches!(
                 slot.player_template,
                 SkirmishPlayerTemplateSelection::Observer
@@ -288,6 +291,7 @@ impl SavedSkirmishAdmission {
         let result = Self {
             config: SkirmishMatchConfig {
                 source_game_info: None,
+                recorded_palette: None,
                 map: info.map_name.clone(),
                 random_seed: info.seed as u32,
                 old_factions_only: false,
@@ -317,6 +321,9 @@ impl SavedSkirmishAdmission {
         }
         if self.config.source_game_info.is_some() {
             return Err("nested initial GameInfo observation".into());
+        }
+        if self.source.is_some() && self.config.recorded_palette.is_some() {
+            return Err("conflicting original and replay palette provenance".into());
         }
         let mut ids = HashSet::new();
         let mut active = 0;
@@ -442,6 +449,19 @@ impl SavedSkirmishAdmission {
             &mut game_engine::common::random_value::RandomState::default(),
             multiplayer,
         )?; // all Exact; consumes no random values
+        if let Some(colors) = &self.config.recorded_palette {
+            for slot in self.config.slots.iter().filter(|slot| slot.is_active) {
+                let color = colors[slot.slot_index];
+                let agrees = with_receiving_multiplayer(multiplayer, |settings| {
+                    color >= 0 && settings.get_color_value(color).is_some_and(|packed| {
+                        (((packed >> 16) & 255) as u8, ((packed >> 8) & 255) as u8, (packed & 255) as u8) == slot.color_rgb
+                    })
+                });
+                if !agrees {
+                    return Err(format!("saved replay slot {} has a receiving palette/RGB disagreement", slot.slot_index));
+                }
+            }
+        }
         if let Some(info) = &self.source {
             for slot in self.config.slots.iter().filter(|slot| slot.is_active) {
                 let color = info.slots[slot.slot_index].color;
@@ -550,6 +570,7 @@ mod tests {
     use super::*;
     #[derive(Serialize)]
     struct HistoricalConfig<'a> {
+        recorded_palette: Option<[i32; MAX_SLOTS]>,
         map: &'a str,
         random_seed: u32,
         old_factions_only: bool,
@@ -560,6 +581,7 @@ mod tests {
     fn genuine_source_observation_does_not_extend_historical_config_bytes() {
         let mut config = SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "Map".into(),
             random_seed: 317,
             old_factions_only: false,
@@ -567,6 +589,7 @@ mod tests {
             slots: Vec::new(),
         };
         let expected = bincode_legacy::serialize(&HistoricalConfig {
+            recorded_palette: None,
             map: &config.map,
             random_seed: config.random_seed,
             old_factions_only: config.old_factions_only,

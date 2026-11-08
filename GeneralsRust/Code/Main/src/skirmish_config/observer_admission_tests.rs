@@ -200,6 +200,7 @@ fn observer_original_capture_retains_raw_sentinel_and_rejects_unknown_negative_t
             let original = original_observer();
             let config = SkirmishMatchConfig {
                 source_game_info: Some((original.clone(), 3)),
+                recorded_palette: None,
                 map: original.map_name.clone(),
                 random_seed: 47,
                 old_factions_only: false,
@@ -240,9 +241,18 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
             use game_engine::common::recorder::{Recorder, RecorderOwnerInputs};
             lobby_definition_tests::admit_slot_definitions();
             let mut original = original_observer();
+            let definitions =
+                (*game_engine::common::rts::player_template::get_player_template_store()).clone();
+            // GameLogic owns an isolated Common context; retain the authored
+            // palette in each receiving world rather than relying on the
+            // caller's ambient fixture after world entry.
+            let settings = std::sync::Arc::new(
+                game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone),
+            );
             original.slots[3].color = -1;
             let config = SkirmishMatchConfig {
                 source_game_info: Some((original.clone(), 3)),
+                recorded_palette: None,
                 map: original.map_name.clone(),
                 random_seed: original.seed as u32,
                 old_factions_only: false,
@@ -255,11 +265,15 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
             let mut invalid = config.clone();
             invalid.source_game_info.as_mut().unwrap().0.slots[3].color = -2;
             let mut rejected_world = GameLogic::new();
+            lobby_definition_tests::admit_slot_world(&mut rejected_world, &definitions);
+            rejected_world.multiplayer_definitions = Some(settings.clone());
             assert!(
                 apply_skirmish_config(&mut rejected_world, &invalid).is_err(),
                 "new occupied observer input must reject the invented color -2 sentinel"
             );
             let mut world = GameLogic::new();
+            lobby_definition_tests::admit_slot_world(&mut world, &definitions);
+            world.multiplayer_definitions = Some(settings.clone());
             apply_skirmish_config(&mut world, &config).unwrap();
             let admission = world.initial_skirmish_admission.as_ref().unwrap();
             let source = admission.source.as_ref().unwrap();
@@ -278,18 +292,17 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
                 world.get_player(3).unwrap().color_rgb,
                 world.get_player(3).unwrap().color_night_rgb,
             );
-            let authored =
-                game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
-                    let color = &settings.color_definitions[selected as usize];
-                    let rgb = |packed: u32| {
-                        (
-                            ((packed >> 16) & 255) as u8,
-                            ((packed >> 8) & 255) as u8,
-                            (packed & 255) as u8,
-                        )
-                    };
-                    (rgb(color.get_color()), rgb(color.night_color))
-                });
+            let authored = {
+                let color = &settings.color_definitions[selected as usize];
+                let rgb = |packed: u32| {
+                    (
+                        ((packed >> 16) & 255) as u8,
+                        ((packed >> 8) & 255) as u8,
+                        (packed & 255) as u8,
+                    )
+                };
+                (rgb(color.get_color()), rgb(color.night_color))
+            };
             assert_eq!(
                 expected, authored,
                 "observer day/night must use the selected authored definition"
@@ -305,6 +318,8 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
                     .unwrap()
                     .unwrap();
             let mut restored = GameLogic::new();
+            lobby_definition_tests::admit_slot_world(&mut restored, &definitions);
+            restored.multiplayer_definitions = Some(settings.clone());
             saved.admit(&mut restored).unwrap();
             assert_eq!(
                 (
@@ -354,7 +369,7 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
             let header = reader.get_game_info();
             assert_eq!(header.slots[3].color, selected);
             assert!(header.slots[3].is_observer);
-            let replay_config = replay_admission::config_from_recorded_info(header, None, Some(&game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)))
+            let replay_config = replay_admission::config_from_recorded_info(header, Some(&definitions), Some(&settings))
                 .unwrap()
                 .unwrap();
             assert!(
@@ -371,26 +386,28 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
                 SkirmishPlayerTemplateSelection::Observer
             );
             assert_eq!(replay_slot.color_rgb, expected.0);
-            // Header selected identity is verified above. The historical RGB-only
-            // replay config cannot yet carry an authored night-color receipt;
-            // that separate ingress migration must not manufacture saved GameInfo.
+            let mut replay_world = GameLogic::new();
+            lobby_definition_tests::admit_slot_world(&mut replay_world, &definitions);
+            replay_world.multiplayer_definitions = Some(settings);
+            apply_skirmish_config(&mut replay_world, &replay_config).unwrap();
+            assert_eq!(replay_world.get_player(3).unwrap().color_night_rgb, expected.1);
+            assert_eq!(replay_world.initial_skirmish_admission.as_ref().unwrap().config.recorded_palette.unwrap()[3], selected);
         },
     );
 }
 
 #[test]
-fn source_less_recording_requires_unique_observed_palette_identity() {
+fn source_less_recording_requires_observed_palette_identity() {
     isolated(
-        "source_less_recording_requires_unique_observed_palette_identity",
+        "source_less_recording_requires_observed_palette_identity",
         || {
             lobby_definition_tests::admit_slot_definitions();
             let original = original_observer();
-            let selected = original.slots[3].color;
             let mut admission = SavedSkirmishAdmission::from_original(original).unwrap();
             admission.source = None;
             let before = admission.clone();
-            let (recorded, _) = replay_admission::recording_info(&admission).unwrap();
-            assert_eq!(recorded.slots[3].color, selected);
+            let error = replay_admission::recording_info(&admission).unwrap_err();
+            assert!(error.contains("no observed palette index"), "{error}");
             let mut ini = game_engine::common::ini::INI::new();
             ini.with_inline_source(
                 "MultiplayerColor SameDayDifferentObserverNight\n RGBColor = R:10 G:20 B:30\n RGBNightColor = R:70 G:80 B:90\nEnd\n",
@@ -398,7 +415,7 @@ fn source_less_recording_requires_unique_observed_palette_identity() {
             )
             .unwrap();
             let error = replay_admission::recording_info(&admission).unwrap_err();
-            assert!(error.contains("ambiguous palette identity"), "{error}");
+            assert!(error.contains("no observed palette index"), "{error}");
             assert_eq!(
                 admission, before,
                 "metadata projection must not repair its owner"

@@ -382,6 +382,7 @@ fn host_synthesize_skirmish_config(
     let (start_positions, map_side_factions) = host_map_skirmish_shape(map_name);
     crate::skirmish_config::SkirmishMatchConfig {
         source_game_info: None,
+        recorded_palette: None,
         map: map_name.to_string(),
         // There is no live GameInfo seed here; 0 is the deterministic seed
         // the golden host config uses for the same situation.
@@ -2930,6 +2931,7 @@ End
         let slots = host_synthesize_skirmish_slots(&[0, 1, 2], &["GLA", "China"], "USA");
         let config = crate::skirmish_config::SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "SynthMap".to_string(),
             random_seed: 0,
             old_factions_only: false,

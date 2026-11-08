@@ -26,6 +26,7 @@ fn control_bar_uses_cpp_side_names_and_the_receiving_general_template() {
     peer.admit_player_template_definitions(templates).unwrap();
     let config = SkirmishMatchConfig {
         source_game_info: None,
+        recorded_palette: None,
         map: "Maps/Probe.map".into(),
         random_seed: 31,
         old_factions_only: false,

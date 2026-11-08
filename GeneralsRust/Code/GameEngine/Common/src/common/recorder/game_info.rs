@@ -219,7 +219,7 @@ fn parse_replay_slot_list(
                 }
                 slot.accepted = flags.first() == Some(&b'T');
                 slot.has_map = flags.get(1) == Some(&b'T');
-                let Some(color) = decode_replay_field(fields[4], -1, strict) else {
+                let Ok(color) = fields[4].parse::<i32>() else {
                     return false;
                 };
                 slot.color = color;
@@ -262,7 +262,7 @@ fn parse_replay_slot_list(
                     Some(&b'H') => 3,
                     _ => 2,
                 };
-                let Some(color) = decode_replay_field(fields[1], -1, strict) else {
+                let Ok(color) = fields[1].parse::<i32>() else {
                     return false;
                 };
                 slot.color = color;
@@ -300,4 +300,24 @@ fn parse_replay_slot_list(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+
+    #[test]
+    fn replay_slot_color_must_be_present_but_random_is_valid() {
+        for color in ["", "not-a-color"] {
+            let slots = format!("HOwner,0,0,TT,{color},0,0,0,0:X:X:X:X:X:X:X:");
+            assert!(!parse_replay_slot_list(&slots, &mut ReplayGameInfo::new(), None));
+        }
+        let mut info = ReplayGameInfo::new();
+        assert!(parse_replay_slot_list(
+            "HOwner,0,0,TT,-1,0,0,0,0:X:X:X:X:X:X:X:",
+            &mut info,
+            None,
+        ));
+        assert_eq!(info.slots[0].color, -1);
+    }
 }

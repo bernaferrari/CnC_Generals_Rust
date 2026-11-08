@@ -76,6 +76,7 @@ fn config(store: &PlayerTemplateStore) -> SkirmishMatchConfig {
     .collect();
     SkirmishMatchConfig {
         source_game_info: Some((source, 0)),
+        recorded_palette: None,
         map: "OwnedPaletteAdmission.map".into(),
         random_seed: 73,
         old_factions_only: false,

@@ -1324,6 +1324,7 @@ End
             source.admit_camera_application_movement(rules);
             let config = crate::skirmish_config::SkirmishMatchConfig {
                 source_game_info: None,
+                recorded_palette: None,
                 map: map_name.clone(),
                 random_seed: 0,
                 old_factions_only: false,

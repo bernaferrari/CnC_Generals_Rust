@@ -124,6 +124,9 @@ pub struct SkirmishMatchConfig {
         game_engine::common::system::skirmish_game_info::SkirmishGameInfo,
         i32,
     )>,
+    /// Palette indices observed in a replay header, distinct from complete
+    /// original GameInfo provenance. Persist resolved selections with the match.
+    pub recorded_palette: Option<[i32; MAX_SLOTS]>,
     pub map: String,
     /// C++ `GameInfo::getSeed()` bit pattern used to seed the GameLogic ADC
     /// stream before resolving any `PLAYERTEMPLATE_RANDOM` slots.
@@ -238,6 +241,7 @@ pub fn config_from_skirmish_menu(
     }
     let mut config = SkirmishMatchConfig {
         source_game_info: None,
+        recorded_palette: None,
         map: map.to_string(),
         // The fallback owns this retained seed before Start. Its caller
         // owns this retained seed explicitly; do not synthesize a transient
@@ -258,6 +262,7 @@ pub fn config_from_skirmish_menu(
 pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
     SkirmishMatchConfig {
         source_game_info: None,
+        recorded_palette: None,
         map: map.to_string(),
         random_seed: 0,
         old_factions_only: false,
@@ -710,12 +715,15 @@ fn resolve_skirmish_slots<'a>(
         return Err("no eligible PlayerTemplate is available for Random Skirmish selection".into());
     }
 
+    if config.recorded_palette.is_some() && multiplayer.is_none() {
+        return Err("replay palette requires receiving world multiplayer settings".into());
+    }
+
     // CPP checkForDuplicateColors descends slots, preserving the first index.
     // The temporary selection stream is installed into the receiving match once.
-    let mut colors = config
-        .source_game_info
-        .as_ref()
-        .map(|(source, _)| source.slots.iter().map(|s| s.color).collect::<Vec<_>>());
+    let mut colors = config.source_game_info.as_ref()
+        .map(|(source, _)| source.slots.iter().map(|s| s.color).collect::<Vec<_>>())
+        .or_else(|| config.recorded_palette.map(|colors| colors.to_vec()));
     let palette = match multiplayer {
         Some(settings) => settings.color_definitions.clone(),
         None => game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
@@ -1323,6 +1331,7 @@ pub fn config_from_skirmish_launch_in(
     let source_game_info = Some((info.clone(), descriptor.local_slot));
     Some(SkirmishMatchConfig {
         source_game_info,
+        recorded_palette: None,
         map,
         // Preserve C++ `Int`'s two's-complement bit pattern as the unsigned
         // ADC seed consumed by `InitGameLogicRandom`.
@@ -1469,6 +1478,7 @@ mod tests {
         let tank_index = template_index(&tank);
         let config = SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "Lone Eagle".into(),
             random_seed: 0x1020_3040,
             old_factions_only: false,
@@ -1538,6 +1548,7 @@ mod tests {
         };
         let config = SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "Lone Eagle".into(),
             random_seed: 77,
             old_factions_only: false,
@@ -1575,6 +1586,7 @@ mod tests {
         let boss = exact_template("FactionBossGeneral");
         let config = SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "Lone Eagle".into(),
             random_seed: 0xB055,
             old_factions_only: false,
@@ -1625,6 +1637,7 @@ mod tests {
     fn random_skirmish_slots_bind_once_to_exact_old_faction_templates() {
         let config = SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "Lone Eagle".into(),
             random_seed: 0xC001_D00D,
             old_factions_only: true,
@@ -1694,6 +1707,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let config = SkirmishMatchConfig {
             source_game_info: None,
+            recorded_palette: None,
             map: "Lone Eagle".into(),
             random_seed: 0,
             old_factions_only: false,
