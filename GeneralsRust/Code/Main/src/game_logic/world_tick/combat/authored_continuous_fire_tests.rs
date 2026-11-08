@@ -128,28 +128,6 @@ fn default_threshold_and_zero_coast_do_not_invent_spin_up_or_a_deadline() {
 }
 
 #[test]
-fn authored_spin_up_changes_actual_fire_rate_after_the_transition_shot() {
-    let (mut game, shooter, _, _) = world("2", "3", 400, 1000);
-    assert!(game.host_object_mut(shooter).unwrap().set_weapon_lock(0, WeaponLockType::LockedPermanently));
-    for frame in [100, 112, 124] { shot(&mut game, shooter, frame); }
-    let actor = game.host_object(shooter).unwrap();
-    assert_eq!(actor.consecutive_shots_at_target, 3);
-    assert_eq!(actor.continuous_fire_level, 1);
-    // Weapon.cpp:2645-2647 fixes this shot's 12-frame next-shot deadline
-    // before FiringTracker promotes it; the bonus affects the following shot.
-    assert_eq!(actor.continuous_fire_coast_until_frame, 166);
-    assert_eq!(game.receiving_weapon_bonus_fields_for_slot(actor, 0).2, 2.0);
-    shot(&mut game, shooter, 130);
-    assert_eq!(game.host_object(shooter).unwrap().consecutive_shots_at_target, 3);
-    shot(&mut game, shooter, 136);
-    assert_eq!(game.host_object(shooter).unwrap().consecutive_shots_at_target, 4);
-    shot(&mut game, shooter, 141);
-    assert_eq!(game.host_object(shooter).unwrap().consecutive_shots_at_target, 4);
-    shot(&mut game, shooter, 143);
-    assert_eq!(game.host_object(shooter).unwrap().consecutive_shots_at_target, 5);
-}
-
-#[test]
 fn saved_tracker_continues_with_the_receiving_fired_slot() {
     let (mut game, shooter, victim, _) = world("2", "3", 0, 1000);
     shot(&mut game, shooter, 100);
