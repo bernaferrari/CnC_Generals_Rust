@@ -3,34 +3,6 @@
 use super::*;
 
 impl GameLogic {
-    pub(in crate::game_logic::game_logic) fn build_script_game_state_context(
-        &self,
-    ) -> gamelogic::scripting::GameStateContext {
-        let players = self
-            .players
-            .values()
-            .map(|player| {
-                let color = color_for_player(player.id as u8);
-                gamelogic::scripting::PlayerInfo {
-                    id: player.id,
-                    name: player.name.clone(),
-                    team: player.team as u32,
-                    color: format!("{:02X}{:02X}{:02X}", color.r, color.g, color.b),
-                    is_human: player.is_human,
-                    is_alive: player.is_alive,
-                    score: 0,
-                }
-            })
-            .collect();
-
-        gamelogic::scripting::GameStateContext {
-            map_name: self.map_name.clone(),
-            game_mode: format!("{:?}", self.game_mode),
-            players,
-            objectives: Vec::new(),
-        }
-    }
-
     /// Queue an audio event to be processed by the audio system
     /// Mirrors C++ TheAudio->addAudioEvent() pattern
     /// Test/honesty: pending audio events not yet process_audio_events drained.

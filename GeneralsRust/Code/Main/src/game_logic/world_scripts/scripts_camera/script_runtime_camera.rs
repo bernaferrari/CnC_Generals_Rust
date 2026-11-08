@@ -40,8 +40,6 @@ impl GameLogic {
         // Increment script frame counter
         self.mission_script_counter += 1;
 
-        // Leftover ScriptingEngine event queue / process_events is leftover-only
-        // (hq-8ta4n). Live host conditions/actions walk ScriptEngine::update.
         // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame.
         // The interpreter remains owned and callback-visible throughout the walk.
         self.with_owned_script_engine(|engine, world| {

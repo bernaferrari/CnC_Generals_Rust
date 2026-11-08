@@ -1413,8 +1413,6 @@ pub struct GameLogic {
     pub(crate) beacon_client: super::beacon_client_state::BeaconClientState,
     /// Beacon locations created this frame for HUD highlighting/bloom.
     pub(super) recent_beacons: Vec<Vec3>,
-    /// Leftover ScriptingEngine second brain (hq-8ta4n). Always None on live host.
-    pub(super) script_engine: Option<Arc<ScriptingEngine>>,
     /// Session-owned movable interpreter; execution passes a bounded borrowed
     /// interpreter explicitly to callbacks instead of publishing an active slot.
     pub(crate) owned_script_engine: Option<gamelogic::scripting::engine::ScriptEngine>,

@@ -545,6 +545,9 @@ does not migrate the ambient interpreter or named-object tracker.
 Core's explicitly driven script phase reads and clears freeze state on its
 borrowed interpreter, including the clear-game escape; the undriven Core path
 still uses the ambient interpreter. C++ order: GameLogic.cpp:3598–3616.
+The unused alternate Rhai interpreter, its always-empty Main owner, unreachable
+event converter and unused scripting compatibility re-exports are removed. The
+live SCB interpreter is unchanged.
 
 The bounded extraction records are hq-nuwyh, hq-8ur0z, hq-mltxr, hq-8dkja,
 hq-9707l and hq-g7bxq. Regression fixtures establish Rust behavior and source

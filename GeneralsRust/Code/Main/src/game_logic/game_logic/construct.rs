@@ -26,28 +26,6 @@ impl GameLogic {
         self.mission_scripts.queue_warehouse_set_value(name, cash);
     }
 
-    /// Leftover ScriptingEngine handle. Always None on the live host (hq-8ta4n).
-    pub(super) fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
-        self.script_engine.as_ref().map(Arc::clone)
-    }
-
-    /// Leftover ScriptingEngine event ingest. No-op on live host (hq-8ta4n).
-    pub(super) fn forward_event_to_scripts(&self, event: &ScriptEvent) {
-        let engine = match self.script_engine_handle() {
-            Some(engine) => engine,
-            None => return,
-        };
-
-        let mission_event = match self.convert_script_event(event) {
-            Some(evt) => evt,
-            None => return,
-        };
-
-        if let Err(err) = engine.fire_event_sync(mission_event) {
-            log::error!("Scripting engine failed to accept event: {}", err);
-        }
-    }
-
     pub fn new() -> Self {
         crate::game_logic::ensure_world_ambient();
         log::debug!("GameLogic::new() - creating new GameLogic instance");
@@ -736,7 +714,6 @@ impl GameLogic {
             host_beacons: Vec::new(),
             beacon_client: Default::default(),
             recent_beacons: Vec::new(),
-            script_engine: None,
             objects_receive_difficulty_bonus: true,
             session_difficulty: None,
             owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new_with_services(&world_services).expect("built-in script templates")),

@@ -13,7 +13,6 @@ pub(super) use super::super::mission_scripts::{
 };
 pub(super) use super::super::partition_manager::PartitionManager;
 pub(super) use super::super::radar_notifications::{self, RadarEntry, RadarNotifications};
-pub(super) use super::super::script_events::ScriptEvent;
 pub(super) use super::super::victory::{
     PlayerOutcome, PlayerResult, VictoryCondition, VictoryObservation, VictorySummary,
 };
@@ -50,9 +49,6 @@ pub(super) use gamelogic::player::{
 };
 pub(super) use gamelogic::scripting::core::ScriptList;
 pub(super) use gamelogic::scripting::engine::ScriptActionHandler;
-pub(super) use gamelogic::scripting::{
-    ScriptEvent as MissionScriptEvent, ScriptPriority, ScriptValue, ScriptingEngine,
-};
 #[cfg(test)]
 pub(super) use gamelogic::sides_list::get_sides_list;
 pub(super) use gamelogic::special_power_module::update as update_special_powers;

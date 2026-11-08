@@ -360,39 +360,6 @@ impl GameLogic {
                 .get(&player_id)
                 .is_some_and(|player| !player.is_human)
     }
-
-    pub(in super::super) fn convert_script_event(
-        &self,
-        event: &ScriptEvent,
-    ) -> Option<MissionScriptEvent> {
-        use ScriptValue as Val;
-        let mut params = HashMap::new();
-        let event_type = match event {
-            ScriptEvent::PlayerDefeated { player_id } => {
-                params.insert("player_id".into(), Val::PlayerId(*player_id));
-                "player_defeated"
-            }
-            ScriptEvent::AllianceStateChanged { player_id, state } => {
-                params.insert("player_id".into(), Val::PlayerId(*player_id));
-                params.insert(
-                    "state".into(),
-                    Val::String(format!("{:?}", state).to_lowercase()),
-                );
-                "alliance_state_changed"
-            }
-            ScriptEvent::RevealMapForPlayer { player_id } => {
-                params.insert("player_id".into(), Val::PlayerId(*player_id));
-                "reveal_map_for_player"
-            }
-        };
-
-        Some(MissionScriptEvent {
-            event_type: event_type.to_string(),
-            parameters: params,
-            timestamp: std::time::Instant::now(),
-            priority: ScriptPriority::Normal,
-        })
-    }
 }
 
 #[cfg(test)]

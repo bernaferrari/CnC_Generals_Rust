@@ -1,5 +1,3 @@
-use super::victory_conditions::AllianceState;
-
 /// C++ ScriptActions NAMED_*_SPECIAL_POWER_COUNTDOWN residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NamedSpecialPowerCountdownOp {
@@ -13,17 +11,3 @@ pub enum NamedSpecialPowerCountdownOp {
     Add,
 }
 
-/// Events emitted by gameplay systems that scripts/radar/UI can consume.
-#[derive(Debug, Clone)]
-pub enum ScriptEvent {
-    PlayerDefeated {
-        player_id: u32,
-    },
-    AllianceStateChanged {
-        player_id: u32,
-        state: AllianceState,
-    },
-    RevealMapForPlayer {
-        player_id: u32,
-    },
-}
