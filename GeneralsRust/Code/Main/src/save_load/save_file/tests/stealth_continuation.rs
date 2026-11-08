@@ -1,17 +1,21 @@
 use super::*;
-use crate::game_logic::object::StealthUpdateData;
 
 #[test]
 fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
     fn receiving(seed: u32) -> GameLogic {
         let mut world = GameLogic::new();
-        let mut template = ThingTemplate::new("ArchiveSneaker");
-        template.set_health(100.0);
-        template.stealth_update = Some(StealthUpdateData {
-            innate_stealth: true,
-            ..Default::default()
-        });
-        world.templates.insert("ArchiveSneaker".into(), template);
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "archive-sneaker.ini".into(),
+                "Object ArchiveSneaker\n\
+                 KindOf = INFANTRY SELECTABLE\n\
+                 Body = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                 Behavior = LifetimeUpdate LifetimeTag\nMinLifetime = 60000\nMaxLifetime = 90000\nEnd\n\
+                 Behavior = StealthUpdate StealthTag\nInnateStealth = Yes\nStealthDelay = 0\nEnd\n\
+                 Behavior = DeletionUpdate DeletionTag\nMinLifetime = 120000\nMaxLifetime = 150000\nEnd\n\
+                 End\n".into(),
+            )]).unwrap(),
+        ).unwrap();
         world.add_player(Player::new(0, Team::GLA, "GLA", true));
         world.seed_fx_random(seed);
         world
@@ -21,6 +25,13 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
     let mut saves = SaveFileManager::with_save_directory(directory.path());
     let mut source = receiving(0x1234);
     let mut peer = receiving(0x9876);
+    // Lifetime and Deletion each consume one logic draw; Stealth consumes
+    // one client draw. These separate streams do not establish cross-module
+    // constructor ordering.
+    let mut expected_logic = source.logic_random.snapshot();
+    expected_logic.next_u32();
+    expected_logic.next_u32();
+    let peer_logic_before = peer.logic_random.seed_words();
     let mut source_random = source.session_view.client_random.clone();
     let mut peer_random = peer.session_view.client_random.clone();
     let source_first_phase = source_random.next_real(0.0, std::f32::consts::PI);
@@ -28,6 +39,8 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
     let peer_before_source_creation = peer.session_view.client_random.seed_words();
     let id = source.create_object("ArchiveSneaker", Team::GLA, Vec3::ZERO).unwrap();
     assert_eq!(peer.session_view.client_random.seed_words(), peer_before_source_creation);
+    assert_eq!(source.logic_random.seed_words(), expected_logic.seed_words());
+    assert_eq!(peer.logic_random.seed_words(), peer_logic_before);
     let peer_id = peer.create_object("ArchiveSneaker", Team::GLA, Vec3::ZERO).unwrap();
     source.host_object_mut(id).unwrap().owner_player_id = Some(0);
     peer.host_object_mut(peer_id).unwrap().owner_player_id = Some(0);
@@ -85,6 +98,11 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
             .find(|input| input.id == id)
             .expect("restored friendly stealth is renderable");
         assert!((rendered.presentation_opacity - original.camo_friendly_opacity).abs() < 1e-5);
+        let phase = restored.host_object(id).unwrap().camo_opacity_pulse_phase;
+        let random = restored.session_view.client_random.seed_words();
+        let _ = crate::presentation_frame::PresentationFrame::build_from_logic(&mut restored, 0);
+        assert_eq!(restored.host_object(id).unwrap().camo_opacity_pulse_phase, phase);
+        assert_eq!(restored.session_view.client_random.seed_words(), random);
     }
     assert_eq!(source.session_view.client_random.seed_words(), source_random.seed_words());
     assert_eq!(peer.session_view.client_random.seed_words(), peer_random.seed_words());
