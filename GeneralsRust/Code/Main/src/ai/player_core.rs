@@ -50,7 +50,6 @@ impl AIPlayer {
             next_queue_visit_token: 1,
             production_condition_states: Default::default(),
             skillset_selector: INVALID_SKILLSET_SELECTION,
-            peer_ai_targets: Vec::new(),
             structures_to_repair: Vec::new(),
             repair_dozer: None,
             repair_dozer_origin: Vec3::ZERO,
@@ -1203,7 +1202,7 @@ impl AIPlayer {
     pub(super) fn update_enemy_assessment(
         &mut self,
         game_logic: &mut GameLogic,
-        current_time: f32,
+        _current_time: f32,
     ) {
         // C++ `getAiEnemy`: `frame >= m_frameToCheckEnemy` (initially 0, so the first
         // check is immediate), then the deadline advances 5 seconds of logic frames.
@@ -1212,6 +1211,15 @@ impl AIPlayer {
             return;
         }
         self.frame_to_check_enemy = frame.wrapping_add(5 * LOGIC_FRAMES_PER_SECOND as u32);
+        let mut active = vec![(self.player_id, self.enemy_player_id)];
+        self.acquire_enemy_recursive(game_logic, &mut active);
+    }
+
+    fn acquire_enemy_recursive(
+        &mut self,
+        game_logic: &mut GameLogic,
+        active: &mut Vec<(u32, Option<u32>)>,
+    ) {
 
         let build_facilities = AiWorldView::new(game_logic).build_facility_template_names();
         // C++ keeps the current enemy unless it is in bad shape; liveness and
@@ -1231,7 +1239,7 @@ impl AIPlayer {
         // first slot on ties regardless of the world's HashMap bucket order.
         let mut player_ids: Vec<u32> = game_logic.get_players().keys().copied().collect();
         player_ids.sort_unstable();
-        for player_id in player_ids {
+        for &player_id in &player_ids {
             if player_id == self.player_id {
                 continue;
             }
@@ -1260,17 +1268,13 @@ impl AIPlayer {
             if in_bad_shape {
                 dist_sqr = HUGE_DIST * HUGE_DIST * 0.5;
             }
-            for &(other_id, other_target) in &self.peer_ai_targets {
-                // C++ skips the candidate slot only; our prior target also counts.
-                // Player::isSkirmishAIPlayer delegates to the controller class;
-                // campaign AI targets do not participate in skirmish scoring.
+            for &other_id in &player_ids {
                 if other_id == player_id
-                    || !game_logic
-                        .get_player(other_id)
-                        .is_some_and(|peer| peer.map_side.is_skirmish_ai)
+                    || !game_logic.get_player(other_id).is_some_and(|peer| peer.map_side.is_skirmish_ai)
                 {
                     continue;
                 }
+                let other_target = Self::query_peer_enemy(game_logic, other_id, active);
                 if other_target == Some(player_id) {
                     dist_sqr += 500.0 * 500.0;
                 }
@@ -1301,6 +1305,27 @@ impl AIPlayer {
             self.team.get_name(),
             best
         );
+    }
+
+    pub(super) fn query_peer_enemy(
+        game_logic: &mut GameLogic,
+        player_id: u32,
+        active: &mut Vec<(u32, Option<u32>)>,
+    ) -> Option<u32> {
+        if let Some((_, target)) = active.iter().find(|(id, _)| *id == player_id) {
+            return *target;
+        }
+        let mut peer = game_logic.ai_manager.ai_players.remove(&player_id)?;
+        let frame = game_logic.get_frame();
+        if frame >= peer.frame_to_check_enemy {
+            peer.frame_to_check_enemy = frame.wrapping_add(5 * LOGIC_FRAMES_PER_SECOND as u32);
+            active.push((player_id, peer.enemy_player_id));
+            peer.acquire_enemy_recursive(game_logic, active);
+            active.pop();
+        }
+        let target = peer.enemy_player_id;
+        game_logic.ai_manager.ai_players.insert(player_id, peer);
+        target
     }
 
     /// C++ `AISkirmishPlayer::acquireEnemy` candidate filter:

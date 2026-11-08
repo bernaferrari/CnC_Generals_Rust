@@ -1217,6 +1217,9 @@ impl AIPlayer {
             warehouse_id = self.attacked_supply_center;
         }
         if warehouse_id.is_none() {
+            if self.receiving_is_skirmish_ai(game_logic) {
+                self.update_enemy_assessment(game_logic, 0.0);
+            }
             warehouse_id = self.find_supply_center_in_view(game_logic, min_supplies);
         }
         let Some(warehouse_id) = warehouse_id else {

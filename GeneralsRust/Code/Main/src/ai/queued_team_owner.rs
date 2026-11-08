@@ -3,6 +3,14 @@ use super::*;
 use gamelogic::scripting::engine::ScriptEngine;
 
 impl GameLogic {
+    /// Resolve Player::getCurrentEnemy against this world's skirmish controllers.
+    pub(crate) fn query_owned_ai_enemy(&mut self, player: u32) -> Option<u32> {
+        if !self.get_player(player).is_some_and(|p| p.map_side.is_skirmish_ai) {
+            return None;
+        }
+        AIPlayer::query_peer_enemy(self, player, &mut Vec::new())
+    }
+
     /// Initial-map destruction and factory callbacks observe the installed AI.
     pub(crate) fn initialize_owned_skirmish_ai(&mut self, player: u32, data: &AiDataView) {
         self.initialize_owned_skirmish_ai_with_effects(player, data, &mut Default::default())

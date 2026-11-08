@@ -387,8 +387,6 @@ pub struct AIPlayer {
         std::collections::BTreeMap<String, OwnedProductionConditionState>,
     /// C++ `m_skillsetSelector`. `-1` until first `doUpgradesAndSkills`.
     skillset_selector: i32,
-    /// Other skirmish AIs' current enemy (set by `AIManager` before `update`).
-    peer_ai_targets: Vec<(u32, Option<u32>)>,
 
     // C++ `AIPlayer` bridge-repair queue (`AIPlayer.h:261-268`).
     structures_to_repair: Vec<ObjectId>,

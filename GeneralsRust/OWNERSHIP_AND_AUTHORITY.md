@@ -3118,3 +3118,7 @@ Physical retirement detaches fogged ghost partition data before unregistering
 the object. Orphaned data belongs to the receiving scene, survives restoration,
 and is cleaned up during the unfrozen client update. New object admissions
 clear ID-keyed visibility history without erasing retained ghosts.
+
+Script supply-build and guard-supply resolve skirmish enemies through the
+receiving world's recursive query and frame deadline. Eager AI updates and
+immutable script and detached-manager queries still need migration.

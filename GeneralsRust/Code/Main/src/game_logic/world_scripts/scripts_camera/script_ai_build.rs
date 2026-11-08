@@ -52,6 +52,9 @@ impl GameLogic {
         building: &str,
         cash: i32,
     ) {
+        if let Some(id) = crate::ai::AIManager::resolve_player_id(self, player) {
+            self.query_owned_ai_enemy(id);
+        }
         let mut manager = std::mem::take(&mut self.ai_manager);
         manager.build_by_supplies_for_token(self, player, cash, building);
         self.ai_manager = manager;

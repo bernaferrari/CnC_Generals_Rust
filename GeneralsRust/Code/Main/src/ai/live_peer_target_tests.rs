@@ -67,22 +67,27 @@ fn live_peer_world() -> GameLogic {
 }
 
 #[test]
-fn fixed_tick_later_ai_sees_earlier_slots_new_enemy_in_both_worlds() {
+fn owned_enemy_query_recurses_at_deadline_without_crossing_worlds() {
     let mut first = live_peer_world();
     let mut second = live_peer_world();
-    second.update_with_dt_budget(1.0 / 30.0, 1);
-    first.update_with_dt_budget(1.0 / 30.0, 1);
-    for world in [&first, &second] {
-        assert_eq!(world.frame, 1);
-        assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, Some(3));
-        // Slot1 has just selected slot3: its 500^2 penalty makes slot1 preferable.
-        assert_eq!(world.ai_manager.ai_players[&2].enemy_player_id, Some(1));
-        assert!(world.ai_manager.ai_players[&2].frame_to_check_enemy >= 150);
-    }
+    assert_eq!(first.query_owned_ai_enemy(1), Some(2));
+    assert_eq!(first.ai_manager.ai_players[&2].enemy_player_id, Some(3));
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 150);
+    assert_eq!(first.ai_manager.ai_players[&2].frame_to_check_enemy, 150);
+    assert_eq!(second.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    second.frame = 149;
+    assert_eq!(second.query_owned_ai_enemy(1), Some(2));
+    assert_eq!(second.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
+    first.frame = 149;
+    first.query_owned_ai_enemy(1);
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 150);
+    first.frame = 150;
+    first.query_owned_ai_enemy(1);
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 300);
 }
 
 #[test]
-fn fixed_tick_existing_self_target_participates_when_both_enemies_are_crippled() {
+fn existing_self_target_participates_when_both_enemies_are_crippled() {
     let mut world = world_with_enemy_objects(&[
         (1, Team::USA, Vec3::ZERO, true),
         (2, Team::China, Vec3::new(-100.0, 0.0, 50.0), false),
@@ -95,15 +100,14 @@ fn fixed_tick_existing_self_target_participates_when_both_enemies_are_crippled()
         .get_mut(&1)
         .unwrap()
         .enemy_player_id = Some(2);
-    world.update_with_dt_budget(1.0 / 30.0, 1);
-    assert_eq!(world.frame, 1);
+    world.query_owned_ai_enemy(1);
     // C++ skips peer k==candidate i, not the assessing AI itself. Both enemies
     // get HUGE_DIST^2/2, then our existing slot2 target receives the penalty.
     assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, Some(3));
 }
 
 #[test]
-fn fixed_tick_peer_subtraction_clamps_before_later_slot_penalty() {
+fn peer_subtraction_clamps_before_later_slot_penalty() {
     let center = Vec3::new(-200.0, 0.0, -200.0);
     let mut world = world_with_enemy_objects(&[
         (1, Team::China, center, true),
@@ -120,15 +124,14 @@ fn fixed_tick_peer_subtraction_clamps_before_later_slot_penalty() {
         add_assessing_ai(&mut world, id, center);
     }
     // Retained peer targets are legal inputs even after relationships change.
-    // Inactive peers keep them during this tick, isolating the ordered scoring.
+    // Healthy retained targets remain unchanged when their owners are queried.
     let low = world.ai_manager.ai_players.get_mut(&1).unwrap();
     low.enemy_player_id = Some(2);
     low.is_active = false;
     let high = world.ai_manager.ai_players.get_mut(&3).unwrap();
     high.enemy_player_id = Some(4);
     high.is_active = false;
-    world.update_with_dt_budget(1.0 / 30.0, 1);
-    assert_eq!(world.frame, 1);
+    world.query_owned_ai_enemy(2);
     // Candidate4: max(0 - 625, 0) + 250000 = 250000.
     // Candidate5: 400^2 + 301^2 - 625 = 249976.
     // Reversing the peer slots would score candidate4 at249375 and select it.
@@ -153,7 +156,7 @@ fn campaign_ai_peer_does_not_affect_skirmish_target_scoring() {
         let peer = world.ai_manager.ai_players.get_mut(&2).unwrap();
         peer.is_active = false;
         peer.enemy_player_id = Some(3);
-        world.update_with_dt_budget(1.0 / 30.0, 1);
+        world.query_owned_ai_enemy(1);
         assert_eq!(
             world.ai_manager.ai_players[&1].enemy_player_id,
             Some(expected)
@@ -185,6 +188,8 @@ fn restoring_ai_controllers_does_not_copy_runtime_enemy_state_between_worlds() {
 
     assert_eq!(receiving.ai_manager.ai_players[&1].enemy_player_id, None);
     assert_eq!(receiving.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    assert_eq!(receiving.query_owned_ai_enemy(1), Some(2));
+    assert_eq!(receiving.ai_manager.ai_players[&1].frame_to_check_enemy, 150);
     assert_eq!(source.ai_manager.ai_players[&1].enemy_player_id, Some(2));
     assert_eq!(source.ai_manager.ai_players[&1].frame_to_check_enemy, 301);
 }

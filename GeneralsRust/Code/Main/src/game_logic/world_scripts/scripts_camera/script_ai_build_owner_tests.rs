@@ -218,6 +218,78 @@ fn authored_build_recruit_and_supply_actions_mutate_only_the_borrowed_world() {
 }
 
 #[test]
+fn supply_script_acquires_enemy_at_deadline_in_only_the_receiving_world() {
+    fn prepared_world() -> GameLogic {
+        let (mut world, _, _) = world();
+        let own = world.get_player_mut(1).unwrap();
+        own.map_side.is_skirmish_ai = true;
+        own.alliance_team = 1;
+        let mut enemy = Player::new(2, Team::China, "Enemy", false);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+        let mut structure = ThingTemplate::new("EnemyStructure");
+        structure.add_kind_of(KindOf::Structure);
+        world.templates.insert(structure.name.clone(), structure);
+        world
+            .create_object_for_player("EnemyStructure", 2, Vec3::new(200.0, 0.0, 0.0))
+            .unwrap();
+        let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.base_center = Vec3::ZERO;
+        ai.enemy_player_id = None;
+        ai.frame_to_check_enemy = 150;
+        world.frame = 149;
+        world
+    }
+
+    let mut first = prepared_world();
+    let mut second = prepared_world();
+    let engine = ScriptEngine::new().unwrap();
+    let mut supply = action(
+        ScriptActionType::AiPlayerBuildSupplyCenter,
+        ParameterType::Side,
+        "OwnedBuilder",
+    );
+    supply
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaSupplyCenter".into(),
+        ))
+        .unwrap();
+    supply
+        .add_parameter(Parameter::with_int(ParameterType::Int, 100))
+        .unwrap();
+
+    // Before the deadline no enemy has been acquired, so the warehouse can
+    // be selected. The other same-ID world's controller is untouched.
+    run(&engine, &mut first, &supply);
+    assert_eq!(first.ai_manager.ai_players[&1].enemy_player_id, None);
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 150);
+    assert!(first.ai_manager.ai_players[&1]
+        .building_queue
+        .iter()
+        .any(|pad| pad.template_name == "AmericaSupplyCenter"));
+    assert!(second.ai_manager.ai_players[&1].building_queue.is_empty());
+    assert_eq!(second.ai_manager.ai_players[&1].frame_to_check_enemy, 150);
+    first.ai_manager.ai_players.get_mut(&1).unwrap().building_queue.clear();
+
+    // At the boundary the same real action acquires the enemy before supply
+    // selection; its structure at the warehouse makes that warehouse unsafe.
+    first.frame = 150;
+    run(&engine, &mut first, &supply);
+    assert_eq!(first.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 300);
+    assert!(first.ai_manager.ai_players[&1].building_queue.is_empty());
+    assert_eq!(second.ai_manager.ai_players[&1].enemy_player_id, None);
+    assert_eq!(second.ai_manager.ai_players[&1].frame_to_check_enemy, 150);
+
+    second.frame = 150;
+    run(&engine, &mut second, &supply);
+    assert_eq!(second.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(second.ai_manager.ai_players[&1].frame_to_check_enemy, 300);
+    assert!(second.ai_manager.ai_players[&1].building_queue.is_empty());
+}
+
+#[test]
 fn upgrade_and_nearest_team_actions_apply_immediately_to_actual_owner() {
     use super::condition_cursor_control_tests::admit;
     let (mut owner, unit, _) = world();

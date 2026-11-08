@@ -118,16 +118,9 @@ impl AIManager {
                 if game_logic.team_creation_error().is_some() {
                     return Ok(());
                 }
-                let peers = game_logic
-                    .ai_manager
-                    .ai_players
-                    .iter()
-                    .map(|(&id, ai)| (id, ai.enemy_player_id))
-                    .collect();
                 if let Some(mut ai) = game_logic.ai_manager.ai_players.remove(&id) {
                     let active = ai.is_active;
                     if active {
-                        ai.peer_ai_targets = peers;
                         ai.last_update_time = current_time;
                         ai.update_enemy_assessment(game_logic, current_time);
                         ai.purge_destroyed_or_wiped_queued_teams(game_logic);
@@ -215,10 +208,6 @@ impl AIManager {
         // with accumulated f32 seconds: rounding can silently skip a frame.
         // C++ PlayerList.cpp:221-228 visits ascending player slots. Commands,
         // object admissions and random draws must not depend on HashMap order.
-        let mut peer_targets: Vec<(u32, Option<u32>)> = players
-            .iter()
-            .map(|(&id, ai)| (id, ai.enemy_player_id))
-            .collect();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
         let mut ordered: Vec<_> = players.values_mut().collect();
         for slot in 0..ordered.len() {
@@ -227,7 +216,6 @@ impl AIManager {
             for (team_id, team_name) in &destroyed {
                 ai_player.ai_pre_team_destroy(Some(*team_id), team_name);
             }
-            ai_player.peer_ai_targets = peer_targets.clone();
             let mut notify = |current: &mut AIPlayer, _world: &mut GameLogic, id, name: &str| {
                 for peer in before.iter_mut() {
                     peer.ai_pre_team_destroy(Some(id), name);
@@ -247,9 +235,6 @@ impl AIManager {
                 skirmish,
                 &mut notify,
             );
-            // C++ getCurrentEnemy observes earlier slots after their update,
-            // and later slots before theirs, during this same synchronous pass.
-            peer_targets[slot].1 = ai_player.enemy_player_id;
         }
     }
 
