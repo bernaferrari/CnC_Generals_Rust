@@ -335,6 +335,10 @@ impl GameLogic {
                 }
             }
             if grounded {
+                // Retire before damage callbacks can re-enter the update.
+                if let Some(object) = self.objects.get_mut(&id) {
+                    object.scud_storm_missile_flight = None;
+                }
                 let team = self
                     .objects
                     .get(&id)
@@ -650,6 +654,9 @@ impl GameLogic {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
+                if !o.is_alive() || !o.carpet_bomb_payload {
+                    continue;
+                }
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
                 o.set_position_with_effects(
@@ -660,6 +667,9 @@ impl GameLogic {
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
+                if let Some(object) = self.objects.get_mut(&id) {
+                    object.carpet_bomb_payload = false;
+                }
                 let (dmg, hits, destroyed) = self.apply_fuel_air_radius_damage_with_effects(
                     id,
                     producer,
@@ -957,6 +967,9 @@ impl GameLogic {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
+                if !o.is_alive() || !o.artillery_barrage_shell {
+                    continue;
+                }
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
                 o.set_position_with_effects(
@@ -967,6 +980,9 @@ impl GameLogic {
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
+                if let Some(object) = self.objects.get_mut(&id) {
+                    object.artillery_barrage_shell = false;
+                }
                 let _ = self.apply_fuel_air_radius_damage_with_effects(
                     id,
                     producer,

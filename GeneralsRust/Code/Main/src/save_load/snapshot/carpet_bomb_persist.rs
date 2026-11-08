@@ -43,11 +43,9 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    // Fail-closed: a reused GameLogic must not keep pre-load remaining bombs.
-    game_logic.carpet_bomb_flight_reg.clear();
+fn decode(bytes: &[u8]) -> SaveLoadResult<Option<CarpetBombPersistPayload>> {
     let Some(suffix) = find_cbpd_suffix(bytes) else {
-        return Ok(());
+        return Ok(None);
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
@@ -64,7 +62,30 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let payload: CarpetBombPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("CBPD payload decode: {err}")))?;
-    game_logic.carpet_bomb_flight_reg = payload.registry;
+    Ok(Some(payload))
+}
+
+pub(super) fn preflight_live_delivery(
+    bytes: &[u8],
+    strikes: &[crate::game_logic::special_power_strikes::HostSpecialPowerStrike],
+) -> SaveLoadResult<()> {
+    let payload = decode(bytes)?;
+    if strikes.iter().any(|strike| {
+        strike.live_carpet_delivery
+            && strike.phase == crate::game_logic::special_power_strikes::HostStrikePhase::Queued
+    }) && payload.is_none()
+    {
+        return Err(SaveLoadError::Corrupted(
+            "live carpet delivery has no pending-flight continuation".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    game_logic.carpet_bomb_flight_reg = decode(bytes)?
+        .map(|payload| payload.registry)
+        .unwrap_or_default();
     Ok(())
 }
 

@@ -2,6 +2,50 @@
 use super::*;
 
 #[test]
+fn artillery_out_of_order_deliveries_damage_only_the_receiving_world_once() {
+    use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+
+    fn world() -> (GameLogic, ObjectId, u32) {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let source = logic.create_object("TestTank", Team::USA, Vec3::new(-500.0, 0.0, 0.0)).unwrap();
+        let victim = logic.create_object("TestTank", Team::GLA, Vec3::ZERO).unwrap();
+        let object = logic.host_object_mut(victim).unwrap();
+        object.health.current = 1000.0;
+        object.health.maximum = 1000.0;
+        object.template_mut().armor = 0.0;
+        let strike = logic.special_power_strikes.queue(
+            HostSuperweaponKind::ArtilleryBarrage, source, Team::USA, Vec3::ZERO, 0,
+        );
+        let queued = logic.special_power_strikes.get_mut(strike).unwrap();
+        queued.impact_frame = 20;
+        queued.ocl_points = vec![Vec3::ZERO, Vec3::ZERO];
+        queued.ocl_shell_frames = vec![20, 10];
+        (logic, victim, strike)
+    }
+
+    let (mut owner, victim, strike) = world();
+    let (mut peer, peer_victim, peer_strike) = world();
+    assert_eq!((victim, strike), (peer_victim, peer_strike));
+    owner.frame = 10;
+    owner.update_special_power_strikes().unwrap();
+    let after_first = owner.host_object(victim).unwrap().health.current;
+    assert!(after_first < 1000.0);
+    assert_eq!(peer.host_object(peer_victim).unwrap().health.current, 1000.0);
+    owner.update_special_power_strikes().unwrap();
+    assert_eq!(owner.host_object(victim).unwrap().health.current, after_first);
+    owner.frame = 20;
+    owner.update_special_power_strikes().unwrap();
+    let after_second = owner.host_object(victim).unwrap().health.current;
+    assert!(after_second < after_first);
+    owner.update_special_power_strikes().unwrap();
+    assert_eq!(owner.host_object(victim).unwrap().health.current, after_second);
+    peer.frame = 10;
+    peer.update_special_power_strikes().unwrap();
+    assert_eq!(peer.host_object(peer_victim).unwrap().health.current, after_first);
+}
+
+#[test]
 fn artillery_barrage_host_path_queues_and_applies_delayed_multi_shell_damage() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::special_power_strikes::{

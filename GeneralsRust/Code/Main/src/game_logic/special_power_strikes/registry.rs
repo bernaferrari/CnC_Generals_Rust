@@ -540,21 +540,14 @@ impl HostSpecialPowerStrikeRegistry {
         self.remnant_damage_applications_total = remnant_damage_applications_total;
     }
 
-    /// Restore-path reconciliation for live warhead ownership.
-    ///
-    /// `live_{a10,carpet,anthrax,scud,neutron}_delivery` mark a strike whose
-    /// warhead is owned by flying payload objects (C++ DeliverPayloadAIUpdate
-    /// jets / AttackNugget missiles). Those per-object flight residuals are
-    /// live-only and do not survive a snapshot, so restoring the flag would
-    /// suppress the registry impact path forever and silently drop the
-    /// strike. After a load, every strike falls back to its persisted impact
-    /// contract: the registry applies the queued damage on `impact_frame`
-    /// (C++ xfers the SpecialPowerModule countdown, not the jet).
+    /// Restore ownership for flight paths whose remaining actor state is not
+    /// yet captured by the snapshot. Carpet's pending drops and live payload
+    /// components are persisted, so its warheads must remain the owner.
     pub fn fail_live_delivery_ownership_back_to_registry(&mut self) {
         for strike in self.strikes.values_mut() {
             strike.live_neutron_delivery = false;
             strike.live_scud_delivery = false;
-            strike.live_carpet_delivery = false;
+            // Carpet transports, payloads and pending drops survive restore.
             strike.live_a10_delivery = false;
             strike.live_anthrax_delivery = false;
         }

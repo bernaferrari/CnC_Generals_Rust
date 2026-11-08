@@ -1680,10 +1680,9 @@ impl SnapshotBuilder {
                 snapshot.remnant_objects_spawned,
                 snapshot.remnant_damage_applications_total,
             );
-        // Flight-object warhead ownership (A10 / CarpetBomb / AnthraxBomb /
-        // Scud / Neutron live deliveries) is a live-only residual: the flight
-        // objects do not persist, so ownership falls back to the registry
-        // impact path after load and the persisted impact still lands.
+        // Carpet's actor components and pending drops survive snapshots; its
+        // persisted live flag must continue to suppress the registry blast.
+        // The remaining non-A10 flight ownership still falls back here.
         game_logic
             .special_power_strikes_mut()
             .fail_live_delivery_ownership_back_to_registry();

@@ -2,6 +2,44 @@
 use super::super::*;
 
 #[test]
+fn carpet_live_payloads_remain_the_damage_owner_after_restore() {
+    use crate::command_system::SpecialPowerType;
+
+    let mut source = GameLogic::new();
+    ensure_strike_test_tank(&mut source);
+    let caster = source.create_object("StrikeTestTank", Team::USA, Vec3::new(-500.0, 0.0, 0.0)).unwrap();
+    let target = Vec3::new(40.0, 0.0, 0.0);
+    let victim = source.create_object("StrikeTestTank", Team::GLA, target).unwrap();
+    let enemy = source.host_object_mut(victim).unwrap();
+    enemy.health.current = 5000.0;
+    enemy.health.maximum = 5000.0;
+    enemy.template_mut().armor = 0.0;
+    let strike = source.queue_special_power_strike(&SpecialPowerType::CarpetBomb, caster, target).unwrap();
+    assert!(source.special_power_strikes().get(strike).unwrap().live_carpet_delivery);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    assert!(restored.special_power_strikes().get(strike).unwrap().live_carpet_delivery);
+    for frame in 1..350 {
+        source.set_current_frame(frame);
+        restored.set_current_frame(frame);
+        source.update_carpet_bomb_flights();
+        restored.update_carpet_bomb_flights();
+        source.update_special_power_strikes().unwrap();
+        restored.update_special_power_strikes().unwrap();
+        assert_eq!(
+            source.host_object(victim).unwrap().health.current,
+            restored.host_object(victim).unwrap().health.current,
+            "live and restored payloads diverged at frame {frame}",
+        );
+    }
+    assert!(source.host_object(victim).unwrap().health.current < 5000.0);
+}
+
+#[test]
 fn special_power_daisy_cutter_mid_flight_save_load_still_impacts() {
     use crate::command_system::SpecialPowerType;
 

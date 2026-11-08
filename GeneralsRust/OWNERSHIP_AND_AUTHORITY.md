@@ -41,6 +41,10 @@ identity and is applied separately. Overlapping damage is not collapsed into a
 formation prefix. Rust snapshots preserve delivery identities and queue-time
 draws. Equal-frame ordering uses formation index; equivalence to the original
 native scheduler's heap order remains unverified.
+Live carpet-bomb delivery ownership survives snapshot restoration; live payload
+flights retire before damage callbacks to prevent duplicate impact on re-entry.
+Exact live-strike attribution, callback-error recovery and Scud/artillery flight
+continuation remain open.
 
 ## Authored point defense
 

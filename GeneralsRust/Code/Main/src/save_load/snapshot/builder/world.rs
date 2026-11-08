@@ -688,6 +688,10 @@ impl SnapshotBuilder {
             snapshot,
         )?;
         super::super::subdual_persist::preflight_from_lifecycle_tail(lifecycle_tail, snapshot)?;
+        super::super::carpet_bomb_persist::preflight_live_delivery(
+            lifecycle_tail,
+            &snapshot.special_power_strikes.strikes,
+        )?;
 
         let body_rules_candidate =
             super::super::body_rules_persist::prepare(lifecycle_tail, snapshot.version)?;

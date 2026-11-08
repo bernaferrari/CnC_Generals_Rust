@@ -79,7 +79,9 @@ impl HostSpecialPowerStrikeRegistry {
     ) -> Vec<HostStrikeImpactPlan> {
         let mut plans = Vec::new();
         for strike in self.strikes.values() {
-            if strike.phase != HostStrikePhase::Queued || current_frame < strike.impact_frame {
+            if strike.phase != HostStrikePhase::Queued
+                || (!strike.kind.is_multi_strike() && current_frame < strike.impact_frame)
+            {
                 continue;
             }
             // Live DeliverPayload flights own the warhead path end-to-end:
