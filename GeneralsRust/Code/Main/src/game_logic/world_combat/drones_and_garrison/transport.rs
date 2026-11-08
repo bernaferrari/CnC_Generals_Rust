@@ -1,6 +1,10 @@
 use super::super::super::*;
 use super::firepoints::*;
 
+#[cfg(test)]
+#[path = "transport_tests.rs"]
+mod tests;
+
 impl GameLogic {
     /// Residual fire-from-transport: docked passengers auto-engage nearest
     /// enemy in weapon range. HelixContain riders fire from hull origin +8 Y
@@ -113,57 +117,46 @@ impl GameLogic {
             return;
         }
 
-        let Some(weapon) = attacker.weapon.as_ref() else {
-            return;
-        };
-        let range_bonus = self.receiving_weapon_bonus_fields_for_slot(attacker, 0).1;
-        let range = (weapon.range * range_bonus
-            - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25).max(0.0);
+        let mut best = None;
+        for (&id, target) in self.objects.registered() {
+            if id == passenger_id || id == cid || !target.is_alive()
+                || target.team == team || target.team == Team::Neutral
+                || target.is_effectively_stealthed()
+                || !crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    target.is_kind_of(KindOf::Attackable),
+                    target.is_kind_of(KindOf::Structure),
+                    target.is_kind_of(KindOf::Infantry),
+                    target.is_kind_of(KindOf::Vehicle),
+                    target.is_kind_of(KindOf::Aircraft),
+                )
+            {
+                continue;
+            }
+            let Some(slot) = attacker.select_combat_weapon_slot_with_solo_set(
+                target, current_time, &self.solo_weapon_bonus_set,
+            ) else {
+                continue;
+            };
+            let Some(weapon) = attacker.weapon_slot(slot) else {
+                continue;
+            };
+            let range_bonus = self.receiving_weapon_bonus_fields_for_slot(attacker, slot).1;
+            let range = (weapon.range * range_bonus
+                - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25).max(0.0);
+            let distance = fire_pos.distance(target.get_position());
+            if range > 0.0 && distance <= range && best.is_none_or(|(_, d, _)| distance < d) {
+                best = Some((id, distance, slot));
+            }
+        }
 
-        // Pure residual acquire query (fire decision choice phase).
-        let candidates: Vec<_> = self
-            .objects
-            .registered()
-            .filter(|(id, _)| **id != passenger_id && **id != cid)
-            .map(|(id, obj)| {
-                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
-                    obj.is_kind_of(KindOf::Attackable),
-                    obj.is_kind_of(KindOf::Structure),
-                    obj.is_kind_of(KindOf::Infantry),
-                    obj.is_kind_of(KindOf::Vehicle),
-                    obj.is_kind_of(KindOf::Aircraft),
-                );
-                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                    id: *id,
-                    team: obj.team,
-                    position: obj.get_position(),
-                    is_alive: obj.is_alive(),
-                    is_neutral: obj.team == Team::Neutral,
-                    under_construction: obj.status.under_construction,
-                    combat_kind,
-                    effectively_stealthed: obj.is_effectively_stealthed(),
-                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
-                    eject_invulnerable: obj.is_eject_invulnerable(),
-                }
-            })
-            .collect();
-        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
-            passenger_id,
-            team,
-            fire_pos,
-            candidates,
-            |_| range,
-            |c| c.is_alive && c.team != team && !c.is_neutral && c.combat_kind,
-        );
-
-        let Some((target_id, _, _)) = best else {
+        let Some((target_id, _, slot)) = best else {
             return;
         };
 
         if !self.fire_owned_passive_weapon_with_effects(
             passenger_id,
             target_id,
-            0,
+            slot,
             fire_pos,
             presentation_effects,
         ) {

@@ -187,7 +187,9 @@ impl CombatSystem {
                         impact,
                         objects.read(),
                     );
-                    if !projectile.no_damage && projectile.explosion_radius > 0.0 {
+                    if !projectile.no_damage
+                        && (projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0)
+                    {
                         damage_events.push(Self::splash_area_event(
                             projectile,
                             objects.read(),
@@ -340,7 +342,9 @@ impl CombatSystem {
                     impact,
                     objects.read(),
                 );
-                if !projectile.no_damage && projectile.explosion_radius > 0.0 {
+                if !projectile.no_damage
+                    && (projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0)
+                {
                     damage_events.push(Self::splash_area_event(
                         projectile,
                         objects.read(),
@@ -418,7 +422,9 @@ impl CombatSystem {
                             impact,
                             objects.read(),
                         );
-                        if !projectile.no_damage && projectile.explosion_radius > 0.0 {
+                        if !projectile.no_damage
+                            && (projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0)
+                        {
                             // C++ Weapon.cpp:1438: primary inside primaryRadius, else secondary.
                             damage_events.push(Self::splash_area_event(
                                 projectile,
@@ -478,7 +484,9 @@ impl CombatSystem {
                         impact,
                         objects.read(),
                     );
-                    if !projectile.no_damage && projectile.explosion_radius > 0.0 {
+                    if !projectile.no_damage
+                        && (projectile.explosion_radius > 0.0 || projectile.secondary_damage_radius > 0.0)
+                    {
                         damage_events.push(Self::splash_area_event(
                             projectile,
                             objects.read(),

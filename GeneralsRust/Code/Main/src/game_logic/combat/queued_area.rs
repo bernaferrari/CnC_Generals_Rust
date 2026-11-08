@@ -70,15 +70,12 @@ impl<'a> AreaDamage<'a> {
         let DamageEvent::Area {
             radius,
             secondary_radius,
-            secondary_damage,
             ..
         } = self.event
         else {
             unreachable!()
         };
-        let secondary_r = (*secondary_radius).max(0.0);
-        let dual = secondary_r > *radius + 1e-3 && *secondary_damage > 0.0;
-        let outer = if dual { secondary_r } else { *radius };
+        let outer = (*radius).max((*secondary_radius).max(0.0));
         objects
             .registered()
             .filter_map(|(id, obj)| {
@@ -219,8 +216,7 @@ impl<'a> AreaDamage<'a> {
         ) {
             return None;
         }
-        let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
-        let outer = if dual { secondary_r } else { primary_r };
+        let outer = primary_r.max(secondary_r);
         let area_damage = if !(dist <= outer) {
             0.0
         } else if kills_self && !is_primary {

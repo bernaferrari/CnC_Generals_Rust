@@ -752,8 +752,7 @@ impl CombatSystem {
                     .with_damage_status(*damage_status_type);
                     let primary_r = *radius;
                     let secondary_r = (*secondary_radius).max(0.0);
-                    let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
-                    let outer = if dual { secondary_r } else { primary_r };
+                    let outer = primary_r.max(secondary_r);
                     let shock_r = (*shock_wave_radius).max(0.0);
                     let shock_amt = (*shock_wave_amount).max(0.0);
                     let shock_taper = (*shock_wave_taper_off).clamp(0.0, 1.0);

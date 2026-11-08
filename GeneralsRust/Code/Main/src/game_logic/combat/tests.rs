@@ -1559,6 +1559,58 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
+    fn projectile_with_only_secondary_radius_hits_outer_ring() {
+        let _combat_serial = combat_test_guard();
+        let mut objects = crate::game_logic::HostObjectStore::new();
+        let shooter = ObjectId(140);
+        let target = ObjectId(141);
+        let outer = ObjectId(142);
+        let outside = ObjectId(143);
+        for (id, x) in [(target, 5.0), (outer, 20.0), (outside, 27.0)] {
+            let mut victim = make_obj(
+                "SecondaryOnlyVictim",
+                id,
+                Team::GLA,
+                Vec3::new(x, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                0.0,
+            );
+            victim.physics_mass = 1.0;
+            victim.shock_resistance = 0.0;
+            objects.insert(id, victim);
+        }
+        let mut combat = CombatSystem::new();
+        let projectile = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(5.0, 0.0, 0.0),
+            &Weapon { damage: 25.0, splash_radius: 0.0, projectile_speed: 0.0, ..Weapon::default() },
+            shooter,
+            Some(target),
+            0.0,
+            false,
+        );
+        let projectile = combat.projectile_mut(projectile).unwrap();
+        projectile.secondary_damage = 5.0;
+        projectile.secondary_damage_radius = 20.0;
+        projectile.shock_wave_amount = 40.0;
+        projectile.shock_wave_radius = 100.0;
+        projectile.shock_wave_taper_off = 1.0;
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+        let mut ownership_events = crate::game_logic::host_owner_log::OwnershipEvents::default();
+        combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut ownership_events,
+        );
+        assert_eq!(objects[&target].health.current, 175.0);
+        assert_eq!(objects[&outer].health.current, 195.0);
+        assert!((objects[&outer].movement.velocity - Vec3::new(40.0, 40.0, 0.0)).length() < 0.001);
+        assert_eq!(objects[&outside].health.current, 200.0);
+        assert_eq!(objects[&outside].movement.velocity, Vec3::ZERO);
+    }
+
+    #[test]
     fn shock_wave_pushes_mobile_units_outward() {
         let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 

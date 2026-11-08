@@ -48,6 +48,9 @@ consumes the burst. Weapon continuation queries the receiving partition and
 excludes targets exactly at the authored range boundary.
 Garrison fire excludes targets inside enclosing containers, matching the
 WeaponSet direct-target guard; the enclosing building remains targetable.
+Transport passengers select an eligible authored weapon slot per target before
+range checks and discharge. Area damage visits the larger authored damage
+radius even when secondary health damage is zero, allowing outer shockwaves.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.
