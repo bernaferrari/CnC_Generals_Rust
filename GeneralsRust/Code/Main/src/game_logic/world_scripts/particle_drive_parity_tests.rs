@@ -591,3 +591,133 @@ fn authored_swath_fires_damages_and_survives_save_without_peer_leak() {
         }
     });
 }
+
+// Opt-in because retail assets are not distributable. From GeneralsRust/Code/Main:
+// c++ -std=c++17 -O0 -ffp-contract=off scripts/cpp_oracles/particle_drive/swath.cpp -o /tmp/puc-swath
+// PUC_RETAIL_BIG="/path/to/Zero Hour/Data/INIZH.big" PUC_SWATH_ORACLE=/tmp/puc-swath \
+// cargo test retail_particle_swath_production_matches_original -- --ignored --nocapture
+#[test]
+#[ignore = "requires the integrator's retail INIZH.big and compiled C++ witness"]
+fn retail_particle_swath_production_matches_original() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    // The shared isolation helper selects a non-ignored child. This test is
+    // intentionally ignored, so launch its exact child with --ignored first;
+    // the helper then installs the same child-owned services as other tests.
+    let name = "retail_particle_swath_production_matches_original";
+    let exact = format!("{}::{name}", module_path!().split_once("::").unwrap().1);
+    const CHILD: &str = "GENERALS_OBJECT_POSE_OWNER_CHILD";
+    if std::env::var(CHILD).ok().as_deref() != Some(exact.as_str()) {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &exact, "--ignored", "--nocapture", "--test-threads=1"])
+            .env(CHILD, &exact)
+            .output()
+            .expect("spawn ignored retail swath regression");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "retail swath child failed: {stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed; 0 failed"), "retail swath child ran no regression: {stdout}\n{stderr}");
+        print!("{stdout}");
+        return;
+    }
+
+    isolated("retail_particle_swath_production_matches_original", || {
+        let archive = std::fs::read(std::env::var_os("PUC_RETAIL_BIG").expect("PUC_RETAIL_BIG"))
+            .expect("read retail INIZH.big");
+        assert!(archive.len() >= 16 && (&archive[..4] == b"BIGF" || &archive[..4] == b"BIG4"));
+        let u32_be = |bytes: &[u8]| u32::from_be_bytes(bytes.try_into().unwrap()) as usize;
+        let count = u32_be(&archive[8..12]);
+        let mut cursor = 16;
+        let mut member = None;
+        for _ in 0..count {
+            let offset = u32_be(&archive[cursor..cursor + 4]);
+            let size = u32_be(&archive[cursor + 4..cursor + 8]);
+            cursor += 8;
+            let end = cursor + archive[cursor..].iter().position(|&b| b == 0).unwrap();
+            let name = std::str::from_utf8(&archive[cursor..end]).unwrap();
+            cursor = end + 1;
+            if name.eq_ignore_ascii_case("Data\\INI\\Object\\FactionBuilding.ini") {
+                member = Some(&archive[offset..offset.checked_add(size).unwrap()]);
+                break;
+            }
+        }
+        let source = std::str::from_utf8(member.expect("retail FactionBuilding.ini member")).unwrap();
+        // Admit the cannon's complete retail build-prerequisite closure. Each
+        // object remains the actual archive text, including its own modules.
+        let sources = [
+            "AmericaPowerPlant",
+            "AmericaSupplyCenter",
+            "AmericaWarFactory",
+            "AmericaAirfield",
+            "AmericaStrategyCenter",
+            "AmericaParticleCannonUplink",
+        ].into_iter().map(|name| {
+            let header = format!("\nObject {name}\r\n");
+            let start = source.find(&header).unwrap_or_else(|| panic!("missing retail object {name}")) + 1;
+            let rest = &source[start..];
+            let end = rest.find("\nObject ").expect("next retail object") + 1;
+            (format!("retail-FactionBuilding-{name}.ini"), rest[..end].to_owned())
+        });
+        let content = crate::assets::ReceivingObjectContent::from_sources(sources).unwrap();
+
+        let mut retail = GameLogic::new();
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 32;
+        map.height = 32;
+        map.heightmap = vec![10; 32 * 32];
+        assert!(retail.world_services.terrain().write().unwrap().load_map_geometry(map).is_empty());
+        retail.admit_receiving_module_content(content).unwrap();
+        retail.add_player(Player::new(0, Team::USA, "USA", true));
+        let source = retail.create_object_for_player(
+            "AmericaParticleCannonUplink", 0, Vec3::new(20., 6.25, 30.),
+        ).unwrap();
+        let (mut peer, peer_source) = authored_swath_world(80, 10);
+        for (world, cannon) in [(&mut retail, source), (&mut peer, peer_source)] {
+            world.special_power_strikes.note_script_fired_special_power(cannon);
+            let strike = world.queue_special_power_strike(
+                &crate::command_system::SpecialPowerType::ParticleCannon,
+                cannon,
+                Vec3::new(130., 6.25, 120.),
+            ).unwrap();
+            world.frame = world.special_power_strikes.get(strike).unwrap().impact_frame;
+            world.update_special_power_strikes().unwrap();
+            assert_eq!(world.special_power_strikes.beam_fields().len(), 1);
+        }
+        let settings = retail.special_power_strikes.beam_fields()[0].swath_settings;
+        assert_eq!((settings.swath_of_death_distance, settings.swath_of_death_amplitude), (200., 50.));
+        assert_eq!(
+            (peer.special_power_strikes.beam_fields()[0].swath_settings.swath_of_death_distance,
+             peer.special_power_strikes.beam_fields()[0].swath_settings.swath_of_death_amplitude),
+            (80., 10.)
+        );
+
+        for _ in 0..20 {
+            for world in [&mut retail, &mut peer] {
+                world.frame += 1;
+                world.update_particle_beam_fields().unwrap();
+            }
+        }
+        let field = &retail.special_power_strikes.beam_fields()[0];
+        assert!(!field.manual_target_mode && !field.scripted_waypoint_mode);
+        assert!(field.source_axis_set);
+        let mut child = Command::new(std::env::var_os("PUC_SWATH_ORACLE").expect("PUC_SWATH_ORACLE"))
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("run swath witness");
+        writeln!(child.stdin.take().unwrap(), "{} {} {} {} {} {} {} {} {} {} {}",
+            field.source_position.x, field.source_position.z, field.source_position.y,
+            field.position.x, field.position.z, field.position.y,
+            retail.frame, field.spawn_frame, field.expires_frame,
+            settings.swath_of_death_distance, settings.swath_of_death_amplitude,
+        ).unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert!(result.status.success());
+        let output = std::str::from_utf8(&result.stdout).unwrap();
+        let values: Vec<f32> = output.split_whitespace().map(|s| s.parse().unwrap()).collect();
+        assert_eq!(values.len(), 2);
+        let actual = field.current_target_position;
+        assert!((actual.x - values[0]).abs() < 0.001, "actual {actual:?}, C++ {values:?}");
+        assert!((actual.z - values[1]).abs() < 0.001, "actual {actual:?}, C++ {values:?}");
+        assert_ne!(actual, peer.special_power_strikes.beam_fields()[0].current_target_position);
+        println!("retail swath: actual {actual:?}, C++ {values:?}");
+    });
+}
