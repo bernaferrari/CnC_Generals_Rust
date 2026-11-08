@@ -1,11 +1,20 @@
-//! Memory Management Module
+//! Per-session profiling memory helpers.
 //!
-//! Provides memory allocation functions equivalent to the C++ ProfileAllocMemory,
-//! ProfileReAllocMemory, and ProfileFreeMemory functions, but using safe Rust
-//! memory management patterns.
+//! Blocks own initialized bytes and borrow their session's statistics; growing
+//! zero-fills new bytes. Arrays own initialized `T` values and destroy removed
+//! elements on shrink, clear, or drop. Untracked arrays and strings can be
+//! created without a session. These are Rust ownership APIs, not raw C++
+//! allocation interfaces.
+//!
+//! Statistics count requested byte-block sizes and array capacity in bytes,
+//! rather than allocator overhead or spare `Vec` capacity. A successful size
+//! change records a free of the old nonzero size and an allocation of the new
+//! nonzero size, even when existing storage is reused. Empty and zero-sized
+//! element allocations contribute no events. Failed growth leaves the value
+//! and its statistics unchanged.
 
 use crate::{ProfileError, ProfileResult};
-use std::alloc::{self, Layout};
+use std::alloc::Layout;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Memory allocation statistics
@@ -54,503 +63,254 @@ impl MemoryStats {
     }
 }
 
-/// Profile memory allocator - equivalent to ProfileAllocMemory
+/// Factory and explicit operations for owned profiling memory blocks.
 pub struct ProfileMemory;
 
 impl ProfileMemory {
-    /// Allocate memory (equivalent to ProfileAllocMemory)
-    pub fn alloc(session: &crate::WwDebugSession, size: usize) -> ProfileResult<*mut u8> {
-        Self::alloc_with_stats(&session.memory_stats, size)
+    pub fn alloc(session: &crate::WwDebugSession, size: usize) -> ProfileResult<ProfileMemoryBlock<'_>> {
+        ProfileMemoryBlock::new(session, size)
     }
 
-    pub(crate) fn alloc_with_stats(stats: &MemoryStats, size: usize) -> ProfileResult<*mut u8> {
-        if size == 0 {
-            return Ok(std::ptr::null_mut());
-        }
-
-        let layout =
-            Layout::from_size_align(size, 1).map_err(|_| ProfileError::MemoryAllocation)?;
-
-        // SAFETY: [Category 13 — library contract] layout validated above by `Layout::from_size_align`;
-        // single raw allocation (ProfileAllocMemory equivalent).
-        let ptr = unsafe { alloc::alloc(layout) };
-
-        if ptr.is_null() {
-            return Err(ProfileError::MemoryAllocation);
-        }
-
-        stats.record_allocation(size);
-        Ok(ptr)
+    pub fn realloc(block: &mut ProfileMemoryBlock<'_>, new_size: usize) -> ProfileResult<()> {
+        block.resize(new_size)
     }
 
-    /// Reallocate memory (equivalent to ProfileReAllocMemory)
-    pub fn realloc(
-        session: &crate::WwDebugSession,
-        old_ptr: *mut u8,
-        old_size: usize,
-        new_size: usize,
-    ) -> ProfileResult<*mut u8> {
-        Self::realloc_with_stats(&session.memory_stats, old_ptr, old_size, new_size)
+    pub fn free(block: ProfileMemoryBlock<'_>) {
+        drop(block);
     }
 
-    pub(crate) fn realloc_with_stats(
-        stats: &MemoryStats,
-        old_ptr: *mut u8,
-        old_size: usize,
-        new_size: usize,
-    ) -> ProfileResult<*mut u8> {
-        if old_ptr.is_null() {
-            return if new_size > 0 {
-                Self::alloc_with_stats(stats, new_size)
-            } else {
-                Ok(std::ptr::null_mut())
-            };
-        }
-
-        if new_size == 0 {
-            Self::free_with_stats(stats, old_ptr, old_size);
-            return Ok(std::ptr::null_mut());
-        }
-
-        let old_layout =
-            Layout::from_size_align(old_size, 1).map_err(|_| ProfileError::MemoryAllocation)?;
-        let _new_layout =
-            Layout::from_size_align(new_size, 1).map_err(|_| ProfileError::MemoryAllocation)?;
-
-        // SAFETY: [Category 12 — invalid free / Category 13 — library contract]
-        // old_ptr+old_layout match the original allocation; realloc preserves contents.
-        let new_ptr = unsafe { alloc::realloc(old_ptr, old_layout, new_size) };
-
-        if new_ptr.is_null() {
-            return Err(ProfileError::MemoryAllocation);
-        }
-
-        stats.record_deallocation(old_size);
-        stats.record_allocation(new_size);
-
-        Ok(new_ptr)
-    }
-
-    /// Free memory (equivalent to ProfileFreeMemory)
-    pub fn free(session: &crate::WwDebugSession, ptr: *mut u8, size: usize) {
-        Self::free_with_stats(&session.memory_stats, ptr, size);
-    }
-
-    pub(crate) fn free_with_stats(stats: &MemoryStats, ptr: *mut u8, size: usize) {
-        if ptr.is_null() || size == 0 {
-            return;
-        }
-
-        let layout = Layout::from_size_align(size, 1).expect("Invalid layout for free");
-        // SAFETY: [Category 12 — invalid free] same ptr/layout pair used at allocation.
-        unsafe {
-            alloc::dealloc(ptr, layout);
-        }
-
-        stats.record_deallocation(size);
-    }
-
-    /// Get memory statistics
     pub fn get_stats(session: &crate::WwDebugSession) -> &MemoryStats {
         &session.memory_stats
     }
 }
 
-/// RAII wrapper for profile memory allocation
-pub struct ProfileMemoryBlock {
-    ptr: *mut u8,
-    size: usize,
-    stats: std::sync::Arc<MemoryStats>,
+/// Owned, zero-initialized bytes accounted to the borrowed session.
+pub struct ProfileMemoryBlock<'a> {
+    bytes: Vec<u8>,
+    stats: &'a MemoryStats,
 }
 
-impl ProfileMemoryBlock {
-    /// Allocate a new memory block
-    pub fn new(session: &crate::WwDebugSession, size: usize) -> ProfileResult<Self> {
-        let ptr = ProfileMemory::alloc(session, size)?;
-        Ok(Self {
-            ptr,
-            size,
-            stats: std::sync::Arc::clone(&session.memory_stats),
-        })
+impl<'a> ProfileMemoryBlock<'a> {
+    pub fn new(session: &'a crate::WwDebugSession, size: usize) -> ProfileResult<Self> {
+        let mut block = Self { bytes: Vec::new(), stats: &session.memory_stats };
+        block.resize(size)?;
+        Ok(block)
     }
 
-    /// Get a raw pointer to the memory
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.ptr
-    }
-
-    /// Get the size of the allocation
     pub fn size(&self) -> usize {
-        self.size
+        self.bytes.len()
     }
 
-    /// Convert to a slice (unsafe)
-    /// SAFETY: caller must guarantee `ptr`/`size` describe a live, initialized allocation.
-    pub unsafe fn as_slice(&self) -> &[u8] {
-        if self.ptr.is_null() || self.size == 0 {
-            &[]
-        } else {
-            // SAFETY: [Category 10 — OOB / Category 3 — dangling]
-            // `ptr`/`size` come from `ProfileMemory::alloc` (C++ ProfileAllocMemory
-            // equivalent) and remain live for `&self`; the allocation is at least
-            // `size` bytes and uniquely owned by this block.
-            unsafe { std::slice::from_raw_parts(self.ptr, self.size) }
-        }
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes
     }
 
-    /// Convert to a mutable slice (unsafe)
-    /// SAFETY: caller must guarantee `ptr`/`size` describe a live, initialized allocation.
-    pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
-        if self.ptr.is_null() || self.size == 0 {
-            &mut []
-        } else {
-            // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
-            // `&mut self` excludes other borrows; `ptr`/`size` describe the live
-            // `ProfileMemory::alloc` region (C++ ProfileAllocMemory / ProfileReAllocMemory).
-            unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size) }
-        }
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.bytes
     }
 
-    /// Resize the memory block
+    /// Resize, preserving the common prefix and zero-initializing any growth.
     pub fn resize(&mut self, new_size: usize) -> ProfileResult<()> {
-        let new_ptr = ProfileMemory::realloc_with_stats(&self.stats, self.ptr, self.size, new_size)?;
-        self.ptr = new_ptr;
-        self.size = new_size;
+        let old_size = self.bytes.len();
+        if old_size == new_size {
+            return Ok(());
+        }
+        if new_size > old_size {
+            self.bytes.try_reserve_exact(new_size - old_size)
+                .map_err(|_| ProfileError::MemoryAllocation)?;
+            self.bytes.resize(new_size, 0);
+        } else if new_size == 0 {
+            self.bytes = Vec::new();
+        } else {
+            self.bytes.truncate(new_size);
+        }
+        if old_size != 0 {
+            self.stats.record_deallocation(old_size);
+        }
+        if new_size != 0 {
+            self.stats.record_allocation(new_size);
+        }
         Ok(())
     }
-
-    /// Release the memory without dropping (for manual management)
-    pub fn into_raw(self) -> (*mut u8, usize) {
-        let ptr = self.ptr;
-        let size = self.size;
-        std::mem::forget(self);
-        (ptr, size)
-    }
 }
 
-impl Drop for ProfileMemoryBlock {
+impl Drop for ProfileMemoryBlock<'_> {
     fn drop(&mut self) {
-        ProfileMemory::free_with_stats(&self.stats, self.ptr, self.size);
+        if !self.bytes.is_empty() {
+            self.stats.record_deallocation(self.bytes.len());
+        }
     }
 }
 
-/// Safe wrapper for dynamic arrays (like the C++ dynamic arrays)
-pub struct ProfileArray<T> {
-    ptr: *mut T,
-    len: usize,
+/// Owned initialized elements with an optional borrowed statistics source.
+pub struct ProfileArray<'a, T> {
+    values: Vec<T>,
     capacity: usize,
-    stats: Option<std::sync::Arc<MemoryStats>>,
+    stats: Option<&'a MemoryStats>,
 }
 
-impl<T> ProfileArray<T> {
-    /// Create a new empty array
+impl<'a, T> ProfileArray<'a, T> {
+    /// Create an untracked empty array.
     pub fn new() -> Self {
-        Self {
-            ptr: std::ptr::null_mut(),
-            len: 0,
-            capacity: 0,
-            stats: None,
-        }
+        Self { values: Vec::new(), capacity: 0, stats: None }
     }
 
-    /// Create an array with initial capacity
-    pub fn with_capacity(session: &crate::WwDebugSession, capacity: usize) -> ProfileResult<Self> {
-        if capacity == 0 {
-            return Ok(Self::new());
-        }
-
-        let layout = Layout::array::<T>(capacity).map_err(|_| ProfileError::MemoryAllocation)?;
-
-        // SAFETY: [Category 13 — library contract] layout validated above by `Layout::from_size_align`;
-        // single raw allocation (ProfileAllocMemory equivalent).
-        let ptr = unsafe { alloc::alloc(layout) as *mut T };
-
-        if ptr.is_null() {
-            return Err(ProfileError::MemoryAllocation);
-        }
-
-        session.memory_stats.record_allocation(layout.size());
-
-        Ok(Self {
-            ptr,
-            len: 0,
-            capacity,
-            stats: Some(std::sync::Arc::clone(&session.memory_stats)),
-        })
+    /// Create an array whose capacity changes are tracked by `session`.
+    pub fn with_capacity(session: &'a crate::WwDebugSession, capacity: usize) -> ProfileResult<Self> {
+        let mut array = Self { values: Vec::new(), capacity: 0, stats: Some(&session.memory_stats) };
+        array.resize(capacity)?;
+        Ok(array)
     }
 
-    /// Get the length
     pub fn len(&self) -> usize {
-        self.len
+        self.values.len()
     }
 
-    /// Check if empty
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.values.is_empty()
     }
 
-    /// Get capacity
+    /// Requested capacity; the underlying vector may reserve more.
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    /// Resize the array
+    /// Change capacity, dropping elements beyond the new capacity.
     pub fn resize(&mut self, new_capacity: usize) -> ProfileResult<()> {
         if new_capacity == self.capacity {
             return Ok(());
         }
-
-        if new_capacity == 0 {
-            self.clear();
-            return Ok(());
+        let new_size = Layout::array::<T>(new_capacity)
+            .map_err(|_| ProfileError::MemoryAllocation)?.size();
+        let old_size = self.capacity * std::mem::size_of::<T>();
+        if new_capacity > self.values.capacity() {
+            self.values.try_reserve_exact(new_capacity - self.values.len())
+                .map_err(|_| ProfileError::MemoryAllocation)?;
+        } else if new_capacity < self.capacity {
+            self.values.truncate(new_capacity);
+            if new_capacity == 0 {
+                self.values = Vec::new();
+            } else {
+                self.values.shrink_to(new_capacity);
+            }
         }
-
-        let new_layout =
-            Layout::array::<T>(new_capacity).map_err(|_| ProfileError::MemoryAllocation)?;
-
-        let new_ptr = if self.ptr.is_null() {
-            // SAFETY: [Category 13 — library contract] layout validated above by `Layout::from_size_align`;
-            // single raw allocation (ProfileAllocMemory equivalent).
-            unsafe { alloc::alloc(new_layout) as *mut T }
-        } else {
-            let old_layout =
-                Layout::array::<T>(self.capacity).map_err(|_| ProfileError::MemoryAllocation)?;
-            // SAFETY: [Category 12 — invalid free / Category 13 — library contract]
-            // old_ptr+old_layout match the original allocation; realloc preserves contents.
-            unsafe { alloc::realloc(self.ptr as *mut u8, old_layout, new_layout.size()) as *mut T }
-        };
-
-        if new_ptr.is_null() {
-            return Err(ProfileError::MemoryAllocation);
+        if let Some(stats) = self.stats {
+            if old_size != 0 {
+                stats.record_deallocation(old_size);
+            }
+            if new_size != 0 {
+                stats.record_allocation(new_size);
+            }
         }
+        self.capacity = new_capacity;
+        Ok(())
+    }
 
-        // Update statistics
-        if !self.ptr.is_null() {
-            let old_size = Layout::array::<T>(self.capacity)
-                .map(|l| l.size())
-                .unwrap_or(0);
-            if let Some(stats) = &self.stats {
+    pub fn push(&mut self, value: T) -> ProfileResult<()> {
+        if self.values.len() == self.capacity {
+            let capacity = if self.capacity == 0 {
+                1
+            } else {
+                self.capacity.checked_mul(2).ok_or(ProfileError::MemoryAllocation)?
+            };
+            self.resize(capacity)?;
+        }
+        self.values.push(value);
+        Ok(())
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        self.values.pop()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.values.get(index)
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.values.get_mut(index)
+    }
+
+    /// Drop all elements and release the array's capacity.
+    pub fn clear(&mut self) {
+        self.values.clear();
+        self.values = Vec::new();
+        let old_size = self.capacity * std::mem::size_of::<T>();
+        if let Some(stats) = self.stats {
+            if old_size != 0 {
                 stats.record_deallocation(old_size);
             }
         }
-        if let Some(stats) = &self.stats {
-            stats.record_allocation(new_layout.size());
-        }
-
-        self.ptr = new_ptr;
-        self.capacity = new_capacity;
-
-        // Adjust length if it exceeds new capacity
-        if self.len > new_capacity {
-            // Drop excess elements
-            for i in new_capacity..self.len {
-                // SAFETY: [Category 3 — dangling / Category 10 — OOB] index is in
-                // 0..len of the live allocation; the element there is initialized and
-                // dropped exactly once before the buffer is deallocated.
-                unsafe {
-                    std::ptr::drop_in_place(self.ptr.add(i));
-                }
-            }
-            self.len = new_capacity;
-        }
-
-        Ok(())
-    }
-
-    /// Push an element
-    pub fn push(&mut self, value: T) -> ProfileResult<()> {
-        if self.len >= self.capacity {
-            let new_capacity = if self.capacity == 0 {
-                1
-            } else {
-                self.capacity * 2
-            };
-            self.resize(new_capacity)?;
-        }
-
-        // SAFETY: [Category 10 — OOB] capacity was grown above so `len` is a valid
-        // slot; the element slot is written once and len incremented after.
-        unsafe {
-            self.ptr.add(self.len).write(value);
-        }
-        self.len += 1;
-
-        Ok(())
-    }
-
-    /// Pop an element
-    pub fn pop(&mut self) -> Option<T> {
-        if self.len == 0 {
-            return None;
-        }
-
-        self.len -= 1;
-        // SAFETY: [Category 10 — OOB] `len` was decremented, so this reads the last initialized element and moves it out.
-        unsafe { Some(self.ptr.add(self.len).read()) }
-    }
-
-    /// Get element at index
-    pub fn get(&self, index: usize) -> Option<&T> {
-        if index < self.len {
-            // SAFETY: [Category 10 — OOB] `index < self.len`, so it addresses an initialized element.
-            unsafe { Some(&*self.ptr.add(index)) }
-        } else {
-            None
-        }
-    }
-
-    /// Get mutable element at index
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        if index < self.len {
-            // SAFETY: [Category 1 — aliasing / Category 10 — OOB] `&mut self` excludes aliasing; `index < self.len` is an initialized element.
-            unsafe { Some(&mut *self.ptr.add(index)) }
-        } else {
-            None
-        }
-    }
-
-    /// Clear all elements
-    pub fn clear(&mut self) {
-        // Drop all elements
-        for i in 0..self.len {
-            // SAFETY: [Category 3 — dangling / Category 10 — OOB] index is in
-            // 0..len of the live allocation; the element there is initialized and
-            // dropped exactly once before the buffer is deallocated.
-            unsafe {
-                std::ptr::drop_in_place(self.ptr.add(i));
-            }
-        }
-        self.len = 0;
-
-        // Free memory
-        if !self.ptr.is_null() && self.capacity > 0 {
-            let layout = Layout::array::<T>(self.capacity).unwrap();
-            // SAFETY: [Category 12 — invalid free] same ptr/layout pair used at allocation.
-            unsafe {
-                alloc::dealloc(self.ptr as *mut u8, layout);
-            }
-            if let Some(stats) = &self.stats {
-                stats.record_deallocation(layout.size());
-            }
-        }
-
-        self.ptr = std::ptr::null_mut();
         self.capacity = 0;
     }
 
-    /// Get as slice
     pub fn as_slice(&self) -> &[T] {
-        if self.ptr.is_null() || self.len == 0 {
-            &[]
-        } else {
-            // SAFETY: [Category 10 — OOB] ptr..ptr+len are all initialized elements of one live allocation.
-            unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
-        }
+        &self.values
     }
 
-    /// Get as mutable slice
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        if self.ptr.is_null() || self.len == 0 {
-            &mut []
-        } else {
-            // SAFETY: [Category 1 — aliasing / Category 10 — OOB] unique borrow; slice covers exactly the initialized region.
-            unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
-        }
+        &mut self.values
     }
 }
 
-impl<T> Drop for ProfileArray<T> {
+impl<T> Drop for ProfileArray<'_, T> {
     fn drop(&mut self) {
         self.clear();
     }
 }
 
-impl<T> Default for ProfileArray<T> {
+impl<T> Default for ProfileArray<'_, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-// SAFETY: ProfileArray owns its buffer exclusively (`&self` methods only share
-// reads); T: Send/Sync bounds mirror Vec<T> auto-traits.
-unsafe impl<T: Send> Send for ProfileArray<T> {}
-// SAFETY: same reasoning as Send; shared access only exposes &T reads.
-unsafe impl<T: Sync> Sync for ProfileArray<T> {}
-
-/// String type that uses profile memory allocation (equivalent to dynamically allocated C strings)
+/// Owned UTF-8 string with a trailing zero byte.
 pub struct ProfileString {
-    array: ProfileArray<u8>,
+    bytes: Vec<u8>,
 }
 
 impl ProfileString {
-    /// Create a new empty string
     pub fn new() -> Self {
-        Self {
-            array: ProfileArray::new(),
-        }
+        Self { bytes: Vec::new() }
     }
 
-    /// Create from a Rust string
     pub fn from_str(s: &str) -> ProfileResult<Self> {
         let mut string = Self::new();
         string.set_str(s)?;
         Ok(string)
     }
 
-    /// Set the string content
+    /// Replace the contents, retaining the old string on allocation failure.
     pub fn set_str(&mut self, s: &str) -> ProfileResult<()> {
-        let bytes = s.as_bytes();
-        self.array.resize(bytes.len() + 1)?; // +1 for null terminator
-
-        // Copy string data
-        for (i, &byte) in bytes.iter().enumerate() {
-            // SAFETY: [Category 10 — OOB] i < bytes.len() < array capacity; writes each payload byte into the freshly resized buffer.
-            unsafe {
-                *self.array.ptr.add(i) = byte;
-            }
-        }
-
-        // Add null terminator
-        // SAFETY: [Category 10 — OOB] bytes.len() < capacity by construction (resize with +1); writes the NUL terminator.
-        unsafe {
-            *self.array.ptr.add(bytes.len()) = 0;
-        }
-
-        self.array.len = bytes.len() + 1;
+        let required = s.len().checked_add(1).ok_or(ProfileError::MemoryAllocation)?;
+        self.bytes.try_reserve_exact(required.saturating_sub(self.bytes.len()))
+            .map_err(|_| ProfileError::MemoryAllocation)?;
+        self.bytes.clear();
+        self.bytes.extend_from_slice(s.as_bytes());
+        self.bytes.push(0);
         Ok(())
     }
 
-    /// Get as C string pointer
-    pub fn as_ptr(&self) -> *const i8 {
-        if self.array.is_empty() {
-            static EMPTY: i8 = 0;
-            &EMPTY
+    pub fn as_bytes_with_nul(&self) -> &[u8] {
+        if self.bytes.is_empty() {
+            &[0]
         } else {
-            self.array.ptr as *const i8
+            &self.bytes
         }
     }
 
-    /// Get as Rust string (without null terminator)
     pub fn as_str(&self) -> &str {
-        if self.array.is_empty() {
-            ""
-        } else {
-            // SAFETY: [Category 10 — OOB / Category 5 — invalid values] covers the payload bytes written by set_str (excludes NUL); UTF-8 validated below.
-            let slice = unsafe {
-                std::slice::from_raw_parts(self.array.ptr, self.array.len.saturating_sub(1))
-            };
-            std::str::from_utf8(slice).unwrap_or("")
-        }
+        let bytes = &self.bytes[..self.bytes.len().saturating_sub(1)];
+        std::str::from_utf8(bytes).expect("ProfileString is constructed from UTF-8")
     }
 
-    /// Get length (excluding null terminator)
     pub fn len(&self) -> usize {
-        self.array.len.saturating_sub(1)
+        self.bytes.len().saturating_sub(1)
     }
 
-    /// Check if empty
     pub fn is_empty(&self) -> bool {
-        self.array.len <= 1
+        self.len() == 0
     }
 }
 
@@ -575,148 +335,131 @@ impl std::fmt::Debug for ProfileString {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
-    fn test_memory_allocation() {
+    fn block_preserves_bytes_and_accounts_for_resizes_and_drop() {
         let session = crate::WwDebugSession::new();
-        let stats_before = ProfileMemory::get_stats(&session);
-        let initial_allocated = stats_before.get_current_allocated();
-
-        let ptr = ProfileMemory::alloc(&session, 1024).unwrap();
-        assert!(!ptr.is_null());
-
-        let stats_after = ProfileMemory::get_stats(&session);
-        assert_eq!(
-            stats_after.get_current_allocated(),
-            initial_allocated + 1024
-        );
-
-        ProfileMemory::free(&session, ptr, 1024);
-
-        let stats_final = ProfileMemory::get_stats(&session);
-        assert_eq!(stats_final.get_current_allocated(), initial_allocated);
+        let stats = ProfileMemory::get_stats(&session);
+        {
+            let mut block = ProfileMemory::alloc(&session, 4).unwrap();
+            assert_eq!(block.as_slice(), &[0, 0, 0, 0]);
+            block.as_mut_slice().copy_from_slice(&[1, 2, 3, 4]);
+            ProfileMemory::realloc(&mut block, 7).unwrap();
+            assert_eq!(block.as_slice(), &[1, 2, 3, 4, 0, 0, 0]);
+            block.resize(2).unwrap();
+            assert_eq!(block.as_slice(), &[1, 2]);
+            assert_eq!(stats.get_total_allocated(), 13);
+            assert_eq!(stats.get_total_freed(), 11);
+            assert_eq!(stats.get_current_allocated(), 2);
+            assert_eq!(stats.get_allocation_count(), 3);
+        }
+        assert_eq!(stats.get_total_freed(), 13);
+        assert_eq!(stats.get_current_allocated(), 0);
     }
 
     #[test]
-    fn test_memory_reallocation() {
-        let session = crate::WwDebugSession::new();
-        let ptr = ProfileMemory::alloc(&session, 512).unwrap();
-
-        let new_ptr = ProfileMemory::realloc(&session, ptr, 512, 1024).unwrap();
-        assert!(!new_ptr.is_null());
-
-        ProfileMemory::free(&session, new_ptr, 1024);
-
-        // Test realloc with null pointer
-        let ptr2 = ProfileMemory::realloc(&session, std::ptr::null_mut(), 0, 256).unwrap();
-        assert!(!ptr2.is_null());
-
-        // Test realloc to zero size
-        let null_ptr = ProfileMemory::realloc(&session, ptr2, 256, 0).unwrap();
-        assert!(null_ptr.is_null());
+    fn regrowth_zeroes_discarded_bytes_and_sessions_are_independent() {
+        let first = crate::WwDebugSession::new();
+        let second = crate::WwDebugSession::new();
+        let mut block = ProfileMemory::alloc(&first, 4).unwrap();
+        block.as_mut_slice().copy_from_slice(&[1, 2, 3, 4]);
+        block.resize(1).unwrap();
+        block.resize(4).unwrap();
+        assert_eq!(block.as_slice(), &[1, 0, 0, 0]);
+        block.resize(4).unwrap();
+        assert_eq!(ProfileMemory::get_stats(&first).get_allocation_count(), 3);
+        assert_eq!(ProfileMemory::get_stats(&second).get_allocation_count(), 0);
     }
 
     #[test]
-    fn test_memory_block() {
+    fn empty_block_free_and_failed_growth_preserve_state() {
         let session = crate::WwDebugSession::new();
-        let mut block = ProfileMemoryBlock::new(&session, 1024).unwrap();
-        assert_eq!(block.size(), 1024);
-        assert!(!block.as_ptr().is_null());
-
-        block.resize(2048).unwrap();
-        assert_eq!(block.size(), 2048);
-
-        let (ptr, size) = block.into_raw();
-        assert_eq!(size, 2048);
-        ProfileMemory::free(&session, ptr, size);
+        let stats = ProfileMemory::get_stats(&session);
+        let mut block = ProfileMemoryBlock::new(&session, 0).unwrap();
+        assert_eq!(block.size(), 0);
+        assert_eq!(stats.get_allocation_count(), 0);
+        block.resize(3).unwrap();
+        block.as_mut_slice().copy_from_slice(&[8, 9, 10]);
+        assert!(matches!(block.resize(usize::MAX), Err(ProfileError::MemoryAllocation)));
+        assert_eq!(block.as_slice(), &[8, 9, 10]);
+        assert_eq!(stats.get_current_allocated(), 3);
+        block.resize(0).unwrap();
+        assert_eq!(stats.get_current_allocated(), 0);
+        ProfileMemory::free(block);
+        assert_eq!(stats.get_total_allocated(), 3);
+        assert_eq!(stats.get_total_freed(), 3);
     }
 
     #[test]
-    fn test_profile_array() {
-        let session = crate::WwDebugSession::new();
-        let mut array = ProfileArray::<i32>::new();
-        assert!(array.is_empty());
-        assert_eq!(array.capacity(), 0);
+    fn arrays_retain_values_drop_removed_elements_and_account_for_capacity() {
+        struct Item<'a>(&'a Cell<usize>, i32);
+        impl Drop for Item<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
 
-        array.push(42).unwrap();
+        let session = crate::WwDebugSession::new();
+        let stats = ProfileMemory::get_stats(&session);
+        let drops = Cell::new(0);
+        let size = std::mem::size_of::<Item<'_>>();
+        {
+            let mut array = ProfileArray::with_capacity(&session, 3).unwrap();
+            for value in 1..=3 {
+                array.push(Item(&drops, value)).unwrap();
+            }
+            array.resize(5).unwrap();
+            assert_eq!(array.as_slice().iter().map(|item| item.1).collect::<Vec<_>>(), [1, 2, 3]);
+            array.get_mut(0).unwrap().1 = 9;
+            array.resize(1).unwrap();
+            assert_eq!(drops.get(), 2);
+            assert_eq!(array.get(0).unwrap().1, 9);
+            assert_eq!(stats.get_total_allocated(), 9 * size);
+            assert_eq!(stats.get_total_freed(), 8 * size);
+            assert_eq!(stats.get_current_allocated(), size);
+            assert_eq!(stats.get_allocation_count(), 3);
+            assert!(matches!(array.resize(usize::MAX), Err(ProfileError::MemoryAllocation)));
+            assert_eq!(array.get(0).unwrap().1, 9);
+        }
+        assert_eq!(drops.get(), 3);
+        assert_eq!(stats.get_total_freed(), 9 * size);
+        assert_eq!(stats.get_current_allocated(), 0);
+    }
+
+    #[test]
+    fn array_pop_clear_zero_capacity_and_zero_sized_elements() {
+        let session = crate::WwDebugSession::new();
+        let stats = ProfileMemory::get_stats(&session);
+        let mut array = ProfileArray::with_capacity(&session, 0).unwrap();
+        array.push(42_u32).unwrap();
         array.push(24).unwrap();
-
-        assert_eq!(array.len(), 2);
-        assert_eq!(array.get(0), Some(&42));
-        assert_eq!(array.get(1), Some(&24));
-
-        let popped = array.pop();
-        assert_eq!(popped, Some(24));
-        assert_eq!(array.len(), 1);
-
-        array.resize(10).unwrap();
-        assert_eq!(array.capacity(), 10);
-        assert_eq!(array.len(), 1);
-
+        assert_eq!(array.pop(), Some(24));
+        assert_eq!(array.as_mut_slice(), &mut [42]);
         array.clear();
         assert!(array.is_empty());
         assert_eq!(array.capacity(), 0);
+        assert_eq!(stats.get_current_allocated(), 0);
+
+        let mut zst = ProfileArray::with_capacity(&session, 2).unwrap();
+        zst.push(()).unwrap();
+        zst.push(()).unwrap();
+        zst.push(()).unwrap();
+        assert_eq!(zst.len(), 3);
+        zst.resize(1).unwrap();
+        assert_eq!(zst.as_slice(), &[()]);
+        assert_eq!(stats.get_current_allocated(), 0);
     }
 
     #[test]
-    fn test_profile_string() {
-        let mut string = ProfileString::new();
+    fn string_replacement_preserves_utf8_and_terminator() {
+        let mut string = ProfileString::from_str("Hello").unwrap();
+        string.set_str("雪").unwrap();
+        assert_eq!(string.as_str(), "雪");
+        assert_eq!(string.len(), 3);
+        assert_eq!(string.as_bytes_with_nul(), "雪\0".as_bytes());
+        string.set_str("").unwrap();
         assert!(string.is_empty());
-        assert_eq!(string.as_str(), "");
-
-        string.set_str("Hello, World!").unwrap();
-        assert_eq!(string.len(), 13);
-        assert_eq!(string.as_str(), "Hello, World!");
-        assert!(!string.as_ptr().is_null());
-
-        let string2 = ProfileString::from_str("Test").unwrap();
-        assert_eq!(string2.as_str(), "Test");
-        assert_eq!(string2.len(), 4);
-    }
-
-    #[test]
-    fn test_memory_stats() {
-        let session = crate::WwDebugSession::new();
-        let stats = ProfileMemory::get_stats(&session);
-        let initial_count = stats.get_allocation_count();
-        let initial_allocated = stats.get_total_allocated();
-
-        let _block = ProfileMemoryBlock::new(&session, 512).unwrap();
-
-        assert_eq!(stats.get_allocation_count(), initial_count + 1);
-        assert_eq!(stats.get_total_allocated(), initial_allocated + 512);
-    }
-
-    #[test]
-    fn test_array_with_complex_type() {
-        let session = crate::WwDebugSession::new();
-        #[derive(Debug, PartialEq)]
-        struct TestStruct {
-            value: i32,
-            name: String,
-        }
-
-        let mut array = ProfileArray::<TestStruct>::new();
-
-        array
-            .push(TestStruct {
-                value: 1,
-                name: "one".to_string(),
-            })
-            .unwrap();
-        array
-            .push(TestStruct {
-                value: 2,
-                name: "two".to_string(),
-            })
-            .unwrap();
-
-        assert_eq!(array.len(), 2);
-        assert_eq!(array.get(0).unwrap().value, 1);
-        assert_eq!(array.get(1).unwrap().name, "two");
-
-        let slice = array.as_slice();
-        assert_eq!(slice.len(), 2);
-        assert_eq!(slice[0].value, 1);
+        assert_eq!(string.as_bytes_with_nul(), &[0]);
     }
 }

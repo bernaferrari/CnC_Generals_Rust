@@ -20,10 +20,6 @@
       "constructs": 11,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/system/linked_list.rs": {
-      "constructs": 22,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/system/registry.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -398,10 +394,6 @@
     },
     "Code/Libraries/Source/WWVegas/WWDebug/src/high_level.rs": {
       "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDebug/src/memory.rs": {
-      "constructs": 24,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWDebug/src/timing.rs": {
