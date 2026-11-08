@@ -17,7 +17,9 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const CBPD_MAGIC: &[u8; 4] = b"CBPD";
-const CBPD_VERSION: u32 = 1;
+const CBPD_VERSION: u32 = 2;
+// Version 1 did not record launch faction. It cannot recover that faction if
+// the launcher or transport changed hands, so decoding it must fail closed.
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct CarpetBombPersistPayload {
@@ -62,6 +64,11 @@ fn decode(bytes: &[u8]) -> SaveLoadResult<Option<CarpetBombPersistPayload>> {
     }
     let payload: CarpetBombPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("CBPD payload decode: {err}")))?;
+    if payload.registry.pending_drops.iter().any(|drop| drop.transport_id == 0) {
+        return Err(SaveLoadError::Corrupted(
+            "carpet delivery has an unbound payload; transport ownership cannot be restored".into(),
+        ));
+    }
     Ok(Some(payload))
 }
 
@@ -133,6 +140,7 @@ mod tests {
                 drop_frame: 80,
                 target: Vec3::new(120.0, 0.0, 40.0),
                 source_id: 7,
+                faction: crate::game_logic::Team::USA,
                 bomb_index: 4,
                 transport_id: 11,
             },
@@ -140,6 +148,7 @@ mod tests {
                 drop_frame: 89,
                 target: Vec3::new(145.0, 0.0, 40.0),
                 source_id: 7,
+                faction: crate::game_logic::Team::China,
                 bomb_index: 5,
                 transport_id: 11,
             },
@@ -161,6 +170,7 @@ mod tests {
                 drop_frame: 1,
                 target: Vec3::ZERO,
                 source_id: 0,
+                faction: crate::game_logic::Team::GLA,
                 bomb_index: 0,
                 transport_id: 99,
             });
@@ -176,10 +186,39 @@ mod tests {
         assert_eq!(reg.pending_drops.len(), 2);
         assert_eq!(reg.pending_drops[0].drop_frame, 80);
         assert_eq!(reg.pending_drops[0].bomb_index, 4);
+        assert_eq!(reg.pending_drops[0].faction, crate::game_logic::Team::USA);
         assert_eq!(reg.pending_drops[0].transport_id, 11);
         assert_eq!(reg.pending_drops[1].drop_frame, 89);
+        assert_eq!(reg.pending_drops[1].faction, crate::game_logic::Team::China);
         assert_eq!(reg.pending_drops[1].transport_id, 11);
         assert!((reg.pending_drops[0].target.x - 120.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn unbound_pending_payload_is_rejected_on_restore() {
+        let mut source = GameLogic::new();
+        source.carpet_bomb_flight_reg.pending_drops.push(PendingCarpetBombDrop {
+            drop_frame: 10,
+            target: Vec3::ZERO,
+            source_id: 1,
+            faction: crate::game_logic::Team::USA,
+            bomb_index: 0,
+            transport_id: 0,
+        });
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        let mut restored = GameLogic::new();
+        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
+    }
+
+    #[test]
+    fn factionless_version_one_delivery_is_rejected() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(CBPD_MAGIC);
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        let mut restored = GameLogic::new();
+        assert!(apply_from_lifecycle_tail(&bytes, &mut restored).is_err());
     }
 
     #[test]
@@ -192,6 +231,7 @@ mod tests {
                 drop_frame: 10,
                 target: Vec3::ZERO,
                 source_id: 1,
+                faction: crate::game_logic::Team::USA,
                 bomb_index: 0,
                 transport_id: 2,
             });

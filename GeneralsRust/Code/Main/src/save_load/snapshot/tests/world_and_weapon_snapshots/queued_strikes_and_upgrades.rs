@@ -2,6 +2,42 @@
 use super::super::*;
 
 #[test]
+fn carpet_payload_keeps_launch_faction_after_transport_changes_team_and_restore() {
+    use crate::command_system::SpecialPowerType;
+
+    let mut source = GameLogic::new();
+    ensure_strike_test_tank(&mut source);
+    let caster = source
+        .create_object("StrikeTestTank", Team::USA, Vec3::new(-500.0, 0.0, 0.0))
+        .unwrap();
+    source
+        .queue_special_power_strike(&SpecialPowerType::CarpetBomb, caster, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    let drop_frame = source.carpet_bomb_flight_reg.pending_drops[0].drop_frame;
+    let transport = ObjectId(source.carpet_bomb_flight_reg.pending_drops[0].transport_id);
+    source.host_object_mut(transport).unwrap().team = Team::China;
+    source.destroy_object(caster).unwrap();
+    source.process_destroy_list();
+    assert!(source.host_object(caster).is_none());
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+
+    for world in [&mut source, &mut restored] {
+        world.set_current_frame(u64::from(drop_frame));
+        world.update_carpet_bomb_flights();
+        let payloads: Vec<_> = world.host_objects().registered_values()
+            .filter(|object| object.carpet_bomb_payload)
+            .collect();
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0].team, Team::USA);
+    }
+}
+
+#[test]
 fn carpet_live_payloads_remain_the_damage_owner_after_restore() {
     use crate::command_system::SpecialPowerType;
 

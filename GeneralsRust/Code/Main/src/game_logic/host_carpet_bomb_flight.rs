@@ -9,6 +9,10 @@
 //! - Spawn CarpetBomb payload objects that HeightDie / explode
 //! - Impact damage residual at each drop
 //!
+//! Pending drops retain their launch faction if the launcher dies or the bomber
+//! changes faction. Exact player and Team ownership still needs pre-created
+//! contained payloads.
+//!
 //! Fail-closed: not full AmericaJetB52 pathfinder / preferred-height locomotor.
 
 use glam::Vec3;
@@ -26,6 +30,8 @@ pub struct PendingCarpetBombDrop {
     pub drop_frame: u32,
     pub target: Vec3,
     pub source_id: u32,
+    /// Launch faction only; this does not identify the controlling player or Team instance.
+    pub faction: crate::game_logic::Team,
     pub bomb_index: u32,
     /// Transport that still carries this payload (C++ contain). 0 = unbound.
     #[serde(default)]
@@ -141,6 +147,7 @@ impl HostCarpetBombFlightRegistry {
         &mut self,
         activate_frame: u32,
         source_id: u32,
+        faction: crate::game_logic::Team,
         target: Vec3,
         launch: Vec3,
         tier: CarpetBombFactionTier,
@@ -155,6 +162,7 @@ impl HostCarpetBombFlightRegistry {
                 drop_frame,
                 target: pt,
                 source_id,
+                faction,
                 bomb_index: i as u32,
                 transport_id,
             });
@@ -170,11 +178,8 @@ impl HostCarpetBombFlightRegistry {
         let mut due = Vec::new();
         let mut keep = Vec::new();
         for p in self.pending_drops.drain(..) {
-            let transport_alive = if p.transport_id == 0 {
-                !alive_transports.is_empty()
-            } else {
-                alive_transports.contains(&p.transport_id)
-            };
+            let transport_alive =
+                p.transport_id != 0 && alive_transports.contains(&p.transport_id);
             if !transport_alive {
                 continue;
             }
@@ -212,6 +217,7 @@ pub fn honesty_carpet_bomb_flight_residual_ok() -> bool {
             reg.schedule_drops(
                 0,
                 1,
+                crate::game_logic::Team::USA,
                 Vec3::new(100.0, 0.0, 0.0),
                 Vec3::ZERO,
                 CarpetBombFactionTier::America,
@@ -238,6 +244,26 @@ mod tests {
     #[test]
     fn schedules_staggered_usa_payload() {
         assert!(honesty_carpet_bomb_flight_residual_ok());
+    }
+
+    #[test]
+    fn unbound_or_missing_transport_cannot_borrow_another_bombers_delivery() {
+        let mut reg = HostCarpetBombFlightRegistry::new();
+        for transport_id in [0, 42, 43] {
+            reg.schedule_drops(
+                0,
+                1,
+                crate::game_logic::Team::USA,
+                Vec3::new(100.0, 0.0, 0.0),
+                Vec3::ZERO,
+                CarpetBombFactionTier::America,
+                transport_id,
+            );
+        }
+        let due = reg.take_due_drops(u32::MAX, &[0, 43]);
+        assert_eq!(due.len(), 15);
+        assert!(due.iter().all(|drop| drop.transport_id == 43));
+        assert!(reg.pending_drops.is_empty());
     }
 
     #[test]

@@ -491,6 +491,7 @@ impl GameLogic {
         self.carpet_bomb_flight_reg.schedule_drops(
             self.frame,
             source_id.0,
+            team,
             target,
             edge,
             tier,
@@ -593,11 +594,10 @@ impl GameLogic {
                     .insert(CARPET_BOMB_PAYLOAD_OBJECT.to_string(), t);
             }
             for p in due {
-                let team = self
-                    .objects
-                    .get(&ObjectId(p.source_id))
-                    .map(|o| o.team)
-                    .unwrap_or(Team::Neutral);
+                // Preserve the launch faction, not the potentially changed
+                // transport faction. Exact player/Team identity still requires
+                // pre-created payloads and their native containment lifecycle.
+                let team = p.faction;
                 // Drop from above target residual.
                 let drop_pos = Vec3::new(p.target.x, 80.0, p.target.z);
                 if let Some(bid) = self.create_object_with_script_effects(
