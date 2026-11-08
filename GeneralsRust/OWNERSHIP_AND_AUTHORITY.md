@@ -2931,3 +2931,7 @@ deadline, and expiry reloads the receiving owner's clips.
 Profiler timing blocks borrow their session's clock cache for their entire
 lifetime. Safe callers cannot move or destroy the session before its block
 records its final timing.
+
+Main's crate-death roll reads the receiving world's parsed crate definitions;
+one world's cache can no longer select another world's crate. Core's separate
+death callback still uses its ambient crate system and requires owner migration.

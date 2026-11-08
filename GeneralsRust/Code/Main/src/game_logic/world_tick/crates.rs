@@ -2128,12 +2128,17 @@ impl GameLogic {
                 killer_kindof_names: &killer_kind_refs,
                 killer_sciences: &killer_sciences,
             };
-            let Some(req) = crate::game_logic::host_create_crate_die::try_roll_crate_spawn_gated(
-                name,
-                seed,
-                draw,
-                Some(&gates),
-            ) else {
+            let request = {
+                let definitions = self.world_services.common().ini.crate_system.read();
+                crate::game_logic::host_create_crate_die::try_roll_crate_spawn_gated(
+                    &definitions,
+                    name,
+                    seed,
+                    draw,
+                    Some(&gates),
+                )
+            };
+            let Some(req) = request else {
                 continue;
             };
 

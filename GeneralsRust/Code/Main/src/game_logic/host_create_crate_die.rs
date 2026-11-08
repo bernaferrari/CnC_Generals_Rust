@@ -353,20 +353,22 @@ pub struct CrateDieGates<'a> {
 }
 
 pub fn try_roll_crate_spawn(
+    definitions: &game_engine::common::ini::ParsedCrateSystem,
     crate_data_name: &str,
     seed: u32,
     draw_base: u32,
 ) -> Option<HostCrateSpawnRequest> {
-    try_roll_crate_spawn_gated(crate_data_name, seed, draw_base, None)
+    try_roll_crate_spawn_gated(definitions, crate_data_name, seed, draw_base, None)
 }
 
 pub fn try_roll_crate_spawn_gated(
+    definitions: &game_engine::common::ini::ParsedCrateSystem,
     crate_data_name: &str,
     seed: u32,
     draw_base: u32,
     gates: Option<&CrateDieGates<'_>>,
 ) -> Option<HostCrateSpawnRequest> {
-    let tmpl = lookup_crate_template(crate_data_name)?;
+    let tmpl = lookup_crate_template(definitions, crate_data_name)?;
     let chance_roll = pure_logic_random_real(seed, draw_base, 0.0, 1.0);
     let pick_roll = pure_logic_random_real(seed, draw_base.wrapping_add(1), 0.0, 1.0);
     let victim_veterancy = gates
@@ -399,16 +401,15 @@ pub fn try_roll_crate_spawn_gated(
     Some(req)
 }
 
-fn lookup_crate_template(name: &str) -> Option<gamelogic::object::crate_system::CrateTemplate> {
-    if let Ok(guard) = gamelogic::object::crate_system::get_crate_system().read() {
-        if let Some(tmpl) = guard.find_crate_template_ci(name) {
-            return Some(tmpl.clone());
-        }
-    }
-    if let Some(parsed) = find_parsed_crate_template(name) {
-        return Some(gamelogic::object::crate_system::CrateSystem::template_from_parsed(&parsed));
-    }
-    find_host_crate_template(name).map(residual_as_crate_template)
+fn lookup_crate_template(
+    definitions: &game_engine::common::ini::ParsedCrateSystem,
+    name: &str,
+) -> Option<gamelogic::object::crate_system::CrateTemplate> {
+    definitions
+        .get(name)
+        .or_else(|| definitions.iter().find(|template| template.name.eq_ignore_ascii_case(name)))
+        .map(gamelogic::object::crate_system::CrateSystem::template_from_parsed)
+        .or_else(|| find_host_crate_template(name).map(residual_as_crate_template))
 }
 
 fn residual_as_crate_template(
@@ -461,17 +462,6 @@ fn salvage_killed_by_mask() -> u128 {
         .unwrap_or(0)
 }
 
-fn find_parsed_crate_template(name: &str) -> Option<game_engine::common::ini::ParsedCrateTemplate> {
-    let store = game_engine::common::ini::get_crate_system()?;
-    let guard = store.read();
-    if let Some(t) = guard.get(name) {
-        return Some(t.clone());
-    }
-    guard
-        .iter()
-        .find(|t| t.name.eq_ignore_ascii_case(name))
-        .cloned()
-}
 
 fn test_parsed_creation_chance(
     parsed: &game_engine::common::ini::ParsedCrateTemplate,
@@ -572,9 +562,10 @@ mod tests {
 
     #[test]
     fn roll_spawn_salvage_requires_salvager_killer() {
+        let definitions = game_engine::common::ini::ParsedCrateSystem::new();
         // C++ CreateCrateDie.cpp:72-73 — KilledByType SALVAGER.
         assert!(
-            try_roll_crate_spawn("SalvageCrateData", 42, 0).is_none(),
+            try_roll_crate_spawn(&definitions, "SalvageCrateData", 42, 0).is_none(),
             "no killer must fail SalvageCrateData"
         );
         let infantry = CrateDieGates {
@@ -583,7 +574,7 @@ mod tests {
             killer_sciences: &[],
         };
         assert!(
-            try_roll_crate_spawn_gated("SalvageCrateData", 42, 0, Some(&infantry)).is_none(),
+            try_roll_crate_spawn_gated(&definitions, "SalvageCrateData", 42, 0, Some(&infantry)).is_none(),
             "non-salvager must not drop salvage crate"
         );
         let salvager = CrateDieGates {
@@ -591,7 +582,7 @@ mod tests {
             killer_kindof_names: &["Salvager"],
             killer_sciences: &[],
         };
-        let req = try_roll_crate_spawn_gated("SalvageCrateData", 42, 0, Some(&salvager))
+        let req = try_roll_crate_spawn_gated(&definitions, "SalvageCrateData", 42, 0, Some(&salvager))
             .expect("salvager spawn");
         assert_eq!(req.object_name, "SalvageCrate");
         assert!(req.money_provided >= 25 && req.money_provided <= 75);
@@ -599,20 +590,21 @@ mod tests {
 
     #[test]
     fn elite_tank_crate_data_requires_elite_victim() {
+        let definitions = game_engine::common::ini::ParsedCrateSystem::new();
         // Retail EliteTankCrateData: CreationChance 0.75, VeterancyLevel ELITE.
         let regular = CrateDieGates {
             victim_veterancy: Some("Regular"),
             killer_kindof_names: &["Vehicle"],
             killer_sciences: &[],
         };
-        assert!(try_roll_crate_spawn_gated("EliteTankCrateData", 1, 0, Some(&regular)).is_none());
+        assert!(try_roll_crate_spawn_gated(&definitions, "EliteTankCrateData", 1, 0, Some(&regular)).is_none());
         let elite = CrateDieGates {
             victim_veterancy: Some("Elite"),
             killer_kindof_names: &["Vehicle"],
             killer_sciences: &[],
         };
         // Seed 1 / draw 0 is a mid roll; chance 0.75 should usually pass.
-        let req = try_roll_crate_spawn_gated("EliteTankCrateData", 1, 0, Some(&elite));
+        let req = try_roll_crate_spawn_gated(&definitions, "EliteTankCrateData", 1, 0, Some(&elite));
         if let Some(req) = req {
             assert_eq!(req.object_name, "EliteTankCrate");
         }
@@ -621,7 +613,7 @@ mod tests {
             killer_kindof_names: &["Vehicle"],
             killer_sciences: &[],
         };
-        let req = try_roll_crate_spawn_gated("HeroicTankCrateData", 1, 0, Some(&heroic))
+        let req = try_roll_crate_spawn_gated(&definitions, "HeroicTankCrateData", 1, 0, Some(&heroic))
             .expect("heroic tank crate");
         assert_eq!(req.object_name, "HeroicTankCrate");
     }

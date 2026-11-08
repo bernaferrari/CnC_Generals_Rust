@@ -2552,6 +2552,72 @@ fn execute_salvage_weapon_then_money() {
 }
 
 #[test]
+fn crate_death_uses_receiving_world_definitions_after_reset() {
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+    use game_engine::common::ini::{ParsedCrateCreationEntry, ParsedCrateTemplate};
+
+    fn definition(name: &str, drop: &str) -> ParsedCrateTemplate {
+        let mut template = ParsedCrateTemplate::new(name.into());
+        template.creation_chance = 1.0;
+        template.possible_crates.push(ParsedCrateCreationEntry {
+            crate_name: drop.into(),
+            crate_chance: 1.0,
+        });
+        template
+    }
+
+    fn die(world: &mut GameLogic, id: u32, name: &str) {
+        world.with_own_services_mut(|world| {
+            let id = ObjectId(id);
+            let mut template = ThingTemplate::new("CrateVictim");
+            template.add_create_crate_data(name);
+            let mut victim = Object::new(template, id, Team::USA);
+            victim.health.current = 0.0;
+            victim.status.destroyed = true;
+            world.objects.insert(id, victim);
+            world.mark_object_for_destruction(id, None);
+            world.process_destroy_list();
+            assert!(!world.objects.contains_key(&id));
+        });
+    }
+
+    fn count(world: &GameLogic, name: &str) -> usize {
+        world.objects.registered_values().filter(|object| object.thing().template.name == name).count()
+    }
+
+    let mut a = GameLogic::new();
+    let mut b = GameLogic::new();
+    {
+        let mut defs = a.world_services.common().ini.crate_system.write();
+        defs.insert(definition("Shared", "A_Drop"));
+        defs.insert(definition("OnlyA", "A_OnlyDrop"));
+    }
+    b.world_services.common().ini.crate_system.write().insert(definition("Shared", "B_Drop"));
+
+    die(&mut a, 47101, "Shared");
+    die(&mut b, 47102, "Shared");
+    die(&mut b, 47103, "OnlyA");
+    assert_eq!(count(&a, "A_Drop"), 1);
+    assert_eq!(count(&b, "B_Drop"), 1);
+    assert_eq!(count(&b, "A_Drop"), 0);
+    assert_eq!(count(&b, "A_OnlyDrop"), 0);
+
+    {
+        let mut defs = b.world_services.common().ini.crate_system.write();
+        defs.reset();
+        defs.insert(definition("Shared", "B_Replacement"));
+    }
+    die(&mut b, 47104, "Shared");
+    die(&mut a, 47105, "Shared");
+    die(&mut a, 47106, "OnlyA");
+    assert_eq!(count(&b, "B_Drop"), 1);
+    assert_eq!(count(&b, "B_Replacement"), 1);
+    assert_eq!(count(&a, "A_Drop"), 2);
+    assert_eq!(count(&a, "A_OnlyDrop"), 1);
+    assert_eq!(count(&a, "B_Replacement"), 0);
+}
+
+#[test]
 fn create_crate_die_spawns_salvage_and_notifies_ai() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
