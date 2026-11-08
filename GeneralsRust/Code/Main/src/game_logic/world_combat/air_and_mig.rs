@@ -444,38 +444,17 @@ impl GameLogic {
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
     pub(crate) fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::{
-            battlemaster_weapon, has_uranium_shells_upgrade, leftover_horde_fanaticism_bonus,
+            battlemaster_weapon, has_uranium_shells_upgrade,
         };
-        let morale = self.owner_morale_upgrades(
-            self.objects
-                .get(&object_id)
-                .and_then(|obj| obj.owner_player_id),
-        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !obj.authors_battlemaster_tank_gun() {
+        if !obj.authors_battlemaster_tank_gun() || obj.selected_native_weapon_rule(0).is_some() {
             return;
         }
         let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
-        let nationalism = morale.nationalism;
-        let in_horde = obj.weapon_bonus_horde;
-        // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
-        // vetoes only while in horde (default TRUE). Fanaticism nests inside.
-        let nationalism_active = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
-            nationalism,
-            in_horde,
-            obj.horde_allowed_nationalism(),
-        );
-        obj.weapon_bonus_nationalism = nationalism_active;
-        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
-            nationalism_active,
-            morale.fanaticism,
-        );
-        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
-        let mut w = battlemaster_weapon(uranium, in_horde, nationalism_active);
-        w.last_fire_time = last_fire;
-        obj.weapon = Some(w);
+        let weapon = battlemaster_weapon(uranium, false, false);
+        super::tanks_and_upgrades::refresh_residual_weapon(&mut obj.weapon, weapon);
     }
 
     /// Apply Uranium Shells residual (PLAYER_UPGRADE DAMAGE 125%) to a Battlemaster.

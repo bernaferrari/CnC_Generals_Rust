@@ -27,18 +27,19 @@ pub(crate) struct MoraleUpgrades {
     pub fanaticism: bool,
 }
 
-/// C++ `AIUpdateInterface::evaluateMoraleBonus` flag write for live host objects.
-pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object, upgrades: MoraleUpgrades) {
-    use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
-    let nationalism_active = nationalism_bonus_from_upgrade(
-        upgrades.nationalism,
-        obj.weapon_bonus_horde,
-        obj.horde_allowed_nationalism(),
-    );
-    obj.weapon_bonus_nationalism = nationalism_active;
-    obj.weapon_bonus_fanaticism =
-        leftover_horde_fanaticism_bonus(nationalism_active, upgrades.fanaticism);
+/// Refresh residual template values without replacing the live Weapon state.
+pub(super) fn refresh_residual_weapon(slot: &mut Option<Weapon>, mut template: Weapon) {
+    if let Some(old) = slot.as_ref() {
+        template.last_fire_time = old.last_fire_time;
+        template.last_fire_frame = old.last_fire_frame;
+        template.ammo = old.ammo;
+        template.reloading_clip = old.reloading_clip;
+        template.last_bonus_rof = old.last_bonus_rof;
+        template.suspend_fx_frame = old.suspend_fx_frame;
+    }
+    *slot = Some(template);
 }
+
 
 impl GameLogic {
     /// `player->hasUpgradeComplete(Upgrade_Nationalism / Upgrade_Fanaticism)`
@@ -62,8 +63,8 @@ impl GameLogic {
             .get(&object_id)
             .and_then(|obj| obj.owner_player_id);
         let upgrades = self.owner_morale_upgrades(owner);
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            apply_evaluate_morale_bonus(obj, upgrades);
+        if let Some(horde) = self.objects.get(&object_id).map(|obj| obj.weapon_bonus_horde) {
+            self.apply_owned_horde_morale(object_id, horde, upgrades);
         }
     }
 
@@ -244,118 +245,53 @@ impl GameLogic {
 
     /// Refresh Red Guard weapon residual from current horde / nationalism flags.
     pub(crate) fn refresh_red_guard_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
         use crate::game_logic::host_red_guard::red_guard_weapon;
-        let morale = self.owner_morale_upgrades(
-            self.objects
-                .get(&object_id)
-                .and_then(|obj| obj.owner_player_id),
-        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !obj.authors_red_guard_machine_gun() {
+        if !obj.authors_red_guard_machine_gun() || obj.selected_native_weapon_rule(0).is_some() {
             return;
         }
-        let nationalism = morale.nationalism;
-        let in_horde = obj.weapon_bonus_horde;
-        let nationalism_active = nationalism_bonus_from_upgrade(
-            nationalism,
-            in_horde,
-            obj.horde_allowed_nationalism(),
-        );
-        obj.weapon_bonus_nationalism = nationalism_active;
-        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
-            nationalism_active,
-            morale.fanaticism,
-        );
-        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
-        let mut w = red_guard_weapon(in_horde, nationalism_active);
-        w.last_fire_time = last_fire;
-        obj.weapon = Some(w);
+        refresh_residual_weapon(&mut obj.weapon, red_guard_weapon(false, false));
     }
 
     /// Refresh Tank Hunter RPG residual from current horde / nationalism flags.
     pub(crate) fn refresh_tank_hunter_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
-
         use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
-        let morale = self.owner_morale_upgrades(
-            self.objects
-                .get(&object_id)
-                .and_then(|obj| obj.owner_player_id),
-        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !obj.authors_tank_hunter_missile() {
+        if !obj.authors_tank_hunter_missile() || obj.selected_native_weapon_rule(0).is_some() {
             return;
         }
-        let nationalism = morale.nationalism;
-        let in_horde = obj.weapon_bonus_horde;
-        let nationalism_active = nationalism_bonus_from_upgrade(
-            nationalism,
-            in_horde,
-            obj.horde_allowed_nationalism(),
-        );
-        obj.weapon_bonus_nationalism = nationalism_active;
-        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
-            nationalism_active,
-            morale.fanaticism,
-        );
-
-        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
-        let mut w = tank_hunter_weapon(in_horde, nationalism_active);
-        w.last_fire_time = last_fire;
-        obj.weapon = Some(w);
+        refresh_residual_weapon(&mut obj.weapon, tank_hunter_weapon(false, false));
     }
 
     /// Refresh MiniGunner dual-gun residual from continuous fire + horde / nationalism.
     pub(crate) fn refresh_minigunner_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
-
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
             has_chain_guns_upgrade, minigunner_air_weapon, minigunner_ground_weapon,
         };
-        let morale = self.owner_morale_upgrades(
-            self.objects
-                .get(&object_id)
-                .and_then(|obj| obj.owner_player_id),
-        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         if !obj.authors_minigunner_gun() {
             return;
         }
-        let nationalism = morale.nationalism;
-        let in_horde = obj.weapon_bonus_horde;
-        let nationalism_active = nationalism_bonus_from_upgrade(
-            nationalism,
-            in_horde,
-            obj.horde_allowed_nationalism(),
-        );
-        obj.weapon_bonus_nationalism = nationalism_active;
-        obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
-            nationalism_active,
-            morale.fanaticism,
-        );
 
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
-        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
-        let last_sec = obj
-            .secondary_weapon
-            .as_ref()
-            .map(|w| w.last_fire_time)
-            .unwrap_or(0.0);
-        let mut w = minigunner_ground_weapon(level, chain, in_horde, nationalism_active);
-        w.last_fire_time = last_fire;
-        obj.weapon = Some(w);
-        let mut s = minigunner_air_weapon(level, chain, in_horde, nationalism_active);
-        s.last_fire_time = last_sec;
-        obj.secondary_weapon = Some(s);
+        if obj.selected_native_weapon_rule(0).is_none() {
+            refresh_residual_weapon(&mut obj.weapon, minigunner_ground_weapon(
+                level, chain, false, false,
+            ));
+        }
+        if obj.selected_native_weapon_rule(1).is_none() {
+            refresh_residual_weapon(&mut obj.secondary_weapon, minigunner_air_weapon(
+                level, chain, false, false,
+            ));
+        }
     }
 
     /// Apply Chain Guns residual to a MiniGunner (PLAYER_UPGRADE damage residual × 1.25).

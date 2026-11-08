@@ -715,7 +715,6 @@ impl GameLogic {
                 let draw_icon_ui = self.get_draw_icon_ui();
                 if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     let was = obj.weapon_bonus_horde;
-                    obj.weapon_bonus_horde = now_horde;
                     obj.apply_horde_terrain_decal(was, now_horde, draw_icon_ui);
 
                     if now_horde && !was {
@@ -741,26 +740,11 @@ impl GameLogic {
                     }
                 }
 
+                let owner = self.objects.get(&id).and_then(|obj| obj.owner_player_id);
+                let morale = self.owner_morale_upgrades(owner);
+                self.apply_owned_horde_morale(id, now_horde, morale);
                 if now_horde != was_horde || now_horde {
-                    match grant {
-                        HordeGrantCounter::Battlemaster => {
-                            self.refresh_battlemaster_weapon(id);
-                        }
-                        HordeGrantCounter::RedGuard => {
-                            self.refresh_red_guard_weapon(id);
-                        }
-                        HordeGrantCounter::TankHunter => {
-                            self.refresh_tank_hunter_weapon(id);
-                        }
-                        HordeGrantCounter::Minigunner => {
-                            self.refresh_minigunner_weapon(id);
-                        }
-                        HordeGrantCounter::None => {}
-                    }
-                    // C++ evaluateMoraleBonus on every HordeUpdate unit.
-                    // Battlemaster refresh is a no-op for Dragon/Inferno/
-                    // Gattling/Overlord; this still stamps NATIONALISM.
-                    self.evaluate_horde_morale_bonus(id);
+                    self.refresh_horde_residual_weapon(id, false);
                 }
             }
             HostResidualMutationOp::SetPosition {

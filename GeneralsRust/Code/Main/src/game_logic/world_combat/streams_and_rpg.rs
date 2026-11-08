@@ -728,11 +728,6 @@ impl GameLogic {
         };
 
         let frame = self.frame;
-        let morale = self.owner_morale_upgrades(
-            self.objects
-                .get(&attacker_id)
-                .and_then(|obj| obj.owner_player_id),
-        );
         let Some(obj) = self.objects.get_mut(&attacker_id) else {
             return;
         };
@@ -742,14 +737,7 @@ impl GameLogic {
         let new_victim = target_id.map(|id| id.0);
         let coast_until = obj.continuous_fire_coast_until_frame;
         let in_horde = obj.weapon_bonus_horde;
-        // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
-        // vetoes only while in horde (default TRUE).
-        let nationalism = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
-            morale.nationalism,
-            in_horde,
-            obj.horde_allowed_nationalism(),
-        );
-        obj.weapon_bonus_nationalism = nationalism;
+        let nationalism = obj.weapon_bonus_nationalism;
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
 
         let (new_level, consecutive, entered_fast) = minigunner_on_shot_fired(
@@ -773,22 +761,26 @@ impl GameLogic {
         obj.continuous_fire_coast_until_frame =
             minigunner_coast_until_after_shot(frame, prev_level, in_horde, nationalism);
 
-        // Rebind weapons with ramped + horde reload residual.
-        if let Some(w) = obj.weapon.as_mut() {
-            let refreshed = minigunner_ground_weapon(new_level, chain, in_horde, nationalism);
-            w.damage = refreshed.damage;
-            w.range = refreshed.range;
-            w.reload_time = refreshed.reload_time;
-            w.can_target_air = false;
-            w.can_target_ground = true;
+        // Morale bonuses are applied by the receiving weapon bonus set.
+        if obj.selected_native_weapon_rule(0).is_none() {
+            if let Some(w) = obj.weapon.as_mut() {
+                let refreshed = minigunner_ground_weapon(new_level, chain, false, false);
+                w.damage = refreshed.damage;
+                w.range = refreshed.range;
+                w.reload_time = refreshed.reload_time;
+                w.can_target_air = false;
+                w.can_target_ground = true;
+            }
         }
-        if let Some(w) = obj.secondary_weapon.as_mut() {
-            let refreshed = minigunner_air_weapon(new_level, chain, in_horde, nationalism);
-            w.damage = refreshed.damage;
-            w.range = refreshed.range;
-            w.reload_time = refreshed.reload_time;
-            w.can_target_air = true;
-            w.can_target_ground = false;
+        if obj.selected_native_weapon_rule(1).is_none() {
+            if let Some(w) = obj.secondary_weapon.as_mut() {
+                let refreshed = minigunner_air_weapon(new_level, chain, false, false);
+                w.damage = refreshed.damage;
+                w.range = refreshed.range;
+                w.reload_time = refreshed.reload_time;
+                w.can_target_air = true;
+                w.can_target_ground = false;
+            }
         }
 
         if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {

@@ -85,7 +85,6 @@ impl GameLogic {
         let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
         let mut vehicle_grants = 0u32;
-        let mut to_refresh = Vec::new();
         for (member, scanned) in members.iter().zip(membership) {
             let morale = self.owner_morale_upgrades(member.owner);
             let Some(object) = self.objects.get_mut(&member.id) else {
@@ -110,38 +109,63 @@ impl GameLogic {
             let was = object.weapon_bonus_horde;
             let now = if due { scanned.in_horde } else { was };
             if due {
-                object.weapon_bonus_horde = now;
-                let morale_before = (
-                    object.weapon_bonus_nationalism,
-                    object.weapon_bonus_fanaticism,
-                );
-                super::tanks_and_upgrades::apply_evaluate_morale_bonus(object, morale);
-                let morale_changed = morale_before
-                    != (
-                        object.weapon_bonus_nationalism,
-                        object.weapon_bonus_fanaticism,
-                    );
                 if now && !was && !member.is_infantry {
                     vehicle_grants = vehicle_grants.saturating_add(1);
                 }
-                if now != was || now || morale_changed {
-                    to_refresh.push((member.id, now && !was));
+                // The C++ morale evaluation changes each condition separately.
+                // Release the object borrow between changes so each callback sees
+                // the receiving world's current bonus tables and containment.
+                self.apply_owned_horde_morale(member.id, now, morale);
+                if now != was || now {
+                    self.refresh_horde_residual_weapon(member.id, now && !was);
                 }
             }
-            object.apply_horde_terrain_decal(was, now, draw_icon);
+            if let Some(object) = self.objects.get_mut(&member.id) {
+                object.apply_horde_terrain_decal(was, now, draw_icon);
+            }
         }
         self.battlemaster_residual_horde_grants = self
             .battlemaster_residual_horde_grants
             .saturating_add(vehicle_grants);
-        for (id, granted) in to_refresh {
-            self.refresh_horde_residual_weapon(id, granted);
+    }
+
+    pub(crate) fn apply_owned_horde_morale(
+        &mut self,
+        id: ObjectId,
+        horde: bool,
+        upgrades: super::tanks_and_upgrades::MoraleUpgrades,
+    ) {
+        let Some(object) = self.objects.get(&id) else { return };
+        let nationalism = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
+            upgrades.nationalism, horde, object.horde_allowed_nationalism(),
+        );
+        for (index, enabled) in [(0, horde), (1, nationalism)] {
+            self.set_owned_morale_condition(id, index, enabled);
         }
+        // C++ only touches FANATICISM inside the nationalism branch.
+        if nationalism {
+            self.set_owned_morale_condition(id, 2, upgrades.fanaticism);
+        }
+    }
+
+    fn set_owned_morale_condition(&mut self, id: ObjectId, index: u8, enabled: bool) {
+        let Some(object) = self.objects.get_mut(&id) else { return };
+        let flag = match index {
+            0 => &mut object.weapon_bonus_horde,
+            1 => &mut object.weapon_bonus_nationalism,
+            _ => &mut object.weapon_bonus_fanaticism,
+        };
+        if *flag == enabled { return; }
+        *flag = enabled;
+        let rates = self.receiving_weapon_rates_of_fire(self.objects.get(&id).unwrap());
+        let time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        self.objects.get_mut(&id).unwrap().on_owned_weapon_bonus_change(time, &rates);
     }
 
     /// Re-derive the residual weapon stats that still bake HORDE /
     /// NATIONALISM into the bound Weapon. Each refresh is keyed on the
     /// authored weapon it owns and is a no-op for other objects.
-    fn refresh_horde_residual_weapon(&mut self, id: ObjectId, granted: bool) {
+    pub(crate) fn refresh_horde_residual_weapon(&mut self, id: ObjectId, granted: bool) {
         let Some(object) = self.objects.get(&id) else {
             return;
         };
@@ -159,6 +183,10 @@ impl GameLogic {
                 self.minigunner_residual_horde_grants =
                     self.minigunner_residual_horde_grants.saturating_add(1);
             }
+        }
+        // Rebuilding an authored WeaponSet discards its live reload state.
+        if (0..3).any(|slot| object.selected_native_weapon_rule(slot).is_some()) {
+            return;
         }
         if red_guard {
             self.refresh_red_guard_weapon(id);
@@ -212,6 +240,164 @@ mod tests {
 
     fn in_horde(world: &GameLogic, id: ObjectId) -> bool {
         world.host_object(id).unwrap().weapon_bonus_horde
+    }
+
+    #[test]
+    fn morale_edges_restart_the_receiving_weapon_without_touching_another_world() {
+        use crate::game_logic::Weapon;
+        use super::super::tanks_and_upgrades::MoraleUpgrades;
+        let modules = format!("{INFANTRY_HORDE}End\n");
+        let ini = object_ini("PlainRifleman", "INFANTRY", &modules);
+        let mut a = world(&[ini.clone()]);
+        let mut b = world(&[ini]);
+        let id_a = spawn(&mut a, "PlainRifleman", 0, &[0.0])[0];
+        let id_b = spawn(&mut b, "PlainRifleman", 0, &[0.0])[0];
+        for (world, id) in [(&mut a, id_a), (&mut b, id_b)] {
+            world.objects.get_mut(&id).unwrap().weapon = Some(Weapon {
+                reload_time: 10.0,
+                last_fire_time: 0.25,
+                ..Weapon::default()
+            });
+            world.frame = 30;
+        }
+        a.apply_owned_horde_morale(id_a, true, MoraleUpgrades::default());
+        assert_eq!(a.objects.get(&id_a).unwrap().weapon.as_ref().unwrap().last_fire_time, 1.0);
+        assert_eq!(b.objects.get(&id_b).unwrap().weapon.as_ref().unwrap().last_fire_time, 0.25);
+        a.frame = 60;
+        a.apply_owned_horde_morale(id_a, false, MoraleUpgrades::default());
+        assert_eq!(a.objects.get(&id_a).unwrap().weapon.as_ref().unwrap().last_fire_time, 2.0);
+    }
+
+    #[test]
+    fn nationalism_removal_preserves_fanaticism_as_in_cpp() {
+        use super::super::tanks_and_upgrades::MoraleUpgrades;
+        let modules = format!("{INFANTRY_HORDE}End\n");
+        let mut world = world(&[object_ini("PlainRifleman", "INFANTRY", &modules)]);
+        let id = spawn(&mut world, "PlainRifleman", 0, &[0.0])[0];
+        world.apply_owned_horde_morale(id, false, MoraleUpgrades {
+            nationalism: true,
+            fanaticism: true,
+        });
+        world.apply_owned_horde_morale(id, false, MoraleUpgrades::default());
+        let object = world.objects.get(&id).unwrap();
+        assert!(!object.weapon_bonus_nationalism);
+        assert!(object.weapon_bonus_fanaticism);
+    }
+
+    #[test]
+    fn fired_weapon_and_morale_edges_continue_after_encoded_restore() {
+        use super::super::tanks_and_upgrades::MoraleUpgrades;
+        fn armed_world(ini: &str) -> GameLogic {
+            let mut world = GameLogic::new();
+            let mut weapon = gamelogic::weapon::WeaponTemplate::new("MoraleTestGun".into());
+            weapon.primary_damage = 1.0;
+            weapon.attack_range = 100.0;
+            weapon.min_delay_between_shots = 30;
+            weapon.max_delay_between_shots = 30;
+            weapon.projectile_name = "NONE".into();
+            world.admit_receiving_weapon_snapshot(vec![("MoraleTestGun".into(), weapon)]).unwrap();
+            world.admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-horde-armed.ini".into(), ini.to_owned(),
+                )]).unwrap(),
+            ).unwrap();
+            world.add_player(Player::new(0, Team::China, "Owner", true));
+            world.add_player(Player::new(1, Team::USA, "Enemy", false));
+            world
+        }
+        let modules = format!(
+            "WeaponSet\nConditions = None\nWeapon = PRIMARY MoraleTestGun\nEnd\nBehavior = AIUpdateInterface AI\nEnd\n{INFANTRY_HORDE}End\n"
+        );
+        let ini = object_ini("PlainRifleman", "INFANTRY CAN_ATTACK", &modules);
+        let mut source = armed_world(&ini);
+        let shooter = spawn(&mut source, "PlainRifleman", 0, &[0.0])[0];
+        let target = spawn(&mut source, "PlainRifleman", 1, &[20.0])[0];
+        source.objects.get_mut(&shooter).unwrap().weapon.as_mut().unwrap().last_fire_time = -10.0;
+        source.frame = 30;
+        assert!(source.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+        source.frame = 35;
+        source.apply_owned_horde_morale(shooter, true, MoraleUpgrades {
+            nationalism: true,
+            fanaticism: true,
+        });
+        source.apply_owned_horde_morale(shooter, true, MoraleUpgrades::default());
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut restored = armed_world(&ini);
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+        let restored_shooter = restored.host_object(shooter).unwrap();
+        assert!(restored_shooter.weapon_bonus_horde);
+        assert!(!restored_shooter.weapon_bonus_nationalism);
+        assert!(restored_shooter.weapon_bonus_fanaticism);
+        for game in [&mut source, &mut restored] {
+            game.frame = 36;
+            assert!(!game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+            game.frame = 37;
+            game.apply_owned_horde_morale(shooter, false, MoraleUpgrades::default());
+            game.frame = 38;
+            assert!(!game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+            game.frame = 90;
+            assert!(game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+        }
+    }
+
+    #[test]
+    fn horde_rate_comes_from_receiving_gamedata_not_residual_weapon_refresh() {
+        use super::super::tanks_and_upgrades::MoraleUpgrades;
+        fn session(with_bonus: bool) -> (GameLogic, ObjectId, ObjectId) {
+            let mut game = GameLogic::new();
+            if with_bonus {
+                game.admit_combat_bonus_ini_sources([
+                    "GameData\nWeaponBonus = HORDE RATE_OF_FIRE 150%\nEnd\n",
+                ]).unwrap();
+            }
+            let mut weapon = gamelogic::weapon::WeaponTemplate::new("RedguardMachineGun".into());
+            weapon.primary_damage = 1.0;
+            weapon.attack_range = 100.0;
+            weapon.min_delay_between_shots = 45;
+            weapon.max_delay_between_shots = 45;
+            weapon.projectile_name = "NONE".into();
+            game.admit_receiving_weapon_snapshot(vec![("RedguardMachineGun".into(), weapon)]).unwrap();
+            let modules = format!(
+                "WeaponSet\nConditions = None\nWeapon = PRIMARY RedguardMachineGun\nEnd\nBehavior = AIUpdateInterface AI\nEnd\n{INFANTRY_HORDE}End\n"
+            );
+            let ini = object_ini("FiringProbe", "INFANTRY CAN_ATTACK", &modules);
+            game.admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "horde-rof.ini".into(), ini,
+                )]).unwrap(),
+            ).unwrap();
+            game.add_player(Player::new(0, Team::China, "Owner", true));
+            game.add_player(Player::new(1, Team::USA, "Enemy", false));
+            let shooter = spawn(&mut game, "FiringProbe", 0, &[0.0])[0];
+            let target = spawn(&mut game, "FiringProbe", 1, &[20.0])[0];
+            game.objects.get_mut(&shooter).unwrap().weapon.as_mut().unwrap().last_fire_time = -10.0;
+            (game, shooter, target)
+        }
+        let (mut authored, a, a_target) = session(true);
+        let (mut empty, b, b_target) = session(false);
+        for (world, shooter, target) in [(&mut authored, a, a_target), (&mut empty, b, b_target)] {
+            world.frame = 15;
+            assert!(world.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+            world.frame = 30;
+            world.apply_owned_horde_morale(shooter, true, MoraleUpgrades::default());
+            world.refresh_red_guard_weapon(shooter);
+        }
+        // C++ restarts the 45-frame delay at frame 30; 150% ROF floors
+        // it to 30 frames. Both exact deadlines are representable in
+        // binary seconds (2.0 and 2.5), independent of host float rounding.
+        authored.frame = 59;
+        empty.frame = 59;
+        assert!(!authored.fire_owned_passive_weapon(a, a_target, 0, Vec3::ZERO));
+        assert!(!empty.fire_owned_passive_weapon(b, b_target, 0, Vec3::ZERO));
+        authored.frame = 60;
+        empty.frame = 60;
+        assert!(authored.fire_owned_passive_weapon(a, a_target, 0, Vec3::ZERO));
+        assert!(!empty.fire_owned_passive_weapon(b, b_target, 0, Vec3::ZERO));
+        empty.frame = 75;
+        assert!(empty.fire_owned_passive_weapon(b, b_target, 0, Vec3::ZERO));
     }
 
     /// HordeUpdate.cpp:268-283: an object short of `Count` joins as an

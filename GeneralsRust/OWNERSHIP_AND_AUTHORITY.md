@@ -3153,3 +3153,7 @@ geometry before orphan visibility checks resume.
 
 Selection candidates follow the receiving visible-drawable roster, exclude
 contained objects, and distinguish local fog from enemy fog and shroud.
+
+Horde, Nationalism and Fanaticism edges notify the receiving weapon set in
+original order; encoded snapshots retain their flags. Residual weapon refresh
+preserves firing state and uses the receiving authored bonus catalog.

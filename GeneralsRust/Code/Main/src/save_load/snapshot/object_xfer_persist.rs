@@ -36,7 +36,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 23;
+const OXOB_VERSION: u32 = 24;
 
 mod legacy_versions;
 use legacy_versions::*;
@@ -58,6 +58,12 @@ struct ObjectXferPersistPayload {
     body_fx_throttles: Vec<(u32, u32, Option<crate::game_logic::combat::DamageType>)>,
     /// Owners whose ActiveBody last-damage record has been cleared for retaliation.
     cleared_last_attackers: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectXferPersistPayloadV24 {
+    prior: ObjectXferPersistPayload,
+    morale: Vec<(u32, bool, bool)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,10 +199,14 @@ struct ObjectXferPersist {
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
-    let payload = capture(game_logic);
-    if payload.objects.is_empty() {
+    let prior = capture(game_logic);
+    if prior.objects.is_empty() {
         return;
     }
+    let morale = game_logic.host_objects().registered()
+        .map(|(id, object)| (id.0, object.weapon_bonus_nationalism, object.weapon_bonus_fanaticism))
+        .collect();
+    let payload = ObjectXferPersistPayloadV24 { prior, morale };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -227,8 +237,12 @@ fn decode_current_payload(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXf
         bincode_legacy::deserialize::<ObjectXferPersistPayloadV22>(bytes)
             .map(Into::into)
             .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else if version == OXOB_VERSION {
+    } else if version == 23 {
         bincode_legacy::deserialize(bytes)
+            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
+    } else if version == OXOB_VERSION {
+        bincode_legacy::deserialize::<ObjectXferPersistPayloadV24>(bytes)
+            .map(|payload| payload.prior)
             .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
     } else {
         Err(SaveLoadError::Corrupted(format!(
@@ -258,7 +272,7 @@ pub(super) fn validate_owned_object_continuations_before_restore(
     if version < 19 && snapshot.version < 39 {
         return Ok(());
     }
-    if version != 19 && version != 20 && version != 21 && version != 22 && version != OXOB_VERSION {
+    if version != 19 && version != 20 && version != 21 && version != 22 && version != 23 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(
             "missing current passenger-fire continuation".into(),
         ));
@@ -267,6 +281,19 @@ pub(super) fn validate_owned_object_continuations_before_restore(
     let encoded = rest
         .get(..length)
         .ok_or_else(|| SaveLoadError::Corrupted("truncated passenger-fire continuation".into()))?;
+    if version == OXOB_VERSION {
+        let saved: ObjectXferPersistPayloadV24 = bincode_legacy::deserialize(encoded)
+            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
+        let mut ids = std::collections::HashSet::new();
+        for (id, _, _) in &saved.morale {
+            if !ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
+                return Err(SaveLoadError::Corrupted("invalid morale continuation owner".into()));
+            }
+        }
+        if ids.len() != snapshot.objects.len() {
+            return Err(SaveLoadError::Corrupted("incomplete morale continuation owners".into()));
+        }
+    }
     let payload = decode_current_payload(version, encoded)?;
     let mut ids = std::collections::HashSet::new();
     for (id, _) in payload.passenger_fire_permissions {
@@ -403,6 +430,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         && version != 20
         && version != 21
         && version != 22
+        && version != 23
         && version != OXOB_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -416,6 +444,22 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         ));
     }
     let encoded = &rest[..payload_len];
+    let morale = if version == OXOB_VERSION {
+        let saved: ObjectXferPersistPayloadV24 = bincode_legacy::deserialize(encoded)
+            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
+        let mut ids = std::collections::HashSet::new();
+        for (id, _, _) in &saved.morale {
+            if !ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
+                return Err(SaveLoadError::Corrupted("invalid saved morale owner".into()));
+            }
+        }
+        if ids.len() != game_logic.host_objects().registered_len() {
+            return Err(SaveLoadError::Corrupted("incomplete saved morale owners".into()));
+        }
+        saved.morale
+    } else {
+        Vec::new()
+    };
     let payload = if version == 1 {
         let old: ObjectXferPersistPayloadV1 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
@@ -866,6 +910,11 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     // record must not reset their existing clocks or script state.
     reset_object_xfer(game_logic);
     apply_payload(game_logic, payload);
+    for (id, nationalism, fanaticism) in morale {
+        let object = game_logic.host_object_mut(ObjectId(id)).expect("validated morale owner");
+        object.weapon_bonus_nationalism = nationalism;
+        object.weapon_bonus_fanaticism = fanaticism;
+    }
     Ok(())
 }
 
@@ -1187,6 +1236,8 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.weapon_scatter_targets_unused = Default::default();
         object.weapon_scatter_targets_inited = [false; 3];
         object.weapon_bonus_horde = false;
+        object.weapon_bonus_nationalism = false;
+        object.weapon_bonus_fanaticism = false;
         object.weapon_bonus_enthusiastic = false;
         object.weapon_bonus_subliminal = false;
         object.health_box_offset = [0.0; 3];
