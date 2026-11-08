@@ -51,6 +51,9 @@ WWLib surface writes use an exclusive mutable borrow, including blits and
 font rendering; the lock exposes bounded slices rather than mutable pointers.
 WWLib vector pointer lookup validates addresses and alignment without computing
 an offset between unrelated pointers; zero-sized elements resolve to index zero.
+Windows resource files copy bytes while their resource-only module is owned,
+then release it; arbitrary raw module handles are no longer accepted. The
+Windows module was cross-checked but not run on a Windows host.
 The Common game entrypoint owns its argument vector before the async future
 is polled; no caller-supplied raw pointer array or separate count is accepted.
 
