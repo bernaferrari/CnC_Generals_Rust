@@ -51,6 +51,16 @@ fn geometry(object: &Object) -> ParentGeometrySnapshot {
     }
 }
 
+fn ghost_footprint(info: ParentGeometrySnapshot) -> crate::game_logic::partition_coi::HostPartitionFootprint {
+    crate::game_logic::partition_coi::HostPartitionFootprint {
+        major_radius: info.major_radius,
+        minor_radius: info.minor_radius,
+        angle: info.angle,
+        is_small: info.is_small,
+        is_box: info.geometry_type == 2,
+    }
+}
+
 impl GameLogic {
     /// The engine calls this after the actual native draw completes. Partial
     /// or unavailable assets are absent; they never create fabricated ghosts.
@@ -148,13 +158,32 @@ impl GameLogic {
                         scene_id,
                         info.position[0],
                         info.position[1],
-                        crate::game_logic::partition_coi::HostPartitionFootprint {
-                            major_radius: info.major_radius,
-                            minor_radius: info.minor_radius,
-                            angle: info.angle,
-                            is_small: info.is_small,
-                            is_box: info.geometry_type == 2,
-                        },
+                        ghost_footprint(info),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Release and restore in ghost-manager order, as in the boundary reset.
+    /// Geometry belongs to the ghost; no grid-relative cells survive the reset.
+    pub(crate) fn release_host_orphan_partitions(&mut self) {
+        for ghost in self.w3d_ghosts.used() {
+            if ghost.parent_object_id().is_none() {
+                self.partition_manager.unregister_ghost_partition(ghost.scene_id());
+            }
+        }
+    }
+
+    pub(crate) fn restore_host_orphan_partitions(&mut self) {
+        for ghost in self.w3d_ghosts.used() {
+            if ghost.parent_object_id().is_none() {
+                if let Some(info) = ghost.parent_geometry() {
+                    self.partition_manager.restore_ghost_partition(
+                        ghost.scene_id(),
+                        info.position[0],
+                        info.position[1],
+                        ghost_footprint(info),
                     );
                 }
             }

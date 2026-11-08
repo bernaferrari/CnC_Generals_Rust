@@ -173,6 +173,82 @@ fn physical_parent_removal_preserves_orphan_until_its_original_location_is_revea
 }
 
 #[test]
+fn boundary_rebuilds_destroyed_fogged_object_coverage_in_each_world_and_save() {
+    fn old_grid(world: &mut GameLogic) {
+        world.admit_camera_application_movement(game_engine::common::ini::ini_game_data::CameraMovementRules {
+            partition_cell_size: 40.0,
+            ..Default::default()
+        });
+        let shroud = world.world_services.shroud().clone();
+        let mut shroud = shroud.lock().unwrap();
+        shroud.init_shroud_grid_at_origin_with_cell_size([-80.0, -80.0], 400.0, 400.0, 40.0).unwrap();
+        world.partition_manager.configure_grid_from_shroud(&shroud);
+        drop(shroud);
+        let object = world.objects.get_mut(&PARENT).unwrap();
+        world.partition_manager.attach_receiving_object(object);
+        world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+    }
+    fn admit_boundary_map(world: &mut GameLogic) {
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 40;
+        map.height = 40;
+        map.heightmap = vec![0; 1600];
+        map.boundaries = vec![
+            gamelogic::common::ICoord2D::new(40, 40),
+            gamelogic::common::ICoord2D::new(32, 32),
+        ];
+        world.world_services.terrain().write().unwrap().load_map_data(map);
+    }
+    fn boundary(world: &mut GameLogic) {
+        admit_boundary_map(world);
+        world.switch_owned_map_boundary(1, &mut Default::default()).unwrap();
+        assert_eq!(world.world_services.shroud().lock().unwrap().grid_world_origin(), Some([0.0, 0.0]));
+    }
+    let mut a = world();
+    let mut peer = world();
+    for world in [&mut a, &mut peer] {
+        old_grid(world);
+        reveal(world);
+        world.admit_host_ghost_draws(vec![native_draw(world, "BoundaryGhost", 1)]);
+        fog(world);
+        assert!(world.take_object_for_physical_retirement(PARENT, &mut Default::default()).unwrap().is_some());
+        assert_eq!(world.w3d_ghosts.used()[0].parent_object_id(), None);
+    }
+    let a_id = a.w3d_ghosts.used()[0].scene_id();
+    boundary(&mut a);
+    assert_eq!(a.w3d_ghosts.used()[0].scene_id(), a_id);
+    assert_eq!(peer.world_services.shroud().lock().unwrap().grid_world_origin(), Some([-80.0, -80.0]));
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&a).unwrap();
+    let mut restored = GameLogic::new();
+    restored.templates = a.templates.clone();
+    restored.add_player(Player::new(1, Team::USA, "Viewer", true));
+    restored.add_player(Player::new(2, Team::China, "Enemy", false));
+    restored.admit_camera_application_movement(game_engine::common::ini::ini_game_data::CameraMovementRules {
+        partition_cell_size: 40.0,
+        ..Default::default()
+    });
+    admit_boundary_map(&mut restored);
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    for world in [&mut a, &mut restored] {
+        {
+            let mut shroud = world.world_services.shroud().lock().unwrap();
+            // Keep the real footprint fogged; the old grid indices now point
+            // at 160,160, which must not release the remembered building.
+            shroud.reveal_map_for_player(1).unwrap();
+            shroud.do_shroud_reveal(&Coord3D::new(160.0, 160.0, 3.0), 20.0, 1 << 1);
+        }
+        world.update_orphaned_host_fog_ghosts().unwrap();
+        assert_eq!(captured_name(world), "BoundaryGhost");
+        world.world_services.shroud().lock().unwrap()
+            .do_shroud_reveal(&Coord3D::new(80.0, 80.0, 3.0), 20.0, 1 << 1);
+        world.update_orphaned_host_fog_ghosts().unwrap();
+        assert!(world.w3d_ghosts.used().is_empty());
+    }
+    assert_eq!(captured_name(&peer), "BoundaryGhost");
+}
+
+#[test]
 fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_restore() {
     let mut a = world();
     let mut b = world();

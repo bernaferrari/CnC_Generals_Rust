@@ -3147,3 +3147,6 @@ dispatch is covered; physical scaling and visual confirmation remain unverified.
 Audio-event and default-sound definitions initialize the Miles unlimited cue
 limit to zero, so omitted limits remain playable without changing explicit
 negative or positive limits.
+
+Boundary-grid changes rebuild retained ghost footprints from their owned
+geometry before orphan visibility checks resume.

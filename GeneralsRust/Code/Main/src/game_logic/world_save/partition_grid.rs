@@ -75,6 +75,7 @@ impl GameLogic {
                 .write()
                 .map_err(|_| "receiving terrain owner is poisoned")?
                 .restore_active_boundary_from_snapshot(boundary);
+            self.release_host_orphan_partitions();
             self.w3d_ghosts.release_partition_data();
             let ids = self.objects.ordered_ids().to_vec();
             for id in &ids {
@@ -131,6 +132,7 @@ impl GameLogic {
                 .lock()
                 .map_err(|_| "receiving shroud owner is poisoned".to_owned())
                 .and_then(|mut shroud| shroud.restore_boundary_fogged_cells(&saved));
+            self.restore_host_orphan_partitions();
             self.w3d_ghosts.restore_partition_data();
             self.w3d_ghosts.set_lock_ghost_objects(false);
             notification_result?;
