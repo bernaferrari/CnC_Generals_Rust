@@ -232,6 +232,7 @@ pub struct LoadScreenDrawServices<'a> {
     pub ime: &'a crate::gui::ime_manager::ImeManager,
     pub client_fx: &'a crate::fx_list::FxClientState,
     pub projected_decals: &'a crate::radius_decal::ProjectedShadowManager,
+    pub client_random: &'a mut game_engine::common::random_value::RandomState,
 }
 impl<'a> LoadScreenPresentationPump<'a> {
     pub fn for_display(
@@ -282,6 +283,7 @@ impl<'a> LoadScreenPresentationPump<'a> {
                             services.client_frame,
                             services.client_fx,
                             services.projected_decals,
+                            services.client_random,
                         )
                         .map_err(|error| error.to_string())
                 })
@@ -426,6 +428,7 @@ pub struct LoadScreenOperation<'a> {
     pub(crate) message_stream: &'a mut crate::message_stream::message_stream::MessageStream,
     pub(crate) client_fx: &'a crate::fx_list::FxClientState,
     pub(crate) projected_decals: &'a crate::radius_decal::ProjectedShadowManager,
+    pub(crate) client_random: &'a mut game_engine::common::random_value::RandomState,
 }
 impl LoadScreenOperation<'_> {
     pub fn runtime_mut(&mut self) -> &mut Self {
@@ -488,6 +491,7 @@ impl LoadScreenOperation<'_> {
                 .expect("load operation requires receiving IME"),
             client_fx: self.client_fx,
             projected_decals: self.projected_decals,
+            client_random: &mut *self.client_random,
         })
     }
 }

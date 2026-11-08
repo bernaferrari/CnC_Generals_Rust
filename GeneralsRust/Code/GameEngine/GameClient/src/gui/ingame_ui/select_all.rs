@@ -124,10 +124,9 @@ pub fn select_all_units_by_type(
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Vec<crate::message_stream::game_message::GameMessageType> {
     use crate::message_stream::game_message::GameMessageType;
-    use crate::message_stream::player_state::get_local_player_id;
 
     let selected = collect_select_all_unit_ids(aircraft_only, window_query, ui);
-    let local_player = get_local_player_id();
+    let local_player = ui.local_player_id();
     if local_player >= 0 {
         let __arc_bind = get_selection_manager();
 if let Ok(mut manager) = __arc_bind.write() {

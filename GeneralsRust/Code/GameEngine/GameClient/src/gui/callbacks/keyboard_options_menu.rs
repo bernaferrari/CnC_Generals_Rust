@@ -129,11 +129,6 @@ fn keyboard_options_menu_state(
     if let Some(owner) = owner {
         return owner.keyboard_options_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().keyboard_options_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_KEYBOARD_OPTIONS.with(|state| state.clone());

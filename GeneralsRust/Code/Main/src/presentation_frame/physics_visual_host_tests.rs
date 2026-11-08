@@ -484,14 +484,14 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     );
     world
         .host_physics_visuals
-        .complete_input(&mut input, &frame);
+        .complete_input(&mut input, &frame, &mut Default::default());
     let matrix = input.world_matrix();
     let first = world.host_physics_visuals.loco_state(id);
     let _candidate = GameLogic::new();
     world.host_object_mut(id).unwrap().physics_previous_accel = Vec3::splat(999.0);
     world
         .host_physics_visuals
-        .complete_input(&mut input, &frame);
+        .complete_input(&mut input, &frame, &mut Default::default());
     assert_eq!(input.world_matrix(), matrix);
     assert_eq!(world.host_physics_visuals.loco_state(id), first);
     let mut moved = input.clone();
@@ -529,7 +529,7 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     );
     world
         .host_physics_visuals
-        .complete_input(&mut new_input, &replacement);
+        .complete_input(&mut new_input, &replacement, &mut Default::default());
     assert_eq!(
         world.host_physics_visuals.loco_state(id),
         first,
@@ -546,7 +546,7 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     let mut stale = new_input.clone();
     world
         .host_physics_visuals
-        .complete_input(&mut stale, &replacement);
+        .complete_input(&mut stale, &replacement, &mut Default::default());
     assert_eq!(stale.physics_visual_local, None);
     assert_eq!(
         world.host_physics_visuals.loco_state(id),
@@ -555,7 +555,7 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     world.reset();
     world
         .host_physics_visuals
-        .complete_input(&mut stale, &frame);
+        .complete_input(&mut stale, &frame, &mut Default::default());
     assert_eq!(stale.physics_visual_local, None);
     assert_eq!(input.world_matrix(), matrix);
 }

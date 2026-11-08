@@ -445,11 +445,10 @@ fn lookup_model_obj_bounds(model: &str) -> Option<([f32; 3], [f32; 3])> {
 }
 
 /// The receiving GameClient's render-bridge assets (the C++ asset manager the
-/// W3D render objects were created from). Fails closed without a live client.
-fn with_receiving_assets<R>(f: impl FnOnce(&ww3d_assets::AssetManager) -> R) -> Option<R> {
-    crate::core::game_client::with_live_game_client_mut(|client| {
-        f(client.render_bridge().asset_manager())
-    })
+/// W3D render objects were created from). Ownerless hook path: no receiving
+/// client is reachable, so this fails closed.
+fn with_receiving_assets<R>(_f: impl FnOnce(&ww3d_assets::AssetManager) -> R) -> Option<R> {
+    None
 }
 
 fn lookup_model_obj_bounds_in_assets(

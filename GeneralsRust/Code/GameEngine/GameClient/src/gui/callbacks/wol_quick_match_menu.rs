@@ -36,7 +36,6 @@ use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::{LadderPref, LadderPreferences, QuickmatchPreferences};
-use game_engine::common::random_value::get_game_client_random_value;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_network::gamespy::config::GameSpyConfig;
 use game_network::gamespy::ladder_defs::{LadderInfo, get_ladder_list, init_ladder_list};
@@ -120,11 +119,6 @@ fn quickmatch_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_quick_match_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_quick_match_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_QUICKMATCH_STATE.with(|cell| {
@@ -138,8 +132,8 @@ fn quickmatch_state_on_owner(
     }
 }
 
-fn quickmatch_state() -> Rc<RefCell<WolQuickMatchState>> {
-    quickmatch_state_on_owner(None)
+fn quickmatch_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolQuickMatchState>> {
+    quickmatch_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -836,8 +830,8 @@ fn set_listbox_selection(
     );
 }
 
-pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = quickmatch_state();
+pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = quickmatch_state(owner);
     let mut state = state_slot.borrow_mut();
     state.is_in_init = true;
 
@@ -1055,8 +1049,8 @@ pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn 
     state.is_in_init = false;
 }
 
-fn shutdown_complete(layout: &WindowLayout) {
-    let state_slot = quickmatch_state();
+fn shutdown_complete(layout: &WindowLayout, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = quickmatch_state(owner);
     let mut state = state_slot.borrow_mut();
     state.is_shutting_down = false;
     layout.hide(true);
@@ -1069,7 +1063,7 @@ fn shutdown_complete(layout: &WindowLayout) {
     state.next_screen = None;
 }
 
-pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     if let Some(info) = get_gamespy_info() {
         if let Ok(mut info) = info.lock() {
             info.unregister_text_window(
@@ -1078,7 +1072,7 @@ pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&d
         }
     }
 
-    let state_slot = quickmatch_state();
+    let state_slot = quickmatch_state(owner);
     let mut state = state_slot.borrow_mut();
 
     let quitting = get_game_engine()
@@ -1100,7 +1094,7 @@ pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&d
         .copied()
         .unwrap_or(false);
     if pop_immediate {
-        shutdown_complete(layout);
+        shutdown_complete(layout, owner);
         return;
     }
 
@@ -1113,13 +1107,13 @@ pub fn wol_quick_match_menu_update(
     layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
-) {
-    let state_slot = quickmatch_state();
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    let state_slot = quickmatch_state(owner);
     let mut state = state_slot.borrow_mut();
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = owner.with_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
-        shutdown_complete(layout);
+        shutdown_complete(layout, owner);
         return;
     }
 
@@ -1470,7 +1464,7 @@ pub fn wol_quick_match_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
@@ -1479,7 +1473,7 @@ pub fn wol_quick_match_menu_input(
     }
 
     let (button_pushed, parent, back_id, back_hidden) = {
-        let slot = quickmatch_state();
+        let slot = quickmatch_state(owner);
         let state = slot.borrow();
         let hidden = state
             .button_back
@@ -1509,12 +1503,12 @@ pub fn wol_quick_match_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let state_slot = quickmatch_state();
+            let state_slot = quickmatch_state(owner);
             let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if state.button_pushed {
@@ -1589,7 +1583,8 @@ pub fn wol_quick_match_menu_system(
             }
 
             if control_id == state.button_start_id {
-                start_quickmatch(&mut state);
+                // Ownerless window-system callback: private stream (no client stream lent).
+                start_quickmatch(&mut state, &mut game_engine::common::random_value::RandomState::default());
                 return WindowMsgHandled::Handled;
             }
 
@@ -1688,7 +1683,7 @@ fn firewall_behavior_from_int(value: i32) -> FirewallBehaviorType {
     }
 }
 
-fn start_quickmatch(state: &mut WolQuickMatchState) {
+fn start_quickmatch(state: &mut WolQuickMatchState, client_random: &mut game_engine::common::random_value::RandomState) {
     let mut req = PeerRequest::default();
     req.request_type = PeerRequestType::StartQuickMatch;
 
@@ -1750,7 +1745,7 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
     if let Some(ladder) = ladder_info.as_ref() {
         if ladder.random_factions && !ladder.valid_factions.is_empty() {
             let rand_index =
-                get_game_client_random_value(0, ladder.valid_factions.len() as i32 - 1) as usize;
+                client_random.next_int(0, ladder.valid_factions.len() as i32 - 1) as usize;
             if let Some(side_name) = ladder.valid_factions.get(rand_index) {
                 let store = get_player_template_store();
                 for idx in 0..store.get_player_template_count() {
@@ -1768,7 +1763,7 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
         while tries < 10 && side == PLAYERTEMPLATE_RANDOM {
             if let Some(combo) = combo_box_mut(&state.combo_box_side) {
                 let count = combo.items().len().max(1);
-                let rand_index = get_game_client_random_value(0, count as i32 - 1) as usize;
+                let rand_index = client_random.next_int(0, count as i32 - 1) as usize;
                 if let Some(item) = combo.items().get(rand_index) {
                     if let Some(data) = item.data {
                         side = data as i32;

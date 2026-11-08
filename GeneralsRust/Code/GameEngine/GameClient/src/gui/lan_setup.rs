@@ -56,9 +56,7 @@ pub(crate) fn test_lan_setup_handle() -> Arc<Mutex<LanSetup>> {
 ///
 /// Callers holding their UI tree pass its `WindowManagerOwner` (window
 /// handlers: `effects.window_manager_owner`; hosts: the owning
-/// `GameClient::lan_setup()`). Without one, the registered live client is
-/// consulted; production Main never publishes that slot, so a missing owner
-/// there is a lifecycle bug and fails loudly instead of handing out a scratch
+/// `GameClient::lan_setup()`). A missing owner is a lifecycle bug and fails loudly instead of handing out a scratch
 /// lobby whose writes would be silently discarded.
 pub fn get_lan_setup(
     owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
@@ -66,18 +64,13 @@ pub fn get_lan_setup(
     if let Some(owner) = owner {
         return owner.lan_setup();
     }
-    if let Some(handle) =
-        crate::core::game_client::with_live_game_client_mut(|client| client.lan_setup())
-    {
-        return handle;
-    }
     #[cfg(test)]
     {
         return test_lan_setup_handle();
     }
     #[cfg(not(test))]
     {
-        panic!("LAN setup requires a WindowManagerOwner or live GameClient; no process scratch");
+        panic!("LAN setup requires a WindowManagerOwner; no process scratch");
     }
 }
 

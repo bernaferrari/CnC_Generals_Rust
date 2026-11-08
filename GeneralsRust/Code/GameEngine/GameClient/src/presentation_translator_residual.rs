@@ -90,11 +90,6 @@ thread_local! {
 }
 
 fn residual_handle() -> std::sync::Arc<RwLock<TranslatorPresentationResidual>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_translator_presentation_residual()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_RESIDUAL.with(|slot| {

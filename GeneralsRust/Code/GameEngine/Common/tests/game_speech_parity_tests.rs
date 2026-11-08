@@ -7,12 +7,17 @@ fn with_test_common<R>(f: impl FnOnce() -> R) -> R {
 }
 
 use game_engine::common::audio::game_speech::{Speaker, Speech, SpeechInfo, SpeechManager};
-use game_engine::common::random_value::init_random_with_seed;
 use std::sync::{Mutex, OnceLock};
 
 fn random_state_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn seeded(seed: u32) -> game_engine::common::random_value::RandomState {
+    let mut rng = game_engine::common::random_value::RandomState::default();
+    rng.seed_random(seed);
+    rng
 }
 
 #[test]
@@ -30,16 +35,16 @@ fn speech_filename_selection_uses_game_client_random_seed() {
         "SpeechC".to_string(),
     ];
 
-    init_random_with_seed(0x1234);
+    let mut rng = seeded(0x1234);
     let mut manager = SpeechManager::new();
     manager.add_new_speech(&info);
     let speech = manager
         .get_speech_by_name("TestSpeech")
         .expect("registered speech");
-    let first = manager.get_filename_for_play(speech);
+    let first = manager.get_filename_for_play(speech, &mut rng);
 
-    init_random_with_seed(0x1234);
-    let repeat = manager.get_filename_for_play(speech);
+    let mut rng = seeded(0x1234);
+    let repeat = manager.get_filename_for_play(speech, &mut rng);
 
     assert_eq!(first, repeat);
     assert!(
@@ -62,6 +67,7 @@ fn localized_speech_filename_matches_cpp_path_shape() {
         .unwrap_or_else(|e| e.into_inner());
 
     let mut info = SpeechInfo::new();
+    let mut rng = seeded(0);
     info.dialog_event = "LocalizedSpeech".to_string();
     info.dialog_files = vec!["$Eva_LowPower".to_string()];
 
@@ -72,7 +78,7 @@ fn localized_speech_filename_matches_cpp_path_shape() {
         .expect("registered speech");
 
     assert_eq!(
-        manager.get_filename_for_play(speech),
+        manager.get_filename_for_play(speech, &mut rng),
         "data\\audio\\sounds\\english\\Eva_LowPower.wav"
     );
     });
@@ -108,13 +114,13 @@ fn next_playback_filename_uses_cpp_path_and_game_client_random_start() {
     info.random_start_index = 1;
     info.sequential_start_index = -1;
 
-    init_random_with_seed(0x5678);
+    let mut rng = seeded(0x5678);
     let mut speech = Speech::from_speech_info(&info);
-    let first = SpeechManager::get_next_filename_for_play(&mut speech);
+    let first = SpeechManager::get_next_filename_for_play(&mut speech, &mut rng);
 
-    init_random_with_seed(0x5678);
+    let mut rng = seeded(0x5678);
     let mut repeat_speech = Speech::from_speech_info(&info);
-    let repeat = SpeechManager::get_next_filename_for_play(&mut repeat_speech);
+    let repeat = SpeechManager::get_next_filename_for_play(&mut repeat_speech, &mut rng);
 
     assert_eq!(first, repeat);
     assert_eq!(speech.info.internal_play_count, 1);
@@ -132,6 +138,7 @@ fn next_playback_filename_uses_cpp_path_and_game_client_random_start() {
 fn next_playback_filename_uses_first_dialog_for_sequential_speech() {
     with_test_common(|| {
     let mut info = SpeechInfo::new();
+    let mut rng = seeded(0);
     info.dialog_event = "SequentialSpeech".to_string();
     info.dialog_files = vec!["SpeechA".to_string(), "SpeechB".to_string()];
     info.sequential_start_index = 0;
@@ -139,7 +146,7 @@ fn next_playback_filename_uses_first_dialog_for_sequential_speech() {
     let mut speech = Speech::from_speech_info(&info);
 
     assert_eq!(
-        SpeechManager::get_next_filename_for_play(&mut speech),
+        SpeechManager::get_next_filename_for_play(&mut speech, &mut rng),
         "Data\\Audio\\Sounds\\SpeechA.wav"
     );
     assert_eq!(speech.info.internal_play_count, 1);
@@ -160,7 +167,7 @@ fn speaker_start_records_cpp_playback_filename() {
     let mut speaker = Speaker::new();
     speaker.say_speech(speech, 1, 0, 0);
 
-    speaker.update();
+    speaker.update(&mut Default::default());
 
     assert_eq!(
         speaker.last_opened_filename.as_deref(),

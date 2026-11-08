@@ -48,13 +48,6 @@ fn with_game_info_state_on_owner<R>(
     if let Some(owner) = owner {
         return owner.with_game_info_window_state_mut(|state| f.take().expect("game info")(state));
     }
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_game_info_window_state_mut(|state| f.take().expect("game info")(state))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_GAME_INFO_STATE.with(|slot| f.take().expect("game info")(&mut slot.borrow_mut()));
@@ -159,8 +152,8 @@ pub fn destroy_game_info_window(
 pub fn refresh_game_info_window(
     game_info: &GameInfo,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) {
-    with_game_info_state_on_owner(None, |state| {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    with_game_info_state_on_owner(owner, |state| {
         if state.layout.is_none() || state.parent.is_none() {
             return;
         }
@@ -272,8 +265,8 @@ pub fn refresh_game_info_window(
 pub fn hide_game_info_window(
     hide: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) {
-    with_game_info_state_on_owner(None, |state| {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    with_game_info_state_on_owner(owner, |state| {
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().hide(hide, receiving_manager);
         }
@@ -284,8 +277,8 @@ pub fn game_info_window_init(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) {
-    with_game_info_state_on_owner(None, |state| {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    with_game_info_state_on_owner(owner, |state| {
         state.parent_id = name_to_id("GameInfoWindow.wnd:ParentGameInfo");
         state.static_text_game_name_id = name_to_id("GameInfoWindow.wnd:StaticTextGameName");
         state.static_text_map_name_id = name_to_id("GameInfoWindow.wnd:StaticTextMapName");

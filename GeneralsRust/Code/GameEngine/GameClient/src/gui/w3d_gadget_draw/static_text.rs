@@ -75,7 +75,7 @@ pub(super) fn draw_static_text(
         );
         display.draw(text_x, text_y, text_color, drop, draw_context);
         display.set_clip_region(None);
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
         return;
     }
 
@@ -116,7 +116,7 @@ pub(super) fn draw_static_text(
             bold,
         );
     });
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub(super) fn static_text_text_position(
@@ -194,7 +194,7 @@ pub(super) fn draw_static_text_solid_background(
                 draw_context,
             );
         });
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     }
     if entry.color != WIN_COLOR_UNDEFINED && color_alpha(entry.color) > 16 {
         crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
@@ -208,7 +208,7 @@ pub(super) fn draw_static_text_solid_background(
                 draw_context,
             );
         });
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     }
 }
 

@@ -574,18 +574,15 @@ mod tests {
         // C++ W3DControlBar.cpp:615-623 + ControlBarScheme.cpp:794-799: with no
         // scheme manager (or a missing scheme image) the background draw paints
         // NOTHING — the old black HUD-strip fallback was non-C++ and removed.
-        crate::gui::w3d_gadget_draw::reset_shipped_ui_draw_command_count();
         let mut window = GameWindow::new();
         window.set_name("ControlBar.wnd:BackgroundMarker");
         let _ = window.set_position(0, 460);
         let _ = window.test_set_size(800, 140);
         { let mut __draw = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default());
-                crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(&window, window.instance_data(), &mut __draw); };
-        assert_eq!(
-            crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count(),
+                crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(&window, window.instance_data(), &mut __draw); assert_eq!(__draw.shipped_ui_draw_commands,
             0,
             "manager-less background draw must stay silent, never paint a fallback strip"
-        );
+        ); }
     }
 
     #[test]

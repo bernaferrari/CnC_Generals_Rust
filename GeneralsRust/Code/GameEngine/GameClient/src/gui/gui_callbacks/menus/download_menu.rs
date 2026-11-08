@@ -24,8 +24,12 @@ pub fn DownloadMenuUpdate(
         .with_manager(|manager, effects| download_menu_update(layout, user_data, manager, effects));
 }
 
-pub fn DownloadMenuShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
-    download_menu_shutdown(layout, user_data);
+pub fn DownloadMenuShutdown(
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) {
+    download_menu_shutdown(layout, user_data, owner);
 }
 
 pub fn DownloadMenuSystem(

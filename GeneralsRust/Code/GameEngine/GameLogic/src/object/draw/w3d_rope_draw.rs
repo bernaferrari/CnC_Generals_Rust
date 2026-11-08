@@ -6,7 +6,6 @@
 //! C++ parity note: rope segment state is runtime-only and is rebuilt after load.
 
 use super::draw_module::*;
-use crate::GameClientRandomValueReal;
 use crate::common::*;
 use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
 use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
@@ -139,7 +138,7 @@ impl W3DRopeDraw {
         let each_len = self.max_len / num_segs as Real;
         let mut z = 0.0;
         for _ in 0..num_segs {
-            let axis = GameClientRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
+            let axis = crate::system::engine_stores::active_services().client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
             let seg = RopeSegment {
                 start: Coord3D::new(0.0, 0.0, z),
                 end: Coord3D::new(0.0, 0.0, z + each_len),

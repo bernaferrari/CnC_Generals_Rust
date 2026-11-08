@@ -340,11 +340,13 @@ fn observer_mismatch_blocks_replay_camera_apply() {
             #[cfg(feature = "game_client")]
             {
                 game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(
+                    None,
                     Some(1),
                 );
                 assert!(host_replay_observer_matches_player(1));
                 assert!(!host_replay_observer_matches_player(0));
                 game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(
+                    None,
                     None,
                 );
                 assert!(!host_replay_observer_matches_player(1));

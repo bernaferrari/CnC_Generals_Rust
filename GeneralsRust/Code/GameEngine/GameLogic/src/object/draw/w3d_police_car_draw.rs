@@ -3,7 +3,7 @@ use super::w3d_truck_draw::*;
 use crate::common::*;
 use crate::helpers::{
     TheGameClient, TheGameLogic, create_scene_point_light, fade_scene_point_light,
-    game_client_random_value_real, update_scene_point_light,
+    update_scene_point_light,
 };
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
@@ -70,7 +70,7 @@ impl W3DPoliceCarDraw {
         Self {
             base: W3DTruckDraw::new(data.base.clone()),
             data,
-            cur_frame: game_client_random_value_real(0.0, 10.0),
+            cur_frame: crate::system::engine_stores::active_services().client_random_value_real(0.0, 10.0),
             light_id: None,
         }
     }

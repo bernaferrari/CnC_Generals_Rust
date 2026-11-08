@@ -281,12 +281,6 @@ fn with_texture_caches<R>(f: impl FnOnce(&mut TerrainTextureCaches) -> R) -> R {
     }
     #[cfg(not(test))]
     {
-        if crate::core::game_client::live_game_client_frame().is_some() {
-            return crate::core::game_client::with_live_game_client_mut(|client| {
-                f(&mut client.terrain_texture_caches)
-            })
-            .expect("live client frame implies registered client");
-        }
         let mut ephemeral = TerrainTextureCaches::default();
         f(&mut ephemeral)
     }

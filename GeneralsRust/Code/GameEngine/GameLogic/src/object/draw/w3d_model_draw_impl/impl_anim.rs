@@ -214,10 +214,10 @@ impl W3DModelDraw {
         {
             let anim_to_avoid = self.which_anim_in_cur_state;
             while self.which_anim_in_cur_state == anim_to_avoid {
-                self.which_anim_in_cur_state = game_client_random_value(0, num_anims as i32 - 1);
+                self.which_anim_in_cur_state = crate::system::engine_stores::active_services().client_random_value(0, num_anims as i32 - 1);
             }
         } else {
-            self.which_anim_in_cur_state = game_client_random_value(0, num_anims as i32 - 1);
+            self.which_anim_in_cur_state = crate::system::engine_stores::active_services().client_random_value(0, num_anims as i32 - 1);
         }
 
         if self.which_anim_in_cur_state >= 0 {
@@ -245,7 +245,7 @@ impl W3DModelDraw {
         if test_flag_bit(cur_state.flags, ACBIT_RANDOMSTART)
             && !cur_state.model_name.as_str().is_empty()
         {
-            start_frame = game_client_random_value(0, total_frames - 1);
+            start_frame = crate::system::engine_stores::active_services().client_random_value(0, total_frames - 1);
         } else if test_flag_bit(cur_state.flags, ACBIT_START_FRAME_FIRST) {
             start_frame = 0;
         } else if test_flag_bit(cur_state.flags, ACBIT_START_FRAME_LAST) {
@@ -271,7 +271,7 @@ impl W3DModelDraw {
         self.current_anim_frame = start_frame.clamp(0, self.current_anim_num_frames - 1);
         if !cur_state.model_name.as_str().is_empty() {
             // C++ always calls GameClientRandomValueReal, including when min > max.
-            self.current_anim_speed_factor = game_client_random_value_real(
+            self.current_anim_speed_factor = crate::system::engine_stores::active_services().client_random_value_real(
                 cur_state.anim_min_speed_factor,
                 cur_state.anim_max_speed_factor,
             );

@@ -34,7 +34,7 @@ impl StealthUpdateModule {
         controller.owner = Some(Arc::downgrade(owner));
         if !unpublished && !controller.native_ready {
             let frame = TheGameLogic::get_frame();
-            controller.initialize_at(frame, game_client_random_value_real(0.0, PI));
+            controller.initialize_at(frame, crate::system::engine_stores::active_services().client_random_value_real(0.0, PI));
             self.next_call_frame_and_phase = if self.data.granted_by_special_power {
                 crate::modules::UpdateSleepTime::Forever.to_u32()
             } else {

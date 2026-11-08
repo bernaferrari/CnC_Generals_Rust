@@ -460,13 +460,14 @@ impl GameClient {
         if count == 0 {
             return self.destroy_drawable_with_particles(id, None);
         }
+        let local_player_id = self.local_player_id();
         NativeRenderReceiver::new(
             &mut self.drawables.state,
             &mut self.native_particle_capability_gaps,
             self.native_audio_device.as_ref(),
             self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
-            self.local_player_id,
+            local_player_id,
             self.input_authority,
         )
         .destroy_drawable_with_particles(
@@ -533,14 +534,14 @@ impl GameClient {
     /// Sets the current frame number
     pub fn set_frame(&mut self, frame: u32) {
         self.frame = frame;
-        refresh_live_game_client_address(self);
-        publish_live_game_client_frame(self);
     }
 
     /// Sets the local player identifier used for command routing.
     pub fn set_local_player_id(&mut self, player_id: i32) {
-        // Instance field is the owning store; translators peel the live client.
         self.local_player_id = player_id;
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            ui.set_local_player_id(player_id);
+        }
     }
 
     /// Gets the current frame number
@@ -866,14 +867,14 @@ impl GameClient {
     ///
     /// C++ parity: `TheGameClient->getWindowManager()->getWindow(0)->getView()`
     /// returns the current tactical view.  In this Rust port the tactical view
-    /// is stored as a thread-local.
+    /// is owned by this client.
     pub fn get_view<R>(&self, f: impl FnOnce(&crate::display::view::View) -> R) -> R {
-        crate::display::view::with_tactical_view_ref(f)
+        f(&self.tactical_view)
     }
 
     /// Access the current tactical view mutably through a closure.
     pub fn get_view_mut<R>(&mut self, f: impl FnOnce(&mut crate::display::view::View) -> R) -> R {
-        crate::display::view::with_tactical_view(f)
+        f(&mut self.tactical_view)
     }
 
     // ==================================================================================
@@ -1306,14 +1307,14 @@ impl GameClient {
         if OBJECT_REGISTRY.is_empty() {
             self.update_drawables_local(visual_delta, frames)?;
             // Wave 1021: catalog shroud residual on presentation shell render path.
-            self.update_drawable_visibility(self.local_player_id)?;
+            self.update_drawable_visibility(self.local_player_id())?;
             self.submit_projectile_streams_to_bridge()?;
             return Ok(());
         }
 
         // Dual-world residual: sync pose/visibility from registry-bound objects.
         self.sync_with_game_logic()?;
-        self.update_drawable_visibility(self.local_player_id)?;
+        self.update_drawable_visibility(self.local_player_id())?;
         self.update_drawable_animations(visual_delta, frames)?;
         self.submit_projectile_streams_to_bridge()?;
 
@@ -1700,7 +1701,6 @@ impl Drop for GameClient {
     fn drop(&mut self) {
         log::info!("GameClient shutting down");
         self.pending_drawable_post_process_order = None;
-        let owned_live_slot = clear_live_game_client(self);
 
         // Clear all drawables (they'll be dropped automatically)
         self.drawable_manager.clear_drawables();
@@ -1712,16 +1712,14 @@ impl Drop for GameClient {
         self.drawables.ray_effects.reset();
         self.drawables.owned_laser_order.clear();
 
-        if owned_live_slot {
-            crate::effects::clear_live_effects_after_drawables(self.fx_mut());
-        }
+        crate::effects::clear_live_effects_after_drawables(self.fx_mut());
 
         // C++ GameClient::~GameClient destroys all Drawables before deleting
         // TheTerrainVisual (GameClient.cpp:132-181). A temporary/test client
         // must not clear the live presentation's visual.
-        if owned_live_slot {
-            crate::terrain::terrain_visual::shutdown_terrain_visual();
-        }
+        // Only this client's own visual; C++ keeps the pointer cell for the
+        // next GameClient, so any publication of this Arc stays as an empty cell.
+        *self.terrain_visual_gpu.lock() = None;
 
         // Only this client's stream is stopped. The native decoder pool belongs
         // to application services and may still serve a peer GameClient.
@@ -2033,7 +2031,6 @@ impl GameClient {
             xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(frame))
                 .map_err(|e| format!("client frame context: {e:?}"))?;
         }
-        publish_live_game_client_frame(self);
 
         self.xfer_drawable_toc_with_owned_auxiliaries(xfer, owned)?;
 

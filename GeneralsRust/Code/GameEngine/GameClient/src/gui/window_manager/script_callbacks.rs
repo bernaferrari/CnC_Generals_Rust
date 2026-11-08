@@ -296,7 +296,7 @@ impl WindowManager {
                 "GameInfoWindowInit" => {
                     layout.init_callback_with_effects = Some(Box::new(|layout, data, effects| {
                         effects.with_manager(|manager, effects| {
-                            game_info_window_init(layout, None, manager)
+                            game_info_window_init(layout, None, manager, effects.window_manager_owner)
                         });
                     }));
                     None
@@ -799,7 +799,7 @@ impl WindowManager {
                 "DownloadMenuShutdown" => {
                     layout.shutdown_callback_with_effects =
                         Some(Box::new(|layout, data, effects| {
-                            download_menu_shutdown(layout, data);
+                            download_menu_shutdown(layout, data, effects.window_manager_owner);
                         }));
                     None
                 }

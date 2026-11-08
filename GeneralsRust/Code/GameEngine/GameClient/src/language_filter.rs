@@ -132,11 +132,6 @@ thread_local! {
 }
 
 fn language_filter_handle() -> Arc<RwLock<LanguageFilter>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_language_filter()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_LANGUAGE_FILTER.with(|slot| {

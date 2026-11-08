@@ -175,9 +175,13 @@ impl HostPhysicsVisualState {
         &mut self,
         input: &mut super::UnitRenderInput,
         frame: &super::PresentationFrame,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) {
-        input.physics_visual_local =
-            self.local_matrix(&frame.host_physics_visuals, input.id, &mut LiveClientRng);
+        input.physics_visual_local = self.local_matrix(
+            &frame.host_physics_visuals,
+            input.id,
+            &mut LiveClientRng(client_random),
+        );
     }
 
     pub(super) fn local_matrix(

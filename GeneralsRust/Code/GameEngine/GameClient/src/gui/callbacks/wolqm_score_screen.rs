@@ -35,11 +35,6 @@ fn wol_qm_score_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_qm_score_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_qm_score_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_QM_SCORE_STATE.with(|cell| {
@@ -53,15 +48,15 @@ fn wol_qm_score_state_on_owner(
     }
 }
 
-fn wol_qm_score_state() -> Rc<RefCell<WolQmScoreState>> {
-    wol_qm_score_state_on_owner(None)
+fn wol_qm_score_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolQmScoreState>> {
+    wol_qm_score_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
 }
 
-pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let parent_id = name_to_id("WOLQMScoreScreen.wnd:WOLQMScoreScreenParent");
     let button_disconnect_id = name_to_id("WOLQMScoreScreen.wnd:ButtonDisconnect");
     let button_quickmatch_id = name_to_id("WOLQMScoreScreen.wnd:ButtonQuickMatch");
@@ -78,7 +73,7 @@ pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&dyn s
         let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let state_slot = wol_qm_score_state();
+    let state_slot = wol_qm_score_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_disconnect_id = button_disconnect_id;
@@ -102,7 +97,7 @@ pub fn wol_qm_score_screen_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
@@ -112,7 +107,7 @@ pub fn wol_qm_score_screen_input(
 
     // C++ WOLQMScoreScreen.cpp:122 — winSendSystemMsg GBM_SELECTED.
     let (parent, button_id) = {
-        let slot = wol_qm_score_state();
+        let slot = wol_qm_score_state(owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_disconnect_id)
     };

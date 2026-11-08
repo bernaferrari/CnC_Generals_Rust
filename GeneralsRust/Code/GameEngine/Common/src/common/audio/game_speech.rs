@@ -14,7 +14,6 @@
 
 use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::audio::audio_event_rts::{AudioEventRts, TimeOfDay};
-use crate::common::random_value::get_game_client_random_value;
 use std::collections::{HashMap, VecDeque};
 use std::sync::RwLock;
 
@@ -403,7 +402,7 @@ impl Speaker {
         self.current_speech.as_ref()?.speech.as_ref()
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, client_random: &mut crate::common::random_value::RandomState) {
         // Service the speaker - check for completed audio, start new audio, etc.
         let now = self.get_current_time();
 
@@ -422,7 +421,7 @@ impl Speaker {
                 self.last_opened_filename = next_item
                     .speech
                     .as_mut()
-                    .map(SpeechManager::get_next_filename_for_play)
+                    .map(|speech| SpeechManager::get_next_filename_for_play(speech, client_random))
                     .filter(|filename| !filename.is_empty());
                 self.current_speech = Some(next_item);
                 self.delay = now + self.delay_time;
@@ -466,6 +465,8 @@ impl Default for Speaker {
 
 /// Main speech management system
 pub struct SpeechManager {
+    /// C++ `GameClientRandomValue` stream used for dialog selection.
+    client_random: crate::common::random_value::RandomState,
     volume: Real,
     on: Bool,
     count: Int,
@@ -479,6 +480,7 @@ pub struct SpeechManager {
 impl SpeechManager {
     pub fn new() -> Self {
         SpeechManager {
+            client_random: Default::default(),
             volume: 0.5,
             on: false,
             count: 0,
@@ -523,7 +525,7 @@ impl SpeechManager {
     /// Update the speech system
     pub fn update(&mut self) {
         for speaker in &mut self.speakers {
-            speaker.update();
+            speaker.update(&mut self.client_random);
         }
     }
 
@@ -760,20 +762,25 @@ impl SpeechManager {
     pub fn get_filename_for_play_from_audio_event(
         &self,
         event_to_get_from: &AudioEventRts,
+        client_random: &mut crate::common::random_value::RandomState,
     ) -> AsciiString {
         if event_to_get_from.get_event_name().is_empty() {
             return String::new();
         }
 
         if let Some(speech) = self.get_speech_by_name(event_to_get_from.get_event_name()) {
-            self.get_filename_for_play(speech)
+            self.get_filename_for_play(speech, client_random)
         } else {
             String::new()
         }
     }
 
     /// Get filename for playing a specific speech
-    pub fn get_filename_for_play(&self, speech: &Speech) -> AsciiString {
+    pub fn get_filename_for_play(
+        &self,
+        speech: &Speech,
+        client_random: &mut crate::common::random_value::RandomState,
+    ) -> AsciiString {
         let speech_info = &speech.info;
 
         let regular_samples = speech_info.dialog_files.len();
@@ -786,7 +793,7 @@ impl SpeechManager {
             return String::new();
         }
 
-        let sound_to_play = get_game_client_random_value(0, num_samples as Int - 1) as usize;
+        let sound_to_play = client_random.next_int(0, num_samples as Int - 1) as usize;
 
         let filename = if sound_to_play < regular_samples {
             &speech_info.dialog_files[sound_to_play]
@@ -815,7 +822,10 @@ impl SpeechManager {
     }
 
     /// Get the next playback filename using the same helper path as C++ Speaker playback.
-    pub fn get_next_filename_for_play(speech: &mut Speech) -> AsciiString {
+    pub fn get_next_filename_for_play(
+        speech: &mut Speech,
+        client_random: &mut crate::common::random_value::RandomState,
+    ) -> AsciiString {
         speech.info.internal_play_count += 1;
 
         if speech.info.dialog_files.is_empty() {
@@ -825,7 +835,7 @@ impl SpeechManager {
         let index_to_play = if speech.info.sequential_start_index < 0 {
             let max_index = speech.info.dialog_files.len() as Int - 1;
             let min_index = speech.info.random_start_index.clamp(0, max_index);
-            get_game_client_random_value(min_index, max_index) as usize
+            client_random.next_int(min_index, max_index) as usize
         } else {
             0
         };

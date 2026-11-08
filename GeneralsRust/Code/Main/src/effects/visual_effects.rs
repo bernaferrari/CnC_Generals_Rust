@@ -543,6 +543,8 @@ pub struct VisualEffectsManager {
     pub(crate) active_effects: Vec<ActiveEffect>,
     particle_manager: ParticleSystemManager,
     scheduled_impulses: Vec<ScheduledImpulse>,
+    /// Client random stream owned by this effects system (C++ GameClientRandomValue).
+    client_random: game_engine::common::random_value::RandomState,
     active_lights: Vec<ActiveLight>,
     current_time: f32,
     camera_position: Vec3,
@@ -569,6 +571,7 @@ impl VisualEffectsManager {
             active_effects: Vec::new(),
             particle_manager,
             scheduled_impulses: Vec::new(),
+            client_random: Default::default(),
             active_lights: Vec::new(),
             current_time: 0.0,
             camera_position: Vec3::ZERO,
@@ -846,10 +849,9 @@ impl VisualEffectsManager {
         let shake_intensity = shake_params.intensity * distance_falloff;
 
         // Add random shake displacement (client-only stream)
-        use game_engine::common::random_value::get_game_client_random_value_real;
-        let shake_x = get_game_client_random_value_real(-0.5, 0.5) * shake_intensity;
-        let shake_y = get_game_client_random_value_real(-0.5, 0.5) * shake_intensity;
-        let shake_z = get_game_client_random_value_real(-0.5, 0.5) * shake_intensity * 0.5; // Less Z shake
+        let shake_x = self.client_random.next_real(-0.5, 0.5) * shake_intensity;
+        let shake_y = self.client_random.next_real(-0.5, 0.5) * shake_intensity;
+        let shake_z = self.client_random.next_real(-0.5, 0.5) * shake_intensity * 0.5; // Less Z shake
 
         self.screen_shake_accumulator += Vec3::new(shake_x, shake_y, shake_z);
     }

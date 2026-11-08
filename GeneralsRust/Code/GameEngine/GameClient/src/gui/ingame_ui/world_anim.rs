@@ -30,6 +30,7 @@ impl InGameUI {
         options: WorldAnimationOptions,
         duration_seconds: f32,
         z_rise_per_second: f32,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) {
         if duration_seconds <= 0.0 || animation_name.is_empty() {
             return;
@@ -45,7 +46,7 @@ impl InGameUI {
         };
         drop(collection_guard);
 
-        let anim = crate::system::Anim2D::new(template, None);
+        let anim = crate::system::Anim2D::new(template, None, client_random);
 
         let expire_frame = self.current_frame + (duration_seconds * 30.0) as u32;
         self.world_animations.push(WorldAnimationData {

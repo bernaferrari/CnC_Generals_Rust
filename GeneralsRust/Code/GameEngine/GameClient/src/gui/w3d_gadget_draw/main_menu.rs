@@ -279,9 +279,9 @@ pub fn w3d_main_menu_map_border(
                 bottom,
                 draw_context,
             );
-            note_shipped_ui_draw_commands(8);
+            draw_context.note_shipped_ui_draw_commands(8);
         } else {
-            note_shipped_ui_draw_commands(1);
+            draw_context.note_shipped_ui_draw_commands(1);
         }
     });
 }

@@ -102,6 +102,9 @@ pub struct WorldServices {
     session_flags: SessionLogicFlags,
     /// Per-world Common TheXxx bag (RNG, ThingFactory, CRC flags).
     common: Arc<CommonServices>,
+    /// This world's client-visual random stream (C++ GameClientRandomValue for
+    /// logic-side draws); isolated per world, not Common's shared stream.
+    client_random: Mutex<game_engine::common::random_value::RandomState>,
     logic_managers: WorldLogicManagers,
     players: Arc<RwLock<crate::player::PlayerList>>,
     objects: Arc<RwLock<crate::object_manager::ObjectManager>>,
@@ -208,6 +211,7 @@ impl WorldServices {
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
             common: fresh_common_for_world(),
+            client_random: Mutex::new(Default::default()),
             logic_managers: WorldLogicManagers::default(),
             players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
             objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
@@ -285,6 +289,21 @@ impl WorldServices {
     }
     pub(crate) fn client_visuals(&self) -> &ClientVisualState {
         &self.client_visuals
+    }
+    /// Seed this world's client random stream.
+    pub fn seed_client_random(&self, seed: u32) {
+        self.client_random.lock().unwrap_or_else(|e| e.into_inner()).seed_random(seed);
+    }
+    /// Client-side random integer (visual only); `hi < lo` returns `hi` without a draw.
+    pub fn client_random_value(&self, lo: i32, hi: i32) -> i32 {
+        if hi < lo {
+            return hi;
+        }
+        self.client_random.lock().unwrap_or_else(|e| e.into_inner()).next_int(lo, hi)
+    }
+    /// Client-side random real (visual only); `hi <= lo` returns `hi` without a draw.
+    pub fn client_random_value_real(&self, lo: f32, hi: f32) -> f32 {
+        self.client_random.lock().unwrap_or_else(|e| e.into_inner()).next_real(lo, hi)
     }
     pub(crate) fn radar_updates(&self) -> &Mutex<VecDeque<RadarUpdate>> {
         &self.radar_updates
@@ -1512,5 +1531,26 @@ mod tests {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| strict(active))).is_err(),
             "unscoped active() must not resolve a process bag"
         );
+    }
+}
+
+#[cfg(test)]
+mod client_random_isolation_tests {
+    use super::*;
+
+    #[test]
+    fn client_random_stream_is_owned_per_world() {
+        let a = WorldServices::new_for_world();
+        let b = WorldServices::new_for_world();
+        a.seed_client_random(7);
+        b.seed_client_random(7);
+        let first_a = a.client_random_value_real(0.0, 1.0);
+        // Drawing on A must not advance B: B's first draw equals A's first draw.
+        for _ in 0..5 {
+            a.client_random_value(0, 100);
+        }
+        assert_eq!(b.client_random_value_real(0.0, 1.0), first_a);
+        // And hi <= lo draws nothing.
+        assert_eq!(b.client_random_value(5, 4), 4);
     }
 }

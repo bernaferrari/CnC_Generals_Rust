@@ -154,11 +154,6 @@ thread_local! {
 }
 
 fn global_language_handle() -> Arc<RwLock<GlobalLanguageData>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_global_language_data()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_GLOBAL_LANGUAGE.with(|slot| {

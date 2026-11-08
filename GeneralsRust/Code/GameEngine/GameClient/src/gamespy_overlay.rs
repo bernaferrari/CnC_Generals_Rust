@@ -73,11 +73,6 @@ fn overlay_state_on_owner(
     if let Some(owner) = owner {
         return owner.gamespy_overlay_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().gamespy_overlay_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_OVERLAY_STATE.with(|cell| {
@@ -91,8 +86,8 @@ fn overlay_state_on_owner(
     }
 }
 
-fn overlay_state() -> Rc<RefCell<GameSpyOverlayState>> {
-    overlay_state_on_owner(None)
+fn overlay_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<GameSpyOverlayState>> {
+    overlay_state_on_owner(owner)
 }
 
 
@@ -110,9 +105,9 @@ fn overlay_script(overlay: GameSpyOverlayType) -> &'static str {
     }
 }
 
-fn clear_gs_message_boxes() {
+fn clear_gs_message_boxes(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let window = {
-        let state_slot = overlay_state();
+        let state_slot = overlay_state(owner);
         let mut state = state_slot.borrow_mut();
         state.message_box_ok = None;
         state.message_box_cancel = None;
@@ -128,7 +123,7 @@ fn clear_gs_message_boxes() {
 
 fn message_box_ok_clicked(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
     let callback = {
-        let state_slot = overlay_state();
+        let state_slot = overlay_state(effects.window_manager_owner);
         let mut state = state_slot.borrow_mut();
         state.message_box_window = None;
         state.message_box_ok.take()
@@ -140,7 +135,7 @@ fn message_box_ok_clicked(effects: &mut crate::gui::game_window::WindowEventEffe
 
 fn message_box_cancel_clicked(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
     let callback = {
-        let state_slot = overlay_state();
+        let state_slot = overlay_state(effects.window_manager_owner);
         let mut state = state_slot.borrow_mut();
         state.message_box_window = None;
         state.message_box_cancel.take()
@@ -150,10 +145,10 @@ fn message_box_cancel_clicked(effects: &mut crate::gui::game_window::WindowEvent
     }
 }
 
-pub fn gs_message_box_ok(title: &str, body: &str, ok_callback: Option<MessageBoxFunc>) {
-    clear_gs_message_boxes();
+pub fn gs_message_box_ok(title: &str, body: &str, ok_callback: Option<MessageBoxFunc>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    clear_gs_message_boxes(owner);
     let window = message_box_ok(title, body, Some(Box::new(message_box_ok_clicked)));
-    let state_slot = overlay_state();
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.message_box_window = window;
     state.message_box_ok = ok_callback;
@@ -164,15 +159,15 @@ pub fn gs_message_box_ok_cancel(
     body: &str,
     ok_callback: Option<MessageBoxFunc>,
     cancel_callback: Option<MessageBoxFunc>,
-) {
-    clear_gs_message_boxes();
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    clear_gs_message_boxes(owner);
     let window = message_box_ok_cancel(
         title,
         body,
         Some(Box::new(message_box_ok_clicked)),
         Some(Box::new(message_box_cancel_clicked)),
     );
-    let state_slot = overlay_state();
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.message_box_window = window;
     state.message_box_ok = ok_callback;
@@ -184,24 +179,24 @@ pub fn gs_message_box_yes_no(
     body: &str,
     yes_callback: Option<MessageBoxFunc>,
     no_callback: Option<MessageBoxFunc>,
-) {
-    clear_gs_message_boxes();
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    clear_gs_message_boxes(owner);
     let window = message_box_yes_no(
         title,
         body,
         Some(Box::new(message_box_ok_clicked)),
         Some(Box::new(message_box_cancel_clicked)),
     );
-    let state_slot = overlay_state();
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.message_box_window = window;
     state.message_box_ok = yes_callback;
     state.message_box_cancel = no_callback;
 }
 
-pub fn raise_gs_message_box() {
-    raise_overlays();
-    let slot = overlay_state();
+pub fn raise_gs_message_box(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    raise_overlays(owner);
+    let slot = overlay_state(owner);
     let window = slot.borrow().message_box_window.clone();
     if let Some(window) = window {
         let _ = window.borrow_mut().bring_to_front();
@@ -219,7 +214,7 @@ fn buddy_try_reconnect(_effects: &mut crate::gui::game_window::WindowEventEffect
     }
 }
 
-pub fn open_overlay(overlay: GameSpyOverlayType) {
+pub fn open_overlay(overlay: GameSpyOverlayType, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     if overlay == GameSpyOverlayType::Buddy {
         if let Some(queue) = get_buddy_message_queue() {
             if let Ok(queue) = queue.lock() {
@@ -230,13 +225,13 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
                             &crate::game_text::GameText::fetch("GUI:GPDisconnected"),
                             Some(Box::new(buddy_try_reconnect)),
                             None,
-                        );
+                        owner,);
                     } else {
                         gs_message_box_ok(
                             &crate::game_text::GameText::fetch("GUI:GPErrorTitle"),
                             &crate::game_text::GameText::fetch("GUI:GPNoProfile"),
                             None,
-                        );
+                        owner,);
                     }
                     return;
                 }
@@ -245,7 +240,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
     }
 
     let layout = {
-        let state_slot = overlay_state();
+        let state_slot = overlay_state(owner);
         let mut state = state_slot.borrow_mut();
         if let Some(layout) = state.overlays.get(&overlay).cloned() {
             layout.borrow_mut().hide_without_manager_side_effects(false);
@@ -274,9 +269,9 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
     }
 }
 
-pub fn close_overlay(overlay: GameSpyOverlayType) {
+pub fn close_overlay(overlay: GameSpyOverlayType, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let layout = {
-        let state_slot = overlay_state();
+        let state_slot = overlay_state(owner);
         let mut state = state_slot.borrow_mut();
         state.overlays.remove(&overlay)
     };
@@ -286,9 +281,9 @@ pub fn close_overlay(overlay: GameSpyOverlayType) {
     }
 }
 
-pub fn close_all_overlays() {
+pub fn close_all_overlays(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let overlays = {
-        let state_slot = overlay_state();
+        let state_slot = overlay_state(owner);
         let mut state = state_slot.borrow_mut();
         let overlays = state.overlays.drain().map(|(_, v)| v).collect::<Vec<_>>();
         overlays
@@ -297,32 +292,32 @@ pub fn close_all_overlays() {
         layout.borrow().run_shutdown(None);
         with_window_manager(|manager| manager.destroy_layout(&layout));
     }
-    clear_gs_message_boxes();
+    clear_gs_message_boxes(owner);
 }
 
-pub fn is_overlay_open(overlay: GameSpyOverlayType) -> bool {
-    let slot = overlay_state();
+pub fn is_overlay_open(overlay: GameSpyOverlayType, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> bool {
+    let slot = overlay_state(owner);
     slot.borrow().overlays.contains_key(&overlay)
 }
 
-pub fn toggle_overlay(overlay: GameSpyOverlayType) {
-    if is_overlay_open(overlay) {
-        close_overlay(overlay);
+pub fn toggle_overlay(overlay: GameSpyOverlayType, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    if is_overlay_open(overlay, owner) {
+        close_overlay(overlay, owner);
     } else {
-        open_overlay(overlay);
+        open_overlay(overlay, owner);
     }
 }
 
-pub fn update_overlays() {
-    let slot = overlay_state();
+pub fn update_overlays(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let slot = overlay_state(owner);
     let overlays = slot.borrow().overlays.values().cloned().collect::<Vec<_>>();
     for layout in overlays {
         layout.borrow().run_update(None);
     }
 }
 
-fn raise_overlays() {
-    let slot = overlay_state();
+fn raise_overlays(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let slot = overlay_state(owner);
     let overlays = slot.borrow().overlays.values().cloned().collect::<Vec<_>>();
     for layout in overlays {
         for window in layout.borrow().windows() {
@@ -331,15 +326,15 @@ fn raise_overlays() {
     }
 }
 
-pub fn reopen_player_info() {
-    let state_slot = overlay_state();
+pub fn reopen_player_info(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.reopen_player_info = true;
 }
 
-pub fn check_reopen_player_info() {
+pub fn check_reopen_player_info(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let reopen = {
-        let state_slot = overlay_state();
+        let state_slot = overlay_state(owner);
         let mut state = state_slot.borrow_mut();
         if state.reopen_player_info {
             state.reopen_player_info = false;
@@ -349,79 +344,79 @@ pub fn check_reopen_player_info() {
         }
     };
     if reopen {
-        open_overlay(GameSpyOverlayType::PlayerInfo);
+        open_overlay(GameSpyOverlayType::PlayerInfo, owner);
     }
 }
 
-pub fn set_overlay_visible(overlay: GameSpyOverlayType, visible: bool) {
+pub fn set_overlay_visible(overlay: GameSpyOverlayType, visible: bool, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     if visible {
-        open_overlay(overlay);
+        open_overlay(overlay, owner);
     } else {
-        close_overlay(overlay);
+        close_overlay(overlay, owner);
     }
 }
 
-pub fn is_overlay_visible(overlay: GameSpyOverlayType) -> bool {
-    is_overlay_open(overlay)
+pub fn is_overlay_visible(overlay: GameSpyOverlayType, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> bool {
+    is_overlay_open(overlay, owner)
 }
 
-pub fn set_lobby_attempt_host_join(enabled: bool) {
-    let state_slot = overlay_state();
+pub fn set_lobby_attempt_host_join(enabled: bool, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.lobby_attempt_host_join = enabled;
 }
 
-pub fn lobby_attempt_host_join() -> bool {
-    let slot = overlay_state();
+pub fn lobby_attempt_host_join(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> bool {
+    let slot = overlay_state(owner);
     slot.borrow().lobby_attempt_host_join
 }
 
-pub fn set_current_staging_room_id(id: Option<i32>) {
-    let state_slot = overlay_state();
+pub fn set_current_staging_room_id(id: Option<i32>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.current_staging_room_id = id;
 }
 
-pub fn current_staging_room_id() -> Option<i32> {
-    let slot = overlay_state();
+pub fn current_staging_room_id(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Option<i32> {
+    let slot = overlay_state(owner);
     slot.borrow().current_staging_room_id
 }
 
-pub fn register_staging_room(room: GameSpyStagingRoom) {
-    let state_slot = overlay_state();
+pub fn register_staging_room(room: GameSpyStagingRoom, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.staging_rooms.insert(room.id, room);
 }
 
-pub fn remove_staging_room(id: i32) {
-    let state_slot = overlay_state();
+pub fn remove_staging_room(id: i32, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.staging_rooms.remove(&id);
 }
 
-pub fn find_staging_room_by_id(id: i32) -> Option<GameSpyStagingRoom> {
-    let slot = overlay_state();
+pub fn find_staging_room_by_id(id: i32, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Option<GameSpyStagingRoom> {
+    let slot = overlay_state(owner);
     slot.borrow().staging_rooms.get(&id).cloned()
 }
 
-pub fn queue_join_request(room_id: i32, password: String) {
-    let state_slot = overlay_state();
+pub fn queue_join_request(room_id: i32, password: String, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.last_join_request = Some((room_id, password));
 }
 
-pub fn last_join_request() -> Option<(i32, String)> {
-    let slot = overlay_state();
+pub fn last_join_request(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Option<(i32, String)> {
+    let slot = overlay_state(owner);
     slot.borrow().last_join_request.clone()
 }
 
-pub fn queue_host_request(request: GameSpyHostRequest) {
-    let state_slot = overlay_state();
+pub fn queue_host_request(request: GameSpyHostRequest, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = overlay_state(owner);
     let mut state = state_slot.borrow_mut();
     state.last_host_request = Some(request);
 }
 
-pub fn last_host_request() -> Option<GameSpyHostRequest> {
-    let slot = overlay_state();
+pub fn last_host_request(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Option<GameSpyHostRequest> {
+    let slot = overlay_state(owner);
     slot.borrow().last_host_request.clone()
 }
