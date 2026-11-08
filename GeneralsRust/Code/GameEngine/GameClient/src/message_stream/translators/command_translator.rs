@@ -1311,7 +1311,9 @@ impl CommandTranslator {
 
         // Region selection: C++ selection prefers locally controlled units; buildings can be
         // selected when no units are selectable in the region.
-        mine.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        if ui.pick_object_view().is_none() {
+            mine.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
 
         let mut selected_ids = Vec::new();
         let mut building_ids = Vec::new();

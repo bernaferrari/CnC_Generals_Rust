@@ -172,7 +172,10 @@ pub(super) fn collect_selectable_objects(
     if let Some(view) = receiving_objects.as_ref() {
         let mut mine = Vec::new();
         let mut other = Vec::new();
-        for fact in &view.objects {
+        for drawable in &view.native_drawables {
+            let Some(fact) = view.get(drawable.object_id) else {
+                continue;
+            };
             if !pick_fact_matches_profile(fact, profile) || fact.hidden_for_local_player {
                 continue;
             }

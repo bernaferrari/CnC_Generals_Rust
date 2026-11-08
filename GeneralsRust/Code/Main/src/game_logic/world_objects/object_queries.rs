@@ -50,24 +50,22 @@ impl GameLogic {
         let shroud = self.world_services.shroud().lock().ok();
         for (id, object) in self.objects.registered() {
             let position = object.get_position();
+            let locally_controlled = local_player
+                .is_some_and(|player| object.owner_player_id == Some(player));
             let hidden_for_local_player = !object.get_template().always_visible
-                && object.contained_by.is_none()
                 && local_player
                     .and_then(|player| shroud.as_ref()?.get_host_object_shroud_status(player, id.0))
-                    .is_some_and(|status| {
-                        matches!(
-                            status,
-                            ObjectShroudStatus::Fogged
-                                | ObjectShroudStatus::Shrouded
-                                | ObjectShroudStatus::InvalidButPreviousValid
-                        )
+                    .is_some_and(|status| match status {
+                        ObjectShroudStatus::Fogged => !locally_controlled,
+                        ObjectShroudStatus::Shrouded | ObjectShroudStatus::InvalidButPreviousValid => true,
+                        _ => false,
                     });
             facts.push(TranslatorPickObjectFact {
                 object_id: id.0,
                 position: [position.x, position.y, position.z],
-                locally_controlled: local_player
-                    .is_some_and(|player| object.owner_player_id == Some(player)),
-                selectable: object.is_selectable() && object.is_kind_of(KindOf::Selectable),
+                locally_controlled,
+                selectable: object.contained_by.is_none()
+                    && object.is_selectable() && object.is_kind_of(KindOf::Selectable),
                 force_attackable: object.is_kind_of(KindOf::ForceAttackable),
                 mine: object.is_kind_of(KindOf::Mine),
                 shrubbery: object.is_kind_of(KindOf::Shrubbery),

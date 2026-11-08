@@ -3150,3 +3150,6 @@ negative or positive limits.
 
 Boundary-grid changes rebuild retained ghost footprints from their owned
 geometry before orphan visibility checks resume.
+
+Selection candidates follow the receiving visible-drawable roster, exclude
+contained objects, and distinguish local fog from enemy fog and shroud.

@@ -414,13 +414,14 @@ impl SelectionTranslator {
         self.displayed_max_warning = true;
     }
 
-    /// Collect selectable drawables from the registry if present, otherwise build from GameLogic objects.
+    /// Collect selection facts in the receiving drawable owner's order.
     fn collect_drawables(
         &self,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<SelectableDrawable> {
         if let Some(view) = ui.pick_object_view() {
-            return view.objects.iter().map(|fact| {
+            return view.native_drawables.iter().filter_map(|native| {
+                let fact = view.objects.iter().find(|fact| fact.object_id == native.object_id)?;
                 let mut kind_of_flags = 0;
                 if fact.selectable { kind_of_flags |= KINDOF_SELECTABLE; }
                 if fact.force_attackable { kind_of_flags |= KINDOF_FORCEATTACKABLE; }
@@ -429,7 +430,7 @@ impl SelectionTranslator {
                 if fact.infantry { kind_of_flags |= KINDOF_INFANTRY; }
                 if fact.vehicle { kind_of_flags |= KINDOF_VEHICLE; }
                 if fact.aircraft { kind_of_flags |= KINDOF_AIRCRAFT; }
-                SelectableDrawable {
+                Some(SelectableDrawable {
                     id: fact.object_id,
                     object_id: fact.object_id,
                     position: Coord3D::new(fact.position[0], fact.position[1], fact.position[2]),
@@ -443,7 +444,7 @@ impl SelectionTranslator {
                     kind_of_flags,
                     status_bits: (if fact.unselectable { OBJECT_STATUS_UNSELECTABLE } else { 0 })
                         | (if fact.masked { OBJECT_STATUS_MASKED } else { 0 }),
-                }
+                })
             }).collect();
         }
         if !self.drawable_registry.is_empty() {
@@ -1436,7 +1437,7 @@ impl SelectionTranslator {
         let max_y = region.y.max(region.y + region.height);
         let receiving_camera = ui.pick_object_view().map(|view| view.camera);
 
-        let mut out: Vec<SelectableDrawable> = self
+        let out: Vec<SelectableDrawable> = self
             .collect_drawables(ui)
             .into_iter()
             .filter(|d| d.can_select(drag_selecting, window_query, ui))
@@ -1456,7 +1457,7 @@ impl SelectionTranslator {
             })
             .collect();
 
-        out.sort_by_key(|d| d.id);
+        // The receiving native drawable roster supplies the source visitation order.
         out
     }
 
@@ -1617,7 +1618,9 @@ mod tests {
 
     #[test]
     fn receiving_click_uses_own_viewport_and_drawables() {
-        use game_engine::common::message_stream::{TranslatorPickCamera, TranslatorPickDrawableFact, TranslatorPickObjectFact, TranslatorPickObjectView};
+        use game_engine::common::message_stream::{TranslatorPickCamera, TranslatorPickObjectFact, TranslatorPickObjectView};
+        use crate::core::game_client::GameClient;
+        use crate::drawable::{BasicDrawable, Drawable, DrawableId};
         crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let camera = TranslatorPickCamera {
@@ -1634,13 +1637,21 @@ mod tests {
             hidden_for_local_player: false, structure: false, garrisonable: false,
             crate_object: false, always_selectable: false, infantry: true, vehicle: false, aircraft: false,
         };
+        let mut owner_client = GameClient::new().unwrap();
+        let mut peer_client = GameClient::new().unwrap();
+        for (client, hidden) in [(&mut owner_client, false), (&mut peer_client, true)] {
+            let mut draw = BasicDrawable::new(DrawableId::INVALID);
+            draw.set_object_id(Some(7));
+            draw.set_drawable_hidden(hidden);
+            client.register_drawable_with_template(Box::new(draw), Some("SelectionTest".into())).unwrap();
+        }
         let owner = TranslatorPickObjectView {
             local_player_index: 1, objects: vec![fact],
-            native_drawables: vec![TranslatorPickDrawableFact { object_id: 7, center: [0.0, 0.0, 0.0], radius: 1.0 }],
+            native_drawables: owner_client.borrow_native_drawable_owner().translator_pick_drawables(),
             camera: Some(camera),
         };
         let peer = TranslatorPickObjectView {
-            native_drawables: Vec::new(), ..owner.clone()
+            native_drawables: peer_client.borrow_native_drawable_owner().translator_pick_drawables(), ..owner.clone()
         };
         let mut owner_state = crate::core::subsystems::InGameUISubsystem::default();
         let mut peer_state = crate::core::subsystems::InGameUISubsystem::default();
@@ -1660,7 +1671,7 @@ mod tests {
             fn display_size(&self) -> (u32, u32) { (800, 600) }
             fn set_height_px(&mut self, _: i32) {}
         }
-        fn drag(view: &TranslatorPickObjectView) -> Vec<GameMessage> {
+        fn interact(view: &TranslatorPickObjectView, drag: bool) -> Vec<GameMessage> {
             use crate::gui::window_manager::{ControlBarInputContext, WindowManagerOwner, dispatch_translated_window_input_for_owner};
             use crate::message_stream::window_xlat::WindowTranslator;
             use crate::message_stream::translators::CommandTranslator;
@@ -1693,12 +1704,16 @@ mod tests {
                 dispatch_translated_window_input_for_owner(&owner, request, &mut context)
             };
             // Input already arrives in logical display pixels after the native 2x scale conversion.
-            let events = [
-                GameMessageType::RawMousePosition(ICoord2D::new(280, 120)),
-                GameMessageType::RawMouseLeftButtonDown(ICoord2D::new(280, 120), 0, 1),
-                GameMessageType::RawMousePosition(ICoord2D::new(320, 160)),
-                GameMessageType::RawMouseLeftButtonUp(ICoord2D::new(320, 160), 0, 2),
-            ];
+            let events = if drag {
+                vec![
+                    GameMessageType::RawMousePosition(ICoord2D::new(280, 120)),
+                    GameMessageType::RawMouseLeftButtonDown(ICoord2D::new(280, 120), 0, 1),
+                    GameMessageType::RawMousePosition(ICoord2D::new(320, 160)),
+                    GameMessageType::RawMouseLeftButtonUp(ICoord2D::new(320, 160), 0, 2),
+                ]
+            } else {
+                vec![GameMessageType::MouseLeftClick(IRegion2D { x: 300, y: 140, width: 0, height: 0 }, 0)]
+            };
             for event in events {
                 let message = GameMessage::new(event);
                 let observation = TranslatorClientObservation::default();
@@ -1710,12 +1725,28 @@ mod tests {
             }
             emitted
         }
-        let mut peer_drag = peer.clone();
-        peer_drag.objects[0].position = [0.8, 0.0, 0.0];
-        let owner_drag = drag(&owner);
-        let peer_drag = drag(&peer_drag);
-        assert!(owner_drag.iter().any(|message| matches!(message.get_type(), GameMessageType::CreateSelectedGroup(_, ids) if ids == &vec![7])));
-        assert!(!peer_drag.iter().any(|message| matches!(message.get_type(), GameMessageType::CreateSelectedGroup(..))));
+        for drag in [false, true] {
+            let selected = |messages: &[GameMessage]| messages.iter().any(|message|
+                matches!(message.get_type(), GameMessageType::CreateSelectedGroup(_, ids) if ids == &vec![7]));
+            assert!(selected(&interact(&owner, drag)));
+            assert!(!selected(&interact(&peer, drag)));
+            let absent = TranslatorPickObjectView { native_drawables: Vec::new(), ..owner.clone() };
+            assert!(!selected(&interact(&absent, drag)));
+            let mut contained = owner.clone();
+            contained.objects[0].selectable = false;
+            assert!(!selected(&interact(&contained, drag)));
+            let mut shrouded = owner.clone();
+            shrouded.objects[0].hidden_for_local_player = true;
+            assert!(!selected(&interact(&shrouded, drag)));
+        }
+        let mut draw = BasicDrawable::new(DrawableId::INVALID);
+        draw.set_object_id(Some(3));
+        owner_client.register_drawable_with_template(Box::new(draw), Some("SelectionTest".into())).unwrap();
+        let mut ordered = owner.clone();
+        ordered.objects.push(TranslatorPickObjectFact { object_id: 3, position: [0.08, 0.0, 0.0], ..ordered.objects[0] });
+        ordered.native_drawables = owner_client.borrow_native_drawable_owner().translator_pick_drawables();
+        assert!(interact(&ordered, true).iter().any(|message|
+            matches!(message.get_type(), GameMessageType::CreateSelectedGroup(_, ids) if ids == &vec![3, 7])));
     }
 
     /// Drive selection translation with a receiving UI. The GameMessageTranslator

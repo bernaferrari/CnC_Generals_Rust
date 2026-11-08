@@ -108,3 +108,29 @@ fn human_enter_rejects_fogged_or_shrouded_container() {
     set_target_shroud(&logic, 1, bunker, ObjectShroudStatus::Clear);
     set_target_shroud(&logic, 2, ai_bunker, ObjectShroudStatus::Clear);
 }
+
+#[test]
+fn receiving_pick_view_distinguishes_local_fog_enemy_fog_black_and_containment() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(1, Team::USA, "PickLocal", true));
+    world.add_player(Player::new(2, Team::China, "PickEnemy", false));
+    assert!(world.select_local_player(Some(1)));
+    world.templates.insert("PickRanger".into(), infantry_template("PickRanger"));
+    let local = world.create_object_for_player("PickRanger", 1, glam::Vec3::ZERO).unwrap();
+    let enemy = world.create_object_for_player("PickRanger", 2, glam::Vec3::ZERO).unwrap();
+
+    for (status, local_hidden, enemy_hidden) in [
+        (ObjectShroudStatus::Clear, false, false),
+        (ObjectShroudStatus::PartialClear, false, false),
+        (ObjectShroudStatus::Fogged, false, true),
+        (ObjectShroudStatus::Shrouded, true, true),
+    ] {
+        set_target_shroud(&world, 1, local, status);
+        set_target_shroud(&world, 1, enemy, status);
+        let view = world.translator_pick_object_view();
+        assert_eq!(view.get(local.0).unwrap().hidden_for_local_player, local_hidden);
+        assert_eq!(view.get(enemy.0).unwrap().hidden_for_local_player, enemy_hidden);
+    }
+    world.host_object_mut(local).unwrap().contained_by = Some(enemy);
+    assert!(!world.translator_pick_object_view().get(local.0).unwrap().selectable);
+}
