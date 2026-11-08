@@ -31,19 +31,20 @@
 //! ## Usage
 //!
 //! ```rust
-//! use profile_rust::{Profile, ProfileHighLevel};
+//! use profile::{Profile, ProfileHighLevel, WwDebugSession};
+//! let session = WwDebugSession::new();
 //!
 //! // Start a profiling range
-//! Profile::start_range(session, Some("my_range"));
+//! Profile::start_range(&session, Some("my_range")).unwrap();
 //!
 //! // Do some work...
 //! {
-//!     let _block = ProfileHighLevel::block("expensive_operation");
+//!     let _block = ProfileHighLevel::block(&session, "expensive_operation").unwrap();
 //!     // ... work happens here
 //! }
 //!
 //! // Stop the range
-//! Profile::stop_range(session, Some("my_range"));
+//! Profile::stop_range(&session, Some("my_range")).unwrap();
 //! ```
 
 use once_cell::sync::OnceCell;
@@ -500,8 +501,8 @@ impl Profile {
 /// Convenience macro for creating a profiling block that automatically ends when it goes out of scope
 #[macro_export]
 macro_rules! profile_block {
-    ($name:expr) => {
-        let _profile_block = $crate::ProfileHighLevel::block($name);
+    ($session:expr, $name:expr) => {
+        let _profile_block = $crate::ProfileHighLevel::block(&$session, $name);
     };
 }
 

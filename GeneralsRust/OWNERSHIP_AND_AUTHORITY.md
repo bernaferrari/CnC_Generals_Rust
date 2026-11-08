@@ -2927,3 +2927,7 @@ without an admitted geometry retain the previous interception behavior.
 An accepted shot with an authored idle-reload delay arms its firing owner's
 deadline even when all finite clips are full. A zero-delay shot preserves that
 deadline, and expiry reloads the receiving owner's clips.
+
+Profiler timing blocks borrow their session's clock cache for their entire
+lifetime. Safe callers cannot move or destroy the session before its block
+records its final timing.

@@ -180,16 +180,24 @@ impl ProfileId {
     }
 }
 
-/// Timer-based profiling block - equivalent to ProfileHighLevel::Block
-pub struct ProfileBlock {
+/// Timer-based profiling block - equivalent to ProfileHighLevel::Block.
+///
+/// The block must finish before its session is moved or dropped.
+///
+/// ```compile_fail
+/// let session = profile::WwDebugSession::new();
+/// let block = profile::ProfileHighLevel::block(&session, "work").unwrap();
+/// drop(session);
+/// drop(block);
+/// ```
+pub struct ProfileBlock<'a> {
     id: ProfileId,
     start_time: u64,
-    /// Borrowed from the owning [`crate::WwDebugSession`]; must not outlive it.
-    cycles_per_second: *const once_cell::sync::OnceCell<u64>,
+    cycles_per_second: &'a once_cell::sync::OnceCell<u64>,
 }
 
-impl ProfileBlock {
-    fn new(session: &crate::WwDebugSession, name: &str) -> ProfileResult<Self> {
+impl<'a> ProfileBlock<'a> {
+    fn new(session: &'a crate::WwDebugSession, name: &str) -> ProfileResult<Self> {
         let timer_name = format!("{}.time", name);
         let high_level = &session.profiler.high_level;
 
@@ -206,18 +214,16 @@ impl ProfileBlock {
         Ok(Self {
             id,
             start_time,
-            cycles_per_second: &session.profiler.clock_cycles_per_second
-                as *const once_cell::sync::OnceCell<u64>,
+            cycles_per_second: &session.profiler.clock_cycles_per_second,
         })
     }
 }
 
-impl Drop for ProfileBlock {
+impl Drop for ProfileBlock<'_> {
     fn drop(&mut self) {
         if let Ok(end_time) = ProfileTimer::get_cpu_cycles() {
             let elapsed_cycles = end_time.saturating_sub(self.start_time);
-            // SAFETY: cycles_per_second is valid for the session that created this block.
-            let cell = unsafe { &*self.cycles_per_second };
+            let cell = self.cycles_per_second;
             if let Some(cycles_per_sec) = cell.get().copied() {
                 let elapsed_ns = (elapsed_cycles as f64 * 1_000_000_000.0) / cycles_per_sec as f64;
                 self.id.increment(elapsed_ns);
@@ -283,7 +289,7 @@ impl ProfileHighLevel {
     }
 
     /// Create a timer-based profiling block
-    pub fn block(session: &crate::WwDebugSession, name: &str) -> ProfileResult<ProfileBlock> {
+    pub fn block<'a>(session: &'a crate::WwDebugSession, name: &str) -> ProfileResult<ProfileBlock<'a>> {
         ProfileBlock::new(session, name)
     }
 
@@ -385,8 +391,9 @@ mod tests {
     #[test]
     fn test_profile_block() {
         let session = crate::WwDebugSession::new();
+        let peer = crate::WwDebugSession::new();
         {
-            let _block = ProfileHighLevel::block(&session, "test_operation").unwrap();
+            crate::profile_block!(session, "test_operation");
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -402,6 +409,7 @@ mod tests {
         // Should have recorded some positive time
         let total_val: f64 = total.parse().unwrap_or(0.0);
         assert!(total_val > 0.0);
+        assert!(peer.profiler.high_level.find_profile("test_operation.time").is_none());
     }
 
     #[test]
