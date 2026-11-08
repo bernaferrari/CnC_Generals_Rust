@@ -1703,7 +1703,8 @@ mod tests {
                 };
                 dispatch_translated_window_input_for_owner(&owner, request, &mut context)
             };
-            // Input already arrives in logical display pixels after the native 2x scale conversion.
+            // These translator inputs are logical coordinates; this test does not
+            // exercise winit's physical-coordinate normalization.
             let events = if drag {
                 vec![
                     GameMessageType::RawMousePosition(ICoord2D::new(280, 120)),
