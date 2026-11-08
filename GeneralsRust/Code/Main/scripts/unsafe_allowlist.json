@@ -416,10 +416,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WWLib/memory_system/src/lib.rs": {
-      "constructs": 16,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWLib/src/always.rs": {
       "constructs": 2,
       "undocumented": 0

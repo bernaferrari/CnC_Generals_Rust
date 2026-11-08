@@ -650,6 +650,9 @@ pub struct W3DDevice {
     /// WGPU command queue
     queue: RwLock<Option<Queue>>,
 
+    /// Submission bookkeeping for this standalone device's queue.
+    frame_submit: ww3d_engine::FrameSubmitState,
+
     /// Surface for rendering (window)
     surface: RwLock<Option<Surface<'static>>>,
 
@@ -705,6 +708,7 @@ impl W3DDevice {
             adapter: RwLock::new(None),
             device: RwLock::new(None),
             queue: RwLock::new(None),
+            frame_submit: ww3d_engine::FrameSubmitState::new(),
             surface: RwLock::new(None),
             surface_config: RwLock::new(None),
             renderer: RwLock::new(None),
@@ -1202,12 +1206,12 @@ impl W3DDevice {
             let surface_view = surface_texture
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
-            renderer.end_frame_with_view(Some(&surface_view)).await?;
+            renderer.end_frame_with_view(Some(&surface_view), &self.frame_submit).await?;
             if let Some(queue) = self.queue.read().await.as_ref() {
                 queue.present(surface_texture);
             }
         } else {
-            renderer.end_frame().await?;
+            renderer.end_frame(&self.frame_submit).await?;
         }
 
         // Update statistics

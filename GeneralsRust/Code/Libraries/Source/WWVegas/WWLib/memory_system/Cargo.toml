@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 base_types = { path = "../base_types" }
+bytemuck = { workspace = true }
 log = {workspace = true}
 parking_lot = {workspace = true}
 

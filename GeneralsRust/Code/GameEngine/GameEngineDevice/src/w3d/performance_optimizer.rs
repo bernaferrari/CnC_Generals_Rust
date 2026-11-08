@@ -394,11 +394,13 @@ impl W3DPerformanceOptimizer {
         })
     }
 
-    /// Optimize render batches for maximum performance
+    /// Optimize render batches using the submit state associated with this optimizer's queue.
+    /// GPU culling submits its readback immediately, even during an active frame.
     pub async fn optimize_batches(
         &mut self,
         render_objects: &[RenderObject],
         camera: &Camera,
+        submit_state: &ww3d_engine::FrameSubmitState,
     ) -> Result<Vec<RenderBatch>> {
         let start_time = std::time::Instant::now();
         let original_count = render_objects.len();
@@ -434,6 +436,7 @@ impl W3DPerformanceOptimizer {
                     camera,
                     self.device.as_ref(),
                     self.queue.as_ref(),
+                    submit_state,
                 )
                 .await?
         } else {
@@ -877,6 +880,7 @@ impl GpuCuller {
         camera: &Camera,
         device: &Device,
         queue: &Queue,
+        submit_state: &ww3d_engine::FrameSubmitState,
     ) -> Result<Vec<RenderObject>> {
         if objects.is_empty() {
             return Ok(Vec::new());
@@ -968,6 +972,7 @@ impl GpuCuller {
         encoder.copy_buffer_to_buffer(visibility_buffer, 0, &readback_buffer, 0, readback_size);
         #[cfg(feature = "w3d")]
         ww3d_engine::submit_out_of_frame(
+            submit_state,
             queue,
             std::iter::once(encoder.finish()),
             ww3d_engine::OutOfFrameReason::BlockingGpuReadback,

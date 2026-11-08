@@ -2,6 +2,12 @@
 //!
 //! This module provides the Westwood 3D graphics system integration, converting the original
 //! C++ W3D device layer to modern Rust with enhanced performance and cross-platform support.
+//!
+//! `W3DDevice` owns a standalone WGPU queue and submits before presenting.
+//! When using `W3DRenderer` or `W3DPerformanceOptimizer` with an existing
+//! engine queue, pass that engine's `FrameSubmitState` to frame submission or
+//! optimization. Renderer overlays join the active frame; culling readbacks
+//! submit immediately so their synchronous mapping can complete.
 
 pub mod buffer_manager;
 #[cfg(feature = "w3d")]

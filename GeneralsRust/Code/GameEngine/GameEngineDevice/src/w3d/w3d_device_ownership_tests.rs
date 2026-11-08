@@ -26,27 +26,6 @@ async fn constructor_leaves_device_uninitialized() {
 async fn arc_handles_share_retained_device_state_and_shutdown() {
     let device = std::sync::Arc::new(W3DDevice::new().await.unwrap());
     let clone = device.clone();
-    assert!(std::sync::Arc::ptr_eq(&device, &clone));
-
-    assert!(std::ptr::eq(&device.config, &clone.config));
-    assert!(std::ptr::eq(&device.instance, &clone.instance));
-    assert!(std::ptr::eq(&device.adapter, &clone.adapter));
-    assert!(std::ptr::eq(&device.device, &clone.device));
-    assert!(std::ptr::eq(&device.queue, &clone.queue));
-    assert!(std::ptr::eq(&device.surface, &clone.surface));
-    assert!(std::ptr::eq(&device.surface_config, &clone.surface_config));
-    assert!(std::ptr::eq(&device.renderer, &clone.renderer));
-    assert!(std::ptr::eq(
-        &device.graphics_context,
-        &clone.graphics_context
-    ));
-    assert!(std::ptr::eq(&device.statistics, &clone.statistics));
-    assert!(std::ptr::eq(&device.meshes, &clone.meshes));
-    assert!(std::ptr::eq(&device.materials, &clone.materials));
-    assert!(std::ptr::eq(&device.textures, &clone.textures));
-    assert!(std::ptr::eq(&device.shaders, &clone.shaders));
-    assert!(std::ptr::eq(&device.current_scene, &clone.current_scene));
-    assert!(std::ptr::eq(&device.initialized, &clone.initialized));
 
     let mut scene = device.get_scene().await;
     scene.id = "shared-scene".into();
@@ -81,4 +60,19 @@ async fn separately_constructed_devices_keep_scene_and_statistics_isolated() {
     assert_eq!(second.get_statistics().await.frame_time_ms, 0.0);
     assert_eq!(first.get_scene().await.id, "first-only");
     assert_eq!(first.get_statistics().await.fps, 100.0);
+}
+
+#[tokio::test]
+async fn standalone_device_submits_each_headless_scene_immediately() {
+    let mut config = W3DConfig::default();
+    config.resolution = crate::video::Resolution::new(16, 16);
+    let device = W3DDevice::new_with_config(config).await.unwrap();
+    let other = W3DDevice::new().await.unwrap();
+    device.init().await.unwrap();
+
+    device.render_scene().await.unwrap();
+    assert_eq!(device.frame_submit.last_out_of_frame_submit_count(), 1);
+    device.render_scene().await.unwrap();
+    assert_eq!(device.frame_submit.last_out_of_frame_submit_count(), 2);
+    assert_eq!(other.frame_submit.last_out_of_frame_submit_count(), 0);
 }

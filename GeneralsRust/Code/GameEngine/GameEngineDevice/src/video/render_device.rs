@@ -338,7 +338,7 @@ pub enum BufferMemoryLocation {
 }
 
 /// Render context for command recording
-pub struct RenderContext {
+pub struct RenderContext<'a> {
     /// Graphics API being used
     pub api: GraphicsApi,
 
@@ -349,6 +349,10 @@ pub struct RenderContext {
     /// WGPU queue
     #[cfg(feature = "video")]
     queue: Arc<Queue>,
+
+    /// Submission bookkeeping shared with the device that created this context.
+    #[cfg(feature = "video")]
+    frame_submit: &'a ww3d_engine::FrameSubmitState,
 
     /// Command encoder
     #[cfg(feature = "video")]
@@ -478,6 +482,10 @@ pub struct RenderDevice {
     #[cfg(feature = "video")]
     queue: Arc<Queue>,
 
+    /// Submission bookkeeping for this standalone device's queue.
+    #[cfg(feature = "video")]
+    frame_submit: ww3d_engine::FrameSubmitState,
+
     /// Memory allocator (disabled for compilation compatibility)
     #[cfg(feature = "video")]
     _allocator_placeholder: Option<()>,
@@ -505,8 +513,6 @@ pub struct RenderDevice {
     /// Buffer pool
     buffer_pool: Arc<RwLock<HashMap<String, Arc<Buffer>>>>,
 
-    /// Active contexts
-    contexts: Arc<RwLock<Vec<RenderContext>>>,
 }
 
 impl RenderDevice {
@@ -588,6 +594,7 @@ impl RenderDevice {
                 adapter,
                 device,
                 queue,
+                frame_submit: ww3d_engine::FrameSubmitState::new(),
                 _allocator_placeholder,
                 profiler,
                 capabilities,
@@ -597,7 +604,6 @@ impl RenderDevice {
                 bind_group_layout_cache: Arc::new(RwLock::new(HashMap::new())),
                 texture_cache: Arc::new(RwLock::new(HashMap::new())),
                 buffer_pool: Arc::new(RwLock::new(HashMap::new())),
-                contexts: Arc::new(RwLock::new(Vec::new())),
             })
         }
 
@@ -616,13 +622,14 @@ impl RenderDevice {
     }
 
     /// Create a render context
-    pub fn create_context(&self) -> Result<RenderContext> {
+    pub fn create_context(&self) -> Result<RenderContext<'_>> {
         #[cfg(feature = "video")]
         {
             let context = RenderContext {
                 api: self.api,
                 device: self.device.clone(),
                 queue: self.queue.clone(),
+                frame_submit: &self.frame_submit,
                 encoder: None,
                 render_pass: None,
                 compute_pass: None,
@@ -1110,7 +1117,7 @@ impl RenderDevice {
     }
 }
 
-impl RenderContext {
+impl RenderContext<'_> {
     /// Begin command encoding
     pub fn begin_encoding(&mut self, label: Option<&str>) -> Result<()> {
         #[cfg(feature = "video")]
@@ -1146,6 +1153,7 @@ impl RenderContext {
             if let Some(encoder) = self.encoder.take() {
                 let command_buffer = encoder.finish();
                 ww3d_engine::submit_recorded(
+                    self.frame_submit,
                     &self.queue,
                     ww3d_engine::FrameCommandPhase::Overlay,
                     command_buffer,

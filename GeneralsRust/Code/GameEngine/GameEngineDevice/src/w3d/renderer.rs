@@ -683,15 +683,18 @@ impl W3DRenderer {
         Ok(())
     }
 
-    /// End frame and submit render commands
-    pub async fn end_frame(&mut self) -> Result<()> {
-        self.end_frame_with_view(None).await
+    /// End the frame using the submit state belonging to this renderer's queue.
+    pub async fn end_frame(&mut self, submit_state: &ww3d_engine::FrameSubmitState) -> Result<()> {
+        self.end_frame_with_view(None, submit_state).await
     }
 
-    /// End frame and submit render commands to an optional external color target view.
+    /// End the frame using the state for this renderer's queue and an optional color target.
+    /// During an active engine frame, submission is deferred until that frame ends;
+    /// the caller must not present the target before then.
     pub async fn end_frame_with_view(
         &mut self,
         external_color_view: Option<&TextureView>,
+        submit_state: &ww3d_engine::FrameSubmitState,
     ) -> Result<()> {
         let color_view = if let Some(view) = external_color_view {
             view.clone()
@@ -745,6 +748,7 @@ impl W3DRenderer {
 
         #[cfg(feature = "w3d")]
         ww3d_engine::submit_recorded(
+            submit_state,
             &self.queue,
             ww3d_engine::FrameCommandPhase::Overlay,
             encoder.finish(),

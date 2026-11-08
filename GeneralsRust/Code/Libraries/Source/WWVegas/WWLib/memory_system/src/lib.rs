@@ -1,879 +1,516 @@
-//! Memory management system for Command & Conquer Generals Zero Hour
+//! Owner-scoped memory pools for Command & Conquer Generals Zero Hour.
 //!
-//! This crate provides a sophisticated memory pool system that efficiently manages
-//! allocations of various sizes with features like:
-//! - Memory pools for same-size allocations
-//! - Dynamic memory allocator for variable sizes
-//! - Debug features (when enabled)
-//! - Checkpointing for memory leak detection
-//! - Memory statistics and reporting
+//! [`with_memory_manager`], [`with_memory_pool`], and
+//! [`with_dynamic_memory_allocator`] create independent allocation scopes.
+//! Handles cannot outlive their scope, and freed or foreign handles are rejected.
+//! Access to initialized bytes is borrowed from the owner; no pointer may be
+//! retained across an allocation, free, or reinitialization.
 
-use base_types::*;
+use base_types::Int;
 use parking_lot::Mutex;
-use std::alloc::{Layout, alloc, dealloc};
 use std::collections::HashMap;
 use std::fmt;
-use std::ptr;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::marker::PhantomData;
 
-/// Maximum number of subpools allowed in a DynamicMemoryAllocator
 pub const MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS: usize = 8;
 
-/// Memory report flags for debugging and statistics
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MemoryReportFlags {
-    /// Display stats for each pool, in addition to each block
     PoolInfo = 0x0200,
-
-    /// Report on the overall memory situation (including all pools and dma's)
     FactoryInfo = 0x0400,
-
-    /// Report on pools that have overflowed their initial allocation
     PoolOverflow = 0x0800,
-
-    /// Simple leak checking
     SimpleLeaks = 0x1000,
-
-    /// Display the stacktrace for allocation location for all blocks found
     StackTrace = 0x0100,
 }
 
-/// Pool initialization record
 #[derive(Debug, Clone)]
 pub struct PoolInitRec {
-    /// Name of the pool
     pub pool_name: String,
-
-    /// Size, in bytes, of each allocation in the pool
     pub allocation_size: Int,
-
-    /// Initial number of blocks to allocate
     pub initial_allocation_count: Int,
-
-    /// When the pool runs out of space, allocate more blocks in this increment
     pub overflow_allocation_count: Int,
 }
 
 impl PoolInitRec {
-    /// Create a new PoolInitRec
-    pub fn new(
-        pool_name: &str,
-        allocation_size: Int,
-        initial_allocation_count: Int,
-        overflow_allocation_count: Int,
-    ) -> Self {
-        Self {
-            pool_name: pool_name.to_string(),
-            allocation_size,
-            initial_allocation_count,
-            overflow_allocation_count,
-        }
+    pub fn new(pool_name: &str, allocation_size: Int, initial_allocation_count: Int, overflow_allocation_count: Int) -> Self {
+        Self { pool_name: pool_name.to_string(), allocation_size, initial_allocation_count, overflow_allocation_count }
     }
 }
 
-/// Memory block header for tracking allocations
-#[derive(Debug)]
-#[allow(dead_code)]
-struct MemoryBlockHeader {
-    /// Size of this block
-    size: usize,
+// Invariance prevents handles from distinct nested scopes from being mixed.
+type Brand<'id> = PhantomData<fn(&'id ()) -> &'id ()>;
 
-    /// Pool this block belongs to (if any)
-    pool: Option<*mut MemoryPool>,
-
-    /// Tag string for debugging
-    #[cfg(feature = "debug")]
-    tag_string: Option<String>,
-
-    /// Stack trace information
-    #[cfg(feature = "stacktrace")]
-    stack_trace: Vec<String>,
+/// A fixed-size allocation, valid only in its originating scope and pool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolBlock<'id> {
+    owner: usize,
+    blob: usize,
+    slot: usize,
+    generation: u64,
+    brand: Brand<'id>,
 }
 
-impl MemoryBlockHeader {
-    /// Create a new memory block header
-    #[allow(dead_code)]
-    fn new(size: usize, pool: Option<*mut MemoryPool>) -> Self {
-        Self {
-            size,
-            pool,
-            #[cfg(feature = "debug")]
-            tag_string: None,
-            #[cfg(feature = "stacktrace")]
-            stack_trace: Vec::new(),
-        }
+/// A dynamic allocation, valid only in its originating scope and allocator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryBlock<'id> {
+    owner: usize,
+    slot: usize,
+    generation: u64,
+    brand: Brand<'id>,
+}
+
+// Vec<usize> supplies the alignment previously requested from the system
+// allocator. bytemuck exposes the initialized words as bytes without casts in
+// this crate. Each blob uses a word-aligned stride, including odd block sizes.
+struct AlignedBytes {
+    words: Vec<usize>,
+    len: usize,
+}
+
+impl AlignedBytes {
+    fn new(len: usize) -> Result<Self, String> {
+        let word = std::mem::size_of::<usize>();
+        let count = len.checked_add(word - 1).ok_or("Allocation size overflow")? / word;
+        let mut words = Vec::new();
+        words.try_reserve_exact(count).map_err(|e| format!("Failed to allocate memory: {e}"))?;
+        words.resize(count, 0);
+        Ok(Self { words, len })
+    }
+    fn as_bytes(&self) -> &[u8] {
+        &bytemuck::cast_slice::<usize, u8>(&self.words)[..self.len]
+    }
+    fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut bytemuck::cast_slice_mut::<usize, u8>(&mut self.words)[..self.len]
     }
 }
 
-/// Memory blob that contains multiple blocks of the same size
 struct MemoryPoolBlob {
-    /// Pointer to the actual memory
-    memory: *mut u8,
-
-    /// Layout of the allocation
-    layout: Layout,
-
-    /// Size of each block in this blob
-    block_size: usize,
-
-    /// Number of blocks in this blob
-    block_count: usize,
-
-    /// Bitmap of free/used blocks (1 = used, 0 = free)
-    used_blocks: Vec<bool>,
-
-    /// Next blob in the pool
-    next_blob: Option<Box<MemoryPoolBlob>>,
-
-    /// Previous blob in the pool
-    prev_blob: Option<*mut MemoryPoolBlob>,
+    bytes: AlignedBytes,
+    stride: usize,
+    slots: Vec<Option<u64>>,
+    free_slots: Vec<usize>,
 }
 
 impl MemoryPoolBlob {
-    /// Create a new memory blob
-    fn new(block_size: usize, block_count: usize) -> Result<Self, String> {
-        let total_size = block_size * block_count;
-        let layout = Layout::from_size_align(total_size, std::mem::align_of::<usize>())
-            .map_err(|e| format!("Failed to create layout: {}", e))?;
+    fn new(block_size: usize, count: usize) -> Result<Self, String> {
+        let word = std::mem::size_of::<usize>();
+        let stride = block_size.checked_add(word - 1).ok_or("Block size overflow")? / word * word;
+        let len = stride.checked_mul(count).ok_or("Blob size overflow")?;
+        let bytes = AlignedBytes::new(len)?;
+        let mut slots = Vec::new();
+        slots.try_reserve_exact(count).map_err(|e| format!("Failed to allocate slots: {e}"))?;
+        slots.resize(count, None);
+        let mut free_slots = Vec::new();
+        free_slots.try_reserve_exact(count).map_err(|e| format!("Failed to allocate free list: {e}"))?;
+        free_slots.extend((0..count).rev());
+        Ok(Self { bytes, stride, slots, free_slots })
+    }
+}
 
-        // SAFETY: [Category 13 — library contract] `layout` was validated by
-        // `Layout::from_size_align` just above; allocates the raw pool region.
-        let memory = unsafe { alloc(layout) };
-        if memory.is_null() {
-            return Err("Failed to allocate memory for blob".to_string());
-        }
+/// A fixed-size pool. Obtain one via [`with_memory_pool`] or a factory.
+pub struct MemoryPool<'id> {
+    owner: usize,
+    brand: Brand<'id>,
+    pool_name: String,
+    allocation_size: usize,
+    overflow_allocation_count: usize,
+    blobs: Vec<MemoryPoolBlob>,
+    first_free_blob: Option<usize>,
+    used: usize,
+    total: usize,
+    peak: usize,
+    bytes_allocated: usize,
+    bytes_freed: usize,
+    next_generation: u64,
+}
 
-        Ok(Self {
-            memory,
-            layout,
-            block_size,
-            block_count,
-            used_blocks: vec![false; block_count],
-            next_blob: None,
-            prev_blob: None,
-        })
+impl<'id> MemoryPool<'id> {
+    fn new(owner: usize) -> Self {
+        Self { owner, brand: PhantomData, pool_name: String::new(), allocation_size: 0, overflow_allocation_count: 0, blobs: Vec::new(), first_free_blob: None, used: 0, total: 0, peak: 0, bytes_allocated: 0, bytes_freed: 0, next_generation: 0 }
     }
 
-    /// Allocate a block from this blob
-    fn allocate_block(&mut self) -> Option<*mut u8> {
-        for (index, is_used) in self.used_blocks.iter_mut().enumerate() {
-            if !*is_used {
-                *is_used = true;
-                // SAFETY: [Category 10 — OOB] `index < block_count` (only free slots are picked), so the offset stays inside the `block_size * block_count` region.
-                let block_ptr = unsafe { self.memory.add(index * self.block_size) };
-                return Some(block_ptr);
+    /// Initialize or replace this pool, invalidating its previous handles.
+    pub fn init(&mut self, name: &str, size: usize, initial: usize, overflow: usize) -> Result<(), String> {
+        // C++ rounds pool allocation sizes to its four-byte memory boundary.
+        let size = size.checked_add(3).ok_or("Block size overflow")? & !3;
+        let blob = MemoryPoolBlob::new(size, initial)?;
+        self.bytes_freed = self.bytes_freed.saturating_add(self.used.saturating_mul(self.allocation_size));
+        self.pool_name = name.to_string();
+        self.allocation_size = size;
+        self.overflow_allocation_count = overflow;
+        self.blobs = vec![blob];
+        self.first_free_blob = Some(0);
+        self.used = 0;
+        self.total = initial;
+        self.peak = 0;
+        Ok(())
+    }
+
+    pub fn allocate_block(&mut self) -> Result<PoolBlock<'id>, String> {
+        let generation = self.next_generation.checked_add(1).ok_or("Allocation generation exhausted")?;
+        let current = self.first_free_blob.filter(|&index| !self.blobs[index].free_slots.is_empty());
+        let found = current.or_else(|| self.blobs.iter().position(|blob| !blob.free_slots.is_empty()));
+        let blob = match found {
+            Some(index) => index,
+            None => {
+                self.first_free_blob = None;
+                if self.overflow_allocation_count == 0 { return Err("Pool cannot grow".into()); }
+                let total = self.total.checked_add(self.overflow_allocation_count).ok_or("Pool size overflow")?;
+                let blob = MemoryPoolBlob::new(self.allocation_size, self.overflow_allocation_count)?;
+                self.blobs.try_reserve(1).map_err(|e| format!("Failed to grow pool: {e}"))?;
+                self.blobs.push(blob);
+                self.total = total;
+                self.blobs.len() - 1
             }
-        }
-        None
+        };
+        self.first_free_blob = Some(blob);
+        let entry = &mut self.blobs[blob];
+        let slot = entry.free_slots.pop().expect("selected blob has a free slot");
+        entry.slots[slot] = Some(generation);
+        let start = slot * entry.stride;
+        entry.bytes.as_bytes_mut()[start..start + self.allocation_size].fill(0);
+        self.next_generation = generation;
+        self.used += 1;
+        self.bytes_allocated = self.bytes_allocated.saturating_add(self.allocation_size);
+        self.peak = self.peak.max(self.used);
+        Ok(PoolBlock { owner: self.owner, blob, slot, generation, brand: PhantomData })
     }
 
-    /// Free a block in this blob
-    fn free_block(&mut self, block_ptr: *mut u8) -> bool {
-        // SAFETY: [Category 11 — provenance] `block_ptr` points into this blob's allocation (caller verified the range), so the offset computation is well-defined.
-        let block_offset = unsafe { block_ptr.offset_from(self.memory) } as usize;
-        if !block_offset.is_multiple_of(self.block_size) {
-            return false; // Invalid block pointer
-        }
+    fn valid(&self, block: PoolBlock<'id>) -> bool {
+        block.owner == self.owner && self.blobs.get(block.blob).and_then(|b| b.slots.get(block.slot)).copied().flatten() == Some(block.generation)
+    }
 
-        let block_index = block_offset / self.block_size;
-        if block_index >= self.block_count {
-            return false; // Block index out of bounds
-        }
+    pub fn get_block(&self, block: PoolBlock<'id>) -> Option<&[u8]> {
+        if !self.valid(block) { return None; }
+        let blob = &self.blobs[block.blob];
+        let start = block.slot * blob.stride;
+        Some(&blob.bytes.as_bytes()[start..start + self.allocation_size])
+    }
 
-        if !self.used_blocks[block_index] {
-            return false; // Block was already free
-        }
+    pub fn get_block_mut(&mut self, block: PoolBlock<'id>) -> Option<&mut [u8]> {
+        if !self.valid(block) { return None; }
+        let blob = &mut self.blobs[block.blob];
+        let start = block.slot * blob.stride;
+        Some(&mut blob.bytes.as_bytes_mut()[start..start + self.allocation_size])
+    }
 
-        self.used_blocks[block_index] = false;
+    pub fn free_block(&mut self, block: PoolBlock<'id>) -> bool {
+        if !self.valid(block) { return false; }
+        self.blobs[block.blob].slots[block.slot] = None;
+        self.blobs[block.blob].free_slots.push(block.slot);
+        if self.first_free_blob.is_none() { self.first_free_blob = Some(block.blob); }
+        self.used -= 1;
+        self.bytes_freed = self.bytes_freed.saturating_add(self.allocation_size);
         true
     }
-
-    /// Get the number of free blocks in this blob
-    fn free_block_count(&self) -> usize {
-        self.used_blocks.iter().filter(|&&used| !used).count()
-    }
-
-    /// Get the number of used blocks in this blob
-    #[allow(dead_code)]
-    fn used_block_count(&self) -> usize {
-        self.used_blocks.iter().filter(|&&used| used).count()
-    }
-
-    /// Check if this blob is completely empty
-    #[allow(dead_code)]
-    fn is_empty(&self) -> bool {
-        self.used_block_count() == 0
-    }
+    pub fn get_free_block_count(&self) -> usize { self.total - self.used }
+    pub fn get_used_block_count(&self) -> usize { self.used }
+    pub fn get_total_block_count(&self) -> usize { self.total }
+    pub fn get_peak_block_count(&self) -> usize { self.peak }
+    pub fn get_pool_name(&self) -> &str { &self.pool_name }
+    pub fn get_allocation_size(&self) -> usize { self.allocation_size }
 }
 
-impl Drop for MemoryPoolBlob {
-    fn drop(&mut self) {
-        if !self.memory.is_null() {
-            // SAFETY: [Category 12 — invalid free] same pointer/layout pair returned by `alloc` in `new`; blob is being dropped.
-            unsafe {
-                dealloc(self.memory, self.layout);
-            }
-        }
-    }
-}
-
-// SAFETY: MemoryPoolBlob is used behind a Mutex in MemoryPoolSession.
-// The Mutex ensures exclusive access, making it safe to send across threads.
-unsafe impl Send for MemoryPoolBlob {}
-
-/// Memory pool for efficiently allocating objects of the same size
-pub struct MemoryPool {
-    /// Name of this pool
-    pool_name: String,
-
-    /// Size of each block in this pool
-    allocation_size: usize,
-
-    /// Initial number of blocks to allocate
-    initial_allocation_count: usize,
-
-    /// Number of blocks to allocate when overflowing
-    overflow_allocation_count: usize,
-
-    /// Total number of blocks currently in use
-    used_blocks_in_pool: usize,
-
-    /// Total number of blocks in all blobs
-    total_blocks_in_pool: usize,
-
-    /// High-water mark of used blocks
-    peak_used_blocks_in_pool: usize,
-
-    /// First blob in this pool
-    first_blob: Option<Box<MemoryPoolBlob>>,
-
-    /// Last blob in this pool
-    last_blob: Option<*mut MemoryPoolBlob>,
-
-    /// First blob that has free blocks
-    first_blob_with_free_blocks: Option<*mut MemoryPoolBlob>,
-}
-
-impl MemoryPool {
-    /// Create a new memory pool
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self {
-            pool_name: String::new(),
-            allocation_size: 0,
-            initial_allocation_count: 0,
-            overflow_allocation_count: 0,
-            used_blocks_in_pool: 0,
-            total_blocks_in_pool: 0,
-            peak_used_blocks_in_pool: 0,
-            first_blob: None,
-            last_blob: None,
-            first_blob_with_free_blocks: None,
-        }
-    }
-
-    /// Initialize the memory pool
-    pub fn init(
-        &mut self,
-        pool_name: &str,
-        allocation_size: usize,
-        initial_allocation_count: usize,
-        overflow_allocation_count: usize,
-    ) -> Result<(), String> {
-        self.pool_name = pool_name.to_string();
-        self.allocation_size = allocation_size;
-        self.initial_allocation_count = initial_allocation_count;
-        self.overflow_allocation_count = overflow_allocation_count;
-
-        // Create the initial blob
-        let blob = MemoryPoolBlob::new(allocation_size, initial_allocation_count)?;
-        self.total_blocks_in_pool = initial_allocation_count;
-        self.first_blob = Some(Box::new(blob));
-        self.last_blob = self
-            .first_blob
-            .as_mut()
-            .map(|b| b.as_mut() as *mut MemoryPoolBlob);
-        self.first_blob_with_free_blocks = self.last_blob;
-
-        Ok(())
-    }
-
-    /// Allocate a block from this pool
-    pub fn allocate_block(&mut self) -> Result<*mut u8, String> {
-        // First try to allocate from existing blobs
-        let mut current_blob = self.first_blob_with_free_blocks;
-        while let Some(blob_ptr) = current_blob {
-            // SAFETY: [Category 3 — dangling] blob pointers come from Box leaks owned by this pool (`first_blob` chain); they stay alive for the pool's lifetime and access is &mut self-exclusive.
-            let blob = unsafe { &mut *blob_ptr };
-            if let Some(block_ptr) = blob.allocate_block() {
-                self.used_blocks_in_pool += 1;
-                if self.used_blocks_in_pool > self.peak_used_blocks_in_pool {
-                    self.peak_used_blocks_in_pool = self.used_blocks_in_pool;
-                }
-
-                // Zero the memory
-                // SAFETY: [Category 10 — OOB] `block_ptr` is a freshly claimed in-bounds block of exactly `allocation_size` bytes.
-                unsafe {
-                    ptr::write_bytes(block_ptr, 0, self.allocation_size);
-                }
-
-                return Ok(block_ptr);
-            }
-
-            // Move to next blob
-            current_blob = blob
-                .next_blob
-                .as_ref()
-                .map(|b| b.as_ref() as *const MemoryPoolBlob as *mut MemoryPoolBlob);
-        }
-
-        // No free blocks found, create a new blob
-        let allocation_count = if self.first_blob.is_none() {
-            self.initial_allocation_count
-        } else {
-            self.overflow_allocation_count
-        };
-
-        let new_blob = MemoryPoolBlob::new(self.allocation_size, allocation_count)?;
-        self.total_blocks_in_pool += allocation_count;
-
-        // Link the new blob into the list
-        if let Some(last_blob_ptr) = self.last_blob {
-            // SAFETY: [Category 3 — dangling] blob pointers come from Box leaks owned by this pool (`first_blob` chain); they stay alive for the pool's lifetime and access is &mut self-exclusive.
-            let last_blob = unsafe { &mut *last_blob_ptr };
-            last_blob.next_blob = Some(Box::new(new_blob));
-            let new_blob_ptr =
-                last_blob.next_blob.as_mut().unwrap().as_mut() as *mut MemoryPoolBlob;
-            // SAFETY: [Category 3 — dangling] `new_blob_ptr` is inside the Box just linked into the list; writing its prev link before sharing it is safe.
-            unsafe { (*new_blob_ptr).prev_blob = Some(last_blob_ptr) };
-            self.last_blob = Some(new_blob_ptr);
-        } else {
-            // This is the first blob
-            self.first_blob = Some(Box::new(new_blob));
-            self.last_blob = self
-                .first_blob
-                .as_mut()
-                .map(|b| b.as_mut() as *mut MemoryPoolBlob);
-        }
-
-        // Update first blob with free blocks
-        self.first_blob_with_free_blocks = self.last_blob;
-
-        // Now allocate from the new blob
-        self.allocate_block()
-    }
-
-    /// Free a block back to this pool
-    pub fn free_block(&mut self, block_ptr: *mut u8) -> bool {
-        if block_ptr.is_null() {
-            return true;
-        }
-
-        // Find which blob this block belongs to
-        let mut current_blob = self.first_blob.as_mut();
-        while let Some(blob) = current_blob {
-            if blob.memory <= block_ptr
-                // SAFETY: [Category 10 — OOB] one-past-the-end of this blob's region, allowed for the ownership range check.
-                && block_ptr < unsafe { blob.memory.add(blob.block_size * blob.block_count) }
-                && blob.free_block(block_ptr)
-            {
-                self.used_blocks_in_pool -= 1;
-
-                // Update first_blob_with_free_blocks if needed
-                if self.first_blob_with_free_blocks.is_none() || blob.free_block_count() > 0 {
-                    self.first_blob_with_free_blocks = Some(blob.as_mut() as *mut MemoryPoolBlob);
-                }
-
-                return true;
-            }
-            current_blob = blob.next_blob.as_mut();
-        }
-
-        false
-    }
-
-    /// Get the number of free blocks in this pool
-    pub fn get_free_block_count(&self) -> usize {
-        let mut total_free = 0;
-        let mut current_blob = self.first_blob.as_ref();
-        while let Some(blob) = current_blob {
-            total_free += blob.free_block_count();
-            current_blob = blob.next_blob.as_ref();
-        }
-        total_free
-    }
-
-    /// Get the number of used blocks in this pool
-    pub fn get_used_block_count(&self) -> usize {
-        self.used_blocks_in_pool
-    }
-
-    /// Get the total number of blocks in this pool
-    pub fn get_total_block_count(&self) -> usize {
-        self.total_blocks_in_pool
-    }
-
-    /// Get the peak number of used blocks
-    pub fn get_peak_block_count(&self) -> usize {
-        self.peak_used_blocks_in_pool
-    }
-
-    /// Get the pool name
-    pub fn get_pool_name(&self) -> &str {
-        &self.pool_name
-    }
-
-    /// Get the allocation size
-    pub fn get_allocation_size(&self) -> usize {
-        self.allocation_size
-    }
-}
-
-impl fmt::Debug for MemoryPool {
+impl fmt::Debug for MemoryPool<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MemoryPool")
-            .field("pool_name", &self.pool_name)
-            .field("allocation_size", &self.allocation_size)
-            .field("used_blocks", &self.used_blocks_in_pool)
-            .field("total_blocks", &self.total_blocks_in_pool)
-            .field("peak_used", &self.peak_used_blocks_in_pool)
-            .finish()
+        f.debug_struct("MemoryPool").field("pool_name", &self.pool_name).field("allocation_size", &self.allocation_size).field("used_blocks", &self.used).field("total_blocks", &self.total).field("peak_used", &self.peak).finish()
     }
 }
 
-// SAFETY: MemoryPool is used behind a Mutex in MemoryPoolSession.
-// The Mutex ensures exclusive access, making it safe to send across threads.
-unsafe impl Send for MemoryPool {}
-
-/// Dynamic memory allocator for variable-sized allocations
-pub struct DynamicMemoryAllocator {
-    /// Number of subpools
-    num_pools: usize,
-
-    /// Total number of blocks allocated
-    used_blocks_in_dma: usize,
-
-    /// The subpools
-    pools: Vec<Option<Box<MemoryPool>>>,
-
-    /// Raw blocks allocated directly from system
-    raw_blocks: Vec<(*mut u8, usize)>,
+enum Allocation<'id> {
+    Pool { index: usize, block: PoolBlock<'id> },
+    Raw(AlignedBytes),
+}
+struct AllocationEntry<'id> {
+    generation: u64,
+    requested_size: usize,
+    allocation: Option<Allocation<'id>>,
 }
 
-impl DynamicMemoryAllocator {
-    /// Create a new dynamic memory allocator
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self {
-            num_pools: 0,
-            used_blocks_in_dma: 0,
-            pools: (0..MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS)
-                .map(|_| None)
-                .collect(),
-            raw_blocks: Vec::new(),
-        }
+/// Variable-sized allocator using the first fitting pool, then raw storage.
+pub struct DynamicMemoryAllocator<'id> {
+    owner: usize,
+    brand: Brand<'id>,
+    pools: Vec<MemoryPool<'id>>,
+    slots: Vec<AllocationEntry<'id>>,
+    free_slots: Vec<usize>,
+    next_generation: u64,
+    used: usize,
+    raw_count: usize,
+    bytes_allocated: usize,
+    bytes_freed: usize,
+}
+
+impl<'id> DynamicMemoryAllocator<'id> {
+    fn new(owner: usize) -> Self {
+        Self { owner, brand: PhantomData, pools: Vec::new(), slots: Vec::new(), free_slots: Vec::new(), next_generation: 0, used: 0, raw_count: 0, bytes_allocated: 0, bytes_freed: 0 }
     }
 
-    /// Initialize the DMA with pool configurations
-    pub fn init(&mut self, pool_configs: &[PoolInitRec]) -> Result<(), String> {
-        if pool_configs.len() > MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS {
-            return Err(format!(
-                "Too many pools requested: {} (max is {})",
-                pool_configs.len(),
-                MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS
-            ));
+    pub fn init(&mut self, configs: &[PoolInitRec]) -> Result<(), String> {
+        let defaults;
+        let configs = if configs.is_empty() {
+            defaults = [16, 32, 64, 128, 256, 512, 1024].map(|size| PoolInitRec::new(&format!("dmaPool_{size}"), size, 64, 64));
+            &defaults[..]
+        } else { configs };
+        if configs.len() > MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS { return Err(format!("Too many pools requested: {} (max is {})", configs.len(), MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS)); }
+        let mut pools = Vec::with_capacity(configs.len());
+        let mut previous = None;
+        for (index, config) in configs.iter().enumerate() {
+            let size = usize::try_from(config.allocation_size).map_err(|_| "Negative allocation size")?;
+            let initial = usize::try_from(config.initial_allocation_count).map_err(|_| "Negative initial count")?;
+            let overflow = usize::try_from(config.overflow_allocation_count).map_err(|_| "Negative overflow count")?;
+            if previous.is_some_and(|last| size <= last) { return Err("Pool sizes must increase".into()); }
+            previous = Some(size);
+            let mut pool = MemoryPool::new(index);
+            pool.init(&config.pool_name, size, initial, overflow)?;
+            pools.push(pool);
         }
-
-        self.num_pools = pool_configs.len();
-
-        for (i, config) in pool_configs.iter().enumerate() {
-            let mut pool = Box::new(MemoryPool::new());
-            pool.init(
-                &config.pool_name,
-                config.allocation_size as usize,
-                config.initial_allocation_count as usize,
-                config.overflow_allocation_count as usize,
-            )?;
-            self.pools[i] = Some(pool);
+        for slot in &self.slots {
+            if slot.allocation.is_some() {
+                self.bytes_freed = self.bytes_freed.saturating_add(slot.requested_size);
+            }
         }
-
+        self.pools = pools;
+        self.slots.clear();
+        self.free_slots.clear();
+        self.used = 0;
+        self.raw_count = 0;
         Ok(())
     }
 
-    /// Allocate bytes from the appropriate pool or system
-    pub fn allocate_bytes(&mut self, size: usize) -> Result<*mut u8, String> {
-        // Try to find a pool that can handle this allocation
-        for pool in self.pools.iter_mut().flatten() {
-            if size <= pool.get_allocation_size() {
-                match pool.allocate_block() {
-                    Ok(block_ptr) => {
-                        self.used_blocks_in_dma += 1;
-                        return Ok(block_ptr);
-                    }
-                    Err(_) => continue, // Try next pool
-                }
-            }
+    pub fn allocate_bytes(&mut self, size: usize) -> Result<MemoryBlock<'id>, String> {
+        let generation = self.next_generation.checked_add(1).ok_or("Allocation generation exhausted")?;
+        if self.free_slots.is_empty() {
+            self.slots.try_reserve(1).map_err(|e| format!("Failed to allocate slot: {e}"))?;
+            // Every live slot may eventually be freed; reserve that space now.
+            self.free_slots.try_reserve(self.slots.len() + 1).map_err(|e| format!("Failed to allocate free list: {e}"))?;
+            self.free_slots.push(self.slots.len());
+            self.slots.push(AllocationEntry { generation: 0, requested_size: 0, allocation: None });
         }
-
-        // No pool can handle this size, allocate directly from system
-        let layout = Layout::from_size_align(size, std::mem::align_of::<usize>())
-            .map_err(|e| format!("Failed to create layout: {}", e))?;
-
-        // SAFETY: [Category 13 — library contract] `layout` was validated by
-        // `Layout::from_size_align` just above; allocates the raw pool region.
-        let memory = unsafe { alloc(layout) };
-        if memory.is_null() {
-            return Err("Failed to allocate memory".to_string());
-        }
-
-        // Zero the memory
-        // SAFETY: [Category 10 — OOB] zeroes exactly the `size` bytes just allocated.
-        unsafe {
-            ptr::write_bytes(memory, 0, size);
-        }
-
-        self.raw_blocks.push((memory, size));
-        self.used_blocks_in_dma += 1;
-
-        Ok(memory)
+        let slot = *self.free_slots.last().unwrap();
+        let allocation = if let Some(index) = self.pools.iter().position(|p| size <= p.allocation_size) {
+            Allocation::Pool { index, block: self.pools[index].allocate_block()? }
+        } else {
+            let bytes = AlignedBytes::new(size)?;
+            self.raw_count += 1;
+            Allocation::Raw(bytes)
+        };
+        self.free_slots.pop();
+        self.slots[slot] = AllocationEntry { generation, requested_size: size, allocation: Some(allocation) };
+        self.next_generation = generation;
+        self.used += 1;
+        self.bytes_allocated = self.bytes_allocated.saturating_add(size);
+        Ok(MemoryBlock { owner: self.owner, slot, generation, brand: PhantomData })
     }
 
-    /// Free bytes
-    pub fn free_bytes(&mut self, ptr: *mut u8) -> bool {
-        if ptr.is_null() {
-            return true;
-        }
-
-        // Check if this is a raw block
-        if let Some(pos) = self
-            .raw_blocks
-            .iter()
-            .position(|(block_ptr, _)| *block_ptr == ptr)
-        {
-            let (block_ptr, size) = self.raw_blocks.swap_remove(pos);
-            let layout = Layout::from_size_align(size, std::mem::align_of::<usize>()).unwrap();
-            // SAFETY: [Category 12 — invalid free] ptr+size recorded at allocation time; removed from raw_blocks so not double-freed.
-            unsafe {
-                dealloc(block_ptr, layout);
-            }
-            self.used_blocks_in_dma -= 1;
-            return true;
-        }
-
-        // Check pools
-        for pool in self.pools.iter_mut().flatten() {
-            if pool.free_block(ptr) {
-                self.used_blocks_in_dma -= 1;
-                return true;
-            }
-        }
-
-        false
+    fn allocation(&self, block: MemoryBlock<'id>) -> Option<&Allocation<'id>> {
+        if block.owner != self.owner { return None; }
+        let slot = self.slots.get(block.slot)?;
+        if slot.generation != block.generation { return None; }
+        slot.allocation.as_ref()
     }
-
-    /// Get total used blocks
-    pub fn get_used_block_count(&self) -> usize {
-        self.used_blocks_in_dma
+    pub fn get_bytes(&self, block: MemoryBlock<'id>) -> Option<&[u8]> {
+        match self.allocation(block)? {
+            Allocation::Pool { index, block } => self.pools[*index].get_block(*block),
+            Allocation::Raw(bytes) => Some(bytes.as_bytes()),
+        }
     }
-
-    /// Get memory statistics
+    pub fn get_bytes_mut(&mut self, block: MemoryBlock<'id>) -> Option<&mut [u8]> {
+        if block.owner != self.owner { return None; }
+        let slot = self.slots.get_mut(block.slot)?;
+        if slot.generation != block.generation { return None; }
+        match slot.allocation.as_mut()? {
+            Allocation::Pool { index, block } => self.pools[*index].get_block_mut(*block),
+            Allocation::Raw(bytes) => Some(bytes.as_bytes_mut()),
+        }
+    }
+    pub fn free_bytes(&mut self, block: MemoryBlock<'id>) -> bool {
+        if block.owner != self.owner { return false; }
+        let Some(slot) = self.slots.get_mut(block.slot) else { return false; };
+        if slot.generation != block.generation { return false; }
+        let Some(allocation) = slot.allocation.take() else { return false; };
+        self.bytes_freed = self.bytes_freed.saturating_add(slot.requested_size);
+        match allocation {
+            Allocation::Pool { index, block } => { assert!(self.pools[index].free_block(block)); }
+            Allocation::Raw(_) => self.raw_count -= 1,
+        }
+        self.free_slots.push(block.slot);
+        self.used -= 1;
+        true
+    }
+    pub fn get_used_block_count(&self) -> usize { self.used }
     pub fn get_memory_stats(&self) -> HashMap<String, usize> {
         let mut stats = HashMap::new();
-
-        stats.insert("raw_blocks_count".to_string(), self.raw_blocks.len());
-        stats.insert("used_blocks_in_dma".to_string(), self.used_blocks_in_dma);
-        stats.insert("num_pools".to_string(), self.num_pools);
-
-        for (i, pool) in self.pools.iter().flatten().enumerate() {
-            stats.insert(
-                format!("pool_{}_used_blocks", i),
-                pool.get_used_block_count(),
-            );
-            stats.insert(
-                format!("pool_{}_total_blocks", i),
-                pool.get_total_block_count(),
-            );
-            stats.insert(
-                format!("pool_{}_peak_blocks", i),
-                pool.get_peak_block_count(),
-            );
+        stats.insert("raw_blocks_count".into(), self.raw_count);
+        stats.insert("total_allocated".into(), self.bytes_allocated);
+        stats.insert("total_freed".into(), self.bytes_freed);
+        stats.insert("used_blocks_in_dma".into(), self.used);
+        stats.insert("num_pools".into(), self.pools.len());
+        for (i, pool) in self.pools.iter().enumerate() {
+            stats.insert(format!("pool_{i}_used_blocks"), pool.used);
+            stats.insert(format!("pool_{i}_total_blocks"), pool.total);
+            stats.insert(format!("pool_{i}_peak_blocks"), pool.peak);
         }
-
         stats
     }
 }
-
-impl fmt::Debug for DynamicMemoryAllocator {
+impl fmt::Debug for DynamicMemoryAllocator<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DynamicMemoryAllocator")
-            .field("num_pools", &self.num_pools)
-            .field("used_blocks", &self.used_blocks_in_dma)
-            .field("raw_blocks_count", &self.raw_blocks.len())
-            .finish()
+        f.debug_struct("DynamicMemoryAllocator").field("num_pools", &self.pools.len()).field("used_blocks", &self.used).field("raw_blocks_count", &self.raw_count).finish()
     }
 }
 
-/// Global memory pool factory
-pub struct MemoryPoolFactory {
-    /// All pools managed by this factory
-    #[allow(clippy::vec_box)]
-    pools: Vec<Box<MemoryPool>>,
-
-    /// Dynamic memory allocators
-    #[allow(clippy::vec_box)]
-    dmas: Vec<Box<DynamicMemoryAllocator>>,
-
-    /// Total memory statistics
-    total_allocated: AtomicUsize,
-    total_freed: AtomicUsize,
+/// Factory whose pools and allocators share one generative owner scope.
+pub struct MemoryPoolFactory<'id> {
+    pools: Vec<MemoryPool<'id>>,
+    dmas: Vec<DynamicMemoryAllocator<'id>>,
+    next_owner: usize,
 }
-
-impl MemoryPoolFactory {
-    /// Create a new memory pool factory
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self {
-            pools: Vec::new(),
-            dmas: Vec::new(),
-            total_allocated: AtomicUsize::new(0),
-            total_freed: AtomicUsize::new(0),
-        }
+impl<'id> MemoryPoolFactory<'id> {
+    fn new() -> Self { Self { pools: Vec::new(), dmas: Vec::new(), next_owner: 0 } }
+    fn owner(&mut self) -> Result<usize, String> {
+        let id = self.next_owner;
+        self.next_owner = id.checked_add(1).ok_or("Owner identity exhausted")?;
+        Ok(id)
     }
-
-    /// Create a memory pool
-    pub fn create_memory_pool(
-        &mut self,
-        pool_name: &str,
-        allocation_size: usize,
-        initial_allocation_count: usize,
-        overflow_allocation_count: usize,
-    ) -> Result<&mut MemoryPool, String> {
-        let mut pool = Box::new(MemoryPool::new());
-        pool.init(
-            pool_name,
-            allocation_size,
-            initial_allocation_count,
-            overflow_allocation_count,
-        )?;
+    pub fn create_memory_pool(&mut self, name: &str, size: usize, initial: usize, overflow: usize) -> Result<&mut MemoryPool<'id>, String> {
+        let mut pool = MemoryPool::new(self.owner()?);
+        pool.init(name, size, initial, overflow)?;
         self.pools.push(pool);
         Ok(self.pools.last_mut().unwrap())
     }
-
-    /// Create a dynamic memory allocator
-    pub fn create_dynamic_memory_allocator(
-        &mut self,
-        pool_configs: &[PoolInitRec],
-    ) -> Result<&mut DynamicMemoryAllocator, String> {
-        let mut dma = Box::new(DynamicMemoryAllocator::new());
-        dma.init(pool_configs)?;
+    pub fn create_dynamic_memory_allocator(&mut self, configs: &[PoolInitRec]) -> Result<&mut DynamicMemoryAllocator<'id>, String> {
+        let mut dma = DynamicMemoryAllocator::new(self.owner()?);
+        dma.init(configs)?;
         self.dmas.push(dma);
         Ok(self.dmas.last_mut().unwrap())
     }
-
-    /// Get memory statistics for all managed resources
+    /// Borrow a factory-owned pool by its creation-order index.
+    pub fn memory_pool_mut(&mut self, index: usize) -> Option<&mut MemoryPool<'id>> {
+        self.pools.get_mut(index)
+    }
+    /// Borrow a factory-owned dynamic allocator by its creation-order index.
+    pub fn dynamic_memory_allocator_mut(&mut self, index: usize) -> Option<&mut DynamicMemoryAllocator<'id>> {
+        self.dmas.get_mut(index)
+    }
+    /// Report cumulative requested bytes allocated and freed as well as live
+    /// and peak block counts. Byte totals saturate at `usize::MAX`.
     pub fn get_memory_report(&self) -> HashMap<String, usize> {
         let mut report = HashMap::new();
-
-        report.insert("total_pools".to_string(), self.pools.len());
-        report.insert("total_dmas".to_string(), self.dmas.len());
-        report.insert(
-            "total_allocated".to_string(),
-            self.total_allocated.load(Ordering::Relaxed),
-        );
-        report.insert(
-            "total_freed".to_string(),
-            self.total_freed.load(Ordering::Relaxed),
-        );
-
-        let mut total_pool_blocks = 0;
-        let mut total_pool_used = 0;
-        let mut total_pool_peak = 0;
-
+        report.insert("total_pools".into(), self.pools.len());
+        report.insert("total_dmas".into(), self.dmas.len());
+        let allocated = self.pools.iter().map(|p| p.bytes_allocated)
+            .chain(self.dmas.iter().map(|d| d.bytes_allocated))
+            .fold(0usize, usize::saturating_add);
+        let freed = self.pools.iter().map(|p| p.bytes_freed)
+            .chain(self.dmas.iter().map(|d| d.bytes_freed))
+            .fold(0usize, usize::saturating_add);
+        report.insert("total_allocated".into(), allocated);
+        report.insert("total_freed".into(), freed);
+        let (mut total, mut used, mut peak) = (0, 0, 0);
         for (i, pool) in self.pools.iter().enumerate() {
-            report.insert(format!("pool_{}_used", i), pool.get_used_block_count());
-            report.insert(format!("pool_{}_total", i), pool.get_total_block_count());
-            report.insert(format!("pool_{}_peak", i), pool.get_peak_block_count());
-
-            total_pool_blocks += pool.get_total_block_count();
-            total_pool_used += pool.get_used_block_count();
-            total_pool_peak += pool.get_peak_block_count();
+            report.insert(format!("pool_{i}_used"), pool.used);
+            report.insert(format!("pool_{i}_total"), pool.total);
+            report.insert(format!("pool_{i}_peak"), pool.peak);
+            total += pool.total; used += pool.used; peak += pool.peak;
         }
-
-        report.insert("all_pools_total_blocks".to_string(), total_pool_blocks);
-        report.insert("all_pools_used_blocks".to_string(), total_pool_used);
-        report.insert("all_pools_peak_blocks".to_string(), total_pool_peak);
-
-        let mut total_dma_blocks = 0;
+        report.insert("all_pools_total_blocks".into(), total);
+        report.insert("all_pools_used_blocks".into(), used);
+        report.insert("all_pools_peak_blocks".into(), peak);
+        let mut dma_used = 0;
         for (i, dma) in self.dmas.iter().enumerate() {
-            report.insert(format!("dma_{}_used", i), dma.get_used_block_count());
-            total_dma_blocks += dma.get_used_block_count();
+            report.insert(format!("dma_{i}_used"), dma.used);
+            dma_used += dma.used;
         }
-
-        report.insert("all_dmas_used_blocks".to_string(), total_dma_blocks);
+        report.insert("all_dmas_used_blocks".into(), dma_used);
         report
     }
-
-    /// Reset all memory pools (free all allocations)
+    /// Free all allocations in factory-owned fixed-size pools.
     pub fn reset_all_pools(&mut self) {
-        for pool in self.pools.iter_mut() {
-            // Note: In a real implementation, we'd need to add a reset method to MemoryPool
-            // For now, we'll just log that this would reset the pool
-            log::info!("Would reset pool: {}", pool.get_pool_name());
+        for pool in &mut self.pools {
+            pool.bytes_freed = pool.bytes_freed.saturating_add(pool.used.saturating_mul(pool.allocation_size));
+            for blob in &mut pool.blobs {
+                blob.slots.fill(None);
+                blob.free_slots.clear();
+                blob.free_slots.extend((0..blob.slots.len()).rev());
+            }
+            pool.first_free_blob = (!pool.blobs.is_empty()).then_some(0);
+            pool.used = 0;
         }
     }
 }
-
-impl fmt::Debug for MemoryPoolFactory {
+impl fmt::Debug for MemoryPoolFactory<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MemoryPoolFactory")
-            .field("pools_count", &self.pools.len())
-            .field("dmas_count", &self.dmas.len())
-            .field(
-                "total_allocated",
-                &self.total_allocated.load(Ordering::Relaxed),
-            )
-            .field("total_freed", &self.total_freed.load(Ordering::Relaxed))
-            .finish()
+        f.debug_struct("MemoryPoolFactory").field("pools_count", &self.pools.len()).field("dmas_count", &self.dmas.len()).finish()
     }
 }
 
-// SAFETY: MemoryPoolFactory is used behind a Mutex in a static OnceLock.
-// The Mutex ensures exclusive access, making it safe to send across threads.
-unsafe impl Send for MemoryPoolFactory {}
-
-// SAFETY: DynamicMemoryAllocator is used behind a Mutex in MemoryPoolSession.
-// The Mutex ensures exclusive access, making it safe to send across threads.
-unsafe impl Send for DynamicMemoryAllocator {}
-
-/// Global memory pool factory instance
-/// Host-owned memory pool session (replaces process MemoryPoolSession).
-pub struct MemoryPoolSession {
-    factory: Mutex<MemoryPoolFactory>,
-}
-
-impl Default for MemoryPoolSession {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MemoryPoolSession {
-    pub fn new() -> Self {
-        Self {
-            factory: Mutex::new(MemoryPoolFactory::new()),
-        }
-    }
-
-    pub fn init(&self, pool_configs: &[PoolInitRec]) -> Result<(), String> {
-        let mut factory = self.factory.lock();
-        factory.create_dynamic_memory_allocator(pool_configs)?;
+/// Host-owned manager. The enclosing scope ensures allocation identities cannot
+/// be confused with another manager, even after it has been dropped.
+pub struct MemoryPoolSession<'id> { factory: Mutex<MemoryPoolFactory<'id>> }
+impl<'id> MemoryPoolSession<'id> {
+    pub fn init(&self, configs: &[PoolInitRec]) -> Result<(), String> {
+        self.factory.lock().create_dynamic_memory_allocator(configs)?;
         Ok(())
     }
-
-    pub fn factory(&self) -> &Mutex<MemoryPoolFactory> {
-        &self.factory
+    pub fn factory(&self) -> &Mutex<MemoryPoolFactory<'id>> { &self.factory }
+    pub fn allocate_memory(&self, size: usize) -> Result<MemoryBlock<'id>, String> {
+        self.factory.lock().dmas.first_mut().ok_or("Memory system not initialized")?.allocate_bytes(size)
     }
-
-    pub fn allocate_memory(&self, size: usize) -> Result<*mut u8, String> {
-        let mut factory = self.factory.lock();
-        if let Some(dma) = factory.dmas.first_mut() {
-            return dma.allocate_bytes(size);
-        }
-        Err("Memory system not initialized".to_string())
+    pub fn free_memory(&self, block: MemoryBlock<'id>) -> bool {
+        self.factory.lock().dmas.iter_mut().any(|dma| dma.free_bytes(block))
     }
-
-    pub fn free_memory(&self, ptr: *mut u8) -> bool {
+    /// The callback runs under the factory lock and must not reenter the session.
+    pub fn with_memory<R>(&self, block: MemoryBlock<'id>, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
+        let factory = self.factory.lock();
+        factory.dmas.iter().find_map(|dma| dma.get_bytes(block)).map(f)
+    }
+    /// The callback runs under the factory lock and must not reenter the session.
+    pub fn with_memory_mut<R>(&self, block: MemoryBlock<'id>, f: impl FnOnce(&mut [u8]) -> R) -> Option<R> {
         let mut factory = self.factory.lock();
-        for dma in factory.dmas.iter_mut() {
-            if dma.free_bytes(ptr) {
-                return true;
-            }
-        }
-        false
+        factory.dmas.iter_mut().find_map(|dma| dma.get_bytes_mut(block)).map(f)
     }
 }
 
-/// Initialize a new memory pool session.
-pub fn init_memory_manager(pool_configs: &[PoolInitRec]) -> Result<MemoryPoolSession, String> {
-    let session = MemoryPoolSession::new();
-    session.init(pool_configs)?;
-    Ok(session)
+/// Create a manager with an identity that cannot escape this call.
+///
+/// Allocations cannot outlive their manager:
+/// ```compile_fail
+/// use memory_system::with_memory_manager;
+/// let block = with_memory_manager(&[], |manager| {
+///     manager.allocate_memory(16).unwrap()
+/// }).unwrap();
+/// ```
+pub fn with_memory_manager<R>(configs: &[PoolInitRec], f: impl for<'id> FnOnce(&MemoryPoolSession<'id>) -> R) -> Result<R, String> {
+    fn run<'id, R>(_: &'id mut (), configs: &[PoolInitRec], f: impl FnOnce(&MemoryPoolSession<'id>) -> R) -> Result<R, String> {
+        let session = MemoryPoolSession { factory: Mutex::new(MemoryPoolFactory::new()) };
+        session.init(configs)?;
+        Ok(f(&session))
+    }
+    run(&mut (), configs, f)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Run with an independently branded fixed-size pool.
+///
+/// Handles from another pool scope cannot be passed to this pool:
+/// ```compile_fail
+/// use memory_system::with_memory_pool;
+/// with_memory_pool(|first| {
+///     first.init("first", 4, 1, 1).unwrap();
+///     let block = first.allocate_block().unwrap();
+///     with_memory_pool(|second| {
+///         second.init("second", 4, 1, 1).unwrap();
+///         second.free_block(block);
+///     });
+/// });
+/// ```
+pub fn with_memory_pool<R>(f: impl for<'id> FnOnce(&mut MemoryPool<'id>) -> R) -> R {
+    fn run<'id, R>(_: &'id mut (), f: impl FnOnce(&mut MemoryPool<'id>) -> R) -> R { f(&mut MemoryPool::new(0)) }
+    run(&mut (), f)
+}
 
-    #[test]
-    fn test_memory_pool_creation() {
-        let mut pool = MemoryPool::new();
-        assert!(pool.init("test_pool", 64, 10, 5).is_ok());
-
-        assert_eq!(pool.get_pool_name(), "test_pool");
-        assert_eq!(pool.get_allocation_size(), 64);
-        assert_eq!(pool.get_total_block_count(), 10);
-        assert_eq!(pool.get_used_block_count(), 0);
-    }
-
-    #[test]
-    fn test_memory_pool_allocation() {
-        let mut pool = MemoryPool::new();
-        pool.init("test_pool", 64, 10, 5).unwrap();
-
-        // Allocate a block
-        let block = pool.allocate_block().unwrap();
-        assert!(!block.is_null());
-        assert_eq!(pool.get_used_block_count(), 1);
-        assert_eq!(pool.get_free_block_count(), 9);
-
-        // Free the block
-        assert!(pool.free_block(block));
-        assert_eq!(pool.get_used_block_count(), 0);
-        assert_eq!(pool.get_free_block_count(), 10);
-    }
-
-    #[test]
-    fn test_dynamic_memory_allocator() {
-        let pool_configs = vec![
-            PoolInitRec::new("small_pool", 32, 10, 5),
-            PoolInitRec::new("medium_pool", 128, 5, 2),
-        ];
-
-        let mut dma = DynamicMemoryAllocator::new();
-        assert!(dma.init(&pool_configs).is_ok());
-        assert_eq!(dma.get_used_block_count(), 0);
-
-        // Allocate memory
-        let block = dma.allocate_bytes(16).unwrap(); // Should use small_pool
-        assert!(!block.is_null());
-        assert_eq!(dma.get_used_block_count(), 1);
-
-        // Free memory
-        assert!(dma.free_bytes(block));
-        assert_eq!(dma.get_used_block_count(), 0);
-    }
-
-    #[test]
-    fn test_memory_pool_overflow() {
-        let mut pool = MemoryPool::new();
-        pool.init("test_pool", 32, 2, 3).unwrap(); // Only 2 initial blocks, 3 overflow
-
-        // Allocate all initial blocks
-        let block1 = pool.allocate_block().unwrap();
-        let block2 = pool.allocate_block().unwrap();
-        assert_eq!(pool.get_used_block_count(), 2);
-        assert_eq!(pool.get_total_block_count(), 2);
-
-        // Next allocation should trigger overflow
-        let block3 = pool.allocate_block().unwrap();
-        assert_eq!(pool.get_used_block_count(), 3);
-        assert_eq!(pool.get_total_block_count(), 5); // 2 + 3 overflow
-
-        // Clean up
-        pool.free_block(block1);
-        pool.free_block(block2);
-        pool.free_block(block3);
-        assert_eq!(pool.get_used_block_count(), 0);
-    }
+/// Run with an independently branded dynamic allocator.
+pub fn with_dynamic_memory_allocator<R>(f: impl for<'id> FnOnce(&mut DynamicMemoryAllocator<'id>) -> R) -> R {
+    fn run<'id, R>(_: &'id mut (), f: impl FnOnce(&mut DynamicMemoryAllocator<'id>) -> R) -> R { f(&mut DynamicMemoryAllocator::new(0)) }
+    run(&mut (), f)
 }
