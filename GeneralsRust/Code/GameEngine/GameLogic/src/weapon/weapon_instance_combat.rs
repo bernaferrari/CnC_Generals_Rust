@@ -624,7 +624,7 @@ impl Weapon {
                 }
 
                 // Calculate distance and damage falloff
-                let stored = crate::object::collide::partition_manager::PARTITION_MANAGER
+                let stored = crate::object::collide::partition_manager::world_partition_manager()
                     .try_read()
                     .ok()
                     .and_then(|pm| pm.get_object_info(obj_id));
@@ -1645,7 +1645,7 @@ impl Weapon {
         let object_ids = OBJECT_REGISTRY.get_all_object_ids();
         let mut results = Vec::new();
         for obj_id in object_ids {
-            let stored = crate::object::collide::partition_manager::PARTITION_MANAGER
+            let stored = crate::object::collide::partition_manager::world_partition_manager()
                 .try_read()
                 .ok()
                 .and_then(|pm| pm.get_object_info(obj_id));

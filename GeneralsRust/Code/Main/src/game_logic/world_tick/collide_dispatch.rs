@@ -123,7 +123,7 @@ pub fn host_geom_collides(a: &Object, b: &Object) -> Option<(glam::Vec3, glam::V
     ))
 }
 
-/// C++ `Object::onCollide` / `COLLISION_MANAGER.handle_collision` on both sides.
+/// C++ `Object::onCollide` / `world_collision_manager().handle_collision` on both sides.
 ///
 /// `wouldLikeToCollideWith` is **not** a gate (C++ `processContactList`).
 pub fn dispatch_collide_modules(
@@ -132,7 +132,7 @@ pub fn dispatch_collide_modules(
     loc: glam::Vec3,
     normal: glam::Vec3,
 ) {
-    use gamelogic::object::collide::{COLLISION_MANAGER, Coord3D, GameObject};
+    use gamelogic::object::collide::{world_collision_manager, Coord3D, GameObject};
     use gamelogic::object::registry::OBJECT_REGISTRY;
 
     // Collide modules belong to GameLogic-crate Objects. A host match never
@@ -154,14 +154,14 @@ pub fn dispatch_collide_modules(
         .or_else(|| crate::game_logic::crate_object_bridge::crate_object(a_id.0));
 
     if let Some(handle) = &other_b {
-        let _ = COLLISION_MANAGER.handle_collision(
+        let _ = world_collision_manager().handle_collision(
             a_id.0,
             Some(handle as &dyn GameObject),
             &collide_loc,
             &collide_n,
         );
     } else {
-        let _ = COLLISION_MANAGER.handle_collision(a_id.0, None, &collide_loc, &collide_n);
+        let _ = world_collision_manager().handle_collision(a_id.0, None, &collide_loc, &collide_n);
     }
 
     let a_dead = OBJECT_REGISTRY
@@ -175,14 +175,14 @@ pub fn dispatch_collide_modules(
     }
 
     if let Some(handle) = &other_a {
-        let _ = COLLISION_MANAGER.handle_collision(
+        let _ = world_collision_manager().handle_collision(
             b_id.0,
             Some(handle as &dyn GameObject),
             &collide_loc,
             &inv_n,
         );
     } else {
-        let _ = COLLISION_MANAGER.handle_collision(b_id.0, None, &collide_loc, &inv_n);
+        let _ = world_collision_manager().handle_collision(b_id.0, None, &collide_loc, &inv_n);
     }
 }
 

@@ -120,9 +120,9 @@ fn offset_map_vision_and_frozen_grid_use_driving_map_cells() {
             let (a_looker, a_enemy) = admit_units(&mut a, 80.0);
             let (b_looker, b_enemy) = admit_units(&mut b, 0.0);
             assert_eq!((a_looker, a_enemy), (b_looker, b_enemy));
-            let foreign = gamelogic::object::collide::partition_manager::PARTITION_MANAGER
-                .write()
-                .unwrap();
+            let foreign_partition =
+                gamelogic::object::collide::partition_manager::world_partition_manager();
+            let foreign = foreign_partition.write().unwrap();
             a.update_main_crate_vision();
             b.update_main_crate_vision();
             assert_eq!(

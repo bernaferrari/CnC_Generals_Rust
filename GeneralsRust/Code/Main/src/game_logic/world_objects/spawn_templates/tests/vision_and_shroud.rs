@@ -206,10 +206,9 @@ fn host_coi_visibility_and_unlook_expiry_are_instance_owned() {
             // Neither stamping nor footprint sampling may touch the
             // reference runtime's process partition. The exact child
             // watchdog bounds the OLD route's recursive-lock failure.
-            let _foreign_partition =
-                gamelogic::object::collide::partition_manager::PARTITION_MANAGER
-                    .write()
-                    .unwrap();
+            let foreign_partition =
+                gamelogic::object::collide::partition_manager::world_partition_manager();
+            let _foreign_partition = foreign_partition.write().unwrap();
             a.update_main_crate_vision();
             b.update_main_crate_vision();
             assert_eq!(status(&a, a_enemy), Some(ObjectShroudStatus::Clear));
@@ -258,7 +257,7 @@ fn host_coi_visibility_and_unlook_expiry_are_instance_owned() {
 }
 
 /// hq-rxwoc: object FOW mix reads leftover DiscreteCircle looker cells,
-/// not PARTITION_MANAGER's square `±ceil(r/40)` + world `r²` reject.
+/// not world_partition_manager()'s square `±ceil(r/40)` + world `r²` reject.
 #[test]
 fn object_fow_mix_reads_leftover_discrete_circle_not_square() {
     use gamelogic::common::types::ObjectShroudStatus;

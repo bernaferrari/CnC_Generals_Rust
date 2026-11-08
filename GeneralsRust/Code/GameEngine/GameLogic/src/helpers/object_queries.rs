@@ -848,7 +848,8 @@ impl ThePartitionManager {
         is_threat: bool,
         add: bool,
     ) {
-        let Ok(mut pm) = crate::object::collide::partition_manager::PARTITION_MANAGER.write()
+        let partition = crate::object::collide::partition_manager::world_partition_manager();
+        let Ok(mut pm) = partition.write()
         else {
             return;
         };
@@ -883,7 +884,7 @@ impl ThePartitionManager {
     ) -> Option<Coord3D> {
         let collide_pos =
             crate::object::collide::Coord3D::new(source_pos.x, source_pos.y, source_pos.z);
-        crate::object::collide::partition_manager::PARTITION_MANAGER
+        crate::object::collide::partition_manager::world_partition_manager()
             .read()
             .ok()
             .and_then(|pm| {
@@ -906,7 +907,7 @@ impl ThePartitionManager {
         allowed_player_mask: u32,
         val_type: crate::object::collide::partition_manager::ValueOrThreat,
     ) -> Option<Coord3D> {
-        crate::object::collide::partition_manager::PARTITION_MANAGER
+        crate::object::collide::partition_manager::world_partition_manager()
             .read()
             .ok()
             .and_then(|pm| {

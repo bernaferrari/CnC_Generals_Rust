@@ -104,7 +104,7 @@ impl Locomotor {
                 }
             }
             LocomotorBehaviorZ::RelativeToGroundAndBuildings => {
-                let surface_ht = crate::object::collide::partition_manager::PARTITION_MANAGER
+                let surface_ht = crate::object::collide::partition_manager::world_partition_manager()
                     .read()
                     .ok()
                     .map(|pm| pm.get_ground_or_structure_height(current_pos.x, current_pos.y))

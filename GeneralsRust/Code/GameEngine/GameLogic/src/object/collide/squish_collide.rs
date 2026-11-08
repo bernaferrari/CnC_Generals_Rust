@@ -18,7 +18,7 @@ use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions
 use crate::object::collide::collision_geometry::{
     GeometryInfo as CollisionGeometryInfo, GeometryType as CollisionGeometryType,
 };
-use crate::object::collide::partition_manager::PARTITION_MANAGER;
+use crate::object::collide::partition_manager::world_partition_manager;
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ModuleData, NameKeyType};
@@ -379,7 +379,7 @@ impl TargetSnapshot {
     }
 
     fn intersects(&self, owner: &OwnerSnapshot) -> bool {
-        PARTITION_MANAGER
+        world_partition_manager()
             .read()
             .map(|partition| {
                 partition.geom_collides_with_geom(

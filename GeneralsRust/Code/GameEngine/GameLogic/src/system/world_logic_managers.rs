@@ -20,7 +20,7 @@ use crate::system::stealth_integration_layer::{StealthIntegrationLayer, StealthS
 use crate::system::stealth_manager::StealthManager;
 use crate::system::stealth_special_power::StealthSpecialPowerManager;
 use crate::system::stealth_upgrade::StealthUpgradeManager;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Bundle of GameLogic subsystem managers owned by one world/session.
 pub struct WorldLogicManagers {
@@ -38,6 +38,20 @@ pub struct WorldLogicManagers {
     pub stealth_integration_layer: Arc<Mutex<StealthIntegrationLayer>>,
     pub stealth_integration: Arc<Mutex<StealthSystemManager>>,
     pub command_queue: Arc<Mutex<CommandQueueManager>>,
+    /// C++ `TheThingFactory` object-creation side (`ObjectFactory`).
+    pub object_factory: Arc<RwLock<crate::object::object_factory::ObjectFactory>>,
+    /// Construction progress tracking for this world's buildings.
+    pub construction: Arc<RwLock<crate::object::production::construction::ConstructionManager>>,
+    /// C++ `TheCrateSystem` runtime templates.
+    pub crates: Arc<RwLock<crate::object::crate_system::CrateSystem>>,
+    /// Collision broadphase for this world's objects.
+    pub collision: Arc<RwLock<crate::object::collide::CollisionSystem>>,
+    /// Skirmish AI player integration (C++ `TheAI` player list side).
+    pub ai_integration: Arc<RwLock<Option<crate::ai::integration::AiIntegrationManager>>>,
+    /// C++ `ThePartitionManager` cell grid for this world.
+    pub partition: Arc<RwLock<crate::object::collide::partition_manager::PartitionManager>>,
+    /// Collide-module dispatch table for this world's objects.
+    pub collision_manager: Arc<crate::object::collide::CollisionManager>,
 }
 
 impl Default for WorldLogicManagers {
@@ -67,6 +81,19 @@ impl Default for WorldLogicManagers {
             command_queue: Arc::new(Mutex::new(CommandQueueManager::new(
                 MAX_PLAYER_COUNT as Int,
             ))),
+            object_factory: Arc::new(RwLock::new(
+                crate::object::object_factory::ObjectFactory::new(),
+            )),
+            construction: Arc::new(RwLock::new(
+                crate::object::production::construction::ConstructionManager::new(),
+            )),
+            crates: Arc::new(RwLock::new(crate::object::crate_system::CrateSystem::new())),
+            collision: Arc::new(RwLock::new(crate::object::collide::CollisionSystem::new())),
+            ai_integration: Arc::new(RwLock::new(None)),
+            partition: Arc::new(RwLock::new(
+                crate::object::collide::partition_manager::PartitionManager::new(),
+            )),
+            collision_manager: Arc::new(crate::object::collide::CollisionManager::new()),
         }
     }
 }
@@ -109,5 +136,37 @@ mod tests {
         got.sort_by_key(|(s, _, _)| *s);
         assert!(got[0].1 && got[0].2);
         assert!(got[1].1 && got[1].2);
+    }
+
+    /// Factory, construction, crate and AI-integration state was
+    /// process-wide; each published world now resolves its own.
+    #[test]
+    fn published_worlds_resolve_their_own_factory_crate_and_ai_slots() {
+        use crate::system::engine_stores::with_world_services;
+        let a = new_world_services();
+        let b = new_world_services();
+        let pick = |s: &Arc<crate::system::engine_stores::WorldServices>| {
+            with_world_services(s, || {
+                (
+                    crate::object::object_factory::get_object_factory(),
+                    crate::object::production::construction::get_construction_manager(),
+                    crate::object::crate_system::get_crate_system(),
+                )
+            })
+        };
+        let (fa, ca, ka) = pick(&a);
+        let (fb, cb, kb) = pick(&b);
+        assert!(!Arc::ptr_eq(&fa, &fb));
+        assert!(!Arc::ptr_eq(&ca, &cb));
+        assert!(!Arc::ptr_eq(&ka, &kb));
+        with_world_services(&a, || {
+            *a.logic_managers().ai_integration.write().unwrap() =
+                Some(crate::ai::integration::AiIntegrationManager::new());
+        });
+        let has_ai = |s: &Arc<crate::system::engine_stores::WorldServices>| {
+            with_world_services(s, || crate::ai::integration::with_ai_integration(|_| ()).is_some())
+        };
+        assert!(has_ai(&a));
+        assert!(!has_ai(&b));
     }
 }

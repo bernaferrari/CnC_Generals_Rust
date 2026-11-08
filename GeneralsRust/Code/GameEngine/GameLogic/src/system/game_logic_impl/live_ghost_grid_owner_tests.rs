@@ -81,7 +81,7 @@ impl WorldFixture {
 struct RestorePrimary(Option<crate::object::collide::partition_manager::PartitionManager>);
 impl RestorePrimary {
     fn install(updated: bool, visible: bool) -> Self {
-        use crate::object::collide::partition_manager::{PARTITION_MANAGER, PartitionManager};
+        use crate::object::collide::partition_manager::{world_partition_manager, PartitionManager};
         let mut foreign = PartitionManager::new();
         if visible {
             foreign.do_shroud_reveal_cells(&Coord3D::new(20.0, 20.0, 0.0), 1.0, 1);
@@ -89,14 +89,14 @@ impl RestorePrimary {
             foreign.do_shroud_cover_cells(&Coord3D::new(20.0, 20.0, 0.0), 1.0, 1);
         }
         Self(Some(std::mem::replace(
-            &mut *PARTITION_MANAGER.write().unwrap(),
+            &mut *world_partition_manager().write().unwrap(),
             foreign,
         )))
     }
 }
 impl Drop for RestorePrimary {
     fn drop(&mut self) {
-        *crate::object::collide::partition_manager::PARTITION_MANAGER
+        *crate::object::collide::partition_manager::world_partition_manager()
             .write()
             .unwrap() = self.0.take().unwrap();
     }
