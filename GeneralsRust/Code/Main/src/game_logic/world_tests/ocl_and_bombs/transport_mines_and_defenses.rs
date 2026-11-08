@@ -2859,3 +2859,51 @@ fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
         assert_eq!(clip.assistant_laser, expected_laser, "{name}");
     }
 }
+
+/// hq-2qedt.259: the Stinger hive identity is the authored
+/// KINDOF_SPAWNS_ARE_THE_WEAPONS bit, never a `StingerSite` basename. A hive
+/// without live spawns cannot fire and owns the AP Rockets refresh; a
+/// Stinger-named structure without the bit is an ordinary base defense.
+#[test]
+fn stinger_hive_gates_key_on_spawns_are_the_weapons_not_template_name() {
+    use crate::game_logic::host_base_defense::{STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (name, spawns_are_weapons) in [("CustomHiveDefense", true), ("GLAStingerSite", false)] {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(400.0)
+            .set_primary_weapon_name(STINGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(STINGER_SECONDARY_WEAPON);
+        if spawns_are_weapons {
+            tpl.add_kind_of(KindOf::SpawnsAreTheWeapons);
+        }
+        game_logic.templates.insert(name.to_string(), tpl);
+        let site = game_logic.create_object(name, Team::GLA, Vec3::ZERO).expect("site");
+        let _enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let s = game_logic.host_object_mut(site).unwrap();
+            for slot in 0..3u8 {
+                if let Some(w) = s.weapon_slot_mut(slot) {
+                    w.last_fire_time = -10.0;
+                }
+            }
+        }
+        game_logic.frame = 1;
+        game_logic.try_base_defense_residual_fire(site);
+        assert_eq!(
+            game_logic.base_defense_residual_fires() == 0,
+            spawns_are_weapons,
+            "{name}: a hive with no live spawns never fires itself"
+        );
+        assert_eq!(game_logic.apply_stinger_ap_rockets_upgrade(site), spawns_are_weapons, "{name}");
+    }
+}

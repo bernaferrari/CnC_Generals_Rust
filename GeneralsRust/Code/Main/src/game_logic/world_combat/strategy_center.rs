@@ -379,8 +379,8 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
-            is_authored_gattling_building, is_dual_slot_base_defense, is_patriot_battery_structure,
-            is_stinger_site_structure, preferred_dual_defense_slot,
+            is_authored_gattling_building, is_patriot_battery_structure,
+            preferred_dual_defense_slot,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -397,9 +397,11 @@ impl GameLogic {
         }
         let template_name = attacker.template_name.clone();
         let is_gattling = is_authored_gattling_building(attacker.weapon_name_for_slot(0));
-        let is_stinger = is_stinger_site_structure(&template_name);
+        // C++ KINDOF_SPAWNS_ARE_THE_WEAPONS: the hive itself never fires;
+        // its live spawns are the weapons (Object.cpp / SpawnBehavior).
+        let is_stinger = attacker.is_kind_of(KindOf::SpawnsAreTheWeapons);
         let is_patriot = crate::game_logic::host_base_defense::authors_patriot_weapon_set(attacker);
-        let dual_slot = is_dual_slot_base_defense(&template_name);
+        let dual_slot = is_stinger || is_patriot_battery_structure(&template_name);
         // Retail Patriot WeaponSet: AA lives in TERTIARY (SECONDARY is the assist weapon).
         let air_slot: u8 = if is_patriot {
             crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT

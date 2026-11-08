@@ -66,9 +66,13 @@ const HOST_MAX_SPAWN_POINTS: usize = 10;
 
 /// The actual Object's admitted `SpawnPointProductionExitUpdate` data.
 fn authored_spawn_point_bone_name(parent: &Object) -> Option<String> {
+    authored_template_spawn_point_bone_name(parent.get_template())
+}
+
+/// The template's admitted `SpawnPointProductionExitUpdate` bone prefix.
+fn authored_template_spawn_point_bone_name(template: &ThingTemplate) -> Option<String> {
     use gamelogic::object::behavior::spawn_point_production_exit_behavior::SpawnPointProductionExitModuleData;
 
-    let template = parent.get_template();
     if let Some(receiving) = &template.receiving_client_template {
         let module = receiving.behavior_modules().iter().find(|entry| {
             entry
@@ -428,6 +432,22 @@ impl GameLogic {
             };
         Ok(Self::resolve_host_spawn_behavior_template(template, name)
             .map(|spec| spec.spawn_template))
+    }
+
+    /// Whether this receiving parent template exits its spawns through an
+    /// authored `SpawnPointProductionExitUpdate`, whose occupied spawn-point
+    /// slots are part of the saved roster (SpawnPointProductionExitUpdate.cpp).
+    pub(crate) fn spawn_behavior_parent_uses_spawn_points(&self, parent_template_name: &str) -> bool {
+        let template = self.templates.get(parent_template_name).or_else(|| {
+            let mut matches = self
+                .templates
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case(parent_template_name))
+                .map(|(_, template)| template);
+            let first = matches.next()?;
+            matches.next().is_none().then_some(first)
+        });
+        template.is_some_and(|template| authored_template_spawn_point_bone_name(template).is_some())
     }
 
 

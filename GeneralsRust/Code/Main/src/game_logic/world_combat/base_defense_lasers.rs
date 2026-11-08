@@ -1114,13 +1114,12 @@ impl GameLogic {
     /// Apply AP Rockets residual to a Stinger Site (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_stinger_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_base_defense::{
-            UPGRADE_GLA_AP_ROCKETS, is_stinger_site_structure, stinger_air_weapon,
-            stinger_ground_weapon,
+            UPGRADE_GLA_AP_ROCKETS, stinger_air_weapon, stinger_ground_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_stinger_site_structure(&obj.template_name) {
+        if !obj.is_kind_of(KindOf::SpawnsAreTheWeapons) {
             return false;
         }
         obj.applied_upgrades
