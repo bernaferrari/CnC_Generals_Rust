@@ -692,18 +692,14 @@ impl GameLogic {
             // Earlier victims may synchronously kill another snapshotted
             // candidate through onDie. Re-fetch instead of replaying that hit.
             if self.objects.lookup(&id).is_some_and(|obj| obj.is_alive()) {
-                let damage_type = native_rule
+                let Some(damage_type) = native_rule
                     .as_ref()
-                    .map(|rule| {
-                        crate::game_logic::host_armor_residual::map_store_damage_type(
-                            rule.damage_type,
-                        )
+                    .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
+                    .or_else(|| match weapon_name {
+                        Some(name) => crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name),
+                        None => Some(crate::game_logic::combat::DamageType::Explosive),
                     })
-                    .unwrap_or_else(|| {
-                        weapon_name
-                    .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
-                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive)
-                    });
+                else { continue; };
                 let death_type = native_rule
                     .as_ref()
                     .map(|rule| {
@@ -990,18 +986,14 @@ impl GameLogic {
             // Earlier victims may synchronously kill another snapshotted
             // candidate through onDie. Re-fetch instead of replaying that hit.
             if self.objects.lookup(&id).is_some_and(|obj| obj.is_alive()) {
-                let damage_type = native_rule
+                let Some(damage_type) = native_rule
                     .as_ref()
-                    .map(|rule| {
-                        crate::game_logic::host_armor_residual::map_store_damage_type(
-                            rule.damage_type,
-                        )
+                    .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
+                    .or_else(|| match weapon_name {
+                        Some(name) => crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name),
+                        None => Some(crate::game_logic::combat::DamageType::Explosive),
                     })
-                    .unwrap_or_else(|| {
-                        weapon_name
-                    .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
-                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive)
-                    });
+                else { continue; };
                 let death_type = native_rule
                     .as_ref()
                     .map(|rule| {

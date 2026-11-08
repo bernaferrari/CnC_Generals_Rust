@@ -100,7 +100,7 @@ fn presentation_object_has_flame_weapon(o: &crate::presentation_frame::Renderabl
         return false;
     };
     crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name)
-        == crate::game_logic::combat::DamageType::Flame
+        == Some(crate::game_logic::combat::DamageType::Flame)
 }
 
 /// Nearest mine/shrubbery/force-attackable under the cursor when the pick profile widens.
@@ -354,7 +354,7 @@ impl CnCGameEngine {
                 if let Some(name) = obj.get_template().primary_weapon_name.as_deref() {
                     if crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
                         name,
-                    ) == crate::game_logic::combat::DamageType::Flame
+                    ) == Some(crate::game_logic::combat::DamageType::Flame)
                     {
                         return true;
                     }

@@ -127,7 +127,7 @@ pub fn honesty_weapon_store_deepen_residual_wave92() -> bool {
 /// Wave 103 residual deepen: more Weapon.ini residual names beyond Wave 92.
 ///
 /// Host-testable residual for NukeCannon / Inferno / Aurora / FireBase /
-/// SentryDrone / Hellfire / JarmenKell / TunnelDefender / MiniGunner /
+/// SentryDrone / Hellfire / TunnelDefender / MiniGunner /
 /// Overlord / BattleMaster / Comanche AT+pods / Avenger AA / SCUD toxin /
 /// BlackNapalm residual damage/range tables.
 /// Fail-closed: not full Weapon.ini / full ClipSize volley state machine.
@@ -138,7 +138,6 @@ pub const HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103: &[&str] = &[
     FIRE_BASE_HOWITZER_WEAPON,
     SENTRY_DRONE_GUN_WEAPON,
     HELLFIRE_MISSILE_WEAPON,
-    JARMEN_KELL_RIFLE,
     TUNNEL_DEFENDER_ROCKET_WEAPON,
     MINIGUNNER_GUN,
     OVERLORD_TANK_GUN,
@@ -163,7 +162,7 @@ pub fn honesty_weapon_store_deepen_residual_wave103() -> bool {
     let all_present = HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103
         .iter()
         .all(|name| store_has(name));
-    if !all_present || HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.len() < 16 {
+    if !all_present || HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.len() < 15 {
         return false;
     }
     let check = |name: &str, dmg: f32, range: f32| {
@@ -183,7 +182,6 @@ pub fn honesty_weapon_store_deepen_residual_wave103() -> bool {
         && check(FIRE_BASE_HOWITZER_WEAPON, 75.0, 275.0)
         && check(SENTRY_DRONE_GUN_WEAPON, 8.0, 150.0)
         && check(HELLFIRE_MISSILE_WEAPON, 40.0, 150.0)
-        && check(JARMEN_KELL_RIFLE, 180.0, 225.0)
         && check(TUNNEL_DEFENDER_ROCKET_WEAPON, 40.0, 175.0)
         && check(MINIGUNNER_GUN, 10.0, 125.0)
         && check(OVERLORD_TANK_GUN, 80.0, 175.0)

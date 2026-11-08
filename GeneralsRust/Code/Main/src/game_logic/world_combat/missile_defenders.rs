@@ -1598,14 +1598,6 @@ impl GameLogic {
         }
         // C++ OpenContain/TunnelContain::harmAndForceExitAllContained:
         // removeFromContain (expose) then attemptDamage(100 typed). Survivors stay ejected.
-        let occupant_damage_type =
-            crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
-                BUNKER_BUSTER_OCCUPANT_WEAPON,
-            );
-        let occupant_death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
-            Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
-            occupant_damage_type,
-        );
 
         let mut ejected: Vec<ObjectId> = Vec::new();
         for occ_id in occupants {
@@ -1675,6 +1667,15 @@ impl GameLogic {
                 let Some(id) = ejected.next() else { break };
                 id
             };
+            let Some(occupant_damage_type) =
+                crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                    BUNKER_BUSTER_OCCUPANT_WEAPON,
+                )
+            else { continue; };
+            let occupant_death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
+                Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
+                occupant_damage_type,
+            );
             let context = crate::game_logic::object::DamageHitContext::new(
                 attacker_id.and_then(|id| self.objects.get(&id)),
                 Some(BUNKER_BUSTER_OCCUPANT_WEAPON),

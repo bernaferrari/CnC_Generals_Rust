@@ -248,9 +248,9 @@ pub(super) fn occupant_weapon_is_poison(obj: &Object, slot: u8) -> bool {
     let Some(name) = obj.weapon_name_for_slot(slot) else {
         return false;
     };
-    if crate::game_logic::host_poisoned_behavior::is_poison_damage_type(
-        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name),
-    ) {
+    if crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name)
+        .is_some_and(crate::game_logic::host_poisoned_behavior::is_poison_damage_type)
+    {
         return true;
     }
     // Store-miss residual: same name peel the weapon seed uses for Poison.

@@ -106,21 +106,20 @@ pub fn host_weapon_allows_attack_garrisoned_bldgs(name: &str) -> bool {
     host_allow_attack_garrisoned_for_weapon_name(name)
 }
 
-/// Build the weapon snapshot from a live slot name and primary damage.
-pub fn host_estimate_weapon_from_name(name: &str, primary_damage: f32) -> HostEstimateWeapon {
-    let n = name.to_ascii_lowercase();
+/// Build the estimate from the admitted weapon definition.
+pub fn host_estimate_weapon_from_name(name: &str) -> HostEstimateWeapon {
+    let rule = super::with_host_weapon_store(|store| store.find_weapon_template(name).cloned())
+        .ok().flatten();
+    let damage_type = rule.as_ref().map(|weapon| weapon.damage_type);
     HostEstimateWeapon {
-        damage_type_sniper: host_weapon_is_sniper_damage(name),
-        damage_type_surrender: host_weapon_is_surrender_damage(name),
-        damage_type_disarm: host_weapon_is_disarm_damage(name),
-        damage_type_deploy: host_weapon_is_deploy_damage(name),
-        damage_type_kill_garrisoned: host_weapon_is_kill_garrisoned_damage(name),
-        death_type_burned: n.contains("flame")
-            || n.contains("napalm")
-            || n.contains("inferno")
-            || n.contains("firebomb"),
-        allow_attack_garrisoned_bldgs: host_weapon_allows_attack_garrisoned_bldgs(name),
-        primary_damage,
+        damage_type_sniper: damage_type == Some(gamelogic::damage::DamageType::Sniper),
+        damage_type_surrender: damage_type == Some(gamelogic::damage::DamageType::Surrender),
+        damage_type_disarm: damage_type == Some(gamelogic::damage::DamageType::Disarm),
+        damage_type_deploy: damage_type == Some(gamelogic::damage::DamageType::Deploy),
+        damage_type_kill_garrisoned: damage_type == Some(gamelogic::damage::DamageType::KillGarrisoned),
+        death_type_burned: rule.as_ref().is_some_and(|weapon| weapon.death_type == gamelogic::damage::DeathType::Burned),
+        allow_attack_garrisoned_bldgs: rule.as_ref().is_some_and(|weapon| weapon.allow_attack_garrisoned_bldgs),
+        primary_damage: rule.as_ref().map_or(0.0, |weapon| weapon.primary_damage),
     }
 }
 
@@ -147,12 +146,3 @@ pub fn host_estimate_victim_from_object(
     }
 }
 
-/// C++ `DAMAGE_KILLPILOT` slot used by the Jarmen cursor skip.
-/// Primary `GLAJarmenKellRifle` is SNIPER and must not match.
-pub fn host_weapon_is_kill_pilot_cursor_slot(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("vehiclepilot")
-        || n.contains("pilotsniper")
-        || n.contains("killpilot")
-        || n.contains("kill_pilot")
-}

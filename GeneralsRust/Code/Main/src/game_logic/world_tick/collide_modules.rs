@@ -306,9 +306,9 @@ impl super::super::GameLogic {
         if damage <= 0.0 {
             return;
         }
-        let damage_type = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+        let Some(damage_type) = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
             &spec.weapon_name,
-        );
+        ) else { return; };
         let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
             Some(&spec.weapon_name),
             damage_type,

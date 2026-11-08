@@ -25,6 +25,57 @@ fn parsed_rule(name: &str, status: &str, expected: gamelogic::common::ObjectStat
     // golden seed can replace these admitted unique-name definitions.
     gamelogic::weapon::with_weapon_store_mut(|store| store.mark_host_bootstrap_complete()).unwrap();
 }
+#[test]
+fn authored_damage_types_drive_estimate_and_attack_voice_not_weapon_names() {
+    isolated(
+        "status_definition_tests::authored_damage_types_drive_estimate_and_attack_voice_not_weapon_names",
+        || {
+            let _restore = RestoreStore::install();
+            let ini = "\
+Weapon SilentMarksman
+  PrimaryDamage = 10
+  DamageType = SNIPER
+End
+Weapon SniperNamedPilot
+  PrimaryDamage = 10
+  DamageType = KILL_PILOT
+End
+Weapon UnrelatedName
+  PrimaryDamage = 10
+  DamageType = KILL_PILOT
+End
+Weapon KillPilotNamedRifle
+  PrimaryDamage = 10
+  DamageType = SNIPER
+End
+";
+            assert_eq!(crate::assets::ini_template_loader::register_weapons_from_ini_text(ini), 4);
+            gamelogic::weapon::with_weapon_store_mut(|store| store.mark_host_bootstrap_complete()).unwrap();
+            let victim = HostEstimateVictim {
+                kind_structure: true, kind_shrubbery: false, kind_mine: false,
+                kind_booby_trap: false, kind_demo_trap: false, under_construction: false,
+                contain_count: Some(0), garrisonable: true, immune_to_clear_building: false,
+                airborne_target: false, armor_coeff: 1.0,
+            };
+            for name in ["SilentMarksman", "KillPilotNamedRifle"] {
+                let weapon = host_estimate_weapon_from_name(name);
+                assert_eq!(estimate_weapon_template_damage(&weapon, Some(&victim)), 0.0);
+                assert_eq!(crate::game_logic::audio_dispatch_impl::specialty_attack_voice_upgrade(name, 0, false, true, false), None);
+            }
+            for name in ["SniperNamedPilot", "UnrelatedName"] {
+                let weapon = host_estimate_weapon_from_name(name);
+                assert_eq!(estimate_weapon_template_damage(&weapon, Some(&victim)), 10.0);
+                assert_eq!(
+                    crate::game_logic::audio_dispatch_impl::specialty_attack_voice_upgrade(name, 0, false, true, false),
+                    Some((crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::SnipePilot, true))
+                );
+            }
+            assert_eq!(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name("MissingSniperPilot"), None);
+            assert_eq!(estimate_weapon_template_damage(&host_estimate_weapon_from_name("MissingSniperPilot"), Some(&victim)), 0.0);
+            assert_eq!(crate::game_logic::audio_dispatch_impl::specialty_attack_voice_upgrade("MissingSniperPilot", 0, false, true, false), None);
+        },
+    );
+}
 
 #[test]
 fn authored_status_default_none_overrides_avenger_name_fallback() {

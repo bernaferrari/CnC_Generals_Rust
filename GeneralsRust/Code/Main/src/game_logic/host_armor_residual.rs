@@ -1146,51 +1146,12 @@ pub fn host_death_type_from_residual_name(
     crate::game_logic::host_usa_pilot::HostDeathType::Normal
 }
 
-/// Look up Weapon.ini DamageType residual by weapon template name.
-pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat::DamageType {
-    use gamelogic::weapon::with_weapon_store;
-    let dt = if gamelogic::system::engine_stores::try_active_services().is_some() {
-        with_weapon_store(|store| {
-            store
-                .find_weapon_template(name)
-                .map(|wt| map_store_damage_type(wt.damage_type))
-        })
-        .ok()
-        .flatten()
-    } else {
-        None
-    };
-    if let Some(d) = dt {
-        return d;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_status_damage(name) {
-        return crate::game_logic::combat::DamageType::Status;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_kill_pilot_damage(name) {
-        return crate::game_logic::combat::DamageType::KillPilot;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(name) {
-        return crate::game_logic::combat::DamageType::Disarm;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_deploy_damage(name) {
-        return crate::game_logic::combat::DamageType::Deploy;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_hack_damage(name) {
-        return crate::game_logic::combat::DamageType::Hack;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_surrender_damage(name) {
-        return crate::game_logic::combat::DamageType::Surrender;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_kill_garrisoned_damage(name) {
-        return crate::game_logic::combat::DamageType::KillGarrisoned;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_healing_damage(name) {
-        return crate::game_logic::combat::DamageType::Healing;
-    }
-    if crate::game_logic::weapon_bootstrap::host_weapon_is_water_damage(name) {
-        return crate::game_logic::combat::DamageType::Water;
-    }
-    crate::game_logic::combat::DamageType::Bullet
+/// Resolve the authored WeaponTemplate damage type. An absent definition cannot
+/// fire or estimate damage; its name is not a damage rule (Weapon.cpp:559).
+pub fn host_damage_type_for_weapon_name(name: &str) -> Option<crate::game_logic::combat::DamageType> {
+    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+        store.find_weapon_template(name).map(|weapon| map_store_damage_type(weapon.damage_type))
+    }).ok().flatten()
 }
 
 /// Look up Weapon.ini DeathType residual by weapon template name.
@@ -1346,7 +1307,7 @@ mod tests {
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         assert_eq!(
             host_damage_type_for_weapon_name("GattlingTankGun"),
-            crate::game_logic::combat::DamageType::Gattling
+            Some(crate::game_logic::combat::DamageType::Gattling)
         );
     }
 
@@ -1354,10 +1315,10 @@ mod tests {
     fn host_weapon_name_damage_type_uses_seeded_store() {
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let laser = host_damage_type_for_weapon_name("PaladinPointDefenseLaser");
-        assert_eq!(laser, crate::game_logic::combat::DamageType::Laser);
+        assert_eq!(laser, Some(crate::game_logic::combat::DamageType::Laser));
         let rifle = host_damage_type_for_weapon_name("RangerAdvancedCombatRifle");
-        assert_eq!(rifle, crate::game_logic::combat::DamageType::Bullet);
-        let bomb = host_damage_type_for_weapon_name("AuroraBombWeapon");
+        assert_eq!(rifle, Some(crate::game_logic::combat::DamageType::Bullet));
+        let bomb = host_damage_type_for_weapon_name("AuroraBombWeapon").expect("authored weapon");
         // Retail Weapon.ini AuroraBombWeapon declares AURORA_BOMB, and
         // C++ Damage.h keeps that ordinal25 separate from EXPLOSION ordinal0.
         assert_eq!(bomb, crate::game_logic::combat::DamageType::AuroraBomb);

@@ -216,16 +216,6 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     if n.contains("emp") || n.contains("microwave") {
         return D::Microwave;
     }
-    if n.contains("vehiclepilot")
-        || n.contains("pilotsniper")
-        || n.contains("killpilot")
-        || n.contains("kill_pilot")
-    {
-        return D::KillPilot;
-    }
-    if n.contains("sniper") || n.contains("jarmen") {
-        return D::Sniper;
-    }
     if n.contains("gattling") || n.contains("gatling") {
         return D::Gattling;
     }
@@ -735,17 +725,6 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: crate::game_logic::host_tank_hunter::TANK_HUNTER_PROJECTILE_SPEED,
         },
-        // ColonelBurtonSniperRifleWeapon — PrimaryDamage 40, AttackRange 125,
-        // DelayBetweenShots 100ms → 3f, ClipSize 3, ClipReloadTime 500ms → 15f
-        // (hq-2qedt.133: authored source for Burton PRIMARY at create).
-        SeedWeapon {
-            name: crate::game_logic::host_colonel_burton::BURTON_SNIPER_WEAPON,
-            primary_damage: crate::game_logic::host_colonel_burton::BURTON_SNIPER_DAMAGE,
-            attack_range: crate::game_logic::host_colonel_burton::BURTON_SNIPER_RANGE,
-            delay_frames: crate::game_logic::host_colonel_burton::BURTON_SNIPER_BASE_DELAY_FRAMES as i32,
-            clip_size: crate::game_logic::host_colonel_burton::BURTON_CLIP_SIZE as i32,
-            weapon_speed: 999_999.0,
-        },
         // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
         // AttackRange 125, DelayBetweenShots 100ms → 3 frames @ 30 FPS.
         // KILL_GARRISONED residual via host combat path.
@@ -1030,15 +1009,6 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 2,
             weapon_speed: 300.0,
         },
-        // GLAJarmenKellRifle — dmg 180, range 225, Delay 1000ms → 30 frames.
-        SeedWeapon {
-            name: JARMEN_KELL_RIFLE,
-            primary_damage: 180.0,
-            attack_range: 225.0,
-            delay_frames: 30,
-            clip_size: 0,
-            weapon_speed: 999_999.0,
-        },
         // MarauderTankGunUpgradeOne — same dmg, Delay 1500ms → 45 frames.
         SeedWeapon {
             name: MARAUDER_TANK_GUN_UPGRADE_ONE,
@@ -1074,15 +1044,6 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 600.0,
-        },
-        // GLABikerKellSniperRifle — dmg 180, range 225, Delay 750ms → 23 frames.
-        SeedWeapon {
-            name: BIKER_KELL_SNIPER,
-            primary_damage: 180.0,
-            attack_range: 225.0,
-            delay_frames: 23,
-            clip_size: 0,
-            weapon_speed: 999_999.0,
         },
         // TerroristSuicideWeapon residual — host binds as short-range suicide flag.
         SeedWeapon {
@@ -1274,11 +1235,6 @@ pub(super) fn seed_known_host_weapons() -> usize {
         if seed.name == STEALTH_JET_MISSILE_WEAPON {
             t.primary_damage_radius = 5.0;
             t.minimum_attack_range = 60.0;
-        }
-        // Retail ColonelBurtonSniperRifleWeapon ClipReloadTime 500ms → 15f (hq-2qedt.133).
-        if seed.name == crate::game_logic::host_colonel_burton::BURTON_SNIPER_WEAPON {
-            t.clip_reload_time =
-                crate::game_logic::host_colonel_burton::BURTON_CLIP_RELOAD_FRAMES as i32;
         }
         // Retail ChinaInfantryTankHunterMissileLauncher MinimumAttackRange 5 /
         // PrimaryDamageRadius 5 / AntiAirborneVehicle+Infantry (hq-2qedt.132).

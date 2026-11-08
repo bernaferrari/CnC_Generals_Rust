@@ -45,6 +45,64 @@ fn victim(name: &str, position: Vec3) -> Object {
 }
 
 #[test]
+fn fired_projectiles_keep_authored_sniper_and_pilot_types_independent_of_name() {
+    let _serial = crate::game_logic::combat::tests::combat_test_guard();
+    let _restore = RestoreInputs::install();
+    let ini = "\
+Weapon SnipeMisleadingRifle
+ PrimaryDamage = 10
+ AttackRange = 150
+ DamageType = SNIPER
+ ProjectileObject = NONE
+ WeaponSpeed = 999999
+End
+Weapon OrdinaryRifle
+ PrimaryDamage = 10
+ AttackRange = 150
+ DamageType = SNIPER
+ ProjectileObject = NONE
+ WeaponSpeed = 999999
+End
+Weapon SnipeMisleadingPilot
+ PrimaryDamage = 10
+ AttackRange = 150
+ DamageType = KILL_PILOT
+ ProjectileObject = NONE
+ WeaponSpeed = 999999
+End
+Weapon OrdinaryPilot
+ PrimaryDamage = 10
+ AttackRange = 150
+ DamageType = KILL_PILOT
+ ProjectileObject = NONE
+ WeaponSpeed = 999999
+End
+";
+    assert_eq!(crate::assets::ini_template_loader::register_weapons_from_ini_text(ini), 4);
+    for (name, expected) in [
+        ("SnipeMisleadingRifle", crate::game_logic::combat::DamageType::Sniper),
+        ("OrdinaryRifle", crate::game_logic::combat::DamageType::Sniper),
+        ("SnipeMisleadingPilot", crate::game_logic::combat::DamageType::KillPilot),
+        ("OrdinaryPilot", crate::game_logic::combat::DamageType::KillPilot),
+    ] {
+        let mut template = ThingTemplate::new("DamageTypeShooter");
+        template.set_primary_weapon_name(name);
+        template.set_health(100.0);
+        template.add_kind_of(KindOf::Vehicle);
+        template.add_kind_of(KindOf::Attackable);
+        let mut attacker = Object::new(template, ObjectId(1), Team::USA);
+        attacker.weapon = Some(ThingTemplate::weapon_from_store(name).expect("parsed weapon"));
+        attacker.weapon.as_mut().unwrap().last_fire_time = -10.0;
+        attacker.set_prev_victim_pos(Some(Vec3::new(100.0, 0.0, 0.0)));
+        let mut combat = CombatSystem::new();
+        let mut events = crate::game_logic::host_attack_log::AttackEvents::default();
+        assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, &mut events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())));
+        assert_eq!(crate::game_logic::combat::last_pending_projectile_damage_type_for_test(&combat), Some(expected));
+    }
+}
+
+#[test]
 fn fire_at_keeps_gattling_store_type() {
     let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 

@@ -52,7 +52,6 @@ fn weapon_store_deepen_residual_pack_honesty_wave103() {
         );
     }
     assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&NUKE_CANNON_PRIMARY_WEAPON));
-    assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&JARMEN_KELL_RIFLE));
     assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&OVERLORD_TANK_GUN));
 }
 
@@ -545,16 +544,6 @@ fn deploy_hack_surrender_kill_garrisoned_peels() {
     assert!(!host_weapon_is_deploy_damage("AmericaTankCrusaderGun"));
 }
 
-#[test]
-fn kill_pilot_damage_peel() {
-    assert!(host_weapon_is_kill_pilot_damage(
-        "JarmenKellSnipeVehicleRifle"
-    ));
-    assert!(host_weapon_is_kill_pilot_damage(
-        "AmericaPathfinderSniperRifle"
-    ));
-    assert!(!host_weapon_is_kill_pilot_damage("AmericaTankCrusaderGun"));
-}
 #[test]
 fn status_damage_peels() {
     assert!(host_weapon_is_status_damage("AvengerTargetDesignator"));
@@ -1539,25 +1528,21 @@ fn estimate_sniper_refuses_empty_and_uc_structures() {
         ..empty
     };
     assert_eq!(estimate_weapon_template_damage(&sniper, Some(&tank)), 0.0);
-    assert!(host_weapon_is_kill_pilot_cursor_slot(
-        "GLAJarmenKellVehiclePilotSniperRifle"
-    ));
-    assert!(!host_weapon_is_kill_pilot_cursor_slot("GLAJarmenKellRifle"));
-    assert!(!host_weapon_is_kill_pilot_cursor_slot(
-        "AmericaInfantryPathfinderSniperRifle"
-    ));
 }
 
 #[test]
 fn estimate_sniper_vs_tank_applies_residual_armor() {
     ensure_host_weapon_store();
+    assert_eq!(crate::assets::ini_template_loader::register_weapons_from_ini_text(
+        "Weapon EstimateAuthoredRifle\n PrimaryDamage = 180\n DamageType = SNIPER\nEnd\n"
+    ), 1);
     let mut tmpl = ThingTemplate::new("GLATankScorpion");
     tmpl.add_kind_of(KindOf::Vehicle).set_health(400.0);
     let tank = crate::game_logic::Object::new(tmpl, crate::game_logic::ObjectId(1), Team::GLA);
-    let est = host_estimate_weapon_from_name("GLAJarmenKellRifle", 180.0);
+    let est = host_estimate_weapon_from_name("EstimateAuthoredRifle");
     let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
-        "GLAJarmenKellRifle",
-    );
+        "EstimateAuthoredRifle",
+    ).expect("authored sniper weapon");
     let victim = host_estimate_victim_from_object(
         &tank,
         0,

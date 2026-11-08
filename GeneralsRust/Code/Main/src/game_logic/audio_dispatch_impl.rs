@@ -403,7 +403,7 @@ pub fn specialty_attack_voice_upgrade(
         return Some((UnitVoiceSlot::FireRocketPods, true));
     }
 
-    let mut damage = host_damage_type_for_weapon_name(weapon_name);
+    let mut damage = host_damage_type_for_weapon_name(weapon_name)?;
     if matches!(damage, DamageType::Bullet) {
         let n = weapon_name.to_ascii_lowercase();
         if n.contains("flashbang") {

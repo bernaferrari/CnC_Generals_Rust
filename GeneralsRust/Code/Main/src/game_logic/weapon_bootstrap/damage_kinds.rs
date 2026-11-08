@@ -129,16 +129,6 @@ pub(super) fn seed_weapon_is_status_damage(name: &str) -> bool {
         || n.contains("statusweapon")
 }
 
-/// C++ Weapon.ini DamageType=KILL_PILOT residual (Jarmen Kell sniper).
-pub fn host_weapon_is_kill_pilot_damage(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("snipe")
-        || n.contains("killpilot")
-        || n.contains("kill_pilot")
-        || (n.contains("jarmen") && n.contains("rifle"))
-        || n.contains("pathfindersniper")
-        || n.contains("sniperrifle")
-}
 
 /// C++ Weapon.ini DamageType=DISARM residual (Dozer/Worker mine clear).
 pub fn host_weapon_is_disarm_damage(name: &str) -> bool {

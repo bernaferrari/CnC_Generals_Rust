@@ -1316,24 +1316,27 @@ impl GameLogic {
                         return false;
                     }
                     let name = source.weapon_name_for_slot(slot).unwrap_or("");
-                    if skip_hero_kill_pilot
-                        && crate::game_logic::weapon_bootstrap::host_weapon_is_kill_pilot_cursor_slot(
-                            name,
-                        )
-                    {
+                    let selected_rule = source.selected_native_weapon_rule(slot);
+                    let damage_type = selected_rule.as_ref().map(|rule| rule.damage_type)
+                        .or_else(|| crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+                            store.find_weapon_template(name).map(|rule| rule.damage_type)
+                        }).ok().flatten());
+                    let Some(damage_type) = damage_type else { return false; };
+                    if skip_hero_kill_pilot && damage_type == gamelogic::damage::DamageType::KillPilot {
                         return false;
                     }
-                    let selected_rule = source.selected_native_weapon_rule(slot);
-                    let mut est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
-                        name,
-                        weapon.damage,
-                    );
-                    let dt = if let Some(rule) = selected_rule {
+                    let mut est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(name);
+                    if let Some(rule) = selected_rule.as_ref() {
                         est.damage_type_sniper = rule.damage_type == gamelogic::damage::DamageType::Sniper;
-                        crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type)
-                    } else {
-                        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name)
-                    };
+                        est.damage_type_surrender = rule.damage_type == gamelogic::damage::DamageType::Surrender;
+                        est.damage_type_disarm = rule.damage_type == gamelogic::damage::DamageType::Disarm;
+                        est.damage_type_deploy = rule.damage_type == gamelogic::damage::DamageType::Deploy;
+                        est.damage_type_kill_garrisoned = rule.damage_type == gamelogic::damage::DamageType::KillGarrisoned;
+                        est.death_type_burned = rule.death_type == gamelogic::damage::DeathType::Burned;
+                        est.allow_attack_garrisoned_bldgs = rule.allow_attack_garrisoned_bldgs;
+                        est.primary_damage = rule.primary_damage;
+                    }
+                    let dt = crate::game_logic::host_armor_residual::map_store_damage_type(damage_type);
                     let victim_est =
                         crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
                             v,

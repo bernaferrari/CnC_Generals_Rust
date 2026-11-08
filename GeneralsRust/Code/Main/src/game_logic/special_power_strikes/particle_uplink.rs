@@ -1362,12 +1362,9 @@ pub fn particle_remnant_authored_types() -> (
     crate::game_logic::combat::DamageType,
     crate::game_logic::host_usa_pilot::HostDeathType,
 ) {
-    if crate::game_logic::thing::ThingTemplate::weapon_from_host_store(PARTICLE_REMNANT_WEAPON_NAME)
-        .is_some()
-    {
-        let damage = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
-            PARTICLE_REMNANT_WEAPON_NAME,
-        );
+    if let Some(damage) = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+        PARTICLE_REMNANT_WEAPON_NAME,
+    ) {
         let death = crate::game_logic::host_armor_residual::resolve_host_death_type(
             Some(PARTICLE_REMNANT_WEAPON_NAME),
             damage,

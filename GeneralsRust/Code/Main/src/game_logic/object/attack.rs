@@ -781,6 +781,9 @@ impl Object {
         // Prefer store PrimaryDamage so baked promotion scalars on PRIMARY
         // are not stacked again with weapon_bonus_fields veterancy.
         let native_rule = self.selected_native_weapon_rule(slot);
+        let weapon_dtype = native_rule.as_ref()
+            .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
+            .or_else(|| name.and_then(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name))?;
         let template_damage = native_rule
             .as_ref()
             .map(|rule| rule.primary_damage)
@@ -1101,29 +1104,6 @@ impl Object {
             self.target = Some(target_id);
         }
 
-        // Prefer Weapon.ini DamageType via store name; shape residual if the
-        // source name has no usable host store entry.
-        let weapon_dtype = if let Some(rule) = native_rule.as_ref() {
-            crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type)
-        } else if let Some(weapon_name) = name {
-            if crate::game_logic::thing::ThingTemplate::weapon_from_host_store(weapon_name)
-                .is_some()
-            {
-                crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
-                    weapon_name,
-                )
-            } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
-                super::combat::DamageType::Laser
-            } else if weapon_splash > 0.0 {
-                super::combat::DamageType::Explosive
-            } else {
-                super::combat::DamageType::Bullet
-            }
-        } else {
-            // C++ WeaponTemplate::WeaponTemplate defaults to DAMAGE_EXPLOSION.
-            // Travel speed and radius do not classify an unnamed weapon.
-            super::combat::DamageType::Explosive
-        };
         let at_self = native_rule.as_ref().map(|rule| rule.damage_dealt_at_self_position).unwrap_or_else(||
             name.map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name).unwrap_or(false));
         // One receiving CombatSystem owns projectileless travel and damage.
