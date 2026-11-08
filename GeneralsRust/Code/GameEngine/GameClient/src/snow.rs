@@ -105,11 +105,6 @@ fn sync_weather_from_common(dest: &Arc<RwLock<WeatherSetting>>) {
 }
 
 fn weather_setting_handle() -> Arc<RwLock<WeatherSetting>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_weather_setting()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WEATHER_SETTING.with(|slot| {
@@ -133,11 +128,6 @@ fn weather_setting_handle() -> Arc<RwLock<WeatherSetting>> {
 }
 
 fn snow_manager_handle() -> Arc<Mutex<SnowManager>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_snow_manager()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_SNOW_MANAGER.with(|slot| {
@@ -159,11 +149,6 @@ pub fn get_weather_setting() -> Option<Arc<RwLock<WeatherSetting>>> {
 }
 
 pub fn get_snow_manager() -> Option<Arc<Mutex<SnowManager>>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.snow_manager_opt()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_SNOW_MANAGER.with(|slot| slot.borrow().clone());
@@ -180,11 +165,13 @@ pub fn ensure_weather_setting() -> Arc<RwLock<WeatherSetting>> {
     settings
 }
 
-pub fn initialize_snow_manager() -> Arc<Mutex<SnowManager>> {
+pub fn initialize_snow_manager(
+    client_random: &mut game_engine::common::random_value::RandomState,
+) -> Arc<Mutex<SnowManager>> {
     let _ = ensure_weather_setting();
     let manager = snow_manager_handle();
     if let Ok(mut guard) = manager.lock() {
-        guard.init();
+        guard.init(client_random);
     }
     manager
 }
@@ -199,12 +186,8 @@ fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
     let settings = ensure_weather_setting();
     sync_weather_from_common(&settings);
 
-    if let Some(manager) = get_snow_manager() {
-        if let Ok(mut guard) = manager.lock() {
-            guard.update_ini_settings();
-        }
-    }
-
+    // The owning client refreshes SnowManager via `admit_snow_definition`; this
+    // INI callback has no client stream to lend (ownerless).
     Ok(())
 }
 
@@ -311,13 +294,13 @@ impl SnowManager {
     }
 
     /// Standalone adapter. Instance owners should supply their effective definition and RNG.
-    pub fn init(&mut self) {
+    pub fn init(&mut self, client_random: &mut game_engine::common::random_value::RandomState) {
         let Some(settings) = get_weather_setting() else {
             return;
         };
         let settings = settings.read().unwrap_or_else(|e| e.into_inner()).clone();
         self.init_with_definition(&settings, &mut |low, high| {
-            crate::GameClientRandomValue!(low, high)
+            crate::GameClientRandomValue!(client_random, low, high)
         });
     }
 
@@ -334,13 +317,16 @@ impl SnowManager {
     }
 
     /// Standalone adapter for callers not yet migrated to an explicit owner.
-    pub fn update_ini_settings(&mut self) {
+    pub fn update_ini_settings(
+        &mut self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) {
         let Some(settings) = get_weather_setting() else {
             return;
         };
         let settings = settings.read().unwrap_or_else(|e| e.into_inner()).clone();
         self.update_ini_settings_with_definition(&settings, &mut |low, high| {
-            crate::GameClientRandomValue!(low, high)
+            crate::GameClientRandomValue!(client_random, low, high)
         });
     }
 

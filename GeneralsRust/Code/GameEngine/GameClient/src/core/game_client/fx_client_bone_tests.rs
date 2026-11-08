@@ -128,6 +128,7 @@ fn host_bone_fx_uses_borrowed_receiving_client_after_move_and_peer_drop() {
             position_visible: &mut |_| true,
             create_light_pulse: &mut |_| false,
             play_fx_audio: &mut |_, _| false,
+            client_random: &Default::default(),
         });
         receive.try_iter().collect()
     }

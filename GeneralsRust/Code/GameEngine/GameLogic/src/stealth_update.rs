@@ -7,7 +7,7 @@ use crate::common::{
     ObjectStatusTypes, Real, Relationship, UnsignedInt, FROM_CENTER_2D,
 };
 use crate::helpers::{
-    game_client_random_value_real, game_logic_random_value, TheAudio, TheGameLogic,
+    game_logic_random_value, TheAudio, TheGameLogic,
     ThePartitionManager,
 };
 use crate::modules::{
@@ -378,7 +378,7 @@ impl StealthController {
             data,
             object_id,
             TheGameLogic::get_frame(),
-            game_client_random_value_real(0.0, PI),
+            crate::system::engine_stores::active_services().client_random_value_real(0.0, PI),
             true,
         )
     }

@@ -9,7 +9,7 @@ pub fn GameInfoWindowInit(
     user_data: Option<&mut dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    effects.with_manager(|manager, effects| game_info_window_init(layout, user_data, manager));
+    effects.with_manager(|manager, effects| game_info_window_init(layout, user_data, manager, effects.window_manager_owner));
 }
 
 pub fn GameInfoWindowSystem(

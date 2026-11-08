@@ -267,25 +267,27 @@ impl AudioEvent {
     }
 
     /// Get random file from variations (matches C++ getRandomFile)
-    pub fn get_random_file(&self) -> Option<&String> {
+    pub fn get_random_file(
+        &self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Option<&String> {
         if self.file_paths.is_empty() {
             return None;
         }
         let hi = (self.file_paths.len() - 1) as i32;
-        let index =
-            game_engine::common::random_value::get_game_client_random_value(0, hi) as usize;
+        let index = client_random.next_int(0, hi) as usize;
         Some(&self.file_paths[index])
     }
 
     /// Get random pitch within range (matches C++ getRandomPitch)
-    pub fn get_random_pitch(&self) -> f32 {
+    pub fn get_random_pitch(
+        &self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> f32 {
         if self.pitch_min == self.pitch_max {
             self.pitch_min
         } else {
-            game_engine::common::random_value::get_game_client_random_value_real(
-                self.pitch_min,
-                self.pitch_max,
-            )
+            client_random.next_real(self.pitch_min, self.pitch_max)
         }
     }
 }
@@ -319,6 +321,8 @@ pub struct EnhancedAudioManager {
     last_play_times: HashMap<AudioEventType, f32>,
     max_audio_instances: usize,
     current_time_seconds: f32,
+    /// Random stream owned by this manager for file/pitch variation.
+    client_random: game_engine::common::random_value::RandomState,
 }
 
 impl EnhancedAudioManager {
@@ -332,6 +336,7 @@ impl EnhancedAudioManager {
             faction_events: HashMap::new(),
             active_instances: Vec::new(),
             listener_position: Vec3::ZERO,
+            client_random: Default::default(),
             listener_velocity: Vec3::ZERO,
             listener_orientation: (Vec3::NEG_Z, Vec3::Y), // Forward = -Z, Up = Y
             master_volume: 1.0,
@@ -425,14 +430,14 @@ impl EnhancedAudioManager {
         }
 
         // Load and play the audio
-        let file_path = match event.get_random_file() {
+        let file_path = match event.get_random_file(&mut self.client_random) {
             Some(file_path) => file_path,
             None => {
                 warn!("Audio event {:?} has no file paths, skipping", event_type);
                 return Ok(());
             }
         };
-        let pitch = event.get_random_pitch();
+        let pitch = event.get_random_pitch(&mut self.client_random);
 
         match archive_system.open_file(file_path).await {
             Ok(audio_data) => {
@@ -545,14 +550,14 @@ impl EnhancedAudioManager {
         let base_volume = volume_override.unwrap_or(event.volume);
         let volume = base_volume * self.get_category_volume(event_type);
 
-        let file_path = match event.get_random_file() {
+        let file_path = match event.get_random_file(&mut self.client_random) {
             Some(file_path) => file_path,
             None => {
                 warn!("Audio event {:?} has no file paths, skipping", event_type);
                 return Ok(());
             }
         };
-        let pitch = event.get_random_pitch();
+        let pitch = event.get_random_pitch(&mut self.client_random);
 
         match archive_system.open_file(file_path).await {
             Ok(audio_data) => {

@@ -4,7 +4,6 @@
 use game_engine::common::ini::{
     FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
 };
-use game_engine::common::random_value::get_game_client_random_value;
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::{EvaEvent as LogicEvaEvent, TheAudio, TheEva as LogicEva, TheGameLogic};
 use gamelogic::player::ThePlayerList;
@@ -616,14 +615,14 @@ impl Eva {
     }
 
     /// Standalone Core compatibility entry. Main supplies a context directly.
-    pub fn update(&mut self) {
+    pub fn update(&mut self, client_random: &mut game_engine::common::random_value::RandomState) {
         self.sync_enabled_from_logic();
         let context = self.legacy_frame_context();
         if self.enabled && context.frame >= 2 {
             self.ingest_logic_events();
         }
         self.update_with_playback(&context, &mut CoreEvaPlayback, &mut |lo, hi| {
-            get_game_client_random_value(lo, hi)
+            client_random.next_int(lo, hi)
         });
     }
 
@@ -881,13 +880,17 @@ impl Eva {
         });
     }
 
-    fn process_playing_messages(&mut self, current_frame: u32) {
+    fn process_playing_messages(
+        &mut self,
+        current_frame: u32,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) {
         let context = self.legacy_frame_context();
         self.process_playing_messages_with_context(
             current_frame,
             &context,
             &mut CoreEvaPlayback,
-            &mut |lo, hi| get_game_client_random_value(lo, hi),
+            &mut |lo, hi| client_random.next_int(lo, hi),
         );
     }
 
@@ -1160,8 +1163,8 @@ pub fn reset_eva_system(eva: &mut Eva) {
     eva.reset();
 }
 
-pub fn update_eva_system(eva: &mut Eva) {
-    eva.update();
+pub fn update_eva_system(eva: &mut Eva, client_random: &mut game_engine::common::random_value::RandomState) {
+    eva.update(client_random);
 }
 
 pub fn set_eva_should_play(eva: &mut Eva, message: EvaMessage) {
@@ -1205,8 +1208,8 @@ pub fn simulate_eva_reset(eva: &mut Eva) -> bool {
     true
 }
 
-pub fn simulate_eva_update(eva: &mut Eva) -> bool {
-    eva.update();
+pub fn simulate_eva_update(eva: &mut Eva, client_random: &mut game_engine::common::random_value::RandomState) -> bool {
+    eva.update(client_random);
     eva.residual_store(ResidualEvaAction::Update);
     true
 }
@@ -1384,7 +1387,7 @@ mod tests {
         let mut eva = Eva::new();
         eva.set_host_frame(0);
         eva.set_should_play(EvaMessage::BuildingLost);
-        eva.update();
+        eva.update(&mut Default::default());
         assert!(
             eva.should_play[EvaMessage::BuildingLost.as_index()],
             "frame 0 must skip Eva.cpp:275 and leave shouldPlay latched"
@@ -1392,7 +1395,7 @@ mod tests {
 
         eva.set_host_frame(5);
         assert_eq!(eva.logic_frame(), 5);
-        eva.update();
+        eva.update(&mut Default::default());
         assert!(
             !eva.should_play[EvaMessage::BuildingLost.as_index()],
             "host frame >= 2 must run Eva::update and clear unprobed flags"

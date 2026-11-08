@@ -1,9 +1,9 @@
 // Split from `message_stream/meta_event.rs` dump. Included by `meta_event_impl/mod.rs`.
 
-fn kill_local_player_selection() {
+fn kill_local_player_selection(local_player_id: i32) {
     // Wave 976: host empty dual-world still routes kills through TheGameLogic IDs
     // (selection manager + TheGameLogic::find_object_by_id), not OBJECT_REGISTRY walks.
-    let selected_ids = local_selection_object_ids();
+    let selected_ids = local_selection_object_ids(local_player_id);
 
     for object_id in selected_ids {
         if let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) {
@@ -70,13 +70,13 @@ fn kill_all_enemy_objects_for_local_player() {
     }
 }
 
-fn first_selected_object_id_for_local_player() -> Option<u32> {
-    local_selection_object_ids().into_iter().next()
+fn first_selected_object_id_for_local_player(local_player_id: i32) -> Option<u32> {
+    local_selection_object_ids(local_player_id).into_iter().next()
 }
 
-fn adjust_local_selection_veterancy(delta: i32) {
+fn adjust_local_selection_veterancy(delta: i32, local_player_id: i32) {
     // Wave 976: host empty dual-world still routes veterancy through TheGameLogic IDs.
-    for object_id in local_selection_object_ids() {
+    for object_id in local_selection_object_ids(local_player_id) {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             continue;
         };
@@ -100,8 +100,7 @@ fn adjust_local_selection_veterancy(delta: i32) {
     }
 }
 
-fn clear_local_player_selection() {
-    let local_player_id = get_local_player_id();
+fn clear_local_player_selection(local_player_id: i32) {
     let __arc_bind = get_selection_manager();
 if let Ok(mut manager) = __arc_bind.write() {
         if manager.get_player_selection_ref(local_player_id).is_none() {
@@ -168,7 +167,7 @@ fn apply_local_player_switch_side_effects(
     initialize_shortcut_bar: bool,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) {
-    clear_local_player_selection();
+    clear_local_player_selection(ui.local_player_id());
     if let Some(side) = local_player_side_name() {
         if initialize_shortcut_bar {
             TheControlBar::init_special_power_shortcut_bar_for_player(&side, ui);
@@ -190,7 +189,7 @@ fn set_local_player_index_with_refresh(
         };
         list.set_local_player_index(index);
     }
-    set_local_player_id(index);
+    ui.set_local_player_id(index);
     if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
         shroud.refresh_shroud_for_local_player();
     }

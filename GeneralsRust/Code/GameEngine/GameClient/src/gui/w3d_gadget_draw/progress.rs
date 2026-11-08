@@ -265,7 +265,7 @@ pub fn w3d_gadget_progress_bar_draw(
         return;
     };
     draw_progress_bar_solid(window, inst_data, back, bar, draw_context);
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_gadget_progress_bar_image_draw(
@@ -314,7 +314,7 @@ pub fn w3d_gadget_progress_bar_image_draw(
         bar_center,
         draw_context,
     );
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_gadget_progress_bar_image_draw_a(
@@ -374,7 +374,7 @@ pub fn w3d_gadget_progress_bar_image_draw_a(
     if pieces == 0 {
         draw_progress_bar_fallback(window, inst_data, draw_context);
     } else {
-        note_shipped_ui_draw_commands(pieces.max(1) as usize);
+        draw_context.note_shipped_ui_draw_commands(pieces.max(1) as usize);
     }
 }
 

@@ -133,7 +133,7 @@ pub(super) fn draw_list_box_cell_text(
         border_color,
         draw_context,
     );
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_gadget_list_box_draw(
@@ -204,7 +204,7 @@ pub fn w3d_gadget_list_box_draw(
                 draw_context,
             );
         });
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     }
     if back.color != WIN_COLOR_UNDEFINED && color_alpha(back.color) > 16 {
         crate::gui::window_draw_context::with_draw_manager(draw_context.manager, |manager| {
@@ -218,7 +218,7 @@ pub fn w3d_gadget_list_box_draw(
                 draw_context,
             );
         });
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     } else {
         draw_visible_fill(
             x,
@@ -449,7 +449,7 @@ pub fn w3d_gadget_list_box_image_draw(
                 draw_context,
             );
         });
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     } else {
         draw_visible_fill(
             x,

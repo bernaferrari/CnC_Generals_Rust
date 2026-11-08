@@ -103,11 +103,6 @@ fn wol_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_welcome_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_welcome_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_WELCOME_STATE.with(|cell| {
@@ -121,19 +116,12 @@ fn wol_state_on_owner(
     }
 }
 
-fn wol_state() -> Rc<RefCell<WolWelcomeState>> {
-    wol_state_on_owner(None)
+fn wol_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolWelcomeState>> {
+    wol_state_on_owner(owner)
 }
 
 pub fn set_look_at_player(profile_id: i32, name: &str) {
     let value = (profile_id, name.to_string());
-    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_wol_welcome_look_at_player_mut(|slot| *slot = value.clone());
-    }) {
-        return;
-    }
     #[cfg(test)]
     {
         *TEST_LOOK_AT_PLAYER.borrow_mut() = value;
@@ -146,13 +134,6 @@ pub fn set_look_at_player(profile_id: i32, name: &str) {
 }
 
 pub fn get_look_at_player() -> (i32, String) {
-    if let Some(value) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_wol_welcome_look_at_player_mut(|slot| slot.clone())
-    }) {
-        return value;
-    }
     #[cfg(test)]
     {
         return TEST_LOOK_AT_PLAYER.with(|slot| slot.borrow().clone());
@@ -183,8 +164,8 @@ fn update_server_display(state: &mut WolWelcomeState, server_name: &str) {
     state.server_name = server_name.to_string();
 }
 
-pub fn set_wol_server_name(server_name: &str) {
-    let state_slot = wol_state();
+pub fn set_wol_server_name(server_name: &str, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     update_server_display(&mut state, server_name);
 }
@@ -275,8 +256,8 @@ fn update_num_players_online(state: &mut WolWelcomeState) {
     }
 }
 
-pub fn handle_num_players_online(num_players_online: i32) {
-    let state_slot = wol_state();
+pub fn handle_num_players_online(num_players_online: i32, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     state.last_num_players_online = num_players_online.max(1);
     update_num_players_online(&mut state);
@@ -295,8 +276,8 @@ fn find_next_number(mut input: &str) -> &str {
     input
 }
 
-pub fn handle_overall_stats(stats_text: &str) {
-    let state_slot = wol_state();
+pub fn handle_overall_stats(stats_text: &str, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     let Some(today_idx) = stats_text.find("Today") else {
         return;
@@ -910,8 +891,8 @@ fn handle_persistent_storage_responses() {
     }
 }
 
-fn shutdown_complete(layout: &WindowLayout, next_screen: Option<String>) {
-    let state_slot = wol_state();
+fn shutdown_complete(layout: &WindowLayout, next_screen: Option<String>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     state.is_shutting_down = false;
     layout.hide(true);
@@ -923,8 +904,8 @@ fn shutdown_complete(layout: &WindowLayout, next_screen: Option<String>) {
     state.next_screen = None;
 }
 
-pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = wol_state();
+pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let mut state = state_slot.borrow_mut();
     state.next_screen = None;
     state.button_pushed = false;
@@ -1032,20 +1013,20 @@ pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std:
     owner.with_manager(|manager| manager.transition_set_group("WOLWelcomeMenuFade", false));
 }
 
-pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
         .unwrap_or(false);
     {
-        let state_slot = wol_state();
+        let state_slot = wol_state(owner);
         let mut state = state_slot.borrow_mut();
         state.listbox_info = None;
         state.is_shutting_down = true;
     }
 
     if pop_immediate {
-        shutdown_complete(layout, None);
+        shutdown_complete(layout, None, owner);
         return;
     }
 
@@ -1054,8 +1035,8 @@ pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn s
     raise_gs_message_box();
 }
 
-pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = wol_state();
+pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_state(owner);
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = owner.with_manager(|manager| manager.transitions_finished());
     let (should_shutdown, next_screen, raise_boxes, should_poll) = {
@@ -1076,7 +1057,7 @@ pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn st
         // C++ WOLWelcomeMenu.cpp:585-586 calls shutdownComplete while using
         // file-static isShuttingDown. Drop RefCell first — shutdown_complete
         // borrow_muts the same cell.
-        shutdown_complete(layout, next_screen);
+        shutdown_complete(layout, next_screen, owner);
         return;
     }
 
@@ -1179,13 +1160,13 @@ pub fn wol_welcome_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
     // C++ WOLWelcomeMenu.cpp:693-694 — buttonPushed breaks GWM_CHAR → MSG_IGNORED.
     let (button_pushed, parent, back_id) = {
-        let slot = wol_state();
+        let slot = wol_state(owner);
         let state = slot.borrow();
         (
             state.button_pushed,
@@ -1276,13 +1257,13 @@ pub fn wol_welcome_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => return WindowMsgHandled::Handled,
         WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_slot = wol_state();
+            let state_slot = wol_state(owner);
             let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;

@@ -416,5 +416,5 @@ pub(super) fn draw_vertical_meter(
             draw_context,
         );
     }
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }

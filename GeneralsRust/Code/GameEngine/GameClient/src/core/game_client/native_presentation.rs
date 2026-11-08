@@ -122,6 +122,7 @@ impl GameClient {
             .expect("particle manager")
             .admit_effective_definitions()
             .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
+        let local_player_id = self.local_player_id();
         let (state, manager) = (
             &mut self.drawables.state,
             self.drawables.particles.as_mut().expect("particle manager"),
@@ -132,7 +133,7 @@ impl GameClient {
             self.native_audio_device.as_ref(),
             self.subsystem_manager.in_game_ui.as_mut(),
             self.frame,
-            self.local_player_id,
+            local_player_id,
             self.input_authority,
         )
         .run_native_views_with_keys(

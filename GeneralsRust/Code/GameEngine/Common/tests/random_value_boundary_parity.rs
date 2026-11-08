@@ -11,7 +11,7 @@
 //! (the crate's `cfg(test)` modules are not compiled into any test target).
 
 use game_engine::common::random_value::{
-    get_game_audio_random_value, get_game_client_random_value,
+    RandomState,
     get_game_logic_random_seed_state, get_game_logic_random_value,
     init_game_logic_random, init_random_with_seed,
 };
@@ -108,6 +108,8 @@ fn wrapped_results_stay_inside_the_msvc_delta_domain() {
 
 #[test]
 fn client_and_audio_streams_mirror_the_logic_boundary() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RNG_LOCK.0.lock().unwrap_or_else(|e| e.into_inner());
     // All three streams share the C++ body (RandomValue.cpp:217/:223 client,
     // :240/:246 audio) — the wrapped boundary must behave identically and
@@ -115,15 +117,25 @@ fn client_and_audio_streams_mirror_the_logic_boundary() {
     // init_game_logic_random touches the logic stream only.
     for seed in [0x5EED_0005u32, 42] {
         init_random_with_seed(seed);
-        let client_a = get_game_client_random_value(0, i32::MAX);
+        client.seed_random(seed);
+        audio.seed_random(seed);
+        let client_a = client.next_int(0, i32::MAX);
         init_random_with_seed(seed);
-        let client_b = get_game_client_random_value(0, i32::MAX);
+        client.seed_random(seed);
+        audio.seed_random(seed);
+        let client_b = client.next_int(0, i32::MAX);
         assert_eq!(client_a, client_b, "client stream must replay");
 
         init_random_with_seed(seed);
-        let audio_a = get_game_audio_random_value(0, i32::MAX);
+
+        client.seed_random(seed);
+
+        audio.seed_random(seed);
+        let audio_a = audio.next_int(0, i32::MAX);
         init_random_with_seed(seed);
-        let audio_b = get_game_audio_random_value(0, i32::MAX);
+        client.seed_random(seed);
+        audio.seed_random(seed);
+        let audio_b = audio.next_int(0, i32::MAX);
         assert_eq!(audio_a, audio_b, "audio stream must replay");
     }
 }

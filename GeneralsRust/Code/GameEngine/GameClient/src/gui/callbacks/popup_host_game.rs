@@ -60,11 +60,6 @@ fn popup_host_state_on_owner(
     if let Some(owner) = owner {
         return owner.popup_host_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().popup_host_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_POPUP_HOST_STATE.with(|cell| {
@@ -79,8 +74,8 @@ fn popup_host_state_on_owner(
     }
 }
 
-fn popup_host_state() -> Rc<RefCell<PopupHostState>> {
-    popup_host_state_on_owner(None)
+fn popup_host_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<PopupHostState>> {
+    popup_host_state_on_owner(owner)
 }
 
 
@@ -91,8 +86,8 @@ fn name_to_id(name: &str) -> i32 {
 pub fn custom_match_hide_host_popup(
     hide: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) {
-    let state_slot = popup_host_state();
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    let state_slot = popup_host_state(owner);
     let mut state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide_without_manager_side_effects(hide);
@@ -339,11 +334,11 @@ pub fn popup_host_game_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
-            let state_slot = popup_host_state();
+            let state_slot = popup_host_state(owner);
             let state = state_slot.borrow_mut();
             if data1 as i32 == state.text_entry_game_name_id {
                 trim_game_name_leading_whitespace(&state);
@@ -351,7 +346,7 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::User(code) if code == GCM_SELECTED => {
-            let state_slot = popup_host_state();
+            let state_slot = popup_host_state(owner);
             let state = state_slot.borrow_mut();
             if data1 as i32 == state.combo_box_ladder_name_id
                 && selected_combo_data(window).is_some_and(|ladder_id| ladder_id < 0)
@@ -363,7 +358,7 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected => {
-            let state_slot = popup_host_state();
+            let state_slot = popup_host_state(owner);
             let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if control_id == state.button_cancel_id {
@@ -476,7 +471,7 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetEditDone => {
-            let state_slot = popup_host_state();
+            let state_slot = popup_host_state(owner);
             let state = state_slot.borrow_mut();
             if data1 as i32 == state.text_entry_game_name_id {
                 trim_game_name_leading_whitespace(&state);
@@ -485,7 +480,7 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::Destroy => {
-            let state_slot = popup_host_state();
+            let state_slot = popup_host_state(owner);
             let mut state = state_slot.borrow_mut();
             state.parent = None;
             WindowMsgHandled::Handled

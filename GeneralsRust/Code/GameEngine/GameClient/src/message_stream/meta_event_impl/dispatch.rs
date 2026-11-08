@@ -214,7 +214,7 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TEST_SURRENDER") {
-        let local_player = get_local_player_id() as u32;
+        let local_player = ui.local_player_id() as u32;
         ui.emit(GameMessage::new(GameMessageType::SelfDestruct(
             local_player,
         )));
@@ -394,12 +394,12 @@ fn dispatch_map_entry(
         if TheGameLogic::is_in_multiplayer_game() {
             return None;
         }
-        kill_local_player_selection();
+        kill_local_player_selection(ui.local_player_id());
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_KILL_SELECTION") {
-        kill_local_player_selection();
+        kill_local_player_selection(ui.local_player_id());
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -428,7 +428,7 @@ fn dispatch_map_entry(
             } else {
                 -1
             };
-            adjust_local_selection_veterancy(delta);
+            adjust_local_selection_veterancy(delta, ui.local_player_id());
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -437,7 +437,8 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_LOCK_CAMERA_TO_PLANES")
     {
-        if let Some(object_id) = next_plane_camera_lock_object_id(&mut ui.state.meta_demo) {
+        let local_player_id = ui.local_player_id();
+        if let Some(object_id) = next_plane_camera_lock_object_id(&mut ui.state.meta_demo, local_player_id) {
             with_tactical_view(|view| {
                 view.set_camera_lock(Some(object_id));
             });
@@ -449,7 +450,7 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_LOCK_CAMERA_TO_SELECTION")
     {
-        let selected_id = first_selected_object_id_for_local_player();
+        let selected_id = first_selected_object_id_for_local_player(ui.local_player_id());
         with_tactical_view(|view| {
             let mut next_camera_lock = selected_id;
             if next_camera_lock.is_some() && view.camera_lock_id() == next_camera_lock {

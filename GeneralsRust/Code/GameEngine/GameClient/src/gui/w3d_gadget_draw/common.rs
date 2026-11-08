@@ -1,33 +1,4 @@
 use super::*;
-/// Shipped gadget/HUD draw ops recorded even when no UIRenderer/GPU is bound.
-/// Tests drive the real W3D callbacks and assert this (or UIRenderer) is > 0.
-pub fn shipped_ui_draw_command_count() -> usize {
-    crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .shipped_ui_draw_commands()
-            .load(std::sync::atomic::Ordering::Relaxed)
-    })
-    .unwrap_or(0)
-}
-
-pub fn reset_shipped_ui_draw_command_count() {
-    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .shipped_ui_draw_commands()
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-    });
-}
-
-pub(super) fn note_shipped_ui_draw_commands(count: usize) {
-    if count > 0 {
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            client
-                .shipped_ui_draw_commands()
-                .fetch_add(count, std::sync::atomic::Ordering::Relaxed);
-        });
-    }
-}
-
 /// Honest, visible palette when mapped art is missing (never blank).
 pub(super) const FALLBACK_FILL: u32 = 0xFF3D4F63;
 pub(super) const FALLBACK_BORDER: u32 = 0xFF8BA3B8;
@@ -109,7 +80,7 @@ pub(super) fn draw_visible_fill(
             }
         });
     }
-    note_shipped_ui_draw_commands(1 + usize::from(border.is_some()));
+    draw_context.note_shipped_ui_draw_commands(1 + usize::from(border.is_some()));
 }
 
 pub(super) fn draw_visible_label(
@@ -130,7 +101,7 @@ pub(super) fn draw_visible_label(
             win_color_to_rgba(color),
         );
     });
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub(super) fn draw_visible_line(
@@ -156,7 +127,7 @@ pub(super) fn draw_visible_line(
             manager.win_draw_line(color, width, x1, y1, x2, y2, draw_context);
         });
     }
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 /// Image path when mapped art exists; otherwise a visible rect (never blank).
@@ -190,7 +161,7 @@ pub(super) fn draw_named_image_or_fallback(
             }
         });
     if found {
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
         true
     } else {
         draw_visible_fill(
@@ -227,7 +198,7 @@ pub(super) fn draw_window_image_or_fallback(
                 draw_context,
             );
         });
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     } else {
         let color = visible_enabled_color(window, inst_data, fallback);
         draw_visible_fill(
@@ -273,7 +244,7 @@ pub(super) fn scheme_draw_image(
             }
         });
     if found {
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     }
 }
 
@@ -506,7 +477,7 @@ pub(super) fn draw_button_text(
             }
         });
     }
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub(super) fn draw_main_menu_button_drop_shadow_text(
@@ -747,13 +718,13 @@ pub(super) fn draw_main_menu_frame(
             ),
         ] {
             manager.win_draw_line(color, width, x1, y1, x2, y2, draw_context);
-            note_shipped_ui_draw_commands(1);
+            draw_context.note_shipped_ui_draw_commands(1);
         }
 
         for ratio in vertical_ratios {
             let x = pos_x + truncate_to_i32(size_x as f32 * ratio);
             manager.win_draw_line(COLOR, 3.0, x, pos_y, x, height, draw_context);
-            note_shipped_ui_draw_commands(1);
+            draw_context.note_shipped_ui_draw_commands(1);
         }
     });
 }
@@ -820,7 +791,7 @@ pub(super) fn animate_main_menu_pulse(
                 draw_context,
             );
         });
-        note_shipped_ui_draw_commands(1);
+        draw_context.note_shipped_ui_draw_commands(1);
     } else {
         draw_visible_fill(
             draw_x,

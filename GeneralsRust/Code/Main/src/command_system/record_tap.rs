@@ -525,6 +525,7 @@ pub fn host_observer_look_at_player_index() -> Option<i32> {
             return Some(index);
         }
         return game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(
+            None,
         );
     }
     #[cfg(not(feature = "game_client"))]

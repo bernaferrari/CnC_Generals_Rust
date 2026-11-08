@@ -848,13 +848,6 @@ thread_local! {
 
 fn with_display_string_manager_mut<R>(f: impl FnOnce(&mut DisplayStringManager) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_display_string_manager_mut(|manager| f.take().expect("display string")(manager))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_DISPLAY_STRING_MANAGER.with(|slot| {

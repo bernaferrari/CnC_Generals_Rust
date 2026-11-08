@@ -765,27 +765,27 @@ fn test_window(x: i32, y: i32, w: i32, h: i32) -> GameWindow {
 
 #[test]
 fn w3d_main_menu_draw_queues_commands_without_mapped_art() {
-    let _client = crate::test_support::park_live_game_client();
-    super::reset_shipped_ui_draw_command_count();
+    crate::test_support::ensure_ambient_host();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let window = test_window(0, 0, 800, 600);
-    super::w3d_main_menu_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_main_menu_draw(&window, window.instance_data(), &mut dc);
     assert!(
-        super::shipped_ui_draw_command_count() > 0,
+        dc.shipped_ui_draw_commands > 0,
         "main menu chrome must queue fallback rects/lines when images are missing"
     );
 }
 
 #[test]
 fn w3d_main_menu_four_and_metal_bar_queue_commands_without_art() {
-    let _client = crate::test_support::park_live_game_client();
-    super::reset_shipped_ui_draw_command_count();
+    crate::test_support::ensure_ambient_host();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let window = test_window(0, 80, 800, 40);
-    super::w3d_main_menu_four_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
-    super::w3d_metal_bar_menu_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
-    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); super::w3d_main_menu_map_border(&window, window.instance_data(), &mut __dc); }
-    super::w3d_thin_border_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_main_menu_four_draw(&window, window.instance_data(), &mut dc);
+    super::w3d_metal_bar_menu_draw(&window, window.instance_data(), &mut dc);
+    super::w3d_main_menu_map_border(&window, window.instance_data(), &mut dc);
+    super::w3d_thin_border_draw(&window, window.instance_data(), &mut dc);
     assert!(
-        super::shipped_ui_draw_command_count() > 0,
+        dc.shipped_ui_draw_commands > 0,
         "menu metal/map/thin chrome must still emit draw commands"
     );
 }
@@ -793,11 +793,11 @@ fn w3d_main_menu_four_and_metal_bar_queue_commands_without_art() {
 #[test]
 fn w3d_command_bar_background_draw_ships_nothing_without_scheme() {
     crate::test_support::ensure_ambient_host();
-    super::reset_shipped_ui_draw_command_count();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let window = test_window(0, 460, 800, 140);
-    super::w3d_command_bar_background_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_command_bar_background_draw(&window, window.instance_data(), &mut dc);
     assert_eq!(
-        super::shipped_ui_draw_command_count(),
+        dc.shipped_ui_draw_commands,
         0,
         "C++ W3DControlBar.cpp:615-623 + ControlBarScheme.cpp:794-799: no scheme manager/marker \
          or missing scheme image draws NOTHING — the bar must never paint a fallback strip"
@@ -807,11 +807,11 @@ fn w3d_command_bar_background_draw_ships_nothing_without_scheme() {
 #[test]
 fn w3d_command_bar_foreground_draw_ships_nothing_without_scheme() {
     crate::test_support::ensure_ambient_host();
-    super::reset_shipped_ui_draw_command_count();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let window = test_window(8, 595, 5, 5);
-    super::w3d_command_bar_foreground_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_command_bar_foreground_draw(&window, window.instance_data(), &mut dc);
     assert_eq!(
-        super::shipped_ui_draw_command_count(),
+        dc.shipped_ui_draw_commands,
         0,
         "C++ W3DControlBar.cpp:639-650: foreground scheme draw is silent without manager/marker"
     );
@@ -819,14 +819,14 @@ fn w3d_command_bar_foreground_draw_ships_nothing_without_scheme() {
 
 #[test]
 fn w3d_push_button_draw_queues_fallback_when_colors_undefined() {
-    let _client = crate::test_support::park_live_game_client();
-    super::reset_shipped_ui_draw_command_count();
+    crate::test_support::ensure_ambient_host();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let mut window = test_window(20, 20, 120, 32);
     let button = PushButton::new(7, 0, 0, 120, 32);
     window.set_widget(WindowWidget::PushButton(button));
-    super::w3d_gadget_push_button_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_gadget_push_button_draw(&window, window.instance_data(), &mut dc);
     assert!(
-        super::shipped_ui_draw_command_count() > 0,
+        dc.shipped_ui_draw_commands > 0,
         "push button must queue a visible fill when draw-data colors/images are missing"
     );
 }
@@ -838,14 +838,14 @@ fn w3d_push_button_image_draw_queues_nothing_when_no_image_is_bound() {
     // the drawImage block when the state's image slot is empty: an
     // IMAGE-status button (ControlBar.wnd command buttons) renders nothing
     // until setControlCommand binds art — never the authored red fill.
-    super::reset_shipped_ui_draw_command_count();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let mut window = test_window(20, 60, 64, 64);
     window.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE);
     let button = PushButton::new(8, 0, 0, 64, 64);
     window.set_widget(WindowWidget::PushButton(button));
-    super::w3d_gadget_push_button_image_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_gadget_push_button_image_draw(&window, window.instance_data(), &mut dc);
     assert_eq!(
-        super::shipped_ui_draw_command_count(),
+        dc.shipped_ui_draw_commands,
         0,
         "unbound image-status button must not paint a placeholder fill"
     );
@@ -856,31 +856,52 @@ fn w3d_push_button_image_one_never_falls_back_to_authored_red_color() {
     crate::test_support::ensure_ambient_host();
     // The image helper itself must keep W3DPushButton.cpp:288-368 semantics,
     // even when a caller invokes it before the state's image is assigned.
-    super::reset_shipped_ui_draw_command_count();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let mut window = test_window(20, 60, 64, 64);
     window.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE);
     window.instance_data_mut().enabled_draw_data[0].color = 0xFFFF_0000;
-    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); super::draw_push_button_image_one(&window, window.instance_data(), &mut __dc); }
-    assert_eq!(super::shipped_ui_draw_command_count(), 0);
+    super::draw_push_button_image_one(&window, window.instance_data(), &mut dc);
+    assert_eq!(dc.shipped_ui_draw_commands, 0);
 }
 
 #[test]
 fn w3d_power_and_progress_queue_commands_without_art() {
-    let _client = crate::test_support::park_live_game_client();
-    super::reset_shipped_ui_draw_command_count();
+    crate::test_support::ensure_ambient_host();
+    let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
     let mut progress = test_window(10, 10, 200, 16);
     let mut bar = ProgressBar::new(3, 0, 0, 200, 16);
     bar.set_percentage(40.0);
     progress.set_widget(WindowWidget::ProgressBar(bar));
-    super::w3d_gadget_progress_bar_draw(&progress, progress.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
-    super::w3d_gadget_progress_bar_image_draw(&progress, progress.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_gadget_progress_bar_draw(&progress, progress.instance_data(), &mut dc);
+    super::w3d_gadget_progress_bar_image_draw(&progress, progress.instance_data(), &mut dc);
 
     let power = test_window(261, 473, 283, 7);
-    super::w3d_power_draw(&power, power.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
-    super::w3d_power_draw_a(&power, power.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_power_draw(&power, power.instance_data(), &mut dc);
+    super::w3d_power_draw_a(&power, power.instance_data(), &mut dc);
 
     assert!(
-        super::shipped_ui_draw_command_count() > 0,
+        dc.shipped_ui_draw_commands > 0,
         "progress and power meters must emit fallback commands"
     );
+}
+
+#[test]
+fn draw_counters_are_per_draw_context() {
+    crate::test_support::ensure_ambient_host();
+    let window = test_window(0, 80, 800, 40);
+    let mut a = crate::gui::window_draw_context::WindowDrawContext::default();
+    let b = crate::gui::window_draw_context::WindowDrawContext::default();
+    super::w3d_metal_bar_menu_draw(&window, window.instance_data(), &mut a);
+    assert!(a.shipped_ui_draw_commands > 0);
+    assert_eq!(b.shipped_ui_draw_commands, 0);
+    assert_eq!(b.win_draw_image_commands, 0);
+}
+
+#[test]
+fn text_entry_blink_phase_is_per_window_manager() {
+    let a = crate::gui::window_manager::WindowManager::new();
+    let b = crate::gui::window_manager::WindowManager::new();
+    assert_eq!(a.next_text_entry_draw_count(), 0);
+    assert_eq!(a.next_text_entry_draw_count(), 1);
+    assert_eq!(b.next_text_entry_draw_count(), 0);
 }

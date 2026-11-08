@@ -59,11 +59,6 @@ fn popup_state_on_owner(
     if let Some(owner) = owner {
         return owner.popup_player_info_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().popup_player_info_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_POPUP_STATE.with(|cell| {
@@ -78,8 +73,8 @@ fn popup_state_on_owner(
     }
 }
 
-fn popup_state() -> Rc<RefCell<PopupPlayerInfoState>> {
-    popup_state_on_owner(None)
+fn popup_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<PopupPlayerInfoState>> {
+    popup_state_on_owner(owner)
 }
 
 
@@ -203,8 +198,8 @@ pub fn popup_player_info_shutdown(
     state.is_overlay_active = false;
 }
 
-pub fn popup_player_info_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = popup_state();
+pub fn popup_player_info_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = popup_state(owner);
     let mut state = state_slot.borrow_mut();
     if state.raise_message_box {
         raise_gs_message_box();

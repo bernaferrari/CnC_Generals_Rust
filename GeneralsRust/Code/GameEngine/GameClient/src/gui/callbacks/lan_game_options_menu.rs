@@ -99,13 +99,6 @@ fn with_state_on_owner<R>(
     if let Some(owner) = owner {
         return owner.with_lan_game_options_mut(|state| f.take().expect("lan")(&mut state.borrow_mut()));
     }
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_lan_game_options_mut(|state| f.take().expect("lan")(&mut state.borrow_mut()))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_LAN_GAME_OPTIONS.with(|s| f.take().expect("lan")(&mut s.borrow_mut()));
@@ -116,12 +109,12 @@ fn with_state_on_owner<R>(
     }
 }
 
-fn with_state<R>(f: impl FnOnce(&mut LanGameOptionsState) -> R) -> R {
-    with_state_on_owner(None, f)
+fn with_state<R>(f: impl FnOnce(&mut LanGameOptionsState) -> R, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> R {
+    with_state_on_owner(owner, f)
 }
 
-fn with_state_ref<R>(f: impl FnOnce(&LanGameOptionsState) -> R) -> R {
-    with_state(|state| f(state))
+fn with_state_ref<R>(f: impl FnOnce(&LanGameOptionsState) -> R, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> R {
+    with_state(|state| f(state), owner)
 }
 
 fn with_lan_map_select_layout_on_owner<R>(
@@ -131,13 +124,6 @@ fn with_lan_map_select_layout_on_owner<R>(
     let mut f = Some(f);
     if let Some(owner) = owner {
         return owner.with_lan_map_select_layout_mut(|layout| f.take().expect("lan layout")(layout));
-    }
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_lan_map_select_layout_mut(|layout| f.take().expect("lan layout")(layout))
-    }) {
-        return result;
     }
     #[cfg(test)]
     {
@@ -151,8 +137,8 @@ fn with_lan_map_select_layout_on_owner<R>(
     }
 }
 
-fn with_lan_map_select_layout<R>(f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R) -> R {
-    with_lan_map_select_layout_on_owner(None, f)
+fn with_lan_map_select_layout<R>(f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> R {
+    with_lan_map_select_layout_on_owner(owner, f)
 }
 
 fn name_to_id(name: &str) -> i32 {

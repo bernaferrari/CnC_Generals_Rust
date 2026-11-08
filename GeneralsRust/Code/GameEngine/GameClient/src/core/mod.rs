@@ -38,7 +38,6 @@ pub use game_client::{
     GameClientMessageDispatcher, GameClientResult, PresentationDirectDrawableBindingKey,
     PresentationDirectDrawableState, PresentationDrawableSync, PresentationSpecializedDrawKind,
     PresentationSpecializedDrawSnapshot, Shadow, ShadowType, ShroudStatus, SubsystemManager,
-    query_live_current_client_bone_positions,
 };
 
 // Re-export commonly used types from the original codebase

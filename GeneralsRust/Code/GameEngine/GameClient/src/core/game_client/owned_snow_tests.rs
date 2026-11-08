@@ -71,31 +71,27 @@ fn receiving_snow_lifecycle_and_snapshots_do_not_mutate_peer() {
 }
 
 #[test]
-fn frame_writer_revalidates_registration_after_peer_takes_live_slot() {
+fn frame_writer_targets_its_own_client_not_a_peer() {
     crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
-        "frame_writer_revalidates_registration_after_peer_takes_live_slot",
+        "frame_writer_targets_its_own_client_not_a_peer",
     ) {
         return;
     }
     let mut owner = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
-    register_live_game_client(&mut owner);
     {
         let (mut frame, snow) = owner.split_frame_and_snow();
         frame.set_frame(11);
         snow.set_visible(false);
-        assert_eq!(live_game_client_frame(), Some(11));
-        register_live_game_client(&mut peer);
         peer.set_frame(22);
         frame.set_frame(33);
-        assert_eq!(live_game_client_frame(), Some(22));
     }
     assert_eq!(owner.frame, 33);
     assert!(!owner.snow.is_visible());
     assert!(peer.snow.is_visible());
-    clear_live_game_client(&mut peer);
+    assert_eq!(peer.frame, 22);
 }
 
 #[test]

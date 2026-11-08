@@ -292,10 +292,10 @@ impl CnCGameEngine {
     /// C++ GameAudio.cpp:281-330: mic/listener from TheTacticalView camera.
     /// Outbound compatibility pose for remaining Core HUD/radar consumers.
     /// Native audio consumes CompletedAudioView directly and never reads this mirror.
-    pub(super) fn publish_core_hud_camera_pose(&self) {
+    pub(super) fn publish_core_hud_camera_pose(&mut self) {
         #[cfg(feature = "game_client")]
         {
-            use game_client::display::view::{Point3, with_tactical_view};
+            use game_client::display::view::Point3;
 
             // Main camera is Y-up; GameClient View / C++ Coord3D is Z-up (X/Y ground).
             let target = Point3::new(
@@ -316,7 +316,8 @@ impl CnCGameEngine {
                 1.0
             };
 
-            with_tactical_view(|view| {
+            let session_view = &self.game_logic.session_view;
+            self.game_client.get_view_mut(|view| {
                 // Raw host pose write: no player-set scripted-camera cancels,
                 // no per-frame init_height_for_map terrain rescan (ground
                 // level stays with view init / map install). Pitch is
@@ -325,7 +326,7 @@ impl CnCGameEngine {
                 view.sync_pose_from_host(
                     &target,
                     angle,
-                    self.game_logic.session_view.camera.camera_pitch_radians,
+                    session_view.camera.camera_pitch_radians,
                     zoom,
                 );
             });

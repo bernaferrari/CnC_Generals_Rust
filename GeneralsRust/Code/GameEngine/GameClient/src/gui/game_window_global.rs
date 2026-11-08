@@ -11,37 +11,6 @@ use super::game_window::{Color, GameFont, Image, WIN_COLOR_UNDEFINED};
 use super::ui_renderer::UIRect;
 use super::window_manager::WindowManager;
 
-/// Visible `win_draw_image` submits (textured or untextured fill).
-/// Tests can read this when UIRenderer/GPU is not bound.
-///
-/// Counter lives on the live GameClient (C++ TheDisplay path). Without a
-/// published client the count is zero and increments are no-ops — no process
-/// FALLBACK AtomicUsize.
-pub fn win_draw_image_queued_count() -> usize {
-    crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .win_draw_image_commands()
-            .load(std::sync::atomic::Ordering::Relaxed)
-    })
-    .unwrap_or(0)
-}
-
-pub fn reset_win_draw_image_queued_count() {
-    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .win_draw_image_commands()
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-    });
-}
-
-fn note_win_draw_image_command() {
-    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .win_draw_image_commands()
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    });
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum MissingImagePolicy {
     Placeholder,
@@ -191,7 +160,7 @@ impl WindowManager {
                         mode,
                         rotated,
                     );
-                    note_win_draw_image_command();
+                    draw_context.note_win_draw_image_command();
                     submitted = true;
                 } else if missing_policy == MissingImagePolicy::Placeholder {
                     let rect = UIRect::new(
@@ -201,12 +170,12 @@ impl WindowManager {
                         (end_y - start_y) as f32,
                     );
                     renderer.draw_rect(rect, color_to_rgba(0xFF3D4F63), 0.0);
-                    note_win_draw_image_command();
+                    draw_context.note_win_draw_image_command();
                     submitted = true;
                 }
             }
             if !submitted && missing_policy == MissingImagePolicy::Placeholder {
-                note_win_draw_image_command();
+                draw_context.note_win_draw_image_command();
             }
             return;
         }
@@ -286,7 +255,6 @@ impl WindowManager {
                     mode,
                     rotated,
                 );
-                note_win_draw_image_command();
                 true
             } else if found_mapped && missing_policy == MissingImagePolicy::Placeholder {
                 // C++ W3DDisplay::drawImage treats DrawData COLOR as a modulate
@@ -303,12 +271,14 @@ impl WindowManager {
                     (end_y - start_y) as f32,
                 );
                 renderer.draw_rect(rect, color_to_rgba(0xFF3D4F63), 0.0);
-                note_win_draw_image_command();
                 true
             } else {
                 false
             }
         });
+        if submitted == Some(true) {
+            draw_context.note_win_draw_image_command();
+        }
         if submitted != Some(true) {
             let _ = ensure_client_mapped_image(&image.name);
             if missing_policy == MissingImagePolicy::Placeholder
@@ -317,7 +287,7 @@ impl WindowManager {
                     .find_image_by_name(&image.name)
                     .is_some()
             {
-                note_win_draw_image_command();
+                draw_context.note_win_draw_image_command();
             }
         }
     }
@@ -410,7 +380,7 @@ impl WindowManager {
             );
             renderer.draw_textured_mesh(&positions, &uvs, &indices, texture, color, blend, 0.0);
         }
-        note_win_draw_image_command();
+        draw_context.note_win_draw_image_command();
     }
 
     /// Draw a filled rectangle using UI renderer.
@@ -881,7 +851,7 @@ mod overlay_tests {
 
     #[test]
     fn missing_transparent_overlay_does_not_queue_opaque_base_placeholder() {
-        let _client = crate::test_support::park_live_game_client();
+        crate::test_support::ensure_ambient_host();
         let name = "MissingCameoOverlayPolicyTest";
         get_mapped_image_collection()
             .write()
@@ -889,17 +859,17 @@ mod overlay_tests {
         let manager = WindowManager::new();
         let image = manager.win_find_image(name).expect("mapped metadata");
 
-        reset_win_draw_image_queued_count();
-        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); manager.win_draw_transparent_overlay_image(&image, 0, 0, 64, 64, &mut __dc); }
+        let mut dc = crate::gui::window_draw_context::WindowDrawContext::default();
+        manager.win_draw_transparent_overlay_image(&image, 0, 0, 64, 64, &mut dc);
         assert_eq!(
-            win_draw_image_queued_count(),
+            dc.win_draw_image_commands,
             0,
             "missing overlay pixels must leave the base cameo visible"
         );
 
-        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED, &mut __dc); }
+        manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED, &mut dc);
         assert_eq!(
-            win_draw_image_queued_count(),
+            dc.win_draw_image_commands,
             1,
             "base image keeps its existing missing-art placeholder"
         );

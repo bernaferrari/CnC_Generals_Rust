@@ -22,11 +22,6 @@ fn gamespy_game_info_on_owner(
     if let Some(owner) = owner {
         return owner.gamespy_game_info_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().gamespy_game_info_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_GAMESPY_GAME_INFO.with(|cell| {
@@ -40,23 +35,23 @@ fn gamespy_game_info_on_owner(
     }
 }
 
-fn gamespy_game_info() -> Rc<RefCell<GameInfo>> {
-    gamespy_game_info_on_owner(None)
+fn gamespy_game_info(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<GameInfo>> {
+    gamespy_game_info_on_owner(owner)
 }
 
-pub fn with_gamespy_game_info<R>(f: impl FnOnce(&GameInfo) -> R) -> R {
-    let slot = gamespy_game_info();
+pub fn with_gamespy_game_info<R>(f: impl FnOnce(&GameInfo) -> R, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> R {
+    let slot = gamespy_game_info(owner);
     let guard = slot.borrow();
     f(&guard)
 }
 
-pub fn with_gamespy_game_info_mut<R>(f: impl FnOnce(&mut GameInfo) -> R) -> R {
-    let guard_slot = gamespy_game_info();
+pub fn with_gamespy_game_info_mut<R>(f: impl FnOnce(&mut GameInfo) -> R, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> R {
+    let guard_slot = gamespy_game_info(owner);
     let mut guard = guard_slot.borrow_mut();
     f(&mut guard)
 }
 
-pub fn push_gamespy_game_options() -> bool {
+pub fn push_gamespy_game_options(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> bool {
     let (options, map_name, player_names, use_stats, slot_states, slot_templates, slot_colors) =
         with_gamespy_game_info(|info| {
             let options = game_info_to_ascii_string(info);
@@ -83,7 +78,7 @@ pub fn push_gamespy_game_options() -> bool {
             (
                 options, map_name, names, use_stats, states, templates, colors,
             )
-        });
+        }, owner);
 
     let player_info_map =
         crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {

@@ -32,14 +32,15 @@ pub fn ensure_ambient_host() {}
 #[cfg(test)]
 pub use ambient_host::ensure_ambient_host;
 
-/// Park a lexical `GameClient` in the live snapshot slot for the duration of
-/// the returned value. Counters (win_draw / shipped UI draws) and per-client
-/// schedule/LOD state require this — increments are no-ops without it.
+/// Construct a `GameClient` whose terrain visual is published the way
+/// standalone `GameClient::init` publishes it.
 #[cfg(test)]
 pub fn park_live_game_client() -> crate::core::game_client::GameClient {
     ensure_ambient_host();
-    let mut client = crate::core::game_client::GameClient::new().expect("GameClient");
-    crate::core::game_client::register_live_game_client(&mut client);
+    let client = crate::core::game_client::GameClient::new().expect("GameClient");
+    crate::terrain::terrain_visual::publish_terrain_visual(std::sync::Arc::clone(
+        &client.terrain_visual_gpu,
+    ));
     client
 }
 

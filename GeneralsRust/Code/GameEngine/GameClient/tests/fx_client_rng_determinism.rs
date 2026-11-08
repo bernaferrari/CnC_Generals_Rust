@@ -20,16 +20,19 @@ use game_client_rust::terrain::scorch_mesh::resolve_scorch_type;
 
 #[test]
 fn fx_randomness_is_reproducible_from_same_client_seed() {
-    use game_engine::common::random_value::init_random_with_seed;
+    use game_engine::common::random_value::RandomState;
+    let seeded = |seed: u32| {
+        let mut rng = RandomState::default();
+        rng.seed_random(seed);
+        rng
+    };
 
     // --- Random scorch selection (C++ FXList.cpp:433) -----------------------
     // Explicit scorch types pass through untouched.
-    assert_eq!(resolve_scorch_type(2), 2);
+    assert_eq!(resolve_scorch_type(&mut RandomState::default(), 2), 2);
 
-    init_random_with_seed(20260829);
-    let scorch_first = resolve_scorch_type(-1);
-    init_random_with_seed(20260829);
-    let scorch_second = resolve_scorch_type(-1);
+    let scorch_first = resolve_scorch_type(&mut seeded(20260829), -1);
+    let scorch_second = resolve_scorch_type(&mut seeded(20260829), -1);
 
     assert!(
         (0..=3).contains(&scorch_first),
@@ -41,7 +44,7 @@ fn fx_randomness_is_reproducible_from_same_client_seed() {
     );
 
     // --- Particle wind + emission (C++ ParticleSys.cpp:1123-1125, 1531-1648)
-    let build_system = || {
+    let build_system = |seed: u32| {
         let mut template = ParticleSystemTemplate::new("SeededFx".to_string());
         {
             let info = template.info_mut();
@@ -59,17 +62,18 @@ fn fx_randomness_is_reproducible_from_same_client_seed() {
             info.wind_motion_end_angle_min = 30.0;
             info.wind_motion_end_angle_max = 40.0;
         }
-        ParticleSystem::new(Arc::new(template), 7, false)
+        let mut rng = seeded(seed);
+        ParticleSystem::new_with_random(Arc::new(template), 7, false, &mut |lo, hi| {
+            rng.next_real(lo, hi)
+        })
     };
 
-    init_random_with_seed(424242);
-    let mut system_a = build_system();
+    let mut system_a = build_system(424242);
     let wind_a = system_a.wind_angle();
     let _ = system_a.begin_frame_emit(0, 10);
     let emissions_a = system_a.take_pending_emissions();
 
-    init_random_with_seed(424242);
-    let mut system_b = build_system();
+    let mut system_b = build_system(424242);
     let wind_b = system_b.wind_angle();
     let _ = system_b.begin_frame_emit(0, 10);
     let emissions_b = system_b.take_pending_emissions();

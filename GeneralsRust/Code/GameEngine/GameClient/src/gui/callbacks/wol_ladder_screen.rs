@@ -42,11 +42,6 @@ fn wol_ladder_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_ladder_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_ladder_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_LADDER_STATE.with(|cell| {
@@ -60,19 +55,12 @@ fn wol_ladder_state_on_owner(
     }
 }
 
-fn wol_ladder_state() -> Rc<RefCell<WolLadderState>> {
-    wol_ladder_state_on_owner(None)
+fn wol_ladder_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolLadderState>> {
+    wol_ladder_state_on_owner(owner)
 }
 
 fn with_ladder_browser_mut<R>(f: impl FnOnce(&mut W3DWebBrowser) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_wol_ladder_browser_mut(|browser| f.take().expect("ladder browser")(browser))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_LADDER_BROWSER.with(|slot| f.take().expect("ladder browser")(&mut slot.borrow_mut()));
@@ -84,11 +72,6 @@ fn with_ladder_browser_mut<R>(f: impl FnOnce(&mut W3DWebBrowser) -> R) -> R {
 }
 
 fn webpages_loaded() -> bool {
-    if let Some(loaded) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_ladder_webpages_loaded()
-    }) {
-        return loaded;
-    }
     #[cfg(test)]
     {
         return TEST_WEBPAGES_LOADED.with(|c| c.get());
@@ -100,13 +83,6 @@ fn webpages_loaded() -> bool {
 }
 
 fn set_webpages_loaded(loaded: bool) {
-    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .set_wol_ladder_webpages_loaded(loaded);
-    }) {
-        return;
-    }
     #[cfg(test)]
     {
         TEST_WEBPAGES_LOADED.with(|c| c.set(loaded));
@@ -160,16 +136,15 @@ fn ensure_webpages_loaded() -> bool {
     false
 }
 
-pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     get_shell().show_shell_map(true);
 
     let parent_id = name_to_id("WOLLadderScreen.wnd:LadderParent");
     let button_back_id = name_to_id("WOLLadderScreen.wnd:ButtonBack");
     let window_ladder_id = name_to_id("WOLLadderScreen.wnd:WindowLadder");
 
-    let (parent, button_back, window_ladder) =
-        crate::core::game_client::with_live_game_client_mut(|client| {
-            let owner = client.window_manager_owner_ref();
+    let (parent, button_back, window_ladder) = owner
+        .map(|owner| {
             (
                 owner.with_manager(|manager| manager.get_window_by_id(parent_id as i32)),
                 owner.with_manager(|manager| manager.get_window_by_id(button_back_id as i32)),
@@ -190,15 +165,11 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
 
     layout.hide(false);
 
-    if let Some(parent) = parent.as_ref() {
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            client
-                .window_manager_owner_ref()
-                .with_manager(|manager| manager.set_focus(Some(parent)))
-        });
+    if let (Some(parent), Some(owner)) = (parent.as_ref(), owner) {
+        owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let state_slot = wol_ladder_state();
+    let state_slot = wol_ladder_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_back_id = button_back_id;
@@ -208,9 +179,9 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
     state.window_ladder = window_ladder;
 }
 
-pub fn wol_ladder_screen_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_ladder_screen_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     {
-        let state_slot = wol_ladder_state();
+        let state_slot = wol_ladder_state(owner);
         let state = state_slot.borrow();
         if let Some(window) = state.window_ladder.as_ref() {
             with_ladder_browser_mut(|browser| {
@@ -229,7 +200,7 @@ pub fn wol_ladder_screen_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
@@ -238,7 +209,7 @@ pub fn wol_ladder_screen_input(
     }
 
     let (parent, button_id) = {
-        let slot = wol_ladder_state();
+        let slot = wol_ladder_state(owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_back_id)
     };
@@ -252,14 +223,14 @@ pub fn wol_ladder_screen_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_slot = wol_ladder_state();
+            let state_slot = wol_ladder_state(owner);
             let state = state_slot.borrow_mut();
             if control_id == state.button_back_id {
                 let _ = get_shell().pop();

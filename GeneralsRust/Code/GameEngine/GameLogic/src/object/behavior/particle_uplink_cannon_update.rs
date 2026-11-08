@@ -13,7 +13,7 @@ use crate::damage::DamageInfo;
 use crate::helpers::TheParticleSystemManager;
 use crate::helpers::{
     TheAudio, TheFXListStore, TheGameClient, TheGameLogic, ThePartitionManager, TheTerrainLogic,
-    TheThingFactory, game_client_random_value, game_logic_random_value,
+    TheThingFactory, game_logic_random_value,
 };
 use crate::modules::{
     BehaviorModuleInterface, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
@@ -1618,7 +1618,7 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                 if self.next_scorch_mark_frame <= now {
                     self.scorch_marks_made += 1;
                     if let Some(client) = TheGameClient::get() {
-                        let scorch_id = game_client_random_value(SCORCH_1, SCORCH_4);
+                        let scorch_id = crate::system::engine_stores::active_services().client_random_value(SCORCH_1, SCORCH_4);
                         client.add_scorch(&self.current_target_position, scorch_radius, scorch_id);
                     }
 

@@ -60,18 +60,11 @@ impl GameClient {
                         .and_then(|client| client.object_w3d_ghost_snapshot_source(object_id))
                 })),
             );
+        // Ownerless GameLogic hook: no receiving client is reachable from a
+        // process fn-pointer, so the capture window has no owner to consult
+        // (identical to native, where the live slot was never registered).
         gamelogic::object::w3d_ghost_object::register_w3d_ghost_snapshot_capture_hook(Some(
-            Arc::new(|object_id| {
-                let source =
-                    gamelogic::object::w3d_ghost_object::capture_w3d_ghost_snapshot_source(
-                        object_id,
-                    )?;
-                // The receiving client's own bridge holds the capture window.
-                crate::core::game_client::with_live_game_client_mut(|client| {
-                    client.capture_w3d_ghost_snapshot(&source)
-                })
-                .flatten()
-            }),
+            Arc::new(|_object_id| None),
         ));
     }
 
@@ -144,9 +137,6 @@ impl GameClient {
                 view.init();
                 view
             },
-            hint_model_cache: crate::display::view::HintModelCache::default(),
-            display_letter_boxed: false,
-            terrain_texture_caches: crate::terrain::textures::TerrainTextureCaches::default(),
             terrain_visual_gpu: std::sync::Arc::new(parking_lot::Mutex::new(None)),
             render_bridge_next_line_id: std::sync::atomic::AtomicU64::new(1),
             win_draw_image_commands: std::sync::atomic::AtomicUsize::new(0),
@@ -180,11 +170,12 @@ impl GameClient {
             render_bridge: crate::render_bridge::RenderBridge::new(),
             drawable_manager: crate::drawable::DrawableManager::new(),
             host_contained_flash_queue: Vec::new(),
+            client_random: game_engine::common::random_value::RandomState::default(),
+            audio_random: game_engine::common::random_value::RandomState::default(),
             client_anim2d_instances: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::system::anim2_d::Anim2DCollection::new(),
             )),
             drawables: drawable_world::DrawableWorld::new(),
-            live_slot_token: 0,
             pending_drawable_post_process_order: None,
             drawable_toc: Vec::new(),
             loaded_map: None,
@@ -341,7 +332,9 @@ impl GameClient {
             ));
         }
 
-        register_live_game_client(self);
+        crate::terrain::terrain_visual::publish_terrain_visual(std::sync::Arc::clone(
+            &self.terrain_visual_gpu,
+        ));
         Self::register_w3d_ghost_snapshot_bridges();
 
         init_video_player();
@@ -573,9 +566,7 @@ impl GameClient {
         // C++ GameClient.cpp:438-451 clears Drawables, then resets the
         // Display/Terrain/RayEffects for the next match. Drop the Rust
         // transient tracer/ray/light streams at the same boundary.
-        if owns_live_game_client_slot(self) {
-            crate::effects::clear_live_effects_after_drawables(self.fx_mut());
-        }
+        crate::effects::clear_live_effects_after_drawables(self.fx_mut());
 
         if let Some(layout) = reset_background {
             self.with_window_event_effects(None, |effects| {
@@ -937,10 +928,32 @@ impl GameClient {
         &mut self.drawable_manager
     }
 
+    /// The UI owns the live value (meta-event player switches write it through
+    /// `ReceivingUi`); the field covers a client with no UI installed yet.
     pub(crate) fn local_player_id(&self) -> i32 {
-        self.local_player_id
+        self.subsystem_manager
+            .in_game_ui
+            .as_ref()
+            .map_or(self.local_player_id, |ui| ui.local_player_id())
     }
 
+
+    /// This presentation instance's client random stream.
+    pub fn client_random_mut(&mut self) -> &mut game_engine::common::random_value::RandomState {
+        &mut self.client_random
+    }
+
+    /// This presentation instance's audio random stream.
+    pub fn audio_random_mut(&mut self) -> &mut game_engine::common::random_value::RandomState {
+        &mut self.audio_random
+    }
+
+    /// C++ `InitRandom(seed)` presentation half: reseed this instance's
+    /// client and audio streams only.
+    pub fn seed_presentation_random(&mut self, seed: u32) {
+        self.client_random.seed_random(seed);
+        self.audio_random.seed_random(seed);
+    }
 
     pub(crate) fn client_anim2d_instances_handle(
         &self,
@@ -977,11 +990,12 @@ impl GameClient {
                 }
             }));
             let button_audio = Arc::clone(&audio_arc);
-            register_button_audio_hook(Box::new(move |event| {
-                if let Ok(mut guard) = button_audio.lock() {
-                    let _ = guard.play_event(event, None);
-                }
-            }));
+            self.window_manager_owner_ref()
+                .register_button_audio_hook(Box::new(move |event| {
+                    if let Ok(mut guard) = button_audio.lock() {
+                        let _ = guard.play_event(event, None);
+                    }
+                }));
             self.subsystem_manager.audio = Some(audio_arc);
         }
 
@@ -1100,6 +1114,8 @@ impl GameClient {
             if self.input_authority == ClientInputAuthority::NativeHosted {
                 ui.admit_native_control_bar_transport();
             }
+            let mut ui = ui;
+            ui.set_local_player_id(self.local_player_id);
             self.subsystem_manager.in_game_ui = Some(ui);
             // InGameUI.cpp1157 creates this authored transport during UI init;
             // Recorder::initControls later only changes existing visibility.
@@ -1131,9 +1147,10 @@ impl GameClient {
                 .map(crate::snow::WeatherSetting::from_common)
                 .unwrap_or_default();
         self.snow_definition = self.snow_base_definition.clone();
+        let client_random = &mut self.client_random;
         self.snow
             .init_with_definition(&self.snow_definition, &mut |low, high| {
-                crate::GameClientRandomValue!(low, high)
+                crate::GameClientRandomValue!(client_random, low, high)
             });
 
         if self.subsystem_manager.video_player.is_none() {

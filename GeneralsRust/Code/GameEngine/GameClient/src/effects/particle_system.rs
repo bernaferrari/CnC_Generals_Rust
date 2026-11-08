@@ -3,7 +3,6 @@
 //! Complete particle system implementation matching C++ behavior exactly.
 //! Handles particle creation, physics simulation, and lifecycle management.
 
-use game_engine::common::random_value::get_game_client_random_value_real;
 use glam::{Mat3, Vec3};
 use std::collections::VecDeque;
 use std::sync::Arc;

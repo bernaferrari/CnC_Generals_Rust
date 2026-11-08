@@ -93,14 +93,22 @@ fn constant_logic_random_variable_with_mismatched_range_falls_through_to_uniform
 
 #[test]
 fn constant_client_random_variable_with_mismatched_range_falls_through_to_uniform() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     init_random_with_seed(54321);
+    client.seed_random(54321);
+    audio.seed_random(54321);
     let mut var = GameClientRandomVariable::new();
     var.set_range(5.0, 15.0, DistributionType::Constant);
-    let actual = var.get_value();
+    let actual = var.get_value_with(&mut client);
 
     init_random_with_seed(54321);
-    let expected = get_game_client_random_value_real(5.0, 15.0);
+
+    client.seed_random(54321);
+
+    audio.seed_random(54321);
+    let expected = client.next_real(5.0, 15.0);
     assert_eq!(actual, expected);
 }
 
@@ -121,6 +129,8 @@ fn unsupported_logic_distributions_return_zero_without_panic() {
 
 #[test]
 fn unsupported_client_distributions_return_zero_without_panic() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     // C++ GameClientRandomVariable::getValue (RandomValue.cpp:366-369)
     for dist in [
         DistributionType::Gaussian,
@@ -130,7 +140,7 @@ fn unsupported_client_distributions_return_zero_without_panic() {
     ] {
         let mut var = GameClientRandomVariable::new();
         var.set_range(5.0, 15.0, dist);
-        assert_eq!(var.get_value(), 0.0);
+        assert_eq!(var.get_value_with(&mut client), 0.0);
     }
 }
 
@@ -161,11 +171,15 @@ fn test_rng_logic_value_multiple_calls() {
 
 #[test]
 fn test_rng_client_value_multiple_calls() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify client RNG repeated calls don't panic
     init_random_with_seed(54321);
+    client.seed_random(54321);
+    audio.seed_random(54321);
     for _ in 0..100 {
-        let _val = get_game_client_random_value(1, 100);
+        let _val = client.next_int(1, 100);
     }
     // If we got here without panicking, test passes
     assert!(true);
@@ -173,11 +187,15 @@ fn test_rng_client_value_multiple_calls() {
 
 #[test]
 fn test_rng_audio_value_multiple_calls() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify audio RNG repeated calls don't panic
     init_random_with_seed(54321);
+    client.seed_random(54321);
+    audio.seed_random(54321);
     for _ in 0..100 {
-        let _val = get_game_audio_random_value(1, 100);
+        let _val = audio.next_int(1, 100);
     }
     // If we got here without panicking, test passes
     assert!(true);
@@ -224,13 +242,21 @@ fn test_rng_range_inclusive_boundaries() {
 
 #[test]
 fn test_rng_stream_separation_logic_vs_client() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify logic and client streams are separate
     init_random_with_seed(33333);
+    client.seed_random(33333);
+    audio.seed_random(33333);
     let logic_val = get_game_logic_random_value(1, 1000);
 
     init_random_with_seed(33333);
-    let client_val = get_game_client_random_value(1, 1000);
+
+    client.seed_random(33333);
+
+    audio.seed_random(33333);
+    let client_val = client.next_int(1, 1000);
 
     // Both initialized with same seed, but should produce same value in own stream
     // (all streams start from the same seed, so they should match)
@@ -242,13 +268,21 @@ fn test_rng_stream_separation_logic_vs_client() {
 
 #[test]
 fn test_rng_stream_separation_logic_vs_audio() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify logic and audio streams are separate
     init_random_with_seed(44444);
+    client.seed_random(44444);
+    audio.seed_random(44444);
     let logic_val = get_game_logic_random_value(1, 1000);
 
     init_random_with_seed(44444);
-    let audio_val = get_game_audio_random_value(1, 1000);
+
+    client.seed_random(44444);
+
+    audio.seed_random(44444);
+    let audio_val = audio.next_int(1, 1000);
 
     assert_eq!(
         logic_val, audio_val,
@@ -273,11 +307,15 @@ fn test_rng_real_value_logic_range() {
 
 #[test]
 fn test_rng_real_value_client_range() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify client real value stays in range
     init_random_with_seed(55555);
+    client.seed_random(55555);
+    audio.seed_random(55555);
     for _ in 0..100 {
-        let val = get_game_client_random_value_real(1.0, 2.0);
+        let val = client.next_real(1.0, 2.0);
         assert!(
             val >= 1.0 && val <= 2.0,
             "Value {} out of range [1.0, 2.0]",
@@ -288,11 +326,15 @@ fn test_rng_real_value_client_range() {
 
 #[test]
 fn test_rng_real_value_audio_range() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify audio real value stays in range
     init_random_with_seed(55555);
+    client.seed_random(55555);
+    audio.seed_random(55555);
     for _ in 0..100 {
-        let val = get_game_audio_random_value_real(3.0, 4.0);
+        let val = audio.next_real(3.0, 4.0);
         assert!(
             val >= 3.0 && val <= 4.0,
             "Value {} out of range [3.0, 4.0]",
@@ -303,12 +345,16 @@ fn test_rng_real_value_audio_range() {
 
 #[test]
 fn test_rng_zero_range_returns_high() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify zero range (lo == hi) returns the high value
     init_random_with_seed(66666);
+    client.seed_random(66666);
+    audio.seed_random(66666);
     assert_eq!(get_game_logic_random_value(42, 42), 42);
-    assert_eq!(get_game_client_random_value(99, 99), 99);
-    assert_eq!(get_game_audio_random_value(-5, -5), -5);
+    assert_eq!(client.next_int(99, 99), 99);
+    assert_eq!(audio.next_int(-5, -5), -5);
 }
 
 #[test]
@@ -576,19 +622,25 @@ fn test_rng_cpp_real_range_bounds() {
 
 #[test]
 fn test_rng_cpp_client_vs_logic_independence() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify client and logic streams advance independently
     init_random_with_seed(44444);
+    client.seed_random(44444);
+    audio.seed_random(44444);
     let logic_val = get_game_logic_random_value(1, 1000);
 
     // Now get client value without changing logic
-    let client_val = get_game_client_random_value(1, 1000);
+    let client_val = client.next_int(1, 1000);
 
     // Get logic value again - should be different from first
     let logic_val2 = get_game_logic_random_value(1, 1000);
 
     // Re-init and verify logic matches first call
     init_random_with_seed(44444);
+    client.seed_random(44444);
+    audio.seed_random(44444);
     assert_eq!(
         logic_val,
         get_game_logic_random_value(1, 1000),
@@ -598,21 +650,29 @@ fn test_rng_cpp_client_vs_logic_independence() {
 
 #[test]
 fn test_rng_cpp_audio_independence() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Verify audio stream is independent
     init_random_with_seed(55555);
-    let audio1 = get_game_audio_random_value(1, 1000);
-    let audio2 = get_game_audio_random_value(1, 1000);
+    client.seed_random(55555);
+    audio.seed_random(55555);
+    let audio1 = audio.next_int(1, 1000);
+    let audio2 = audio.next_int(1, 1000);
 
     init_random_with_seed(55555);
+
+    client.seed_random(55555);
+
+    audio.seed_random(55555);
     assert_eq!(
         audio1,
-        get_game_audio_random_value(1, 1000),
+        audio.next_int(1, 1000),
         "Audio stream should be reproducible"
     );
     assert_eq!(
         audio2,
-        get_game_audio_random_value(1, 1000),
+        audio.next_int(1, 1000),
         "Audio stream should be reproducible"
     );
 }
@@ -767,13 +827,17 @@ fn test_rng_cpp_no_period_collapse() {
 
 #[test]
 fn test_rng_cpp_all_streams_independent() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     let _guard = RngTestGuard::new();
     // Test that all three streams are truly independent
     init_random_with_seed(99988);
+    client.seed_random(99988);
+    audio.seed_random(99988);
 
     let logic = get_game_logic_random_value(1, 1000000);
-    let client = get_game_client_random_value(1, 1000000);
-    let audio = get_game_audio_random_value(1, 1000000);
+    let client = client.next_int(1, 1000000);
+    let audio = audio.next_int(1, 1000000);
 
     // These are NOT guaranteed to be different, but statistically should be
     // This is a weak test - just verify they're all in range
@@ -911,29 +975,33 @@ fn logic_rng_final_addition_wraps_like_msvc_x86() {
 
 #[test]
 fn client_and_audio_rng_survive_boundary_ranges() {
+    let mut client = RandomState::default();
+    let mut audio = RandomState::default();
     // Same C++ shape as the logic stream (RandomValue.cpp:217/240). These
     // streams expose no seed-state getter, so draw counts are asserted via
     // observable values: init_random_with_seed seeds all three streams
     // identically, so the next normal draw must equal the replayed draw.
     let _guard = RngTestGuard::new();
     init_random_with_seed(0xABCD);
+    client.seed_random(0xABCD);
+    audio.seed_random(0xABCD);
     let mut replay = RandomState::default();
     replay.seed_random(0xABCD);
     let first_draw = replay.next_value();
 
     // delta wraps to 0x80000000: no panic, exact MSVC-wrapped value.
     let expected_u31 = (first_draw % 0x8000_0000) as i32;
-    assert_eq!(get_game_client_random_value(0, i32::MAX), expected_u31);
-    assert_eq!(get_game_audio_random_value(0, i32::MAX), expected_u31);
+    assert_eq!(client.next_int(0, i32::MAX), expected_u31);
+    assert_eq!(audio.next_int(0, i32::MAX), expected_u31);
 
     // delta == 0 full range: returns hi and consumes NO draw, so the next
     // normal draw is still the stream's SECOND draw (replay steps it now).
-    assert_eq!(get_game_client_random_value(i32::MIN, i32::MAX), i32::MAX);
-    assert_eq!(get_game_audio_random_value(i32::MIN, i32::MAX), i32::MAX);
+    assert_eq!(client.next_int(i32::MIN, i32::MAX), i32::MAX);
+    assert_eq!(audio.next_int(i32::MIN, i32::MAX), i32::MAX);
     let second_draw = replay.next_value();
     let expected_mid = (second_draw % 1000) as i32 + 1;
-    assert_eq!(get_game_client_random_value(1, 1000), expected_mid);
-    assert_eq!(get_game_audio_random_value(1, 1000), expected_mid);
+    assert_eq!(client.next_int(1, 1000), expected_mid);
+    assert_eq!(audio.next_int(1, 1000), expected_mid);
 }
 
 // ========================================================================

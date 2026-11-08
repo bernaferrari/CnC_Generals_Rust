@@ -67,13 +67,6 @@ fn download_menu_state_on_owner(
     if let Some(owner) = owner {
         return owner.download_menu_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .download_menu_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_DOWNLOAD_MENU_STATE.with(|cell| {
@@ -87,8 +80,8 @@ fn download_menu_state_on_owner(
     }
 }
 
-fn download_menu_state() -> Rc<RefCell<DownloadMenuState>> {
-    download_menu_state_on_owner(None)
+fn download_menu_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<DownloadMenuState>> {
+    download_menu_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -392,14 +385,14 @@ pub fn download_menu_init(
     }
 }
 
-pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let state_handle = download_menu_state();
+pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_handle = download_menu_state(owner);
     let state = state_handle.borrow();
     if let Some(owner) = state.window_manager_owner.as_ref() {
         set_download_manager(owner.network_compat(), None);
     }
     drop(state);
-    let state_handle = download_menu_state();
+    let state_handle = download_menu_state(owner);
     let mut state = state_handle.borrow_mut();
     state.parent = None;
     state.static_text_size = None;

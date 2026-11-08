@@ -136,7 +136,7 @@ fn canonical_audio_deadlines_wrap_like_cpp_unsigned_frames() {
     event.set_audio_event_info(info);
     // Standalone generation reads the same configured paths that the manager
     // now passes directly while it owns the duration-query guard.
-    event.generate_filename();
+    event.generate_filename(&mut Default::default());
     let filename = std::path::Path::new(event.get_filename());
     assert!(
         !filename.is_absolute(),

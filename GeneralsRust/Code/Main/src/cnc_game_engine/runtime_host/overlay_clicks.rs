@@ -136,17 +136,18 @@ impl CnCGameEngine {
                 simulate_beacon_prepare_place_with_text, simulate_beacon_remove,
                 simulate_beacon_set_text,
             };
+            let beacons = self.game_client.beacons_mut();
             wnd_ok = match action.as_str() {
-                "remove" => simulate_beacon_remove(player, x, y, z),
-                "text" => simulate_beacon_set_text(player, x, y, z, &text),
+                "remove" => simulate_beacon_remove(beacons, player, x, y, z),
+                "text" => simulate_beacon_set_text(beacons, player, x, y, z, &text),
                 "drain" => {
-                    let _ = simulate_beacon_drain_notifications();
+                    let _ = simulate_beacon_drain_notifications(beacons);
                     true
                 }
                 "prepare" | "prepare_text" => {
-                    simulate_beacon_prepare_place_with_text(player, x, y, z, &text)
+                    simulate_beacon_prepare_place_with_text(beacons, player, x, y, z, &text)
                 }
-                _ => simulate_beacon_place(player, x, y, z, Some(text.as_str())),
+                _ => simulate_beacon_place(beacons, player, x, y, z, Some(text.as_str())),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {

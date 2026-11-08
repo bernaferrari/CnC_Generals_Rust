@@ -108,44 +108,42 @@ fn distance(a: &Coord3D, b: &Coord3D) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-fn with_beacon_display<R>(f: impl FnOnce(&mut BeaconDisplayState) -> R) -> R {
-    let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("beacon callback")(client.beacons_mut())
-    }) {
-        return result;
-    }
-    f.take().expect("beacon callback")(&mut BeaconDisplayState::default())
-}
-
-pub fn record_beacon_placed(player_id: i32, position: Coord3D, text: Option<String>) {
-    with_beacon_display(|state| {
-        info!(
-            "Player {} placed beacon at ({:.1}, {:.1}, {:.1})",
-            player_id, position.x, position.y, position.z
-        );
-        state.place(BeaconMarker {
-            player_id,
-            position,
-            text,
-        });
+pub fn record_beacon_placed(
+    state: &mut BeaconDisplayState,
+    player_id: i32,
+    position: Coord3D,
+    text: Option<String>,
+) {
+    info!(
+        "Player {} placed beacon at ({:.1}, {:.1}, {:.1})",
+        player_id, position.x, position.y, position.z
+    );
+    state.place(BeaconMarker {
+        player_id,
+        position,
+        text,
     });
 }
 
-pub fn record_beacon_removed(player_id: i32, position: Coord3D) {
-    with_beacon_display(|state| state.remove(player_id, &position));
+pub fn record_beacon_removed(state: &mut BeaconDisplayState, player_id: i32, position: Coord3D) {
+    state.remove(player_id, &position);
 }
 
-pub fn record_beacon_text(player_id: i32, position: Coord3D, text: String) {
-    with_beacon_display(|state| state.update_text(player_id, &position, text));
+pub fn record_beacon_text(
+    state: &mut BeaconDisplayState,
+    player_id: i32,
+    position: Coord3D,
+    text: String,
+) {
+    state.update_text(player_id, &position, text);
 }
 
-pub fn drain_notifications() -> Vec<BeaconNotification> {
-    with_beacon_display(|state| state.drain_notifications())
+pub fn drain_notifications(state: &mut BeaconDisplayState) -> Vec<BeaconNotification> {
+    state.drain_notifications()
 }
 
-pub fn snapshot_markers() -> Vec<BeaconMarker> {
-    with_beacon_display(|state| state.markers.clone())
+pub fn snapshot_markers(state: &BeaconDisplayState) -> Vec<BeaconMarker> {
+    state.markers.clone()
 }
 
 /// Residual: last Beacon display action requested by residual peels.
@@ -184,59 +182,76 @@ fn residual_beacon_sync_count(state: &mut BeaconDisplayState) {
 }
 
 /// Residual: place beacon without multiplayer/command stream.
-pub fn simulate_beacon_place(player_id: i32, x: f32, y: f32, z: f32, text: Option<&str>) -> bool {
-    record_beacon_placed(player_id, Coord3D { x, y, z }, text.map(|s| s.to_string()));
-    with_beacon_display(|state| {
-        residual_beacon_sync_count(state);
-        residual_beacon_action_store(state, ResidualBeaconAction::Place);
-        residual_beacon_marker_count(state) > 0
-    })
+pub fn simulate_beacon_place(
+    state: &mut BeaconDisplayState,
+    player_id: i32, x: f32, y: f32, z: f32, text: Option<&str>) -> bool {
+    record_beacon_placed(state, player_id, Coord3D { x, y, z }, text.map(|s| s.to_string()));
+    residual_beacon_sync_count(state);
+    residual_beacon_action_store(state, ResidualBeaconAction::Place);
+    residual_beacon_marker_count(state) > 0
 }
 
 /// Residual: remove beacon without multiplayer/command stream.
-pub fn simulate_beacon_remove(player_id: i32, x: f32, y: f32, z: f32) -> bool {
-    record_beacon_removed(player_id, Coord3D { x, y, z });
-    with_beacon_display(|state| {
-        residual_beacon_sync_count(state);
-        residual_beacon_action_store(state, ResidualBeaconAction::Remove);
-        true
-    })
+pub fn simulate_beacon_remove(
+    state: &mut BeaconDisplayState,
+    player_id: i32, x: f32, y: f32, z: f32) -> bool {
+    record_beacon_removed(state, player_id, Coord3D { x, y, z });
+    residual_beacon_sync_count(state);
+    residual_beacon_action_store(state, ResidualBeaconAction::Remove);
+    true
 }
 
 /// Residual: update beacon text without edit widget.
-pub fn simulate_beacon_set_text(player_id: i32, x: f32, y: f32, z: f32, text: &str) -> bool {
+pub fn simulate_beacon_set_text(
+    state: &mut BeaconDisplayState,
+    player_id: i32, x: f32, y: f32, z: f32, text: &str) -> bool {
     if text.is_empty() {
         return false;
     }
-    record_beacon_text(player_id, Coord3D { x, y, z }, text.to_string());
-    with_beacon_display(|state| {
-        residual_beacon_sync_count(state);
-        residual_beacon_action_store(state, ResidualBeaconAction::Text);
-        true
-    })
+    record_beacon_text(state, player_id, Coord3D { x, y, z }, text.to_string());
+    residual_beacon_sync_count(state);
+    residual_beacon_action_store(state, ResidualBeaconAction::Text);
+    true
 }
 
 /// Residual: drain pending beacon notifications.
-pub fn simulate_beacon_drain_notifications() -> usize {
-    let n = drain_notifications().len();
-    with_beacon_display(|state| {
-        residual_beacon_action_store(state, ResidualBeaconAction::Drain);
-        residual_beacon_sync_count(state);
-    });
+pub fn simulate_beacon_drain_notifications(state: &mut BeaconDisplayState) -> usize {
+    let n = drain_notifications(state).len();
+    residual_beacon_action_store(state, ResidualBeaconAction::Drain);
+    residual_beacon_sync_count(state);;
     n
 }
 
 /// Residual: place then set text composite.
 pub fn simulate_beacon_prepare_place_with_text(
+    state: &mut BeaconDisplayState,
     player_id: i32,
     x: f32,
     y: f32,
     z: f32,
     text: &str,
 ) -> bool {
-    if !simulate_beacon_place(player_id, x, y, z, None) {
+    if !simulate_beacon_place(state, player_id, x, y, z, None) {
         return false;
     }
-    simulate_beacon_set_text(player_id, x, y, z, text)
+    simulate_beacon_set_text(state, player_id, x, y, z, text)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn beacon_state_is_isolated_per_owner() {
+        let mut a = BeaconDisplayState::default();
+        let mut b = BeaconDisplayState::default();
+        assert!(simulate_beacon_place(&mut a, 1, 5.0, 6.0, 0.0, Some("a")));
+        assert_eq!(snapshot_markers(&a).len(), 1);
+        assert!(snapshot_markers(&b).is_empty());
+        assert!(simulate_beacon_place(&mut b, 2, 9.0, 9.0, 0.0, Some("b")));
+        assert!(simulate_beacon_remove(&mut a, 1, 5.0, 6.0, 0.0));
+        assert!(snapshot_markers(&a).is_empty());
+        assert_eq!(snapshot_markers(&b).len(), 1);
+    }
+}

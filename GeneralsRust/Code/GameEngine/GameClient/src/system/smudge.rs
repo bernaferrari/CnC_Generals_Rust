@@ -240,11 +240,6 @@ thread_local! {
 }
 
 fn smudge_manager_handle() -> Arc<Mutex<SmudgeManager>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_smudge_manager()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_SMUDGE_MANAGER.with(|slot| {

@@ -14,7 +14,6 @@ use std::time::Instant;
 
 use super::game_message::*;
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
-use super::player_state::get_local_player_id;
 use super::selection_xlat::SelectionTranslator;
 use super::translators::CommandTranslator;
 
@@ -227,7 +226,7 @@ impl InputProcessor {
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<GameMessage> {
         let mut messages = Vec::new();
-        let player_id = get_local_player_id();
+        let player_id = ui.local_player_id();
 
         match event {
             InputEvent::MouseMove { x, y, timestamp } => {
@@ -741,7 +740,6 @@ mod tests {
     use crate::test_support::with_receiving_ui;
 
     use super::*;
-    use crate::message_stream::player_state::set_local_player_id;
     use std::sync::Mutex;
 
     static LOCAL_PLAYER_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -783,10 +781,14 @@ mod tests {
         let _guard = LOCAL_PLAYER_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        set_local_player_id(3);
         let mut processor = InputProcessor::with_default_config();
 
-        let messages = with_receiving_ui(|ui| {
+        let mut owner_state = crate::core::subsystems::InGameUISubsystem::default();
+        owner_state.set_local_player_id(3);
+        let mut peer_state = crate::core::subsystems::InGameUISubsystem::default();
+        peer_state.set_local_player_id(8);
+        let messages = {
+            let ui = &mut crate::message_stream::ReceivingUi::new(&mut owner_state, 0, 0);
             let mut q = noop_window_query;
             processor.process_input_event(
                 InputEvent::MouseMove {
@@ -797,7 +799,7 @@ mod tests {
                 &mut q,
                 ui,
             )
-        });
+        };
 
         assert!(!messages.is_empty());
         assert!(
@@ -806,7 +808,17 @@ mod tests {
                 .all(|message| message.get_player_index() == 3)
         );
 
-        set_local_player_id(0);
+        // A peer client's UI id never leaks into this client's messages.
+        let peer_messages = {
+            let ui = &mut crate::message_stream::ReceivingUi::new(&mut peer_state, 0, 0);
+            let mut q = noop_window_query;
+            InputProcessor::with_default_config().process_input_event(
+                InputEvent::MouseMove { x: 64.0, y: 96.0, timestamp: Instant::now() },
+                &mut q,
+                ui,
+            )
+        };
+        assert!(peer_messages.iter().all(|m| m.get_player_index() == 8));
     }
 
     #[test]

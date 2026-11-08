@@ -73,7 +73,7 @@ impl ChinookAIUpdate {
         let ground = terrain.get_ground_height(pos.x, pos.y, None);
         pos.z = ground + 3.0;
         let chopper_elevation = owner_guard.get_position().z - pos.z;
-        if crate::helpers::game_client_random_value_real(0.0, chopper_elevation) < 5.0 {
+        if crate::system::engine_stores::active_services().client_random_value_real(0.0, chopper_elevation) < 5.0 {
             if let Some(ps_manager) = TheParticleSystemManager::get() {
                 let template = if self.data.rotor_wash_particle_system.is_empty() {
                     None

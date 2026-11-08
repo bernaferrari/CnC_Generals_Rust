@@ -469,11 +469,6 @@ thread_local! {
 }
 
 fn video_player_handle() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_video_player_slot()
-    }) {
-        return Some(handle);
-    }
     #[cfg(test)]
     {
         return Some(TEST_VIDEO_PLAYER.with(|slot| {
@@ -502,11 +497,6 @@ pub fn init_video_player() {
 }
 
 pub fn get_video_player() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.video_player_slot_opt()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_VIDEO_PLAYER.with(|slot| slot.borrow().clone());

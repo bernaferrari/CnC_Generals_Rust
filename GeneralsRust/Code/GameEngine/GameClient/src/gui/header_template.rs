@@ -140,11 +140,6 @@ thread_local! {
 }
 
 fn header_template_manager_handle() -> Arc<Mutex<HeaderTemplateManager>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_header_template_manager()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_HEADER_TEMPLATE_MANAGER.with(|slot| {

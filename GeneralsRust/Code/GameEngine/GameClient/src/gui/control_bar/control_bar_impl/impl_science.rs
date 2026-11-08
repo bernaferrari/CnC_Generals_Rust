@@ -1582,7 +1582,7 @@ impl ControlBar {
         self.clear_observer_target_owned();
         if observer {
             super::control_bar_observer::init_observer_controls(receiving_manager);
-            super::control_bar_observer::ensure_gen_arrow_from_mapped_images(receiving_manager);
+            super::control_bar_observer::ensure_gen_arrow_from_mapped_images(&mut self.gen_arrow, receiving_manager);
             let _ =
                 self.switch_to_context(ControlBarState::Observer, None, receiving_manager, effects);
         } else {
@@ -1623,7 +1623,7 @@ impl ControlBar {
         if is_observer {
             self.observer_mode = true;
             super::control_bar_observer::init_observer_controls(receiving_manager);
-            super::control_bar_observer::ensure_gen_arrow_from_mapped_images(receiving_manager);
+            super::control_bar_observer::ensure_gen_arrow_from_mapped_images(&mut self.gen_arrow, receiving_manager);
             let _ =
                 self.switch_to_context(ControlBarState::Observer, None, receiving_manager, effects);
         } else {
@@ -2491,7 +2491,7 @@ impl ControlBar {
         if !self.observer_mode {
             return None;
         }
-        if let Some(index) = super::control_bar_observer::observer_look_at_player_index() {
+        if let Some(index) = super::control_bar_observer::observer_look_at_player_index(None) {
             return Some(index);
         }
         self.context.observer_look_at_player
@@ -2523,11 +2523,11 @@ impl ControlBar {
     }
 
     pub fn get_arrow_image(&self) -> Option<crate::gui::game_window::Image> {
-        super::control_bar_observer::get_gen_arrow_image()
+        self.gen_arrow.clone()
     }
 
     pub fn set_arrow_image(&mut self, image: Option<crate::gui::game_window::Image>) {
-        super::control_bar_observer::set_gen_arrow_image(image);
+        self.gen_arrow = image;
     }
 
     /// Feed radar, queued upgrades, and ready special-power shortcuts from PresentationFrame.

@@ -28,20 +28,20 @@ fn test_camera_shake_system_basic() {
     let mut system = CameraShakeSystem::new();
 
     // Add a shake at origin
-    system.add_camera_shake(Vec3::ZERO, 50.0, 1.5, 1.0);
+    system.add_camera_shake(&mut Default::default(), Vec3::ZERO, 50.0, 1.5, 1.0);
 
     // Should be shaking
     assert!(system.is_camera_shaking());
 
     // Should produce shake angles at epicenter
-    let angles = system.update_camera_shaker(Vec3::ZERO);
+    let angles = system.update_camera_shaker(&mut Default::default(), Vec3::ZERO);
     assert!(
         angles.length() > 0.0,
         "Shake angles should be non-zero at epicenter"
     );
 
     // Should produce no shake far away
-    let far_angles = system.update_camera_shaker(Vec3::new(1000.0, 1000.0, 0.0));
+    let far_angles = system.update_camera_shaker(&mut Default::default(), Vec3::new(1000.0, 1000.0, 0.0));
     assert_eq!(
         far_angles,
         Vec3::ZERO,
@@ -54,7 +54,7 @@ fn test_camera_shake_expiration() {
     let mut system = CameraShakeSystem::new();
 
     // Add short duration shake
-    system.add_camera_shake(Vec3::ZERO, 50.0, 0.1, 1.0);
+    system.add_camera_shake(&mut Default::default(), Vec3::ZERO, 50.0, 0.1, 1.0);
     assert!(system.is_camera_shaking());
 
     // Update past duration
@@ -70,12 +70,12 @@ fn test_multiple_shakes() {
     let mut system = CameraShakeSystem::new();
 
     // Add multiple shakes
-    system.add_camera_shake(Vec3::ZERO, 50.0, 1.0, 1.0);
-    system.add_camera_shake(Vec3::new(10.0, 10.0, 0.0), 50.0, 1.0, 1.0);
-    system.add_camera_shake(Vec3::new(20.0, 20.0, 0.0), 50.0, 1.0, 1.0);
+    system.add_camera_shake(&mut Default::default(), Vec3::ZERO, 50.0, 1.0, 1.0);
+    system.add_camera_shake(&mut Default::default(), Vec3::new(10.0, 10.0, 0.0), 50.0, 1.0, 1.0);
+    system.add_camera_shake(&mut Default::default(), Vec3::new(20.0, 20.0, 0.0), 50.0, 1.0, 1.0);
 
     // Should accumulate angles from all shakes
-    let angles = system.update_camera_shaker(Vec3::ZERO);
+    let angles = system.update_camera_shaker(&mut Default::default(), Vec3::ZERO);
     assert!(angles.length() > 0.0);
 }
 
@@ -200,10 +200,10 @@ fn test_cinematic_camera_integration() {
     // Add shake
     system
         .shake_system
-        .add_camera_shake(Vec3::ZERO, 50.0, 1.0, 1.0);
+        .add_camera_shake(&mut Default::default(), Vec3::ZERO, 50.0, 1.0, 1.0);
 
     // Update system
-    let new_state = system.update(0.016, state);
+    let new_state = system.update(&mut Default::default(), 0.016, state);
 
     // Rotation should be affected by shake
     assert_ne!(new_state.rotation, state.rotation);

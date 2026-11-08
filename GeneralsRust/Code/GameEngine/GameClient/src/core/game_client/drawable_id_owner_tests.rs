@@ -1,5 +1,4 @@
 use super::*;
-use crate::message_stream::player_state::get_local_player_id;
 
 fn register(client: &mut GameClient) -> DrawableId {
     client
@@ -70,15 +69,45 @@ fn detached_client_constructor_and_player_changes_do_not_publish_input_identity(
     crate::test_support::ensure_ambient_host();
     let mut running = Box::new(GameClient::new().unwrap());
     running.set_local_player_id(7);
-    register_live_game_client(&mut running);
-    assert_eq!(get_local_player_id(), 7);
+    assert_eq!(running.local_player_id(), 7);
     let mut candidate = GameClient::new().unwrap();
-    assert_eq!(candidate.local_player_id, 0);
+    assert_eq!(candidate.local_player_id(), 0);
     candidate.set_local_player_id(3);
-    assert_eq!(candidate.local_player_id, 3);
-    assert_eq!(get_local_player_id(), 7);
+    assert_eq!(candidate.local_player_id(), 3);
+    assert_eq!(running.local_player_id(), 7);
     drop(candidate);
-    assert_eq!(get_local_player_id(), 7);
+    assert_eq!(running.local_player_id(), 7);
     running.set_local_player_id(11);
-    assert_eq!(get_local_player_id(), 11);
+    assert_eq!(running.local_player_id(), 11);
+
+    // Translators read the id through their own client's UI, never a peer's.
+    let mut a = GameClient::new().unwrap();
+    let mut b = GameClient::new().unwrap();
+    a.set_in_game_ui_subsystem(Default::default());
+    b.set_in_game_ui_subsystem(Default::default());
+    a.set_local_player_id(4);
+    b.set_local_player_id(5);
+    let seen = |client: &mut GameClient| {
+        let ui = client.subsystem_manager.in_game_ui.as_mut().unwrap();
+        crate::message_stream::ReceivingUi::new(ui, 0, 0).local_player_id()
+    };
+    assert_eq!(seen(&mut a), 4);
+    assert_eq!(seen(&mut b), 5);
+    a.set_local_player_id(9);
+    assert_eq!(seen(&mut a), 9);
+    assert_eq!(seen(&mut b), 5);
+}
+
+#[test]
+fn tactical_view_and_letterbox_are_owned_per_client() {
+    crate::test_support::ensure_ambient_host();
+    let mut a = GameClient::new().unwrap();
+    let mut b = GameClient::new().unwrap();
+    a.get_view_mut(|view| view.set_display_letter_boxed(true));
+    assert!(a.get_view(|view| view.is_display_letter_boxed()));
+    assert!(!b.get_view(|view| view.is_display_letter_boxed()));
+    b.get_view_mut(|view| view.set_display_letter_boxed(true));
+    a.get_view_mut(|view| view.set_display_letter_boxed(false));
+    assert!(!a.get_view(|view| view.is_display_letter_boxed()));
+    assert!(b.get_view(|view| view.is_display_letter_boxed()));
 }

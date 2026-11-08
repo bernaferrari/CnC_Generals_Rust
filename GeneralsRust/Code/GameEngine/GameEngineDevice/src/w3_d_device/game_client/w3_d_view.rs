@@ -5,9 +5,13 @@ pub use game_client::display::view::{
 };
 
 /// C++ `W3DView::shake` / `TheTacticalView->shake`.
-pub fn shake(epicenter: &Point3, shake_type: CameraShakeType) {
+pub fn shake(
+    epicenter: &Point3,
+    shake_type: CameraShakeType,
+    client_random: &mut game_engine::common::random_value::RandomState,
+) {
     with_tactical_view(|view| {
-        view.shake(epicenter, shake_type);
+        view.shake(epicenter, shake_type, client_random);
     });
 }
 
@@ -21,7 +25,7 @@ mod tests {
             view.set_position(&Point3::new(0.0, 0.0, 0.0));
             view.reset_camera_shake();
         });
-        shake(&Point3::new(0.0, 0.0, 0.0), CameraShakeType::Normal);
+        shake(&Point3::new(0.0, 0.0, 0.0), CameraShakeType::Normal, &mut Default::default());
         let intensity = with_tactical_view_ref(|view| view.camera_shake_intensity());
         assert!(intensity > 0.0);
         with_tactical_view(|view| view.reset_camera_shake());

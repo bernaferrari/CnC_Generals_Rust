@@ -412,16 +412,25 @@ pub fn take_look_at_reset_modes() -> bool {
 
 pub use super::script_action_runtime::{ScriptActionRuntime, ScriptUiState};
 
-/// Prefer the live GameClient runtime; fall back to a discarded local for
-/// Core callers that have no receiving client (tests / early boot).
+/// Ownerless free-API runtime: GameLogic script executors and Main world
+/// scripts reach this without a receiving `GameClient`, so production state is
+/// discarded per call (the receiving client reads/writes its own
+/// `script_runtime_mut()`). Unit tests share one TLS runtime per thread.
 fn with_script_runtime<R>(f: impl FnOnce(&mut ScriptActionRuntime) -> R) -> R {
-    let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("script runtime callback")(client.script_runtime_mut())
-    }) {
-        return result;
+    #[cfg(test)]
+    {
+        return TEST_SCRIPT_RUNTIME.with(|slot| f(&mut slot.borrow_mut()));
     }
-    f.take().expect("script runtime callback")(&mut ScriptActionRuntime::new())
+    #[cfg(not(test))]
+    {
+        f(&mut ScriptActionRuntime::new())
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_SCRIPT_RUNTIME: std::cell::RefCell<ScriptActionRuntime> =
+        std::cell::RefCell::new(ScriptActionRuntime::new());
 }
 
 fn normalize_media_name(name: &str) -> String {
@@ -1146,7 +1155,8 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     fn screen_shake(&self, intensity: i32) -> GameLogicResult<()> {
         with_tactical_view(|view| {
             let epicenter = view.get_3d_camera_position();
-            view.shake(&epicenter, Self::map_shake_type(intensity));
+            // Ownerless ScriptActionHandler entry: private stream.
+            view.shake(&epicenter, Self::map_shake_type(intensity), &mut game_engine::common::random_value::RandomState::default());
         });
         Ok(())
     }
@@ -1172,7 +1182,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
             CameraShakeType::CineExtreme
         };
         with_tactical_view(|view| {
-            view.shake(&Point3::new(x, y, z), shake);
+            view.shake(&Point3::new(x, y, z), shake, &mut game_engine::common::random_value::RandomState::default());
         });
         Ok(())
     }

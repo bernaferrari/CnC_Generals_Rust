@@ -11,16 +11,16 @@ pub trait ClientVisualRng {
 }
 
 /// Live `GameClientRandomValue` stream.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct LiveClientRng;
+#[derive(Debug)]
+pub struct LiveClientRng<'a>(pub &'a mut game_engine::common::random_value::RandomState);
 
-impl ClientVisualRng for LiveClientRng {
+impl ClientVisualRng for LiveClientRng<'_> {
     fn random_int(&mut self, lo: i32, hi: i32) -> i32 {
-        crate::client_random_value::get_game_client_random_value(lo, hi, file!(), line!())
+        self.0.next_int(lo, hi)
     }
 
     fn random_real(&mut self, lo: f32, hi: f32) -> f32 {
-        crate::client_random_value::get_game_client_random_value_real(lo, hi, file!(), line!())
+        self.0.next_real(lo, hi)
     }
 }
 
