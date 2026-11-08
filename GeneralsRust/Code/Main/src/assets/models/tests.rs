@@ -562,6 +562,7 @@ fn primary_turret_hlod_model() -> W3DModel {
             data: vec![0.0, 2.0],
         }],
         raw_visibility_channels: Vec::new(),
+        compressed_visibility_channels: Vec::new(),
         unsupported_visibility_pivots: Vec::new(),
     });
     model
@@ -1273,6 +1274,115 @@ fn w3d_hlod_visibility_raw_bit_channel_uses_lsb_frames_and_default_outside_range
     assert!(at_visible.1);
 }
 
+fn compressed_visibility_animation(bit_payload: Vec<u8>) -> W3dAnimation {
+    let mut header = Vec::new();
+    header.extend_from_slice(&W3D_CURRENT_HANIM_VERSION.to_le_bytes());
+    header.extend_from_slice(&fixed_name("VIS_CLIP", W3D_NAME_LEN));
+    header.extend_from_slice(&fixed_name("VIS_HIER", W3D_NAME_LEN));
+    header.extend_from_slice(&6u32.to_le_bytes());
+    header.extend_from_slice(&30u16.to_le_bytes());
+    header.extend_from_slice(&0u16.to_le_bytes());
+    let payload = [
+        chunk(W3D_CHUNK_COMPRESSED_ANIMATION_HEADER, header, false),
+        chunk(W3D_CHUNK_COMPRESSED_BIT_CHANNEL, bit_payload, false),
+    ].concat();
+    W3DLoader::new().parse_compressed_animation_chunk(&payload).unwrap()
+}
+
+fn compressed_visibility_payload(count: u32, pivot: u16, words: &[u32]) -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&count.to_le_bytes());
+    payload.extend_from_slice(&pivot.to_le_bytes());
+    payload.push(0); // BIT_CHANNEL_VIS
+    payload.push(1); // The C++ timecoded lookup uses key values, not DefaultVal.
+    for word in words {
+        payload.extend_from_slice(&word.to_le_bytes());
+    }
+    payload
+}
+
+#[test]
+fn w3d_hlod_visibility_compressed_keys_drive_the_bound_child() {
+    let mut model = W3DLoader::new()
+        .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
+        .unwrap();
+    model.animations[0] = compressed_visibility_animation(compressed_visibility_payload(
+        3, 1, &[2, 0x8000_0000 | 3, 5],
+    ));
+    let binding = W3dAnimationBinding::local(0);
+    for (frame, expected) in [(0.0, false), (2.9, false), (3.0, true), (4.9, true), (5.0, false)] {
+        let (_, visible) = model
+            .mesh_local_transform_and_visibility_for_binding_and_capture_controls(
+                0, Some(&binding), frame, &[],
+            )
+            .expect("valid compressed channel should resolve the authored HLOD child");
+        assert_eq!(visible, expected, "frame {frame}");
+    }
+    assert_eq!(model.animations[0].visibility_for_pivot(0, 3.0), Some(true));
+}
+
+#[test]
+fn w3d_hlod_visibility_malformed_compressed_keys_fail_closed() {
+    let mut model = W3DLoader::new()
+        .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
+        .unwrap();
+    for payload in [
+        compressed_visibility_payload(0, 1, &[]),
+        compressed_visibility_payload(2, 1, &[0x8000_0000]),
+        compressed_visibility_payload(2, 1, &[3, 2]),
+        vec![0, 0, 0],
+    ] {
+        model.animations[0] = compressed_visibility_animation(payload);
+        assert!(model.mesh_local_transform_and_visibility_for_animation(0, Some(0), 0.0).is_none());
+    }
+}
+
+#[test]
+fn captured_hlod_pivot_alone_overrides_its_animation_visibility() {
+    let mut model = hide_show_subobjects_hlod_model();
+    model.animations.push(W3dAnimation {
+        name: "HIDE".into(),
+        hierarchy_name: "VIS_HIER".into(),
+        num_frames: 1,
+        frame_rate: 30,
+        source_is_compressed: false,
+        channels: Vec::new(),
+        raw_visibility_channels: (1..=3).map(|pivot| W3dRawVisibilityChannel {
+            first_frame: 0,
+            last_frame: 0,
+            flags: 0,
+            pivot,
+            default_visible: true,
+            bits: vec![0],
+        }).collect(),
+        compressed_visibility_channels: Vec::new(),
+        unsupported_visibility_pivots: Vec::new(),
+    });
+    let binding = W3dAnimationBinding::local(0);
+    let first = Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0));
+    let last = Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0));
+    let controls = [(1, first), (1, last)];
+    let sample = |mesh, controls: &[(i32, Mat4)]| {
+        model.mesh_local_transform_and_visibility_for_binding_and_capture_controls(
+            mesh, Some(&binding), 0.0, controls,
+        )
+    };
+
+    assert!(!sample(0, &[]).unwrap().1);
+    let controlled = sample(0, &controls).unwrap();
+    assert!(controlled.1);
+    assert_eq!(controlled.0, sample(0, &[(1, last)]).unwrap().0);
+    assert!(sample(1, &controls).unwrap().1); // same exact source pivot
+    assert!(!sample(2, &controls).unwrap().1); // descendant is not captured
+    assert!(!sample(3, &controls).unwrap().1); // sibling is not captured
+    assert!(!sample(0, &[(99, last)]).unwrap().1); // invalid controls use fallback
+
+    model.animations[0].unsupported_visibility_pivots.push(Some(1));
+    assert!(model.mesh_local_transform_and_visibility_for_binding_and_capture_controls(
+        0, Some(&binding), 0.0, &controls,
+    ).is_none());
+}
+
 #[test]
 fn w3d_hlod_visibility_hide_show_subobjects_apply_exact_child_bones_in_order() {
     let model = hide_show_subobjects_hlod_model();
@@ -1727,7 +1837,7 @@ fn w3d_hlod_weapon_barrel_topology_rejects_invalid_source_and_unsupported_hlods(
 }
 
 #[test]
-fn w3d_hlod_visibility_compressed_channel_fails_closed_for_its_authored_pivot() {
+fn w3d_hlod_visibility_unsupported_channel_fails_closed_for_its_authored_pivot() {
     let mut model = W3DLoader::new()
         .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
         .expect("source-shaped raw visibility HLOD should parse");
@@ -1738,7 +1848,7 @@ fn w3d_hlod_visibility_compressed_channel_fails_closed_for_its_authored_pivot() 
         model
             .mesh_local_transform_and_visibility_for_animation(0, Some(0), 0.0)
             .is_none(),
-        "a compressed visibility source must not be rendered using a guessed value"
+        "an unsupported visibility source must not be rendered using a guessed value"
     );
     let binding = W3dAnimationBinding::local(0);
     assert!(
@@ -1988,6 +2098,7 @@ fn raw_hanim_uses_cxx_integer_delta_postcomposition_and_duplicate_channel_rules(
             default_visible: true,
             bits: vec![0],
         }],
+        compressed_visibility_channels: Vec::new(),
         unsupported_visibility_pivots: Vec::new(),
     };
 
@@ -2076,6 +2187,7 @@ fn htree_runtime_pose_ignores_authored_pivot_zero_pose_channels_and_visibility()
         }],
         // A compressed pivot-zero source is likewise ignored because C++
         // replaces pivot zero before it queries visibility.
+        compressed_visibility_channels: Vec::new(),
         unsupported_visibility_pivots: vec![Some(0)],
     });
 

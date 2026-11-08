@@ -51,6 +51,7 @@ fn fixture() -> (
         source_is_compressed: false,
         channels: Vec::new(),
         raw_visibility_channels: Vec::new(),
+        compressed_visibility_channels: Vec::new(),
         unsupported_visibility_pivots: Vec::new(),
     });
     let selected = crate::assets::AuthoredDrawModel {

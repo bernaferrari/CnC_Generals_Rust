@@ -516,6 +516,21 @@ impl W3dRawVisibilityChannel {
     }
 }
 
+/// Packed timecoded visibility keys from one compressed animation channel.
+#[derive(Debug, Clone)]
+pub struct W3dCompressedVisibilityChannel {
+    pub pivot: u16,
+    pub keys: Vec<u32>,
+}
+
+impl W3dCompressedVisibilityChannel {
+    fn visible_at(&self, frame: i32) -> Option<bool> {
+        let frame = u32::try_from(frame).ok()?;
+        let key = self.keys.partition_point(|key| (key & 0x7fff_ffff) <= frame);
+        self.keys.get(key.saturating_sub(1)).map(|key| key & 0x8000_0000 != 0)
+    }
+}
+
 /// W3D animation data. C++ parity: W3dAnimHeaderStruct + channels
 #[derive(Debug, Clone)]
 pub struct W3dAnimation {
@@ -532,11 +547,10 @@ pub struct W3dAnimation {
     /// pivots occur, C++ overwrites the prior channel, so sampling walks this
     /// vector from the end.
     pub raw_visibility_channels: Vec<W3dRawVisibilityChannel>,
-    /// A compressed/time-coded source visibility channel is intentionally not
-    /// decoded yet.  `Some(pivot)` identifies a target which must not be
-    /// rendered through a guessed visibility value; `None` means malformed
-    /// channel metadata made the affected pivot unknowable, so every HLOD
-    /// child in this animation fails closed.
+    /// Compressed `BIT_CHANNEL_VIS` keys, in source chunk order.
+    pub compressed_visibility_channels: Vec<W3dCompressedVisibilityChannel>,
+    /// Malformed visibility data; `None` means its pivot could not be read.
+    /// Affected children cannot be rendered with a guessed visibility value.
     pub unsupported_visibility_pivots: Vec<Option<u16>>,
 }
 
@@ -582,6 +596,16 @@ impl W3dAnimation {
             })
         {
             return None;
+        }
+        if self.source_is_compressed {
+            return match self.compressed_visibility_channels
+                .iter()
+                .rev()
+                .find(|channel| channel.pivot == pivot)
+            {
+                Some(channel) => channel.visible_at(frame),
+                None => Some(true),
+            };
         }
 
         self.raw_visibility_channels

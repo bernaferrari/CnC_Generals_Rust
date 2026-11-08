@@ -1874,6 +1874,7 @@ impl W3DLoader {
             source_is_compressed: false,
             channels,
             raw_visibility_channels,
+            compressed_visibility_channels: Vec::new(),
             unsupported_visibility_pivots,
         })
     }
@@ -1890,6 +1891,7 @@ impl W3DLoader {
         let mut flavor: u16 = ANIM_FLAVOR_TIMECODED;
         let mut channels: Vec<W3dAnimChannel> = Vec::new();
         let raw_visibility_channels: Vec<W3dRawVisibilityChannel> = Vec::new();
+        let mut compressed_visibility_channels = Vec::new();
         let mut unsupported_visibility_pivots: Vec<Option<u16>> = Vec::new();
         let mut offset = 0usize;
 
@@ -1966,11 +1968,8 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_COMPRESSED_BIT_CHANNEL => {
-                    // W3dTimeCodedBitChannelStruct starts with
-                    // NumTimeCodes(u32), Pivot(u16), Flags(u8), Default(u8).
-                    // The C++ HCompressedAnim class installs flags==0 as an
-                    // HTree visibility source. Keep its pivot and make that
-                    // child non-rendering until time-coded sampling is ported.
+                    // Timecoded bit words contain a 31-bit frame and a
+                    // high-bit visibility value (motchan.cpp:708-789).
                     if chunk_data.len() < 8 {
                         unsupported_visibility_pivots.push(None);
                         debug!(
@@ -1981,11 +1980,24 @@ impl W3DLoader {
                         let pivot = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
                         let flags = chunk_data[6];
                         if flags == 0 {
-                            unsupported_visibility_pivots.push(Some(pivot));
-                            debug!(
-                                "Compressed W3D visibility channel for pivot {} retained as unsupported",
-                                pivot
-                            );
+                            let count = u32::from_le_bytes([
+                                chunk_data[0], chunk_data[1], chunk_data[2], chunk_data[3],
+                            ]) as usize;
+                            let words = &chunk_data[8..];
+                            if count == 0 || words.len() % 4 != 0 || words.len() / 4 != count {
+                                unsupported_visibility_pivots.push(Some(pivot));
+                            } else {
+                                let keys: Vec<u32> = words.chunks_exact(4)
+                                    .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
+                                    .collect();
+                                if keys.windows(2).any(|pair| {
+                                    (pair[0] & 0x7fff_ffff) > (pair[1] & 0x7fff_ffff)
+                                }) {
+                                    unsupported_visibility_pivots.push(Some(pivot));
+                                } else {
+                                    compressed_visibility_channels.push(W3dCompressedVisibilityChannel { pivot, keys });
+                                }
+                            }
                         }
                     }
                 }
@@ -2003,6 +2015,7 @@ impl W3DLoader {
             source_is_compressed: true,
             channels,
             raw_visibility_channels,
+            compressed_visibility_channels,
             unsupported_visibility_pivots,
         })
     }

@@ -794,7 +794,7 @@ impl W3DModel {
                 mesh_index,
                 Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
             ),
-            visible,
+            visible || controls[mesh_bone_index].is_some(),
         ))
     }
 

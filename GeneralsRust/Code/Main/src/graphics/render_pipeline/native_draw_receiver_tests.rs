@@ -77,6 +77,7 @@ fn model() -> W3DModel {
         frame_rate: 1,
         source_is_compressed: false,
         raw_visibility_channels: vec![],
+        compressed_visibility_channels: Vec::new(),
         unsupported_visibility_pivots: vec![],
         channels: vec![W3dAnimChannel {
             first_frame: 0,

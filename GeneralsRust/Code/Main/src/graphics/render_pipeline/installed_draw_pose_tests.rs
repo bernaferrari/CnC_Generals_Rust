@@ -155,6 +155,7 @@ fn installed_hierarchy_validity_controls_lazy_sync_not_refresh_or_sync_identity(
         frame_rate: 1,
         source_is_compressed: false,
         raw_visibility_channels: Vec::new(),
+        compressed_visibility_channels: Vec::new(),
         unsupported_visibility_pivots: Vec::new(),
         channels: vec![W3dAnimChannel {
             first_frame: 0,
@@ -209,6 +210,7 @@ fn retained_hanim_survives_animationless_draw_and_is_saved_as_actual_motion() {
         frame_rate: 1,
         source_is_compressed: false,
         raw_visibility_channels: Vec::new(),
+        compressed_visibility_channels: Vec::new(),
         unsupported_visibility_pivots: Vec::new(),
         channels: vec![W3dAnimChannel {
             first_frame: 0,
