@@ -7,19 +7,21 @@ use super::generation::GenerationalIndex;
 use super::pool::ObjectPool;
 use std::fmt;
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Weak};
 
 /// A strong handle to a pool-allocated object.
 ///
-/// This handle owns a reference to the object and will automatically
-/// deallocate it when dropped. It uses generational indexing to prevent
-/// use-after-free errors.
+/// This handle keeps the pool alive and automatically deallocates its object
+/// when dropped. Clones identify the same object: dropping or freeing any one
+/// invalidates the others. Generation checks detect stale indices until the
+/// counter wraps.
 pub struct PoolHandle<T> {
     /// The pool this object belongs to.
     pool: Arc<ObjectPool<T>>,
     /// Generational index of the object.
     index: GenerationalIndex,
+    /// Whether dropping this handle should attempt to remove the object.
+    remove_on_drop: bool,
     /// Marker for proper variance.
     _marker: PhantomData<T>,
 }
@@ -30,6 +32,7 @@ impl<T> PoolHandle<T> {
         Self {
             pool,
             index,
+            remove_on_drop: true,
             _marker: PhantomData,
         }
     }
@@ -42,8 +45,9 @@ impl<T> PoolHandle<T> {
 
     /// Access the object with a closure.
     ///
-    /// This is the recommended way to access pool objects, as it ensures
-    /// the generation check happens every time.
+    /// Checks the generation and occupancy while holding the pool lock.
+    /// Do not access the same pool or drop one of its handles inside `f`:
+    /// its mutex is not reentrant.
     #[inline]
     pub fn with<F, R>(&self, f: F) -> Result<R, PoolAccessError>
     where
@@ -53,26 +57,14 @@ impl<T> PoolHandle<T> {
     }
 
     /// Access the object mutably with a closure.
+    ///
+    /// As with [`Self::with`], the pool lock is held for the whole closure.
     #[inline]
     pub fn with_mut<F, R>(&self, f: F) -> Result<R, PoolAccessError>
     where
         F: FnOnce(&mut T) -> R,
     {
         self.pool.with_mut(self.index, f)
-    }
-
-    /// Try to get a reference to the object.
-    ///
-    /// Returns None if the handle is stale (object was deallocated).
-    #[inline]
-    pub fn try_get(&self) -> Option<&T> {
-        self.pool.get(self.index)
-    }
-
-    /// Try to get a mutable reference to the object.
-    #[inline]
-    pub fn try_get_mut(&mut self) -> Option<&mut T> {
-        self.pool.get_mut(self.index)
     }
 
     /// Create a weak handle that doesn't prevent deallocation.
@@ -87,11 +79,11 @@ impl<T> PoolHandle<T> {
     /// Manually free the object (consumes the handle).
     ///
     /// This is useful when you want explicit control over deallocation timing.
-    pub fn free(self) -> Result<T, PoolAccessError> {
-        let result = self.pool.remove(self.index);
-        // Don't run the Drop impl since we're explicitly freeing
-        std::mem::forget(self);
-        result
+    /// A stale handle returns the same error as a pool removal; in either case
+    /// consuming it releases its reference to the pool.
+    pub fn free(mut self) -> Result<T, PoolAccessError> {
+        self.remove_on_drop = false;
+        self.pool.remove(self.index)
     }
 
     /// Check if this handle is still valid.
@@ -105,45 +97,13 @@ impl<T> PoolHandle<T> {
     pub fn pool(&self) -> &Arc<ObjectPool<T>> {
         &self.pool
     }
-
-    /// Safe deref that returns Option instead of panicking on stale handles.
-    ///
-    /// Prefer this over the Deref trait when you need to handle stale handles gracefully.
-    #[inline]
-    pub fn deref_option(&self) -> Option<&T> {
-        self.try_get()
-    }
-
-    /// Safe mutable deref that returns Option instead of panicking on stale handles.
-    #[inline]
-    pub fn deref_option_mut(&mut self) -> Option<&mut T> {
-        self.try_get_mut()
-    }
-
-    /// Safe deref with default fallback for stale handles.
-    ///
-    /// Returns a reference to the object if valid, or the provided default if stale.
-    #[inline]
-    pub fn deref_or<'a>(&'a self, default: &'a T) -> &'a T {
-        self.try_get().unwrap_or(default)
-    }
-
-    /// Safe deref with a closure for default fallback.
-    ///
-    /// Useful when you want to compute a default value only if the handle is stale.
-    #[inline]
-    pub fn deref_or_else<'a, F>(&'a self, f: F) -> &'a T
-    where
-        F: FnOnce() -> &'a T,
-    {
-        self.try_get().unwrap_or_else(f)
-    }
 }
 
 impl<T> Drop for PoolHandle<T> {
     fn drop(&mut self) {
-        // Automatically free the object when handle is dropped
-        let _ = self.pool.remove(self.index);
+        if self.remove_on_drop {
+            let _ = self.pool.remove(self.index);
+        }
     }
 }
 
@@ -151,46 +111,25 @@ impl<T> Clone for PoolHandle<T> {
     fn clone(&self) -> Self {
         // Note: This creates a new handle to the SAME object
         // Be careful with this, as dropping either handle will free the object
-        Self {
-            pool: Arc::clone(&self.pool),
-            index: self.index,
-            _marker: PhantomData,
-        }
+        Self::new(Arc::clone(&self.pool), self.index)
     }
 }
 
 impl<T: fmt::Debug> fmt::Debug for PoolHandle<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.try_get() {
-            Some(obj) => write!(f, "PoolHandle({}, {:?})", self.index, obj),
-            None => write!(f, "PoolHandle({}, <stale>)", self.index),
+        match self.with(|obj| write!(f, "PoolHandle({}, {:?})", self.index, obj)) {
+            Ok(result) => result,
+            Err(_) => write!(f, "PoolHandle({}, <stale>)", self.index),
         }
     }
 }
 
 impl<T: fmt::Display> fmt::Display for PoolHandle<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.try_get() {
-            Some(obj) => write!(f, "{}", obj),
-            None => write!(f, "<stale handle>"),
+        match self.with(|obj| write!(f, "{}", obj)) {
+            Ok(result) => result,
+            Err(_) => write!(f, "<stale handle>"),
         }
-    }
-}
-
-// Implement Deref for convenient access (use with caution!)
-impl<T> Deref for PoolHandle<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.try_get()
-            .expect("Attempted to dereference stale pool handle")
-    }
-}
-
-impl<T> DerefMut for PoolHandle<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.try_get_mut()
-            .expect("Attempted to dereference stale pool handle")
     }
 }
 
@@ -206,14 +145,13 @@ pub struct WeakPoolHandle<T> {
 
 impl<T> WeakPoolHandle<T> {
     /// Attempt to upgrade to a strong handle.
+    ///
+    /// Validity is checked at the time of the call. Another handle can still
+    /// remove the object before the returned handle is used.
     pub fn upgrade(&self) -> Option<PoolHandle<T>> {
         let pool = self.pool.upgrade()?;
         if pool.is_valid(self.index) {
-            Some(PoolHandle {
-                pool,
-                index: self.index,
-                _marker: PhantomData,
-            })
+            Some(PoolHandle::new(pool, self.index))
         } else {
             None
         }
@@ -318,16 +256,134 @@ mod tests {
     use super::*;
     use crate::memory::PoolConfig;
 
-    // ============================================================================
-    // WEEK 1 PRIORITY 3: HANDLE DEREF SAFETY TESTS (30+ tests for safe access)
-    // ============================================================================
+    #[test]
+    fn explicit_free_releases_pool_and_returns_the_undropped_value() {
+        use std::cell::Cell;
+
+        struct DropProbe<'a>(&'a Cell<usize>);
+        impl Drop for DropProbe<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let drops = Cell::new(0);
+        let pool = ObjectPool::new(PoolConfig::new("free lifetime")).unwrap();
+        let handle = pool.alloc(DropProbe(&drops)).unwrap();
+        let weak_pool = Arc::downgrade(&pool);
+        drop(pool);
+
+        let value = handle.free().unwrap();
+        assert!(weak_pool.upgrade().is_none());
+        assert_eq!(drops.get(), 0);
+        drop(value);
+        assert_eq!(drops.get(), 1);
+    }
+
+    #[test]
+    fn dropping_a_clone_invalidates_the_others_and_releases_the_pool() {
+        let pool = ObjectPool::new(PoolConfig::new("clone drop")).unwrap();
+        let handle = pool.alloc(42).unwrap();
+        let clone = handle.clone();
+        let weak = handle.downgrade();
+        let weak_pool = Arc::downgrade(&pool);
+        drop(pool);
+
+        drop(clone);
+        assert!(!handle.is_valid());
+        assert_eq!(handle.with(|value| *value), Err(PoolAccessError::GenerationMismatch));
+        assert!(!weak.is_valid());
+        assert!(weak.upgrade().is_none());
+        assert!(weak_pool.upgrade().is_some());
+        drop(handle);
+        assert!(weak_pool.upgrade().is_none());
+    }
+
+    #[test]
+    fn failed_explicit_free_also_releases_pool() {
+        let pool = ObjectPool::new(PoolConfig::new("stale free lifetime")).unwrap();
+        let handle = pool.alloc(42).unwrap();
+        let stale = handle.clone();
+        let weak_pool = Arc::downgrade(&pool);
+        drop(handle);
+        drop(pool);
+
+        assert_eq!(stale.free(), Err(PoolAccessError::GenerationMismatch));
+        assert!(weak_pool.upgrade().is_none());
+    }
+
+    #[test]
+    fn concurrent_frees_leave_reused_slot_intact_for_stale_handles() {
+        use std::sync::Barrier;
+
+        let pool = ObjectPool::new(PoolConfig::new("concurrent free")).unwrap();
+        let first = pool.alloc(42).unwrap();
+        let second = first.clone();
+        let stale = first.clone();
+        let stale_for_free = first.clone();
+        let weak = first.downgrade();
+        let old_index = first.index();
+        let barrier = Barrier::new(3);
+
+        let (first_result, second_result) = std::thread::scope(|scope| {
+            let first_barrier = &barrier;
+            let first_thread = scope.spawn(move || {
+                first_barrier.wait();
+                first.free()
+            });
+            let second_barrier = &barrier;
+            let second_thread = scope.spawn(move || {
+                second_barrier.wait();
+                second.free()
+            });
+            barrier.wait();
+            (first_thread.join().unwrap(), second_thread.join().unwrap())
+        });
+
+        assert!(
+            (first_result == Ok(42) && second_result == Err(PoolAccessError::GenerationMismatch))
+                || (second_result == Ok(42)
+                    && first_result == Err(PoolAccessError::GenerationMismatch))
+        );
+        assert!(!stale.is_valid());
+        assert!(!weak.is_valid());
+        assert!(weak.upgrade().is_none());
+
+        let replacement = pool.alloc(99).unwrap();
+        assert_eq!(replacement.index().index(), old_index.index());
+        assert_ne!(replacement.index().generation(), old_index.generation());
+        drop(stale);
+        assert_eq!(stale_for_free.free(), Err(PoolAccessError::GenerationMismatch));
+        assert_eq!(replacement.with(|value| *value), Ok(99));
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn weak_handle_cannot_upgrade_a_vacant_matching_generation() {
+        let pool = ObjectPool::new(PoolConfig::new("vacant weak")).unwrap();
+        let handle = pool.alloc(42).unwrap();
+        let index = handle.index();
+        assert_eq!(handle.free(), Ok(42));
+
+        let vacant = PoolHandle::new(
+            Arc::clone(&pool),
+            GenerationalIndex::new(index.index(), index.generation().next()),
+        );
+        let weak = vacant.downgrade();
+        assert!(!vacant.is_valid());
+        assert!(!weak.is_valid());
+        assert!(weak.upgrade().is_none());
+        drop(vacant);
+    }
+
+    // Checked handle access tests.
 
     #[test]
     fn test_handle_creation() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
         assert!(handle.is_valid());
-        assert_eq!(*handle.try_get().unwrap(), 42);
+        assert_eq!(handle.with(|value| *value), Ok(42));
     }
 
     #[test]
@@ -354,16 +410,15 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_deref() {
+    fn test_handle_access() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
 
-        assert_eq!(*handle, 42);
+        assert_eq!(handle.with(|value| *value), Ok(42));
     }
 
     #[test]
-    #[should_panic]
-    fn test_stale_handle_deref_panics() {
+    fn test_stale_handle_access_returns_error() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
         let index = handle.index();
@@ -373,26 +428,21 @@ mod tests {
 
         // Create a new (stale) handle
         let stale_handle = PoolHandle::new(pool, index);
-        let _ = *stale_handle; // Should panic
+        assert_eq!(stale_handle.with(|value| *value), Err(PoolAccessError::GenerationMismatch));
     }
 
-    // ============================================================================
-    // Safe Option-based deref methods
-    // ============================================================================
+    // Checked access and caller-provided fallback values.
 
     #[test]
-    fn test_deref_option_valid_handle() {
-        // deref_option should return Some for valid handles
+    fn test_checked_access_valid_handle() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(99).unwrap();
 
-        let result = handle.deref_option();
-        assert_eq!(result, Some(&99));
+        assert_eq!(handle.with(|value| *value), Ok(99));
     }
 
     #[test]
-    fn test_deref_option_stale_handle() {
-        // deref_option should return None for stale handles (no panic)
+    fn test_checked_access_stale_handle() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(99).unwrap();
         let index = handle.index();
@@ -402,36 +452,33 @@ mod tests {
 
         // Create a stale handle
         let stale_handle = PoolHandle::new(pool, index);
-        let result = stale_handle.deref_option();
-        assert_eq!(result, None);
+        assert_eq!(stale_handle.with(|value| *value), Err(PoolAccessError::GenerationMismatch));
     }
 
     #[test]
-    fn test_deref_option_mut_valid_handle() {
-        // deref_option_mut should return Some for valid handles
+    fn test_checked_mutable_access_valid_handle() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
-        let mut handle = pool.alloc(50).unwrap();
+        let handle = pool.alloc(50).unwrap();
 
-        let result = handle.deref_option_mut();
-        assert!(result.is_some());
-        if let Some(val) = result {
-            assert_eq!(*val, 50);
-        }
+        let result = handle.with_mut(|value| {
+            assert_eq!(*value, 50);
+            *value = 51;
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(handle.with(|value| *value), Ok(51));
     }
 
     #[test]
-    fn test_deref_or_valid_handle() {
-        // deref_or should return the value for valid handles
+    fn test_fallback_valid_handle() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(123).unwrap();
 
-        let result = handle.deref_or(&0);
-        assert_eq!(*result, 123);
+        let result = handle.with(|value| *value).unwrap_or(0);
+        assert_eq!(result, 123);
     }
 
     #[test]
-    fn test_deref_or_stale_handle() {
-        // deref_or should return the default for stale handles
+    fn test_fallback_stale_handle() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(123).unwrap();
         let index = handle.index();
@@ -442,24 +489,21 @@ mod tests {
         // Create a stale handle
         let stale_handle = PoolHandle::new(pool, index);
         let default_val = 0u64;
-        let result = stale_handle.deref_or(&default_val);
-        assert_eq!(*result, 0);
+        let result = stale_handle.with(|value| *value).unwrap_or(default_val);
+        assert_eq!(result, 0);
     }
 
     #[test]
-    fn test_deref_or_else_valid_handle() {
-        // deref_or_else should return the value for valid handles (not call closure)
+    fn test_lazy_fallback_valid_handle() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(456).unwrap();
 
         let mut closure_called = false;
-        let closure = || {
+        let result = handle.with(|value| *value).unwrap_or_else(|_| {
             closure_called = true;
-            &0u64
-        };
-
-        let result = handle.deref_or_else(closure);
-        assert_eq!(*result, 456);
+            0
+        });
+        assert_eq!(result, 456);
         assert!(
             !closure_called,
             "Closure should not be called for valid handle"
@@ -467,8 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deref_or_else_stale_handle() {
-        // deref_or_else should call closure for stale handles
+    fn test_lazy_fallback_stale_handle() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(456).unwrap();
         let index = handle.index();
@@ -480,8 +523,13 @@ mod tests {
         let stale_handle = PoolHandle::new(pool, index);
 
         let default_val = 999u64;
-        let result = stale_handle.deref_or_else(|| &default_val);
-        assert_eq!(*result, 999);
+        let mut closure_called = false;
+        let result = stale_handle.with(|value| *value).unwrap_or_else(|_| {
+            closure_called = true;
+            default_val
+        });
+        assert_eq!(result, 999);
+        assert!(closure_called);
     }
 
     #[test]
@@ -505,8 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_try_get_returns_none_after_drop() {
-        // try_get should return None after handle is dropped
+    fn test_handle_access_returns_error_after_drop() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(88).unwrap();
         let index = handle.index();
@@ -515,17 +562,19 @@ mod tests {
 
         // Try to access with new handle (which will be stale)
         let stale_handle = PoolHandle::new(Arc::clone(&pool), index);
-        assert!(stale_handle.try_get().is_none());
+        assert_eq!(stale_handle.with(|value| *value), Err(PoolAccessError::GenerationMismatch));
     }
 
     #[test]
-    fn test_handle_clone_creates_shared_reference() {
-        // Cloning a handle creates a shared reference to the same object
+    fn test_handle_clone_identifies_same_object() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle1 = pool.alloc(555).unwrap();
         let handle2 = handle1.clone();
 
-        assert_eq!(*handle1.try_get().unwrap(), *handle2.try_get().unwrap());
+        assert_eq!(handle1.with(|value| *value), Ok(555));
+        assert_eq!(handle2.with(|value| *value), Ok(555));
+        assert_eq!(handle2.with_mut(|value| *value += 1), Ok(()));
+        assert_eq!(handle1.with(|value| *value), Ok(556));
         assert_eq!(handle1.index(), handle2.index());
     }
 
@@ -537,9 +586,9 @@ mod tests {
         let handle2 = handle1.clone();
         let handle3 = handle1.clone();
 
-        assert_eq!(*handle1.try_get().unwrap(), 777);
-        assert_eq!(*handle2.try_get().unwrap(), 777);
-        assert_eq!(*handle3.try_get().unwrap(), 777);
+        assert_eq!(handle1.with(|value| *value), Ok(777));
+        assert_eq!(handle2.with(|value| *value), Ok(777));
+        assert_eq!(handle3.with(|value| *value), Ok(777));
     }
 
     #[test]
@@ -551,7 +600,7 @@ mod tests {
 
         let upgraded = weak.upgrade();
         assert!(upgraded.is_some());
-        assert_eq!(*upgraded.unwrap().try_get().unwrap(), 111);
+        assert_eq!(upgraded.unwrap().with(|value| *value), Ok(111));
     }
 
     #[test]
@@ -579,7 +628,7 @@ mod tests {
         });
 
         assert!(result.is_ok());
-        assert_eq!(*handle.try_get().unwrap(), 666);
+        assert_eq!(handle.with(|value| *value), Ok(666));
     }
 
     #[test]
@@ -605,12 +654,13 @@ mod tests {
 
     #[test]
     fn test_scoped_handle_access() {
-        // ScopedHandle should allow access without freeing
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(444).unwrap();
+        let mut scoped = ScopedHandle::new(&pool, handle.index());
 
-        let result = handle.with(|val| *val * 2);
-        assert_eq!(result.unwrap(), 888);
+        assert_eq!(scoped.with(|val| *val * 2), Ok(888));
+        assert_eq!(scoped.with_mut(|val| *val += 1), Ok(()));
+        assert_eq!(handle.with(|val| *val), Ok(445));
 
         // Original handle should still be valid
         assert!(handle.is_valid());
@@ -625,6 +675,8 @@ mod tests {
         let debug_str = format!("{:?}", handle);
         assert!(debug_str.contains("PoolHandle"));
         assert!(!debug_str.contains("stale"));
+        assert!(debug_str.contains("555"));
+        assert_eq!(handle.to_string(), "555");
     }
 
     #[test]
@@ -639,22 +691,16 @@ mod tests {
         let stale_handle = PoolHandle::<u64>::new(pool, index);
         let debug_str = format!("{:?}", stale_handle);
         assert!(debug_str.contains("stale"));
+        assert_eq!(stale_handle.to_string(), "<stale handle>");
     }
 
     #[test]
     fn test_repeated_handle_access() {
-        // The pool is single-owner (C++ thread model): repeated access from
-        // the owning thread. (Previously this spawned threads against the
-        // pool's RwLock — no game system accesses handles cross-thread.)
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(777).unwrap();
 
         for _ in 0..5 {
-            let result = if let Some(val) = handle.try_get() {
-                *val
-            } else {
-                0
-            };
+            let result = handle.with(|value| *value).unwrap();
             assert_eq!(result, 777);
         }
     }

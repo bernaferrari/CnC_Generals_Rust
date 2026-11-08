@@ -3,13 +3,9 @@
 //! The main pool type that combines the allocator with statistics
 //! tracking and handle management.
 //!
-//! Threading model: the C++ original (`WWLib/mempool.h` `ObjectPoolClass`)
-//! is a free-list pool of plain statics that only ever runs on the owning
-//! subsystem's thread; its `FastCriticalSectionClass` is defensive spinlock
-//! coding, not a real cross-thread boundary. This port is single-owner:
-//! the allocator sits behind a `Mutex`, which enforces the same
-//! single-thread discipline dynamically (panic on re-entrant misuse)
-//! instead of paying for a lock.
+//! Access to pooled values is scoped to a closure holding the allocator mutex.
+//! Pool operations must not be called recursively from an access closure:
+//! the mutex is not reentrant.
 
 use super::allocator::PoolAllocator;
 use super::config::{PoolConfig, PoolConfigBuilder};
@@ -20,22 +16,17 @@ use std::sync::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// Single-owner object pool with generational indices.
+/// Object pool with generational indices.
 ///
 /// This is the main type users interact with. It provides:
 /// - Generational indices for safe handles
 /// - Statistics tracking
 /// - Configurable growth and alignment
 ///
-/// The pool is `Send` (when `T: Send`) but deliberately not `Sync`: like the
-/// C++ pool it belongs to one thread. Concurrent access from several threads
-/// is not supported and will poison/block on a `Mutex` rather than
-/// race.
+/// Access to the allocator is synchronized by a mutex. When `T: Send`,
+/// the pool can be shared across threads.
 pub struct ObjectPool<T> {
-    /// The underlying allocator (single-owner; see module docs).
-    /// THREAD: not a cross-thread boundary — no game system touches this
-    /// pool from another thread (verified: callers are this module, the
-    /// registry below, and the demo/tests, all single-threaded).
+    /// The underlying allocator.
     allocator: Mutex<PoolAllocator<T>>,
     /// Statistics tracking.
     stats: PoolStats,
@@ -124,23 +115,20 @@ impl<T> ObjectPool<T> {
         Ok(value)
     }
 
-    /// Get a reference to an object (with generation check).
-    pub fn get(&self, _index: GenerationalIndex) -> Option<&T> {
-        // SAFETY: This is actually unsafe in the current design because we're
-        // returning a reference that outlives the lock. In production, you'd
-        // want to use an arena allocator or return a guard type.
-        //
-        // For now, we'll return None to indicate this needs redesign.
-        None
-    }
-
-    /// Get a mutable reference to an object (with generation check).
-    pub fn get_mut(&self, _index: GenerationalIndex) -> Option<&mut T> {
-        // Same safety issue as get()
-        None
-    }
-
-    /// Access an object with a closure (safe version).
+    /// Access an object while holding the allocator lock.
+    ///
+    /// Do not call another operation on this pool from `f`; it would try to
+    /// acquire the same non-reentrant mutex.
+    ///
+    /// A reference to the pooled value cannot escape the closure:
+    ///
+    /// ```compile_fail
+    /// use game_engine::memory::{ObjectPool, PoolConfig};
+    /// let pool = ObjectPool::new(PoolConfig::new("example")).unwrap();
+    /// let handle = pool.alloc(String::from("value")).unwrap();
+    /// let value = pool.with(handle.index(), |value| value).unwrap();
+    /// println!("{value}");
+    /// ```
     pub fn with<F, R>(&self, index: GenerationalIndex, f: F) -> Result<R, PoolAccessError>
     where
         F: FnOnce(&T) -> R,
@@ -162,7 +150,10 @@ impl<T> ObjectPool<T> {
         Ok(f(obj))
     }
 
-    /// Access an object mutably with a closure (safe version).
+    /// Access an object mutably while holding the allocator lock.
+    ///
+    /// Do not call another operation on this pool from `f`; it would try to
+    /// acquire the same non-reentrant mutex.
     pub fn with_mut<F, R>(&self, index: GenerationalIndex, f: F) -> Result<R, PoolAccessError>
     where
         F: FnOnce(&mut T) -> R,
@@ -186,14 +177,14 @@ impl<T> ObjectPool<T> {
         Ok(f(obj))
     }
 
-    /// Check if an index is valid.
+    /// Check whether the index currently identifies an occupied slot.
+    ///
+    /// This is a snapshot: another handle may remove the object immediately
+    /// after the check returns.
     pub fn is_valid(&self, index: GenerationalIndex) -> bool {
         let allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(current_gen) = allocator.generation(index.index()) {
-            current_gen == index.generation()
-        } else {
-            false
-        }
+        allocator.generation(index.index()) == Some(index.generation())
+            && allocator.is_occupied(index.index())
     }
 
     /// Get the number of allocated objects.
@@ -292,23 +283,23 @@ impl<T> ObjectPool<T> {
 
     /// Reserve additional capacity.
     ///
-    /// Pre-allocates space for at least `additional` more objects beyond
-    /// the current capacity. This is useful when you know you'll need
-    /// a certain number of objects and want to avoid multiple growths.
+    /// Ensures that at least `additional` slots are free for future objects.
+    /// Existing free slots count toward this number; if enough are already
+    /// available, this operation does nothing.
     ///
     /// This mirrors C++'s behavior in mempool.h:231-260 where blocks are
     /// pre-allocated in Allocate_Object_Memory.
     ///
     /// # Arguments
     ///
-    /// * `additional` - Minimum number of additional slots to reserve
+    /// * `additional` - Minimum number of free slots to have available
     ///
     /// # Returns
     ///
     /// Returns Ok(()) if reservation succeeded, or Err if:
-    /// - The requested capacity would exceed max_capacity
+    /// - The required growth would exceed max_capacity or the index range
     /// - Memory allocation failed
-    /// - Pool is configured as fixed-size
+    /// - Growth is required but the pool is configured as fixed-size
     ///
     /// References C++ mempool.h:231-260 (allocation and block linking)
     pub fn reserve(&self, additional: usize) -> Result<(), String> {
@@ -327,16 +318,6 @@ impl<T> ObjectPool<T> {
         // Calculate how much we need to grow
         let needed = additional - free_capacity;
 
-        // Check against max capacity (C++ doesn't have this, but Rust implementation does)
-        if let Some(max_cap) = self.config.max_capacity {
-            if current_capacity + needed > max_cap {
-                return Err(format!(
-                    "Cannot reserve {} additional slots: would exceed max capacity {} (current: {})",
-                    additional, max_cap, current_capacity
-                ));
-            }
-        }
-
         // Check if pool can grow
         if self.config.grow_by.is_none() {
             return Err("Pool is fixed-size and cannot grow".to_string());
@@ -344,7 +325,6 @@ impl<T> ObjectPool<T> {
 
         // Perform the reservation by growing the allocator
         // This matches C++ mempool.h:236-252 where a new block is allocated
-        let _old_capacity = allocator.capacity();
         let old_bytes = allocator.memory_usage();
 
         allocator.grow(needed)?;
@@ -658,12 +638,10 @@ mod tests {
 
     #[test]
     fn object_pool_auto_traits_follow_allocator_value_bounds() {
-        // The pool is process-shared (Mutex) for multi-instance safety:
-        // Send when T: Send, deliberately never Sync.
-        fn assert_send<T: Send>() {}
+        fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send::<ObjectPool<String>>();
-        assert_send::<ObjectPool<std::cell::Cell<u32>>>();
+        assert_send_sync::<ObjectPool<String>>();
+        assert_send_sync::<ObjectPool<std::cell::Cell<u32>>>();
     }
 
     #[test]
@@ -739,13 +717,13 @@ mod tests {
     fn test_stats() {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
 
-        for i in 0..10 {
-            pool.alloc(i).unwrap();
-        }
+        let handles: Vec<_> = (0..10).map(|i| pool.alloc(i).unwrap()).collect();
 
         let snapshot = pool.stats().snapshot();
         assert_eq!(snapshot.total_allocations, 10);
         assert_eq!(snapshot.active_allocations, 10);
+        drop(handles);
+        assert_eq!(pool.stats().snapshot().active_allocations, 0);
     }
 
     #[cfg(debug_assertions)]
@@ -805,11 +783,13 @@ mod tests {
     fn test_alloc_increases_len() {
         // Allocating should increase pool length
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
-        pool.alloc(1).unwrap();
+        let first = pool.alloc(1).unwrap();
         assert_eq!(pool.len(), 1);
 
-        pool.alloc(2).unwrap();
+        let second = pool.alloc(2).unwrap();
         assert_eq!(pool.len(), 2);
+        drop((first, second));
+        assert_eq!(pool.len(), 0);
     }
 
     #[test]
@@ -888,6 +868,38 @@ mod tests {
         let handle = pool.alloc(42).unwrap();
 
         assert!(pool.is_valid(handle.index()));
+    }
+
+    #[test]
+    fn validity_requires_an_occupied_matching_generation() {
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("validity")).unwrap();
+        let handle = pool.alloc(42).unwrap();
+        let old_index = handle.index();
+        let next_index = GenerationalIndex::new(
+            old_index.index(),
+            old_index.generation().next(),
+        );
+        assert!(pool.is_valid(old_index));
+        assert!(!pool.is_valid(next_index));
+
+        assert_eq!(handle.free(), Ok(42));
+        assert!(!pool.is_valid(old_index));
+        assert!(!pool.is_valid(next_index));
+        assert_eq!(pool.with(next_index, |_| ()), Err(PoolAccessError::Stale));
+        assert_eq!(pool.with_mut(next_index, |_| ()), Err(PoolAccessError::Stale));
+
+        let replacement = pool.alloc(99).unwrap();
+        assert_eq!(replacement.index(), next_index);
+        assert!(pool.is_valid(next_index));
+        assert!(!pool.is_valid(old_index));
+        assert_eq!(pool.with(old_index, |_| ()), Err(PoolAccessError::GenerationMismatch));
+        let mut called = false;
+        assert_eq!(
+            pool.with_mut(old_index, |_| { called = true; }),
+            Err(PoolAccessError::GenerationMismatch)
+        );
+        assert!(!called);
+        assert_eq!(replacement.with(|value| *value), Ok(99));
     }
 
     #[test]
@@ -1075,8 +1087,8 @@ mod tests {
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let initial_capacity = pool.capacity();
 
-        // Reserve 100 additional slots
-        pool.reserve(100).unwrap();
+        // Request 100 free slots beyond the existing capacity.
+        pool.reserve(initial_capacity + 100).unwrap();
 
         // Capacity should have increased
         assert!(pool.capacity() >= initial_capacity + 100);
@@ -1111,27 +1123,71 @@ mod tests {
             .build();
         let pool = ObjectPool::<u64>::new(config).unwrap();
 
-        // Try to reserve beyond max capacity
-        let result = pool.reserve(150);
-
-        // Should fail
+        pool.reserve(200).unwrap();
+        assert_eq!(pool.capacity(), 200);
+        let result = pool.reserve(201);
         assert!(result.is_err());
+        assert_eq!(pool.capacity(), 200);
     }
 
     #[test]
     fn test_reserve_fixed_size_pool() {
-        // Reserve should fail on fixed-size pools
+        // Fixed-size pools can satisfy reservations only from existing free slots.
         let config = PoolConfigBuilder::new("Test")
             .with_initial_capacity(100)
             .fixed_size()
             .build();
         let pool = ObjectPool::<u64>::new(config).unwrap();
 
-        // Try to reserve more
-        let result = pool.reserve(50);
+        pool.reserve(100).unwrap();
+        assert!(pool.reserve(101).is_err());
+        assert_eq!(pool.capacity(), 100);
+    }
 
-        // Should fail
-        assert!(result.is_err());
+    #[test]
+    fn reserve_with_live_objects_preserves_values_and_free_list_order() {
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(2)
+            .with_grow_by(2)
+            .build();
+        let pool = ObjectPool::new(config).unwrap();
+        let first = pool.alloc(10_u64).unwrap();
+        let stale = pool.alloc(20_u64).unwrap();
+        let stale_index = stale.index();
+        drop(stale);
+
+        pool.reserve(3).unwrap();
+        assert_eq!(pool.capacity(), 4);
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool.with(first.index(), |value| *value).unwrap(), 10);
+        assert!(!pool.is_valid(stale_index));
+        assert_eq!(pool.stats().snapshot().total_capacity, 4);
+
+        // Growth links the new slab before the existing free list.
+        let next = pool.alloc(30).unwrap();
+        let after = pool.alloc(40).unwrap();
+        let reused = pool.alloc(50).unwrap();
+        assert_eq!(next.index().index(), 2);
+        assert_eq!(after.index().index(), 3);
+        assert_eq!(reused.index().index(), stale_index.index());
+        assert_ne!(reused.index(), stale_index);
+        assert!(!pool.is_valid(stale_index));
+        assert_eq!(pool.capacity(), 4);
+    }
+
+    #[test]
+    fn reserve_rejects_overflow_without_changing_live_objects() {
+        let config = PoolConfigBuilder::new("Test")
+            .with_initial_capacity(1)
+            .with_grow_by(1)
+            .build();
+        let pool = ObjectPool::new(config).unwrap();
+        let handle = pool.alloc(42_u64).unwrap();
+
+        assert!(pool.reserve(usize::MAX).is_err());
+        assert_eq!(pool.capacity(), 1);
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool.with(handle.index(), |value| *value).unwrap(), 42);
     }
 
     #[test]

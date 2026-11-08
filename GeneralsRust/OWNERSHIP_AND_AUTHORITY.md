@@ -9,11 +9,16 @@ GameLogic audio resolver registration is once per CommonServices owner.
 Each VideoPlayer owns its provider registration. These changes prevent one
 instance's initialization from skipping a peer, but the ambient audio and
 live-client movie access paths still require explicit owner migration.
+Client reset and destruction borrow the receiving client's light state directly;
+ray and tracer cleanup still uses live-slot-gated global streams.
 
 The legacy byte pool checks allocation-size arithmetic and tracks live slots
 before freeing them. Its address-only interface still cannot distinguish a
 stale pointer from a later allocation at the same address; replacing that seam
 requires owner-scoped identities and borrowed access.
+Typed pool handles access objects only through lock-scoped closures. Explicit
+free releases its pool ownership, and validity checks both occupancy and the
+generation while holding the same lock; generation wrap can still admit ABA.
 
 ## Authored stealth and weapon continuation
 
