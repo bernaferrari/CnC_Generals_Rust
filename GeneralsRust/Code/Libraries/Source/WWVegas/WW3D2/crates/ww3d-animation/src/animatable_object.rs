@@ -438,7 +438,7 @@ impl Animatable3DObjClass {
     /// Reference: htree.cpp Anim_Update logic
     fn anim_update(htree: &mut HTreeClass, transform: Mat4, motion: &HAnimClass, frame: f32) {
         // Sample animation at current frame
-        let pivot_count = htree.num_pivots();
+        let pivot_count = htree.num_pivots().min(motion.num_pivots());
         let mut translations = vec![glam::Vec3::ZERO; pivot_count];
         let mut rotations = vec![glam::Quat::IDENTITY; pivot_count];
 
@@ -448,6 +448,11 @@ impl Animatable3DObjClass {
         }
 
         htree.anim_update(transform, &translations, &rotations);
+        for (index, pivot) in htree.pivots.iter_mut().enumerate().take(pivot_count).skip(1) {
+            if !pivot.is_captured {
+                pivot.is_visible = motion.get_visibility(index, frame);
+            }
+        }
     }
 
     /// Blend two animations
@@ -461,7 +466,7 @@ impl Animatable3DObjClass {
         frame1: f32,
         percentage: f32,
     ) {
-        let pivot_count = htree.num_pivots();
+        let pivot_count = htree.num_pivots().min(motion0.num_pivots()).min(motion1.num_pivots());
         let mut translations = vec![glam::Vec3::ZERO; pivot_count];
         let mut rotations = vec![glam::Quat::IDENTITY; pivot_count];
 
@@ -476,6 +481,12 @@ impl Animatable3DObjClass {
         }
 
         htree.anim_update(transform, &translations, &rotations);
+        for (index, pivot) in htree.pivots.iter_mut().enumerate().take(pivot_count).skip(1) {
+            if !pivot.is_captured {
+                pivot.is_visible =
+                    motion0.get_visibility(index, frame0) || motion1.get_visibility(index, frame1);
+            }
+        }
     }
 
     /// Compute current frame based on sync time and animation mode

@@ -1,5 +1,6 @@
 use glam::{Mat4, Quat, Vec3};
-use ww3d_animation::{Animatable3DObjClass, HTreeClass};
+use std::sync::Arc;
+use ww3d_animation::{Animatable3DObjClass, AnimationMode, BitChannel, HAnimClass, HTreeClass, MotionChannelType};
 
 #[test]
 fn hierarchy_name_lookups_are_case_insensitive_and_use_first_matching_pivot() {
@@ -98,4 +99,53 @@ fn captured_bone_control_applies_local_or_world_translation_after_base_pose() {
     object.update_sub_object_transforms();
     let recaptured = object.get_bone_transform(1).unwrap();
     assert!(recaptured.w_axis.truncate().abs_diff_eq(Vec3::new(10.0, 22.0, 0.0), 0.00001));
+}
+
+#[test]
+fn single_and_blended_animation_apply_visibility_per_pivot() {
+    let channel = |pivot_idx, bits| BitChannel {
+        pivot_idx,
+        channel_type: MotionChannelType::Visibility,
+        data: vec![bits],
+        first_frame: 0,
+        last_frame: 1,
+        default_value: 1,
+    };
+    let hidden = Arc::new(HAnimClass::with_channels(
+        "hidden", "tree", 2, 30.0, vec![],
+        vec![channel(1, 0b10), channel(2, 0), channel(3, 0)],
+    ));
+    let other = Arc::new(HAnimClass::with_channels(
+        "other", "tree", 2, 30.0, vec![],
+        vec![channel(1, 0b01), channel(2, 0)],
+    ));
+    let mut tree = HTreeClass::default();
+    for name in ["one", "two", "three", "outside"] {
+        tree.add_pivot(name, 0, Vec3::ZERO, Quat::IDENTITY);
+    }
+    tree.pivots[4].is_visible = false;
+    let mut object = Animatable3DObjClass::new(tree);
+    object.capture_bone(2);
+    object.set_animation(Some(hidden.clone()), 0.0, AnimationMode::Manual, 0.0);
+    object.update_sub_object_transforms();
+    assert!(object.htree.get_visibility(0));
+    assert!(!object.htree.get_visibility(1));
+    assert!(object.htree.get_visibility(2));
+    assert!(!object.htree.get_visibility(3));
+    assert!(!object.htree.get_visibility(4));
+
+    object.set_animation(Some(hidden.clone()), 1.0, AnimationMode::Manual, 0.0);
+    object.update_sub_object_transforms();
+    assert!(object.htree.get_visibility(1));
+    object.release_bone(2);
+    object.set_animation_blend(Some(hidden.clone()), 0.0, Some(other.clone()), 0.0, 0.0);
+    object.update_sub_object_transforms();
+    assert!(object.htree.get_visibility(1)); // OR, even at weight zero
+    assert!(!object.htree.get_visibility(2));
+    assert!(!object.htree.get_visibility(3)); // outside shorter motion, unchanged
+    assert!(!object.htree.get_visibility(4));
+
+    object.set_animation_blend(Some(hidden), 0.0, Some(other), 1.0, 1.0);
+    object.update_sub_object_transforms();
+    assert!(!object.htree.get_visibility(1));
 }

@@ -726,19 +726,21 @@ impl HAnimClass {
 
     /// Apply animation to a hierarchy tree.
     pub fn apply_animation(&self, htree: &mut HTreeClass, frame: f32, root_transform: Mat4) {
-        let pivot_count = htree.num_pivots();
+        let pivot_count = htree.num_pivots().min(self.num_pivots());
         let mut translations = Vec::with_capacity(pivot_count);
         let mut rotations = Vec::with_capacity(pivot_count);
-        let mut visibility = Vec::with_capacity(pivot_count);
 
         for pivot in 0..pivot_count {
             translations.push(self.get_translation(pivot, frame));
             rotations.push(self.get_orientation(pivot, frame));
-            visibility.push(self.get_visibility(pivot, frame));
         }
 
         htree.anim_update(root_transform, &translations, &rotations);
-        htree.update_visibility(&visibility);
+        for (index, pivot) in htree.pivots.iter_mut().enumerate().take(pivot_count).skip(1) {
+            if !pivot.is_captured {
+                pivot.is_visible = self.get_visibility(index, frame);
+            }
+        }
     }
 }
 
