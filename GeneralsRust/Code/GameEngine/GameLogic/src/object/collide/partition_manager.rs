@@ -1015,7 +1015,7 @@ impl PartitionManager {
         let pos = if let Some(id) = obj_id {
             if let Some(p) = OBJECT_REGISTRY.with_object(id, |obj| *obj.get_position()) {
                 // Adjust z to top of collision shape (eye level).
-                if let Some((_, geom)) = PARTITION_MANAGER
+                if let Some((_, geom)) = world_partition_manager()
                     .read()
                     .ok()
                     .and_then(|pm| pm.get_object_info(id))
@@ -1033,7 +1033,7 @@ impl PartitionManager {
 
         let pos_other = if let Some(id) = other_id {
             if let Some(p) = OBJECT_REGISTRY.with_object(id, |obj| *obj.get_position()) {
-                if let Some((_, geom)) = PARTITION_MANAGER
+                if let Some((_, geom)) = world_partition_manager()
                     .read()
                     .ok()
                     .and_then(|pm| pm.get_object_info(id))
@@ -1845,10 +1845,9 @@ pub struct PartitionStatistics {
     pub contact_pairs: usize,
 }
 
-// Global partition manager instance
-lazy_static::lazy_static! {
-    pub static ref PARTITION_MANAGER: Arc<RwLock<PartitionManager>> =
-        Arc::new(RwLock::new(PartitionManager::new()));
+/// The published world's partition manager (C++ `ThePartitionManager`).
+pub fn world_partition_manager() -> Arc<RwLock<PartitionManager>> {
+    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().partition)
 }
 
 #[cfg(test)]

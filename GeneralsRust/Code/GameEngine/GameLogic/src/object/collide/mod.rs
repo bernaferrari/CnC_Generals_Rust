@@ -33,11 +33,11 @@ pub use collision_response::{
     TerrainCollisionHandler,
 };
 pub use collision_system::{
-    COLLISION_SYSTEM, CollisionSystem, CollisionSystemStatistics, with_collision_system,
+    CollisionSystem, CollisionSystemStatistics, with_collision_system,
     with_collision_system_mut,
 };
 pub use partition_manager::{
-    CellCoord, FindPositionFlags, FindPositionOptions, PARTITION_CELL_SIZE, PARTITION_MANAGER,
+    CellCoord, FindPositionFlags, FindPositionOptions, PARTITION_CELL_SIZE, world_partition_manager,
     PartitionFilter, PartitionManager, PartitionStatistics, RANDOM_START_ANGLE, ValueOrThreat,
 };
 
@@ -701,9 +701,9 @@ fn dispatch_behavior_collides_for_owner(
     }
 }
 
-// Global collision manager instance
-lazy_static::lazy_static! {
-    pub static ref COLLISION_MANAGER: CollisionManager = CollisionManager::new();
+/// The published world's collide-module dispatch table.
+pub fn world_collision_manager() -> Arc<CollisionManager> {
+    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().collision_manager)
 }
 
 #[cfg(test)]

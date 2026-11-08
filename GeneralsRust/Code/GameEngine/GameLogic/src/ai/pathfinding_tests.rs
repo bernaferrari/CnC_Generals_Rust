@@ -5,16 +5,16 @@ mod tests {
     use super::super::pathfinding_system::*;
     use crate::common::Coord3D;
 
-    // ========================================================================
-    // BASIC FUNCTIONALITY TESTS
-    // ========================================================================
+    // Alternate Core A* / terrain-cost model tests were removed with the model;
+    // classic pathfinder behavior is covered under ai/pathfind_complete.
 
-    #[test]
-    fn test_pathfinding_system_creation() {
-        let system = PathfindingSystem::new(100, 100);
-        assert!(system.is_in_bounds(&GridCoord::new(0, 0, PathfindLayerEnum::Ground)));
-        assert!(system.is_in_bounds(&GridCoord::new(10, 10, PathfindLayerEnum::Ground)));
-        assert!(!system.is_in_bounds(&GridCoord::new(1000, 1000, PathfindLayerEnum::Ground)));
+    use crate::ai::pathfind_complete::{PathRequest as ClassicRequest, SURFACE_GROUND};
+
+    fn classic_request(object_id: u32, from: Coord3D, to: Coord3D) -> ClassicRequest {
+        let mut request = ClassicRequest::new(from, to, SURFACE_GROUND);
+        request.object_id = object_id;
+        request.unit_radius = 1.0;
+        request
     }
 
     #[test]
@@ -25,61 +25,29 @@ mod tests {
         assert_eq!(classic.inner.width(), 0);
         assert_eq!(classic.inner.height(), 0);
         assert!(!classic.inner.is_map_ready());
-
-        let facade = ai
-            .pathfinding_system()
-            .expect("world owns pathfinding compatibility surface");
-        let facade = facade.read().expect("read compatibility surface");
-        assert_eq!(
-            facade.terrain_at(
-                &Coord3D::new(15.0, 15.0, 0.0),
-                crate::common::PathfindLayerEnum::Ground,
-            ),
-            None
-        );
-        assert!(!facade.is_in_bounds(&GridCoord::new(1, 1, PathfindLayerEnum::Ground)));
+        assert_eq!(classic.get_cell_type_at(&Coord3D::new(15.0, 15.0, 0.0)), None);
     }
 
     #[test]
     fn immediate_route_uses_the_worlds_map_terrain() {
         let ai = crate::ai::AI::new();
         let classic = ai.pathfinder().expect("world owns classic Pathfinder");
-        {
-            let mut classic = classic.write().expect("write classic Pathfinder");
-            classic.reset_with_size(5, 5);
-            classic.inner.new_map();
-            // A complete water barrier splits this tiny map for ground-only units.
-            for y in 0..5 {
-                classic.set_cell_type_for_test(
-                    &Coord3D::new(25.0, (y as f32 + 0.5) * 10.0, 0.0),
-                    crate::ai::pathfind_astar::PathfindCellType::Water,
-                );
-            }
+        let mut classic = classic.write().expect("write classic Pathfinder");
+        classic.reset_with_size(5, 5);
+        classic.inner.new_map();
+        // A complete water barrier splits this tiny map for ground-only units.
+        for y in 0..5 {
+            classic.set_cell_type_for_test(
+                &Coord3D::new(25.0, (y as f32 + 0.5) * 10.0, 0.0),
+                crate::ai::pathfind_astar::PathfindCellType::Water,
+            );
         }
-
-        let facade = ai
-            .pathfinding_system()
-            .expect("world owns pathfinding compatibility surface");
-        let request = PathRequest {
-            requester: 1,
-            start: Coord3D::new(5.0, 25.0, 0.0),
-            goal: Coord3D::new(45.0, 25.0, 0.0),
-            capabilities: MovementCapabilities::ground(),
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        assert!(matches!(
-            facade
-                .write()
-                .expect("write compatibility surface")
-                .find_path_immediate(&request),
-            PathResult::Failed(_)
-        ));
+        let request = classic_request(
+            1,
+            Coord3D::new(5.0, 25.0, 0.0),
+            Coord3D::new(45.0, 25.0, 0.0),
+        );
+        assert!(!classic.find_path_result(request).success);
     }
 
     #[test]
@@ -102,28 +70,15 @@ mod tests {
                 );
             }
         }
-        let request = PathRequest {
-            requester: 7,
-            start: Coord3D::new(5.0, 25.0, 0.0),
-            goal: Coord3D::new(45.0, 25.0, 0.0),
-            capabilities: MovementCapabilities::ground(),
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-        let blocked = blocked_ai.pathfinding_system().unwrap();
-        let clear = clear_ai.pathfinding_system().unwrap();
-        assert!(matches!(
-            blocked.write().unwrap().find_path_immediate(&request),
-            PathResult::Failed(_)
-        ));
-        assert!(matches!(
-            clear.write().unwrap().find_path_immediate(&request),
-            PathResult::Success(_)
-        ));
+        let request = classic_request(
+            7,
+            Coord3D::new(5.0, 25.0, 0.0),
+            Coord3D::new(45.0, 25.0, 0.0),
+        );
+        let blocked = blocked_ai.pathfinder().unwrap();
+        let clear = clear_ai.pathfinder().unwrap();
+        assert!(!blocked.write().unwrap().find_path_result(request.clone()).success);
+        assert!(clear.write().unwrap().find_path_result(request).success);
     }
 
     #[test]
@@ -148,150 +103,70 @@ mod tests {
 
         let ai = crate::ai::AI::new();
         let classic = ai.pathfinder().expect("world owns classic Pathfinder");
-        {
-            let mut classic = classic.write().expect("write classic Pathfinder");
-            classic.rebuild_from_terrain(&terrain);
-            assert_eq!(classic.inner.width(), 8);
-            assert_eq!(classic.inner.height(), 6);
-            assert!(classic.inner.is_map_ready());
-        }
-        let facade = ai.pathfinding_system().expect("world pathfinding facade");
+        let mut classic = classic.write().expect("write classic Pathfinder");
+        classic.rebuild_from_terrain(&terrain);
+        assert_eq!(classic.inner.width(), 8);
+        assert_eq!(classic.inner.height(), 6);
+        assert!(classic.inner.is_map_ready());
         assert_eq!(
-            facade.read().expect("read facade").terrain_at(
-                &Coord3D::new(15.0, 15.0, 0.0),
-                crate::common::PathfindLayerEnum::Ground,
-            ),
-            Some(TerrainType::Water),
+            classic.get_cell_type_at(&Coord3D::new(15.0, 15.0, 0.0)),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Water),
         );
     }
 
     #[test]
-    fn owner_facade_keeps_bridge_layer_in_a_crossing_path() {
+    fn owner_keeps_bridge_layer_in_a_crossing_path() {
         let ai = crate::ai::AI::new();
         let owner = ai.pathfinder().expect("world owns classic Pathfinder");
-        {
-            let mut owner = owner.write().expect("write classic Pathfinder");
-            owner.reset_with_size(40, 40);
-            owner.add_bridge_ex(
-                (
-                    crate::ai::pathfind_complete::GridCoord::new(15, 13),
-                    crate::ai::pathfind_complete::GridCoord::new(25, 17),
-                ),
-                crate::common::INVALID_ID,
-                crate::ai::pathfind_complete::GridCoord::new(15, 15),
-                crate::ai::pathfind_complete::GridCoord::new(25, 15),
-            );
-            owner.inner.new_map();
-            for y in 0..40 {
-                owner.set_cell_type_at(
-                    &Coord3D::new(205.0, (y as f32 + 0.5) * 10.0, 0.0),
-                    crate::ai::pathfind_astar::PathfindCellType::Impassable,
-                );
-            }
-            owner.inner.recalculate_zones_from_cells();
-            assert_eq!(
-                owner.inner.get_cell_type_at_cell(
-                    crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
-                    20,
-                    15,
-                ),
-                Some(crate::ai::pathfind_astar::PathfindCellType::Impassable),
-                "the ground barrier must survive cell mutation before AStar starts",
+        let mut owner = owner.write().expect("write classic Pathfinder");
+        owner.reset_with_size(40, 40);
+        owner.add_bridge_ex(
+            (
+                crate::ai::pathfind_complete::GridCoord::new(15, 13),
+                crate::ai::pathfind_complete::GridCoord::new(25, 17),
+            ),
+            crate::common::INVALID_ID,
+            crate::ai::pathfind_complete::GridCoord::new(15, 15),
+            crate::ai::pathfind_complete::GridCoord::new(25, 15),
+        );
+        owner.inner.new_map();
+        for y in 0..40 {
+            owner.set_cell_type_at(
+                &Coord3D::new(205.0, (y as f32 + 0.5) * 10.0, 0.0),
+                crate::ai::pathfind_astar::PathfindCellType::Impassable,
             );
         }
+        owner.inner.recalculate_zones_from_cells();
+        assert_eq!(
+            owner.inner.get_cell_type_at_cell(
+                crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                20,
+                15,
+            ),
+            Some(crate::ai::pathfind_astar::PathfindCellType::Impassable),
+            "the ground barrier must survive cell mutation before AStar starts",
+        );
 
-        let request = PathRequest {
-            requester: 9,
-            start: Coord3D::new(55.0, 155.0, 0.0),
-            goal: Coord3D::new(355.0, 155.0, 0.0),
-            capabilities: MovementCapabilities::ground(),
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-        let facade = ai.pathfinding_system().expect("world pathfinding facade");
-        let result = facade
-            .write()
-            .expect("write facade")
-            .find_path_immediate(&request);
-        let PathResult::Success(path) = result else {
-            panic!("the intact bridge should be the sole crossing of the ground barrier");
-        };
+        let request = classic_request(
+            9,
+            Coord3D::new(55.0, 155.0, 0.0),
+            Coord3D::new(355.0, 155.0, 0.0),
+        );
+        let result = owner.find_path_result(request);
         assert!(
-            path.waypoints
+            result.success,
+            "the intact bridge should be the sole crossing of the ground barrier"
+        );
+        assert!(
+            result
+                .layers
                 .iter()
-                .any(|waypoint| waypoint.layer == PathfindLayerEnum::Top),
-            "the facade must retain the bridge's C++ layer ID in path waypoints"
+                .any(|layer| *layer == crate::ai::pathfind_astar::PathfindLayerEnum::Top),
+            "the path must retain the bridge's C++ layer ID in its waypoints"
         );
     }
 
     #[test]
-    fn test_grid_coordinate_conversion() {
-        let world_pos = Coord3D::new(25.0, 35.0, 5.0);
-        let grid = GridCoord::from_world(&world_pos, PathfindLayerEnum::Ground);
-
-        // 25.0 / 10.0 = 2.5, floor = 2
-        assert_eq!(grid.x, 2);
-        // 35.0 / 10.0 = 3.5, floor = 3
-        assert_eq!(grid.y, 3);
-
-        let back = grid.to_world(5.0);
-        // Center of cell: (2 + 0.5) * 10 = 25.0
-        assert_eq!(back.x, 25.0);
-        assert_eq!(back.y, 35.0);
-        assert_eq!(back.z, 5.0);
-    }
-
-    #[test]
-    fn test_manhattan_distance() {
-        let a = GridCoord::new(0, 0, PathfindLayerEnum::Ground);
-        let b = GridCoord::new(3, 4, PathfindLayerEnum::Ground);
-        assert_eq!(a.manhattan_distance(&b), 7.0);
-    }
-
-    #[test]
-    fn test_euclidean_distance() {
-        let a = GridCoord::new(0, 0, PathfindLayerEnum::Ground);
-        let b = GridCoord::new(3, 4, PathfindLayerEnum::Ground);
-        // sqrt(3^2 + 4^2) = sqrt(9 + 16) = sqrt(25) = 5
-        assert_eq!(a.euclidean_distance(&b), 5.0);
-    }
-
-    #[test]
-    fn test_diagonal_distance() {
-        let a = GridCoord::new(0, 0, PathfindLayerEnum::Ground);
-        let b = GridCoord::new(3, 4, PathfindLayerEnum::Ground);
-        let dist = a.diagonal_distance(&b);
-        // Octile distance: 1.0 * (3 + 4) + (1.414 - 2.0) * min(3, 4)
-        // = 7.0 + (-0.586) * 3 = 7.0 - 1.758 = 5.242
-        assert!((dist - 5.242).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_get_neighbors() {
-        let coord = GridCoord::new(5, 5, PathfindLayerEnum::Ground);
-        let neighbors = coord.get_neighbors();
-
-        assert_eq!(neighbors.len(), 8);
-
-        // Check that diagonal neighbors have cost ~1.414
-        let diagonal_count = neighbors
-            .iter()
-            .filter(|(_, cost)| (*cost - 1.414).abs() < 0.01)
-            .count();
-        assert_eq!(diagonal_count, 4);
-
-        // Check that orthogonal neighbors have cost 1.0
-        let orthogonal_count = neighbors
-            .iter()
-            .filter(|(_, cost)| (*cost - 1.0).abs() < 0.01)
-            .count();
-        assert_eq!(orthogonal_count, 4);
-    }
-
     // ========================================================================
     // MOVEMENT CAPABILITIES TESTS
     // ========================================================================
@@ -328,157 +203,6 @@ mod tests {
         assert_eq!(naval.layer, PathfindLayerEnum::Water);
         assert!(!naval.amphibious);
         assert!(!naval.flying);
-    }
-
-    // ========================================================================
-    // TERRAIN COST TESTS
-    // ========================================================================
-
-    #[test]
-    fn test_terrain_cost_table_ground() {
-        let costs = TerrainCostTable::new();
-        let ground_caps = MovementCapabilities::ground();
-
-        assert_eq!(
-            costs.get_cost(TerrainType::Clear, PathfindLayerEnum::Ground, &ground_caps),
-            1.0
-        );
-        assert_eq!(
-            costs.get_cost(TerrainType::Rough, PathfindLayerEnum::Ground, &ground_caps),
-            2.0
-        );
-        assert_eq!(
-            costs.get_cost(
-                TerrainType::VeryRough,
-                PathfindLayerEnum::Ground,
-                &ground_caps
-            ),
-            4.0
-        );
-        assert_eq!(
-            costs.get_cost(TerrainType::Water, PathfindLayerEnum::Ground, &ground_caps),
-            f32::INFINITY
-        );
-        assert_eq!(
-            costs.get_cost(TerrainType::Cliff, PathfindLayerEnum::Ground, &ground_caps),
-            f32::INFINITY
-        );
-        assert_eq!(
-            costs.get_cost(TerrainType::Rubble, PathfindLayerEnum::Ground, &ground_caps),
-            3.0
-        );
-    }
-
-    #[test]
-    fn test_terrain_cost_table_air() {
-        let costs = TerrainCostTable::new();
-        let air_caps = MovementCapabilities::air();
-
-        // Aircraft ignore terrain
-        assert_eq!(
-            costs.get_cost(TerrainType::Clear, PathfindLayerEnum::Air, &air_caps),
-            1.0
-        );
-        assert_eq!(
-            costs.get_cost(TerrainType::Water, PathfindLayerEnum::Air, &air_caps),
-            1.0
-        );
-        assert_eq!(
-            costs.get_cost(TerrainType::Cliff, PathfindLayerEnum::Air, &air_caps),
-            1.0
-        );
-        assert_eq!(
-            costs.get_cost(TerrainType::Obstacle, PathfindLayerEnum::Air, &air_caps),
-            1.0
-        );
-    }
-
-    #[test]
-    fn test_terrain_cost_table_amphibious() {
-        let costs = TerrainCostTable::new();
-        let amphibious_caps = MovementCapabilities::amphibious();
-
-        // Amphibious can cross water with penalty
-        let water_cost = costs.get_cost(
-            TerrainType::Water,
-            PathfindLayerEnum::Ground,
-            &amphibious_caps,
-        );
-        assert!(water_cost > 1.0 && water_cost < f32::INFINITY);
-    }
-
-    #[test]
-    fn test_terrain_cost_table_crusher() {
-        let costs = TerrainCostTable::new();
-        let mut crusher_caps = MovementCapabilities::ground();
-        crusher_caps.crusher = true;
-
-        // Crusher can move through rubble
-        let rubble_cost = costs.get_cost(
-            TerrainType::Rubble,
-            PathfindLayerEnum::Ground,
-            &crusher_caps,
-        );
-        assert!(rubble_cost < 3.0); // Should be less than normal rubble cost
-    }
-
-    // ========================================================================
-    // PATHFIND CELL TESTS
-    // ========================================================================
-
-    #[test]
-    fn test_pathfind_cell_default() {
-        let cell = PathfindCell::default();
-        assert_eq!(cell.terrain, TerrainType::Clear);
-        assert_eq!(cell.elevation, 0.0);
-        assert_eq!(cell.obstacle_id, None);
-        assert!(!cell.temp_blocked);
-        assert_eq!(cell.occupant_id, None);
-        assert_eq!(cell.cost_modifier, 1.0);
-    }
-
-    #[test]
-    fn test_pathfind_cell_passability() {
-        let mut cell = PathfindCell::default();
-        let costs = TerrainCostTable::new();
-        let ground_caps = MovementCapabilities::ground();
-
-        // Clear cell is passable
-        assert!(cell.is_passable(&ground_caps, &costs, None));
-
-        // Temp blocked cell is not passable
-        cell.temp_blocked = true;
-        assert!(!cell.is_passable(&ground_caps, &costs, None));
-        cell.temp_blocked = false;
-
-        // Cell with obstacle is not passable
-        cell.obstacle_id = Some(123);
-        assert!(!cell.is_passable(&ground_caps, &costs, None));
-
-        // But crushers can pass obstacles
-        let mut crusher_caps = MovementCapabilities::ground();
-        crusher_caps.crusher = true;
-        cell.obstacle_id = Some(123);
-        assert!(cell.is_passable(&crusher_caps, &costs, None));
-    }
-
-    #[test]
-    fn test_pathfind_cell_movement_cost() {
-        let mut cell = PathfindCell::default();
-        let costs = TerrainCostTable::new();
-        let ground_caps = MovementCapabilities::ground();
-
-        // Clear terrain has base cost
-        assert_eq!(cell.get_movement_cost(&ground_caps, &costs), 1.0);
-
-        // Cost modifier affects total cost
-        cell.cost_modifier = 2.0;
-        assert_eq!(cell.get_movement_cost(&ground_caps, &costs), 2.0);
-
-        // Occupant adds penalty
-        cell.cost_modifier = 1.0;
-        cell.occupant_id = Some(456);
-        assert_eq!(cell.get_movement_cost(&ground_caps, &costs), 3.0); // 1.0 base + 2.0 occupant penalty
     }
 
     // ========================================================================
@@ -609,328 +333,4 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // PATHFINDING ALGORITHM TESTS
-    // ========================================================================
-
-    #[test]
-    fn test_simple_straight_line_path() {
-        let mut system = PathfindingSystem::new(100, 100);
-        system.initialize();
-
-        let start = Coord3D::new(0.0, 0.0, 0.0);
-        let goal = Coord3D::new(50.0, 0.0, 0.0);
-        let caps = MovementCapabilities::ground();
-
-        let request = PathRequest {
-            requester: 1,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        match system.find_path_immediate(&request) {
-            PathResult::Success(path) => {
-                assert!(path.waypoints.len() >= 2);
-                assert!(path.complete);
-                // Should be roughly straight line
-                let first = path.first_waypoint().unwrap();
-                let last = path.last_waypoint().unwrap();
-                assert!((last.position.x - first.position.x).abs() > 40.0);
-            }
-            _ => panic!("Expected successful path"),
-        }
-    }
-
-    #[test]
-    fn test_path_with_obstacle() {
-        let mut system = PathfindingSystem::new(100, 100);
-        system.initialize();
-
-        // Add obstacle in the middle
-        let obstacle_positions = vec![
-            Coord3D::new(25.0, 0.0, 0.0),
-            Coord3D::new(25.0, 10.0, 0.0),
-            Coord3D::new(25.0, -10.0, 0.0),
-        ];
-        system.add_obstacle(999, &obstacle_positions, PathfindLayerEnum::Ground);
-
-        let start = Coord3D::new(0.0, 0.0, 0.0);
-        let goal = Coord3D::new(50.0, 0.0, 0.0);
-        let caps = MovementCapabilities::ground();
-
-        let request = PathRequest {
-            requester: 1,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        match system.find_path_immediate(&request) {
-            PathResult::Success(path) => {
-                assert!(path.waypoints.len() >= 2);
-                // Path should route around obstacle
-                assert!(path.complete);
-            }
-            _ => panic!("Expected to find path around obstacle"),
-        }
-    }
-
-    #[test]
-    fn test_no_path_completely_blocked() {
-        let mut system = PathfindingSystem::new(20, 20);
-        system.initialize();
-
-        // Create wall of obstacles
-        for y in -10..=10 {
-            system.add_obstacle(
-                999,
-                &[Coord3D::new(0.0, y as f32 * PATHFIND_CELL_SIZE, 0.0)],
-                PathfindLayerEnum::Ground,
-            );
-        }
-
-        let start = Coord3D::new(-50.0, 0.0, 0.0);
-        let goal = Coord3D::new(50.0, 0.0, 0.0);
-        let caps = MovementCapabilities::ground();
-
-        let request = PathRequest {
-            requester: 1,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        match system.find_path_immediate(&request) {
-            PathResult::Failed(_) => {
-                // Expected - no path exists
-            }
-            _ => panic!("Should not find path through complete wall"),
-        }
-    }
-
-    #[test]
-    fn test_partial_path_when_allowed() {
-        let mut system = PathfindingSystem::new(20, 20);
-        system.initialize();
-
-        // Block goal area
-        for x in 8..12 {
-            for y in 8..12 {
-                system.add_obstacle(
-                    999,
-                    &[Coord3D::new(
-                        x as f32 * PATHFIND_CELL_SIZE,
-                        y as f32 * PATHFIND_CELL_SIZE,
-                        0.0,
-                    )],
-                    PathfindLayerEnum::Ground,
-                );
-            }
-        }
-
-        let start = Coord3D::new(0.0, 0.0, 0.0);
-        let goal = Coord3D::new(100.0, 100.0, 0.0);
-        let caps = MovementCapabilities::ground();
-
-        let request = PathRequest {
-            requester: 1,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: true, // Allow partial path
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        match system.find_path_immediate(&request) {
-            PathResult::Success(path) => {
-                // Should get partial path closer to goal
-                assert!(path.waypoints.len() >= 2);
-            }
-            _ => panic!("Should find partial path"),
-        }
-    }
-
-    #[test]
-    fn test_aircraft_ignore_obstacles() {
-        let mut system = PathfindingSystem::new(100, 100);
-        system.initialize();
-
-        // Add obstacles
-        let obstacle_positions = vec![
-            Coord3D::new(25.0, 0.0, 0.0),
-            Coord3D::new(25.0, 10.0, 0.0),
-            Coord3D::new(25.0, -10.0, 0.0),
-        ];
-        system.add_obstacle(999, &obstacle_positions, PathfindLayerEnum::Air);
-
-        let start = Coord3D::new(0.0, 0.0, 0.0);
-        let goal = Coord3D::new(50.0, 0.0, 0.0);
-        let caps = MovementCapabilities::air();
-
-        let request = PathRequest {
-            requester: 1,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        match system.find_path_immediate(&request) {
-            PathResult::Success(path) => {
-                assert!(path.complete);
-                // Aircraft path should be relatively direct
-                assert!(path.waypoints.len() >= 2);
-            }
-            _ => panic!("Aircraft should fly over obstacles"),
-        }
-    }
-
-    // ========================================================================
-    // PERFORMANCE AND EDGE CASE TESTS
-    // ========================================================================
-
-    #[test]
-    fn test_path_request_queue() {
-        let mut system = PathfindingSystem::new(100, 100);
-        system.initialize();
-
-        // Queue multiple requests
-        for i in 0..10 {
-            let request = PathRequest {
-                requester: i,
-                start: Coord3D::new(0.0, 0.0, 0.0),
-                goal: Coord3D::new(50.0, 50.0, 0.0),
-                capabilities: MovementCapabilities::ground(),
-                unit_size: 1.0,
-                priority: i as u32,
-                allow_partial: false,
-                frame_requested: 0,
-                move_allies: false,
-                ignore_obstacle_id: None,
-            };
-            system.request_path(request);
-        }
-
-        // Process should handle queued requests
-        system.update(1);
-    }
-
-    #[test]
-    fn test_cache_functionality() {
-        let mut system = PathfindingSystem::new(100, 100);
-        system.initialize();
-
-        let start = Coord3D::new(0.0, 0.0, 0.0);
-        let goal = Coord3D::new(50.0, 0.0, 0.0);
-        let caps = MovementCapabilities::ground();
-
-        let request1 = PathRequest {
-            requester: 1,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        // First request
-        let _ = system.find_path_immediate(&request1);
-
-        // Second identical request should potentially use cache
-        let request2 = PathRequest {
-            requester: 2,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        let _ = system.find_path_immediate(&request2);
-    }
-
-    #[test]
-    fn test_dynamic_obstacle_invalidates_cache() {
-        let mut system = PathfindingSystem::new(100, 100);
-        system.initialize();
-
-        let start = Coord3D::new(0.0, 0.0, 0.0);
-        let goal = Coord3D::new(50.0, 0.0, 0.0);
-
-        // Find initial path
-        let caps = MovementCapabilities::ground();
-        let request = PathRequest {
-            requester: 1,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        let _ = system.find_path_immediate(&request);
-
-        // Add obstacle
-        system.add_obstacle(
-            999,
-            &[Coord3D::new(25.0, 0.0, 0.0)],
-            PathfindLayerEnum::Ground,
-        );
-
-        // Pathfinding should find different path
-        let request2 = PathRequest {
-            requester: 2,
-            start,
-            goal,
-            capabilities: caps,
-            unit_size: 1.0,
-            priority: 100,
-            allow_partial: false,
-            frame_requested: 0,
-            move_allies: false,
-            ignore_obstacle_id: None,
-        };
-
-        let _ = system.find_path_immediate(&request2);
-    }
 }

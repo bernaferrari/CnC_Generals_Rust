@@ -141,11 +141,12 @@ fn benchmark_partition_footprint_queries() {
     struct RestorePartition(Option<PartitionManager>);
     impl Drop for RestorePartition {
         fn drop(&mut self) {
-            *PARTITION_MANAGER.write().unwrap() = self.0.take().unwrap();
+            *world_partition_manager().write().unwrap() = self.0.take().unwrap();
         }
     }
     let _restore = {
-        let mut primary = PARTITION_MANAGER.write().unwrap();
+        let partition = world_partition_manager();
+        let mut primary = partition.write().unwrap();
         let original = std::mem::replace(&mut *primary, PartitionManager::new());
         for x in 0..64 {
             match x % 4 {

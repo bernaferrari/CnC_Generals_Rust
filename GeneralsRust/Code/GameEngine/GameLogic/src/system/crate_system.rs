@@ -5,6 +5,6 @@
 //! so that `system::crate_system` remains a valid path for existing code.
 
 pub use crate::object::crate_system::{
-    CrateCreationEntry, CrateDieEval, CrateDropPick, CrateSystem, CrateTemplate, THE_CRATE_SYSTEM,
+    CrateCreationEntry, CrateDieEval, CrateDropPick, CrateSystem, CrateTemplate,
     get_crate_system, killed_by_type_mask_from_ini, veterancy_level_from_ini_name,
 };

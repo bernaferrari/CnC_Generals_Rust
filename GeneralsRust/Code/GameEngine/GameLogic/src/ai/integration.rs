@@ -698,10 +698,9 @@ impl AiIntegrationManager {
     }
 }
 
-// Global AI integration manager instance
-lazy_static::lazy_static! {
-    static ref AI_INTEGRATION_MANAGER: Arc<RwLock<Option<AiIntegrationManager>>> =
-        Arc::new(RwLock::new(None));
+/// The published world's AI integration slot.
+fn ai_integration_slot() -> Arc<RwLock<Option<AiIntegrationManager>>> {
+    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().ai_integration)
 }
 
 /// Replace the singleton for isolated legacy construction-callback fixtures.
@@ -709,7 +708,8 @@ lazy_static::lazy_static! {
 pub(crate) fn replace_ai_integration_for_world_boundary(
     next: Option<AiIntegrationManager>,
 ) -> Option<AiIntegrationManager> {
-    let mut manager = AI_INTEGRATION_MANAGER
+    let slot = ai_integration_slot();
+    let mut manager = slot
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     std::mem::replace(&mut *manager, next)
@@ -717,7 +717,8 @@ pub(crate) fn replace_ai_integration_for_world_boundary(
 
 /// Initialize global AI integration manager
 pub fn initialize_ai_integration() -> Result<(), AiError> {
-    let mut manager_guard = AI_INTEGRATION_MANAGER.write().unwrap();
+    let slot = ai_integration_slot();
+    let mut manager_guard = slot.write().unwrap();
     let mut manager = AiIntegrationManager::new();
     manager.initialize()?;
     *manager_guard = Some(manager);
@@ -731,7 +732,7 @@ pub fn with_ai_integration<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&AiIntegrationManager) -> R,
 {
-    AI_INTEGRATION_MANAGER.read().unwrap().as_ref().map(f)
+    ai_integration_slot().read().unwrap().as_ref().map(f)
 }
 
 /// Get mutable reference to global AI integration manager
@@ -739,7 +740,7 @@ pub fn with_ai_integration_mut<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&mut AiIntegrationManager) -> R,
 {
-    AI_INTEGRATION_MANAGER.write().unwrap().as_mut().map(f)
+    ai_integration_slot().write().unwrap().as_mut().map(f)
 }
 
 /// Handle that implements Common `AIPlayerInterface` by forwarding into the

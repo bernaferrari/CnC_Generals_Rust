@@ -295,7 +295,7 @@ use crate::object::collide::crate_collide::veterancy_crate_collide::{
 use crate::object::collide::fire_weapon_collide::{FireWeaponCollide, FireWeaponCollideModuleData};
 use crate::object::collide::squish_collide::{SquishCollide, SquishCollideModuleData};
 use crate::object::collide::{
-    COLLISION_MANAGER, CollideModule as CollideModuleTrait, CollisionError,
+    world_collision_manager, CollideModule as CollideModuleTrait, CollisionError,
     Coord3D as CollisionCoord3D, GameObject,
 };
 use crate::object::contain::{

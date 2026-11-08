@@ -417,8 +417,10 @@ impl ShroudGrid {
             return Err("shroud grid extent overflows".into());
         }
         let inverse = (1.0_f64 / f64::from(cell_size)) as f32;
-        let width_f = (map_width * inverse).ceil();
-        let height_f = (map_height * inverse).ceil();
+        // C++ PartitionManager.cpp:2586-2587 REAL_TO_INT_CEIL: an integral
+        // quotient gains a cell (BaseType.h:204-226, NEAR/PC24 setFPMode).
+        let width_f = game_engine::base_type::fast_float_ceil(map_width * inverse);
+        let height_f = game_engine::base_type::fast_float_ceil(map_height * inverse);
         if !width_f.is_finite()
             || !height_f.is_finite()
             || width_f < 1.0
@@ -473,17 +475,20 @@ impl ShroudGrid {
     /// C++ PartitionManager.h:1506 subtracts the map extent before flooring.
     /// Keep signed off-map centers so circle spans can clip at the boundary.
     fn world_to_signed_cell(&self, pos: &Coord3D) -> (i32, i32) {
+        let inverse = (1.0_f64 / f64::from(self.cell_size)) as f32;
         (
-            ((pos.x - self.world_origin_xy[0]) * (1.0_f64 / f64::from(self.cell_size)) as f32)
-                .floor() as i32,
-            ((pos.y - self.world_origin_xy[1]) * (1.0_f64 / f64::from(self.cell_size)) as f32)
-                .floor() as i32,
+            game_engine::base_type::real_to_int_floor((pos.x - self.world_origin_xy[0]) * inverse),
+            game_engine::base_type::real_to_int_floor((pos.y - self.world_origin_xy[1]) * inverse),
         )
     }
 
     /// Convert world distance to cell distance
     fn world_to_cell_dist(&self, world_dist: f32) -> i32 {
-        ((world_dist * (1.0_f64 / f64::from(self.cell_size)) as f32).ceil() as i32).max(1)
+        // C++ PartitionManager.h:1515 REAL_TO_INT_CEIL.
+        game_engine::base_type::real_to_int_ceil(
+            world_dist * (1.0_f64 / f64::from(self.cell_size)) as f32,
+        )
+        .max(1)
     }
 
     /// Get cell at grid coordinates

@@ -45,6 +45,24 @@ impl GameLogic {
         logic
     }
 
+    /// This logic's script engine slot (C++ `TheScriptEngine` of the world
+    /// this GameLogic belongs to). A logic built with an owner never consults
+    /// the published world; an ownerless one falls back to it.
+    pub(crate) fn script_engine_slot(&self) -> crate::scripting::engine::ScriptEngineHandle {
+        match self.pathfinding_owner.as_ref() {
+            Some(owner) => owner.services().scripts().engine().clone(),
+            None => get_script_engine(),
+        }
+    }
+
+    /// C++ `TheScriptEngine->init()` against this logic's own world.
+    fn initialize_owned_script_engine(&self) -> crate::GameLogicResult<()> {
+        match self.pathfinding_owner.as_ref() {
+            Some(owner) => owner.services().scripts().initialize_engine(),
+            None => initialize_script_engine(),
+        }
+    }
+
     /// Get whether draw icon UI indicators are enabled.
     pub fn get_draw_icon_ui(&self) -> Bool {
         self.draw_icon_ui
@@ -150,7 +168,7 @@ impl GameLogic {
             warn!("Command system initialization failed: {}", e);
         }
 
-        if let Err(e) = initialize_script_engine() {
+        if let Err(e) = self.initialize_owned_script_engine() {
             warn!("Script engine initialization failed: {}", e);
         }
         crate::system::object_data_provider::ensure_object_data_provider();
@@ -213,7 +231,7 @@ impl GameLogic {
         crate::terrain::init_terrain_physics_integration();
 
         // Keep global subsystems in a C++-like "reset, don't recreate" state.
-        if let Err(e) = initialize_script_engine() {
+        if let Err(e) = self.initialize_owned_script_engine() {
             warn!("Script engine initialization failed during reset: {}", e);
         }
 
@@ -222,7 +240,7 @@ impl GameLogic {
             warn!("Control bar bridge refresh failed during reset: {}", e);
         }
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
+        if let Ok(mut engine_guard) = self.script_engine_slot().write() {
             if let Some(engine) = engine_guard.as_mut() {
                 engine.reset();
             }

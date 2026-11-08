@@ -25,7 +25,7 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
     let ground = PathfindingGround::Flat(0.0);
     finder
         .grid
-        .update_ground_goal_cell(second.0, 0, 1.0, false, (-1, -1), goal);
+        .update_ground_goal_cell(second.0, 1.0, false, (-1, -1), goal);
     finder.find_path_ex_surfaces(
         Vec3::new(20.0, 0.0, 20.0),
         Vec3::new(50.0, 0.0, 20.0),
@@ -59,7 +59,7 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
     assert_eq!((first, second), (peer_first, peer_second));
     peer_finder
         .grid
-        .update_ground_goal_cell(peer_first.0, 0, 1.0, false, (-1, -1), goal);
+        .update_ground_goal_cell(peer_first.0, 1.0, false, (-1, -1), goal);
     let peer_path = peer_finder
         .find_closest_path(
             Vec3::new(20.0, 0.0, 50.0),
@@ -106,7 +106,7 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
     let mut restored_finder = PathfindingSystem::new(200.0, 200.0);
     restored_finder
         .grid
-        .update_ground_goal_cell(second.0, 0, 1.0, false, (-1, -1), goal);
+        .update_ground_goal_cell(second.0, 1.0, false, (-1, -1), goal);
     restored_finder.find_path_ex_surfaces(
         Vec3::new(20.0, 0.0, 20.0),
         Vec3::new(50.0, 0.0, 20.0),
@@ -250,7 +250,6 @@ fn closest_goal_checks_the_receiving_units_whole_footprint() {
     let goal = Vec3::new(100.0, 0.0, 50.0);
     finder.grid.update_ground_goal_cell(
         ally.0,
-        0,
         2.0,
         false,
         (-1, -1),
@@ -756,11 +755,13 @@ fn closest_path_distinguishes_ground_and_bridge_cells_at_the_same_coordinates() 
                 mover,
             )
             .expect("path between bridge and ground");
-        assert_eq!(*path.last().unwrap(), to, "layer {layer}: {path:?}");
-        assert!(
-            path.len() > 1,
-            "changing layers requires travel to a connection: {path:?}"
-        );
+        // The goal cell on the other layer is not the start cell, so the
+        // search does not finish there. The start cell is itself the closest
+        // valid destination (screen distance 0), and C++ then stops expanding
+        // every farther cell (`distSqr > closestDistScreenSqr*4`,
+        // AIPathfind.cpp:8850-8866), so the result stays on the start layer.
+        assert_eq!(path, vec![from], "layer {layer}: {path:?}");
+        assert_ne!(from.y, to.y);
     }
 }
 
@@ -926,7 +927,7 @@ fn closest_seed_respects_receiving_world_occupants() {
         if fixed {
             finder
                 .grid
-                .update_ground_goal_cell(enemy.0, 1, 2.0, false, (-1, -1), enemy_pos);
+                .update_ground_goal_cell(enemy.0, 2.0, false, (-1, -1), enemy_pos);
         }
         let path = finder
             .find_closest_path(
@@ -941,21 +942,31 @@ fn closest_seed_respects_receiving_world_occupants() {
                 mover,
             )
             .expect("a nearby destination");
-        results.push(finder.grid.world_to_grid(*path.last().unwrap()));
+        // The same search's occupancy check on the enemy cell: enemyFixed
+        // unless the receiving mover canCrushOrSquish (AIPathfind.cpp:5063).
+        finder
+            .grid
+            .bind_query_occupants(world.host_objects(), Some(mover));
+        let enemy_cost = finder.grid.occupancy_extra_cost(GridPos::new(3, 3), false);
+        results.push((finder.grid.world_to_grid(*path.last().unwrap()), enemy_cost));
     }
+    const ENEMY_FIXED: u32 = u32::MAX / 8;
     assert_eq!(
         results[0],
-        GridPos::new(9, 7),
+        (GridPos::new(9, 7), 0),
         "a moving enemy does not stop the line seed"
     );
     assert_eq!(
         results[1],
-        GridPos::new(9, 7),
+        (GridPos::new(9, 7), 0),
         "a crushable fixed enemy does not stop the line seed"
     );
+    // The original closest search still settles on (9,7) after detouring
+    // around the uncrushable enemy (checked against a source-order replay of
+    // findClosestPath with its distance bound, AIPathfind.cpp:8790-8870).
     assert_eq!(
         results[2],
-        GridPos::new(10, 7),
+        (GridPos::new(9, 7), ENEMY_FIXED),
         "an unmanned unit cannot crush the fixed enemy"
     );
 }

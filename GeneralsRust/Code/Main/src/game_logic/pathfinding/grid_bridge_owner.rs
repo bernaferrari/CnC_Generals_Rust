@@ -33,7 +33,6 @@ impl PathfindingGrid {
                     continue;
                 };
                 self.occ_goal_unit[new] = previous.occ_goal_unit[old];
-                self.occ_goal_mask[new] = previous.occ_goal_mask[old];
                 self.occ_goal_aircraft[new] = previous.occ_goal_aircraft[old];
             }
         }
@@ -42,9 +41,6 @@ impl PathfindingGrid {
             for (&(x, y), &id) in &old.occ_goal_unit {
                 if x >= 0 && y >= 0 && x < self.width && y < self.height {
                     current.occ_goal_unit.insert((x, y), id);
-                    if let Some(&mask) = old.occ_goal_mask.get(&(x, y)) {
-                        current.occ_goal_mask.insert((x, y), mask);
-                    }
                 }
             }
         }

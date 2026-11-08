@@ -1009,6 +1009,10 @@ impl GameLogic {
                 seeker,
                 crusher_level,
                 id.0,
+                self.objects
+                    .read()
+                    .with_players(&self.players)
+                    .with_team_factory(&self.team_factory),
                 &ground_source,
             )
         });

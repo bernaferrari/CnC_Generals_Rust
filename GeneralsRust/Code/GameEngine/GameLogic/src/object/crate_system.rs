@@ -517,22 +517,17 @@ impl std::fmt::Debug for CrateSystem {
 // Global singleton
 // ---------------------------------------------------------------------------
 
-lazy_static::lazy_static! {
-    /// Global crate system instance. Matches C++ `TheCrateSystem` singleton.
-    pub static ref THE_CRATE_SYSTEM: Arc<RwLock<CrateSystem>> =
-        Arc::new(RwLock::new(CrateSystem::new()));
-}
-
-/// Access the global crate system (read-write handle).
-/// Matches C++ `TheCrateSystem` pointer access.
+/// The published world's crate system (C++ `TheCrateSystem`), seeded from
+/// the parsed INI definitions on first use.
 pub fn get_crate_system() -> Arc<RwLock<CrateSystem>> {
-    sync_runtime_crate_system_from_parsed();
-    THE_CRATE_SYSTEM.clone()
+    let crates = Arc::clone(&crate::system::engine_stores::active_services().logic_managers().crates);
+    sync_runtime_crate_system_from_parsed(&crates);
+    crates
 }
 
-fn sync_runtime_crate_system_from_parsed() {
+fn sync_runtime_crate_system_from_parsed(crates: &RwLock<CrateSystem>) {
     {
-        let Ok(runtime) = THE_CRATE_SYSTEM.read() else {
+        let Ok(runtime) = crates.read() else {
             return;
         };
         if runtime.get_template_count() > 0 {
@@ -547,7 +542,7 @@ fn sync_runtime_crate_system_from_parsed() {
         return;
     }
 
-    let Ok(mut runtime) = THE_CRATE_SYSTEM.write() else {
+    let Ok(mut runtime) = crates.write() else {
         return;
     };
     if runtime.get_template_count() > 0 {

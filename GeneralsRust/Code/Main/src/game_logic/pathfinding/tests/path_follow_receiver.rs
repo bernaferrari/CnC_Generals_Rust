@@ -7,25 +7,24 @@ fn grid() -> PathfindingGrid {
 
 fn stamp(grid: &mut PathfindingGrid, cell: GridPos, receiver: u32, moving: bool) {
     if !moving {
-        grid.mark_occupancy(
-            cell,
-            1,
-            true,
-            true,
-            255,
-            receiver,
-            PathfindLayerEnum::Ground,
-        );
+        grid.mark_occupancy(cell, true, receiver, PathfindLayerEnum::Ground);
     }
-    grid.mark_occupancy(
-        cell,
-        1,
-        true,
-        false,
-        255,
-        receiver,
-        PathfindLayerEnum::Ground,
-    );
+    grid.mark_occupancy(cell, false, receiver, PathfindLayerEnum::Ground);
+}
+
+/// Both stamped actors belong to one player, so each considers the other an
+/// ally (C++ `getRelationship == ALLIES` -> `allyFixedCount`).
+fn actors() -> crate::game_logic::HostObjectStore {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut objects = crate::game_logic::HostObjectStore::new();
+    for id in [7, 8] {
+        let mut template = ThingTemplate::new("PathFollowActor");
+        template.add_kind_of(KindOf::Vehicle);
+        let mut actor = Object::new(template, ObjectId(id), Team::USA);
+        actor.owner_player_id = Some(1);
+        objects.admit(actor.id, actor);
+    }
+    objects
 }
 
 fn lead(grid: &PathfindingGrid, receiver: Option<u32>, from: GridPos, to: GridPos) -> Vec3 {
@@ -37,14 +36,17 @@ fn lead(grid: &PathfindingGrid, receiver: Option<u32>, from: GridPos, to: GridPo
         to,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
+    let objects = actors();
+    let receiver = receiver.map(|id| LineReceiver {
+        mover: objects.read().lookup(&crate::game_logic::ObjectId(id)).unwrap(),
+        objects: objects.read(),
+    });
     PathfindingSystem::compute_point_on_path_for(
         start,
         &[start, next],
         Some(grid),
         SURFACE_GROUND,
         false,
-        None,
-        0,
         None,
         receiver,
     )
@@ -67,15 +69,15 @@ fn path_follow_skips_only_own_fixed_and_moving_footprint() {
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
             )
         );
-        if !moving {
-            assert_eq!(
-                lead(&grid, None, from, next),
-                grid.grid_to_world(
-                    from,
-                    &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
-                )
-            );
-        }
+        // isLinePassable without an object runs checkForMovement(NULL), which
+        // never reports occupants (AIPathfind.cpp:4982).
+        assert_eq!(
+            lead(&grid, None, from, next),
+            grid.grid_to_world(
+                next,
+                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
+            )
+        );
     }
 }
 
@@ -168,11 +170,9 @@ fn path_follow_own_occupancy_does_not_open_terrain_or_pinched_gate() {
         SURFACE_GROUND,
         false,
         false,
-        None,
-        0,
         false,
         None,
-        Some(7),
+        None,
     ));
     // The path-follow route deliberately allows pinched cells, as C++ does.
     assert_eq!(

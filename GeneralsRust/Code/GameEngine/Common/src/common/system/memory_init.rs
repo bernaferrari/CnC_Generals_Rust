@@ -839,25 +839,6 @@ impl Default for MemoryPoolManager {
     }
 }
 
-// Global memory pool manager instance
-lazy_static::lazy_static! {
-    pub static ref MEMORY_POOL_MANAGER: Arc<Mutex<MemoryPoolManager>> =
-        Arc::new(Mutex::new(MemoryPoolManager::new()));
-}
-
-/// Initialize memory pools
-///
-/// This corresponds to the userMemoryManagerInitPools function in C++.
-pub fn init_memory_pools() {
-    let mut manager = MEMORY_POOL_MANAGER.lock().unwrap();
-    manager.init();
-}
-
-/// Get memory pool manager instance
-pub fn get_memory_pool_manager() -> Arc<Mutex<MemoryPoolManager>> {
-    MEMORY_POOL_MANAGER.clone()
-}
-
 /// User memory manager DMA parameters callback
 ///
 /// This corresponds to userMemoryManagerGetDmaParms in the C++ code.
@@ -879,10 +860,10 @@ pub fn adjust_pool_size(
         return; // Already configured
     }
 
-    let mut manager = MEMORY_POOL_MANAGER.lock().unwrap();
-    if !manager.initialized {
-        manager.init();
-    }
+    // C++ userMemoryAdjustPoolSize reads the static PoolSizes table plus the
+    // MemoryPools.ini overrides; build that read-only view for this lookup.
+    let mut manager = MemoryPoolManager::new();
+    manager.init();
     if let Some(config) = manager.get_pool_config(pool_name) {
         *initial_allocation_count = config.initial;
         *overflow_allocation_count = config.overflow;
@@ -1116,7 +1097,6 @@ mod tests {
         initial = 0;
         overflow = 0;
 
-        init_memory_pools(); // Ensure manager is initialized
         adjust_pool_size("ObjectPool", &mut initial, &mut overflow);
         assert_ne!(initial, 0); // Should be set to default value
         assert_ne!(overflow, 0);

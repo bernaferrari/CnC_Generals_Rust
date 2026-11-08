@@ -18,7 +18,7 @@ use crate::helpers::TheTerrainLogic;
 use crate::modules::SpecialPowerModuleInterface;
 use crate::object::Object;
 use crate::object::behavior::spawn_behavior::SpawnBehaviorInterface;
-use crate::object::collide::COLLISION_MANAGER;
+use crate::object::collide::world_collision_manager;
 use crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdate;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::SpecialPowerTemplate;
@@ -1176,7 +1176,7 @@ impl TheActionManager {
             &is_object_shrouded_for_action,
             &|source, target| {
                 TheGameLogic::find_object_by_id(target.get_id()).is_some_and(|other| {
-                    COLLISION_MANAGER
+                    world_collision_manager()
                         .would_like_to_collide_with(source.get_id(), &other)
                         .unwrap_or(false)
                 })
@@ -1400,7 +1400,7 @@ impl TheActionManager {
             return false;
         };
 
-        COLLISION_MANAGER
+        world_collision_manager()
             .would_like_to_collide_with_matching(obj.get_id(), &other_handle, |module| {
                 module.is_car_bomb_crate_collide()
             })
@@ -1446,7 +1446,7 @@ impl TheActionManager {
             return false;
         };
 
-        COLLISION_MANAGER
+        world_collision_manager()
             .would_like_to_collide_with_matching(obj.get_id(), &other_handle, |module| {
                 module.is_hijacked_vehicle_crate_collide()
             })
@@ -1481,7 +1481,7 @@ impl TheActionManager {
             return false;
         };
 
-        COLLISION_MANAGER
+        world_collision_manager()
             .would_like_to_collide_with_matching(obj.get_id(), &other_handle, |module| {
                 module.is_sabotage_building_crate_collide()
             })

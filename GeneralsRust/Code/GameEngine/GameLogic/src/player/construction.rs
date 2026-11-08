@@ -38,6 +38,7 @@ impl Player {
         builder_id: Option<ObjectID>,
         structure: &Arc<RwLock<Object>>,
         is_rebuild: Bool,
+        pathfinder: Option<&Arc<RwLock<crate::ai::Pathfinder>>>,
     ) {
         // No caller-held player/object guard may span these reentrant phases.
         crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
@@ -47,22 +48,14 @@ impl Player {
             Err(_) => return,
         };
 
-        let (structure_pos, structure_layer) = {
-            let Ok(guard) = structure.read() else {
-                return;
-            };
-            (*guard.get_position(), guard.get_layer())
-        };
-
-        let ai_store = crate::ai::the_ai();
-        if let Ok(ai_guard) = ai_store.read() {
-            if let Some(pathfinding) = ai_guard.pathfinding_system() {
-                if let Ok(mut system) = pathfinding.write() {
-                    let layer =
-                        crate::ai::pathfinding_system::PathfindLayerEnum::from(structure_layer);
-                    let positions = [structure_pos];
-                    system.remove_obstacle(structure_id, &positions, layer);
-                    system.add_obstacle(structure_id, &positions, layer);
+        // C++ Player.cpp:1644-1645: full footprint remove then insert on the
+        // receiving pathfinder. The handle is locked only for these two
+        // classifications; no guard spans the reentrant phases below.
+        if let Some(pathfinder) = pathfinder {
+            if let Ok(structure_guard) = structure.read() {
+                if let Ok(mut pf) = pathfinder.write() {
+                    let _ = pf.remove_object_from_pathfind_map(&structure_guard);
+                    let _ = pf.add_object_to_pathfind_map(&structure_guard);
                 }
             }
         }

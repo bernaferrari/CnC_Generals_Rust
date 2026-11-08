@@ -959,15 +959,9 @@ pub struct ObjectFactoryStats {
     pub pool_stats: HashMap<String, PoolStats>,
 }
 
-// Global object factory instance
-lazy_static::lazy_static! {
-    pub static ref THE_OBJECT_FACTORY: Arc<RwLock<ObjectFactory>> =
-        Arc::new(RwLock::new(ObjectFactory::new()));
-}
-
-/// Convenience function to get the global object factory
+/// The published world's object factory.
 pub fn get_object_factory() -> Arc<RwLock<ObjectFactory>> {
-    THE_OBJECT_FACTORY.clone()
+    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().object_factory)
 }
 
 /// C++ Drawable ctor: skip when Extra Animations is off and MinLODRequired is above static LOD.

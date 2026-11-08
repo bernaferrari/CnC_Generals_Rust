@@ -432,9 +432,7 @@ impl PathfindingSystem {
                 cell,
                 layer,
                 consider_transient,
-                self.seeker_player,
                 self.seeker_is_infantry,
-                crusher_level,
                 radius,
                 self.seeker_center_in_cell,
             ) {
@@ -597,9 +595,6 @@ impl PathfindingSystem {
             start_index
         };
         let is_human = self.grid.query_is_human;
-        let ally_mask = seeker_player
-            .map(|p| self.grid.ally_mask_for(p))
-            .unwrap_or(0);
         // C++ checkForMovement inspects the full footprint before setting
         // m_isTunneling; path-through-units is a separate AI property.
         let footprint = MovementFootprint {
@@ -607,10 +602,7 @@ impl PathfindingSystem {
             start: start_index,
             radius,
             center_in_cell,
-            seeker_player,
             is_infantry: self.seeker_is_infantry,
-            crusher_level,
-            ally_mask,
         };
         let footprint_cost = |position, layer| footprint.cost(&self.grid, position, layer);
         let mut tunneling = !self.grid.valid_movement_position(
@@ -757,7 +749,7 @@ impl PathfindingSystem {
                 }
                 let occupancy = footprint_cost(n, layer);
                 let occupied_blocked = occupancy.is_none();
-                let occupied_cost = occupancy.unwrap_or(0.0);
+                let occupied_cost = occupancy.unwrap_or(0);
                 if occupied_blocked && !tunneling {
                     continue;
                 }
@@ -789,7 +781,7 @@ impl PathfindingSystem {
                         };
                     }
                 }
-                step += (occupied_cost * 10.0).round() as i32;
+                step += occupied_cost;
                 if tunneling && !movement_valid {
                     step += 100;
                 }
@@ -926,18 +918,12 @@ impl PathfindingSystem {
             0
         };
         let seeker_player = self.seeker_player;
-        let ally_mask = seeker_player
-            .map(|p| self.grid.ally_mask_for(p))
-            .unwrap_or(0);
         let footprint = MovementFootprint {
             mover,
             start,
             radius,
             center_in_cell,
-            seeker_player,
             is_infantry: self.seeker_is_infantry,
-            crusher_level,
-            ally_mask,
         };
         let radius_sqr = repulsor_radius * repulsor_radius;
         let requested_layer = PathfindLayerEnum::from_u32(unit.pathfind_layer as u32);
@@ -1055,7 +1041,7 @@ impl PathfindingSystem {
                     continue;
                 };
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
-                let ng = g + step + (occupied_cost * 10.0).round() as i32;
+                let ng = g + step + occupied_cost;
                 g_score.insert(nkey, ng);
                 parents.insert(nkey, key);
                 open.push(std::cmp::Reverse((
@@ -1184,12 +1170,7 @@ impl PathfindingSystem {
             start: original_start,
             radius,
             center_in_cell,
-            seeker_player,
             is_infantry: self.seeker_is_infantry,
-            crusher_level: self.seeker_crusher_level,
-            ally_mask: seeker_player
-                .map(|id| self.grid.ally_mask_for(id))
-                .unwrap_or(0),
         };
         let mut tunnel = !self.grid.valid_movement_position(
             start,
@@ -1220,6 +1201,8 @@ impl PathfindingSystem {
         let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
         let mut closest_screen_sqr = f32::MAX;
         let mut found_goal_cell = false;
+        // C++ `count`: cells newly allocated by examineNeighboringCells.
+        let mut examined_cells = 0i32;
         let mut expanded = 0i32;
         const COST_ORTHO: i32 = 10;
         const COST_TO_DISTANCE_FACTOR: f32 = 1.0 / 10.0;
@@ -1254,9 +1237,11 @@ impl PathfindingSystem {
         let closest_jumps = self.hierarchical_bridge_jumps();
         let closest_start = self.host_to_crate_coord(start);
         let closest_goal = self.host_to_crate_coord(goal_grid);
+        // C++ gotHierarchicalPath (AIPathfind.cpp:8741-8751).
+        let mut got_hierarchical_path = false;
         if !tunnel {
             if let Some(crate_pf) = self.crate_astar.as_mut() {
-                crate_pf.finder.apply_hierarchical_zone_prune(
+                got_hierarchical_path = crate_pf.finder.apply_hierarchical_zone_prune(
                     closest_start,
                     closest_goal,
                     surfaces,
@@ -1325,6 +1310,20 @@ impl PathfindingSystem {
                     closest_cell = Some((cell, layer, dist_sqr));
                 }
             }
+            // C++ stops expanding cells more than twice as far (in screen
+            // distance) as the closest valid cell once the search is bounded
+            // (AIPathfind.cpp:8850-8866).
+            let dx = (goal_grid.x - cx).abs() as f32;
+            let dy = (goal_grid.y - cy).abs() as f32;
+            if dx * dx + dy * dy > closest_screen_sqr * 4.0 {
+                const CELL_SIZE: f32 = 10.0;
+                let skip = !got_hierarchical_path
+                    || examined_cells > 2000
+                    || closest_screen_sqr < 10.0 * 10.0 * CELL_SIZE;
+                if skip {
+                    continue;
+                }
+            }
             if found_goal_cell {
                 continue;
             }
@@ -1372,7 +1371,7 @@ impl PathfindingSystem {
                         }))
                         || (to_layer == PathfindLayerEnum::Ground && self.grid.is_pinched(to_cell))
                         || to_type == PathfindCellType::Cliff
-                        || !footprint.line_seed_clear(&self.grid, to_cell, from_layer, objects)
+                        || !footprint.line_seed_clear(&self.grid, to_cell, from_layer)
                     {
                         return false;
                     }
@@ -1443,11 +1442,12 @@ impl PathfindingSystem {
                     // Additional pinch cost in examineNeighboringCells.
                     step += COST_ORTHO;
                 }
-                step += (occupancy.unwrap_or(0.0) * 10.0).round() as i32;
+                step += occupancy.unwrap_or(0);
                 if tunnel && !movement_valid {
                     step += 10 * COST_ORTHO;
                 }
                 let ng = g + step;
+                examined_cells += 1;
                 g_score.insert(nkey, ng);
                 parents.insert(nkey, key);
                 let f = ng + if tunnel { 0 } else { heuristic(nc) };
@@ -1520,6 +1520,7 @@ impl PathfindingSystem {
         seeker_player: Option<u32>,
         crusher_level: u8,
         seeker_id: u32,
+        objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
         let layer = self.grid.layer_for_destination(group_dest, ground_source);
@@ -1528,6 +1529,7 @@ impl PathfindingSystem {
         self.grid.query_from = Some(self.grid.world_to_grid(from));
         self.grid.query_orig_dest = Some(dest_cell);
         self.grid.query_seeker_id = seeker_id;
+        self.grid.bind_query_occupants(objects, Some(ObjectId(seeker_id)));
         let adj = self.grid.adjust_destination_for_group(
             dest_cell,
             group_cell,
@@ -1571,8 +1573,6 @@ impl PathfindingSystem {
             surfaces,
             is_crusher,
             None,
-            if is_crusher { 1 } else { 0 },
-            None,
             None,
         )
     }
@@ -1588,10 +1588,8 @@ impl PathfindingSystem {
         grid: Option<&PathfindingGrid>,
         surfaces: u32,
         is_crusher: bool,
-        seeker_player: Option<u32>,
-        crusher_level: u8,
         ignore_obstacle: Option<u32>,
-        receiver: Option<u32>,
+        receiver: Option<LineReceiver<'_>>,
     ) -> Vec3 {
         if waypoints.is_empty() {
             return pos;
@@ -1647,8 +1645,6 @@ impl PathfindingSystem {
                     surfaces,
                     is_crusher,
                     true,
-                    seeker_player,
-                    crusher_level,
                     false,
                     ignore_obstacle,
                     receiver,
@@ -1873,145 +1869,6 @@ impl PathfindingSystem {
         }
         nudged
     }
-
-    /// Move unit along path
-    pub fn move_unit_along_path(
-        &self,
-        object_id: ObjectId,
-        objects: &mut HostObjectStore,
-        dt: f32,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
-    ) -> bool {
-        if let Some(unit) = objects.get_mut(&object_id) {
-            if unit.movement.path.is_empty()
-                || unit.movement.current_path_index >= unit.movement.path.len()
-            {
-                unit.stop_moving(audio);
-                return false;
-            }
-
-            let target_waypoint = unit.movement.path[unit.movement.current_path_index];
-            let current_pos = unit.get_position();
-            let distance_to_waypoint = current_pos.distance(target_waypoint);
-
-            if distance_to_waypoint < 5.0 {
-                // Reached waypoint, move to next
-                unit.movement.current_path_index += 1;
-                if unit.movement.current_path_index >= unit.movement.path.len() {
-                    unit.ignored_obstacle_id = None;
-                    unit.stop_moving(audio);
-                    return true;
-                }
-                return false; // Continue to next waypoint
-            }
-
-            // Move toward waypoint
-            let direction = (target_waypoint - current_pos).normalize_or_zero();
-            let move_distance = unit.movement.max_speed * dt;
-            let new_position = current_pos + direction * move_distance;
-
-            unit.set_position(new_position);
-            unit.set_orientation((-direction.z).atan2(direction.x));
-
-            false
-        } else {
-            false
-        }
-    }
-
-    /// Set up flow field for group movement
-    pub fn create_flow_field(
-        &mut self,
-        goal_object_id: ObjectId,
-        goal_pos: Vec3,
-        objects: HostObjectRead<'_>,
-        ground_source: &PathfindingGround<'_>,
-    ) {
-        // Update obstacles and create flow field (once per logic frame).
-        self.ensure_dynamic_obstacles(objects, ground_source);
-
-        let goal_grid = self.grid.world_to_grid(goal_pos);
-        let mut flow_field = FlowField::new_with_origin(
-            self.grid.origin(),
-            self.grid.width as f32 * self.grid.grid_size,
-            self.grid.height as f32 * self.grid.grid_size,
-            self.grid.grid_size,
-        );
-
-        flow_field.generate_flow_field(goal_grid, &self.grid);
-        self.flow_fields.insert(goal_object_id, flow_field);
-    }
-
-    /// Move group of units using flow field
-    pub fn move_group_with_flow_field(
-        &self,
-        goal_object_id: ObjectId,
-        unit_ids: &[ObjectId],
-        objects: &mut HostObjectStore,
-        dt: f32,
-    ) {
-        if let Some(flow_field) = self.flow_fields.get(&goal_object_id) {
-            // Calculate movements
-            let movements: Vec<(ObjectId, Vec3, f32)> = unit_ids
-                .iter()
-                .filter_map(|&unit_id| {
-                    if let Some(unit) = objects.get(&unit_id) {
-                        let flow_direction = flow_field.get_flow_direction(unit.get_position());
-
-                        if flow_direction.length() > 0.1 {
-                            let move_distance = unit.movement.max_speed * dt;
-                            let new_position = unit.get_position() + flow_direction * move_distance;
-                            let new_orientation = (-flow_direction.z).atan2(flow_direction.x);
-
-                            Some((unit_id, new_position, new_orientation))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            // Apply movements directly
-
-            // Apply movements
-            for (unit_id, new_position, new_orientation) in movements {
-                if let Some(unit) = objects.get_mut(&unit_id) {
-                    unit.set_position(new_position);
-                    unit.set_orientation(new_orientation);
-                }
-            }
-        }
-    }
-
-    /// Clean up flow fields
-    pub fn cleanup_flow_field(&mut self, goal_object_id: ObjectId) {
-        self.flow_fields.remove(&goal_object_id);
-    }
-
-    /// Batch pathfinding for multiple units
-    pub fn find_paths_batch(
-        &mut self,
-        path_requests: Vec<(ObjectId, Vec3, Vec3)>, // (unit_id, start, goal)
-        objects: HostObjectRead<'_>,
-        ground_source: &PathfindingGround<'_>,
-    ) -> Vec<(ObjectId, Option<Vec<Vec3>>)> {
-        self.ensure_dynamic_obstacles(objects, ground_source);
-
-        // Process all pathfinding requests sequentially
-        let mut results = Vec::new();
-
-        for (unit_id, start, goal) in path_requests {
-            let start_grid = self.grid.world_to_grid(start);
-            let goal_grid = self.grid.world_to_grid(goal);
-
-            let path = self.grid.find_path(start_grid, goal_grid, ground_source);
-            results.push((unit_id, path));
-        }
-
-        results
-    }
 }
 
 #[cfg(test)]
@@ -2094,10 +1951,15 @@ mod closest_path_ignored_footprint_tests {
                 ObjectId(1),
             )
             .expect("ignoreObstacle must admit the victim's target cell");
+        // C++ buildActualPath -> prependCells ends on the goal cell adjusted
+        // for the mover's centering rule (AIPathfind.cpp:8954-9014), not on
+        // the raw requested point.
         assert_eq!(
-            through_victim.last().copied(),
-            Some(goal),
-            "contact closest path must reach the registered victim position"
+            through_victim
+                .last()
+                .map(|point| system.grid.world_to_grid(*point)),
+            Some(goal_cell),
+            "contact closest path must reach the registered victim cell"
         );
         assert!(through_victim.iter().any(|point| {
             system

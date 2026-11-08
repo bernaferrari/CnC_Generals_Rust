@@ -41,7 +41,7 @@ use super::collision_geometry::{
 };
 use super::collision_response::{CollisionResponseConfig, CollisionResponseHandler};
 use super::partition_manager::PartitionManager;
-use super::{COLLISION_MANAGER, CollisionError, Coord3D, GameObject, ObjectId, ObjectStatusMask};
+use super::{world_collision_manager, CollisionError, Coord3D, GameObject, ObjectId, ObjectStatusMask};
 use crate::ai::CommandSourceType;
 use crate::ai::states::AIStateType;
 use crate::common::{Coord3D as GameCoord3D, FormationID, KindOf, ObjectStatusTypes, Real, Vec3D};
@@ -276,7 +276,7 @@ impl CollisionSystem {
         let loc = Coord3D::new(cinfo.loc.x, cinfo.loc.y, cinfo.loc.z);
         let normal = Coord3D::new(cinfo.normal.x, cinfo.normal.y, cinfo.normal.z);
         let _ =
-            COLLISION_MANAGER.handle_collision_for_owner(id_a, &obj_a, Some(&obj_b), &loc, &normal);
+            world_collision_manager().handle_collision_for_owner(id_a, &obj_a, Some(&obj_b), &loc, &normal);
         let inv_normal = Coord3D::new(-normal.x, -normal.y, -normal.z);
         // C++ PartitionContactList::processContactList suppresses the paired
         // callback if either object was destroyed by the first side.
@@ -289,7 +289,7 @@ impl CollisionSystem {
             .map(|object| !object.is_destroyed())
             .unwrap_or(false);
         if object_a_alive && object_b_alive {
-            let _ = COLLISION_MANAGER.handle_collision_for_owner(
+            let _ = world_collision_manager().handle_collision_for_owner(
                 id_b,
                 &obj_b,
                 Some(&obj_a),
@@ -887,18 +887,13 @@ pub struct CollisionSystemStatistics {
     pub avg_objects_per_cell: f32,
 }
 
-// Global collision system instance
-lazy_static::lazy_static! {
-    pub static ref COLLISION_SYSTEM: Arc<RwLock<CollisionSystem>> =
-        Arc::new(RwLock::new(CollisionSystem::new()));
-}
 
 /// Helper function to get the global collision system
 pub fn with_collision_system<F, R>(f: F) -> Result<R, CollisionError>
 where
     F: FnOnce(&CollisionSystem) -> R,
 {
-    COLLISION_SYSTEM
+    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().collision)
         .read()
         .map(|system| f(&system))
         .map_err(|e| {
@@ -911,7 +906,7 @@ pub fn with_collision_system_mut<F, R>(f: F) -> Result<R, CollisionError>
 where
     F: FnOnce(&mut CollisionSystem) -> R,
 {
-    COLLISION_SYSTEM
+    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().collision)
         .write()
         .map(|mut system| f(&mut system))
         .map_err(|e| {

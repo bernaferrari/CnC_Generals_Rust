@@ -78,7 +78,7 @@ note = "Terrain chunk once-logs are OnceLock; 0 counted globals."
 [[module]]
 path = "Code/GameEngine/GameLogic/src/system/world_logic_managers.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameLogic"
-note = "Per-world Arc bundle for stealth/detection/beacon/cave/command managers; no process OnceLocks."
+note = "Per-world Arc bundle for stealth/detection/beacon/cave/command, object factory, construction, crate, collision, partition and AI-integration managers; no process OnceLocks."
 
 [[module]]
 path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_structure_inventory.rs"

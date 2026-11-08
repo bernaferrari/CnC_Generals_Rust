@@ -2496,6 +2496,8 @@ mod tests {
         let mut logic = GameLogic::new();
 
         crate::system::engine_stores::with_active_stores(&stores, || {
+            // AI integration belongs to the world the unbound logic runs in.
+            crate::ai::integration::initialize_ai_integration().unwrap();
             logic.register_object(Arc::clone(&object)).unwrap();
         });
         assert_eq!(
@@ -2563,5 +2565,38 @@ mod tests {
         assert_eq!((read(&a), read(&b)), (2, 4));
         first.set_rank_level_limit(-5);
         assert_eq!((read(&a), read(&b)), (1, 4));
+    }
+
+    /// hq-r0o8i: C++ `TheScriptEngine` and its named-object table belong to
+    /// one world. Initializing/naming in world A never touches world B, and
+    /// an owned GameLogic initializes its own world, not the published one.
+    #[test]
+    fn script_engine_and_named_objects_are_per_world() {
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        let a = Arc::new(EngineStores::new_for_world());
+        let b = Arc::new(EngineStores::new_for_world());
+        let logic_a = GameLogic::new_with_engine_stores(Arc::clone(&a));
+        // Publish B while initializing A's logic: A's owner must win.
+        with_active_stores(&b, || logic_a.initialize_owned_script_engine())
+            .expect("owned init");
+        let has_engine = |s: &Arc<EngineStores>| {
+            s.services().scripts().engine().read().unwrap().is_some()
+        };
+        assert!(has_engine(&a));
+        assert!(!has_engine(&b));
+        with_active_stores(&a, || {
+            crate::scripting::engine::get_named_object_tracker()
+                .register_named_object("Hero".to_string(), 7)
+                .unwrap();
+        });
+        let lookup = |s: &Arc<EngineStores>| {
+            with_active_stores(s, || {
+                crate::scripting::engine::get_named_object_tracker()
+                    .get_object_id("Hero")
+                    .unwrap()
+            })
+        };
+        assert_eq!(lookup(&a), Some(7));
+        assert_eq!(lookup(&b), None);
     }
 }

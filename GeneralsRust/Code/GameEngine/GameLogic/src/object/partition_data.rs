@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::common::{Coord3D, KindOf, MAX_PLAYER_COUNT, ObjectShroudStatus, Relationship};
 use crate::object::Object;
 use crate::object::collide::partition_coi::{do_circle_fill, do_rect_fill, do_small_fill};
-use crate::object::collide::partition_manager::{CellCoord, PARTITION_MANAGER, PartitionManager};
+use crate::object::collide::partition_manager::{CellCoord, world_partition_manager, PartitionManager};
 use crate::object::collide::partition_shroud::PartitionCellShroudCounts;
 use crate::player::player_list;
 use game_engine::common::system::radar::CellShroudStatus;
@@ -210,7 +210,8 @@ fn object_cell_shroud_counts(
     player_index: i32,
     object: &Object,
 ) -> Option<PartitionCellShroudCounts> {
-    let primary = PARTITION_MANAGER.read().ok();
+    let partition = world_partition_manager();
+    let primary = partition.read().ok();
     let mut live = LivePartitionRead::Unqueried;
     if !primary
         .as_ref()
@@ -260,7 +261,7 @@ fn geometry_cells_for_object(object: &Object) -> Vec<CellCoord> {
 }
 
 fn cell_shroud_status(player_index: i32, x: i32, y: i32) -> CellShroudStatus {
-    if let Ok(pm) = PARTITION_MANAGER.read() {
+    if let Ok(pm) = world_partition_manager().read() {
         if let Some(status) = pm.shroud.known_cell_status(player_index, x, y) {
             return status;
         }
@@ -288,7 +289,8 @@ pub fn partition_cell_shroud_counts(
     player_index: i32,
     cells: &[(i32, i32)],
 ) -> PartitionCellShroudCounts {
-    let primary = PARTITION_MANAGER.read().ok();
+    let partition = world_partition_manager();
+    let primary = partition.read().ok();
     sample_partition_cells(
         primary.as_deref(),
         &mut LivePartitionRead::Unqueried,
@@ -310,7 +312,7 @@ fn viewer_relationship_to_object(player_index: i32, object: &Object) -> Option<R
 
 /// Stamp looker circles onto both 40wu partition grids (leftover + live).
 pub fn stamp_partition_cell_lookers(center: &Coord3D, radius: f32, player_mask: u32, add: bool) {
-    if let Ok(mut pm) = PARTITION_MANAGER.write() {
+    if let Ok(mut pm) = world_partition_manager().write() {
         if add {
             pm.do_shroud_reveal_cells(center, radius, player_mask);
         } else {
@@ -329,7 +331,7 @@ pub fn stamp_partition_cell_lookers(center: &Coord3D, radius: f32, player_mask: 
 
 /// Stamp shroud-cover circles onto both 40wu partition grids.
 pub fn stamp_partition_cell_covers(center: &Coord3D, radius: f32, player_mask: u32, add: bool) {
-    if let Ok(mut pm) = PARTITION_MANAGER.write() {
+    if let Ok(mut pm) = world_partition_manager().write() {
         if add {
             pm.do_shroud_cover_cells(center, radius, player_mask);
         } else {
