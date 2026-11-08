@@ -290,15 +290,6 @@ mod tests {
     }
 
     #[test]
-    fn time_freeze_matches_cpp_tactical_and_script_conditions() {
-        let _fixture = test_state_lock();
-        assert!(should_freeze_time(true, false, false));
-        assert!(!should_freeze_time(true, true, false));
-        assert!(should_freeze_time(false, true, true));
-        assert!(!should_freeze_time(false, true, false));
-    }
-
-    #[test]
     fn test_game_logic_creation() {
         let _fixture = test_state_lock();
         let logic = GameLogic::new();

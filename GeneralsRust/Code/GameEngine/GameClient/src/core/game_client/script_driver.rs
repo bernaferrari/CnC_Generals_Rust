@@ -276,6 +276,7 @@ impl GameClient {
         logic
             .update_with_script_phase(
                 frame,
+                scripts,
                 &mut |world| {
                     self.with_receiving_core_script_driver(bar, world, |driver| {
                         scripts.update_with_driver(
@@ -360,6 +361,25 @@ mod popup_owner_tests {
         first.clear_core_popup_message(&mut first_world);
         assert!(!first_world.is_game_paused());
         assert!(!has_popup(&mut first));
+    }
+
+    #[test]
+    fn paired_core_tick_observes_its_receiving_script_freeze() {
+        crate::test_support::ensure_ambient_host();
+        let mut client = GameClient::new().unwrap();
+        let mut world = gamelogic::system::game_logic::GameLogic::new();
+        let mut bar = crate::gui::control_bar::ControlBar::new();
+        let scripts = ScriptEngine::new().unwrap();
+        scripts.do_freeze_time();
+        client
+            .update_core_logic_with_scripts(&mut world, &scripts, &mut bar, 0, || None)
+            .unwrap();
+        assert_eq!(world.get_frame(), 0);
+        scripts.do_unfreeze_time();
+        client
+            .update_core_logic_with_scripts(&mut world, &scripts, &mut bar, 0, || None)
+            .unwrap();
+        assert_eq!(world.get_frame(), 1);
     }
 
     #[test]

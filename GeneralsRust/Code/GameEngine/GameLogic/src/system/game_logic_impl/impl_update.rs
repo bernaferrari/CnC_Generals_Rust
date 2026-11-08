@@ -92,7 +92,7 @@ impl GameLogic {
         frame: u32,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, None, None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, None, None, observe_camera)
     }
 
     /// Update with a borrowed UI callback for a deferred new-game start.
@@ -103,7 +103,7 @@ impl GameLogic {
         hooks: &mut dyn crate::helpers::LoadScreenHooks,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, Some(hooks), None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, Some(hooks), None, None, observe_camera)
     }
 
     pub fn update_with_upgrade_services(
@@ -115,6 +115,7 @@ impl GameLogic {
         self.update_with_optional_upgrade_services(
             frame,
             Some(services),
+            None,
             None,
             None,
             None,
@@ -137,6 +138,7 @@ impl GameLogic {
             minefield,
             None,
             None,
+            None,
             observe_camera,
         )
     }
@@ -152,6 +154,7 @@ impl GameLogic {
     ) -> Result<(), GameLogicError> {
         self.update_with_script_phase(
             frame,
+            scripts,
             &mut |_world| {
                 scripts
                     .update_with_driver(crate::scripting::executor::ScriptContext::new(), driver)
@@ -166,10 +169,11 @@ impl GameLogic {
     pub fn update_with_script_phase(
         &mut self,
         frame: u32,
+        script_engine: &crate::scripting::engine::ScriptEngine,
         scripts: &mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, None, Some(scripts), observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, Some(scripts), Some(script_engine), observe_camera)
     }
 
     fn update_with_optional_upgrade_services(
@@ -179,6 +183,7 @@ impl GameLogic {
         mut minefield: Option<&mut dyn MinefieldPlacementServices>,
         mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
         scripts: Option<&mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>>,
+        script_engine: Option<&crate::scripting::engine::ScriptEngine>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
         self.last_update_was_empty_noop = false;
@@ -259,7 +264,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: Bool freezeTime = TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished()
         // C++: if (freezeTime) { ... return; }
-        if self.is_time_frozen(observe_camera()) {
+        if self.is_time_frozen(observe_camera(), script_engine) {
             // C++ GameLogic.cpp:3606-3613 — a pending MSG_CLEAR_GAME_DATA
             // force-unfreezes and FALLS THROUGH to the full update so the
             // clear-game dispatch can run on this frame.
@@ -272,7 +277,9 @@ impl GameLogic {
                 // term on the host tick). The camera-view freeze ends on its
                 // own when the movement finishes — C++ does not clear the
                 // view freeze here either.
-                if let Ok(mut engine_guard) = get_script_engine().write() {
+                if let Some(engine) = script_engine {
+                    engine.do_unfreeze_time();
+                } else if let Ok(mut engine_guard) = get_script_engine().write() {
                     if let Some(engine) = engine_guard.as_mut() {
                         engine.do_unfreeze_time();
                     }
@@ -1444,19 +1451,22 @@ impl GameLogic {
     /// pending MSG_CLEAR_GAME_DATA (C++ GameLogic.cpp:3606-3613), in which
     /// case `update()` clears the script freeze term and falls through to
     /// the full update. This predicate only reports the freeze state.
-    fn is_time_frozen(&self, camera: Option<crate::helpers::CameraTimeObservation>) -> bool {
+    fn is_time_frozen(
+        &self,
+        camera: Option<crate::helpers::CameraTimeObservation>,
+        script_engine: Option<&crate::scripting::engine::ScriptEngine>,
+    ) -> bool {
         if camera.is_some_and(crate::helpers::CameraTimeObservation::freezes_time) {
             return true;
         }
-        // Check script engine freeze state
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                if should_freeze_time(false, true, engine.is_time_frozen()) {
-                    return true;
-                }
-            }
+        if let Some(engine) = script_engine {
+            return engine.is_time_frozen();
         }
-        false
+        get_script_engine()
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|engine| engine.is_time_frozen()))
+            .unwrap_or(false)
     }
 
     /// Update the terrain logic system.
@@ -1871,7 +1881,7 @@ mod clear_game_data_freeze_escape_tests {
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
         assert!(
-            logic.is_time_frozen(None),
+            logic.is_time_frozen(None, None),
             "script freeze must be observable"
         );
         logic
@@ -1924,6 +1934,37 @@ mod clear_game_data_freeze_escape_tests {
         // Leave the shared stream clean for other suites.
         drop_pending_clear_game_data();
     }
+    #[test]
+    fn borrowed_script_phase_uses_receiving_engine_freeze() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        unfreeze_global_script_time();
+        let frozen = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let peer = crate::scripting::engine::ScriptEngine::new().unwrap();
+        frozen.do_freeze_time();
+        struct Driver;
+        impl crate::scripting::engine::ScriptExecutionDriver for Driver {
+            fn after_action(&mut self) -> crate::GameLogicResult<()> { Ok(()) }
+        }
+        let mut first = GameLogic::new();
+        let mut second = GameLogic::new();
+        first.update_with_script_driver(0, &frozen, &mut Driver, || None).unwrap();
+        assert_eq!(first.get_frame(), 0, "receiving script freeze must stop its world");
+        second.update_with_script_driver(0, &peer, &mut Driver, || None).unwrap();
+        assert_eq!(second.get_frame(), 1, "a peer engine must not freeze this world");
+        assert!(!peer.is_time_frozen());
+        freeze_global_script_time();
+        second.update_with_script_driver(1, &peer, &mut Driver, || None).unwrap();
+        assert_eq!(second.get_frame(), 2, "foreign ambient freeze must not stop the receiving world");
+        post_clear_game_data();
+        first.update_with_script_driver(0, &frozen, &mut Driver, || None).unwrap();
+        assert_eq!(first.get_frame(), 1, "clear-game must resume the receiving world");
+        assert!(!frozen.is_time_frozen());
+        assert!(global_script_time_frozen(), "clear-game must not unfreeze a foreign engine");
+        unfreeze_global_script_time();
+        drop_pending_clear_game_data();
+    }
+
     #[test]
     fn receiving_camera_update_observations_are_sampled_once_and_keep_clear_game_escape() {
         use crate::helpers::CameraTimeObservation;

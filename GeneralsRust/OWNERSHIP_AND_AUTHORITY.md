@@ -542,6 +542,9 @@ queue and live ScriptEngine ambient services still require ownership migration.
 Unused ScriptEngine VTune and skate-debug facades no longer maintain duplicate
 process-wide state. The live debug commands retain their UI-owned state; this
 does not migrate the ambient interpreter or named-object tracker.
+Core's explicitly driven script phase reads and clears freeze state on its
+borrowed interpreter, including the clear-game escape; the undriven Core path
+still uses the ambient interpreter. C++ order: GameLogic.cpp:3598–3616.
 
 The bounded extraction records are hq-nuwyh, hq-8ur0z, hq-mltxr, hq-8dkja,
 hq-9707l and hq-g7bxq. Regression fixtures establish Rust behavior and source

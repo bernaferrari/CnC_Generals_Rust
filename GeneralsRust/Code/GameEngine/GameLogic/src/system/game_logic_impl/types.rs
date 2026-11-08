@@ -14,14 +14,6 @@ fn dual_world_registry_unavailable() -> bool {
 const DEFAULT_WORLD_WIDTH: Real = 64.0;
 const DEFAULT_WORLD_HEIGHT: Real = 64.0;
 
-fn should_freeze_time(
-    tactical_frozen: bool,
-    camera_movement_finished: bool,
-    script_frozen: bool,
-) -> bool {
-    (tactical_frozen && !camera_movement_finished) || script_frozen
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot;
 
