@@ -332,7 +332,7 @@ fn captured_master_transfers_actual_slave_owner_before_repair_observation() {
 }
 
 #[test]
-fn missing_selected_locomotor_does_not_run_or_mutate_slave_callback() {
+fn missing_selected_locomotor_ages_countdown_without_slave_effects() {
     let (mut game, master, drone) = world();
     game.host_object_mut(master)
         .unwrap()
@@ -346,18 +346,25 @@ fn missing_selected_locomotor_does_not_run_or_mutate_slave_callback() {
         .slaved_update
         .clone()
         .unwrap();
-    game.update_owned_slaved_object(drone)
-        .expect("valid slaved fixture");
-    let after = game
-        .host_object(drone)
-        .unwrap()
-        .slaved_update
-        .as_ref()
-        .unwrap();
-    assert_eq!(after.frames_to_wait, before.frames_to_wait);
-    assert_eq!(after.repair_state, before.repair_state);
-    assert_eq!(game.host_object(master).unwrap().health.current, 40.0);
-    assert_eq!(game.battle_drone_residual_repairs, 0);
+    assert_eq!(before.frames_to_wait, 0);
+    let random_before = game.logic_random.seed_words();
+    // C++ SlavedUpdate.cpp:94–124 ages/restarts the low-priority countdown
+    // before getCurLocomotor can return null; only the later effects are gated.
+    for expected_wait in [7, 6, 5, 4, 3, 2, 1, 7] {
+        game.update_owned_slaved_object(drone)
+            .expect("valid slaved fixture");
+        let owner = game.host_object(drone).unwrap();
+        let after = owner.slaved_update.as_ref().unwrap();
+        assert_eq!(after.frames_to_wait, expected_wait);
+        assert_eq!(after.repair_state, before.repair_state);
+        assert_eq!(after.repairing, before.repairing);
+        assert_eq!(after.master, before.master);
+        assert_eq!(after.guard_offset, before.guard_offset);
+        assert!(owner.movement.path.is_empty());
+        assert_eq!(game.host_object(master).unwrap().health.current, 40.0);
+        assert_eq!(game.battle_drone_residual_repairs, 0);
+        assert_eq!(game.logic_random.seed_words(), random_before);
+    }
 }
 
 fn move_goal(game: &GameLogic, drone: crate::game_logic::ObjectId) -> [f32; 3] {
@@ -789,4 +796,77 @@ fn slave_defect_uses_original_contained_sold_and_construction_status_gates() {
         game.defect_host_object(drone, destination, 0),
         "CPP gates the status bit, not a progress epsilon"
     );
+}
+
+#[test]
+fn spotting_clear_and_reapply_restart_busy_clock_twice_at_unchanged_rof() {
+    let mut game = GameLogic::new();
+    let mut gun = gamelogic::weapon::WeaponTemplate::new("SpottingClockGun".into());
+    gun.primary_damage = 1.0;
+    gun.attack_range = 100.0;
+    gun.min_delay_between_shots = 30;
+    gun.max_delay_between_shots = 90;
+    gun.clip_size = 0;
+    game.admit_receiving_weapon_snapshot(vec![("SpottingClockGun".into(), gun)]).unwrap();
+    game.admit_object_ini_sources([("spotting-clock.ini".into(), r#"
+Object SpottingClockMaster
+ KindOf = VEHICLE CAN_ATTACK
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface AI
+ End
+ WeaponSet
+  Conditions = None
+  Weapon = PRIMARY SpottingClockGun
+ End
+End
+Object SpottingClockDrone
+ KindOf = VEHICLE
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Locomotor = SET_NORMAL ComancheLocomotor
+ Behavior = AIUpdateInterface AI
+ End
+ Behavior = SlavedUpdate Slave
+  GuardMaxRange = 40
+  AttackRange = 75
+  AttackWanderRange = 0
+  DistToTargetToGrantRangeBonus = 100
+ End
+End
+Object SlaveVictim
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#.into())]).unwrap();
+    // One authored catalog is admitted before any of its live Objects.
+    game.add_player(Player::new(0, Team::USA, "owner", true));
+    let master = game.create_object_for_player("SpottingClockMaster", 0, Vec3::ZERO).unwrap();
+    let drone = game.create_object_for_player("SpottingClockDrone", 0, Vec3::ZERO).unwrap();
+    let victim = game.create_object_for_player("SlaveVictim", 0, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+    let birth = (game.objects[&master].visual_object_generation, game.visual_world_epoch);
+    assert!(game.enslave_owned_drone(drone, master, birth));
+    let object = game.objects.get_mut(&master).unwrap();
+    object.target = Some(victim);
+    object.weapon_bonus_drone_spotting = true;
+    let weapon = object.weapon.as_mut().unwrap();
+    weapon.next_fire_frame = 100;
+    weapon.frame_clock_active = true;
+    // A future deadline alone does not change Weapon::getStatus from READY.
+    weapon.frame_clock_status = crate::game_logic::object::WeaponFireStatus::BetweenFiringShots;
+    game.frame = 35;
+    let expected = game_engine::common::random_value::SessionRandom::from_state(game.logic_random.snapshot());
+    expected.next_int(30, 90);
+    let delay = expected.next_int(30, 90) as u32;
+    game.update_owned_slaved_object(drone).unwrap();
+    assert!(game.objects[&master].weapon_bonus_drone_spotting);
+    assert_eq!(game.objects[&master].weapon.as_ref().unwrap().next_fire_frame, 35 + delay);
+    assert_eq!(game.logic_random.seed_words(), expected.seed_words());
 }

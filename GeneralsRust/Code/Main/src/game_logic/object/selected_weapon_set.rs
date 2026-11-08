@@ -14,6 +14,11 @@ impl WeaponDefinition {
         let mut weapon = self.prototype.clone();
         weapon.last_fire_time = 0.0;
         weapon.last_fire_frame = 0;
+        weapon.frame_clock_active = self.native.is_some();
+        let ready_frame = if weapon.frame_clock_active { frame } else { 0 };
+        weapon.next_fire_frame = ready_frame;
+        weapon.reload_started_frame = ready_frame;
+        weapon.frame_clock_status = Default::default();
         weapon.reloading_clip = false;
         weapon.last_bonus_rof = 0.0;
         weapon.ammo = (weapon.clip_size > 0).then_some(weapon.clip_size);
@@ -668,6 +673,15 @@ mod tests {
             .create_object("ParsedMineRow", Team::USA, glam::Vec3::ZERO)
             .unwrap();
         let object = world.host_object_mut(id).unwrap();
+        for slot in 0..3 {
+            let weapon = object.weapon_slot_mut(slot).unwrap();
+            assert!(weapon.frame_clock_active);
+            assert_eq!(weapon.next_fire_frame, 0);
+            weapon.next_fire_frame = 900;
+            weapon.reload_started_frame = 700;
+            weapon.reloading_clip = true;
+            weapon.frame_clock_status = super::super::WeaponFireStatus::ReloadingClip;
+        }
         object.set_active_weapon_slot(2);
         assert!(object.set_weapon_lock(2, WeaponLockType::LockedPermanently));
         object.set_weapon_condition_at_frame(8, true, 80);
@@ -678,11 +692,21 @@ mod tests {
             assert_eq!(weapon.damage, damage);
             assert_eq!(weapon.ammo, Some(3));
             assert_eq!(weapon.suspend_fx_frame, 110);
+            assert!(weapon.frame_clock_active);
+            assert_eq!(weapon.next_fire_frame, 80);
+            assert_eq!(weapon.reload_started_frame, 80);
+            assert!(!weapon.reloading_clip);
+            assert_eq!(weapon.frame_clock_status, super::super::WeaponFireStatus::ReadyToFire);
         }
         object.set_weapon_condition_at_frame(8, false, 81);
         assert_eq!(object.active_weapon_slot, 0);
         assert!(!object.is_weapon_locked());
         assert_eq!(object.weapon_slot(0).unwrap().damage, 30.0);
+        for slot in 0..3 {
+            let weapon = object.weapon_slot(slot).unwrap();
+            assert_eq!(weapon.next_fire_frame, 81);
+            assert_eq!(weapon.reload_started_frame, 81);
+        }
     }
 
     #[test]
@@ -781,9 +805,30 @@ mod tests {
         use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
         use std::time::{Duration, UNIX_EPOCH};
 
-        let (mut world, id) = world(90.0);
+        let mut world = GameLogic::new();
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            "weapon-frames.ini".into(),
+            "Object ShotFrameOwner\nKindOf = VEHICLE CAN_ATTACK\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nWeaponSet\nConditions = None\nWeapon = PRIMARY ShotFramePrimary\nWeapon = SECONDARY ShotFrameSecondary\nEnd\nEnd\n".into(),
+        )]).expect("ordered slot definitions");
+        let mut definitions = std::collections::HashMap::new();
+        assert_eq!(
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut definitions,
+                "Weapon ShotFramePrimary\nPrimaryDamage = 10\nAttackRange = 100\nClipSize = 5\nEnd\nWeapon ShotFrameSecondary\nPrimaryDamage = 20\nAttackRange = 100\nClipSize = 5\nEnd\n",
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+            ),
+            2
+        );
+        world.admit_receiving_module_content_with_weapons(
+            content,
+            Some(definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect()),
+        ).expect("receiving weapon slots");
         world.add_player(Player::new(0, Team::USA, "Weapon owner", true));
+        let id = world.create_object("ShotFrameOwner", Team::USA, glam::Vec3::ZERO).unwrap();
+        world.set_current_frame(37);
         {
+            // Both slots are real receiving Weapons; only their mutable shot
+            // history differs, and NewGame must restore it independently.
             let object = world.host_object_mut(id).unwrap();
             object.weapon.as_mut().unwrap().last_fire_frame = 35;
             object.secondary_weapon.as_mut().unwrap().last_fire_frame = 36;
@@ -811,6 +856,8 @@ mod tests {
         let object = world.host_object(id).unwrap();
         assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, 35);
         assert_eq!(object.secondary_weapon.as_ref().unwrap().last_fire_frame, 36);
+        assert!(object.weapon.as_ref().unwrap().frame_clock_active);
+        assert!(object.secondary_weapon.as_ref().unwrap().frame_clock_active);
     }
 }
 

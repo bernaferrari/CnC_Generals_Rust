@@ -140,6 +140,20 @@ pub struct ObjectSnapshot {
     pub weapon_bonus_frenzy_level: u8,
     #[serde(default)]
     pub weapon_bonus_frenzy_until_frame: u32,
+
+    /// Versioned world-record tail: embedded Weapon serde layout stays unchanged.
+    /// Concrete slot order preserves inactive slots and absolute frame deadlines.
+    #[serde(default)]
+    pub weapon_frame_clocks: [(u32, bool, u32); 3],
+    /// Retained target-condition edge for owned weapon bonus callbacks.
+    #[serde(default)]
+    pub weapon_bonus_target_faerie_fire: bool,
+    /// Explicit applied garrison bonus, independent of containment references.
+    #[serde(default)]
+    pub weapon_bonus_garrisoned: bool,
+    /// Concrete shared-slot status cannot be reconstructed from empty ammo.
+    #[serde(default)]
+    pub weapon_frame_statuses: [WeaponFireStatus; 3],
 }
 
 /// Object status snapshot
@@ -673,6 +687,30 @@ impl ObjectSnapshot {
             xfer.xfer_bool(&mut weapon.reloading_clip)?;
             xfer.xfer_marker_label("LastBonusRof")?;
             xfer.xfer_f32(&mut weapon.last_bonus_rof)?;
+        }
+
+        xfer.xfer_marker_label("WeaponFrameClocks")?;
+        for (deadline, active, reload_started) in &mut self.weapon_frame_clocks {
+            xfer.xfer_u32(deadline)?;
+            xfer.xfer_bool(active)?;
+            xfer.xfer_u32(reload_started)?;
+        }
+        xfer.xfer_marker_label("WeaponBonusTargetFaerieFire")?;
+        xfer.xfer_bool(&mut self.weapon_bonus_target_faerie_fire)?;
+        xfer.xfer_marker_label("WeaponBonusGarrisoned")?;
+        xfer.xfer_bool(&mut self.weapon_bonus_garrisoned)?;
+        xfer.xfer_marker_label("WeaponFrameStatuses")?;
+        for status in &mut self.weapon_frame_statuses {
+            let mut value = *status as u8;
+            xfer.xfer_u8(&mut value)?;
+            *status = match value {
+                0 => WeaponFireStatus::ReadyToFire,
+                1 => WeaponFireStatus::OutOfAmmo,
+                2 => WeaponFireStatus::BetweenFiringShots,
+                3 => WeaponFireStatus::ReloadingClip,
+                4 => WeaponFireStatus::PreAttack,
+                _ => return Err(SaveLoadError::Corrupted(format!("Invalid weapon frame status: {value}"))),
+            };
         }
 
         Ok(())

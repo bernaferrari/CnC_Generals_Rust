@@ -622,6 +622,10 @@ pub fn tunnel_network_gun_weapon() -> Weapon {
         suspend_fx_frame: 0,
         reloading_clip: false,
         last_bonus_rof: 0.0,
+        next_fire_frame: 0,
+        reload_started_frame: 0,
+        frame_clock_active: false,
+        frame_clock_status: Default::default(),
     }
 }
 
@@ -645,6 +649,10 @@ pub fn tunnel_network_gun_dummy_weapon() -> Weapon {
         suspend_fx_frame: 0,
         reloading_clip: false,
         last_bonus_rof: 0.0,
+        next_fire_frame: 0,
+        reload_started_frame: 0,
+        frame_clock_active: false,
+        frame_clock_status: Default::default(),
     }
 }
 

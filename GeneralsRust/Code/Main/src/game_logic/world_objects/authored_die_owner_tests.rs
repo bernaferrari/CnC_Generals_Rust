@@ -1,5 +1,7 @@
 //! Object.cpp onDie visits authored Die interfaces in order, even after a
 //! module queues deletion. These exercise installed native objects and FX.
+//! FX, DamageFX, camera shake, and promotion health rules are admitted into
+//! each receiving world before construction, including encoded restore targets.
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
@@ -30,8 +32,12 @@ impl game_client::fx_list::FXNugget for Observe {
         self.1.send((self.0, secondary.map(|p| p.id))).unwrap();
     }
 }
-fn install() -> Receiver<(&'static str, Option<u32>)> {
+fn install() -> (
+    game_client::fx_list::FXListStore,
+    Receiver<(&'static str, Option<u32>)>,
+) {
     let (sender, receiver) = channel();
+    let mut catalog = game_client::fx_list::FXListStore::new();
     for name in [FIRST, SECOND, CHILD, ARMOR] {
         let mut definition = fx::FXList::new(name.into());
         definition.add_nugget(fx::FXNugget::ViewShake {
@@ -39,14 +45,21 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
         });
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(name, sender.clone())));
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); });
+        catalog.add_fx_list(name.into(), list);
     }
-    receiver
+    (catalog, receiver)
 }
-fn world(middle: &str) -> (GameLogic, ObjectId, ObjectId) {
-    world_with_kind(middle, "INERT IMMOBILE")
+fn world(
+    middle: &str,
+    catalog: &game_client::fx_list::FXListStore,
+) -> (GameLogic, ObjectId, ObjectId) {
+    world_with_kind(middle, "INERT IMMOBILE", catalog)
 }
-fn world_with_kind(middle: &str, kind: &str) -> (GameLogic, ObjectId, ObjectId) {
+fn world_with_kind(
+    middle: &str,
+    kind: &str,
+    catalog: &game_client::fx_list::FXListStore,
+) -> (GameLogic, ObjectId, ObjectId) {
     // One immutable authored source feeds the parser witness and the real
     // paired owner. Keep its admitted projection instead of replacing it with
     // a parser-only template that loses receiving constructor identity.
@@ -60,6 +73,30 @@ fn world_with_kind(middle: &str, kind: &str) -> (GameLogic, ObjectId, ObjectId) 
     assert!(parser.get_definition("AuthoredDieVictim").is_some());
     assert!(parser.get_definition("AuthoredDieChild").is_some());
     let mut world = GameLogic::new();
+    world.admit_receiving_fx_catalog(catalog.clone()).unwrap();
+    // ActiveBody reads the receiving GameData health table on promotion,
+    // not the standalone retail multipliers (ActiveBody.cpp:1442-1450).
+    world
+        .admit_combat_bonus_ini_sources([
+            "GameData\nHealthBonus_Veteran = 120%\nEnd",
+        ])
+        .unwrap();
+    world
+        .admit_camera_application_shake(
+            game_engine::common::ini::ini_game_data::CameraShakeRules {
+                shake_normal_intensity: 1.,
+                max_shake_intensity: 10.,
+                max_shake_range: 1000.,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    world
+        .admit_damage_fx_source(&format!(
+            "DamageFX DamageFX_AuthoredDieChild\nMajorFX = UNRESISTABLE {CHILD}\nMinorFX = UNRESISTABLE {CHILD}\nAmountForMajorFX = UNRESISTABLE 0\nEnd\n\
+             DamageFX DamageFX_AuthoredDieRank\nMajorFX = UNRESISTABLE {SECOND}\nMinorFX = UNRESISTABLE {SECOND}\nAmountForMajorFX = UNRESISTABLE 0\nVeterancyMajorFX = VETERAN UNRESISTABLE {ARMOR}\nVeterancyMinorFX = VETERAN UNRESISTABLE {ARMOR}\nEnd"
+        ))
+        .unwrap();
     world
         .admit_ocl_application_sources(&[
             "ObjectCreationList OCL_AuthoredDieChild\nCreateObject\nObjectNames = AuthoredDieChild\nCount = 1\nEnd\nEnd\n"
@@ -135,9 +172,10 @@ fn queued_destroy_keeps_later_authored_fx_and_receiving_camera() {
         module_path!(),
         "queued_destroy_keeps_later_authored_fx_and_receiving_camera",
         || {
-            let events = install();
-            let (mut owner, victim, source) = world("Behavior = DestroyDie DeleteTag\nEnd");
-            let (peer, peer_id, _) = world("Behavior = DestroyDie DeleteTag\nEnd");
+            let (catalog, events) = install();
+            let (mut owner, victim, source) =
+                world("Behavior = DestroyDie DeleteTag\nEnd", &catalog);
+            let (peer, peer_id, _) = world("Behavior = DestroyDie DeleteTag\nEnd", &catalog);
             assert_eq!(peer_id, victim);
             hit(&mut owner, victim, Some(source), 1000.);
             assert_eq!(
@@ -162,9 +200,10 @@ fn authored_die_uses_incoming_null_or_self_not_retained_damage_history() {
         module_path!(),
         "authored_die_uses_incoming_null_or_self_not_retained_damage_history",
         || {
-            let events = install();
+            let (catalog, events) = install();
             for self_source in [false, true] {
-                let (mut owner, victim, source) = world("Behavior = KeepObjectDie KeepTag\nEnd");
+                let (mut owner, victim, source) =
+                    world("Behavior = KeepObjectDie KeepTag\nEnd", &catalog);
                 hit(&mut owner, victim, Some(source), 1.);
                 assert_eq!(owner.objects[&victim].last_damage_source, Some(source));
                 hit(&mut owner, victim, self_source.then_some(victim), 1000.);
@@ -191,9 +230,9 @@ fn instant_death_does_not_skip_later_die_interfaces() {
         module_path!(),
         "instant_death_does_not_skip_later_die_interfaces",
         || {
-            let events = install();
+            let (catalog, events) = install();
             let (mut owner, victim, source) =
-                world("Behavior = InstantDeathBehavior InstantTag\nEnd");
+                world("Behavior = InstantDeathBehavior InstantTag\nEnd", &catalog);
             hit(&mut owner, victim, Some(source), 1000.);
             assert_eq!(
                 events.try_iter().collect::<Vec<_>>(),
@@ -210,10 +249,10 @@ fn slow_initial_fx_is_inline_and_cannot_revoke_prior_destroy_slot() {
         module_path!(),
         "slow_initial_fx_is_inline_and_cannot_revoke_prior_destroy_slot",
         || {
-            let events = install();
+            let (catalog, events) = install();
             let (mut owner, victim, source) = world(&format!(
                 "Behavior = DestroyDie DeleteTag\nEnd\nBehavior = SlowDeathBehavior SlowTag\nDestructionDelay = 1000\nFX = INITIAL {CHILD}\nEnd"
-            ));
+            ), &catalog);
             hit(&mut owner, victim, Some(source), 1000.);
             assert_eq!(
                 events.try_iter().collect::<Vec<_>>(),
@@ -247,10 +286,10 @@ fn authored_jet_on_elevated_ground_uses_receiving_ground_effect_before_delete() 
         module_path!(),
         "authored_jet_on_elevated_ground_uses_receiving_ground_effect_before_delete",
         || {
-            let events = install();
+            let (catalog, events) = install();
             let (mut owner, victim, source) = world(&format!(
                 "Behavior = JetSlowDeathBehavior JetTag\nDeathTypes = NONE\nFXOnGroundDeath = {CHILD}\nFXInitialDeath = {ARMOR}\nEnd"
-            ));
+            ), &catalog);
             let (object, fixture_partition_object) =
                 owner.host_object_and_partition_mut(victim).unwrap();
             object.set_position_with_partition_owner(
@@ -290,9 +329,9 @@ fn retained_authored_die_receipts_survive_encoded_world_restore() {
         module_path!(),
         "retained_authored_die_receipts_survive_encoded_world_restore",
         || {
-            let events = install();
+            let (catalog, events) = install();
             let modules = "Behavior = KeepObjectDie KeepTag\nEnd";
-            let (mut owner, victim, source) = world(modules);
+            let (mut owner, victim, source) = world(modules, &catalog);
             hit(&mut owner, victim, Some(source), 1000.);
             assert_eq!(events.try_iter().count(), 2);
             let builder = crate::save_load::SnapshotBuilder::new();
@@ -300,7 +339,7 @@ fn retained_authored_die_receipts_survive_encoded_world_restore() {
             let bytes = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded =
                 crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-            let (mut restored, restored_id, _) = world(modules);
+            let (mut restored, restored_id, _) = world(modules, &catalog);
             assert_eq!(restored_id, victim);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
@@ -327,10 +366,11 @@ fn bridge_repair_starts_a_new_authored_die_episode() {
         module_path!(),
         "bridge_repair_starts_a_new_authored_die_episode",
         || {
-            let events = install();
+            let (catalog, events) = install();
             let (mut owner, victim, source) = world_with_kind(
                 "Behavior = BridgeBehavior BridgeTag\nEnd",
                 "BRIDGE STRUCTURE IMMOBILE",
+                &catalog,
             );
             hit(&mut owner, victim, Some(source), 1000.);
             assert_eq!(
@@ -386,22 +426,10 @@ fn duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history(
         module_path!(),
         "duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history",
         || {
-            use game_engine::common::ini::ini_damage_fx as rules;
-            let events = install();
-            let mut damage_fx = rules::DamageFX::new();
-            damage_fx.set_major_minor_fx(
-                rules::DamageType::Unresistable,
-                Some(CHILD.into()),
-                Some(CHILD.into()),
-                0.,
-            );
-            rules::init_global_damage_fx_store();
-            rules::get_damage_fx_store_mut()
-                .unwrap()
-                .add_damage_fx("DamageFX_AuthoredDieChild".into(), damage_fx);
+            let (catalog, events) = install();
             let (mut owner, victim, source) = world(&format!(
                 "Behavior = CreateObjectDie CreateFirst\nCreationList = OCL_AuthoredDieChild\nTransferPreviousHealth = Yes\nEnd\nBehavior = FXListDie Between\nDeathFX = {SECOND}\nEnd\nBehavior = CreateObjectDie CreateLast\nCreationList = OCL_AuthoredDieChild\nTransferPreviousHealth = Yes\nEnd"
-            ));
+            ), &catalog);
             // Retain this fixture's exact Body/armor-FX override on the
             // already admitted child; do not erase its paired constructor data.
             let child = owner.templates.get_mut("AuthoredDieChild").unwrap();
@@ -437,14 +465,32 @@ fn duplicate_create_slots_interleave_with_fx_and_transfer_previous_body_history(
 
 #[test]
 fn standalone_body_create_receipt_resolves_against_the_receiving_world() {
-    let (mut owner, victim, _) =
-        world("Behavior = CreateObjectDie CreateTag\nCreationList = OCL_AuthoredDieChild\nEnd");
+    let (mut owner, victim, _) = world(
+        "Behavior = CreateObjectDie CreateTag\nCreationList = OCL_AuthoredDieChild\nEnd",
+        &game_client::fx_list::FXListStore::new(),
+    );
     let frame = owner.frame;
     {
         let object = owner.host_object_mut(victim).unwrap();
         let mut health_events = crate::game_logic::HostHealthEvents::default();
         let _ = object.take_damage_from_immediate(1000.0, None, frame, &mut health_events);
-        assert_eq!(object.native_die_runtime.pending_create, Some(0));
+        let pending = object.native_die_runtime.pending_create.expect("pending Create receipt");
+        let declaration = object
+            .thing()
+            .template
+            .native_die_declarations
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|declaration| declaration.source_index == pending)
+            .expect("receipt resolves to an authored declaration");
+        assert_eq!(declaration.module_tag.as_deref(), Some("CreateTag"));
+        match &declaration.kind {
+            crate::game_logic::native_die_definition::NativeDieKind::Create {
+                config: Some(config),
+            } => assert_eq!(config.ocl_name, "OCL_AuthoredDieChild"),
+            _ => panic!("pending receipt must identify the authored CreateObjectDie"),
+        }
         assert!(object.pending_create_object_die_spawns.is_empty());
     }
     // Deliver the real bounded-body pending receipt through the receiving
@@ -471,26 +517,7 @@ fn actual_death_weapon_runs_after_kill_credit_before_outer_armor_fx() {
         "actual_death_weapon_runs_after_kill_credit_before_outer_armor_fx",
         || {
             use crate::game_logic::{HostArmorSet, Player, VeterancyLevel};
-            use game_engine::common::ini::ini_damage_fx as rules;
-            let events = install();
-            let mut definition = rules::DamageFX::new();
-            definition.set_major_minor_fx(
-                rules::DamageType::Unresistable,
-                Some(SECOND.into()),
-                Some(SECOND.into()),
-                0.,
-            );
-            definition.set_major_minor_fx_at_level(
-                rules::DamageType::Unresistable,
-                1,
-                Some(ARMOR.into()),
-                Some(ARMOR.into()),
-                0.,
-            );
-            rules::init_global_damage_fx_store();
-            rules::get_damage_fx_store_mut()
-                .unwrap()
-                .add_damage_fx("DamageFX_AuthoredDieRank".into(), definition);
+            let (catalog, events) = install();
             for blast in [110, 200] {
                 let name = format!("AuthoredDieBlast{blast}");
                 let mut rows = std::collections::HashMap::new();
@@ -506,7 +533,7 @@ fn actual_death_weapon_runs_after_kill_credit_before_outer_armor_fx() {
                 );
                 let (mut owner, victim, source) = world(&format!(
                     "Behavior = FireWeaponWhenDeadBehavior BlastTag\nStartsActive = Yes\nDeathWeapon = {name}\nEnd\nBehavior = KeepObjectDie KeepTag\nEnd"
-                ));
+                ), &catalog);
                 owner
                     .admit_weapon_content_snapshot(rows.into_iter().collect(), &[])
                     .unwrap();

@@ -1,49 +1,112 @@
 //! Real receiving-world passive discharge and delayed-damage controls.
-use crate::game_logic::{
-    AIState, GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon,
-};
+//! Fixtures admit Object/Weapon definitions before factory creation, including
+//! AIUpdateInterface state ownership and the selected slot's immutable weapon row.
+use crate::game_logic::{AIState, GameLogic, ObjectId, Player, Team};
 use glam::Vec3;
 const SOURCE: ObjectId = ObjectId(98401);
 const TARGET: ObjectId = ObjectId(98402);
 const MUZZLE: Vec3 = Vec3::new(13.0, 47.0, 29.0);
-fn world(state: AIState, delay: f32) -> GameLogic {
+fn admitted_game(delay: f32, slot: u8) -> GameLogic {
     let mut game = GameLogic::new();
     game.add_player(Player::new(0, Team::USA, "local", true));
     game.add_player(Player::new(1, Team::China, "enemy", false));
-    let mut template = ThingTemplate::new("OwnedPassivePassenger");
-    template.add_kind_of(KindOf::Infantry);
-    template.add_kind_of(KindOf::Attackable);
-    game.templates
-        .insert(template.name.clone(), template.clone());
-    let mut source = Object::new(template, SOURCE, Team::USA);
-    source.owner_player_id = Some(0);
+    let mut primary = gamelogic::weapon::WeaponTemplate::new("PassivePrimary".into());
+    primary.primary_damage = 5.0;
+    primary.attack_range = 500.0;
+    primary.projectile_name = "NONE".into();
+    let mut secondary = gamelogic::weapon::WeaponTemplate::new("PassiveDelayed".into());
+    secondary.primary_damage = 37.0;
+    secondary.attack_range = 500.0;
+    secondary.clip_size = 2;
+    secondary.weapon_speed = 9.0; // C++ WeaponSpeed is distance per logic frame.
+    secondary.pre_attack_delay = (delay * 30.0) as i32;
+    secondary.projectile_name = "NONE".into();
+    game.admit_receiving_weapon_snapshot(vec![
+        (primary.name.clone(), primary),
+        (secondary.name.clone(), secondary),
+    ]).unwrap();
+    let weapons = if slot == 0 {
+        "Weapon = PRIMARY PassiveDelayed"
+    } else {
+        "Weapon = PRIMARY PassivePrimary\n Weapon = SECONDARY PassiveDelayed"
+    };
+    game.admit_object_ini_sources([("PassiveDischarge.ini".into(), format!(r#"
+Object OwnedPassivePassenger
+ KindOf = INFANTRY SELECTABLE CAN_ATTACK
+ WeaponSet
+  Conditions = None
+  {weapons}
+ End
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface AI
+ End
+End
+Object PriorPassiveShot
+ KindOf = INFANTRY SELECTABLE CAN_ATTACK
+ WeaponSet
+  Conditions = None
+  Weapon = PRIMARY PassivePrimary
+ End
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface AI
+ End
+End
+Object OwnedPassiveVictim
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+Object PassiveTestTransport
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 300
+  InitialHealth = 300
+ End
+ Behavior = TransportContain Contain
+  Slots = 2
+  PassengersAllowedToFire = Yes
+  AllowInsideKindOf = INFANTRY
+ End
+End
+Object PassiveTestGarrison
+ KindOf = STRUCTURE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 300
+  InitialHealth = 300
+ End
+ Behavior = GarrisonContain Contain
+  ContainMax = 2
+ End
+End
+"#))]).unwrap();
+    game
+}
+fn world(state: AIState, delay: f32, slot: u8) -> GameLogic {
+    let mut game = admitted_game(delay, slot);
+    game.set_next_object_id_for_restore(SOURCE);
+    assert_eq!(
+        game.create_object_for_player("OwnedPassivePassenger", 0, Vec3::ZERO),
+        Some(SOURCE)
+    );
+    assert_eq!(
+        game.create_object_for_player(
+            "OwnedPassiveVictim", 1, MUZZLE + Vec3::new(90.0, 0.0, 0.0),
+        ),
+        Some(TARGET)
+    );
+    let source = game.host_object_mut(SOURCE).unwrap();
     source.restore_ai_state(state);
     source.contained_by = Some(ObjectId(98403));
-    source.weapon = Some(Weapon {
-        damage: 5.0,
-        last_fire_time: -10.0,
-        ..Weapon::default()
-    });
-    source.secondary_weapon = Some(Weapon {
-        damage: 37.0,
-        range: 500.0,
-        last_fire_time: -10.0,
-        ammo: Some(2),
-        clip_size: 2,
-        projectile_speed: 9.0,
-        pre_attack_delay: delay,
-        ..Weapon::default()
-    });
-    assert!(source.set_weapon_barrel_count_for_slot(1, 3));
-    let mut template = ThingTemplate::new("OwnedPassiveVictim");
-    template.add_kind_of(KindOf::Attackable);
-    game.templates
-        .insert(template.name.clone(), template.clone());
-    let mut target = Object::new(template, TARGET, Team::China);
-    target.owner_player_id = Some(1);
-    target.set_position(MUZZLE + Vec3::new(90.0, 0.0, 0.0));
-    game.add_object(source);
-    game.add_object(target);
+    source.weapon.as_mut().unwrap().last_fire_time = -10.0;
+    assert!(source.set_weapon_barrel_count_for_slot(slot, 3));
     game.frame = 30;
     game
 }
@@ -54,16 +117,15 @@ fn delayed(game: &GameLogic) -> usize {
     crate::game_logic::combat::live_projectileless_delayed_count_for_test(&game.combat_system)
 }
 fn admit_passive_container(game: &mut GameLogic, state: AIState) {
-    let mut template = ThingTemplate::new("PassiveTestContainer");
-    template.contain_module.kind = if state == AIState::Garrisoned {
-        crate::game_logic::ContainModuleKind::Garrison
+    let name = if state == AIState::Garrisoned {
+        "PassiveTestGarrison"
     } else {
-        crate::game_logic::ContainModuleKind::Transport
+        "PassiveTestTransport"
     };
-    let mut container = Object::new(template, ObjectId(98403), Team::USA);
-    container.passengers_allowed_to_fire = true;
-    container.occupants.push(SOURCE);
-    game.add_object(container);
+    game.set_next_object_id_for_restore(ObjectId(98403));
+    let container = game.create_object_for_player(name, 0, MUZZLE).unwrap();
+    assert_eq!(container, ObjectId(98403));
+    game.host_object_mut(container).unwrap().occupants.push(SOURCE);
 }
 
 #[test]
@@ -124,9 +186,9 @@ fn authored_held_passengers_obey_each_containers_fire_permission() {
 #[test]
 fn real_passive_secondary_preserves_container_state_and_delays_damage_from_actual_muzzle() {
     for state in [AIState::Garrisoned, AIState::Docked] {
-        let mut game = world(state.clone(), 0.0);
+        let mut game = world(state.clone(), 0.0, 1);
         admit_passive_container(&mut game, state.clone());
-        let peer = world(state.clone(), 0.0);
+        let peer = world(state.clone(), 0.0, 1);
         let hp = health(&game);
         let barrel = game
             .host_object(SOURCE)
@@ -168,18 +230,10 @@ fn real_passive_secondary_preserves_container_state_and_delays_damage_from_actua
 }
 #[test]
 fn actual_passive_windup_emits_nothing_until_deadline_and_keeps_prior_pending_shot() {
-    let mut game = world(AIState::Garrisoned, 0.5);
+    let mut game = world(AIState::Garrisoned, 0.5, 1);
     admit_passive_container(&mut game, AIState::Garrisoned);
-    let mut prior = Object::new(
-        ThingTemplate::new("PriorPassiveShot"),
-        ObjectId(98404),
-        Team::USA,
-    );
-    prior.weapon = Some(Weapon {
-        last_fire_time: -10.0,
-        ..Weapon::default()
-    });
-    assert!(prior.fire_at(
+    let prior = game.create_object_for_player("PriorPassiveShot", 0, Vec3::ZERO).unwrap();
+    assert!(game.objects.get_mut(&prior).unwrap().fire_at(
         TARGET,
         1.0,
         30,
@@ -223,17 +277,8 @@ fn actual_passive_windup_emits_nothing_until_deadline_and_keeps_prior_pending_sh
 
 #[test]
 fn shipping_transport_passenger_driver_uses_owned_delayed_discharge() {
-    let mut game = world(AIState::Docked, 0.0);
-    let source = game.objects.get_mut(&SOURCE).unwrap();
-    source.weapon = source.secondary_weapon.take();
-    let mut template = ThingTemplate::new("OwnedPassiveCarrier");
-    template.add_kind_of(KindOf::Vehicle);
-    let mut carrier = Object::new(template, ObjectId(98403), Team::USA);
-    carrier.owner_player_id = Some(0);
-    carrier.passengers_allowed_to_fire = true;
-    carrier.occupants.push(SOURCE);
-    carrier.set_position(MUZZLE);
-    game.add_object(carrier);
+    let mut game = world(AIState::Docked, 0.0, 0);
+    admit_passive_container(&mut game, AIState::Docked);
     let hp = health(&game);
     game.try_transport_passenger_residual_fire(SOURCE);
     assert_eq!(
@@ -258,20 +303,8 @@ fn shipping_transport_passenger_driver_uses_owned_delayed_discharge() {
 
 #[test]
 fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() {
-    let mut game = world(AIState::Docked, 0.0);
-    let mut template = ThingTemplate::new("OwnedSavedPassiveCarrier");
-    template.add_kind_of(KindOf::Vehicle);
-    template.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
-    template.contain_module.slots = Some(2);
-    template.contain_module.admission = crate::game_logic::ContainAdmission::InfantryOnly;
-    game.templates
-        .insert(template.name.clone(), template.clone());
-    let mut carrier = Object::new(template, ObjectId(98403), Team::USA);
-    carrier.owner_player_id = Some(0);
-    carrier.occupants.push(SOURCE);
-    carrier.passengers_allowed_to_fire = true;
-    carrier.set_position(MUZZLE);
-    game.add_object(carrier);
+    let mut game = world(AIState::Docked, 0.0, 1);
+    admit_passive_container(&mut game, AIState::Docked);
     game.objects.get_mut(&SOURCE).unwrap().active_weapon_slot = 1;
     let hp = health(&game);
     assert!(game.fire_owned_passive_weapon(SOURCE, TARGET, 1, MUZZLE));
@@ -297,10 +330,7 @@ fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() 
     let crate::save_load::DecodedGameSave {
         snapshot: decoded, ..
     } = manager.load_game_snapshot("passive_owner").unwrap();
-    let mut restored = GameLogic::new();
-    restored.templates = game.templates.clone();
-    restored.add_player(Player::new(0, Team::USA, "local", true));
-    restored.add_player(Player::new(1, Team::China, "enemy", false));
+    let mut restored = admitted_game(0.0, 1);
     manager
         .restore_game_snapshot(&decoded, &mut restored)
         .unwrap();
@@ -348,33 +378,12 @@ fn deferred_ammo_commit_matches_cpp_private_fire_order() {
     // GameLogic solo-set prepare must defer; commit_deferred applies afterward.
     use crate::game_logic::host_attack_log::AttackEvents;
     use crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents;
-    use crate::main_services::{MainServices, with_main_services};
     use game_engine::common::random_value::SessionRandom;
     use gamelogic::weapon::WeaponBonusSet;
-    use std::sync::Arc;
 
-    let services = Arc::new(MainServices::new());
-    with_main_services(&services, || {
-    let mut source = Object::new(
-        {
-            let mut template = ThingTemplate::new("DeferredAmmoShooter");
-            template.add_kind_of(KindOf::Infantry);
-            template.add_kind_of(KindOf::Attackable);
-            template
-        },
-        SOURCE,
-        Team::USA,
-    );
-    source.secondary_weapon = Some(Weapon {
-        damage: 37.0,
-        range: 500.0,
-        last_fire_time: -10.0,
-        ammo: Some(2),
-        clip_size: 2,
-        projectile_speed: 9.0,
-        ..Weapon::default()
-    });
-    assert!(source.set_weapon_barrel_count_for_slot(1, 3));
+    let mut game = world(AIState::Idle, 0.0, 1);
+    let source = game.host_object_mut(SOURCE).unwrap();
+    source.contained_by = None;
     let before = source.secondary_weapon.as_ref().unwrap().ammo;
     let mut sound = FireSoundLoopEvents::default();
     let mut attacks = AttackEvents::default();
@@ -420,7 +429,8 @@ fn deferred_ammo_commit_matches_cpp_private_fire_order() {
         &mut sound,
         Some(&solo),
         Some(&random),
-    ));
+        None,
+    ).is_some());
     assert_eq!(
         source.secondary_weapon.as_ref().unwrap().ammo,
         Some(1),
@@ -428,5 +438,4 @@ fn deferred_ammo_commit_matches_cpp_private_fire_order() {
     );
     assert_eq!(source.last_fire_frame, 7);
     assert!(source.pending_weapon_fire_commit.is_none());
-    });
 }

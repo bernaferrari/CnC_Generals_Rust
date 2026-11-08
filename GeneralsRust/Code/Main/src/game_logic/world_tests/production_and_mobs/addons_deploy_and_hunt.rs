@@ -854,6 +854,7 @@ fn overlord_propaganda_addon_residual_heals_allies() {
     let hp_before = game_logic.host_object(ally_id).unwrap().health.current;
     // Pulse residual for 1 second (30 frames @ 1/30).
     game_logic.frame = 1;
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -985,6 +986,7 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
     let hp_before = game_logic.host_object(ally_id).unwrap().health.current;
     // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
     game_logic.frame = 1;
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -1906,6 +1908,10 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
             suspend_fx_frame: 0,
             reloading_clip: false,
             last_bonus_rof: 0.0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
         });
     // Retail ChinaVehicleNukeLauncher has 3333ms Pack/Unpack, parsed with
     // C++ duration rounding into 100 logic frames. TurretsMustCenterBeforePacking
@@ -2139,6 +2145,10 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
             suspend_fx_frame: 0,
             reloading_clip: false,
             last_bonus_rof: 0.0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
         });
     }
 

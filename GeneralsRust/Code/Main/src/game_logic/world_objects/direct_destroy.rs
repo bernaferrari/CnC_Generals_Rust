@@ -63,6 +63,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.cost_modifier_on_delete(id);
+        self.remove_propaganda_tower_influence(id);
         self.detach_destroyed_object_from_contain(id, effects)?;
         self.delete_direct_containment_with_effects(id, effects)?;
         // SpawnBehavior::onDelete destroys live required children directly,
@@ -231,6 +232,7 @@ impl GameLogic {
             return Ok(());
         }
         let garrison = container.is_garrison_contain();
+        let helix = container.is_helix_transport;
         let transport = matches!(
             container.thing().template.contain_module.kind,
             ContainModuleKind::Transport
@@ -244,15 +246,15 @@ impl GameLogic {
             .then_some(container.movement.velocity);
         let aggressive = container.transport_go_aggressive_on_exit();
         let delay = container.transport_exit_delay_frames();
-        if let Some((container, ownership_events, partition)) =
-            self.host_object_ownership_partition_mut(container_id)
-        {
-            container.remove_occupant_with_partition_owner(child_id, ownership_events, partition);
+        self.remove_owned_occupant_with_bonus_callback(container_id, child_id, effects);
+        if let Some(container) = self.objects.get_mut(&container_id) {
             if container.overlord_portable_occupant == Some(child_id) {
                 container.overlord_portable_occupant = None;
             }
         }
-        self.play_container_removing_template_sounds(container_id, child_id, effects);
+        if !garrison && !helix {
+            self.play_container_removing_template_sounds(container_id, child_id, effects);
+        }
         let _ = self.teardown_object_mut(child_id);
         if self.objects.contains_key(&child_id) {
             Self::set_owned_containment_in_parts(
@@ -268,7 +270,7 @@ impl GameLogic {
                 .objects
                 .get_mut(&child_id)
                 .expect("installed detached child");
-            if transport {
+            if transport && !helix {
                 child.status.disabled_held = false;
                 if airborne {
                     child.allow_to_fall = true;
@@ -286,7 +288,7 @@ impl GameLogic {
         if garrison {
             self.recalc_garrison_apparent_controller(container_id);
         }
-        if transport {
+        if transport && !helix {
             self.scatter_dying_transport_rider_with_effects(container_id, child_id, effects);
             self.reset_rider_mood_check_on_exit(container_id, child_id);
             let frame = self.frame;
@@ -411,12 +413,8 @@ impl GameLogic {
                     container.overlord_portable_occupant = None;
                     container.overlord_redirection_active = false;
                 }
-                container.remove_occupant_with_partition_owner(
-                    id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
             }
+            self.remove_owned_occupant_with_bonus_callback(cid, id, effects);
             if let Some(object) = self.objects.get_mut(&id) {
                 let containment_actor_id = object.id;
                 Self::set_owned_containment_in_parts(

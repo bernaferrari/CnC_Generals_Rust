@@ -198,7 +198,7 @@ fn fire_weapon_power_queues_shots() {
     let mut t = ThingTemplate::new("SpectreHowitzerMarker");
     t.set_health(100.0);
     let mut o = Object::new(t, ObjectId(302), Team::USA);
-    assert!(o.activate_fire_weapon_power(Some((100.0, 200.0))));
+    assert!(o.activate_fire_weapon_power(Some((100.0, 200.0)), 0));
     let req = o.fire_weapon_power.as_ref().unwrap();
     assert_eq!(req.shots_remaining, 3);
     assert!(req.has_location);

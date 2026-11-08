@@ -1153,7 +1153,7 @@ impl GameLogic {
         let ok = self
             .objects
             .get_mut(&source_id)
-            .is_some_and(|o| o.activate_fire_weapon_power(Some((location.x, location.z))));
+            .is_some_and(|o| o.activate_fire_weapon_power(Some((location.x, location.z)), self.frame));
         if !ok {
             return false;
         }
@@ -1201,7 +1201,7 @@ impl GameLogic {
         let ok = self
             .objects
             .get_mut(&source_id)
-            .is_some_and(|o| o.activate_fire_weapon_power_at_object(target_id));
+            .is_some_and(|o| o.activate_fire_weapon_power_at_object(target_id, self.frame));
         if !ok {
             return false;
         }
@@ -1252,7 +1252,7 @@ impl GameLogic {
             .record_attack(plan.number_of_shots);
         // FireWeaponPower-style multi-shot attack residual on source.
         if let Some(o) = self.objects.get_mut(&source_id) {
-            let _ = o.activate_fire_weapon_power(Some((target.x, target.z)));
+            let _ = o.activate_fire_weapon_power(Some((target.x, target.z)), self.frame);
             if let Some(req) = o.fire_weapon_power.as_mut() {
                 req.shots_remaining = plan.number_of_shots.max(1);
                 req.target_x = target.x;

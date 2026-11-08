@@ -320,10 +320,11 @@ impl GameLogic {
                     obj.tick_force_reload_when_idle(self.frame);
                 }
                 let _ = obj;
-                let rates = self
-                    .objects
-                    .get(&object_id)
-                    .map(|object| self.receiving_weapon_rates_of_fire(object));
+                self.tick_owned_firing_tracker_coast(object_id);
+                let Some(object) = self.objects.get(&object_id) else {
+                    continue;
+                };
+                let rates = self.receiving_weapon_rates_of_fire(object);
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
@@ -333,11 +334,7 @@ impl GameLogic {
                     .iter()
                     .any(|&slot| obj.weapon_slot(slot).is_some())
                 {
-                    if let Some(rates) = rates.as_ref() {
-                        obj.refresh_weapon_fire_status_with_owned_rof(current_time, rates);
-                    } else {
-                        obj.refresh_weapon_fire_status(current_time);
-                    }
+                    obj.refresh_weapon_fire_status_at_frame(self.frame, &rates);
                 }
                 obj.tick_spy_vision_disabled(self.frame);
                 if obj.tick_disguise_transition() {

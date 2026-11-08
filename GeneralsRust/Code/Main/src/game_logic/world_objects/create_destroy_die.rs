@@ -1930,6 +1930,10 @@ impl GameLogic {
                         suspend_fx_frame: 0,
                         reloading_clip: false,
                         last_bonus_rof: 0.0,
+                        next_fire_frame: 0,
+                        reload_started_frame: 0,
+                        frame_clock_active: false,
+                        frame_clock_status: Default::default(),
                     });
                 }
                 object.template_mut().apply_retail_button_only_auto_choose();
@@ -2455,6 +2459,7 @@ impl GameLogic {
                         self.objects.get_mut(&destination).unwrap().model_condition_bits |= 1u128 << bit;
                         self.refresh_battle_bus_armed_riders_weapon_set(destination);
                     }
+                    self.apply_helix_contain_on_enter(destination, payload);
                     self.stamp_player_who_entered(destination, payload);
                 }
             }
@@ -2932,30 +2937,30 @@ impl GameLogic {
         let solo = crate::game_logic::host_faction_skirmish_residual::solo_weapon_bonus_condition(
             is_human, difficulty,
         );
-        if let Some(object) = self.objects.get_mut(&object_id) {
-            // C++ setReceivingDifficultyBonus then setWeaponBonusCondition
-            // even when healthFactor == 1.0 (Normal).
-            if health_factor == 1.0 {
-                object.weapon_bonus_solo = if apply { solo } else { 0 };
-                return;
-            }
+        if health_factor != 1.0 {
+            let Some(object) = self.objects.get(&object_id) else { return };
             let old_max = object.health.maximum;
             let new_max = if apply {
                 old_max * health_factor
             } else {
                 old_max / health_factor
             };
-            // End the actor borrow before capturing receiving identity/policy.
             self.set_owned_body_max_health_with_effects(
                 object_id,
                 new_max,
                 crate::game_logic::object::MaxHealthChange::PreserveRatio,
                 effects,
             );
-            if let Some(object) = self.objects.get_mut(&object_id) {
-                object.weapon_bonus_solo = if apply { solo } else { 0 };
-            }
         }
+        // Player.cpp applies the body change before the SOLO condition, including
+        // the Normal case whose health factor is one.
+        let Some(object) = self.objects.get_mut(&object_id) else { return };
+        let condition = if apply { solo } else { 0 };
+        if object.weapon_bonus_solo == condition {
+            return;
+        }
+        object.weapon_bonus_solo = condition;
+        self.notify_owned_weapon_bonus_change(object_id);
     }
 
     /// C++ `doEnableOrDisableObjectDifficultyBonuses` walks every live Object.

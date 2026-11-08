@@ -941,7 +941,9 @@ impl Object {
             vision_spied_by: [0; gamelogic::common::MAX_PLAYER_COUNT],
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
+            weapon_bonus_garrisoned: false,
             weapon_bonus_horde: false,
+            weapon_bonus_target_faerie_fire: false,
             weapon_bonus_nationalism: false,
             weapon_bonus_fanaticism: false,
             last_horde_refresh_frame: 0,
@@ -1768,7 +1770,9 @@ impl Object {
             vision_spied_by: [0; gamelogic::common::MAX_PLAYER_COUNT],
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
+            weapon_bonus_garrisoned: false,
             weapon_bonus_horde: false,
+            weapon_bonus_target_faerie_fire: false,
             weapon_bonus_nationalism: false,
             weapon_bonus_fanaticism: false,
             last_horde_refresh_frame: 0,
@@ -2052,7 +2056,7 @@ impl Object {
     }
 
     /// C++ FireWeaponPower::doSpecialPower residual.
-    pub fn activate_fire_weapon_power(&mut self, target: Option<(f32, f32)>) -> bool {
+    pub fn activate_fire_weapon_power(&mut self, target: Option<(f32, f32)>, frame: u32) -> bool {
         if self.is_disabled() {
             return false;
         }
@@ -2069,7 +2073,7 @@ impl Object {
             ),
         });
         // C++ reloadAllAmmo(TRUE) residual.
-        self.reload_all_ammo();
+        self.reload_all_ammo_at_frame(frame);
         true
     }
 
@@ -2077,6 +2081,7 @@ impl Object {
     pub fn activate_fire_weapon_power_at_object(
         &mut self,
         target_id: crate::game_logic::ObjectId,
+        frame: u32,
     ) -> bool {
         if self.is_disabled() {
             return false;
@@ -2088,7 +2093,7 @@ impl Object {
                 shots, target_id,
             ),
         );
-        self.reload_all_ammo();
+        self.reload_all_ammo_at_frame(frame);
         true
     }
 

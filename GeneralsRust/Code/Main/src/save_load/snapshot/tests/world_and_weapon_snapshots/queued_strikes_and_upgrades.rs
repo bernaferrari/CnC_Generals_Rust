@@ -1,5 +1,6 @@
 //! Behavior suite extracted from the original test module.
 use super::super::*;
+use super::authored_snapshot_world;
 
 #[test]
 fn carpet_payload_keeps_launch_faction_after_transport_changes_team_and_restore() {
@@ -392,8 +393,8 @@ fn save_file_roundtrip_preserves_pending_special_power_strike() {
     let mut manager = SaveFileManager::with_save_directory(save_dir.path());
     manager.init().expect("save manager init");
 
-    let mut source = GameLogic::new();
-    ensure_strike_test_tank(&mut source);
+    const CONTENT: &str = "Object StrikeTestTank\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nEnd\n";
+    let mut source = authored_snapshot_world(CONTENT);
     let caster = source
         .create_object("StrikeTestTank", Team::USA, Vec3::ZERO)
         .expect("caster");
@@ -434,8 +435,7 @@ fn save_file_roundtrip_preserves_pending_special_power_strike() {
         .save_game("special_power_strike_rt", &source, &info)
         .expect("save");
 
-    let mut loaded = GameLogic::new();
-    loaded.templates = source.templates.clone();
+    let mut loaded = authored_snapshot_world(CONTENT);
     manager
         .load_game("special_power_strike_rt", &mut loaded)
         .expect("load");
@@ -712,11 +712,11 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     let mut manager = SaveFileManager::with_save_directory(save_dir.path());
     manager.init().expect("save manager init");
 
-    let mut source = GameLogic::new();
+    const CONTENT: &str = "CommandButton CaptureUpgrade\nCommand = PLAYER_UPGRADE\nUpgrade = Upgrade_InfantryCaptureBuilding\nEnd\nCommandSet AmericaBarracks\n1 = CaptureUpgrade\nEnd\nObject TestBarracks\nKindOf = STRUCTURE FS_BARRACKS SELECTABLE CAN_ATTACK\nBuildCost = 600\nEnergyProduction = -1\nCommandSet = AmericaBarracks\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\n";
+    let mut source = authored_snapshot_world(CONTENT);
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
     source.add_player(player);
-    ensure_upgrade_test_templates(&mut source);
     // C++ save admission requires the named UpgradeTemplate in the loaded
     // catalog; this fixture supplies the retail PLAYER rule to each world.
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
@@ -729,11 +729,6 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     let barracks = source
         .create_object("TestBarracks", Team::USA, Vec3::ZERO)
         .expect("barracks");
-    // Residual C++ CommandSet authorship for the capture producer walk.
-    source
-        .host_object_mut(barracks)
-        .expect("barracks")
-        .set_command_set_override(Some("AmericaBarracks".into()));
     source.set_current_frame(5);
     source.queue_command(GameCommand {
         command_type: CommandType::QueueUpgrade {
@@ -766,9 +761,8 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
         .save_game("host_upgrade_rt", &source, &info)
         .expect("save");
 
-    let mut loaded = GameLogic::new();
+    let mut loaded = authored_snapshot_world(CONTENT);
     loaded.add_player(Player::new(0, Team::USA, "USA", true));
-    loaded.templates = source.templates.clone();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
         &mut loaded,
         UPGRADE_INFANTRY_CAPTURE,

@@ -3137,9 +3137,26 @@ Script catalog loading and template seeding use the supplied world's name-key
 namespace on both direct and SidesList decode routes. Legacy map-loader
 wrappers and script writing still use ambient namespace selection.
 
-Frenzy application, replacement and expiry notify weapons synchronously for
-each condition transition using receiving-world rates. The weapon clock itself
-still needs the original integer-frame ownership cutover.
+Authored weapon slots own an integer next-fire deadline, reload-start frame and
+explicit scheduling status; seconds-based elapsed fields are residual-only.
+Direct, passive, base-defense and StrategyCenter fire use the same receiving
+commit, and shared slots copy the source deadline/status without recomputing
+unequal reload intervals. Bonus transitions synchronously restart busy clocks
+in source callback order, including unchanged-ROF transitions and their random
+delay draws. Horde, Frenzy, propaganda, spotting, veterancy, FiringTracker
+MEAN/FAST/FAERIE_FIRE, SOLO, battle plans and containment use these callbacks;
+there is no lazy polling substitute. Tracker coast observes the committed
+deadline after target-FAERIE_FIRE restart and before its own level transitions.
+World snapshot schema 46 and runtime slot payload WS6 preserve the real clock
+and source bonus flags; prior payload revisions are rejected rather than
+reconstructed from floating timestamps. Zero delays remain valid and positive
+ROF values are not clamped; nonpositive/nonfinite ROF is unsupported, matching
+the absence of a defined C++ integer conversion contract rather than inventing
+a fallback. Production regressions cover frame-55 admission, random callback
+order, shared unequal reloads, exact expiry and encoded save continuation.
+hq-2qedt remains unsealed pending integrated verification and the independent
+upgrade/death/lifecycle parity obligations; these edits alone do not prove
+whole-system C++ parity.
 
 Native click and drag selection use the receiving camera and object pick facts;
 drag selection emits to the receiving command stream. Logical-coordinate WND

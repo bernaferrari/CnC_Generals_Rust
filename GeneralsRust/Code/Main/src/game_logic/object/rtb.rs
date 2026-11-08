@@ -28,6 +28,11 @@ impl Object {
         effective_reload: f32,
         rule: Option<&gamelogic::weapon::WeaponTemplate>,
     ) -> bool {
+        if weapon.frame_clock_active {
+            return Self::weapon_ready_at_frame(
+                weapon, (current_time * 30.0).round() as u32,
+            );
+        }
         if !Self::weapon_has_ammo_selected(weapon, weapon_name, rule) {
             return false;
         }
@@ -42,6 +47,27 @@ impl Object {
             return false;
         }
         current_time - weapon.last_fire_time >= effective_reload
+    }
+
+    pub(crate) fn weapon_ready_at_frame(
+        weapon: &Weapon,
+        frame: u32,
+    ) -> bool {
+        weapon.frame_status_at(frame) == WeaponFireStatus::ReadyToFire
+    }
+
+    pub(super) fn selected_weapon_ready_at_frame(
+        &self, slot: u8, current_time: f32, frame: u32, rof: f32,
+    ) -> bool {
+        let Some(weapon) = self.weapon_slot(slot) else { return false };
+        let rule = self.selected_native_weapon_rule(slot);
+        let name = self.weapon_name_for_slot(slot);
+        if rule.is_some() || weapon.frame_clock_active {
+            Self::weapon_ready_at_frame(weapon, frame)
+        } else {
+            let reload = self.live_reload_interval(weapon, name, rof);
+            Self::weapon_ready_selected(weapon, current_time, name, reload, None)
+        }
     }
     fn selected_reload_policy(
         weapon_name: Option<&str>,
@@ -163,6 +189,10 @@ impl Object {
             weapon.ammo = Some(a.max(1));
         }
         weapon.last_fire_time = -1.0e6;
+        weapon.next_fire_frame = 0;
+        weapon.reload_started_frame = 0;
+        weapon.reloading_clip = false;
+        weapon.frame_clock_status = WeaponFireStatus::ReadyToFire;
     }
 
     pub(super) fn primary_weapon_name(&self) -> Option<&str> {
@@ -228,7 +258,7 @@ impl Object {
 
     /// C++ `Weapon::setClipPercentFull` (Weapon.cpp:1845) — floor, no reduce
     /// unless `allow_reduction`.
-    pub fn set_weapon_clip_percent_full(weapon: &mut Weapon, percent: f32, allow_reduction: bool) {
+    pub fn set_weapon_clip_percent_full(weapon: &mut Weapon, percent: f32, allow_reduction: bool, frame: u32) {
         if weapon.clip_size == 0 {
             return;
         }
@@ -237,6 +267,10 @@ impl Object {
         if ammo > current || (allow_reduction && ammo < current) {
             weapon.ammo = Some(ammo);
             weapon.last_fire_time = -1.0e6;
+            weapon.next_fire_frame = frame;
+            weapon.reload_started_frame = frame;
+            weapon.reloading_clip = false;
+            weapon.frame_clock_status = if ammo > 0 { WeaponFireStatus::ReadyToFire } else { WeaponFireStatus::OutOfAmmo };
         }
     }
 
@@ -275,13 +309,13 @@ impl Object {
             duration.saturating_sub(remaining) as f32 / duration as f32
         };
         if let Some(w) = self.weapon.as_mut() {
-            Self::set_weapon_clip_percent_full(w, progress, false);
+            Self::set_weapon_clip_percent_full(w, progress, false, now);
         }
         if let Some(w) = self.secondary_weapon.as_mut() {
-            Self::set_weapon_clip_percent_full(w, progress, false);
+            Self::set_weapon_clip_percent_full(w, progress, false, now);
         }
         if let Some(w) = self.tertiary_weapon.as_mut() {
-            Self::set_weapon_clip_percent_full(w, progress, false);
+            Self::set_weapon_clip_percent_full(w, progress, false, now);
         }
         if now >= done || !self.weapons_need_clip_fill() {
             if !self.weapons_need_clip_fill() {

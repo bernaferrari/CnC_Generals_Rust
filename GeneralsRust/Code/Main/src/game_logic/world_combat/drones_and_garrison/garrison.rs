@@ -2,6 +2,212 @@ use super::super::super::*;
 use super::firepoints::*;
 
 impl GameLogic {
+    pub(in crate::game_logic) fn set_owned_garrison_bonus(&mut self, id: ObjectId, enabled: bool) {
+        let Some(object) = self.objects.get_mut(&id) else { return };
+        if object.weapon_bonus_garrisoned == enabled {
+            return;
+        }
+        object.weapon_bonus_garrisoned = enabled;
+        self.notify_owned_weapon_bonus_change(id);
+    }
+
+    pub(in crate::game_logic) fn apply_helix_contain_on_enter(&mut self, container: ObjectId, rider: ObjectId) {
+        if self.objects.get(&container).is_some_and(|object| {
+            object.is_helix_transport && object.overlord_portable_occupant != Some(rider)
+        }) {
+            // TransportContain::onContaining precedes the Helix extension.
+            if let Some(object) = self.objects.get_mut(&rider) {
+                object.set_status_disabled_held(true);
+            }
+            if let Some(object) = self.objects.get_mut(&container) {
+                if object.contained_unit_ids().len() == 1 {
+                    object.model_condition_bits |=
+                        1u128 << crate::game_logic::host_enum_table_residual::loaded_model_bit();
+                }
+            }
+            self.refresh_battle_bus_armed_riders_weapon_set(container);
+            self.set_owned_garrison_bonus(rider, true);
+            if let Some(object) = self.objects.get_mut(&rider) {
+                object.set_status_disabled_held(true);
+            }
+        }
+    }
+
+    /// GarrisonContain::onRemoving clears the bonus before HELD and owner
+    /// restoration. Other container types keep their own onRemoving sequence.
+    pub(in crate::game_logic) fn remove_owned_occupant_with_bonus_callback(
+        &mut self,
+        container_id: ObjectId,
+        rider: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(container) = self.objects.get_mut(&container_id) else { return false };
+        if container.is_helix_transport {
+            return self.remove_owned_helix_occupant(container_id, rider, effects);
+        }
+        if !container.is_garrison_contain() {
+            return container.remove_occupant_with_partition_owner(
+                rider, &mut self.ownership_events, &mut self.partition_manager,
+            );
+        }
+        let enclosing = container.is_enclosing_garrison_container();
+        if !container.unlink_occupant_with_partition_context(rider, Some(&self.partition_manager)) {
+            return false;
+        }
+        if !self.prepare_bonus_container_removal(container_id, rider, effects) {
+            return true;
+        }
+        self.play_container_removing_template_sounds(container_id, rider, effects);
+        if let Some(building) = self.objects.get_mut(&container_id).and_then(|object| object.building_data.as_mut()) {
+            building.free_garrison_point_for(rider);
+        }
+        if !enclosing {
+            self.snap_garrison_exit_occupant_to_ground(rider, container_id, effects);
+        }
+        if !self.objects.contains_key(&rider) {
+            return true;
+        }
+        self.set_owned_garrison_bonus(rider, false);
+        if let Some(object) = self.objects.get_mut(&rider) {
+            object.set_status_disabled_held(false);
+        }
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            container.restore_garrison_original_team_if_empty_with_partition_owner(
+                &mut self.ownership_events, &mut self.partition_manager,
+            );
+        }
+        true
+    }
+
+    /// OpenContain::removeFromContainViaIterator exposes/repositions the
+    /// rider and changes its layer before the derived onRemoving callback.
+    fn prepare_bonus_container_removal(
+        &mut self, container_id: ObjectId, rider: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(container) = self.objects.get(&container_id) else { return false };
+        let Some(object) = self.objects.get(&rider) else { return false };
+        let birth = object.visual_object_generation;
+        let container_birth = container.visual_object_generation;
+        let enclosing = container.is_enclosing_container_for(object);
+        let position = container.get_position();
+        let layer = container.pathfind_layer;
+        if enclosing {
+            self.change_owned_containment_world_membership(rider, true);
+            self.set_owned_object_position_with_effects(rider, position, self.frame, effects);
+        }
+        if !self.objects.get(&rider).is_some_and(|object| object.visual_object_generation == birth)
+            || !self.objects.get(&container_id).is_some_and(|object| object.visual_object_generation == container_birth)
+        {
+            return false;
+        }
+        self.set_owned_pathfinder_layer(rider, layer);
+        true
+    }
+
+    /// HelixContain extends the complete TransportContain callback. Death
+    /// scatter's two logic draws precede the weapon bonus restart draws, while
+    /// contained_by remains installed until the caller finishes removal.
+    fn remove_owned_helix_occupant(
+        &mut self, container_id: ObjectId, rider: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        use gamelogic::contain_module_overrides::ContainModuleDataKind;
+        let Some(container) = self.objects.get(&container_id) else { return false };
+        if container.overlord_portable_occupant == Some(rider)
+            || !container.contained_unit_ids().contains(&rider)
+        {
+            return false;
+        }
+        let Some(object) = self.objects.get(&rider) else { return false };
+        let birth = object.visual_object_generation;
+        let container_birth = container.visual_object_generation;
+        let position = container.get_position();
+        let yaw = container.get_orientation();
+        let airborne = container.is_above_terrain_for_exit();
+        let dead = container.status.effectively_dead;
+        let radius = container.geometry_info().bounding_circle_radius();
+        let config = container.get_template().receiving_client_template.as_ref()
+            .and_then(|template| template.behavior_modules().iter().find_map(|entry| {
+                match ContainModuleDataKind::from_module_data(entry.data.as_ref())? {
+                    ContainModuleDataKind::Helix(data) => Some(&data.base),
+                    _ => None,
+                }
+            }));
+        let orient = config.is_some_and(|data| data.orient_like_container_on_exit);
+        let pitch = config.map_or(0.0, |data| data.exit_pitch_rate);
+        let velocity = container.transport_keep_container_velocity_on_exit()
+            .then_some(container.movement.velocity);
+        let aggressive = container.transport_go_aggressive_on_exit();
+        let delay = container.transport_exit_delay_frames();
+        let exit_position = config.filter(|data| !data.exit_bone.is_empty()).and_then(|data| {
+            self.containment_pristine_bone_local_optional(container_id, &data.exit_bone, effects)
+                .expect("Helix ExitBone requires receiving pristine assets")
+                .map(|local| container.get_transform_matrix().transform_point3(local))
+        });
+        self.objects.get_mut(&container_id).unwrap()
+            .unlink_occupant_with_partition_context(rider, Some(&self.partition_manager));
+        if !self.prepare_bonus_container_removal(container_id, rider, effects) {
+            return true;
+        }
+        self.play_container_removing_template_sounds(container_id, rider, effects);
+        self.objects.get_mut(&rider).unwrap().set_status_disabled_held(false);
+        if let Some(exit_position) = exit_position {
+            self.set_owned_object_position_with_effects(rider, exit_position, self.frame, effects);
+        }
+        let same_births = |world: &Self| {
+            world.objects.get(&rider).is_some_and(|object| object.visual_object_generation == birth)
+                && world.objects.get(&container_id).is_some_and(|object| object.visual_object_generation == container_birth)
+        };
+        if !same_births(self) { return true; }
+        let object = self.objects.get_mut(&rider).unwrap();
+        if orient {
+            object.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
+        }
+        if let Some(velocity) = velocity {
+            object.apply_motive_force(velocity * object.physics_get_mass(), self.frame);
+            object.shock_pitch_rate = object.center_of_mass_offset * pitch;
+        }
+        if self.objects[&container_id].contained_unit_ids().is_empty() {
+            self.objects.get_mut(&container_id).unwrap().model_condition_bits &=
+                !(1u128 << crate::game_logic::host_enum_table_residual::loaded_model_bit());
+        }
+        let object = self.objects.get_mut(&rider).unwrap();
+        if airborne { object.allow_to_fall = true; }
+        if aggressive && object.has_ai_update_interface() {
+            object.set_ai_attitude(crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive);
+        }
+        if dead {
+            // OpenContain.cpp:679,686: angle, then distance, on this session.
+            let angle = self.logic_random.next_real(0.0, std::f32::consts::TAU);
+            let distance = self.logic_random.next_real(radius, radius + radius / 2.0);
+            let mut destination = position + Vec3::new(distance * angle.cos(), 0.0, distance * angle.sin());
+            if let Some(height) = self.terrain_height_at(destination) { destination.y = height; }
+            let has_ai = self.objects[&rider].has_ai_update_interface();
+            self.objects.get_mut(&rider).unwrap()
+                .set_orientation_with_effects(angle, &mut effects.reborrow_for_object(&mut self.partition_manager));
+            self.set_owned_object_position_with_effects(
+                rider, if has_ai { position } else { destination }, self.frame, effects,
+            );
+            if !same_births(self) { return true; }
+            if has_ai {
+                let object = self.objects.get_mut(&rider).unwrap();
+                object.ignored_obstacle_id = Some(container_id);
+                object.ignore_collisions_with = Some(container_id);
+                self.path_approach_with_state_ignoring(rider, destination, AIState::Moving, Some(container_id));
+            }
+        }
+        self.reset_rider_mood_check_on_exit(container_id, rider);
+        self.objects.get_mut(&container_id).unwrap().frame_exit_not_busy = self.frame.wrapping_add(delay);
+        self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+        self.transfer_kell_snipe_reload_from_bike(container_id, rider);
+        self.set_owned_garrison_bonus(rider, false);
+        if let Some(object) = self.objects.get_mut(&rider) {
+            object.set_status_disabled_held(false);
+        }
+        true
+    }
+
     /// Residual fire-from-garrison: enclosing occupants fire from a FIREPOINT
     /// bone (C++ `calcBestGarrisonPosition`). Non-enclosing Fire Base fires
     /// from the occupant's pre-assigned STATION bone, not the building center.
@@ -509,9 +715,13 @@ impl GameLogic {
             return Ok(());
         }
         self.ensure_garrison_bones(container_id);
+        if let Some(occupant) = self.objects.get_mut(&occupant_id) {
+            occupant.set_status_disabled_held(true);
+        }
         if let Some(container) = self.objects.get_mut(&container_id) {
             container.set_garrison_can_attack(true);
         }
+        self.set_owned_garrison_bonus(occupant_id, true);
         self.place_occupant_at_garrison_station(container_id, occupant_id, presentation_effects);
         self.stamp_player_who_entered(container_id, occupant_id);
         let occupant_owner = self
@@ -905,13 +1115,7 @@ impl GameLogic {
                 }
                 continue;
             }
-            if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant_with_partition_owner(
-                    pid,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
+            self.remove_owned_occupant_with_bonus_callback(container_id, pid, presentation_effects);
             self.walk_unit_via_open_contain_exit_with_effects(
                 pid,
                 container_id,
@@ -973,6 +1177,7 @@ impl GameLogic {
         // when another behavior wins Object::getObjectExitInterface.
         let rally = container.open_contain_rally_point;
         let is_garrison = container.is_garrison_contain();
+        let is_helix = container.is_helix_transport;
         let container_layer = container.pathfind_layer;
         let door_open_time = container.thing().template.contain_module.door_open_time;
         let template_name = container.template_name.clone();
@@ -1042,16 +1247,12 @@ impl GameLogic {
                 }
             }
         }
-        if let Some(c) = self.objects.get_mut(&container_id) {
-            let _ = c.remove_occupant_with_partition_owner(
-                unit_id,
-                &mut self.ownership_events,
-                &mut self.partition_manager,
-            );
-        }
+        self.remove_owned_occupant_with_bonus_callback(container_id, unit_id, presentation_effects);
         // TransportContain::onRemoving wakes only an idle rider, before
         // OpenContain::exitObjectViaDoor issues its follow-path command.
-        self.reset_rider_mood_check_on_exit(container_id, unit_id);
+        if !is_helix {
+            self.reset_rider_mood_check_on_exit(container_id, unit_id);
+        }
         // C++ exitPath = [adjusted end, adjusted end, rally?]. Rally is not snapped.
         let mut door_end = end;
         if exit_count > 1 {
@@ -1258,12 +1459,12 @@ impl GameLogic {
                 unit.ignore_collisions_with = None;
                 unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
             }
-            if go_aggressive && !is_garrison {
+            if go_aggressive && !is_garrison && !is_helix {
                 unit.set_ai_attitude(
                     crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
                 );
             }
-            if !is_garrison {
+            if !is_garrison && !is_helix {
                 if let Some(hull_vel) = hull_vel {
                     // TransportContain::onRemoving KeepContainerVelocityOnExit.
                     let mass = unit.physics_get_mass();
@@ -1290,7 +1491,7 @@ impl GameLogic {
                     | crate::game_logic::ContainModuleKind::InternetHack
             )
         });
-        if transport_mood {
+        if transport_mood && !is_helix {
             if let Some(container) = self.objects.get_mut(&container_id) {
                 if container.uses_transport_contain_exit_busy() {
                     let delay = container.transport_exit_delay_frames();
@@ -1302,10 +1503,12 @@ impl GameLogic {
                 }
             }
         }
-        if transport_mood {
+        if transport_mood && !is_helix {
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
-        self.play_container_removing_template_sounds(container_id, unit_id, presentation_effects);
+        if !is_garrison && !is_helix {
+            self.play_container_removing_template_sounds(container_id, unit_id, presentation_effects);
+        }
         // C++ OpenContain::exitObjectViaDoor door countdown + DOOR_1_OPENING.
         // GarrisonContain overrides and never diddles the door.
         if !is_garrison {

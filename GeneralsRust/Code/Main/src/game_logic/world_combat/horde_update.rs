@@ -158,8 +158,11 @@ impl GameLogic {
         if *flag == enabled { return; }
         *flag = enabled;
         let rates = self.receiving_weapon_rates_of_fire(self.objects.get(&id).unwrap());
-        let time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-        self.objects.get_mut(&id).unwrap().on_owned_weapon_bonus_change(time, &rates);
+        self.objects.get_mut(&id).unwrap().on_owned_weapon_bonus_change(
+            self.frame,
+            &rates,
+            &self.logic_random,
+        );
     }
 
     /// Re-derive the residual weapon stats that still bake HORDE /
@@ -356,8 +359,8 @@ mod tests {
             let mut weapon = gamelogic::weapon::WeaponTemplate::new("RedguardMachineGun".into());
             weapon.primary_damage = 1.0;
             weapon.attack_range = 100.0;
-            weapon.min_delay_between_shots = 45;
-            weapon.max_delay_between_shots = 45;
+            weapon.min_delay_between_shots = 30;
+            weapon.max_delay_between_shots = 30;
             weapon.projectile_name = "NONE".into();
             game.admit_receiving_weapon_snapshot(vec![("RedguardMachineGun".into(), weapon)]).unwrap();
             let modules = format!(
@@ -373,7 +376,6 @@ mod tests {
             game.add_player(Player::new(1, Team::USA, "Enemy", false));
             let shooter = spawn(&mut game, "FiringProbe", 0, &[0.0])[0];
             let target = spawn(&mut game, "FiringProbe", 1, &[20.0])[0];
-            game.objects.get_mut(&shooter).unwrap().weapon.as_mut().unwrap().last_fire_time = -10.0;
             (game, shooter, target)
         }
         let (mut authored, a, a_target) = session(true);
@@ -381,22 +383,24 @@ mod tests {
         for (world, shooter, target) in [(&mut authored, a, a_target), (&mut empty, b, b_target)] {
             world.frame = 15;
             assert!(world.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
-            world.frame = 30;
+            world.frame = 35;
             world.apply_owned_horde_morale(shooter, true, MoraleUpgrades::default());
             world.refresh_red_guard_weapon(shooter);
         }
-        // C++ restarts the 45-frame delay at frame 30; 150% ROF floors
-        // it to 30 frames. Both exact deadlines are representable in
-        // binary seconds (2.0 and 2.5), independent of host float rounding.
-        authored.frame = 59;
-        empty.frame = 59;
+        // Restart at the receiving callback frame, not the previous shot:
+        // floor(30 / 1.5) = 20 frames. Frame 55 must not slip to 56
+        // when its deadline cannot be represented exactly in seconds.
+        assert_eq!(authored.objects[&a].weapon.as_ref().unwrap().next_fire_frame, 55);
+        assert_eq!(empty.objects[&b].weapon.as_ref().unwrap().next_fire_frame, 65);
+        authored.frame = 54;
+        empty.frame = 54;
         assert!(!authored.fire_owned_passive_weapon(a, a_target, 0, Vec3::ZERO));
         assert!(!empty.fire_owned_passive_weapon(b, b_target, 0, Vec3::ZERO));
-        authored.frame = 60;
-        empty.frame = 60;
+        authored.frame = 55;
+        empty.frame = 55;
         assert!(authored.fire_owned_passive_weapon(a, a_target, 0, Vec3::ZERO));
         assert!(!empty.fire_owned_passive_weapon(b, b_target, 0, Vec3::ZERO));
-        empty.frame = 75;
+        empty.frame = 65;
         assert!(empty.fire_owned_passive_weapon(b, b_target, 0, Vec3::ZERO));
     }
 

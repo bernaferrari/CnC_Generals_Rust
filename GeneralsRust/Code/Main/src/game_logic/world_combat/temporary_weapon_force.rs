@@ -38,7 +38,7 @@ impl GameLogic {
         key: TemporaryWeaponRuntimeKey,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
-        let (template_name, barrel) = {
+        let (template_name, fire_state, identity) = {
             let object = match self.objects.get_mut(&source) {
                 Some(object) => object,
                 None => return 0,
@@ -57,15 +57,67 @@ impl GameLogic {
             {
                 return 0;
             }
-            (weapon.weapon_template_name.clone(), weapon.current_barrel)
+            let fire_state = (weapon.current_barrel, weapon.suspend_fx_frame, weapon.ammo_in_clip);
+            (weapon.weapon_template_name.clone(), fire_state, object.visual_draw_identity_token.clone())
         };
-        let Some(fields) = self.temporary_weapon_fields(&template_name) else {
+        let Some(mut fields) = self.temporary_weapon_fields(&template_name) else {
             return 0;
         };
+        if let Some(rule) = self.weapon_definitions.as_ref()
+            .and_then(|definitions| definitions.get(&template_name.to_ascii_lowercase()))
+            .cloned()
+        {
+            let frame = self.frame;
+            let mut bonus = gamelogic::weapon::WeaponBonus::new();
+            if let Some(object) = self.objects.get(&source) {
+                bonus.set_field(
+                    gamelogic::weapon::WeaponBonusField::RateOfFire,
+                    self.receiving_weapon_bonus_fields(object, Some(&rule)).2,
+                );
+            }
+            let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
+                module_source_index: key.module_source_index,
+                weapon_template_name: template_name,
+                weapon_slot: TemporaryWeaponSlot::Primary,
+            };
+            // Weapon.cpp:2614-2618: template effects and damage (including
+            // synchronous Body reentry) precede private Weapon mutation.
+            let Some(hits) = self.fire_named_temporary_with_owned_state(
+                source, &spec, Some(fire_state), None, effects,
+            ) else {
+                return 0;
+            };
+            let Some(object) = self.objects.get(&source) else { return hits; };
+            if !std::sync::Arc::ptr_eq(&identity, &object.visual_draw_identity_token) {
+                return hits;
+            }
+            // Reentry can spend ammunition on this same private Weapon. Read
+            // the remaining clip after the callback, not the capture's clip.
+            let Some(weapon) = object.temporary_weapon_runtime.damaged.iter()
+                .find_map(|runtime| runtime.weapon(key)) else { return hits; };
+            if weapon.ammo_in_clip > 1 {
+                fields.delay_between_shots =
+                    rule.get_delay_between_shots_with_random(&bonus, &self.logic_random).max(0) as u32;
+            } else if fields.auto_reloads_clip {
+                // reloadAmmo recomputes bonuses after template callbacks.
+                bonus.set_field(
+                    gamelogic::weapon::WeaponBonusField::RateOfFire,
+                    self.receiving_weapon_bonus_fields(object, Some(&rule)).2,
+                );
+                fields.defaults.clip_reload_frames = rule.get_clip_reload_time(&bonus).max(0) as u32;
+            }
+            if let Some(weapon) = self.objects.get_mut(&source)
+                .and_then(|object| object.temporary_weapon_runtime.damaged.iter_mut()
+                    .find_map(|runtime| runtime.weapon_mut(key)))
+            {
+                apply_private_fire_mutation(weapon, fields, frame);
+            }
+            return hits;
+        }
         self.force_fire_named_temporary_with_effects(
             source,
             &template_name,
-            barrel,
+            fire_state.0,
             Some(key),
             fields,
             effects,

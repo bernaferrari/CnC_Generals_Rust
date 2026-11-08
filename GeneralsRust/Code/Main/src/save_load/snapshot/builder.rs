@@ -138,6 +138,16 @@ impl SnapshotBuilder {
             weapon_bonus_frenzy: object.weapon_bonus_frenzy,
             weapon_bonus_frenzy_level: object.weapon_bonus_frenzy_level,
             weapon_bonus_frenzy_until_frame: object.weapon_bonus_frenzy_until_frame,
+            weapon_bonus_target_faerie_fire: object.weapon_bonus_target_faerie_fire,
+            weapon_bonus_garrisoned: object.weapon_bonus_garrisoned,
+            weapon_frame_statuses: std::array::from_fn(|slot| {
+                object.weapon_slot(slot as u8).map_or(Default::default(), |weapon| weapon.frame_clock_status)
+            }),
+            weapon_frame_clocks: std::array::from_fn(|slot| {
+                object.weapon_slot(slot as u8).map_or((0, false, 0), |weapon| {
+                    (weapon.next_fire_frame, weapon.frame_clock_active, weapon.reload_started_frame)
+                })
+            }),
         })
     }
 
@@ -182,6 +192,10 @@ impl SnapshotBuilder {
             suspend_fx_frame: 0,
             reloading_clip: false,
             last_bonus_rof: 0.0,
+            next_fire_frame: 0,
+            frame_clock_active: false,
+            reload_started_frame: 0,
+            frame_clock_status: Default::default(),
         }
     }
 

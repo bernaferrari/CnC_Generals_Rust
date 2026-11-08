@@ -575,6 +575,10 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
             suspend_fx_frame: 0,
             reloading_clip: false,
             last_bonus_rof: 0.0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
         });
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -822,6 +826,10 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
             suspend_fx_frame: 0,
             reloading_clip: false,
             last_bonus_rof: 0.0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
         });
         obj.secondary_weapon = Some(Weapon::default());
         obj.movement.max_speed = 12.5;

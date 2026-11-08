@@ -92,6 +92,17 @@ impl GameLogic {
         {
             return AttackFireResult::Continue;
         }
+        if attacker.selected_native_weapon_rule(0).is_some() {
+            let origin = attacker.get_position();
+            let fired = self.fire_owned_passive_weapon_with_effects(
+                center_id, target_id, 0, origin, presentation_effects,
+            );
+            if fired {
+                self.notify_turret_fired(center_id);
+                self.battle_plans.record_turret_fire(0);
+            }
+            return if fired { AttackFireResult::Success } else { AttackFireResult::Failure };
+        }
         if !Object::weapon_ready(weapon, current_time) {
             return AttackFireResult::Failure;
         }
@@ -537,9 +548,13 @@ impl GameLogic {
             let Some(attacker) = self.objects.get(&defense_id) else {
                 return Ok(());
             };
-            attacker
-                .weapon_slot(slot)
-                .is_some_and(|w| Object::weapon_ready(w, current_time))
+            attacker.weapon_slot(slot).is_some_and(|weapon| {
+                if weapon.frame_clock_active {
+                    Object::weapon_ready_at_frame(weapon, self.frame)
+                } else {
+                    Object::weapon_ready(weapon, current_time)
+                }
+            })
         };
         // C++ TurretAIAimTurretState: do not discharge while the barrel is
         // still traversing. Structures without a Turret block fire immediately.
@@ -555,6 +570,22 @@ impl GameLogic {
             if !matches!(aim_result, AttackAimResult::Success) {
                 return Ok(());
             }
+        }
+        if self.objects.get(&defense_id).is_some_and(|attacker| attacker.selected_native_weapon_rule(slot).is_some()) {
+            if !ready { return Ok(()); }
+            let assisting = self.objects.get(&defense_id).is_some_and(|object| {
+                object.weapon_lock_type == WeaponLockType::LockedTemporarily
+            });
+            if is_patriot && !assisting {
+                self.process_patriot_assist_request(defense_id, target_id, slot);
+            }
+            if self.fire_owned_passive_weapon_with_effects(
+                defense_id, target_id, slot, fire_pos, presentation_effects,
+            ) {
+                if turret_enabled { self.notify_turret_fired(defense_id); }
+                self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
+            }
+            return Ok(());
         }
         let damage = {
             let Some(attacker) = self.objects.get(&defense_id) else {

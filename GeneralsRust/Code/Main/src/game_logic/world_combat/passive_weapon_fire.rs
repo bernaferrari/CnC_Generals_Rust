@@ -83,13 +83,7 @@ impl GameLogic {
         // FireFX/FireOCL per C++ Weapon.cpp2617–2669.
         drop(shooter);
         self.deliver_owned_weapon_shot_with_effects(slot, shot, capture, presentation_effects);
-        if let Some(shooter) = self.objects.get_mut(&source) {
-            shooter.commit_deferred_weapon_fire_after_effects(
-                &mut self.combat_system.fire_sound_loop_events,
-                Some(&self.solo_weapon_bonus_set),
-                Some(&self.logic_random),
-            );
-        }
+        self.commit_owned_weapon_fire_after_effects(source);
         true
     }
 }

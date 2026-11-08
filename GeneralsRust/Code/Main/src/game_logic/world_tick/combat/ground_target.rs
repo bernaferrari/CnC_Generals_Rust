@@ -78,7 +78,7 @@ impl GameLogic {
                         let rof = self
                             .receiving_weapon_bonus_fields_for_slot(attacker, slot)
                             .2;
-                        attacker.can_fire_slot_with_owned_rof(slot, current_time, rof)
+                        attacker.can_fire_slot_at_frame_with_owned_rof(slot, self.frame, rof)
                             && attacker.has_max_shots_remaining()
                             && attacker.weapon_allows_target_anti_mask(
                                 weapon,
@@ -123,12 +123,14 @@ impl GameLogic {
             false
         };
         if !can_fire_at_location {
-            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                if attacker.pre_attack_target.is_none() && attacker.pre_attack_ready_at > 0.0 {
-                    attacker.pre_attack_ready_at = 0.0;
-                    attacker.clear_leech_range_mode_for_all_weapons();
-                    attacker.refresh_weapon_fire_status(current_time);
-                }
+            let rates = self.objects.get(&attacker_id)
+                .filter(|attacker| attacker.pre_attack_target.is_none() && attacker.pre_attack_ready_at > 0.0)
+                .map(|attacker| self.receiving_weapon_rates_of_fire(attacker));
+            if let Some(rates) = rates {
+                let attacker = self.objects.get_mut(&attacker_id).unwrap();
+                attacker.pre_attack_ready_at = 0.0;
+                attacker.clear_leech_range_mode_for_all_weapons();
+                attacker.refresh_weapon_fire_status_at_frame(self.frame, &rates);
             }
         }
         if can_fire_at_location {
@@ -184,12 +186,14 @@ impl GameLogic {
                 true
             };
             if !aim_ok {
-                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    if attacker.pre_attack_target.is_none() && attacker.pre_attack_ready_at > 0.0 {
-                        attacker.pre_attack_ready_at = 0.0;
-                        attacker.clear_leech_range_mode_for_all_weapons();
-                        attacker.refresh_weapon_fire_status(current_time);
-                    }
+                let rates = self.objects.get(&attacker_id)
+                    .filter(|attacker| attacker.pre_attack_target.is_none() && attacker.pre_attack_ready_at > 0.0)
+                    .map(|attacker| self.receiving_weapon_rates_of_fire(attacker));
+                if let Some(rates) = rates {
+                    let attacker = self.objects.get_mut(&attacker_id).unwrap();
+                    attacker.pre_attack_ready_at = 0.0;
+                    attacker.clear_leech_range_mode_for_all_weapons();
+                    attacker.refresh_weapon_fire_status_at_frame(self.frame, &rates);
                 }
                 return CombatShotResult::NoShot;
             }

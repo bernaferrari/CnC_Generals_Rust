@@ -2875,16 +2875,8 @@ impl GameLogic {
             return Ok(());
         }
 
-        if let Some(container) = self.objects.get_mut(&container_id) {
-            for (occupant_id, _) in &kicked {
-                let _ = container.remove_occupant_with_partition_owner(
-                    *occupant_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
-        }
         for (occupant_id, stealth_garrison) in kicked {
+            self.remove_owned_occupant_with_bonus_callback(container_id, occupant_id, effects);
             self.unit_command_exit_drop_with_effects(occupant_id, position, effects)?;
             if stealth_garrison {
                 if let Some(occupant) = self.objects.get_mut(&occupant_id) {
@@ -2918,17 +2910,9 @@ impl GameLogic {
             return Ok(());
         };
 
-        if let Some(structure) = self.objects.get_mut(&structure_id) {
-            for occupant_id in &occupants {
-                let _ = structure.remove_occupant_with_partition_owner(
-                    *occupant_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
-        }
 
         for occupant_id in occupants {
+            self.remove_owned_occupant_with_bonus_callback(structure_id, occupant_id, effects);
             let expose_stealth = self
                 .objects
                 .get(&occupant_id)

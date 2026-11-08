@@ -1832,6 +1832,10 @@ impl ThingTemplate {
             reload_time,
             last_fire_time: 0.0,
             last_fire_frame: 0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
             ammo: if wt.clip_size > 0 {
                 Some(wt.clip_size as u32)
             } else {

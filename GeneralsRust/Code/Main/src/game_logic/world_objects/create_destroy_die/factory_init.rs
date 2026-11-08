@@ -63,7 +63,7 @@ impl GameLogic {
 
         // The Sentry Drone gun is the authored WeaponSet row `Conditions = None
         // / PRIMARY None` plus `WeaponSetUpgrade` (WEAPONSET_PLAYER_UPGRADE),
-        // replayed below by apply_authored_flag_upgrades; no template name
+        // replayed by the ordered world mux after bootstrap; no template name
         // strips or equips a weapon here.
 
         // China Dragon Tank PRIMARY binds from the authored WeaponSet (C++
@@ -299,15 +299,13 @@ impl GameLogic {
         // WeaponSet::updateWeaponSet), not a name peel (hq-2qedt.169).
         // Death-profile / demo charge residuals live in host_terrorist.
 
-        // C++ Object::initObject -> updateUpgradeModules: the owning player's
-        // completed upgrades run this template's authored MaxHealthUpgrade
-        // modules (Composite Armor, Drone Armor, Aircraft Armor, ...).
+        // Bootstrap the remaining residual families. MaxHealthUpgrade runs
+        // only in the ordered world mux after this object's birth admission.
         let mut power_plant_bonus = None;
         if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
             power_plant_bonus =
                 object.run_authored_power_plant_upgrades(|name| player.has_unlocked_upgrade(name));
-            object.run_authored_max_health_upgrades(|name| player.has_unlocked_upgrade(name));
-            object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name), frame);
+            object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name));
             // StealthUpgrade (Camouflage, Camo Netting): CAN_STEALTH.
             object.run_authored_stealth_upgrades(|name| player.has_unlocked_upgrade(name));
             // UnpauseSpecialPowerUpgrade: the constructor's StartsPaused pause

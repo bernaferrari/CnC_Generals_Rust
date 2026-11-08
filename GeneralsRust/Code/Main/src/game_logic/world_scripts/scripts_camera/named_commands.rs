@@ -441,12 +441,7 @@ impl GameLogic {
             return;
         }
         if container.is_garrison_contain() {
-            {
-                let (object, ownership_events, partition) = self
-                    .host_object_ownership_partition_mut(container_id)
-                    .unwrap();
-                object.remove_occupant_with_partition_owner(passenger, ownership_events, partition)
-            };
+            self.remove_owned_occupant_with_bonus_callback(container_id, passenger, effects);
             self.garrison_exit_occupant_via_door_with_effects(passenger, container_id, effects);
         } else {
             self.unit_command_exit_via_open_contain_with_effects(passenger, container_id, effects);

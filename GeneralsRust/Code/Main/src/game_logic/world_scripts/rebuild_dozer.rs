@@ -742,6 +742,10 @@ impl GameLogic {
                 self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
                 continue;
             }
+            self.remove_owned_occupant_with_bonus_callback(container_id, uid, effects);
+            if let Some(pid) = portable_id {
+                self.remove_owned_occupant_with_bonus_callback(pid, uid, effects);
+            }
             if let Some(unit) = self.objects.get_mut(&uid) {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
@@ -754,13 +758,6 @@ impl GameLogic {
                     tree_move_frame,
                     effects,
                 ) {
-                    if let Some(container) = self.objects.get_mut(&container_id) {
-                        let _ = container.remove_occupant_with_partition_owner(
-                            uid,
-                            &mut self.ownership_events,
-                            &mut self.partition_manager,
-                        );
-                    }
                     continue;
                 }
                 let unit = self
@@ -793,22 +790,6 @@ impl GameLogic {
                 {}
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
-            }
-            if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant_with_partition_owner(
-                    uid,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
-            if let Some(pid) = portable_id {
-                if let Some(addon) = self.objects.get_mut(&pid) {
-                    let _ = addon.remove_occupant_with_partition_owner(
-                        uid,
-                        &mut self.ownership_events,
-                        &mut self.partition_manager,
-                    );
-                }
             }
             self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
         }
@@ -856,6 +837,7 @@ impl GameLogic {
                 self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
                 continue;
             }
+            self.remove_owned_occupant_with_bonus_callback(structure_id, uid, effects);
             // Eject residual.
             if let Some(unit) = self.objects.get_mut(&uid) {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
@@ -869,13 +851,6 @@ impl GameLogic {
                     tree_move_frame,
                     effects,
                 ) {
-                    if let Some(structure) = self.objects.get_mut(&structure_id) {
-                        let _ = structure.remove_occupant_with_partition_owner(
-                            uid,
-                            &mut self.ownership_events,
-                            &mut self.partition_manager,
-                        );
-                    }
                     self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
                     continue;
                 }
@@ -908,13 +883,6 @@ impl GameLogic {
                 {}
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
-            }
-            if let Some(st) = self.objects.get_mut(&structure_id) {
-                let _ = st.remove_occupant_with_partition_owner(
-                    uid,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
             }
             self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
         }

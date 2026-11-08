@@ -270,6 +270,10 @@ pub(super) fn default_object_snapshot() -> ObjectSnapshot {
         weapon_bonus_frenzy: false,
         weapon_bonus_frenzy_level: 0,
         weapon_bonus_frenzy_until_frame: 0,
+        weapon_frame_clocks: [(0, false, 0); 3],
+        weapon_bonus_target_faerie_fire: false,
+        weapon_bonus_garrisoned: false,
+        weapon_frame_statuses: Default::default(),
     }
 }
 

@@ -99,6 +99,72 @@ fn residual_named_shooter_deals_exactly_its_authored_damage() {
 }
 
 #[test]
+fn direct_shot_admission_uses_the_horde_callback_integer_deadline() {
+    let mut world = world("DeadlineProbe", "AuthoredInstantGun");
+    world.admit_combat_bonus_ini_sources([
+        "GameData\nWeaponBonus = HORDE RATE_OF_FIRE 300%\nEnd\n",
+    ]).unwrap();
+    let shooter = world
+        .create_object("DeadlineProbe", Team::China, Vec3::ZERO)
+        .unwrap();
+    let victim = world
+        .create_object("PlainVictim", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .unwrap();
+    world.set_current_frame(15);
+    engage(&mut world, shooter, victim);
+    step(&mut world, &[shooter, victim]);
+    assert_eq!(hp(&world, victim), 475.0);
+    let weapon = world.host_object(shooter).unwrap().weapon.as_ref().unwrap();
+    assert!(weapon.frame_clock_active);
+    assert_eq!(weapon.last_fire_frame, 15);
+    assert_eq!(weapon.next_fire_frame, 75);
+
+    world.set_current_frame(35);
+    world.apply_owned_horde_morale(shooter, true, Default::default());
+    assert_eq!(
+        world.host_object(shooter).unwrap().weapon.as_ref().unwrap().next_fire_frame,
+        55,
+    );
+    world.set_current_frame(54);
+    assert!(world.prepare_combat_attack(shooter).is_none());
+    step(&mut world, &[shooter, victim]);
+    assert_eq!(hp(&world, victim), 475.0);
+
+    world.set_current_frame(55);
+    assert!(world.prepare_combat_attack(shooter).is_some());
+    step(&mut world, &[shooter, victim]);
+    assert_eq!(hp(&world, victim), 450.0);
+    let weapon = world.host_object(shooter).unwrap().weapon.as_ref().unwrap();
+    assert_eq!(weapon.last_fire_frame, 55);
+    assert_eq!(weapon.next_fire_frame, 75);
+}
+
+#[test]
+fn authored_base_defense_auto_fire_commits_the_same_integer_clock() {
+    let mut game = GameLogic::new();
+    let source = object("DeadlineDefense", Some("AuthoredInstantGun"))
+        .replace("VEHICLE SELECTABLE CAN_ATTACK", "STRUCTURE FS_BASE_DEFENSE SELECTABLE CAN_ATTACK");
+    game.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "deadline-defense.ini".into(), format!("{source}{}", object("PlainVictim", None)),
+        )]).unwrap(),
+    ).unwrap();
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons, WEAPONS, crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    game.admit_receiving_weapon_snapshot(weapons.into_iter().collect()).unwrap();
+    let shooter = game.create_object("DeadlineDefense", Team::China, Vec3::ZERO).unwrap();
+    let victim = game.create_object("PlainVictim", Team::USA, Vec3::new(50.0, 0.0, 0.0)).unwrap();
+    for (frame, health) in [(15, 475.0), (74, 475.0), (75, 450.0)] {
+        game.set_current_frame(frame);
+        step(&mut game, &[shooter, victim]);
+        assert_eq!(hp(&game, victim), health);
+    }
+    assert_eq!(game.host_object(shooter).unwrap().weapon.as_ref().unwrap().next_fire_frame, 135);
+}
+
+#[test]
 fn authored_weapon_speed_delays_damage_by_travel_time() {
     let mut world = world("PlainArtillery", "AuthoredSlowGun");
     let shooter = world

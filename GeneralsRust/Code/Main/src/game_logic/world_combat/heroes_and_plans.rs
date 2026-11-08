@@ -18,25 +18,70 @@ impl GameLogic {
         if old != level {
             if old.is_some() {
                 self.objects.get_mut(&id).unwrap().clear_weapon_bonus_frenzy();
-                self.notify_owned_frenzy_bonus_change(id);
+                self.notify_owned_weapon_bonus_change(id);
             }
             if let Some(level) = level {
                 self.objects.get_mut(&id).unwrap().apply_weapon_bonus_frenzy(level, until);
-                self.notify_owned_frenzy_bonus_change(id);
+                self.notify_owned_weapon_bonus_change(id);
             }
         } else if let Some(level) = level {
             self.objects.get_mut(&id).unwrap().apply_weapon_bonus_frenzy(level, until);
         }
     }
 
-    fn notify_owned_frenzy_bonus_change(&mut self, id: ObjectId) {
+    pub(in crate::game_logic) fn notify_owned_weapon_bonus_change(&mut self, id: ObjectId) {
         let Some(object) = self.objects.get(&id) else { return };
         let rates = self.receiving_weapon_rates_of_fire(object);
-        let time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
         if let Some(object) = self.objects.get_mut(&id) {
-            object.on_owned_weapon_bonus_change(time, &rates);
+            object.on_owned_weapon_bonus_change(self.frame, &rates, &self.logic_random);
         }
     }
+    /// Player.cpp changes BOMBARDMENT, HOLDTHELINE, SEARCHANDDESTROY in
+    /// that order; each changed bit restarts busy weapons before the next bit.
+    pub(in crate::game_logic) fn set_owned_battle_plan_bonus(
+        &mut self,
+        id: ObjectId,
+        plan: Option<crate::game_logic::host_strategy_center::HostBattlePlan>,
+    ) {
+        use crate::game_logic::host_strategy_center::HostBattlePlan;
+        let Some(object) = self.objects.get_mut(&id) else { return };
+        if (object.battle_plan_sight_scalar_applied - 1.0).abs() > f32::EPSILON
+            && object.battle_plan_sight_scalar_applied > f32::EPSILON
+        {
+            object.detection_range /=
+                object.battle_plan_sight_scalar_applied.max(0.01);
+            let base = object.get_template().sight_range;
+            if (object.detection_range - base).abs() < 0.5 {
+                object.detection_range = 0.0;
+            }
+        }
+        object.battle_plan_sight_scalar_applied = 1.0;
+        if plan == Some(HostBattlePlan::SearchAndDestroy) {
+            let scalar = HostBattlePlan::SearchAndDestroy.army_sight_range_scalar();
+            if (scalar - 1.0).abs() > f32::EPSILON {
+                object.detection_range = object.effective_detection_range() * scalar;
+                object.battle_plan_sight_scalar_applied = scalar;
+            }
+        }
+        for condition in [
+            HostBattlePlan::Bombardment,
+            HostBattlePlan::HoldTheLine,
+            HostBattlePlan::SearchAndDestroy,
+        ] {
+            let object = self.objects.get_mut(&id).unwrap();
+            let flag = match condition {
+                HostBattlePlan::Bombardment => &mut object.weapon_bonus_battle_plan_bombardment,
+                HostBattlePlan::HoldTheLine => &mut object.weapon_bonus_battle_plan_hold_the_line,
+                HostBattlePlan::SearchAndDestroy => &mut object.weapon_bonus_battle_plan_search_and_destroy,
+            };
+            let enabled = plan == Some(condition);
+            if *flag != enabled {
+                *flag = enabled;
+                self.notify_owned_weapon_bonus_change(id);
+            }
+        }
+    }
+
 
     /// Tick TurretAI idle-scan / HoldTurret / idle-recenter residual for
     /// Bombardment ACTIVE Strategy Centers.
@@ -822,9 +867,7 @@ impl GameLogic {
             })
             .collect();
         for id in previous_ids {
-            if let Some(obj) = self.objects.get_mut(&id) {
-                obj.clear_battle_plan_bonus();
-            }
+            self.set_owned_battle_plan_bonus(id, None);
         }
 
         // Reverse previous Strategy Center building residual from active plan.
@@ -1008,11 +1051,9 @@ impl GameLogic {
 
         let mut buffs: u32 = 0;
         for id in candidates {
-            if let Some(target) = self.objects.get_mut(&id) {
-                if target.is_alive() {
-                    target.apply_battle_plan_bonus(plan);
-                    buffs = buffs.saturating_add(1);
-                }
+            if self.objects.get(&id).is_some_and(|target| target.is_alive()) {
+                self.set_owned_battle_plan_bonus(id, Some(plan));
+                buffs = buffs.saturating_add(1);
             }
         }
 

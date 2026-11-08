@@ -31,17 +31,53 @@ impl AuthoredPassengersFireUpgrade {
     }
 }
 
+struct AuthoredMaxHealthUpgrade {
+    source_index: usize,
+    data: gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData,
+}
+
+impl AuthoredMaxHealthUpgrade {
+    fn executed_key(&self) -> String {
+        format!("MaxHealthUpgrade#{}", self.source_index)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AuthoredWeaponUpgradeKind {
+    Set,
+    Bonus,
+}
+
+struct AuthoredWeaponUpgrade {
+    source_index: usize,
+    kind: AuthoredWeaponUpgradeKind,
+    mux: gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
+}
+
+impl AuthoredWeaponUpgrade {
+    fn executed_key(&self) -> String {
+        let class = match self.kind {
+            AuthoredWeaponUpgradeKind::Set => "WeaponSetUpgrade",
+            AuthoredWeaponUpgradeKind::Bonus => "WeaponBonusUpgrade",
+        };
+        format!("{class}#{}", self.source_index)
+    }
+}
+
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
     CostModifier(AuthoredCostModifierUpgrade),
     PassengersFire(AuthoredPassengersFireUpgrade),
+    MaxHealth(AuthoredMaxHealthUpgrade),
+    Weapon(AuthoredWeaponUpgrade),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum UpgradeGrantOrigin {
     Object,
     PlayerResearch,
+    PlayerResearchResiduals,
 }
 
 impl AuthoredOrderedUpgrade {
@@ -51,6 +87,8 @@ impl AuthoredOrderedUpgrade {
             Self::StatusBits(module) => module.source_index,
             Self::CostModifier(module) => module.source_index,
             Self::PassengersFire(module) => module.source_index,
+            Self::MaxHealth(module) => module.source_index,
+            Self::Weapon(module) => module.source_index,
         }
     }
 }
@@ -270,6 +308,24 @@ impl GameLogic {
         )
     }
 
+    /// Birth/construction replay runs the ordered mux once with the combined
+    /// mask, after replaying families not yet admitted to that traversal.
+    pub(crate) fn apply_player_research_residuals_with_interpreter_checked(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.apply_upgrade_to_object_with_interpreter_and_origin_checked(
+            object_id,
+            upgrade,
+            interpreter,
+            presentation_effects,
+            UpgradeGrantOrigin::PlayerResearchResiduals,
+        )
+    }
+
     fn apply_upgrade_to_object_with_interpreter_and_origin_checked(
         &mut self,
         object_id: ObjectId,
@@ -303,14 +359,19 @@ impl GameLogic {
         // C++ updateUpgradeModules tests every module against the combined
         // controlling-player/object mask. Snapshot the exact admitted module
         // declarations and current mask before any callbacks mutate either.
-        let object_creation_update_allowed = self.object_creation_upgrade_update_allowed(object_id);
+        let object_creation_update_allowed =
+            origin != UpgradeGrantOrigin::PlayerResearchResiduals
+                && self.object_creation_upgrade_update_allowed(object_id);
         let authored_upgrade_modules = if object_creation_update_allowed {
             self.authored_ordered_upgrade_modules(object_id)
         } else {
             Vec::new()
         };
-        let object_creation_key_mask =
-            self.object_creation_upgrade_key_mask(object_id, Some(upgrade));
+        let object_creation_key_mask = if object_creation_update_allowed {
+            self.object_creation_upgrade_key_mask(object_id, Some(upgrade))
+        } else {
+            gamelogic::upgrade::UpgradeMask::none()
+        };
         let object_completion_name = if origin == UpgradeGrantOrigin::Object {
             let Some(template) = self.upgrade_template(upgrade) else {
                 // Object.cpp:3559-3567 ignores a missing UpgradeTemplate on
@@ -376,24 +437,16 @@ impl GameLogic {
                 let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
                 self.sub_objects_upgrades.record(&shown);
             }
-            // C++ WeaponBonusUpgrade / WeaponSetUpgrade / ArmorUpgrade /
-            // CommandSetUpgrade::upgradeImplementation: only modules this
-            // template authors, triggered through UpgradeMux, set flags.
+            // Armor/command-set residuals only. Weapon upgrades execute at
+            // their individual source positions in the typed mux above.
             let flags = obj.apply_authored_flag_upgrades(
                 |name| name.eq_ignore_ascii_case(upgrade),
-                self.frame,
             );
             // C++ StealthUpgrade::upgradeImplementation (CAN_STEALTH).
             obj.run_authored_stealth_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
             if newly_triggered_stealth {
                 obj.innate_stealth = true;
                 upgrade_spawn_stealth = obj.is_kind_of(KindOf::SpawnsAreTheWeapons);
-            }
-            if flags.weapon_bonus {
-                self.upgrade_module_residuals.record_weapon_bonus(upgrade);
-            }
-            if flags.weapon_set {
-                self.upgrade_module_residuals.record_weapon_set(upgrade);
             }
             if let Some(cs) = flags.command_set.as_deref() {
                 self.replace_grant_command_upgrades.record_command_set(cs);
@@ -622,6 +675,34 @@ impl GameLogic {
                         AuthoredPassengersFireUpgrade { source_index, data: data.clone() }
                     ));
                 }
+                if module.name.as_str().eq_ignore_ascii_case("MaxHealthUpgrade") {
+                    let data = module.data.as_any().downcast_ref::<
+                        gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData,
+                    >()?;
+                    return Some(AuthoredOrderedUpgrade::MaxHealth(
+                        AuthoredMaxHealthUpgrade { source_index, data: data.clone() }
+                    ));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("WeaponSetUpgrade") {
+                    let data = module.data.as_any().downcast_ref::<
+                        gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData,
+                    >()?;
+                    return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
+                        source_index,
+                        kind: AuthoredWeaponUpgradeKind::Set,
+                        mux: data.upgrade_mux_data.clone(),
+                    }));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("WeaponBonusUpgrade") {
+                    let data = module.data.as_any().downcast_ref::<
+                        gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData,
+                    >()?;
+                    return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
+                        source_index,
+                        kind: AuthoredWeaponUpgradeKind::Bonus,
+                        mux: data.upgrade_mux_data.clone(),
+                    }));
+                }
                 None
             })
             .collect();
@@ -702,6 +783,16 @@ impl GameLogic {
                 ),
                 AuthoredOrderedUpgrade::PassengersFire(module) => (
                     &module.data.upgrade_mux_data,
+                    self.objects.get(&object_id)
+                        .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                ),
+                AuthoredOrderedUpgrade::MaxHealth(module) => (
+                    &module.data.upgrade_mux_data,
+                    self.objects.get(&object_id)
+                        .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                ),
+                AuthoredOrderedUpgrade::Weapon(module) => (
+                    &module.mux,
                     self.objects.get(&object_id)
                         .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
                 ),
@@ -787,6 +878,43 @@ impl GameLogic {
                     }
                     Ok(())
                 }
+                AuthoredOrderedUpgrade::MaxHealth(module) => {
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        object.apply_authored_max_health_upgrade(&module.data);
+                        self.health_events.record_applied_heal(object_id, object.health.current);
+                    }
+                    Ok(())
+                }
+                AuthoredOrderedUpgrade::Weapon(module) => {
+                    match module.kind {
+                        AuthoredWeaponUpgradeKind::Set => {
+                            if let Some(object) = self.objects.get_mut(&object_id) {
+                                // WeaponSetUpgrade.cpp:27-32: a selection
+                                // change rebinds concrete Weapons immediately.
+                                object.set_weapon_condition_at_frame(3, true, self.frame);
+                            }
+                            if let Some(upgrade) = pending_upgrade {
+                                self.upgrade_module_residuals.record_weapon_set(upgrade);
+                            }
+                        }
+                        AuthoredWeaponUpgradeKind::Bonus => {
+                            let changed = self.objects.get_mut(&object_id).is_some_and(|object| {
+                                let changed = !object.weapon_bonus_player_upgrade;
+                                object.set_weapon_bonus_player_upgrade(true);
+                                changed
+                            });
+                            if changed {
+                                // Object.cpp:4650-4672: notify immediately on
+                                // the changed bit, before the next module/OCL.
+                                self.notify_owned_weapon_bonus_change(object_id);
+                            }
+                            if let Some(upgrade) = pending_upgrade {
+                                self.upgrade_module_residuals.record_weapon_bonus(upgrade);
+                            }
+                        }
+                    }
+                    Ok(())
+                }
                 AuthoredOrderedUpgrade::ObjectCreation(module) => {
                     let ocl_name = module
                         .data
@@ -846,6 +974,12 @@ impl GameLogic {
                             }
                         }
                         AuthoredOrderedUpgrade::PassengersFire(module) => {
+                            object.applied_upgrades.insert(module.executed_key());
+                        }
+                        AuthoredOrderedUpgrade::MaxHealth(module) => {
+                            object.applied_upgrades.insert(module.executed_key());
+                        }
+                        AuthoredOrderedUpgrade::Weapon(module) => {
                             object.applied_upgrades.insert(module.executed_key());
                         }
                     }
@@ -956,6 +1090,12 @@ impl GameLogic {
                 AuthoredOrderedUpgrade::PassengersFire(module) => {
                     self.upgrade_activation_mask(&module.data.upgrade_mux_data)
                 }
+                AuthoredOrderedUpgrade::MaxHealth(module) => {
+                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
+                }
+                AuthoredOrderedUpgrade::Weapon(module) => {
+                    self.upgrade_activation_mask(&module.mux)
+                }
             })
             .collect();
         let mut tags_to_remove = self
@@ -1042,6 +1182,13 @@ impl GameLogic {
                             }
                         }
                         Some(AuthoredOrderedUpgrade::PassengersFire(module)) => {
+                            object.applied_upgrades.remove(&module.executed_key());
+                        }
+                        Some(AuthoredOrderedUpgrade::MaxHealth(module)) => {
+                            // Object.cpp:4491-4503 resets execution, not health.
+                            object.applied_upgrades.remove(&module.executed_key());
+                        }
+                        Some(AuthoredOrderedUpgrade::Weapon(module)) => {
                             object.applied_upgrades.remove(&module.executed_key());
                         }
                         None => {}
@@ -1225,6 +1372,34 @@ mod object_creation_upgrade_birth_tests {
             world.upgrade_definitions.parse_upgrade_definition(ini)
         })
         .expect("object upgrade definition should admit");
+    }
+
+    #[test]
+    fn max_health_captured_callback_rejects_same_id_replacement() {
+        let mut world = GameLogic::new();
+        world.add_player(crate::game_logic::Player::new(0, Team::USA, "Owner", true));
+        admit_object_upgrade(&mut world, "Upgrade_HealthBirth");
+        world.admit_object_ini_sources([(
+            "HealthBirth.ini".into(),
+            "Object HealthBirthHost\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = MaxHealthUpgrade Health\nTriggeredBy = Upgrade_HealthBirth\nAddMaxHealth = 100\nChangeType = ADD_CURRENT_HEALTH_TOO\nEnd\nEnd\n".into(),
+        )]).unwrap();
+        let id = world.create_object_for_player("HealthBirthHost", 0, Vec3::ZERO).unwrap();
+        let modules = world.authored_ordered_upgrade_modules(id);
+        let key_mask = world.object_creation_upgrade_key_mask(id, Some("Upgrade_HealthBirth"));
+        let original = world.objects.get(&id).unwrap();
+        let birth = std::sync::Arc::downgrade(&original.visual_draw_identity_token);
+        let mut replacement = Object::new(original.thing().template.clone(), id, Team::USA);
+        replacement.owner_player_id = Some(0);
+        world.objects.insert(id, replacement);
+        world.execute_authored_ordered_upgrade_modules(
+            id, &birth, modules, key_mask, Some("Upgrade_HealthBirth"),
+            None, &mut Default::default(),
+        ).unwrap();
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 200.0,
+            "captured upgrade callbacks belong to the original Object, not its numeric ID");
+        world.apply_upgrade_to_object(id, "Upgrade_HealthBirth");
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 300.0,
+            "the replacement owns a fresh execution latch");
     }
 
     #[test]

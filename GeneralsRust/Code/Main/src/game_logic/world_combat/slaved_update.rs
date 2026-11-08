@@ -106,6 +106,17 @@ impl GameLogic {
         )
     }
 
+    /// SlavedUpdate clears spotting before choosing work, then sets it again
+    /// after moving over the victim. Even equal ROF values restart busy weapons.
+    fn set_owned_drone_spotting_bonus(&mut self, id: ObjectId, enabled: bool) {
+        let Some(master) = self.objects.get_mut(&id) else { return };
+        if master.weapon_bonus_drone_spotting == enabled {
+            return;
+        }
+        master.set_weapon_bonus_drone_spotting(enabled);
+        self.notify_owned_weapon_bonus_change(id);
+    }
+
     pub(in crate::game_logic) fn update_owned_slaved_object_with_effects(
         &mut self,
         id: ObjectId,
@@ -196,9 +207,7 @@ impl GameLogic {
         if data.stay_on_master_layer {
             self.set_owned_pathfinder_layer(id, master_layer);
         }
-        if let Some(master) = self.objects.get_mut(&master_id) {
-            master.set_weapon_bonus_drone_spotting(false);
-        }
+        self.set_owned_drone_spotting_bonus(master_id, false);
         // CPP188: urgent repair precedes master's victim and scouting.
         if hp_percent <= data.repair_priority_percent {
             self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects);
@@ -213,9 +222,7 @@ impl GameLogic {
             self.store_slave_state(id, state);
             self.slave_move(id, goal);
             if distance < data.range_bonus_distance.powi(2) {
-                if let Some(master) = self.objects.get_mut(&master_id) {
-                    master.set_weapon_bonus_drone_spotting(true);
-                }
+                self.set_owned_drone_spotting_bonus(master_id, true);
             }
             return Ok(());
         }

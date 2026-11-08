@@ -32,6 +32,10 @@ pub(super) fn refresh_residual_weapon(slot: &mut Option<Weapon>, mut template: W
     if let Some(old) = slot.as_ref() {
         template.last_fire_time = old.last_fire_time;
         template.last_fire_frame = old.last_fire_frame;
+        template.next_fire_frame = old.next_fire_frame;
+        template.reload_started_frame = old.reload_started_frame;
+        template.frame_clock_active = old.frame_clock_active;
+        template.frame_clock_status = old.frame_clock_status;
         template.ammo = old.ammo;
         template.reloading_clip = old.reloading_clip;
         template.last_bonus_rof = old.last_bonus_rof;
