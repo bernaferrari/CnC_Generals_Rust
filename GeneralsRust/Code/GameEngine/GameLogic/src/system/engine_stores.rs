@@ -531,7 +531,8 @@ impl WorldServices {
     pub(crate) fn tech_tree(&self) -> &Arc<RwLock<crate::upgrade::prerequisites::TechTree>> {
         &self.tech_tree
     }
-    pub(crate) fn rank_info_store(
+    /// Rank definitions owned by this world.
+    pub fn rank_info_store(
         &self,
     ) -> &Arc<RwLock<crate::system::rank_info::RankInfoStore>> {
         &self.rank_info_store
