@@ -11,7 +11,6 @@
 //! - Translation validation and quality assurance
 //! - Memory-efficient string storage
 
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -335,9 +334,8 @@ pub struct LocalizationManager {
     format_regex: Regex,
 }
 
-lazy_static! {
-    static ref FORMAT_REGEX: Regex = Regex::new(r"\{(\w+)(?::([^}]+))?\}").unwrap();
-}
+/// `{name}` / `{name:spec}` placeholders; each manager compiles its own.
+const FORMAT_PATTERN: &str = r"\{(\w+)(?::([^}]+))?\}";
 
 impl LocalizationManager {
     /// Create new localization manager
@@ -355,7 +353,7 @@ impl LocalizationManager {
                 current_language: initial_language,
                 ..Default::default()
             }),
-            format_regex: FORMAT_REGEX.clone(),
+            format_regex: Regex::new(FORMAT_PATTERN).expect("static format pattern"),
         })
     }
 
