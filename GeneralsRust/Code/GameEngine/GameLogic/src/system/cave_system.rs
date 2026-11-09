@@ -155,6 +155,10 @@ impl CaveSystem {
                     tracker.write().map_err(|_| XferStatus::InvalidData)?
                         .xfer_game_logic(xfer)?;
                 } else {
+                    if xfer.get_xfer_mode() == XferMode::Save {
+                        // XferSave::xferSnapshot rejects a null tracker.
+                        return Err(XferStatus::InvalidParameters);
+                    }
                     TunnelTracker::new().xfer_game_logic(xfer)?;
                 }
             }
@@ -176,6 +180,20 @@ impl CaveSystem {
 mod tests {
     use super::*;
     use game_engine::{Xfer, XferSave};
+
+    #[test]
+    fn snapshot_rejects_unregistered_gap() {
+        let mut system = CaveSystem::new();
+        system.register_new_cave(1).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "cave_tracker_gap_{}.xfer", std::process::id()
+        ));
+        let mut save = XferSave::new();
+        save.open(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(system.xfer_game_logic(&mut save), Err(game_engine::XferStatus::InvalidParameters));
+        save.close().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn snapshot_rejects_a_poisoned_tracker() {
