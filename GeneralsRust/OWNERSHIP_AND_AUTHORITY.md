@@ -3244,3 +3244,11 @@ container directly. These changes do not seal the full animation/renderer
 subsystem, raw-container legacy timecode parsing, morph playback, or the
 separate ww3d-assets prototype sampler.
 
+## Dozer missing move targets
+
+The owned dozer action kernel checks a missing move target before the build or
+repair claim, matching `DozerAIUpdate.cpp:273-315`. It resets the move action
+without completing the pending request; the next pick can cancel it. Native
+worker Build/Repair execution and derived worker save/load remain separate,
+incomplete migrations (hq-d1xih).
+
