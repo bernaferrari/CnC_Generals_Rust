@@ -347,6 +347,11 @@ mod anthrax_gamma_authored_tests {
         // combat admission, even when explicitly ordered to attack.
         world.ai_manager.add_ai_player(7, Team::GLA, crate::ai::AIDifficulty::Medium);
         world.set_ai_active(7, true);
+        // Player::addUpgrade keys modules on the UpgradeTemplate mask; an
+        // unknown name has no mask and triggers nothing.
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, "Chem_Upgrade_GLAAnthraxGamma", "PLAYER", 0, 1,
+        );
         world.admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "gamma-recipients.ini".into(),

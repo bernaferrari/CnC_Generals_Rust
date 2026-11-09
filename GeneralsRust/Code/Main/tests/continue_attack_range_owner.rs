@@ -872,7 +872,9 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
         .grid
         .as_ref()
         .expect("admitted partition grid");
-    let expected_cells = (100.0 / grid.cell_size).ceil() as u32;
+    // PartitionManager.cpp:2586-2587 REAL_TO_INT_CEIL: integral k -> k+1.
+    let expected_cells =
+        u32::try_from(game_engine::base_type::real_to_int_ceil(100.0 / grid.cell_size)).unwrap();
     assert_eq!((grid.width, grid.height), (expected_cells, expected_cells));
     snapshot.persist_v18.terrain_active_boundary = 1;
     let (mut restored, _, _, _) = world(200.0, "MapBoundaryWeapon");
@@ -1043,7 +1045,8 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
         );
     }
     let grid = switched.shroud.grid.as_ref().unwrap();
-    let large_cells = (990.0 / grid.cell_size).ceil() as u32;
+    let large_cells =
+        u32::try_from(game_engine::base_type::real_to_int_ceil(990.0 / grid.cell_size)).unwrap();
     assert_eq!((grid.width, grid.height), (large_cells, large_cells));
     for (position, player) in [(20.0_f32, 1_usize), (150.0_f32, 2_usize)] {
         let x = (position / grid.cell_size).floor() as usize;

@@ -1447,13 +1447,11 @@ impl GameLogic {
                         module.class_name.eq_ignore_ascii_case("HiveStructureBody")
                     })
             })
-            // Existing synthetic/programmatic host templates have no admitted
-            // object definition. Preserve their legacy name-based fallback;
-            // once a receiving definition exists, its effective Body class is
-            // authoritative and an ActiveBody Stinger is not a HiveBody.
-            // Programmatic templates keep the legacy Stinger-name gate; an
-            // admitted definition selects HiveStructureBody by its Body only.
-            .unwrap_or_else(|| is_stinger_site_structure(&template_name));
+            // Programmatic templates have no admitted object definition; they
+            // carry the authored KINDOF_SPAWNS_ARE_THE_WEAPONS hive identity.
+            // Once a receiving definition exists, its effective Body class is
+            // authoritative and an ActiveBody spawner is not a HiveBody.
+            .unwrap_or(hive);
         if !authored_hive_body {
             return None;
         }

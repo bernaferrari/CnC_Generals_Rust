@@ -480,9 +480,7 @@ pub(super) fn preflight_spawn_behavior_rosters(
                 parent_id.0
             )));
         }
-        let is_stinger = crate::game_logic::host_base_defense::is_stinger_site_structure(
-            &parent.template_name,
-        );
+        let is_stinger = receiving.spawn_behavior_parent_uses_spawn_points(&parent.template_name);
         let (frames_to_wait, occupants) = roster.door_state.as_ref().ok_or_else(||
             SaveLoadError::Corrupted("legacy SpawnBehavior save lacks door state and cadence".into())
         )?;

@@ -546,6 +546,7 @@ impl Projectile {
 
         // C++ runs LAUNCH/IGNITION before airborneTargetGone (doAttackState).
         let frame = self.elapsed_logic_frames();
+        let missile_was_armed = self.flight_runtime.missile_armed;
         if !self.try_enter_missile_ignition(frame, runtime) {
             return ProjectileStep::Alive;
         }
@@ -581,7 +582,11 @@ impl Projectile {
         if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
             &self.flight
         {
-            if self.flight_runtime.missile_armed
+            let was_kill = self.flight_runtime.missile_phase
+                == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+            // LAUNCH may fall through to IGNITION, but neither IGNITION nor
+            // ATTACK dispatches the next state until the following update.
+            if missile_was_armed
                 && self.flight_runtime.missile_phase
                     != crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
                 && crate::game_logic::weapon_bootstrap::missile_inside_lock_distance(
@@ -594,8 +599,7 @@ impl Projectile {
                 self.flight_runtime.missile_phase =
                     crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
             }
-            if self.flight_runtime.missile_phase
-                == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
+            if was_kill
             {
                 let goal = self.target_position;
                 let close_enough = (self.speed / 30.0).max(1.0);

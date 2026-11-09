@@ -2804,3 +2804,127 @@ fn patriot_re_ask_replaces_pending_assist_and_resets_clip() {
     assert_eq!(mine[0].requester_id, requester_id);
     assert_eq!(mine[0].shots_remaining, assist.clip_size, "clip reset to full");
 }
+
+/// hq-2qedt.270: an accepted assist clip records the assistant's laser family
+/// from its authored PRIMARY (Lazr WeaponSet), never from a `Lazr_` prefix.
+#[test]
+fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_base_defense::{
+        LAZR_PATRIOT_ASSIST_WEAPON, LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON,
+        PATRIOT_ASSIST_WEAPON, PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE,
+        PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (name, primary, assist, air, expected_laser) in [
+        ("AmericaPatriotBattery", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_ASSIST_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
+        ("CustomAirDefense", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_ASSIST_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
+        ("Lazr_AmericaPatriotBattery", PATRIOT_PRIMARY_WEAPON, PATRIOT_ASSIST_WEAPON, PATRIOT_SECONDARY_WEAPON, false),
+    ] {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(primary)
+            .set_secondary_weapon_name(assist)
+            .set_tertiary_weapon_name(air);
+        game_logic.templates.insert(name.to_string(), tpl);
+        let requester = game_logic.create_object(name, Team::USA, Vec3::ZERO).expect("requester");
+        let helper = game_logic
+            .create_object(name, Team::USA, Vec3::new(-PATRIOT_REQUEST_ASSIST_RANGE * 0.25, 0.0, 0.0))
+            .expect("helper");
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("enemy");
+        for id in [requester, helper] {
+            let o = game_logic.host_object_mut(id).unwrap();
+            // Programmatic templates do not carry an admitted Behavior block.
+            // Install the authored module explicitly rather than deriving it from the name.
+            o.assisted_targeting = Some(crate::game_logic::host_base_defense::HostAssistedTargetingData::RETAIL_PATRIOT);
+            for slot in 0..3u8 {
+                if let Some(w) = o.weapon_slot_mut(slot) {
+                    w.last_fire_time = -10.0;
+                }
+            }
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        game_logic.frame = 1;
+        // The assist weapon has zero RequestAssistRange. It must not inherit
+        // the request range of the primary simply because that value is zero.
+        game_logic.process_patriot_assist_request(requester, enemy, 1);
+        assert!(game_logic.pending_patriot_assists.is_empty(), "{name}: assist weapon cannot recruit");
+        game_logic.host_object_mut(helper).unwrap().assisted_targeting = None;
+        game_logic.process_patriot_assist_request(requester, enemy, 0);
+        assert!(game_logic.pending_patriot_assists.is_empty(), "{name}: helper without module cannot assist");
+        game_logic.host_object_mut(helper).unwrap().assisted_targeting =
+            Some(crate::game_logic::host_base_defense::HostAssistedTargetingData::RETAIL_PATRIOT);
+        game_logic.process_patriot_assist_request(requester, enemy, 0);
+        let clip = game_logic
+            .pending_patriot_assists
+            .iter()
+            .find(|p| p.assistant_id == helper)
+            .unwrap_or_else(|| panic!("{name}: helper must accept the assist request"));
+        assert_eq!(clip.assistant_laser, expected_laser, "{name}");
+        game_logic.pending_patriot_assists.clear();
+        game_logic.process_patriot_assist_request(requester, enemy, 2);
+        assert!(
+            game_logic.pending_patriot_assists.iter().any(|p| p.assistant_id == helper),
+            "{name}: the authored air weapon also requests assistance",
+        );
+    }
+}
+
+/// hq-2qedt.259: the Stinger hive identity is the authored
+/// KINDOF_SPAWNS_ARE_THE_WEAPONS bit, never a `StingerSite` basename. A hive
+/// without live spawns cannot fire and owns the AP Rockets refresh; a
+/// Stinger-named structure without the bit is an ordinary base defense.
+#[test]
+fn stinger_hive_gates_key_on_spawns_are_the_weapons_not_template_name() {
+    use crate::game_logic::host_base_defense::{STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (name, spawns_are_weapons) in [("CustomHiveDefense", true), ("GLAStingerSite", false)] {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(400.0)
+            .set_primary_weapon_name(STINGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(STINGER_SECONDARY_WEAPON);
+        if spawns_are_weapons {
+            tpl.add_kind_of(KindOf::SpawnsAreTheWeapons);
+        }
+        game_logic.templates.insert(name.to_string(), tpl);
+        let site = game_logic.create_object(name, Team::GLA, Vec3::ZERO).expect("site");
+        let _enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let s = game_logic.host_object_mut(site).unwrap();
+            for slot in 0..3u8 {
+                if let Some(w) = s.weapon_slot_mut(slot) {
+                    w.last_fire_time = -10.0;
+                }
+            }
+        }
+        game_logic.frame = 1;
+        game_logic.try_base_defense_residual_fire(site);
+        assert_eq!(
+            game_logic.base_defense_residual_fires() == 0,
+            spawns_are_weapons,
+            "{name}: a hive with no live spawns never fires itself"
+        );
+        assert_eq!(game_logic.apply_stinger_ap_rockets_upgrade(site), spawns_are_weapons, "{name}");
+    }
+}
