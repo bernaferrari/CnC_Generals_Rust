@@ -1520,6 +1520,21 @@ impl GameLogic {
         )
     }
 
+    /// Retail ZH Rank.ini rows (SkillPointsNeeded, SciencePurchasePointsGranted)
+    /// admitted into this world, for tests that do not parse Data/INI/Rank.ini.
+    #[cfg(test)]
+    pub(crate) fn admit_retail_rank_catalog_for_test(&self) {
+        use crate::game_logic::host_science_rank::RETAIL_RANK_TABLE;
+        let mut ranks = self.world_services.common().ini.rank.write();
+        ranks.init();
+        for row in &RETAIL_RANK_TABLE {
+            let mut rank = game_engine::common::ini::ini_rank::RankInfo::new();
+            rank.skill_points_needed = row.skill_points_needed;
+            rank.science_purchase_points_granted = row.science_purchase_points_granted as u32;
+            ranks.add_rank(rank).unwrap();
+        }
+    }
+
     /// C++ GameLogic.h:206-209; changing the cap does not reset player ranks.
     pub fn set_rank_level_limit(&mut self, limit: i32) {
         self.world_services

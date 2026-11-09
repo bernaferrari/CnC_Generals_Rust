@@ -2762,6 +2762,7 @@ fn eva_upgrade_complete_and_general_level_up() {
     use crate::game_logic::host_science_rank::RANK2_SKILL_POINTS_NEEDED;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
+    logic.admit_retail_rank_catalog_for_test();
     logic.players.insert(
         0,
         crate::game_logic::Player::new(0, Team::USA, "Local", true),

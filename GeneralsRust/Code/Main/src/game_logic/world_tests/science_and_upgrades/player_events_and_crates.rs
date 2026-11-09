@@ -36,11 +36,8 @@ fn admit_rank_rows(world: &GameLogic, skill_points: &[i32]) {
     }
 }
 
-/// Retail ZH Rank.ini SkillPointsNeeded (Data/INI/Rank.ini).
 fn admit_retail_ranks(world: &GameLogic) {
-    use crate::game_logic::host_science_rank::RETAIL_RANK_TABLE;
-    let rows: Vec<i32> = RETAIL_RANK_TABLE.iter().map(|row| row.skill_points_needed).collect();
-    admit_rank_rows(world, &rows);
+    world.admit_retail_rank_catalog_for_test();
 }
 
 #[test]
@@ -241,6 +238,7 @@ fn add_skill_points_modifier_cap_negative_and_reset_rank() {
 fn rank_down_keeps_player_template_intrinsic_sciences() {
     use crate::game_logic::{Player, PlayerTemplateIdentity, Team};
     let mut logic = GameLogic::new();
+    admit_retail_ranks(&logic);
     logic.add_player(Player::new(0, Team::USA, "AirF", true));
     let identity = PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
         .expect("retail Air Force PlayerTemplate");
