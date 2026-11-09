@@ -1190,6 +1190,59 @@ mod tests {
     }
 
     #[test]
+    fn object_registries_resolve_only_their_own_logic_when_worlds_take_turns_on_one_thread() {
+        use crate::object::registry::ObjectRegistry;
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+
+        // Same ObjectID, different objects, two worlds on this one thread.
+        let first = Arc::new(EngineStores::new_for_world());
+        let second = Arc::new(EngineStores::new_for_world());
+        let first_object = Arc::new(RwLock::new(Object::new_test(41, 100.0)));
+        let second_object = Arc::new(RwLock::new(Object::new_test(41, 50.0)));
+        for (world, object) in [(&first, &first_object), (&second, &second_object)] {
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            logic.objects.insert(41, Arc::clone(object));
+            logic.all_objects = vec![41];
+        }
+        let worlds = [(&first, &first_object), (&second, &second_object)];
+        for round in 0..4 {
+            let published = if round % 2 == 0 { &first } else { &second };
+            with_active_stores(published, || {
+                for (world, expected) in worlds {
+                    let registry = world.services().object_registry();
+                    let found = registry.get_object(41).expect("own world's object");
+                    assert!(Arc::ptr_eq(&found, expected), "round {round}: crossed worlds");
+                    assert!(registry.contains(41));
+                    assert_eq!(registry.get_all_object_ids(), vec![41]);
+                }
+            });
+        }
+
+        // Retiring the object in one world is invisible to the other.
+        {
+            let mut logic = first.game_logic_mutex().lock().unwrap();
+            logic.objects.remove(&41);
+            logic.all_objects.clear();
+        }
+        for published in [&second, &first] {
+            with_active_stores(published, || {
+                assert!(first.services().object_registry().get_object(41).is_none());
+                assert!(first.services().object_registry().is_empty());
+                let kept = second.services().object_registry().get_object(41).expect("kept");
+                assert!(Arc::ptr_eq(&kept, &second_object));
+            });
+        }
+
+        // A registry with no owning world never borrows the published one.
+        let unbound = ObjectRegistry::default();
+        with_active_stores(&second, || {
+            assert!(unbound.get_object(41).is_none());
+            assert!(!unbound.contains(41));
+            assert!(unbound.get_all_object_ids().is_empty());
+        });
+    }
+
+    #[test]
     fn cave_snapshot_rejects_a_logic_without_a_receiving_world() {
         use crate::system::engine_stores::{EngineStores, with_active_stores};
         use game_engine::Xfer;

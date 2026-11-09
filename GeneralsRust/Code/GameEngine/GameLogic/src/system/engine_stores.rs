@@ -195,6 +195,13 @@ fn fresh_common_for_world() -> Arc<CommonServices> {
 impl WorldServices {
     /// Snapshot engine content; fresh mutable per-world services. Inert.
     pub fn new_for_world() -> Self {
+        let services = Self::unbound_for_world();
+        // The registry's script-side cleanup belongs to this world's engine.
+        services.object_registry.bind_owning_scripts(services.scripts.engine());
+        services
+    }
+
+    fn unbound_for_world() -> Self {
         Self {
             // Only definitions are inherited. Visibility, cells and queued
             // reveals belong to this match (CPP PartitionManager.cpp:2515).
@@ -409,9 +416,13 @@ impl WorldServices {
     }
     pub(crate) fn game_logic_mutex(self: &Arc<Self>) -> &'static Mutex<crate::system::game_logic::GameLogic> {
         *self.main_game_logic.get_or_init(|| {
-            Box::leak(Box::new(Mutex::new(
+            let logic: &'static Mutex<crate::system::game_logic::GameLogic> = Box::leak(Box::new(Mutex::new(
                 crate::system::game_logic::GameLogic::new_with_world_services(Arc::clone(self)),
-            )))
+            )));
+            if let Err(error) = self.object_registry.bind_owning_logic(logic) {
+                log::warn!("world services GameLogic: {error}");
+            }
+            logic
         })
     }
     pub fn client_image_collection(
@@ -636,7 +647,13 @@ impl EngineStores {
         self.core_game_logic.get_or_init(|| {
             let logic = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(self));
             // Process-lifetime Core slot: leak so accessors keep `&'static Mutex`.
-            Box::leak(Box::new(Mutex::new(logic)))
+            let logic: &'static Mutex<crate::system::game_logic::GameLogic> =
+                Box::leak(Box::new(Mutex::new(logic)));
+            // C++ findObjectByID resolves this Core's own GameLogic.
+            if let Err(error) = self.services.object_registry().bind_owning_logic(logic) {
+                log::warn!("core GameLogic: {error}");
+            }
+            logic
         })
     }
 

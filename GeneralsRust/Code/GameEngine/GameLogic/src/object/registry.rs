@@ -8,10 +8,10 @@
 
 use crate::common::ObjectID;
 use crate::object::Object;
-use crate::scripting::engine::get_script_engine;
+use crate::scripting::engine::{ScriptEngineHandle, WeakScriptEngineHandle};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Shared handle to a registered object, resolved transiently by id. The
 /// registry is the owner; callers must not store these handles (host-only runs
@@ -59,9 +59,52 @@ pub struct ObjectRegistry {
     /// Wave 247: lock-free empty short-circuit for host/presentation path.
     /// Kept in sync under the same write lock as map mutations.
     live_count: AtomicUsize,
+    /// GameLogic of the world that owns this registry (C++ `TheGameLogic` of
+    /// that engine). Store misses consult only this logic, never whichever
+    /// world is published on the calling thread.
+    owning_logic: OnceLock<&'static Mutex<crate::system::game_logic::GameLogic>>,
+    /// The owning world's `TheScriptEngine` slot (weak: the engine holds this
+    /// registry for cave actions).
+    owning_scripts: OnceLock<WeakScriptEngineHandle>,
 }
 
 impl ObjectRegistry {
+    /// Bind the GameLogic that owns this registry. The first owner wins; a
+    /// second, different owner is rejected.
+    pub(crate) fn bind_owning_logic(
+        &self,
+        logic: &'static Mutex<crate::system::game_logic::GameLogic>,
+    ) -> Result<(), &'static str> {
+        let bound = *self.owning_logic.get_or_init(|| logic);
+        if std::ptr::eq(bound, logic) {
+            Ok(())
+        } else {
+            Err("ObjectRegistry already belongs to another GameLogic")
+        }
+    }
+
+    /// Bind the script engine slot of the world that owns this registry.
+    pub(crate) fn bind_owning_scripts(&self, scripts: &ScriptEngineHandle) {
+        let _ = self.owning_scripts.set(scripts.downgrade());
+    }
+
+    fn owning_logic(&self) -> Option<&'static Mutex<crate::system::game_logic::GameLogic>> {
+        self.owning_logic.get().copied()
+    }
+
+    /// C++ `TheScriptEngine->removeObjectFromAttackPriority`-style cleanup on
+    /// the owning world's engine only.
+    fn clear_owned_attack_priority(&self, id: ObjectID) {
+        let Some(scripts) = self.owning_scripts.get().and_then(WeakScriptEngineHandle::upgrade) else {
+            return;
+        };
+        if let Ok(mut engine_guard) = scripts.try_write() {
+            if let Some(engine) = engine_guard.as_mut() {
+                engine.clear_object_attack_priority_set(id);
+            }
+        }
+    }
+
     #[inline]
     fn set_live_count(&self, n: usize) {
         self.live_count.store(n, Ordering::Release);
@@ -93,11 +136,7 @@ impl ObjectRegistry {
         // Preserve the old callback order: destruction completes before the
         // script engine's attack-priority entry is cleared below.
         drop(removed);
-        if let Ok(mut engine_guard) = get_script_engine().try_write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.clear_object_attack_priority_set(id);
-            }
-        }
+        self.clear_owned_attack_priority(id);
     }
 
     /// Retire only the handle owned by the caller. Numeric IDs can repeat in
@@ -125,11 +164,7 @@ impl ObjectRegistry {
         // Destructors can re-enter the registry. Preserve unregister's callback
         // order and do not clear a different handle's script entry on mismatch.
         drop(removed);
-        if let Ok(mut engine_guard) = get_script_engine().try_write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.clear_object_attack_priority_set(id);
-            }
-        }
+        self.clear_owned_attack_priority(id);
         true
     }
 
@@ -143,8 +178,8 @@ impl ObjectRegistry {
                 }
             }
         }
-        // C++ has no dual-world skip: GameLogic.objects is the authority.
-        match crate::system::game_logic::get_game_logic().try_lock() {
+        // C++ has no dual-world skip: the owning GameLogic.objects is the authority.
+        match self.owning_logic()?.try_lock() {
             Ok(logic) => logic.find_object_by_id(id),
             // C++ findObjectByID (GameLogic.h:386-397) is a plain array
             // index: lock contention NEVER means the object is missing. The
@@ -174,7 +209,10 @@ impl ObjectRegistry {
             }
         }
         // C++ GameLogic.objects is the authority when the factory registry is empty.
-        match crate::system::game_logic::get_game_logic().try_lock() {
+        let Some(owning_logic) = self.owning_logic() else {
+            return false;
+        };
+        match owning_logic.try_lock() {
             Ok(logic) => logic.find_object_by_id(id).is_some(),
             // Lock-held ≠ missing (C++ GameLogic.h:386-397): the global
             // GameLogic mutex is held across the entire update, so this arm
@@ -215,7 +253,10 @@ impl ObjectRegistry {
         }
         // C++ GameLogic.objects is the authority: empty registry + live logic
         // objects is not an empty world.
-        match crate::system::game_logic::get_game_logic().try_lock() {
+        let Some(owning_logic) = self.owning_logic() else {
+            return true;
+        };
+        match owning_logic.try_lock() {
             Ok(logic) => logic.get_object_count() == 0,
             Err(_) => false,
         }
@@ -237,7 +278,7 @@ impl ObjectRegistry {
     pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
         // Wave 247: host path short-circuit when both registry and GameLogic empty.
         if self.live_count.load(Ordering::Acquire) == 0 {
-            if let Ok(logic) = crate::system::game_logic::get_game_logic().try_lock() {
+            if let Some(Ok(logic)) = self.owning_logic().map(Mutex::try_lock) {
                 if logic.get_object_count() == 0 {
                     return Vec::new();
                 }
@@ -263,7 +304,10 @@ impl ObjectRegistry {
     pub fn get_all_object_ids(&self) -> Vec<ObjectID> {
         // Wave 247: host path short-circuit when both registry and GameLogic empty.
         if self.live_count.load(Ordering::Acquire) == 0 {
-            return match crate::system::game_logic::get_game_logic().try_lock() {
+            let Some(owning_logic) = self.owning_logic() else {
+                return Vec::new();
+            };
+            return match owning_logic.try_lock() {
                 Ok(logic) => logic.get_all_object_ids().to_vec(),
                 // Lock-held ≠ missing (C++ GameLogic.h:386-397): the global
                 // GameLogic mutex is held across the entire update, so an

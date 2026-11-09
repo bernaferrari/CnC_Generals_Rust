@@ -2833,7 +2833,23 @@ impl ScriptEngineHandle {
     }
 }
 
+/// Non-owning reference to a world's script engine slot.
+#[derive(Clone)]
+pub struct WeakScriptEngineHandle {
+    inner: std::sync::Weak<Mutex<Option<ScriptEngine>>>,
+}
+
+impl WeakScriptEngineHandle {
+    pub fn upgrade(&self) -> Option<ScriptEngineHandle> {
+        self.inner.upgrade().map(|inner| ScriptEngineHandle { inner })
+    }
+}
+
 impl ScriptEngineHandle {
+    pub fn downgrade(&self) -> WeakScriptEngineHandle {
+        WeakScriptEngineHandle { inner: Arc::downgrade(&self.inner) }
+    }
+
     /// An empty slot: C++ `TheScriptEngine` before `init()`.
     pub fn empty() -> Self {
         Self {
