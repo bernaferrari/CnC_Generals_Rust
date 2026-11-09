@@ -5,7 +5,7 @@ use crate::common::{DefaultThingTemplate, TemplateModuleInfo, ThingTemplate};
 use crate::object::body::body_module::BodyModuleData;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
-use game_engine::common::thing::module::ModuleInterfaceType;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleInterfaceType};
 use std::io::Cursor;
 
 struct InactiveTemplate {
@@ -47,7 +47,7 @@ fn prepare(factory: &mut ObjectFactory) -> Arc<RwLock<Object>> {
         modules: vec![TemplateModuleInfo {
             name: "InactiveBody".into(),
             module_tag: "OwnedInactiveBodyTag".into(),
-            data: Arc::new(BodyModuleData::default()),
+            data: ModuleDataHandle::new(BodyModuleData::default()),
             interface_mask: ModuleInterfaceType::BODY,
         }],
     };

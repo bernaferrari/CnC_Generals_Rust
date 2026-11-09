@@ -165,7 +165,7 @@ fn native_process_dock_forwards_held_truck_loan_to_installed_warehouse() {
     let shadow = object(0x7A5A1202);
     admit(&shadow);
     let shadow_ai = install_ai(&shadow, 0);
-    let data = Arc::new(SupplyWarehouseDockUpdateData {
+    let data = game_engine::common::thing::module::ModuleDataHandle::new(SupplyWarehouseDockUpdateData {
         starting_boxes: 2,
         delete_when_empty: false,
         ..Default::default()

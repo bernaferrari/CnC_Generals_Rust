@@ -218,7 +218,7 @@ fn restored_plan_deletion_updates_owned_army_at_last_plan_boundary() {
                 .unwrap();
             loaded.load_post_process().unwrap();
             assert_eq!(loaded.behavior.plan_affecting_army, plan);
-            let data: Arc<dyn EngineModuleData> = loaded.module_data.clone();
+            let data = loaded.module_data.clone();
             let entry = Arc::new(ModuleEntry::new(
                 "BattlePlanUpdate".into(),
                 "ModuleTag_Plan".into(),
@@ -369,7 +369,7 @@ fn battle_plan_world_with_vision(
     let vision = Arc::new(RwLock::new(GameObject::new_test(vision_id, 100.0)));
     let mut module = super::tests::make_module(parent.clone(), Some(1));
     module.behavior.vision_object_id = Some(vision_id);
-    let data: Arc<dyn EngineModuleData> = module.module_data.clone();
+    let data = module.module_data.clone();
     parent.write().unwrap().modules.push(Arc::new(ModuleEntry::new(
         "BattlePlanUpdate".into(),
         "ModuleTag_Plan".into(),

@@ -96,6 +96,7 @@ fn crc_accounting_does_not_readmit_native_object_modules_or_change_game_data() {
     assert!(template.get_draw_module_info().iter().all(|entry| {
         entry
             .data
+            .read()
             .as_any()
             .is::<gamelogic::object::draw::W3DModelDrawModuleData>()
     }));
@@ -135,6 +136,7 @@ fn crc_accounting_does_not_readmit_native_object_modules_or_change_game_data() {
     assert!(current.get_draw_module_info().iter().all(|entry| {
         entry
             .data
+            .read()
             .as_any()
             .is::<gamelogic::object::draw::W3DModelDrawModuleData>()
     }));

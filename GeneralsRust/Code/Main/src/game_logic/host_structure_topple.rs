@@ -353,9 +353,8 @@ pub fn leftover_structure_topple_module_peel(
         {
             continue;
         }
-        if let Some(data) = entry
-            .data
-            .downcast_ref::<gamelogic::object::behavior::StructureToppleUpdateModuleData>()
+        let guard = entry.data.read();
+        if let Some(data) = guard.downcast_ref::<gamelogic::object::behavior::StructureToppleUpdateModuleData>()
         {
             let peel = AuthoredStructureTopplePeel {
                 weapon: data.crushing_weapon_name.as_str().trim().to_string(),
@@ -384,46 +383,39 @@ pub fn leftover_structure_topple_module_peel(
             return Some(peel);
         }
         let peel = AuthoredStructureTopplePeel {
-            weapon: entry
-                .data
+            weapon: guard
                 .get_ini_field("CrushingWeaponName")
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            fx: entry
-                .data
+            fx: guard
                 .get_ini_field("CrushingFX")
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            start_fx: entry
-                .data
+            start_fx: guard
                 .get_ini_field("ToppleStartFX")
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            delay_fx: entry
-                .data
+            delay_fx: guard
                 .get_ini_field("ToppleDelayFX")
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            done_fx: entry
-                .data
+            done_fx: guard
                 .get_ini_field("ToppleDoneFX")
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            angle_fx: parse_ini_angle_fx_field(entry.data.get_ini_field("AngleFX").unwrap_or("")),
+            angle_fx: parse_ini_angle_fx_field(guard.get_ini_field("AngleFX").unwrap_or("")),
             min_burst_delay: parse_ini_u32_field(
-                entry
-                    .data
+                guard
                     .get_ini_field("MinToppleBurstDelay")
                     .unwrap_or(""),
             ),
             max_burst_delay: parse_ini_u32_field(
-                entry
-                    .data
+                guard
                     .get_ini_field("MaxToppleBurstDelay")
                     .unwrap_or(""),
             ),

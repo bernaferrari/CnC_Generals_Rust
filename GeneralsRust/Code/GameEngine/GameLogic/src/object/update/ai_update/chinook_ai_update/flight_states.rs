@@ -293,13 +293,14 @@ impl ChinookAIUpdate {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |bldg_guard| {
                 if !bldg_guard.is_effectively_dead() && bldg_guard.is_kind_of(KindOf::Structure) {
                     dest_pos = *bldg_guard.get_position();
+                    let min_drop_height = self.data().min_drop_height;
                     self.move_to_bldg_new_preferred = chinook_move_to_bldg_preferred_height(
                         self.move_to_bldg_old_preferred,
                         true,
                         bldg_guard
                             .get_geometry_info()
                             .get_max_height_above_position(),
-                        self.data.min_drop_height,
+                        min_drop_height,
                     );
                 }
             });

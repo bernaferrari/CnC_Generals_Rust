@@ -50,15 +50,15 @@ fn installed_named_state_attachment_queries_current_and_siblings_in_order() {
             Drawable::new(id, id, format!("ActiveAttach{case}"), DrawableType::Static);
         let mut entries = Vec::new();
         for (index, offset) in offsets.into_iter().enumerate() {
-            let data = state_data(offset, index == 1);
-            let mut model = W3DModelDraw::new(data.clone());
+            let data = ModuleDataHandle::new(state_data(offset, index == 1));
+            let mut model = W3DModelDraw::new_with_module_data(data.clone());
             model.owner_id = Some(id);
             model.cur_state = Some(ActiveModelState::Condition(0));
             entries.push(drawable.add_module(
                 ModuleInterfaceType::DRAW,
                 "W3DModelDraw".into(),
                 format!("ActiveAttach{case}_{index}").into(),
-                Arc::new(data),
+                data,
                 Box::new(model),
             ));
         }
@@ -88,7 +88,7 @@ fn installed_named_state_attachment_queries_current_and_siblings_in_order() {
                 let model = (module as &mut dyn std::any::Any)
                     .downcast_mut::<W3DModelDraw>()
                     .unwrap();
-                if let Some(bone) = model.data.condition_states[0]
+                if let Some(bone) = model.model_data_mut().condition_states[0]
                     .pristine_bones
                     .get_mut(&NameKeyGenerator::name_to_key("attach"))
                 {

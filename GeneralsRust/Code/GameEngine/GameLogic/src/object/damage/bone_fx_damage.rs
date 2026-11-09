@@ -1,18 +1,14 @@
 //! BoneFXDamage - damage hook for BoneFXUpdate transitions.
 
-use std::sync::Arc;
-
 use crate::common::xfer::XferExt;
 use crate::common::{AsciiString, BodyDamageType, ObjectID};
 use crate::damage::DamageInfo;
 use crate::modules::{BehaviorModuleInterface, DamageModuleInterface};
-use crate::object::damage::DamageModuleData;
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    BoneFxControlInterface, Module, ModuleData as EngineModuleData,
-    NameKeyType as EngineNameKeyType,
+    BoneFxControlInterface, Module, ModuleDataHandle, NameKeyType as EngineNameKeyType,
 };
 
 /// Damage module that delegates body damage state changes to BoneFXUpdate.
@@ -146,14 +142,14 @@ impl Snapshotable for BoneFXDamage {
 pub struct BoneFXDamageModule {
     behavior: BoneFXDamage,
     module_name_key: EngineNameKeyType,
-    module_data: Arc<DamageModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl BoneFXDamageModule {
     pub fn new(
         behavior: BoneFXDamage,
         module_name: &AsciiString,
-        module_data: Arc<DamageModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         Self {
             behavior,
@@ -187,11 +183,11 @@ impl Module for BoneFXDamageModule {
     }
 
     fn get_module_tag_name_key(&self) -> EngineNameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {

@@ -40,7 +40,7 @@ fn template() -> ThingTemplate {
     template.add_client_update_module_info(
         "AnimatedParticleSysBoneClientUpdate".into(),
         "ActualCU".into(),
-        Arc::new(BaseModuleData::new()),
+        game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     template
@@ -285,7 +285,7 @@ fn receiving_native_draw_applies_conditions_without_an_earlier_cu() {
     template.add_draw_module_info(
         "W3DModelDraw".into(),
         "ActualDraw".into(),
-        Arc::new(data),
+        game_engine::common::thing::module::ModuleDataHandle::new(data),
         ModuleInterfaceType::DRAW,
     );
     let mut client = GameClient::new().unwrap();

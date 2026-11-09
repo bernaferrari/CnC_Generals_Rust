@@ -101,13 +101,13 @@ impl ModuleData for SquishCollideModuleData {
 }
 
 #[derive(Debug, Clone)]
-struct CrateCollideDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + 'static> {
+pub(crate) struct CrateCollideDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + 'static> {
     base: BaseModuleData,
-    data: T,
+    pub(crate) data: T,
 }
 
 impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> CrateCollideDataAdapter<T> {
-    fn new(data: T) -> Self {
+    pub(crate) fn new(data: T) -> Self {
         Self {
             base: BaseModuleData::new(),
             data,
@@ -154,25 +154,23 @@ impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> Snapshotable
     }
 }
 
-struct LegacyCrateCollideModule<T, TData>
+struct LegacyCrateCollideModule<T>
 where
     T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
-    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
 {
     module_name_key: NameKeyType,
-    data: Arc<CrateCollideDataAdapter<TData>>,
+    data: ModuleDataHandle,
     collide: Arc<Mutex<T>>,
     object_id: ObjectID,
 }
 
-impl<T, TData> LegacyCrateCollideModule<T, TData>
+impl<T> LegacyCrateCollideModule<T>
 where
     T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
-    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
 {
     fn new(
         module_name: &str,
-        data: Arc<CrateCollideDataAdapter<TData>>,
+        data: ModuleDataHandle,
         collide: T,
         object_id: ObjectID,
     ) -> Self {
@@ -185,21 +183,20 @@ where
     }
 }
 
-impl<T, TData> Module for LegacyCrateCollideModule<T, TData>
+impl<T> Module for LegacyCrateCollideModule<T>
 where
     T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
-    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
 {
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -219,10 +216,9 @@ where
     }
 }
 
-impl<T, TData> Snapshotable for LegacyCrateCollideModule<T, TData>
+impl<T> Snapshotable for LegacyCrateCollideModule<T>
 where
     T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
-    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
 {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let collide = self
@@ -267,20 +263,18 @@ pub(super) fn convert_to_car_bomb_crate_collide_data_factory(
 
 pub(super) fn convert_to_car_bomb_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<ConvertToCarBombCrateCollideModuleData>,
-    >("ConvertToCarBombCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<ConvertToCarBombCrateCollideModuleData>>(), "invalid module data for ConvertToCarBombCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("ConvertToCarBombCrateCollide", &module_data);
     };
-    let collide = ConvertToCarBombCrateCollide::new(&object, data_arc.data.clone());
+    let collide = ConvertToCarBombCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToCarBombCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -303,21 +297,18 @@ pub(super) fn convert_to_hijacked_vehicle_crate_collide_data_factory(
 
 pub(super) fn convert_to_hijacked_vehicle_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<ConvertToHijackedVehicleCrateCollideModuleData>,
-    >("ConvertToHijackedVehicleCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<ConvertToHijackedVehicleCrateCollideModuleData>>(), "invalid module data for ConvertToHijackedVehicleCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("ConvertToHijackedVehicleCrateCollide", data_for_missing);
+        return missing_owner_module_auto("ConvertToHijackedVehicleCrateCollide", &module_data);
     };
-    let collide = ConvertToHijackedVehicleCrateCollide::new(&object, data_arc.data.clone());
+    let collide = ConvertToHijackedVehicleCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToHijackedVehicleCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -338,17 +329,14 @@ pub(super) fn heal_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn 
 
 pub(super) fn heal_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CrateCollideDataAdapter<HealCrateCollideModuleData>>(
-        "HealCrateCollide",
-        &module_data,
-    );
+    assert!(module_data.is::<CrateCollideDataAdapter<HealCrateCollideModuleData>>(), "invalid module data for HealCrateCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = HealCrateCollide::new(object_id, data_arc.data.clone());
+    let collide = HealCrateCollide::new(object_id, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "HealCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -371,21 +359,18 @@ pub(super) fn sabotage_command_center_crate_collide_data_factory(
 
 pub(super) fn sabotage_command_center_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotageCommandCenterCrateCollideModuleData>,
-    >("SabotageCommandCenterCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotageCommandCenterCrateCollideModuleData>>(), "invalid module data for SabotageCommandCenterCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("SabotageCommandCenterCrateCollide", data_for_missing);
+        return missing_owner_module_auto("SabotageCommandCenterCrateCollide", &module_data);
     };
-    let collide = SabotageCommandCenterCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageCommandCenterCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageCommandCenterCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -408,21 +393,18 @@ pub(super) fn sabotage_fake_building_crate_collide_data_factory(
 
 pub(super) fn sabotage_fake_building_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotageFakeBuildingCrateCollideModuleData>,
-    >("SabotageFakeBuildingCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotageFakeBuildingCrateCollideModuleData>>(), "invalid module data for SabotageFakeBuildingCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("SabotageFakeBuildingCrateCollide", data_for_missing);
+        return missing_owner_module_auto("SabotageFakeBuildingCrateCollide", &module_data);
     };
-    let collide = SabotageFakeBuildingCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageFakeBuildingCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageFakeBuildingCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -445,20 +427,18 @@ pub(super) fn sabotage_internet_center_crate_collide_data_factory(
 
 pub(super) fn sabotage_internet_center_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotageInternetCenterCrateCollideModuleData>,
-    >("SabotageInternetCenterCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotageInternetCenterCrateCollideModuleData>>(), "invalid module data for SabotageInternetCenterCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageInternetCenterCrateCollide", &module_data);
     };
-    let collide = SabotageInternetCenterCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageInternetCenterCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageInternetCenterCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -481,20 +461,18 @@ pub(super) fn sabotage_military_factory_crate_collide_data_factory(
 
 pub(super) fn sabotage_military_factory_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotageMilitaryFactoryCrateCollideModuleData>,
-    >("SabotageMilitaryFactoryCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotageMilitaryFactoryCrateCollideModuleData>>(), "invalid module data for SabotageMilitaryFactoryCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageMilitaryFactoryCrateCollide", &module_data);
     };
-    let collide = SabotageMilitaryFactoryCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageMilitaryFactoryCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageMilitaryFactoryCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -517,20 +495,18 @@ pub(super) fn sabotage_power_plant_crate_collide_data_factory(
 
 pub(super) fn sabotage_power_plant_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>,
-    >("SabotagePowerPlantCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>>(), "invalid module data for SabotagePowerPlantCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotagePowerPlantCrateCollide", &module_data);
     };
-    let collide = SabotagePowerPlantCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotagePowerPlantCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotagePowerPlantCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -553,21 +529,18 @@ pub(super) fn sabotage_superweapon_crate_collide_data_factory(
 
 pub(super) fn sabotage_superweapon_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotageSuperweaponCrateCollideModuleData>,
-    >("SabotageSuperweaponCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotageSuperweaponCrateCollideModuleData>>(), "invalid module data for SabotageSuperweaponCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("SabotageSuperweaponCrateCollide", data_for_missing);
+        return missing_owner_module_auto("SabotageSuperweaponCrateCollide", &module_data);
     };
-    let collide = SabotageSuperweaponCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageSuperweaponCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSuperweaponCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -590,20 +563,18 @@ pub(super) fn sabotage_supply_center_crate_collide_data_factory(
 
 pub(super) fn sabotage_supply_center_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotageSupplyCenterCrateCollideModuleData>,
-    >("SabotageSupplyCenterCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotageSupplyCenterCrateCollideModuleData>>(), "invalid module data for SabotageSupplyCenterCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageSupplyCenterCrateCollide", &module_data);
     };
-    let collide = SabotageSupplyCenterCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageSupplyCenterCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyCenterCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -627,20 +598,18 @@ pub(super) fn sabotage_supply_dropzone_crate_collide_data_factory(
 
 pub(super) fn sabotage_supply_dropzone_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<
-        CrateCollideDataAdapter<SabotageSupplyDropzoneCrateCollideModuleData>,
-    >("SabotageSupplyDropzoneCrateCollide", &module_data);
+    assert!(module_data.is::<CrateCollideDataAdapter<SabotageSupplyDropzoneCrateCollideModuleData>>(), "invalid module data for SabotageSupplyDropzoneCrateCollide");
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageSupplyDropzoneCrateCollide", &module_data);
     };
-    let collide = SabotageSupplyDropzoneCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageSupplyDropzoneCrateCollide::new(&object, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyDropzoneCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -661,17 +630,14 @@ pub(super) fn money_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn money_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CrateCollideDataAdapter<MoneyCrateCollideModuleData>>(
-        "MoneyCrateCollide",
-        &module_data,
-    );
+    assert!(module_data.is::<CrateCollideDataAdapter<MoneyCrateCollideModuleData>>(), "invalid module data for MoneyCrateCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = MoneyCrateCollide::new(object_id, data_arc.data.clone());
+    let collide = MoneyCrateCollide::new(object_id, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "MoneyCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -692,17 +658,14 @@ pub(super) fn salvage_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<d
 
 pub(super) fn salvage_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CrateCollideDataAdapter<SalvageCrateCollideModuleData>>(
-        "SalvageCrateCollide",
-        &module_data,
-    );
+    assert!(module_data.is::<CrateCollideDataAdapter<SalvageCrateCollideModuleData>>(), "invalid module data for SalvageCrateCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = SalvageCrateCollide::new(object_id, data_arc.data.clone());
+    let collide = SalvageCrateCollide::new(object_id, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SalvageCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -718,22 +681,19 @@ pub(super) fn shroud_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dy
             );
         }
     }
-    Box::new(CrateCollideDataAdapter::new(data))
+    Box::new(data)
 }
 
 pub(super) fn shroud_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CrateCollideDataAdapter<ShroudCrateCollideModuleData>>(
-        "ShroudCrateCollide",
-        &module_data,
-    );
+    assert!(module_data.is::<ShroudCrateCollideModuleData>(), "invalid module data for ShroudCrateCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = ShroudCrateCollide::new(object_id, data_arc.data.crate_data());
+    let collide = ShroudCrateCollide::new(object_id, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ShroudCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -754,17 +714,14 @@ pub(super) fn unit_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn 
 
 pub(super) fn unit_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CrateCollideDataAdapter<UnitCrateCollideModuleData>>(
-        "UnitCrateCollide",
-        &module_data,
-    );
+    assert!(module_data.is::<CrateCollideDataAdapter<UnitCrateCollideModuleData>>(), "invalid module data for UnitCrateCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = UnitCrateCollide::new(object_id, data_arc.data.clone());
+    let collide = UnitCrateCollide::new(object_id, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "UnitCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -785,17 +742,14 @@ pub(super) fn veterancy_crate_collide_data_factory(ini: Option<&mut INI>) -> Box
 
 pub(super) fn veterancy_crate_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CrateCollideDataAdapter<VeterancyCrateCollideModuleData>>(
-        "VeterancyCrateCollide",
-        &module_data,
-    );
+    assert!(module_data.is::<CrateCollideDataAdapter<VeterancyCrateCollideModuleData>>(), "invalid module data for VeterancyCrateCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = VeterancyCrateCollide::new(object_id, data_arc.data.clone());
+    let collide = VeterancyCrateCollide::new(object_id, module_data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "VeterancyCrateCollide",
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -803,7 +757,7 @@ pub(super) fn veterancy_crate_collide_module_factory(
 
 struct FireWeaponCollideModule {
     module_name_key: NameKeyType,
-    data: Arc<FireWeaponCollideModuleData>,
+    data: ModuleDataHandle,
     collide: Arc<Mutex<FireWeaponCollide>>,
     object_id: ObjectID,
 }
@@ -811,7 +765,7 @@ struct FireWeaponCollideModule {
 impl FireWeaponCollideModule {
     fn new(
         module_name_key: NameKeyType,
-        data: Arc<FireWeaponCollideModuleData>,
+        data: ModuleDataHandle,
         collide: FireWeaponCollide,
         object_id: ObjectID,
     ) -> Self {
@@ -837,11 +791,11 @@ impl Module for FireWeaponCollideModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -900,17 +854,16 @@ pub(super) fn fire_weapon_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn fire_weapon_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<FireWeaponCollideModuleData>("FireWeaponCollide", &module_data);
+    assert!(module_data.is::<FireWeaponCollideModuleData>(), "invalid module data for FireWeaponCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = FireWeaponCollide::new(object_id, Arc::clone(&data_arc))
+    let collide = FireWeaponCollide::new(object_id, module_data.clone())
         .expect("FireWeaponCollide requires a valid collide weapon template");
     let module_name_key = NameKeyGenerator::name_to_key("FireWeaponCollide");
     Box::new(FireWeaponCollideModule::new(
         module_name_key,
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))
@@ -918,7 +871,7 @@ pub(super) fn fire_weapon_collide_module_factory(
 
 struct SquishCollideModule {
     module_name_key: NameKeyType,
-    data: Arc<SquishCollideModuleData>,
+    data: ModuleDataHandle,
     collide: Arc<Mutex<SquishCollide>>,
     object_id: ObjectID,
 }
@@ -926,7 +879,7 @@ struct SquishCollideModule {
 impl SquishCollideModule {
     fn new(
         module_name_key: NameKeyType,
-        data: Arc<SquishCollideModuleData>,
+        data: ModuleDataHandle,
         collide: SquishCollide,
         object_id: ObjectID,
     ) -> Self {
@@ -945,11 +898,11 @@ impl Module for SquishCollideModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -1001,15 +954,15 @@ pub(super) fn squish_collide_data_factory(_ini: Option<&mut INI>) -> Box<dyn Mod
 
 pub(super) fn squish_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<SquishCollideModuleData>("SquishCollide", &module_data);
+    assert!(module_data.is::<SquishCollideModuleData>(), "invalid module data for SquishCollide");
     let object_id = resolve_owner_id(&thing);
-    let collide = SquishCollide::new(object_id, Arc::clone(&data_arc));
+    let collide = SquishCollide::new(object_id, module_data.clone());
     let module_name_key = NameKeyGenerator::name_to_key("SquishCollide");
     Box::new(SquishCollideModule::new(
         module_name_key,
-        data_arc,
+        module_data,
         collide,
         object_id,
     ))

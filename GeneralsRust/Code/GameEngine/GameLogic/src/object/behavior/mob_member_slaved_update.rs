@@ -136,7 +136,7 @@ const MOB_MEMBER_SLAVED_UPDATE_FIELDS: &[FieldParse<MobMemberSlavedUpdateModuleD
 
 pub struct MobMemberSlavedUpdate {
     object_id: ObjectID,
-    module_data: Arc<MobMemberSlavedUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     mob_leader: ObjectID,
     frames_to_wait: Int,
@@ -151,12 +151,11 @@ pub struct MobMemberSlavedUpdate {
 impl MobMemberSlavedUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<MobMemberSlavedUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<MobMemberSlavedUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -164,7 +163,7 @@ impl MobMemberSlavedUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             mob_leader: OBJECT_INVALID_ID,
             frames_to_wait: crate::GameLogicRandomValue!(0, 20),
@@ -182,7 +181,8 @@ impl MobMemberSlavedUpdate {
     }
 
     fn clamp_squirrelliness(&mut self) {
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.as_any().downcast_ref::<MobMemberSlavedUpdateModuleData>().expect("MobMemberSlavedUpdate module data type");
         self.squirrelliness_ratio = data.squirrelliness_ratio.max(0.0).min(MAX_SQUIRRELLINESS);
     }
 
@@ -229,7 +229,9 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
             None => return UpdateSleepTime::None,
         };
 
-        let data = &self.module_data;
+        let handle = self.module_data.clone();
+        let guard = handle.read();
+        let data = guard.as_any().downcast_ref::<MobMemberSlavedUpdateModuleData>().expect("MobMemberSlavedUpdate module data type");
         let mut obj_guard = match obj_arc.write() {
             Ok(guard) => guard,
             Err(_) => return UpdateSleepTime::None,
@@ -588,14 +590,14 @@ impl Snapshotable for MobMemberSlavedUpdate {
 pub struct MobMemberSlavedUpdateModule {
     behavior: MobMemberSlavedUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<MobMemberSlavedUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl MobMemberSlavedUpdateModule {
     pub fn new(
         behavior: MobMemberSlavedUpdate,
         module_name: &AsciiString,
-        module_data: Arc<MobMemberSlavedUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -638,11 +640,11 @@ impl Module for MobMemberSlavedUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -660,7 +662,7 @@ pub struct MobMemberSlavedUpdateFactory;
 impl MobMemberSlavedUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MobMemberSlavedUpdate::new(thing, module_data)?))
     }
@@ -672,7 +674,7 @@ mod tests {
 
     #[test]
     fn slaver_id_reports_current_mob_leader() {
-        let data = Arc::new(MobMemberSlavedUpdateModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(MobMemberSlavedUpdateModuleData::default());
         let mut update = MobMemberSlavedUpdate {
             object_id: crate::common::INVALID_ID,
             module_data: data,

@@ -6,7 +6,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::drawable::TintStatus;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone, Default)]
@@ -57,14 +57,17 @@ impl Snapshotable for W3DOverlordTruckDrawModuleData {
 }
 
 pub struct W3DOverlordTruckDraw {
-    data: W3DOverlordTruckDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DTruckDraw,
     owner_id: Option<ObjectID>,
 }
 impl W3DOverlordTruckDraw {
     pub fn new(data: W3DOverlordTruckDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
         Self {
-            base: W3DTruckDraw::new(data.base.clone()),
+            base: W3DTruckDraw::new_with_module_data(data.clone()),
             data,
             owner_id: None,
         }
@@ -133,8 +136,8 @@ impl Module for W3DOverlordTruckDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 impl DrawModule for W3DOverlordTruckDraw {

@@ -358,12 +358,13 @@ impl crate::fx_list::FxDrawableExecution for ClientFxDrawables<'_> {
         }
         for entry in template.get_draw_module_info().iter() {
             if entry.name.as_str() != "W3DLaserDraw"
-                || !entry.data.as_any().is::<W3DLaserDrawModuleData>()
+                || !entry.data.read().as_any().is::<W3DLaserDrawModuleData>()
             {
                 return Err("ray has unsupported authored draw callback/data".into());
             }
         }
-        let data = updates[0].data.as_any();
+        let guard = updates[0].data.read();
+        let data = guard.as_any();
         if !data.is::<LaserUpdateModuleData>()
             && !data.is::<gamelogic::object::behavior::laser_update::LaserUpdateModuleData>()
         {
@@ -445,7 +446,7 @@ impl drawable_world::DrawableState {
         let mut beam_count = 0;
         for entry in template.get_draw_module_info().iter() {
             if entry.name.as_str() != "W3DLaserDraw"
-                || !entry.data.as_any().is::<W3DLaserDrawModuleData>()
+                || !entry.data.read().as_any().is::<W3DLaserDrawModuleData>()
             {
                 return Err(GameClientError::InvalidOperation(
                     "ray has unsupported authored draw callback/data".into(),
@@ -525,7 +526,7 @@ impl NativeDrawableOwner<'_> {
         }
         for entry in template.get_draw_module_info().iter() {
             if entry.name.as_str() != "W3DTracerDraw"
-                || !entry.data.as_any().is::<W3DTracerDrawModuleData>()
+                || !entry.data.read().as_any().is::<W3DTracerDrawModuleData>()
             {
                 return Err(GameClientError::InvalidOperation(
                     "unsupported authored tracer draw callback/data".into(),

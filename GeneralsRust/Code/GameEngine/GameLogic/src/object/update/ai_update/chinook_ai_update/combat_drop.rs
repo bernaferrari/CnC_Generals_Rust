@@ -95,7 +95,8 @@ impl ChinookAIUpdate {
             .lose_one_box_with_drawable(Some(drawable.as_ref()))
         {}
         let now = TheGameLogic::get_frame();
-        let rope_template = TheThingFactory::find_template(self.data.rope_name.as_str());
+        let rope_name = self.data().rope_name.clone();
+        let rope_template = TheThingFactory::find_template(rope_name.as_str());
         let (mut rope_positions, mut drop_transforms) = {
             let Ok(draw_guard) = drawable.read() else {
                 return false;
@@ -106,7 +107,7 @@ impl ChinookAIUpdate {
             )
         };
 
-        let mut num_ropes = self.data.num_ropes as usize;
+        let mut num_ropes = self.data().num_ropes as usize;
         if num_ropes > rope_positions.len() {
             num_ropes = rope_positions.len();
         }
@@ -155,25 +156,30 @@ impl ChinookAIUpdate {
                 let rope_pos = Coord3D::new(translation.x, translation.y, translation.z);
                 let layer = terrain.get_highest_layer_for_destination(&rope_pos);
                 let ground = terrain.get_layer_height(rope_pos.x, rope_pos.y, layer);
-                rope_len_max = rope_pos.z - ground - self.data.rope_final_height;
+                rope_len_max = rope_pos.z - ground - self.data().rope_final_height;
             }
 
             if let Some(rope_drawable) = rope_drawable.as_ref() {
+                let (width, color, wobble_len, wobble_amp, wobble_rate) = {
+                    let data = self.data();
+                    (data.rope_width, data.rope_color, data.rope_wobble_len, data.rope_wobble_amp, data.rope_wobble_rate)
+                };
                 Self::init_rope_draw_params(
                     rope_drawable,
                     rope_len_max,
-                    self.data.rope_width,
-                    self.data.rope_color,
-                    self.data.rope_wobble_len,
-                    self.data.rope_wobble_amp,
-                    self.data.rope_wobble_rate,
+                    width,
+                    color,
+                    wobble_len,
+                    wobble_amp,
+                    wobble_rate,
                 );
             }
 
-            let next_delay = get_game_logic_random_value(
-                self.data.per_rope_delay_min as i32,
-                self.data.per_rope_delay_max as i32,
-            ) as UnsignedInt;
+            let (delay_min, delay_max) = {
+                let data = self.data();
+                (data.per_rope_delay_min, data.per_rope_delay_max)
+            };
+            let next_delay = get_game_logic_random_value(delay_min as i32, delay_max as i32) as UnsignedInt;
 
             ropes.push(RopeInfo {
                 rope_drawable,
@@ -182,7 +188,7 @@ impl ChinookAIUpdate {
                 rope_speed: 0.0,
                 rope_len: 1.0,
                 rope_len_max,
-                next_drop_time: now + next_delay - self.data.per_rope_delay_min,
+                next_drop_time: now + next_delay - delay_min,
                 rappeller_ids: Vec::new(),
             });
         }
@@ -233,14 +239,14 @@ impl ChinookAIUpdate {
         for rope in &mut state.ropes {
             if rope.rope_len < rope.rope_len_max {
                 rope.rope_speed += gravity;
-                if rope.rope_speed > self.data.rope_drop_speed {
-                    rope.rope_speed = self.data.rope_drop_speed;
+                if rope.rope_speed > self.data().rope_drop_speed {
+                    rope.rope_speed = self.data().rope_drop_speed;
                 }
                 rope.rope_len += rope.rope_speed;
                 if let Some(rope_drawable) = rope.rope_drawable.as_ref() {
                     Self::set_rope_cur_len(rope_drawable, rope.rope_len);
                 }
-                if self.data.wait_for_ropes_to_drop {
+                if self.data().wait_for_ropes_to_drop {
                     rope.next_drop_time = rope.next_drop_time.saturating_add(1);
                     continue;
                 }
@@ -287,7 +293,7 @@ impl ChinookAIUpdate {
                         .and_then(|rappeller| rappeller.get_ai_update_interface());
                     if let Some(ai) = ai {
                         if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.set_desired_speed(self.data.rappel_speed);
+                            ai_guard.set_desired_speed(self.data().rappel_speed);
                         }
                         let mut params = AiCommandParams::new(
                             AiCommandType::RappelInto,
@@ -302,12 +308,12 @@ impl ChinookAIUpdate {
                         rope.rappeller_ids.push(rappeller_guard.get_id());
                     }
 
-                    let next_delay = get_game_logic_random_value(
-                        self.data.per_rope_delay_min as i32,
-                        self.data.per_rope_delay_max as i32,
-                    )
-                    .max(self.data.per_rope_delay_min as i32)
-                        as UnsignedInt;
+                    let (delay_min, delay_max) = {
+                        let data = self.data();
+                        (data.per_rope_delay_min, data.per_rope_delay_max)
+                    };
+                    let next_delay = get_game_logic_random_value(delay_min as i32, delay_max as i32)
+                        .max(delay_min as i32) as UnsignedInt;
                     rope.next_drop_time = now + next_delay;
                 }
             }
@@ -373,7 +379,7 @@ impl ChinookAIUpdate {
                     Self::set_rope_speed(
                         rope_drawable,
                         initial_speed,
-                        self.data.rope_drop_speed,
+                        self.data().rope_drop_speed,
                         gravity,
                     );
                 }

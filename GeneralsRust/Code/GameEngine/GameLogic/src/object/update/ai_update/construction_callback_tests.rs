@@ -208,7 +208,7 @@ impl CompletionFixture {
 
     pub(crate) fn complete(&self, rebuild: bool) {
         let mut dozer = DozerAIUpdate::new(
-            DozerAIUpdateData::default(),
+            game_engine::common::thing::module::ModuleDataHandle::new(DozerAIUpdateModuleData::default()),
             self.builder.read().unwrap().get_id(),
         );
         dozer.handle_build_completion(&self.builder, &self.structure, rebuild);

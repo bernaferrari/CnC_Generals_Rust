@@ -98,7 +98,6 @@ impl ReceivingTemplateResolution {
     }
 }
 
-#[derive(Clone)]
 pub struct ReceivingModuleContent {
     action_base: Arc<ReceivingActionDefinitions>,
     action_current: Arc<ReceivingActionDefinitions>,
@@ -109,7 +108,106 @@ pub struct ReceivingModuleContent {
     modules: ModuleFactory,
 }
 
+type TemplateForkMap = HashMap<*const ThingTemplate, (Arc<ThingTemplate>, Arc<ThingTemplate>)>;
+type AdmissionForkMap = HashMap<
+    *const AdmittedReceivingTemplate,
+    (Arc<AdmittedReceivingTemplate>, Arc<AdmittedReceivingTemplate>),
+>;
+
+impl Clone for ReceivingModuleContent {
+    /// Cloning a catalog starts a separate receiving session.
+    fn clone(&self) -> Self {
+        let (modules, mut data_remap) = self.modules.fork_for_session();
+        self.fork_with_remap(modules, &mut data_remap).0
+    }
+}
+
 impl ReceivingModuleContent {
+    fn fork_with_remap(
+        &self,
+        modules: ModuleFactory,
+        data_remap: &mut super::module::ModuleDataRemap,
+    ) -> (Self, TemplateForkMap, AdmissionForkMap) {
+        let mut template_remap = TemplateForkMap::new();
+        let mut admission_remap = AdmissionForkMap::new();
+        let mut fork_admission = |admission: &Arc<AdmittedReceivingTemplate>| {
+            let key = Arc::as_ptr(admission);
+            if let Some((_, existing)) = admission_remap.get(&key) {
+                return Arc::clone(existing);
+            }
+            let template = ThingTemplate::fork_receiving_template(
+                admission.template_arc(),
+                &mut template_remap,
+                &mut |data| data_remap.remap(data),
+            );
+            let fork = Arc::new(AdmittedReceivingTemplate::from_forked_template(template));
+            admission_remap.insert(key, (Arc::clone(admission), Arc::clone(&fork)));
+            fork
+        };
+        let templates = self.templates.iter().map(|(name, version)| {
+            (name.clone(), TemplateVersion {
+                master: fork_admission(&version.master),
+                overrides: version.overrides.iter().map(&mut fork_admission).collect(),
+                map_only: version.map_only,
+            })
+        }).collect();
+        (Self {
+            action_base: Arc::clone(&self.action_base),
+            action_current: Arc::clone(&self.action_current),
+            templates,
+            declaration_order: self.declaration_order.clone(),
+            next_template_id: self.next_template_id,
+            compatibility_view: OnceCell::new(),
+            modules,
+        }, template_remap, admission_remap)
+    }
+
+    fn clone_for_transaction(
+        &self,
+    ) -> (Self, super::module::ModuleDataRemap, TemplateForkMap, AdmissionForkMap) {
+        let (modules, mut data_remap) = self.modules.fork_for_transaction();
+        let (candidate, templates, admissions) = self.fork_with_remap(modules, &mut data_remap);
+        (candidate, data_remap, templates, admissions)
+    }
+
+    fn commit_transaction(
+        &mut self,
+        mut candidate: Self,
+        data_remap: super::module::ModuleDataRemap,
+        templates: TemplateForkMap,
+        admissions: AdmissionForkMap,
+    ) {
+        let mut templates: TemplateForkMap = templates.into_values()
+            .map(|(original, fork)| (Arc::as_ptr(&fork), (fork, original)))
+            .collect();
+        let mut admissions: AdmissionForkMap = admissions.into_values()
+            .map(|(original, fork)| (Arc::as_ptr(&fork), (fork, original)))
+            .collect();
+        let mut restore_admission = |admission: &Arc<AdmittedReceivingTemplate>| {
+            let key = Arc::as_ptr(admission);
+            if let Some((_, original)) = admissions.get(&key) {
+                return Arc::clone(original);
+            }
+            let template = ThingTemplate::fork_receiving_template(
+                admission.template_arc(),
+                &mut templates,
+                &mut |data| data_remap.restore(data),
+            );
+            let restored = Arc::new(AdmittedReceivingTemplate::from_forked_template(template));
+            admissions.insert(key, (Arc::clone(admission), Arc::clone(&restored)));
+            restored
+        };
+        for version in candidate.templates.values_mut() {
+            version.master = restore_admission(&version.master);
+            for admission in &mut version.overrides {
+                *admission = restore_admission(admission);
+            }
+        }
+        candidate.modules.restore_transaction_handles(&data_remap);
+        data_remap.commit();
+        *self = candidate;
+    }
+
     /// Construction neither registers classes nor publishes a mutable owner.
     pub fn new(mut modules: ModuleFactory) -> Self {
         let actions = Arc::new(ReceivingActionDefinitions::default());
@@ -289,7 +387,7 @@ impl ReceivingModuleContent {
         content: &str,
         load_type: INILoadType,
     ) -> Result<usize, String> {
-        let mut candidate = self.clone();
+        let (mut candidate, data_remap, templates, admissions) = self.clone_for_transaction();
         let lines = content.lines().collect::<Vec<_>>();
         let mut index = 0;
         let mut loaded = 0;
@@ -324,7 +422,7 @@ impl ReceivingModuleContent {
             loaded += 1;
             index = next;
         }
-        *self = candidate;
+        self.commit_transaction(candidate, data_remap, templates, admissions);
         Ok(loaded)
     }
     /// Map/Solo callers with already-captured properties admit just that actual
@@ -337,11 +435,10 @@ impl ReceivingModuleContent {
         properties: &HashMap<String, String>,
         load_type: INILoadType,
     ) -> Result<Arc<AdmittedReceivingTemplate>, String> {
-        let mut candidate = self.clone();
-        let admitted =
-            candidate.admit_source_in_place(name, parent, kind, properties, load_type)?;
-        *self = candidate;
-        Ok(admitted)
+        let (mut candidate, data_remap, templates, admissions) = self.clone_for_transaction();
+        candidate.admit_source_in_place(name, parent, kind, properties, load_type)?;
+        self.commit_transaction(candidate, data_remap, templates, admissions);
+        Ok(self.admitted_template(name).expect("committed admission"))
     }
     fn admit_source_in_place(
         &mut self,

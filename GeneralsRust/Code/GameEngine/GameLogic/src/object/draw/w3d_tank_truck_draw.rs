@@ -6,7 +6,7 @@ use crate::helpers::{MeshUvOverrideState, TheGameClient, TheGameLogic, ThePartic
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone)]
@@ -215,7 +215,7 @@ impl Snapshotable for W3DTankTruckDrawModuleData {
 }
 
 pub struct W3DTankTruckDraw {
-    data: W3DTankTruckDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DTruckDraw,
     tread_uv_offsets: Vec<Real>,
     tread_mesh_names: Vec<String>,
@@ -229,8 +229,11 @@ pub struct W3DTankTruckDraw {
 
 impl W3DTankTruckDraw {
     pub fn new(data: W3DTankTruckDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
         Self {
-            base: W3DTruckDraw::new(data.base.clone()),
+            base: W3DTruckDraw::new_with_module_data(data.clone()),
             data,
             tread_uv_offsets: Vec::new(),
             tread_mesh_names: Vec::new(),
@@ -305,7 +308,9 @@ impl W3DTankTruckDraw {
     }
 
     fn update_tread_objects(&mut self) {
-        if self.data.tread_animation_rate == 0.0 {
+        let guard = self.data.read();
+        let data = (&*guard as &dyn Any).downcast_ref::<W3DTankTruckDrawModuleData>().expect("expected tank truck draw data");
+        if data.tread_animation_rate == 0.0 {
             self.tread_uv_offsets.clear();
             self.tread_mesh_names.clear();
             return;
@@ -354,7 +359,9 @@ impl W3DTankTruckDraw {
         is_motive: bool,
         direction: &Coord3D,
     ) {
-        if self.data.tread_animation_rate == 0.0 {
+        let guard = self.data.read();
+        let data = (&*guard as &dyn Any).downcast_ref::<W3DTankTruckDrawModuleData>().expect("expected tank truck draw data");
+        if data.tread_animation_rate == 0.0 {
             self.last_direction = *direction;
             return;
         }
@@ -372,8 +379,8 @@ impl W3DTankTruckDraw {
 
         // C++ W3DTankTruckDraw deliberately disables pivot differential scrolling:
         // wheel+tread vehicles only scroll treads while driving above the threshold.
-        if is_motive && speed_fraction >= self.data.tread_drive_speed_fraction {
-            let tread_scroll_speed = self.data.tread_animation_rate;
+        if is_motive && speed_fraction >= data.tread_drive_speed_fraction {
+            let tread_scroll_speed = data.tread_animation_rate;
             for uv_offset in &mut self.tread_uv_offsets {
                 let offset = *uv_offset - tread_scroll_speed;
                 *uv_offset = wrap_uv_offset(offset);
@@ -468,8 +475,8 @@ impl Module for W3DTankTruckDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 

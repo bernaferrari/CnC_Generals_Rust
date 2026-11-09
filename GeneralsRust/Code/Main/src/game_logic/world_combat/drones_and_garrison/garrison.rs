@@ -129,19 +129,24 @@ impl GameLogic {
         let radius = container.geometry_info().bounding_circle_radius();
         let config = container.get_template().receiving_client_template.as_ref()
             .and_then(|template| template.behavior_modules().iter().find_map(|entry| {
-                match ContainModuleDataKind::from_module_data(entry.data.as_ref())? {
-                    ContainModuleDataKind::Helix(data) => Some(&data.base),
+                let data_guard = entry.data.read();
+                match ContainModuleDataKind::from_module_data(&*data_guard)? {
+                    ContainModuleDataKind::Helix(data) => Some((
+                        data.base.orient_like_container_on_exit,
+                        data.base.exit_pitch_rate,
+                        data.base.exit_bone.clone(),
+                    )),
                     _ => None,
                 }
             }));
-        let orient = config.is_some_and(|data| data.orient_like_container_on_exit);
-        let pitch = config.map_or(0.0, |data| data.exit_pitch_rate);
+        let orient = config.as_ref().is_some_and(|data| data.0);
+        let pitch = config.as_ref().map_or(0.0, |data| data.1);
         let velocity = container.transport_keep_container_velocity_on_exit()
             .then_some(container.movement.velocity);
         let aggressive = container.transport_go_aggressive_on_exit();
         let delay = container.transport_exit_delay_frames();
-        let exit_position = config.filter(|data| !data.exit_bone.is_empty()).and_then(|data| {
-            self.containment_pristine_bone_local_optional(container_id, &data.exit_bone, effects)
+        let exit_position = config.as_ref().filter(|data| !data.2.is_empty()).and_then(|data| {
+            self.containment_pristine_bone_local_optional(container_id, &data.2, effects)
                 .expect("Helix ExitBone requires receiving pristine assets")
                 .map(|local| container.get_transform_matrix().transform_point3(local))
         });

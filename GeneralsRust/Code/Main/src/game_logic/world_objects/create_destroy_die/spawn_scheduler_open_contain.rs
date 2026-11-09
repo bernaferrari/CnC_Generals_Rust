@@ -6,11 +6,15 @@ use gamelogic::object::contain::OpenContainModuleData;
 mod tests;
 
 // Read the admitted module, not a template-name or unit-kind approximation.
-fn open_contain_data(parent: &Object) -> Option<&OpenContainModuleData> {
+fn open_contain_data(parent: &Object) -> Option<parking_lot::MappedRwLockReadGuard<'_, OpenContainModuleData>> {
+    use gamelogic::contain_module_overrides::ContainModuleDataKind;
+    use game_engine::common::thing::module::ModuleDataGuard;
     let receiving = parent.get_template().receiving_client_template.as_ref()?;
     receiving.behavior_modules().iter().find_map(|module| {
-        gamelogic::contain_module_overrides::ContainModuleDataKind::from_module_data(module.data.as_ref())
-            .map(|kind| kind.open_data())
+        let guard = module.data.read();
+        ModuleDataGuard::try_map(guard, |data| {
+            ContainModuleDataKind::from_module_data(data).map(|kind| kind.open_data())
+        })
     })
 }
 
@@ -34,6 +38,7 @@ impl GameLogic {
         } else {
             (0, 0)
         };
+        drop(data);
         let query = |prefix: &str| {
             let poses = self.query_pristine_world_bone_poses(parent, effects.pristine_bones,
                 prefix, 0, 1, clear, set).ok()?;
@@ -58,6 +63,7 @@ impl GameLogic {
         let Some(data) = open_contain_data(parent) else { return Ok(false); };
         let count = data.number_of_exit_paths;
         let door_time = data.door_open_time;
+        drop(data);
         let yaw = parent.get_orientation();
         let layer = parent.pathfind_layer;
         let rally = parent.open_contain_rally_point;

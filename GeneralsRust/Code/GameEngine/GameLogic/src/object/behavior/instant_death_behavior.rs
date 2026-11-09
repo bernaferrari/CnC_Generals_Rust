@@ -175,7 +175,7 @@ pub struct InstantDeathBehavior {
 impl InstantDeathBehavior {
     pub fn new(
         object: Arc<RwLock<Object>>,
-        module_data: Arc<InstantDeathBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             base: DieModule::new(object, module_data),
@@ -189,10 +189,12 @@ impl InstantDeathBehavior {
 
 impl DieModuleInterface for InstantDeathBehavior {
     fn on_die(&mut self, object: &mut Object, damage_info: &DamageInfo) {
+        let data_handle = self.base.module_data.clone();
+        let data = data_handle.read();
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &data.base.die_mux_data,
         ) {
             return;
         }
@@ -210,27 +212,24 @@ impl DieModuleInterface for InstantDeathBehavior {
         let object_arc = self.base.get_object();
 
         if let Some(ref object_arc) = object_arc {
-            if !self.base.module_data.fx.is_empty() {
-                let idx =
-                    GameLogicRandomValue(0, self.base.module_data.fx.len() as i32 - 1) as usize;
-                if let Some(fx) = self.base.module_data.fx.get(idx) {
+            if !data.fx.is_empty() {
+                let idx = GameLogicRandomValue(0, data.fx.len() as i32 - 1) as usize;
+                if let Some(fx) = data.fx.get(idx) {
                     let _ = fx.do_fx_obj(object_arc, None);
                 }
             }
 
-            if !self.base.module_data.ocls.is_empty() {
-                let idx =
-                    GameLogicRandomValue(0, self.base.module_data.ocls.len() as i32 - 1) as usize;
-                if let Some(Some(ocl)) = self.base.module_data.ocls.get(idx) {
+            if !data.ocls.is_empty() {
+                let idx = GameLogicRandomValue(0, data.ocls.len() as i32 - 1) as usize;
+                if let Some(Some(ocl)) = data.ocls.get(idx) {
                     let _ = ObjectCreationList::create(ocl, object_arc, None);
                 }
             }
         }
 
-        if !self.base.module_data.weapons.is_empty() {
-            let idx =
-                GameLogicRandomValue(0, self.base.module_data.weapons.len() as i32 - 1) as usize;
-            if let Some(weapon) = self.base.module_data.weapons.get(idx) {
+        if !data.weapons.is_empty() {
+            let idx = GameLogicRandomValue(0, data.weapons.len() as i32 - 1) as usize;
+            if let Some(weapon) = data.weapons.get(idx) {
                 let position = *object.get_position();
                 if let Some(weapon_store) = TheWeaponStore::get() {
                     let _ = weapon_store.create_and_fire_temp_weapon_at_pos(

@@ -54,7 +54,7 @@ impl FireOCLAfterWeaponCooldownUpdateModuleData {
 
 pub struct FireOCLAfterWeaponCooldownUpdate {
     object_id: ObjectID,
-    module_data: Arc<FireOCLAfterWeaponCooldownUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     valid: bool,
     consecutive_shots: UnsignedInt,
     start_frame: UnsignedInt,
@@ -63,16 +63,19 @@ pub struct FireOCLAfterWeaponCooldownUpdate {
 }
 
 impl FireOCLAfterWeaponCooldownUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
-        let upgrade_mux = UpgradeMux::new(specific_data.upgrade_mux_data.clone());
+        if !module_data.is::<FireOCLAfterWeaponCooldownUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let upgrade_mux = UpgradeMux::new_shared(
+            game_engine::common::thing::module::ModuleDataView::new(module_data.clone(), |data| {
+                &data.downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
+                    .expect("Invalid module data").upgrade_mux_data
+            }),
+        );
 
         Ok(Self {
             object_id: object
@@ -80,7 +83,7 @@ impl FireOCLAfterWeaponCooldownUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             valid: false,
             consecutive_shots: 0,
             start_frame: 0,
@@ -95,16 +98,20 @@ impl FireOCLAfterWeaponCooldownUpdate {
     }
 
     fn fire_ocl(&mut self, obj: &Arc<RwLock<GameObject>>, now: UnsignedInt) {
-        let Some(ocl) = self.module_data.ocl.as_ref() else {
+        let handle = self.module_data.clone();
+        let guard = handle.read();
+        let data = guard.downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
+            .expect("Invalid module data");
+        let Some(ocl) = data.ocl.as_ref() else {
             self.reset_stats();
             return;
         };
 
         let elapsed_frames = now.saturating_sub(self.start_frame);
         let mut seconds = elapsed_frames as f32 * SECONDS_PER_LOGICFRAME_REAL;
-        seconds *= self.module_data.ocl_lifetime_per_second as f32 * 0.001;
+        seconds *= data.ocl_lifetime_per_second as f32 * 0.001;
         let mut ocl_frames = (seconds * LOGICFRAMES_PER_SECOND as f32) as UnsignedInt;
-        ocl_frames = ocl_frames.min(self.module_data.ocl_max_frames);
+        ocl_frames = ocl_frames.min(data.ocl_max_frames);
 
         if let Ok(obj_guard) = obj.read() {
             let ctx = crate::object_creation_list::live_creation_context();
@@ -139,16 +146,22 @@ impl UpdateModuleInterface for FireOCLAfterWeaponCooldownUpdate {
             return Ok(UpdateSleepTime::None);
         };
 
+        let (weapon_slot, min_shots_required) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
+                .expect("Invalid module data");
+            (data.weapon_slot, data.min_shots_required)
+        };
         let mut valid_this_frame = true;
         let mut valid_to_fire_ocl = true;
         let mut last_shot_frame = 0u32;
         let mut possible_next_shot_frame = 0u32;
         let has_slot_weapon = obj
-            .get_weapon_in_weapon_slot(self.module_data.weapon_slot)
+            .get_weapon_in_weapon_slot(weapon_slot)
             .is_some();
 
         if let Some((weapon, slot)) = obj.get_current_weapon() {
-            if slot != self.module_data.weapon_slot {
+            if slot != weapon_slot {
                 valid_this_frame = false;
             } else {
                 last_shot_frame = weapon.get_last_shot_frame();
@@ -172,13 +185,13 @@ impl UpdateModuleInterface for FireOCLAfterWeaponCooldownUpdate {
                     self.start_frame = now;
                 }
             } else if possible_next_shot_frame < now {
-                if self.module_data.min_shots_required <= self.consecutive_shots {
+                if min_shots_required <= self.consecutive_shots {
                     drop(obj);
                     self.fire_ocl(&obj_arc, now);
                 }
             }
         } else if valid_to_fire_ocl {
-            if has_slot_weapon && self.module_data.min_shots_required <= self.consecutive_shots {
+            if has_slot_weapon && min_shots_required <= self.consecutive_shots {
                 drop(obj);
                 self.fire_ocl(&obj_arc, now);
             }
@@ -233,14 +246,14 @@ impl Snapshotable for FireOCLAfterWeaponCooldownUpdate {
 pub struct FireOCLAfterWeaponCooldownUpdateModule {
     behavior: FireOCLAfterWeaponCooldownUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<FireOCLAfterWeaponCooldownUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl FireOCLAfterWeaponCooldownUpdateModule {
     pub fn new(
         behavior: FireOCLAfterWeaponCooldownUpdate,
         module_name: &AsciiString,
-        module_data: Arc<FireOCLAfterWeaponCooldownUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -283,12 +296,12 @@ impl Module for FireOCLAfterWeaponCooldownUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -305,9 +318,9 @@ pub struct FireOCLAfterWeaponCooldownUpdateFactory;
 impl FireOCLAfterWeaponCooldownUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FireOCLAfterWeaponCooldownUpdate::new(
+        Ok(Box::new(FireOCLAfterWeaponCooldownUpdate::new_with_module_data(
             thing,
             module_data,
         )?))

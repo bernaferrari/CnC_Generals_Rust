@@ -20,7 +20,7 @@ use crate::object::unit::UnitAiStateRuntime;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 /// Wave 358: host-only path has no dual-world factory objects.
 #[inline]
@@ -304,11 +304,11 @@ const HACK_INTERNET_AI_UPDATE_FIELDS: &[FieldParse<HackInternetAIUpdateModuleDat
 #[derive(Debug)]
 pub struct HackInternetAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<HackInternetAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl HackInternetAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<HackInternetAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -322,21 +322,21 @@ impl Module for HackInternetAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for HackInternetAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -344,49 +344,23 @@ impl Snapshotable for HackInternetAIUpdateModule {
     }
 }
 
-/// Runtime configuration for HackInternetAIUpdate.
-#[derive(Debug, Clone)]
-pub struct HackInternetAIUpdateData {
-    pub unpack_time: UnsignedInt,
-    pub pack_time: UnsignedInt,
-    pub cash_update_delay: UnsignedInt,
-    pub cash_update_delay_fast: UnsignedInt,
-    pub regular_cash_amount: UnsignedInt,
-    pub veteran_cash_amount: UnsignedInt,
-    pub elite_cash_amount: UnsignedInt,
-    pub heroic_cash_amount: UnsignedInt,
-    pub xp_per_cash_update: UnsignedInt,
-    pub pack_unpack_variation_factor: Real,
-}
-
-impl Default for HackInternetAIUpdateData {
-    fn default() -> Self {
-        Self {
-            unpack_time: 0,
-            pack_time: 0,
-            cash_update_delay: 0,
-            cash_update_delay_fast: 0,
-            regular_cash_amount: 0,
-            veteran_cash_amount: 0,
-            elite_cash_amount: 0,
-            heroic_cash_amount: 0,
-            xp_per_cash_update: 0,
-            pack_unpack_variation_factor: 0.0,
-        }
-    }
-}
-
 /// HackInternet AI runtime logic.
 #[derive(Debug, Clone)]
 pub struct HackInternetAIUpdate {
-    data: HackInternetAIUpdateData,
+    data: ModuleDataHandle,
     owner_id: ObjectID,
     state: HackInternetState,
     pending_command: Option<AiCommandParams>,
 }
 
 impl HackInternetAIUpdate {
-    pub fn new(data: HackInternetAIUpdateData, owner_id: ObjectID) -> Self {
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, HackInternetAIUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.downcast_ref::<HackInternetAIUpdateModuleData>().expect("HackInternet data type")
+        })
+    }
+
+    pub fn new(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
         Self {
             data,
             owner_id,
@@ -517,7 +491,7 @@ impl HackInternetAIUpdate {
         }
 
         let variation = self.random_pack_unpack_variation();
-        let frames = (self.data.unpack_time as Real * variation) as UnsignedInt;
+        let frames = (self.data().unpack_time as Real * variation) as UnsignedInt;
         owner_guard.set_animation_loop_duration(frames);
 
         self.state = HackInternetState::Unpacking {
@@ -707,7 +681,7 @@ impl HackInternetAIUpdate {
             Err(_) => return Ok(()),
         };
         owner_guard
-            .add_experience_points_with_side_effects(self.data.xp_per_cash_update as i32, true);
+            .add_experience_points_with_side_effects(self.data().xp_per_cash_update as i32, true);
 
         let mut display_money = true;
         if owner_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
@@ -771,56 +745,56 @@ impl HackInternetAIUpdate {
     fn get_pack_time(&self) -> UnsignedInt {
         // Wave 358: empty dual-world → base pack time.
         if dual_world_registry_unavailable() {
-            return self.data.pack_time;
+            return self.data().pack_time;
         }
 
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return self.data.pack_time;
+            return self.data().pack_time;
         };
         let Ok(owner_guard) = owner.read() else {
-            return self.data.pack_time;
+            return self.data().pack_time;
         };
         if owner_guard.get_contained_by().is_some() {
             return 0;
         }
-        self.data.pack_time
+        self.data().pack_time
     }
 
     fn get_cash_update_delay(&self) -> UnsignedInt {
         // Wave 358: empty dual-world → base cash delay.
         if dual_world_registry_unavailable() {
-            return self.data.cash_update_delay;
+            return self.data().cash_update_delay;
         }
 
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return self.data.cash_update_delay;
+            return self.data().cash_update_delay;
         };
         let Ok(owner_guard) = owner.read() else {
-            return self.data.cash_update_delay;
+            return self.data().cash_update_delay;
         };
         if owner_guard.get_contained_by().is_some() {
-            return self.data.cash_update_delay_fast;
+            return self.data().cash_update_delay_fast;
         }
-        self.data.cash_update_delay
+        self.data().cash_update_delay
     }
 
     fn cash_amount_for_level(&self, level: VeterancyLevel) -> UnsignedInt {
         let mut amount = match level {
-            VeterancyLevel::Heroic => self.data.heroic_cash_amount,
-            VeterancyLevel::Elite => self.data.elite_cash_amount,
-            VeterancyLevel::Veteran => self.data.veteran_cash_amount,
-            VeterancyLevel::Regular => self.data.regular_cash_amount,
+            VeterancyLevel::Heroic => self.data().heroic_cash_amount,
+            VeterancyLevel::Elite => self.data().elite_cash_amount,
+            VeterancyLevel::Veteran => self.data().veteran_cash_amount,
+            VeterancyLevel::Regular => self.data().regular_cash_amount,
         };
 
         if amount == 0 {
             if level == VeterancyLevel::Heroic {
-                amount = self.data.elite_cash_amount;
+                amount = self.data().elite_cash_amount;
             }
             if amount == 0 && level >= VeterancyLevel::Elite {
-                amount = self.data.veteran_cash_amount;
+                amount = self.data().veteran_cash_amount;
             }
             if amount == 0 && level >= VeterancyLevel::Veteran {
-                amount = self.data.regular_cash_amount;
+                amount = self.data().regular_cash_amount;
             }
             if amount == 0 {
                 amount = 1;
@@ -831,7 +805,7 @@ impl HackInternetAIUpdate {
     }
 
     fn random_pack_unpack_variation(&self) -> Real {
-        let factor = self.data.pack_unpack_variation_factor;
+        let factor = self.data().pack_unpack_variation_factor;
         if factor <= 0.0 {
             return 1.0;
         }
@@ -1048,7 +1022,7 @@ mod tests {
 
     #[test]
     fn hack_internet_xfer_preserves_pending_command_and_state_timer() {
-        let mut original = HackInternetAIUpdate::new(HackInternetAIUpdateData::default(), 77);
+        let mut original = HackInternetAIUpdate::new(ModuleDataHandle::new(HackInternetAIUpdateModuleData::default()), 77);
         original.state = HackInternetState::Packing {
             frames_remaining: 123,
         };
@@ -1070,7 +1044,7 @@ mod tests {
             original.xfer(&mut save).unwrap();
         }
 
-        let mut loaded = HackInternetAIUpdate::new(HackInternetAIUpdateData::default(), 77);
+        let mut loaded = HackInternetAIUpdate::new(ModuleDataHandle::new(HackInternetAIUpdateModuleData::default()), 77);
         {
             let cursor = Cursor::new(bytes.as_slice());
             let mut load = XferLoad::new(cursor, 1);

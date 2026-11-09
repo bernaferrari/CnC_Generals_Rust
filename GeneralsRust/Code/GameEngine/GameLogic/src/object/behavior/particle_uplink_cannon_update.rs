@@ -33,7 +33,9 @@ use crate::weapon::{DamageType, DeathType};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, ModuleDataHandle, ModuleDataRead, ModuleDataView, NameKeyType,
+};
 use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 299: host-only path has no dual-world factory objects.
@@ -617,7 +619,7 @@ crate::impl_behavior_module_data_via_base!(ParticleUplinkCannonUpdateModuleData,
 
 pub struct ParticleUplinkCannonUpdate {
     object_id: ObjectID,
-    module_data: Arc<ParticleUplinkCannonUpdateModuleData>,
+    module_data: ModuleDataView<ParticleUplinkCannonUpdateModuleData>,
 
     next_call_frame_and_phase: UnsignedInt,
     status: PUCStatus,
@@ -672,22 +674,29 @@ pub struct ParticleUplinkCannonUpdate {
 impl ParticleUplinkCannonUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
-            .ok_or("Invalid module data")?
-            .clone();
-
-        Self::new_with_data(object, Arc::new(specific_data))
+        Self::new_with_data(object, module_data)
     }
 
     pub fn new_with_data(
         object: Arc<RwLock<GameObject>>,
-        specific_data: Arc<ParticleUplinkCannonUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<ParticleUplinkCannonUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = ModuleDataView::new(module_data, |data| {
+            data.as_any().downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
+                .expect("ParticleUplinkCannonUpdate requires its module data")
+        });
+        let specific_data = module_data.read();
         let outer_count = specific_data.outer_effect_num_bones as usize;
+        let powerup_sound = AudioEventRts::new(specific_data.powerup_sound_name.as_str());
+        let unpack_to_ready_sound = AudioEventRts::new(specific_data.unpack_to_ready_sound_name.as_str());
+        let firing_to_idle_sound = AudioEventRts::new(specific_data.firing_to_idle_sound_name.as_str());
+        let annihilation_sound = AudioEventRts::new(specific_data.annihilation_sound_name.as_str());
+        drop(specific_data);
 
         Ok(Self {
             object_id: object
@@ -695,7 +704,7 @@ impl ParticleUplinkCannonUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: specific_data.clone(),
+            module_data,
             next_call_frame_and_phase: 0,
             status: PUCStatus::Idle,
             laser_status: LaserStatus::None,
@@ -730,14 +739,10 @@ impl ParticleUplinkCannonUpdate {
             up_bones_cached: false,
             client_shrouded_last_frame: false,
             invalid_settings: false,
-            powerup_sound: AudioEventRts::new(specific_data.powerup_sound_name.as_str()),
-            unpack_to_ready_sound: AudioEventRts::new(
-                specific_data.unpack_to_ready_sound_name.as_str(),
-            ),
-            firing_to_idle_sound: AudioEventRts::new(
-                specific_data.firing_to_idle_sound_name.as_str(),
-            ),
-            annihilation_sound: AudioEventRts::new(specific_data.annihilation_sound_name.as_str()),
+            powerup_sound,
+            unpack_to_ready_sound,
+            firing_to_idle_sound,
+            annihilation_sound,
         })
     }
 
@@ -753,7 +758,7 @@ impl ParticleUplinkCannonUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         })?;
         let obj = obj_arc.read().ok()?;
-        let template = self.module_data.special_power_template.as_ref()?;
+        let template = self.module_data.read().special_power_template.clone()?;
         obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
             let func = func.take().expect("special power callback already used");
             func(module)
@@ -954,7 +959,7 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn calculate_default_information(&mut self) -> Bool {
-        let count = self.module_data.outer_effect_num_bones as usize;
+        let count = self.module_data.read().outer_effect_num_bones as usize;
         if self.outer_node_positions.len() != count {
             self.outer_node_positions.resize(count, Coord3D::ZERO);
         }
@@ -994,7 +999,8 @@ impl ParticleUplinkCannonUpdate {
             return false;
         };
 
-        let prefix = self.module_data.outer_effect_base_bone_name.as_str();
+        let data = self.module_data.read();
+        let prefix = data.outer_effect_base_bone_name.as_str();
         let positions = draw_guard.get_pristine_bone_positions(prefix, 1, count);
         let transforms = draw_guard.get_pristine_bone_transforms(prefix, 1, count);
         let num_bones = positions.len().min(transforms.len());
@@ -1021,22 +1027,11 @@ impl ParticleUplinkCannonUpdate {
             return;
         }
 
+        let data = self.module_data.read();
         let name = match intensity {
-            IntensityTypes::Light => {
-                &self
-                    .module_data
-                    .outer_nodes_light_flare_particle_system_name
-            }
-            IntensityTypes::Medium => {
-                &self
-                    .module_data
-                    .outer_nodes_medium_flare_particle_system_name
-            }
-            IntensityTypes::Intense => {
-                &self
-                    .module_data
-                    .outer_nodes_intense_flare_particle_system_name
-            }
+            IntensityTypes::Light => &data.outer_nodes_light_flare_particle_system_name,
+            IntensityTypes::Medium => &data.outer_nodes_medium_flare_particle_system_name,
+            IntensityTypes::Intense => &data.outer_nodes_intense_flare_particle_system_name,
             IntensityTypes::Finish => return,
         };
         if name.is_empty() {
@@ -1074,9 +1069,10 @@ impl ParticleUplinkCannonUpdate {
             self.up_bones_cached = true;
         }
 
+        let data = self.module_data.read();
         let name = match intensity {
-            IntensityTypes::Medium => &self.module_data.connector_medium_laser_name,
-            IntensityTypes::Intense => &self.module_data.connector_intense_laser_name,
+            IntensityTypes::Medium => &data.connector_medium_laser_name,
+            IntensityTypes::Intense => &data.connector_intense_laser_name,
             _ => return,
         };
         if name.is_empty() {
@@ -1121,9 +1117,10 @@ impl ParticleUplinkCannonUpdate {
             return false;
         };
 
-        if !self.module_data.connector_bone_name.is_empty() {
+        let data = self.module_data.read();
+        if !data.connector_bone_name.is_empty() {
             if let Some(matrix) = draw_guard.get_current_worldspace_client_bone_positions(
-                self.module_data.connector_bone_name.as_str(),
+                data.connector_bone_name.as_str(),
             ) {
                 let world = obj_guard.convert_bone_pos_to_world_pos(None, Some(&matrix));
                 let translation = world.w_axis;
@@ -1132,9 +1129,9 @@ impl ParticleUplinkCannonUpdate {
             }
         }
 
-        if !self.module_data.fire_bone_name.is_empty() {
+        if !data.fire_bone_name.is_empty() {
             if let Some(matrix) = draw_guard.get_current_worldspace_client_bone_positions(
-                self.module_data.fire_bone_name.as_str(),
+                data.fire_bone_name.as_str(),
             ) {
                 let world = obj_guard.convert_bone_pos_to_world_pos(None, Some(&matrix));
                 let translation = world.w_axis;
@@ -1147,13 +1144,10 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn create_connector_flare(&mut self, intensity: IntensityTypes) {
+        let data = self.module_data.read();
         let name = match intensity {
-            IntensityTypes::Medium => &self.module_data.connector_medium_flare_particle_system_name,
-            IntensityTypes::Intense => {
-                &self
-                    .module_data
-                    .connector_intense_flare_particle_system_name
-            }
+            IntensityTypes::Medium => &data.connector_medium_flare_particle_system_name,
+            IntensityTypes::Intense => &data.connector_intense_flare_particle_system_name,
             _ => return,
         };
         if name.is_empty() {
@@ -1169,18 +1163,11 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn create_laser_base_flare(&mut self, intensity: IntensityTypes) {
+        let data = self.module_data.read();
         let name = match intensity {
-            IntensityTypes::Light => &self.module_data.laser_base_light_flare_particle_system_name,
-            IntensityTypes::Medium => {
-                &self
-                    .module_data
-                    .laser_base_medium_flare_particle_system_name
-            }
-            IntensityTypes::Intense => {
-                &self
-                    .module_data
-                    .laser_base_intense_flare_particle_system_name
-            }
+            IntensityTypes::Light => &data.laser_base_light_flare_particle_system_name,
+            IntensityTypes::Medium => &data.laser_base_medium_flare_particle_system_name,
+            IntensityTypes::Intense => &data.laser_base_intense_flare_particle_system_name,
             _ => return,
         };
         if name.is_empty() {
@@ -1203,11 +1190,12 @@ impl ParticleUplinkCannonUpdate {
             client.destroy_drawable(self.ground_to_orbit_beam_id);
             self.ground_to_orbit_beam_id = INVALID_DRAWABLE_ID;
         }
-        if self.module_data.particle_beam_laser_name.is_empty() {
+        let data = self.module_data.read();
+        if data.particle_beam_laser_name.is_empty() {
             return;
         }
         let Some(template) =
-            TheThingFactory::find_template(self.module_data.particle_beam_laser_name.as_str())
+            TheThingFactory::find_template(data.particle_beam_laser_name.as_str())
         else {
             return;
         };
@@ -1232,11 +1220,12 @@ impl ParticleUplinkCannonUpdate {
             client.destroy_drawable(self.orbit_to_target_beam_id);
             self.orbit_to_target_beam_id = INVALID_DRAWABLE_ID;
         }
-        if self.module_data.particle_beam_laser_name.is_empty() {
+        let data = self.module_data.read();
+        if data.particle_beam_laser_name.is_empty() {
             return;
         }
         let Some(template) =
-            TheThingFactory::find_template(self.module_data.particle_beam_laser_name.as_str())
+            TheThingFactory::find_template(data.particle_beam_laser_name.as_str())
         else {
             return;
         };
@@ -1287,7 +1276,7 @@ impl ParticleUplinkCannonUpdate {
                 let growth_frames = if reveal_this_frame {
                     0
                 } else {
-                    self.module_data.width_grow_frames
+                    self.module_data.read().width_grow_frames
                 };
                 self.create_ground_to_orbit_laser(growth_frames);
                 self.create_outer_node_particle_systems(IntensityTypes::Intense);
@@ -1306,13 +1295,13 @@ impl ParticleUplinkCannonUpdate {
                         let decay = if reveal_this_frame {
                             0
                         } else {
-                            self.module_data.width_grow_frames
+                            self.module_data.read().width_grow_frames
                         };
                         client.set_drawable_laser_decay_frames(self.ground_to_orbit_beam_id, decay);
                     }
                     let now = TheGameLogic::get_frame();
                     self.ground_to_orbit_decay_end_frame =
-                        now.saturating_add(self.module_data.width_grow_frames);
+                        now.saturating_add(self.module_data.read().width_grow_frames);
                 }
             }
             PUCStatus::Packing => {}
@@ -1358,7 +1347,53 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
         // Get current frame
         let now = TheGameLogic::get_frame();
 
-        let data = self.module_data.clone();
+        struct TickData {
+            ready_delay_frames: UnsignedInt,
+            raise_antenna_frames: UnsignedInt,
+            begin_charge_frames: UnsignedInt,
+            width_grow_frames: UnsignedInt,
+            beam_travel_frames: UnsignedInt,
+            swath_of_death_distance: Real,
+            swath_of_death_amplitude: Real,
+            manual_driving_speed: Real,
+            manual_fast_driving_speed: Real,
+            double_click_to_fast_drive_delay: UnsignedInt,
+            scorch_mark_scalar: Real,
+            damage_radius_scalar: Real,
+            total_scorch_marks: UnsignedInt,
+            reveal_range: Real,
+            total_firing_frames: UnsignedInt,
+            total_damage_pulses: UnsignedInt,
+            damage_per_second: Real,
+            damage_type: DamageType,
+            death_type: DeathType,
+            frames_between_launch_fx_refresh: UnsignedInt,
+        }
+        let data = {
+            let source = self.module_data.read();
+            TickData {
+                ready_delay_frames: source.ready_delay_frames,
+                raise_antenna_frames: source.raise_antenna_frames,
+                begin_charge_frames: source.begin_charge_frames,
+                width_grow_frames: source.width_grow_frames,
+                beam_travel_frames: source.beam_travel_frames,
+                swath_of_death_distance: source.swath_of_death_distance,
+                swath_of_death_amplitude: source.swath_of_death_amplitude,
+                manual_driving_speed: source.manual_driving_speed,
+                manual_fast_driving_speed: source.manual_fast_driving_speed,
+                double_click_to_fast_drive_delay: source.double_click_to_fast_drive_delay,
+                scorch_mark_scalar: source.scorch_mark_scalar,
+                damage_radius_scalar: source.damage_radius_scalar,
+                total_scorch_marks: source.total_scorch_marks,
+                reveal_range: source.reveal_range,
+                total_firing_frames: source.total_firing_frames,
+                total_damage_pulses: source.total_damage_pulses,
+                damage_per_second: source.damage_per_second,
+                damage_type: source.damage_type,
+                death_type: source.death_type,
+                frames_between_launch_fx_refresh: source.frames_between_launch_fx_refresh,
+            }
+        };
 
         // Calculate key frames
         let ready_to_fire_frame = self.get_ready_frame();
@@ -1631,12 +1666,16 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                             orbital_birth_frame + (next_factor * duration) as UnsignedInt;
                     }
 
-                    if !data.ground_hit_fx_name.is_empty() {
-                        if let Some(fx) =
+                    let fx = {
+                        let data = self.module_data.read();
+                        if data.ground_hit_fx_name.is_empty() {
+                            None
+                        } else {
                             TheFXListStore::lookup_fx_list(data.ground_hit_fx_name.as_str())
-                        {
-                            let _ = fx.do_fx_at_position(&self.current_target_position);
                         }
+                    };
+                    if let Some(fx) = fx {
+                        let _ = fx.do_fx_at_position(&self.current_target_position);
                     }
 
                     if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
@@ -1720,10 +1759,15 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         }
                     }
 
-                    if !data.damage_pulse_remnant_object_name.is_empty() {
-                        if let Some(template) = TheThingFactory::find_template(
-                            data.damage_pulse_remnant_object_name.as_str(),
-                        ) {
+                    let template = {
+                        let data = self.module_data.read();
+                        if data.damage_pulse_remnant_object_name.is_empty() {
+                            None
+                        } else {
+                            TheThingFactory::find_template(data.damage_pulse_remnant_object_name.as_str())
+                        }
+                    };
+                    if let Some(template) = template {
                             if let Some(object_arc) =
                                 (if self.object_id == crate::common::INVALID_ID {
                                     None
@@ -1753,7 +1797,6 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                                     }
                                 }
                             }
-                        }
                     }
 
                     if data.total_damage_pulses > 0 {
@@ -1793,12 +1836,16 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
         // Firing Effects
         if self.status == PUCStatus::Firing {
             if self.next_launch_fx_frame <= now {
-                if !data.beam_launch_fx_name.is_empty() {
-                    if let Some(fx) =
+                let fx = {
+                    let data = self.module_data.read();
+                    if data.beam_launch_fx_name.is_empty() {
+                        None
+                    } else {
                         TheFXListStore::lookup_fx_list(data.beam_launch_fx_name.as_str())
-                    {
-                        let _ = fx.do_fx_at_position(&self.laser_origin_position);
                     }
+                };
+                if let Some(fx) = fx {
+                    let _ = fx.do_fx_at_position(&self.laser_origin_position);
                 }
                 self.next_launch_fx_frame = now + data.frames_between_launch_fx_refresh;
             }
@@ -1843,7 +1890,7 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
         waypoint: Option<&Waypoint>,
         command_options: SpecialPowerCommandOptions,
     ) -> Bool {
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.module_data.read().special_power_template {
             if !std::ptr::eq(template.as_ref(), special_power_template) {
                 return false;
             }
@@ -1852,7 +1899,7 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
         }
 
         let now = TheGameLogic::get_frame();
-        let data = self.module_data.clone();
+        let total_firing_frames = self.module_data.read().total_firing_frames;
 
         if !command_options.contains(SpecialPowerCommandOptions::COMMAND_FIRED_BY_SCRIPT) {
             if let Some(pos) = target_pos {
@@ -1905,7 +1952,7 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
         }
 
         if self.start_attack_frame != 0 {
-            self.start_decay_frame = self.start_attack_frame + data.total_firing_frames;
+            self.start_decay_frame = self.start_attack_frame + total_firing_frames;
         }
 
         let marker_pos = self.initial_target_position;
@@ -1992,7 +2039,7 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
         // C++ ParticleUplinkCannonUpdate.cpp:220-246 validates the module and
         // initializes its canonical owner after installation, before GameLogic
         // admission. Unrelated world emptiness cannot suppress this callback.
-        if self.module_data.special_power_template.is_none() {
+        if self.module_data.read().special_power_template.is_none() {
             self.invalid_settings = true;
             return Ok(());
         }
@@ -2010,14 +2057,15 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
             }
         }
 
+        let data = self.module_data.read();
         self.powerup_sound
-            .set_event_name(self.module_data.powerup_sound_name.as_str());
+            .set_event_name(data.powerup_sound_name.as_str());
         self.unpack_to_ready_sound
-            .set_event_name(self.module_data.unpack_to_ready_sound_name.as_str());
+            .set_event_name(data.unpack_to_ready_sound_name.as_str());
         self.firing_to_idle_sound
-            .set_event_name(self.module_data.firing_to_idle_sound_name.as_str());
+            .set_event_name(data.firing_to_idle_sound_name.as_str());
         self.annihilation_sound
-            .set_event_name(self.module_data.annihilation_sound_name.as_str());
+            .set_event_name(data.annihilation_sound_name.as_str());
 
         // SpecialPowerModule lookup remains lazy through Object::with_special_power_module_mut_by_name.
         Ok(())
@@ -2032,7 +2080,7 @@ pub struct ParticleUplinkCannonUpdateFactory;
 impl ParticleUplinkCannonUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(ParticleUplinkCannonUpdate::new(
             thing,
@@ -2044,15 +2092,16 @@ impl ParticleUplinkCannonUpdateFactory {
 pub struct ParticleUplinkCannonUpdateModule {
     behavior: ParticleUplinkCannonUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<ParticleUplinkCannonUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl ParticleUplinkCannonUpdateModule {
     pub fn new(
         behavior: ParticleUplinkCannonUpdate,
         module_name: &AsciiString,
-        module_data: Arc<ParticleUplinkCannonUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
+        assert!(ModuleDataHandle::ptr_eq(behavior.module_data.handle(), &module_data));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -2322,7 +2371,7 @@ impl Snapshotable for ParticleUplinkCannonUpdateModule {
             xfer.xfer_unsigned_int(&mut b.start_decay_frame)
                 .map_err(|e| e.to_string())?;
         } else {
-            b.start_decay_frame = b.start_attack_frame + self.module_data.total_firing_frames;
+            b.start_decay_frame = b.start_attack_frame + b.module_data.read().total_firing_frames;
         }
         xfer.xfer_unsigned_int(&mut b.last_driving_click_frame)
             .map_err(|e| e.to_string())?;
@@ -2359,11 +2408,11 @@ impl Module for ParticleUplinkCannonUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {

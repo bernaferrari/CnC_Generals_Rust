@@ -199,7 +199,7 @@ const PROPAGANDA_TOWER_FIELDS: &[FieldParse<PropagandaTowerBehaviorModuleData>] 
 /// Propaganda tower behavior module that provides area-of-effect bonuses
 pub struct PropagandaTowerBehavior {
     object_id: ObjectID,
-    module_data: Arc<PropagandaTowerBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<PropagandaTowerBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     last_scan_frame: UnsignedInt,
     inside_list: Vec<ObjectID>,
@@ -207,31 +207,18 @@ pub struct PropagandaTowerBehavior {
 }
 
 impl PropagandaTowerBehavior {
-    pub fn new(
-        object: Arc<RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<PropagandaTowerBehaviorModuleData>()
-            .ok_or("Invalid module data type for PropagandaTowerBehavior")?;
-
-        let now = crate::helpers::TheGameLogic::get_frame();
-        let wake_frame = now.saturating_add(1);
-
+    pub fn new_with_module_data(object: Arc<RwLock<Object>>, data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !data.is::<PropagandaTowerBehaviorModuleData>() { return Err("Invalid module data type for PropagandaTowerBehavior".into()); }
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: wake_frame,
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<PropagandaTowerBehaviorModuleData>().expect("PropagandaTowerBehavior module data type")),
+            next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
             last_scan_frame: 0,
             inside_list: Vec::new(),
             upgrade_required: None,
         })
     }
+
 
     fn reschedule_self(&self) {
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
@@ -264,7 +251,7 @@ impl PropagandaTowerBehavior {
     }
 
     fn handle_object_created(&mut self) {
-        if self.module_data.upgrade_required.is_empty() {
+        if self.module_data.read().upgrade_required.is_empty() {
             self.upgrade_required = None;
             return;
         }
@@ -273,7 +260,7 @@ impl PropagandaTowerBehavior {
         let upgrade = upgrade_center
             .read()
             .ok()
-            .and_then(|center| center.find_upgrade(self.module_data.upgrade_required.as_str()));
+            .and_then(|center| center.find_upgrade(self.module_data.read().upgrade_required.as_str()));
         self.upgrade_required = upgrade;
     }
 
@@ -376,9 +363,9 @@ impl PropagandaTowerBehavior {
             if let Some(body) = target.get_body_module() {
                 let amount = if let Ok(body_guard) = body.lock() {
                     let health_percent = if effect_upgraded {
-                        self.module_data.upgraded_auto_heal_percent_per_second
+                        self.module_data.read().upgraded_auto_heal_percent_per_second
                     } else {
-                        self.module_data.auto_heal_percent_per_second
+                        self.module_data.read().auto_heal_percent_per_second
                     };
                     (health_percent / LOGICFRAMES_PER_SECOND as f32) * body_guard.get_max_health()
                 } else {
@@ -387,7 +374,7 @@ impl PropagandaTowerBehavior {
                 let _ = target.attempt_healing_from_sole_benefactor_id(
                     amount,
                     tower.get_id(),
-                    self.module_data.scan_delay_in_frames,
+                    self.module_data.read().scan_delay_in_frames,
                 );
             }
         } else {
@@ -418,10 +405,11 @@ impl PropagandaTowerBehavior {
         let upgrade_present = self.is_upgrade_present(tower);
 
         if self.should_play_fx(tower) {
+            let data = self.module_data.read();
             let fx = if upgrade_present {
-                self.module_data.upgraded_pulse_fx.as_ref()
+                data.upgraded_pulse_fx.as_ref()
             } else {
-                self.module_data.pulse_fx.as_ref()
+                data.pulse_fx.as_ref()
             };
             if let Some(fx) = fx {
                 if let Some(tower_arc) =
@@ -438,11 +426,11 @@ impl PropagandaTowerBehavior {
             return;
         };
         let position = *tower.get_position();
-        let nearby = partition.get_objects_in_range(&position, self.module_data.scan_radius);
+        let nearby = partition.get_objects_in_range(&position, self.module_data.read().scan_radius);
 
         let mut new_inside = Vec::new();
         for id in nearby {
-            if id == self.object_id && !self.module_data.affects_self {
+            if id == self.object_id && !self.module_data.read().affects_self {
                 continue;
             }
             let Some(obj) = TheGameLogic::find_object_by_id(id) else {
@@ -552,7 +540,7 @@ impl UpdateModuleInterface for PropagandaTowerBehavior {
 
         let current_frame = TheGameLogic::get_frame();
         if current_frame.saturating_sub(self.last_scan_frame)
-            >= self.module_data.scan_delay_in_frames
+            >= self.module_data.read().scan_delay_in_frames
         {
             self.do_scan(&tower_guard);
             self.last_scan_frame = current_frame;
@@ -693,7 +681,7 @@ impl Snapshotable for PropagandaTowerBehavior {
 pub struct PropagandaTowerBehaviorModule {
     behavior: PropagandaTowerBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<PropagandaTowerBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl PropagandaTowerBehaviorModule {
@@ -704,7 +692,7 @@ impl PropagandaTowerBehaviorModule {
     pub fn new(
         behavior: PropagandaTowerBehavior,
         module_name: &AsciiString,
-        module_data: Arc<PropagandaTowerBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -739,11 +727,11 @@ impl Module for PropagandaTowerBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {

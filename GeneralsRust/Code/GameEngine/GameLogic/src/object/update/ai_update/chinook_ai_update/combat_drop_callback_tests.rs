@@ -3,7 +3,7 @@
 //! TransportContain door delegation and UnitAI Rappel entry have separate debts.
 
 use super::{
-    ChinookAIUpdate, ChinookAIUpdateData, ChinookCombatDropState, ChinookFlightStatus, RopeInfo,
+    ChinookAIUpdate, ChinookCombatDropState, ChinookFlightStatus, RopeInfo,
     INVALID_DRAWABLE_ID,
 };
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
@@ -84,14 +84,9 @@ impl Fixture {
             .iter()
             .find(|entry| entry.name.as_str() == "ChinookAIUpdate")
             .unwrap();
-        let data = module
-            .data
-            .as_ref()
-            .downcast_ref::<super::ChinookAIUpdateModuleData>()
-            .unwrap();
-        let mut ai = ChinookAIUpdate::new(ChinookAIUpdateData::from_module(data), id, 0);
-        assert_eq!(ai.data.per_rope_delay_min, 30);
-        assert_eq!(ai.data.per_rope_delay_max, 30);
+        let mut ai = ChinookAIUpdate::new(module.data.clone(), id, 0);
+        assert_eq!(ai.data().per_rope_delay_min, 30);
+        assert_eq!(ai.data().per_rope_delay_max, 30);
         ai.flight_status = ChinookFlightStatus::DoingCombatDrop;
         ai.combat_drop_started = true;
         ai.combat_drop_pos = Coord3D::new(80.0, 90.0, 0.0);
@@ -374,7 +369,7 @@ fn door_exit_callback_can_mutate_exact_carrier_before_rappel() {
         vec![
             Event::Reserve(id),
             Event::Exit(id),
-            Event::Speed(id, fixture.ai.data.rappel_speed),
+            Event::Speed(id, fixture.ai.data().rappel_speed),
             Event::Rappel(id)
         ]
     );
@@ -415,7 +410,7 @@ fn rappel_callbacks_can_mutate_exact_passenger_without_outer_read() {
         vec![
             Event::Reserve(id),
             Event::Exit(id),
-            Event::Speed(id, fixture.ai.data.rappel_speed),
+            Event::Speed(id, fixture.ai.data().rappel_speed),
             Event::Rappel(id)
         ]
     );

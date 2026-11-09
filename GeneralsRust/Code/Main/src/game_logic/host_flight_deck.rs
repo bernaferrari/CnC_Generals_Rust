@@ -241,14 +241,16 @@ impl GameLogic {
                 let module = carrier.get_template().receiving_client_template.as_ref()?
                     .behavior_modules().iter()
                     .find(|entry| entry.name.as_str().eq_ignore_ascii_case("FlightDeckBehavior"))?;
-                let authored = module.data.as_any().downcast_ref::<
-                    gamelogic::object::behavior::flight_deck_behavior::FlightDeckBehaviorModuleData
-                >()?.clone();
+                let authored = module.data.clone();
                 Some((metadata, authored, carrier.team, carrier.owner_player_id))
             })
         else {
             return;
         };
+        let authored_guard = authored.read();
+        let Some(authored) = authored_guard.downcast_ref::<
+            gamelogic::object::behavior::flight_deck_behavior::FlightDeckBehaviorModuleData
+        >() else { return };
         if self
             .objects
             .get(&carrier_id)
@@ -323,6 +325,7 @@ impl GameLogic {
                 in_use_by_for_landing: None,
             });
         }
+        drop(authored_guard);
 
         let mut state = self.flight_decks.remove(&carrier_id).unwrap_or_default();
         state.owner_generation = carrier_id_birth;

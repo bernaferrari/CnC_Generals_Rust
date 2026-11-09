@@ -60,7 +60,7 @@ impl CoordOrigin for ICoord3D {
 pub struct TemplateModuleInfo {
     pub name: AsciiString,
     pub module_tag: AsciiString,
-    pub data: Arc<dyn EngineModuleData>,
+    pub data: game_engine::common::thing::module::ModuleDataHandle,
     pub interface_mask: ModuleInterfaceType,
 }
 
@@ -218,18 +218,6 @@ pub trait ModuleData: AsAny + Send + Sync + std::fmt::Debug + std::any::Any {
 impl dyn ModuleData {
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.as_any().downcast_ref::<T>()
-    }
-}
-
-/// Extension trait for Arc<dyn ModuleData> to provide as_any_arc method
-pub trait ModuleDataExt {
-    fn as_any_arc(self) -> Arc<dyn std::any::Any + Send + Sync>;
-}
-
-impl ModuleDataExt for Arc<dyn ModuleData> {
-    fn as_any_arc(self) -> Arc<dyn std::any::Any + Send + Sync> {
-        // Since ModuleData now extends Any + Send + Sync, we can cast safely
-        self as Arc<dyn std::any::Any + Send + Sync>
     }
 }
 

@@ -415,12 +415,13 @@ impl Snapshotable for W3DLaserDrawModuleData {
 }
 
 pub struct W3DLaserDraw {
-    data: W3DLaserDrawModuleData,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     self_dirty: bool,
     start_pos: Coord3D,
     end_pos: Coord3D,
     width_scale: Real,
     lines: Vec<LaserLine>,
+    line_beams: usize,
     has_texture: bool,
     texture_aspect_ratio: Real,
     scene_line_ids: Vec<Option<SceneLineId>>,
@@ -455,6 +456,10 @@ impl LaserDrawInput {
 
 impl W3DLaserDraw {
     pub fn new(data: W3DLaserDrawModuleData) -> Self {
+        Self::new_with_module_data(game_engine::common::thing::module::ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             data,
             self_dirty: true,
@@ -462,6 +467,7 @@ impl W3DLaserDraw {
             end_pos: Coord3D::origin(),
             width_scale: 1.0,
             lines: Vec::new(),
+            line_beams: 1,
             has_texture: false,
             texture_aspect_ratio: 1.0,
             scene_line_ids: Vec::new(),
@@ -475,7 +481,8 @@ impl W3DLaserDraw {
 
     /// Get the laser template width (outer beam width)
     pub fn get_laser_template_width(&self) -> Real {
-        self.data.outer_beam_width * 0.5
+        self.data.read().as_any().downcast_ref::<W3DLaserDrawModuleData>()
+            .expect("W3DLaserDraw module data").outer_beam_width * 0.5
     }
 
     pub fn is_self_dirty(&self) -> bool {
@@ -483,20 +490,28 @@ impl W3DLaserDraw {
     }
 
     fn ensure_lines_with_aspect(&mut self, aspect: Real) {
-        let total = (self.data.num_beams.max(1) * self.data.segments.max(1)) as usize;
+        let guard = self.data.read();
+        let data = guard.as_any().downcast_ref::<W3DLaserDrawModuleData>()
+            .expect("W3DLaserDraw module data");
+        let total = (data.num_beams.max(1) * data.segments.max(1)) as usize;
+        drop(guard);
         if self.lines.len() != total {
             self.lines = vec![LaserLine::default(); total];
-            self.init_lines_with_aspect(aspect);
         }
+        self.init_lines_with_aspect(aspect);
     }
     fn init_lines_with_aspect(&mut self, aspect: Real) {
-        self.has_texture = !self.data.texture_name.is_empty();
+        let guard = self.data.read();
+        let data = guard.as_any().downcast_ref::<W3DLaserDrawModuleData>()
+            .expect("W3DLaserDraw module data");
+        self.has_texture = !data.texture_name.is_empty();
         self.texture_aspect_ratio = aspect;
-        let (inner_r, inner_g, inner_b, inner_a) = color_components_real(self.data.inner_color);
-        let (outer_r, outer_g, outer_b, outer_a) = color_components_real(self.data.outer_color);
+        let (inner_r, inner_g, inner_b, inner_a) = color_components_real(data.inner_color);
+        let (outer_r, outer_g, outer_b, outer_a) = color_components_real(data.outer_color);
 
-        let beams = self.data.num_beams.max(1);
-        let segments = self.data.segments.max(1);
+        let beams = data.num_beams.max(1);
+        self.line_beams = beams as usize;
+        let segments = data.segments.max(1);
         let total = (beams * segments) as usize;
         if self.lines.len() != total {
             self.lines.resize(total, LaserLine::default());
@@ -506,7 +521,7 @@ impl W3DLaserDraw {
             for beam in 0..beams {
                 let index = (segment * beams + beam) as usize;
                 let (width, color) = if beams == 1 {
-                    let width = self.data.inner_beam_width;
+                    let width = data.inner_beam_width;
                     let color = color_from_real(
                         inner_r * inner_a,
                         inner_g * inner_a,
@@ -516,8 +531,8 @@ impl W3DLaserDraw {
                     (width, color)
                 } else {
                     let scale = beam as Real / (beams - 1) as Real;
-                    let width = self.data.inner_beam_width
-                        + scale * (self.data.outer_beam_width - self.data.inner_beam_width);
+                    let width = data.inner_beam_width
+                        + scale * (data.outer_beam_width - data.inner_beam_width);
                     let alpha = inner_a + scale * (outer_a - inner_a);
                     let red = inner_r + scale * (outer_r - inner_r) * inner_a;
                     let green = inner_g + scale * (outer_g - inner_g) * inner_a;
@@ -566,10 +581,10 @@ impl Module for W3DLaserDraw {
         keys.name_to_key("W3DLaserDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.module_tag_name_key
+        self.data.read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -588,12 +603,15 @@ impl W3DLaserDraw {
 
         self.ensure_lines_with_aspect(texture_aspect);
         let mut output = Vec::new();
+        let guard = self.data.read();
+        let data = guard.as_any().downcast_ref::<W3DLaserDrawModuleData>()
+            .expect("W3DLaserDraw module data");
 
-        let beams = self.data.num_beams.max(1);
-        let segments = self.data.segments.max(1);
+        let beams = data.num_beams.max(1);
+        let segments = data.segments.max(1);
         let total = (beams * segments) as usize;
         output.reserve(total);
-        let use_arc = self.data.arc_height > 0.0 && segments > 1;
+        let use_arc = data.arc_height > 0.0 && segments > 1;
 
         for segment in 0..segments {
             let (seg_start, seg_end) = if use_arc {
@@ -609,10 +627,10 @@ impl W3DLaserDraw {
                     let mut start_ratio = segment as Real / segments as Real;
                     let mut end_ratio = (segment as Real + 1.0) / segments as Real;
                     if segment > 0 {
-                        start_ratio -= self.data.segment_overlap_ratio;
+                        start_ratio -= data.segment_overlap_ratio;
                     }
                     if segment < segments - 1 {
-                        end_ratio += self.data.segment_overlap_ratio;
+                        end_ratio += data.segment_overlap_ratio;
                     }
 
                     let segment_start = line_start + line_vector * start_ratio;
@@ -624,8 +642,8 @@ impl W3DLaserDraw {
                     let scaled_start = dist_start / half_length * std::f32::consts::PI * 0.5;
                     let scaled_end = dist_end / half_length * std::f32::consts::PI * 0.5;
 
-                    let height_start = scaled_start.cos() * self.data.arc_height;
-                    let height_end = scaled_end.cos() * self.data.arc_height;
+                    let height_start = scaled_start.cos() * data.arc_height;
+                    let height_end = scaled_end.cos() * data.arc_height;
 
                     let mut curved_start = segment_start;
                     let mut curved_end = segment_end;
@@ -652,11 +670,11 @@ impl W3DLaserDraw {
                 let line = &mut self.lines[index];
 
                 let width = if beams == 1 {
-                    self.data.inner_beam_width * self.width_scale
+                    data.inner_beam_width * self.width_scale
                 } else {
                     let scale = beam as Real / (beams - 1) as Real;
-                    (self.data.inner_beam_width
-                        + scale * (self.data.outer_beam_width - self.data.inner_beam_width))
+                    (data.inner_beam_width
+                        + scale * (data.outer_beam_width - data.inner_beam_width))
                         * self.width_scale
                 };
 
@@ -665,13 +683,13 @@ impl W3DLaserDraw {
                 line.width = width;
                 line.visible = true;
 
-                if self.has_texture && self.data.tile && width > 0.0 {
+                if self.has_texture && data.tile && width > 0.0 {
                     let tile_factor =
-                        length / width * self.texture_aspect_ratio * self.data.tiling_scalar;
+                        length / width * self.texture_aspect_ratio * data.tiling_scalar;
                     line.tile_factor = tile_factor;
                 }
 
-                let desc = Self::line_description(&self.data, self.has_texture, line);
+                let desc = Self::line_description(data, self.has_texture, line);
                 output.push(desc);
             }
         }
@@ -709,20 +727,26 @@ impl W3DLaserDraw {
     }
     /// Immutable presentation output from the canonical draw module cache.
     pub fn current_geometry(&self) -> Vec<SceneLineDesc> {
-        let beams = self.data.num_beams.max(1) as usize;
+        let guard = self.data.read();
+        let data = guard.as_any().downcast_ref::<W3DLaserDrawModuleData>()
+            .expect("W3DLaserDraw module data");
+        let beams = self.line_beams;
         (0..self.lines.len())
             .map(|ordinal| {
                 let index = ordinal / beams * beams + beams - 1 - ordinal % beams;
-                Self::line_description(&self.data, self.has_texture, &self.lines[index])
+                Self::line_description(data, self.has_texture, &self.lines[index])
             })
             .collect()
     }
-    pub fn texture_name(&self) -> &str {
-        self.data.texture_name.as_str()
+    pub fn texture_name(&self) -> parking_lot::MappedRwLockReadGuard<'_, str> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.as_any().downcast_ref::<W3DLaserDrawModuleData>()
+                .expect("W3DLaserDraw module data").texture_name.as_str()
+        })
     }
     /// Compatibility scene submission shares the receiving geometry kernel.
     pub(crate) fn draw_from_update(&mut self, input: LaserDrawInput) {
-        let aspect = crate::object::draw::texture_aspect_ratio(self.data.texture_name.as_str())
+        let aspect = crate::object::draw::texture_aspect_ratio(&self.texture_name())
             .unwrap_or(1.0);
         let mut terrain = |x, y| {
             crate::helpers::TheTerrainLogic::get()
@@ -731,7 +755,7 @@ impl W3DLaserDraw {
         let geometry = self.geometry_with_services(input, aspect, &mut terrain);
         self.sync_scene_line_count(self.lines.len());
         // Geometry is emitted in original segment/descending-beam visitation order.
-        let beams = self.data.num_beams.max(1) as usize;
+        let beams = self.line_beams;
         for (ordinal, desc) in geometry.iter().enumerate() {
             let index = ordinal / beams * beams + beams - 1 - ordinal % beams;
             match self.scene_line_ids[index] {
@@ -789,7 +813,7 @@ impl DrawModule for W3DLaserDraw {
 
 impl LaserDrawInterface for W3DLaserDraw {
     fn get_laser_template_width(&self) -> Real {
-        self.data.outer_beam_width * 0.5
+        W3DLaserDraw::get_laser_template_width(self)
     }
 }
 
@@ -875,6 +899,24 @@ mod owner_dispatch_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_definition_mutations_are_visible_to_draw() {
+        use game_engine::common::thing::module::ModuleDataHandle;
+        let handle = ModuleDataHandle::new(W3DLaserDrawModuleData::new());
+        let draw = W3DLaserDraw::new_with_module_data(handle.clone());
+
+        {
+            let mut data = handle.write();
+            data.set_module_tag_name_key(42);
+            let any: &mut dyn Any = &mut *data;
+            any.downcast_mut::<W3DLaserDrawModuleData>().unwrap().outer_beam_width = 8.0;
+        }
+
+        assert_eq!(draw.get_module_tag_name_key(), 42);
+        assert_eq!(draw.get_module_data().get_module_tag_name_key(), 42);
+        assert_eq!(draw.get_laser_template_width(), 4.0);
+    }
 
     #[test]
     fn constructor_matches_cpp_module_defaults() {

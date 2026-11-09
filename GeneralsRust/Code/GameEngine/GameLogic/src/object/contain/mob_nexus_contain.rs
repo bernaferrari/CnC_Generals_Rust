@@ -24,6 +24,8 @@ use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::production::AIFreeToExitType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 /// Configuration data for MobNexusContain module
 #[derive(Debug, Clone)]
@@ -224,7 +226,7 @@ pub struct MobNexusContain {
     /// Reference to the owning object
     object_id: ObjectID,
     /// Module configuration
-    module_data: MobNexusContainModuleData,
+    module_data: ModuleDataView<MobNexusContainModuleData>,
     /// Extra slots in use (units that take more than one slot)
     extra_slots_in_use: i32,
     /// Whether InitialPayload has been spawned
@@ -278,9 +280,15 @@ impl MobNexusContain {
     /// Create a new MobNexusContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &MobNexusContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<MobNexusContainModuleData>>()
+                .expect("mob nexus contain module data has an incompatible type")
+                .contain_data()
+        });
+        drop(data.read());
+        let base = OpenContain::new(object.clone(), module_data)?;
 
         Ok(Self {
             base,
@@ -288,7 +296,7 @@ impl MobNexusContain {
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: module_data.clone(),
+            module_data: data,
             extra_slots_in_use: 0,
             payload_created: false,
         })
@@ -302,7 +310,7 @@ impl MobNexusContain {
     }
 
     pub fn get_contain_max(&self) -> i32 {
-        self.module_data.slot_capacity
+        self.module_data.read().slot_capacity
     }
 
     pub fn get_extra_slots_in_use(&self) -> i32 {
@@ -399,12 +407,13 @@ impl MobNexusContain {
         };
         rider.clear_disabled(DisabledType::Held);
 
-        if !self.module_data.exit_bone.is_empty() {
+        let exit_bone = self.module_data.read().exit_bone.clone();
+        if !exit_bone.is_empty() {
             // C++ only moves the rider when the ExitBone is actually found.
             if let Some(bone_pos) = self
                 .with_owner_object(|owner| {
                     let (found, bone_pos, _) =
-                        owner.get_single_logical_bone_position(&self.module_data.exit_bone);
+                        owner.get_single_logical_bone_position(&exit_bone);
                     found.then_some(bone_pos)
                 })
                 .flatten()
@@ -413,7 +422,7 @@ impl MobNexusContain {
             }
         }
 
-        if self.module_data.orient_like_container_on_exit {
+        if self.module_data.read().orient_like_container_on_exit {
             if let Some(orient) = self.with_owner_object(|owner| owner.get_orientation()) {
                 let _ = rider.set_orientation(orient);
             }
@@ -424,16 +433,17 @@ impl MobNexusContain {
         // getMass / applyMotiveForce take the object lock. Drop this write first.
         drop(rider);
 
-        if self.module_data.keep_container_velocity_on_exit {
+        if self.module_data.read().keep_container_velocity_on_exit {
             if let Some(child) = child_physics.clone() {
                 if let Some(parent) = self
                     .with_owner_object(|owner| owner.get_physics())
                     .flatten()
                 {
+                    let exit_pitch_rate = self.module_data.read().exit_pitch_rate;
                     inherit_container_exit_velocity(
                         &parent,
                         &child,
-                        self.module_data.exit_pitch_rate,
+                        exit_pitch_rate,
                     );
                 }
             }
@@ -443,7 +453,7 @@ impl MobNexusContain {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let scatter_ai = if self.module_data.scatter_nearby_on_exit {
+        let scatter_ai = if self.module_data.read().scatter_nearby_on_exit {
             self.base.scatter_to_nearby_position(&mut rider)?
         } else {
             None
@@ -483,13 +493,13 @@ impl MobNexusContain {
 
         let (payload_name, payload_count, owner_team) = self
             .with_owner_object(|owner| {
-                (
-                    self.module_data.initial_payload.name.clone(),
-                    self.module_data.initial_payload.count.max(0),
-                    owner
-                        .get_controlling_player()
-                        .and_then(|player| player.read().ok().and_then(|p| p.get_default_team())),
-                )
+                let (name, count) = {
+                    let data = self.module_data.read();
+                    (data.initial_payload.name.clone(), data.initial_payload.count.max(0))
+                };
+                let team = owner.get_controlling_player()
+                    .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));
+                (name, count, team)
             })
             .unwrap_or_else(|| (String::new(), 0, None));
 
@@ -637,7 +647,7 @@ impl MobNexusContain {
             }
         }
 
-        if self.module_data.health_regen != 0.0 {
+        if self.module_data.read().health_regen != 0.0 {
             let owner_id = self.object_id;
             for object_id in self.base.get_contained_object_ids().to_vec() {
                 if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
@@ -664,7 +674,7 @@ impl MobNexusContain {
                     if !needs_healing {
                         continue;
                     }
-                    let regen = max_health * self.module_data.health_regen / 100.0
+                    let regen = max_health * self.module_data.read().health_regen / 100.0
                         * SECONDS_PER_LOGICFRAME_REAL;
                     let Ok(mut object_guard) = object.try_write() else {
                         log::warn!("MobNexusContain::update regen write busy for {}", object_id);
@@ -1039,7 +1049,7 @@ impl ContainerInterface for MobNexusContain {
 
     fn get_usage(&self) -> (u32, u32) {
         let current = self.base.get_contain_count() + self.extra_slots_in_use as u32;
-        let max = match self.module_data.slot_capacity {
+        let max = match self.module_data.read().slot_capacity {
             super::CONTAIN_MAX_UNKNOWN => u32::MAX,
             value if value < 0 => u32::MAX,
             value => value as u32,
@@ -1138,7 +1148,7 @@ mod tests {
         let mut data = MobNexusContainModuleData::default();
         data.exit_pitch_rate = pitch;
         data.keep_container_velocity_on_exit = true;
-        MobNexusContain::new(Arc::downgrade(owner), &data).expect("nexus")
+        MobNexusContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("nexus")
     }
 
     fn attach_physics(
@@ -1209,7 +1219,7 @@ mod tests {
         data.exit_bone = "ExitStart".to_string();
         // Isolate the ExitBone step from the scatter move that follows it.
         data.scatter_nearby_on_exit = false;
-        let mut nexus = MobNexusContain::new(Arc::downgrade(&owner), &data).expect("nexus");
+        let mut nexus = MobNexusContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("nexus");
 
         nexus.on_removing(rider_id).expect("missing bone removal");
 

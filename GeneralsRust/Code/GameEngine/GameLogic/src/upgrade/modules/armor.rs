@@ -14,7 +14,6 @@ use crate::upgrade::mask::UpgradeMask;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-use std::sync::Arc;
 
 /// Module data for armor upgrade.
 /// C++ `ArmorUpgrade.h`: no fields beyond `UpgradeMux` / `UpgradeModule`.
@@ -79,7 +78,7 @@ impl Snapshotable for ArmorUpgradeModuleData {
 /// Matches C++ ArmorUpgrade
 pub struct ArmorUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<ArmorUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataView<ArmorUpgradeModuleData>,
     object_id: ObjectID,
     mux: UpgradeMux,
 }
@@ -87,14 +86,14 @@ pub struct ArmorUpgrade {
 impl ArmorUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<ArmorUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mux = UpgradeMux::new_shared(game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| &data.as_any().downcast_ref::<ArmorUpgradeModuleData>().expect("ArmorUpgradeModuleData").upgrade_mux_data));
 
         Self {
             module_name_key,
-            data,
+            data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<ArmorUpgradeModuleData>().expect("ArmorUpgradeModuleData")),
             object_id,
             mux,
         }
@@ -112,11 +111,7 @@ impl ArmorUpgrade {
         }
 
         // Unique case for America Chemical Suits: apply the chem suit decal.
-        if self
-            .mux
-            .data
-            .is_triggered_by("Upgrade_AmericaChemicalSuits")
-        {
+        if self.mux.is_triggered_by("Upgrade_AmericaChemicalSuits") {
             if let Some(drawable) = object.get_drawable() {
                 if let Ok(mut guard) = drawable.write() {
                     guard.set_terrain_decal(TerrainDecalType::ChemSuit);
@@ -133,8 +128,9 @@ impl UpgradeModuleInterface for ArmorUpgrade {
 
     fn attempt_upgrade(&mut self, key_mask: UpgradeMask, object: &mut Object) -> bool {
         if self.mux.would_upgrade(key_mask) {
-            self.mux.data.perform_upgrade_fx(object);
-            self.mux.data.process_upgrade_removal(object);
+            let data = self.mux.data_snapshot();
+            data.perform_upgrade_fx(object);
+            data.process_upgrade_removal(object);
             self.upgrade_implementation(object);
             self.mux.set_upgrade_executed(true);
             true
@@ -176,11 +172,11 @@ impl Module for ArmorUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.handle().read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 
@@ -217,7 +213,7 @@ mod tests {
     #[test]
     fn test_armor_upgrade_sets_player_upgrade_flag() {
         // C++ ArmorUpgrade::upgradeImplementation (ArmorUpgrade.cpp:63-74).
-        let data = Arc::new(ArmorUpgradeModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(ArmorUpgradeModuleData::default());
         let mut upgrade = ArmorUpgrade::new(1, data, 100);
 
         let mut obj = Object::new_test(100, 100.0);

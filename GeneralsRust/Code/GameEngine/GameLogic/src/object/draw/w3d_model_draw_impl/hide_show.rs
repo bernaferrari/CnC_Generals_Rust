@@ -62,10 +62,8 @@ fn muzzle_flash_sub_object_name(prefix: &str, barrel_index: usize) -> String {
 
 impl W3DModelDraw {
     fn composed_sub_object_visibility(&self) -> Vec<HideShowSubObjInfo> {
-        let state_list = self
-            .current_state()
-            .map(|state| state.hide_show_list.as_slice())
-            .unwrap_or(&[]);
+        let state = self.current_state();
+        let state_list = state.as_ref().map(|state| state.hide_show_list.as_slice()).unwrap_or(&[]);
         let clip: Vec<HideShowSubObjInfo> =
             self.projectile_clip_hides.iter().flatten().cloned().collect();
         let with_clip = compose_hide_show_list(state_list, &clip);
@@ -125,43 +123,45 @@ impl W3DModelDraw {
     }
 
     fn hide_all_muzzle_flashes(&mut self) {
-        let Some(state) = self.current_state().cloned() else {
-            return;
-        };
-        if !state.barrels_are_valid() {
-            return;
-        }
-        self.muzzle_flash_hides.clear();
-        for wslot in 0..WEAPONSLOT_COUNT {
-            let prefix = state.weapon_muzzle_flash[wslot].as_str();
-            if prefix.is_empty() {
-                continue;
+        let names = {
+            let Some(state) = self.current_state() else {
+                return;
+            };
+            if !state.barrels_are_valid() {
+                return;
             }
-            let prefix = prefix.to_string();
-            for (barrel_index, barrel) in state.weapon_barrels[wslot].iter().enumerate() {
-                if barrel.muzzle_flash_bone == 0 {
+            let mut names = Vec::new();
+            for wslot in 0..WEAPONSLOT_COUNT {
+                let prefix = state.weapon_muzzle_flash[wslot].as_str();
+                if prefix.is_empty() {
                     continue;
                 }
-                self.note_muzzle_flash(
-                    &muzzle_flash_sub_object_name(&prefix, barrel_index),
-                    false,
-                );
+                for (barrel_index, barrel) in state.weapon_barrels[wslot].iter().enumerate() {
+                    if barrel.muzzle_flash_bone != 0 {
+                        names.push(muzzle_flash_sub_object_name(prefix, barrel_index));
+                    }
+                }
             }
+            names
+        };
+        self.muzzle_flash_hides.clear();
+        for name in names {
+            self.note_muzzle_flash(&name, false);
         }
     }
 
     fn set_muzzle_flash_hidden(&mut self, slot: usize, barrel_index: usize, hidden: bool) {
-        let Some(state) = self.current_state() else {
-            return;
+        let name = {
+            let Some(state) = self.current_state() else {
+                return;
+            };
+            let prefix = state.weapon_muzzle_flash[slot].as_str();
+            if prefix.is_empty() {
+                return;
+            }
+            muzzle_flash_sub_object_name(prefix, barrel_index)
         };
-        let prefix = state.weapon_muzzle_flash[slot].as_str();
-        if prefix.is_empty() {
-            return;
-        }
-        self.note_muzzle_flash(
-            &muzzle_flash_sub_object_name(prefix, barrel_index),
-            !hidden,
-        );
+        self.note_muzzle_flash(&name, !hidden);
     }
 
     fn apply_projectile_clip_status(
@@ -173,7 +173,7 @@ impl W3DModelDraw {
         if weapon_slot >= WEAPONSLOT_COUNT || max_shots < shots_remaining {
             return;
         }
-        if (self.data.projectile_bone_feedback_enabled_slots & (1u32 << weapon_slot)) == 0 {
+        if (self.model_data().projectile_bone_feedback_enabled_slots & (1u32 << weapon_slot)) == 0 {
             return;
         }
         let Some(state) = self.current_state() else {
@@ -185,6 +185,7 @@ impl W3DModelDraw {
             shots_remaining,
             max_shots,
         );
+        drop(state);
         self.projectile_clip_hides[weapon_slot] = entries;
         self.sub_objects_dirty = true;
     }

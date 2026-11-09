@@ -26,7 +26,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType, TrainControlInterface, TrainPullInfo,
+    Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TrainControlInterface, TrainPullInfo,
 };
 use glam::{Mat4, Vec3};
 
@@ -683,7 +683,7 @@ mod tests {
 #[derive(Debug)]
 pub struct RailroadBehavior {
     object_id: ObjectID,
-    module_data: Arc<RailroadBehaviorModuleData>,
+    module_data: ModuleDataHandle,
     next_station_task: StationTask,
     trailer_id: ObjectID,
     current_point_handle: WaypointID,
@@ -713,10 +713,10 @@ pub struct RailroadBehavior {
 impl RailroadBehavior {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
+        let data_guard = module_data.read();
+        let specific_data = data_guard
             .downcast_ref::<RailroadBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
@@ -735,6 +735,7 @@ impl RailroadBehavior {
         let physics_handle = Arc::new(Mutex::new(RailroadPhysicsHandle::new(
             specific_data.base.mass,
         )));
+        drop(data_guard);
         // Publish before install takes the object write guard. on_object_created
         // runs under that guard, and std RwLock does not reenter.
         if let Ok(mut obj_guard) = object.try_write() {
@@ -748,7 +749,7 @@ impl RailroadBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_station_task: StationTask::DoNothing,
             trailer_id: INVALID_ID,
             current_point_handle: FACADE_WAYPOINT_ID,
@@ -842,14 +843,16 @@ impl RailroadBehavior {
         }
 
         if !has_bounce_sound {
+            let data_guard = self.module_data.read();
+            let data = data_guard.downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type");
             if victim.is_kind_of(crate::common::KindOf::Infantry) {
-                impact = self.module_data.meaty_impact_default_sound.clone();
+                impact = data.meaty_impact_default_sound.clone();
             } else if victim.is_kind_of(crate::common::KindOf::HugeVehicle)
                 || victim.is_kind_of(crate::common::KindOf::Structure)
             {
-                impact = self.module_data.big_metal_impact_default_sound.clone();
+                impact = data.big_metal_impact_default_sound.clone();
             } else if victim.is_kind_of(crate::common::KindOf::Vehicle) {
-                impact = self.module_data.small_metal_impact_default_sound.clone();
+                impact = data.small_metal_impact_default_sound.clone();
             }
         }
 
@@ -1128,7 +1131,11 @@ impl RailroadBehavior {
             })
         };
 
-        let mut template_iter = self.module_data.carriage_template_names.iter();
+        let template_names = self.module_data.read()
+            .downcast_ref::<RailroadBehaviorModuleData>()
+            .expect("RailroadBehavior data type")
+            .carriage_template_names.clone();
+        let mut template_iter = template_names.iter();
         let Some(first_template_name) = template_iter.next() else {
             self.carriages_created = true;
             return;
@@ -1727,7 +1734,7 @@ impl RailroadBehavior {
         };
 
         if self.conductor_state == ConductorState::WaitAtStation
-            && self.pull_info.speed < self.module_data.running_garrison_speed_max
+            && self.pull_info.speed < self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").running_garrison_speed_max
         {
             if let Some(ai) = other.get_ai_update_interface() {
                 let enter_target = match ai.lock() {
@@ -1771,7 +1778,7 @@ impl RailroadBehavior {
 
         if self.conductor_state == ConductorState::WaitAtStation
             || (self.conductor_state == ConductorState::Coast
-                && self.pull_info.speed < self.module_data.running_garrison_speed_max)
+                && self.pull_info.speed < self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").running_garrison_speed_max)
             || !self.is_locomotive
         {
             return;
@@ -1785,7 +1792,7 @@ impl RailroadBehavior {
             delta * (self.pull_info.speed * 0.66).min(0.3)
         } else {
             let scaled = delta * (self.pull_info.speed * 0.66).min(1.4);
-            if self.pull_info.speed >= self.module_data.kill_speed_min {
+            if self.pull_info.speed >= self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").kill_speed_min {
                 other.kill(None, None);
                 match physics.access() {
                     Ok(mut phys_guard) => {
@@ -1911,10 +1918,10 @@ impl UpdateModuleInterface for RailroadBehavior {
         if self.is_locomotive {
             match self.conductor_state {
                 ConductorState::ApplyBrakes => {
-                    self.conductor_pull_info.speed *= self.module_data.braking;
+                    self.conductor_pull_info.speed *= self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").braking;
                     if self.conductor_pull_info.speed.abs() < 0.1 {
                         self.conductor_pull_info.speed = 0.0;
-                        self.wait_at_station_timer = self.module_data.wait_at_station_time as Int;
+                        self.wait_at_station_timer = self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").wait_at_station_time as Int;
                         self.conductor_state = ConductorState::WaitAtStation;
                         self.make_a_wall_out_of_this_train(true);
                         if self.disembark {
@@ -1934,7 +1941,7 @@ impl UpdateModuleInterface for RailroadBehavior {
                         }
                         self.make_a_wall_out_of_this_train(false);
                     } else if self.wait_at_station_timer
-                        == (self.module_data.wait_at_station_time / 4) as Int
+                        == (self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").wait_at_station_time / 4) as Int
                     {
                         if let Some(audio) = TheAudio::get() {
                             let handle = audio.add_audio_event(&self.whistle_sound);
@@ -1944,11 +1951,13 @@ impl UpdateModuleInterface for RailroadBehavior {
                 }
                 ConductorState::Accelerate => {
                     self.conductor_pull_info.speed += 0.02 * self.conductor_pull_info.direction;
-                    self.conductor_pull_info.speed *= self.module_data.acceleration;
-                    if self.conductor_pull_info.speed > self.module_data.speed_max {
-                        self.conductor_pull_info.speed = self.module_data.speed_max;
-                    } else if self.conductor_pull_info.speed < -self.module_data.speed_max {
-                        self.conductor_pull_info.speed = -self.module_data.speed_max;
+                    let data_guard = self.module_data.read();
+                    let data = data_guard.downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type");
+                    self.conductor_pull_info.speed *= data.acceleration;
+                    if self.conductor_pull_info.speed > data.speed_max {
+                        self.conductor_pull_info.speed = data.speed_max;
+                    } else if self.conductor_pull_info.speed < -data.speed_max {
+                        self.conductor_pull_info.speed = -data.speed_max;
                     }
 
                     if let Some(audio) = TheAudio::get() {
@@ -1968,7 +1977,7 @@ impl UpdateModuleInterface for RailroadBehavior {
 
         if self.is_lead_carriage {
             if self.conductor_state == ConductorState::Coast {
-                self.conductor_pull_info.speed *= self.module_data.friction;
+                self.conductor_pull_info.speed *= self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").friction;
                 if let Some(audio) = TheAudio::get() {
                     audio.remove_audio_event(self.running_sound.get_playing_handle());
                 }
@@ -2194,9 +2203,11 @@ impl Snapshotable for RailroadBehavior {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.track_data_loaded = false;
-        self.running_sound = self.module_data.running_sound.clone();
-        self.clickety_clack_sound = self.module_data.clickety_clack_sound.clone();
-        self.whistle_sound = self.module_data.whistle_sound.clone();
+        let data_guard = self.module_data.read();
+        let data = data_guard.downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type");
+        self.running_sound = data.running_sound.clone();
+        self.clickety_clack_sound = data.clickety_clack_sound.clone();
+        self.whistle_sound = data.whistle_sound.clone();
         let obj_id = self.object_id;
         if obj_id != INVALID_ID {
             self.running_sound.set_object_id(obj_id);
@@ -2210,14 +2221,14 @@ impl Snapshotable for RailroadBehavior {
 #[derive(Debug)]
 pub struct RailroadBehaviorModule {
     module_name_key: NameKeyType,
-    module_data: Arc<RailroadBehaviorModuleData>,
+    module_data: ModuleDataHandle,
     behavior: RailroadBehavior,
 }
 
 impl RailroadBehaviorModule {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<RailroadBehaviorModuleData>,
+        data: ModuleDataHandle,
         object: Arc<RwLock<GameObject>>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let behavior = RailroadBehavior::new(object, data.clone())?;
@@ -2251,11 +2262,11 @@ impl Module for RailroadBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_train_control_interface(&mut self) -> Option<&mut dyn TrainControlInterface> {

@@ -85,7 +85,7 @@ impl TransportContain {
         members: &[Arc<RwLock<Object>>],
         world: &mut dyn AiWorld,
     ) {
-        if !self.module_data.armed_riders_upgrade_weapon_set {
+        if !self.module_data.read().armed_riders_upgrade_weapon_set {
             return;
         }
         let mut armed = false;

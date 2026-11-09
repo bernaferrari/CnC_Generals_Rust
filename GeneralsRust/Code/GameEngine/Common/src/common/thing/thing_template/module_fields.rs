@@ -93,7 +93,7 @@ fn module_data_from_body(
     raw_body: &str,
     fields: HashMap<String, String>,
     module_factory: Option<&mut ModuleFactory>,
-) -> Arc<dyn ModuleData> {
+) -> ModuleDataHandle {
     if let Some(data) = try_factory_module_data(
         module_name,
         module_type,
@@ -104,7 +104,7 @@ fn module_data_from_body(
         return data;
     }
     if !raw_body.trim().is_empty() || !fields.is_empty() {
-        return Arc::new(CapturedModuleData::new(
+        return ModuleDataHandle::new(CapturedModuleData::new(
             module_tag,
             raw_body.to_string(),
             fields,
@@ -112,7 +112,7 @@ fn module_data_from_body(
     }
     let mut data = BaseModuleData::new();
     data.set_module_tag_name_key(NameKeyGenerator::name_to_key(module_tag));
-    Arc::new(data)
+    ModuleDataHandle::new(data)
 }
 
 fn try_factory_module_data(
@@ -121,7 +121,7 @@ fn try_factory_module_data(
     module_tag: &str,
     raw_body: &str,
     module_factory: Option<&mut ModuleFactory>,
-) -> Option<Arc<dyn ModuleData>> {
+) -> Option<ModuleDataHandle> {
     if let Some(factory) = module_factory {
         return factory_module_data(factory, module_name, module_type, module_tag, raw_body);
     }
@@ -141,7 +141,7 @@ fn factory_module_data(
     module_type: ModuleType,
     module_tag: &str,
     raw_body: &str,
-) -> Option<Arc<dyn ModuleData>> {
+) -> Option<ModuleDataHandle> {
     if !factory.has_module_data_proc(module_name, module_type) {
         return None;
     }
@@ -303,7 +303,7 @@ impl ThingTemplate {
                 module_factory.as_deref_mut(),
             )
         };
-        if data.is_ai_module_data() {
+        if data.read().is_ai_module_data() {
             let target_info = match module_type {
                 ModuleType::Behavior => &mut self.behavior_module_info,
                 ModuleType::Draw => &mut self.draw_module_info,

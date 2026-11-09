@@ -254,7 +254,27 @@ impl Snapshotable for WorkerAIUpdate {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
 
-        self.data.xfer(xfer)?;
+        match &mut self.data {
+            WorkerData::Standalone(data) => data.xfer(xfer)?,
+            WorkerData::Shared(handle) => {
+                let mut guard = handle.write();
+                let any: &mut dyn std::any::Any = &mut *guard;
+                let data = any.downcast_mut::<crate::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData>()
+                    .expect("worker shared data must be WorkerAIUpdateModuleData");
+                xfer_io(xfer.xfer_int(&mut data.max_boxes_data))?;
+                xfer_io(xfer.xfer_real(&mut data.warehouse_scan_distance))?;
+                xfer_io(xfer.xfer_unsigned_int(&mut data.warehouse_delay))?;
+                xfer_io(xfer.xfer_unsigned_int(&mut data.center_delay))?;
+                xfer_io(xfer.xfer_real(&mut data.repair_health_percent_per_second))?;
+                xfer_io(xfer.xfer_real(&mut data.bored_time))?;
+                xfer_io(xfer.xfer_real(&mut data.bored_range))?;
+                let mut boost = data.upgraded_supply_boost.max(0) as u32;
+                xfer_io(xfer.xfer_unsigned_int(&mut boost))?;
+                if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+                    data.upgraded_supply_boost = boost as i32;
+                }
+            }
+        }
 
         let mut state_disc = self.state as u32;
         xfer_io(xfer.xfer_unsigned_int(&mut state_disc))?;

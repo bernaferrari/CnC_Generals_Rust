@@ -27,12 +27,13 @@ fn install_module(
         );
     }
     data.condition_states.extend([default, selected]);
-    let model = W3DModelDraw::new(data.clone());
+    let data = ModuleDataHandle::new(data);
+    let model = W3DModelDraw::new_with_module_data(data.clone());
     drawable.add_module(
         ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         name.into(),
-        Arc::new(data),
+        data,
         Box::new(model),
     )
 }
@@ -144,12 +145,13 @@ fn pristine_bone_miss_does_not_substitute_drawable_skeleton() {
     state.conditions_yes.push(ModelConditionFlags::empty());
     state.model_name = AsciiString::from("NamedStateWithoutRequestedBone");
     data.condition_states.push(state);
-    let model = W3DModelDraw::new(data.clone());
+    let data = ModuleDataHandle::new(data);
+    let model = W3DModelDraw::new_with_module_data(data.clone());
     drawable.add_module(
         ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         "BoneMiss".into(),
-        Arc::new(data),
+        data,
         Box::new(model),
     );
     drawable.skeleton.push(BoneData {

@@ -56,7 +56,7 @@ crate::impl_behavior_module_data_via_base!(SupplyCenterProductionExitModuleData,
 /// SupplyCenterProductionExitUpdate behavior.
 #[derive(Debug)]
 pub struct SupplyCenterProductionExitBehavior {
-    data: SupplyCenterProductionExitModuleData,
+    data: game_engine::common::thing::module::ModuleDataView<SupplyCenterProductionExitModuleData>,
     owner_id: ObjectID,
     next_call_frame_and_phase: UnsignedInt,
     rally_point: Coord3D,
@@ -65,6 +65,12 @@ pub struct SupplyCenterProductionExitBehavior {
 
 impl SupplyCenterProductionExitBehavior {
     pub fn new(data: SupplyCenterProductionExitModuleData, owner_id: ObjectID) -> Self {
+        Self::with_handle(game_engine::common::thing::module::ModuleDataHandle::new(data), owner_id)
+    }
+
+    fn with_handle(data: game_engine::common::thing::module::ModuleDataHandle, owner_id: ObjectID) -> Self {
+        assert!(data.is::<SupplyCenterProductionExitModuleData>());
+        let data = game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<SupplyCenterProductionExitModuleData>().expect("SupplyCenterProductionExit module data"));
         Self {
             data,
             owner_id,
@@ -76,15 +82,12 @@ impl SupplyCenterProductionExitBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<SupplyCenterProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let module_object = thing.as_object().ok_or_else(|| {
             "SupplyCenterProductionExitUpdate requires an owning object".to_string()
         })?;
-        Ok(Self::new(
-            module_data.as_ref().clone(),
-            module_object.get_object_id(),
-        ))
+        Ok(Self::with_handle(module_data, module_object.get_object_id()))
     }
 
     pub fn set_rally_point(&mut self, pos: Coord3D) {
@@ -97,7 +100,7 @@ impl SupplyCenterProductionExitBehavior {
     }
 
     fn get_natural_rally_point(&self, transform: &Matrix3D, offset: bool) -> Coord3D {
-        let mut p = self.data.natural_rally_point;
+        let mut p = self.data.read().natural_rally_point;
         if offset {
             let mut offset_vec = p;
             let len = (offset_vec.x * offset_vec.x
@@ -143,7 +146,7 @@ impl SupplyCenterProductionExitBehavior {
         let owner_stealthed = owner_guard.test_status(ObjectStatusTypes::Stealthed);
         drop(owner_guard);
 
-        let mut create_point = self.transform_point(&self.data.unit_create_point, &transform);
+        let mut create_point = self.transform_point(&self.data.read().unit_create_point, &transform);
         if let Some(terrain) = TheTerrainLogic::get() {
             create_point.z = terrain.get_ground_height(create_point.x, create_point.y, None);
         }
@@ -189,7 +192,8 @@ impl SupplyCenterProductionExitBehavior {
             }
         }
 
-        if self.data.grant_temporary_stealth_frames > 0 && owner_stealthed {
+        let stealth_frames = self.data.read().grant_temporary_stealth_frames;
+        if stealth_frames > 0 && owner_stealthed {
             if let Ok(guard) = new_obj.write() {
                 let can_stealth = guard.test_status(ObjectStatusTypes::CanStealth);
                 if let Some(stealth) = guard.get_stealth() {
@@ -200,7 +204,7 @@ impl SupplyCenterProductionExitBehavior {
                             let frame = TheGameLogic::get_frame();
                             let _ = stealth_guard.receive_grant(
                                 true,
-                                self.data.grant_temporary_stealth_frames,
+                                stealth_frames,
                                 frame,
                             );
                         }
@@ -289,14 +293,14 @@ impl ModuleExitInterface for SupplyCenterProductionExitBehavior {
 pub struct SupplyCenterProductionExitBehaviorModule {
     behavior: SupplyCenterProductionExitBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<SupplyCenterProductionExitModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl SupplyCenterProductionExitBehaviorModule {
     pub fn new(
         behavior: SupplyCenterProductionExitBehavior,
         module_name: &AsciiString,
-        module_data: Arc<SupplyCenterProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -331,13 +335,11 @@ impl Module for SupplyCenterProductionExitBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -416,7 +418,7 @@ const SUPPLY_CENTER_PRODUCTION_EXIT_FIELDS: &[FieldParse<SupplyCenterProductionE
 
 impl Snapshotable for SupplyCenterProductionExitBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -435,7 +437,7 @@ impl Snapshotable for SupplyCenterProductionExitBehavior {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.data.load_post_process()
+        self.data.handle().write().load_post_process()
     }
 }
 

@@ -75,10 +75,11 @@ impl ChinookAIUpdate {
         let chopper_elevation = owner_guard.get_position().z - pos.z;
         if crate::system::engine_stores::active_services().client_random_value_real(0.0, chopper_elevation) < 5.0 {
             if let Some(ps_manager) = TheParticleSystemManager::get() {
-                let template = if self.data.rotor_wash_particle_system.is_empty() {
+                let data = self.data();
+                let template = if data.rotor_wash_particle_system.is_empty() {
                     None
                 } else {
-                    Some(self.data.rotor_wash_particle_system.as_str())
+                    Some(data.rotor_wash_particle_system.as_str())
                 };
                 if let Some(id) = ps_manager.create_particle_system(template) {
                     ps_manager.set_particle_system_position(id, &pos);

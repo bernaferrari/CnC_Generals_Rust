@@ -14,6 +14,8 @@ use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSl
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 /// Wave 370 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
 /// Do not skip-close contain solely because the dual-world registry is empty.
@@ -85,23 +87,28 @@ pub struct HealContain {
     pub base: OpenContain,
     /// Reference to the owning object
     object_id: ObjectID,
-    module_data: HealContainModuleData,
+    module_data: ModuleDataView<HealContainModuleData>,
 }
 
 impl HealContain {
     /// Create a new HealContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &HealContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<HealContainModuleData>>()
+                .expect("heal contain module data has an incompatible type").contain_data()
+        });
+        drop(data.read());
+        let base = OpenContain::new(object.clone(), module_data)?;
         Ok(Self {
             base,
             object_id: object
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: module_data.clone(),
+            module_data: data,
         })
     }
 
@@ -121,6 +128,10 @@ impl HealContain {
 
     /// Update method called once per frame
     pub fn update(&mut self, module_data: &HealContainModuleData) -> GameResult<UpdateSleepTime> {
+        self.update_with_frames(module_data.frames_for_full_heal)
+    }
+
+    fn update_with_frames(&mut self, frames_for_full_heal: u32) -> GameResult<UpdateSleepTime> {
         // Wave 370: empty dual-world → Ok(None).
         if dual_world_registry_unavailable() {
             return Ok(UpdateSleepTime::None);
@@ -135,7 +146,7 @@ impl HealContain {
 
         // Process each contained object for healing
         for patient_id in contained_ids {
-            let done_healing = match self.do_heal(patient_id, module_data.frames_for_full_heal) {
+            let done_healing = match self.do_heal(patient_id, frames_for_full_heal) {
                 Ok(done) => done,
                 Err(err) => {
                     log::warn!(
@@ -406,8 +417,8 @@ impl ContainModuleInterface for HealContain {
     }
 
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let module_data = self.module_data.clone();
-        HealContain::update(self, &module_data).map_err(|e| e.into())
+        let frames = self.module_data.read().frames_for_full_heal;
+        self.update_with_frames(frames).map_err(|e| e.into())
     }
 
     fn on_damage(
@@ -679,7 +690,7 @@ mod tests {
     #[test]
     fn trait_snapshot_xfer_writes_heal_version_and_open_contain_state_like_cpp() {
         let mut contain =
-            HealContain::new(Weak::new(), &HealContainModuleData::default()).expect("heal contain");
+            HealContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default()))).expect("heal contain");
 
         let mut xfer = RecordingXfer::new();
         ContainModuleInterface::snapshot_xfer(&mut contain, &mut xfer).expect("heal snapshot xfer");
@@ -699,7 +710,7 @@ mod tests {
         attach_active_body(&patient, 100.0, 25.0);
 
         let mut contain =
-            HealContain::new(Arc::downgrade(&owner), &HealContainModuleData::default())
+            HealContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default())))
                 .expect("heal contain");
 
         assert!(
@@ -731,7 +742,7 @@ mod tests {
         attach_active_body(&patient, 100.0, 25.0);
 
         let mut contain =
-            HealContain::new(Arc::downgrade(&owner), &HealContainModuleData::default())
+            HealContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default())))
                 .expect("heal contain");
 
         assert!(

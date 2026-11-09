@@ -69,7 +69,7 @@ const CHECKPOINT_UPDATE_FIELDS: &[FieldParse<CheckpointUpdateModuleData>] = &[Fi
 /// CheckpointUpdate module - Opens gates when allies nearby, closes when enemies near
 pub struct CheckpointUpdate {
     object_id: ObjectID,
-    module_data: Arc<CheckpointUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
 
     /// Is an enemy currently near?
@@ -85,12 +85,17 @@ pub struct CheckpointUpdate {
 impl CheckpointUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<CheckpointUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        Self::new_with_module_data(object, module_data)
+    }
+
+    pub(crate) fn new_with_module_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let guard = module_data.read();
+        let specific_data = guard.downcast_ref::<CheckpointUpdateModuleData>().ok_or("Invalid module data")?;
 
         // Get max bounding radius from object geometry
         let max_bounding_radius = {
@@ -101,6 +106,7 @@ impl CheckpointUpdate {
         // Bias with random delay so all checkpoints don't spike at once
         let random_delay =
             get_game_logic_random_value(0, specific_data.enemy_scan_delay_time as i32) as u32;
+        drop(guard);
 
         Ok(Self {
             object_id: object
@@ -108,7 +114,7 @@ impl CheckpointUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             enemy_near: false,
             ally_near: false,
@@ -127,7 +133,7 @@ impl CheckpointUpdate {
     /// Check for nearby allies and enemies
     fn check_for_allies_and_enemies(&mut self) {
         // Always scan (C++ has `|| TRUE` which makes the delay check always pass)
-        self.enemy_scan_delay = self.module_data.enemy_scan_delay_time;
+        self.enemy_scan_delay = self.module_data.read().downcast_ref::<CheckpointUpdateModuleData>().expect("Invalid module data").enemy_scan_delay_time;
 
         let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -298,7 +304,7 @@ pub struct CheckpointUpdateFactory;
 impl CheckpointUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(CheckpointUpdate::new(thing, module_data)?))
     }

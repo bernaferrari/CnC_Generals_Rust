@@ -15,7 +15,7 @@ use crate::modules::AIUpdateInterface;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
     "YES",
@@ -237,11 +237,11 @@ const DEPLOY_STYLE_AI_UPDATE_FIELDS: &[FieldParse<DeployStyleAIUpdateModuleData>
 #[derive(Debug)]
 pub struct DeployStyleAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<DeployStyleAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl DeployStyleAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<DeployStyleAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -322,21 +322,21 @@ impl Module for DeployStyleAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for DeployStyleAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -344,47 +344,29 @@ impl Snapshotable for DeployStyleAIUpdateModule {
     }
 }
 
-/// Runtime data for DeployStyleAIUpdate.
-#[derive(Debug, Clone)]
-pub struct DeployStyleAIUpdateData {
-    pub unpack_time: UnsignedInt,
-    pub pack_time: UnsignedInt,
-    pub reset_turret_before_packing: Bool,
-    pub turrets_function_only_when_deployed: Bool,
-    pub turrets_must_center_before_packing: Bool,
-    pub manual_deploy_animations: Bool,
-}
-
-impl Default for DeployStyleAIUpdateData {
-    fn default() -> Self {
-        Self {
-            unpack_time: 0,
-            pack_time: 0,
-            reset_turret_before_packing: false,
-            turrets_function_only_when_deployed: false,
-            turrets_must_center_before_packing: false,
-            manual_deploy_animations: false,
-        }
-    }
-}
-
 /// Deploy style AI update logic.
 #[derive(Debug, Clone)]
 pub struct DeployStyleAIUpdate {
-    data: DeployStyleAIUpdateData,
+    data: ModuleDataHandle,
     owner_id: ObjectID,
     state: DeployStateType,
     frame_to_wait_for_deploy: UnsignedInt,
 }
 
 impl DeployStyleAIUpdate {
-    pub fn new(data: DeployStyleAIUpdateData, owner_id: ObjectID) -> Self {
+    pub fn new(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
         Self {
             data,
             owner_id,
             state: DeployStateType::ReadyToMove,
             frame_to_wait_for_deploy: 0,
         }
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, DeployStyleAIUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.downcast_ref::<DeployStyleAIUpdateModuleData>().expect("DeployStyle data type")
+        })
     }
 
     pub fn update(
@@ -463,7 +445,7 @@ impl DeployStyleAIUpdate {
                 DeployStateType::ReadyToAttack => {
                     let turret = ai.get_which_turret_for_cur_weapon();
                     if turret != crate::common::TurretType::Invalid
-                        && self.data.turrets_must_center_before_packing
+                        && self.data().turrets_must_center_before_packing
                     {
                         self.set_my_state(ai, DeployStateType::AligningTurrets, false);
                     } else {
@@ -496,14 +478,14 @@ impl DeployStyleAIUpdate {
                 }
                 DeployStateType::ReadyToAttack => {}
                 DeployStateType::Deploy => {
-                    if self.data.manual_deploy_animations {
+                    if self.data().manual_deploy_animations {
                         let total_frames = self.get_pack_time();
                         let frames_left = self.frame_to_wait_for_deploy.saturating_sub(now);
                         owner_guard.set_animation_frame((total_frames - frames_left) as i32);
                     }
                 }
                 DeployStateType::Undeploy => {
-                    if self.data.manual_deploy_animations {
+                    if self.data().manual_deploy_animations {
                         let frames_left = self.frame_to_wait_for_deploy.saturating_sub(now);
                         owner_guard.set_animation_frame(frames_left as i32);
                     }
@@ -524,11 +506,11 @@ impl DeployStyleAIUpdate {
     }
 
     fn get_unpack_time(&self) -> UnsignedInt {
-        self.data.unpack_time
+        self.data().unpack_time
     }
 
     fn get_pack_time(&self) -> UnsignedInt {
-        self.data.pack_time
+        self.data().pack_time
     }
 
     fn set_my_state(
@@ -557,7 +539,7 @@ impl DeployStyleAIUpdate {
                     let total_frames = self.get_unpack_time();
                     let frames_left = self.frame_to_wait_for_deploy.saturating_sub(now);
                     self.frame_to_wait_for_deploy = now + total_frames.saturating_sub(frames_left);
-                    if self.data.manual_deploy_animations {
+                    if self.data().manual_deploy_animations {
                         owner_guard.set_animation_frame((total_frames - frames_left) as i32);
                     }
                 } else {
@@ -581,14 +563,14 @@ impl DeployStyleAIUpdate {
                     let total_frames = self.get_unpack_time();
                     let frames_left = self.frame_to_wait_for_deploy.saturating_sub(now);
                     self.frame_to_wait_for_deploy = now + total_frames.saturating_sub(frames_left);
-                    if self.data.manual_deploy_animations {
+                    if self.data().manual_deploy_animations {
                         owner_guard.set_animation_frame(frames_left as i32);
                     }
                 } else {
                     self.frame_to_wait_for_deploy = self.get_pack_time() + now;
                 }
 
-                if self.data.turrets_function_only_when_deployed {
+                if self.data().turrets_function_only_when_deployed {
                     let turret = ai.get_which_turret_for_cur_weapon();
                     if turret != crate::common::TurretType::Invalid {
                         turret_action = Some((turret, false, false));
@@ -619,7 +601,7 @@ impl DeployStyleAIUpdate {
                 let set = MODELCONDITION_DEPLOYED;
                 let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
 
-                if self.data.turrets_function_only_when_deployed {
+                if self.data().turrets_function_only_when_deployed {
                     let turret = ai.get_which_turret_for_cur_weapon();
                     if turret != crate::common::TurretType::Invalid {
                         turret_action = Some((turret, true, false));

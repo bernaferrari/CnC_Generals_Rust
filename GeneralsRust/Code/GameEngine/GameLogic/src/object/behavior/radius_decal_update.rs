@@ -58,7 +58,7 @@ crate::impl_behavior_module_data_via_base!(RadiusDecalUpdateModuleData, base);
 pub struct RadiusDecalUpdate {
     object_id: ObjectID,
     #[allow(dead_code)]
-    module_data: Arc<RadiusDecalUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
 
     /// The radius decal being managed
@@ -70,15 +70,11 @@ pub struct RadiusDecalUpdate {
 }
 
 impl RadiusDecalUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<RadiusDecalUpdateModuleData>()
-            .ok_or("Invalid module data")?;
 
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<RadiusDecalUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
         let mut decal = RadiusDecal::new(Coord3D::origin(), 0.0);
         decal.clear();
 
@@ -90,7 +86,7 @@ impl RadiusDecalUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             delivery_decal: decal,
             kill_when_no_longer_attacking: false,
@@ -244,14 +240,14 @@ impl BehaviorModuleInterface for RadiusDecalUpdate {
 pub struct RadiusDecalUpdateModule {
     behavior: RadiusDecalUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<RadiusDecalUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl RadiusDecalUpdateModule {
     pub fn new(
         behavior: RadiusDecalUpdate,
         module_name: &AsciiString,
-        module_data: Arc<RadiusDecalUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -294,11 +290,11 @@ impl Module for RadiusDecalUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -369,9 +365,9 @@ pub struct RadiusDecalUpdateFactory;
 impl RadiusDecalUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(RadiusDecalUpdate::new(thing, module_data)?))
+        Ok(Box::new(RadiusDecalUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -383,25 +379,21 @@ pub fn radius_decal_update_data_factory(
 
 pub fn radius_decal_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<RadiusDecalUpdateModuleData>()
-        .expect("RadiusDecalUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<RadiusDecalUpdateModuleData>());
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("RadiusDecalUpdate requires object");
-    let behavior = RadiusDecalUpdate::new(object, module_data_arc.clone())
+    let behavior = RadiusDecalUpdate::new_with_module_data(object, module_data.clone())
         .expect("RadiusDecalUpdate failed to initialize");
     let module_name = AsciiString::from("RadiusDecalUpdate");
     Box::new(RadiusDecalUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }

@@ -237,7 +237,7 @@ impl SpecialPowerCompletionDie {
     /// Create a new SpecialPowerCompletionDie module
     pub fn new(
         object: Arc<RwLock<Object>>,
-        module_data: Arc<SpecialPowerCompletionDieModuleData>,
+        module_data: super::ModuleDataHandle,
     ) -> Self {
         Self {
             base: DieModule::new(object, module_data),
@@ -277,7 +277,8 @@ impl SpecialPowerCompletionDie {
             return;
         }
 
-        let power_name = match &self.base.module_data.special_power_template {
+        let module_data = self.base.module_data.read();
+        let power_name = match &module_data.special_power_template {
             Some(name) => name,
             None => return,
         };
@@ -358,7 +359,7 @@ impl DieModuleInterface for SpecialPowerCompletionDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }

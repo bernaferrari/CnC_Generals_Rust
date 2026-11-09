@@ -413,7 +413,8 @@ mod tests {
         state.mark_barrels_validated();
         data.condition_states.push(state);
         data.initial_recoil = 1.75;
-        let mut model = W3DModelDraw::new(data.clone());
+        let data = ModuleDataHandle::new(data);
+        let mut model = W3DModelDraw::new_with_module_data(data.clone());
         model.cur_state = Some(ActiveModelState::Condition(0));
         model.weapon_recoil_info[0].push(WeaponRecoilInfo::new());
         model.owner_id = Some(id);
@@ -423,7 +424,7 @@ mod tests {
             ModuleInterfaceType::DRAW,
             "W3DModelDraw".into(),
             "HeldHiddenShooterDraw".into(),
-            Arc::new(data),
+            data,
             Box::new(model),
         );
         let drawable = Arc::new(RwLock::new(drawable));

@@ -122,7 +122,7 @@ const SUPPLY_WAREHOUSE_CRIPPLING_FIELDS: &[FieldParse<
 pub struct SupplyWarehouseCripplingBehavior {
     // Base module data
     object_id: ObjectID,
-    module_data: Arc<SupplyWarehouseCripplingBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<SupplyWarehouseCripplingBehaviorModuleData>,
 
     // State tracking
     next_call_frame_and_phase: UnsignedInt,
@@ -131,17 +131,14 @@ pub struct SupplyWarehouseCripplingBehavior {
 }
 
 impl SupplyWarehouseCripplingBehavior {
-    pub fn new(
+    pub fn new_with_module_data(
         thing: Arc<RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
+        handle: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = {
-            let data_ref = module_data
-                .as_any()
-                .downcast_ref::<SupplyWarehouseCripplingBehaviorModuleData>()
-                .ok_or("Invalid module data type")?;
-            data_ref.clone()
-        };
+        if !handle.is::<SupplyWarehouseCripplingBehaviorModuleData>() {
+            return Err("Invalid module data type".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<SupplyWarehouseCripplingBehaviorModuleData>().expect("SupplyWarehouseCripplingBehavior module data"));
 
         Ok(Self {
             object_id: thing
@@ -149,7 +146,7 @@ impl SupplyWarehouseCripplingBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data),
+            module_data,
             next_call_frame_and_phase: UPDATE_SLEEP_FOREVER.to_u32(),
             healing_suppressed_until_frame: 0,
             next_healing_frame: 0,
@@ -215,7 +212,7 @@ impl SupplyWarehouseCripplingBehavior {
     fn reset_self_heal_suppression(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let data = &self.module_data;
+        let data = self.module_data.read();
         let now = TheGameLogic::get_frame();
 
         self.healing_suppressed_until_frame = now + data.self_heal_suppression;
@@ -263,7 +260,7 @@ impl UpdateModuleInterface for SupplyWarehouseCripplingBehavior {
         }
 
         // Suppression is handled by sleeping the module, so if we're here, it's time to heal
-        let data = &self.module_data;
+        let data = self.module_data.read();
         let now = TheGameLogic::get_frame();
 
         self.next_healing_frame = now + data.self_heal_delay;
@@ -376,7 +373,7 @@ impl BehaviorModuleInterface for SupplyWarehouseCripplingBehavior {
 pub struct SupplyWarehouseCripplingBehaviorModule {
     behavior: SupplyWarehouseCripplingBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<SupplyWarehouseCripplingBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl SupplyWarehouseCripplingBehaviorModule {
@@ -387,7 +384,7 @@ impl SupplyWarehouseCripplingBehaviorModule {
     pub fn new(
         behavior: SupplyWarehouseCripplingBehavior,
         module_name: &AsciiString,
-        module_data: Arc<SupplyWarehouseCripplingBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -422,11 +419,11 @@ impl Module for SupplyWarehouseCripplingBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule` initial wake frame, reached through the typed

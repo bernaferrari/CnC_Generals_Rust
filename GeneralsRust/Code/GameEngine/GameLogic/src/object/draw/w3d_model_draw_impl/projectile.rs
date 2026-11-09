@@ -11,7 +11,8 @@ impl W3DModelDraw {
         if weapon_slot >= WEAPONSLOT_COUNT {
             return None;
         }
-        let state = self.data.find_best_info(condition)?;
+        let data = self.model_data();
+        let state = data.find_best_info(condition)?;
         let turret_index = match turret_type {
             TurretType::Primary => Some(0),
             TurretType::Secondary => Some(1),
@@ -37,14 +38,14 @@ impl W3DModelDraw {
         // TURRET_INVALID must never initialize the attachment cache.
         let mut attachment_bone = None;
         let mut cached_attachment = None;
-        if turret_type != TurretType::Invalid && !self.data.attach_to_drawable_bone.is_empty() {
+        if turret_type != TurretType::Invalid && !data.attach_to_drawable_bone.is_empty() {
             cached_attachment = self
                 .attach_offset_cache
                 .lock()
                 .ok()
                 .and_then(|cache| *cache);
             if cached_attachment.is_none() {
-                attachment_bone = Some(self.data.attach_to_drawable_bone.clone());
+                attachment_bone = Some(data.attach_to_drawable_bone.clone());
             }
         }
         let keys = turret
@@ -76,7 +77,7 @@ impl W3DModelDraw {
         // An escaped handle may replace definition data between preparation
         // and resolution. Finish the frozen query without caching it against
         // a different attachment name. No animation/state effects are resumed.
-        if self.data.attach_to_drawable_bone.as_str() != bone {
+        if self.model_data().attach_to_drawable_bone.as_str() != bone {
             return offset;
         }
         match self.attach_offset_cache.get_mut() {

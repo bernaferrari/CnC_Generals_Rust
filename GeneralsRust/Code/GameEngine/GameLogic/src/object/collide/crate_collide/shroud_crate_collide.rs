@@ -11,7 +11,7 @@ use crate::object::collide::crate_collide::crate_collide::CrateCollide as Legacy
 use crate::object::collide::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ModuleData, NameKeyType, ShroudCrateCollideConfig};
+use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType, ShroudCrateCollideConfig};
 
 /// Module data for shroud crates. C++ exposes only the inherited CrateCollide
 /// fields, so the shroud-specific config is the base crate collision data.
@@ -154,9 +154,12 @@ impl ShroudCrateCollide {
     /// # Arguments
     /// * `object_id` - The ID of the object this module belongs to
     /// * `module_data` - Configuration data for the crate collision behavior
-    pub fn new(object_id: ObjectId, module_data: CrateCollideModuleData) -> Self {
+    pub fn new(object_id: ObjectId, module_data: ModuleDataHandle) -> Self {
+        let base_data = ModuleDataView::new(module_data, |data| {
+            &data.as_any().downcast_ref::<ShroudCrateCollideModuleData>().expect("shroud crate data").crate_data
+        });
         Self {
-            base: LegacyCrateCollide::new(object_id, module_data),
+            base: LegacyCrateCollide::new(object_id, base_data),
             version: 1,
         }
     }

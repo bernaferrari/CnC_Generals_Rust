@@ -3,7 +3,7 @@
 use super::*;
 use crate::player::{OwnedPowerBrownout, Player, PlayerList, RadarEdgeServices};
 use crate::team::TeamFactory;
-use game_engine::common::thing::module::ModuleInterfaceType;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleInterfaceType};
 use game_engine::thing::thing_template::WeaponTemplateSet as EngineWeaponTemplateSet;
 use std::collections::HashMap;
 
@@ -101,7 +101,7 @@ impl Definitions {
             modules: vec![crate::common::TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: "FreshBodyState".into(),
-                data: Arc::new(body),
+                data: ModuleDataHandle::new(body),
                 interface_mask: ModuleInterfaceType::BODY,
             }],
             weapons: sets.clone(),

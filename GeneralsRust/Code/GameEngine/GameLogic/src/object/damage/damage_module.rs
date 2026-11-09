@@ -8,9 +8,10 @@
 //! version-tracked xfer.  No damage-specific virtuals exist at this level;
 //! derived modules (like SlowDeathBehaviorModule) override xfer/loadPostProcess.
 
-use crate::common::{INVALID_ID, ModuleData, NameKeyType, ObjectID};
+use crate::common::{INVALID_ID, NameKeyType, ObjectID};
 use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::ModuleDataView;
 use std::sync::{Arc, RwLock};
 
 /// Wave 415: host-only path has no dual-world factory objects.
@@ -61,13 +62,13 @@ crate::impl_legacy_module_data_with_key_field!(DamageModuleData, module_tag_name
 /// Base struct for damage modules with common functionality (matches C++ DamageModule).
 /// Owner is stored as ObjectID; resolve for the duration of an op.
 #[derive(Debug)]
-pub struct DamageModule<T: ModuleData> {
-    pub module_data: Arc<T>,
+pub struct DamageModule<T: 'static> {
+    pub module_data: ModuleDataView<T>,
     pub object_id: ObjectID,
 }
 
-impl<T: ModuleData> DamageModule<T> {
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<T>) -> Self {
+impl<T: 'static> DamageModule<T> {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: ModuleDataView<T>) -> Self {
         let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
         if object_id != INVALID_ID {
             crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
@@ -78,14 +79,14 @@ impl<T: ModuleData> DamageModule<T> {
         }
     }
 
-    pub fn new_by_id(object_id: ObjectID, module_data: Arc<T>) -> Self {
+    pub fn new_by_id(object_id: ObjectID, module_data: ModuleDataView<T>) -> Self {
         Self {
             module_data,
             object_id,
         }
     }
 
-    pub fn get_module_data(&self) -> &T {
+    pub fn get_module_data(&self) -> &ModuleDataView<T> {
         &self.module_data
     }
 

@@ -7,35 +7,32 @@
 use super::object_impl_imports::*;
 use super::*;
 use crate::upgrade::UpgradeTemplatePlayerExt;
+use game_engine::common::thing::module::ModuleDataView;
 
 /// Immutable effect plans carry definitions across the short installed-module borrow.
 /// The executed flag remains solely in that same installed entry.
 enum PreparedUpgrade {
-    Radar(Arc<crate::object::upgrade::radar_upgrade::RadarUpgradeModuleData>),
-    SubObjects(Arc<crate::object::upgrade::subobjects_upgrade::SubObjectsUpgradeModuleData>),
-    PassengersFire(
-        Arc<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData>,
-    ),
-    StatusBits(Arc<crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>),
-    Armor(Arc<crate::object::upgrade::armor_upgrade::ArmorUpgradeModuleData>),
-    MaxHealth(Arc<crate::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData>),
-    ExperienceScalar(
-        Arc<crate::object::upgrade::experience_scalar_upgrade::ExperienceScalarUpgradeModuleData>,
-    ),
-    WeaponBonus(Arc<crate::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>),
+    Radar(ModuleDataView<crate::object::upgrade::radar_upgrade::RadarUpgradeModuleData>),
+    SubObjects(ModuleDataView<crate::object::upgrade::subobjects_upgrade::SubObjectsUpgradeModuleData>),
+    PassengersFire(ModuleDataView<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData>),
+    StatusBits(ModuleDataView<crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>),
+    Armor(ModuleDataView<crate::object::upgrade::armor_upgrade::ArmorUpgradeModuleData>),
+    MaxHealth(ModuleDataView<crate::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData>),
+    ExperienceScalar(ModuleDataView<crate::object::upgrade::experience_scalar_upgrade::ExperienceScalarUpgradeModuleData>),
+    WeaponBonus(ModuleDataView<crate::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>),
 }
 
 impl PreparedUpgrade {
-    fn mux(&self) -> &crate::object::upgrade::upgrade_module::UpgradeMuxData {
+    fn with_mux(&self, f: impl FnOnce(&crate::object::upgrade::upgrade_module::UpgradeMuxData)) {
         match self {
-            Self::Radar(data) => &data.upgrade_mux_data,
-            Self::SubObjects(data) => &data.upgrade_mux_data,
-            Self::PassengersFire(data) => &data.upgrade_mux_data,
-            Self::StatusBits(data) => &data.upgrade_mux_data,
-            Self::Armor(data) => &data.upgrade_mux_data,
-            Self::MaxHealth(data) => &data.upgrade_mux_data,
-            Self::ExperienceScalar(data) => &data.upgrade_mux_data,
-            Self::WeaponBonus(data) => &data.upgrade_mux_data,
+            Self::Radar(data) => f(&data.read().upgrade_mux_data),
+            Self::SubObjects(data) => f(&data.read().upgrade_mux_data),
+            Self::PassengersFire(data) => f(&data.read().upgrade_mux_data),
+            Self::StatusBits(data) => f(&data.read().upgrade_mux_data),
+            Self::Armor(data) => f(&data.read().upgrade_mux_data),
+            Self::MaxHealth(data) => f(&data.read().upgrade_mux_data),
+            Self::ExperienceScalar(data) => f(&data.read().upgrade_mux_data),
+            Self::WeaponBonus(data) => f(&data.read().upgrade_mux_data),
         }
     }
 }
@@ -779,15 +776,17 @@ impl Object {
                 }
             });
             if let Some(prepared) = prepared {
-                prepared.mux().perform_upgrade_fx(self);
-                prepared.mux().process_upgrade_removal(self);
+                prepared.with_mux(|mux| {
+                    mux.perform_upgrade_fx(self);
+                    mux.process_upgrade_removal(self);
+                });
                 match &prepared {
-                    PreparedUpgrade::Radar(data) => radar_grant(self, data.is_disable_proof()),
-                    PreparedUpgrade::StatusBits(data) => data.apply_to_object(self),
-                    PreparedUpgrade::Armor(data) => data.apply_to_object(self),
-                    PreparedUpgrade::MaxHealth(data) => data.apply_to_object(self),
-                    PreparedUpgrade::ExperienceScalar(data) => data.apply_to_object(self),
-                    PreparedUpgrade::WeaponBonus(data) => data.apply_to_object(self),
+                    PreparedUpgrade::Radar(data) => radar_grant(self, data.read().is_disable_proof()),
+                    PreparedUpgrade::StatusBits(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::Armor(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::MaxHealth(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::ExperienceScalar(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::WeaponBonus(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::SubObjects(_) | PreparedUpgrade::PassengersFire(_) => {}
                 }
                 // Commit to the same entry that supplied this plan. Matching

@@ -627,7 +627,7 @@ mod tests {
             .position(owner_id, &owner, Coord3D::new(128.0, 128.0, 3.0), 0.0)
             .unwrap();
 
-        let data = Arc::new(GenerateMinefieldBehaviorModuleData {
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(GenerateMinefieldBehaviorModuleData {
             mine_name: "ProxyMine".into(),
             mine_name_upgraded: Some("ProxyEmpMine".into()),
             distance_around_object: 8.0,
@@ -642,7 +642,7 @@ mod tests {
         // Initial field through the same scheduler window (C++ placeMines).
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let initial = Arc::new(RwLock::new(ScheduledMinefieldModule {
-            behavior: GenerateMinefieldBehavior::new_from_config(owner_id, (*data).clone()),
+            behavior: GenerateMinefieldBehavior::new_from_handle(owner_id, data.clone()),
             upgrade: false,
             mid_update_ids: Arc::clone(&seen),
         }));
@@ -659,7 +659,7 @@ mod tests {
         assert!(!placed.is_empty(), "initial mines placed");
 
         let module_name = crate::common::AsciiString::from("GenerateMinefieldBehavior");
-        let real = GenerateMinefieldBehaviorModule::new(behavior, &module_name, Arc::clone(&data));
+        let real = GenerateMinefieldBehaviorModule::new(behavior, &module_name, data.clone());
         let (_host, proxy) = crate::object::Object::installed_update_proxy_for_test(
             owner_id,
             "GenerateMinefieldBehavior",

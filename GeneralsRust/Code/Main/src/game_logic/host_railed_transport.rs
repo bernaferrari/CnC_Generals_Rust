@@ -380,33 +380,33 @@ impl RailedDockState {
 impl GameLogic {
     /// Read the receiving template's parsed module, without inventing a
     /// configuration for objects that do not own this behavior.
-    fn railed_dock_data(&self, ferry: ObjectId) -> Option<&gamelogic::object::production::railed_transport_dock::RailedTransportDockUpdateData> {
+    fn railed_dock_data<R>(&self, ferry: ObjectId, read: impl FnOnce(&gamelogic::object::production::railed_transport_dock::RailedTransportDockUpdateData) -> R) -> Option<R> {
         let template = self.objects.get(&ferry)?.get_template().receiving_client_template.as_ref()?;
         let module = template.behavior_modules().iter()
             .find(|entry| entry.name.as_str().eq_ignore_ascii_case("RailedTransportDockUpdate"))?;
-        module.data.as_any().downcast_ref()
+        let guard = module.data.read();
+        Some(read(guard.downcast_ref()?))
     }
 
     pub(crate) fn railed_dock_approach_settings(&self, ferry: ObjectId) -> Option<(i32, bool)> {
-        let data = self.railed_dock_data(ferry)?;
-        Some((data.base.number_approach_positions_data, data.base.is_allow_passthrough))
+        self.railed_dock_data(ferry, |data| (data.base.number_approach_positions_data, data.base.is_allow_passthrough))
     }
 
     pub(crate) fn railed_dock_config(&self, ferry: ObjectId) -> Option<RailedDockConfig> {
-        let data = self.railed_dock_data(ferry)?;
-        Some(RailedDockConfig {
+        self.railed_dock_data(ferry, |data| RailedDockConfig {
             pull_frames: data.pull_inside_duration_frames,
             push_frames: data.push_outside_duration_frames,
             tolerance: data.tolerance_distance,
         })
     }
-    fn railed_contain_config(&self, ferry: ObjectId) -> Option<&gamelogic::object::contain::TransportContainModuleData> {
+    fn railed_contain_config<R>(&self, ferry: ObjectId, read: impl FnOnce(&gamelogic::object::contain::TransportContainModuleData) -> R) -> Option<R> {
         use gamelogic::contain_module_overrides::ContainModuleDataKind;
         let template = self.objects.get(&ferry)?.get_template().receiving_client_template.as_ref()?;
         let entry = template.behavior_modules().iter()
             .find(|entry| entry.name.as_str().eq_ignore_ascii_case("RailedTransportContain"))?;
-        match ContainModuleDataKind::from_module_data(entry.data.as_ref())? {
-            ContainModuleDataKind::RailedTransport(data) => Some(&data.base),
+        let guard = entry.data.read();
+        match ContainModuleDataKind::from_module_data(&*guard)? {
+            ContainModuleDataKind::RailedTransport(data) => Some(read(&data.base)),
             _ => None,
         }
     }
@@ -758,8 +758,8 @@ impl GameLogic {
         let riders: Vec<_> = container.contained_unit_ids().iter().rev()
             .filter_map(|&id| self.railed_birth(id)).collect();
         let transform = container.get_transform_matrix();
-        let turret = self.railed_contain_config(ferry)
-            .is_some_and(|data| data.base.passengers_in_turret);
+        let turret = self.railed_contain_config(ferry, |data| data.base.passengers_in_turret)
+            .unwrap_or(false);
         let points = self.railed_pristine_bones(ferry, "FIREPOINT", 1, 32, effects)?;
         for (index, rider) in riders.into_iter().enumerate() {
             if !self.railed_birth_alive(ferry_birth) { break; }
@@ -807,7 +807,7 @@ impl GameLogic {
                 container.model_condition_bits |= 1u128 << crate::game_logic::host_enum_table_residual::loaded_model_bit();
             }
         }
-        if self.railed_contain_config(ferry).is_some_and(|data| data.armed_riders_upgrade_weapon_set) {
+        if self.railed_contain_config(ferry, |data| data.armed_riders_upgrade_weapon_set).unwrap_or(false) {
             self.refresh_battle_bus_armed_riders_weapon_set(ferry);
         }
         if !self.railed_birth_alive(ferry_birth) || !self.railed_birth_alive(rider_birth) { return Ok(true); }
@@ -883,21 +883,20 @@ impl GameLogic {
         let yaw = container.get_orientation();
         let layer = container.pathfind_layer;
         let airborne = container.is_above_terrain_for_exit();
-        let contain = self.railed_contain_config(ferry)
-            .ok_or_else(|| "rail containment requires receiving RailedTransportContain module data".to_owned())?;
-        let aggressive = contain.go_aggressive_on_exit;
-        let velocity = contain.keep_container_velocity_on_exit.then_some(container.movement.velocity);
-        let exit_delay = contain.exit_delay;
-        let reset_mood = contain.reset_mood_check_time_on_exit;
-        let armed_riders = contain.armed_riders_upgrade_weapon_set;
-        let orient_on_exit = contain.orient_like_container_on_exit;
-        let pitch_rate = contain.exit_pitch_rate;
-        let exit_bone_position = if contain.exit_bone.is_empty() {
-            None
-        } else {
-            self.containment_pristine_bone_local_optional(ferry, &contain.exit_bone, effects)?
-                .map(|local| container.get_transform_matrix().transform_point3(local))
-        };
+        let (aggressive, velocity, exit_delay, reset_mood, armed_riders, orient_on_exit, pitch_rate, exit_bone_position) = self.railed_contain_config(ferry, |contain| {
+            let exit_bone_position = if contain.exit_bone.is_empty() {
+                Ok(None)
+            } else {
+                self.containment_pristine_bone_local_optional(ferry, &contain.exit_bone, effects)
+                    .map(|position| position.map(|local| container.get_transform_matrix().transform_point3(local)))
+            };
+            (contain.go_aggressive_on_exit,
+             contain.keep_container_velocity_on_exit.then_some(container.movement.velocity),
+             contain.exit_delay, contain.reset_mood_check_time_on_exit,
+             contain.armed_riders_upgrade_weapon_set, contain.orient_like_container_on_exit,
+             contain.exit_pitch_rate, exit_bone_position)
+        }).ok_or_else(|| "rail containment requires receiving RailedTransportContain module data".to_owned())?;
+        let exit_bone_position = exit_bone_position?;
         if !self.objects.get_mut(&ferry).unwrap().remove_occupant_with_partition_owner(
             passenger, &mut self.ownership_events, &mut self.partition_manager,
         ) { return Ok(false); }

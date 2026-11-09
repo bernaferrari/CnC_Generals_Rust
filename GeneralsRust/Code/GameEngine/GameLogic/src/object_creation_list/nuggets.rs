@@ -1514,17 +1514,19 @@ mod tests {
                 let _ = TheGameLogic::register_object(Arc::clone(&arc));
             }
             if self.options.attach_float {
-                let data: Arc<dyn crate::common::ModuleData> =
-                    Arc::new(FloatUpdateModuleData::default());
+                let data = game_engine::common::thing::module::ModuleDataHandle::new(
+                    FloatUpdateModuleData::default(),
+                );
                 let float_update =
-                    FloatUpdate::new(Arc::clone(&arc), data).expect("FloatUpdate::new");
+                    FloatUpdate::new_with_module_data(Arc::clone(&arc), data).expect("FloatUpdate::new");
                 arc.write()
                     .unwrap()
                     .push_behavior_module_for_test(Arc::new(Mutex::new(float_update)));
             }
             if self.options.attach_lifetime {
-                let data: Arc<dyn crate::common::ModuleData> =
-                    Arc::new(LifetimeUpdateModuleData::default());
+                let data = game_engine::common::thing::module::ModuleDataHandle::new(
+                    LifetimeUpdateModuleData::default(),
+                );
                 let lifetime =
                     LifetimeUpdate::new(Arc::clone(&arc), data).expect("LifetimeUpdate::new");
                 arc.write()

@@ -68,7 +68,7 @@ fn receiver(cu: bool) -> (GameClient, DrawableId) {
         template.add_client_update_module_info(
             "AnimatedParticleSysBoneClientUpdate".into(),
             "ActualCU".into(),
-            Arc::new(BaseModuleData::new()),
+            game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new()),
             ModuleInterfaceType::CLIENT_UPDATE,
         );
     }

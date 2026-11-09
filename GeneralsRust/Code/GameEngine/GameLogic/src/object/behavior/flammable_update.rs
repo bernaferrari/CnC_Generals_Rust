@@ -158,7 +158,7 @@ const FLAMMABLE_UPDATE_FIELDS: &[FieldParse<FlammableUpdateModuleData>] = &[
 pub struct FlammableUpdate {
     object_id: ObjectID,
     owner: Weak<RwLock<GameObject>>,
-    module_data: Arc<FlammableUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     status: FlammabilityStatus,
     aflame_end_frame: UnsignedInt,
@@ -175,16 +175,13 @@ pub struct FlammableUpdate {
 }
 
 impl FlammableUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
+        let flame_limit = module_data.read()
             .downcast_ref::<FlammableUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
-        let flame_limit = specific_data.flame_damage_limit;
+            .ok_or("Invalid module data")?.flame_damage_limit;
 
         Ok(Self {
             object_id: object
@@ -193,7 +190,7 @@ impl FlammableUpdate {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             owner: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             status: FlammabilityStatus::Normal,
             aflame_end_frame: 0,
@@ -285,8 +282,11 @@ impl FlammableUpdate {
         } else {
             self.needs_aflame_side_effects = true;
         }
+        let handle = self.module_data.clone();
+        let guard = handle.read();
+        let data = guard.downcast_ref::<FlammableUpdateModuleData>().expect("Invalid module data");
         let mut event =
-            crate::common::audio::AudioEventRts::new(self.module_data.burning_sound_name.as_str());
+            crate::common::audio::AudioEventRts::new(data.burning_sound_name.as_str());
         event.set_object_id(self.object_id);
         self.audio_handle = audio(&event);
         if let Ok(object) = owner.try_read() {
@@ -296,17 +296,18 @@ impl FlammableUpdate {
             }
         }
         self.status = FlammabilityStatus::Aflame;
-        self.aflame_end_frame = frame.wrapping_add(self.module_data.aflame_duration);
-        self.burned_end_frame = if self.module_data.burned_delay > 0 {
-            frame.wrapping_add(self.module_data.burned_delay)
+        self.aflame_end_frame = frame.wrapping_add(data.aflame_duration);
+        self.burned_end_frame = if data.burned_delay > 0 {
+            frame.wrapping_add(data.burned_delay)
         } else {
             0
         };
-        self.damage_end_frame = if self.module_data.aflame_damage_delay > 0 {
-            frame.wrapping_add(self.module_data.aflame_damage_delay)
+        self.damage_end_frame = if data.aflame_damage_delay > 0 {
+            frame.wrapping_add(data.aflame_damage_delay)
         } else {
             0
         };
+        drop(guard);
         let sleep = if self.needs_aflame_side_effects {
             UpdateSleepTime::None
         } else {
@@ -365,12 +366,17 @@ impl FlammableUpdate {
         }
 
         let current_frame = crate::helpers::TheGameLogic::get_frame();
+        let (expiration_delay, flame_damage_limit) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<FlammableUpdateModuleData>().expect("Invalid module data");
+            (data.flame_damage_expiration_delay, data.flame_damage_limit)
+        };
 
         // Reset threshold if it's been a long time since last flame damage
-        if current_frame.wrapping_sub(self.module_data.flame_damage_expiration_delay)
+        if current_frame.wrapping_sub(expiration_delay)
             > self.last_flame_damage_dealt
         {
-            self.flame_damage_limit = self.module_data.flame_damage_limit;
+            self.flame_damage_limit = flame_damage_limit;
         }
         self.last_flame_damage_dealt = current_frame;
 
@@ -422,7 +428,7 @@ impl FlammableUpdate {
         }) {
             if let Ok(mut obj) = object_arc.write() {
                 let mut damage_info = DamageInfo::with_simple(
-                    self.module_data.aflame_damage_amount,
+                    self.module_data.read().downcast_ref::<FlammableUpdateModuleData>().expect("Invalid module data").aflame_damage_amount,
                     self.object_id,
                     DamageType::Flame,
                     DeathType::Burned,
@@ -503,11 +509,12 @@ impl UpdateModuleInterface for FlammableUpdate {
         }
 
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let data = &self.module_data;
+        let aflame_damage_delay = self.module_data.read().downcast_ref::<FlammableUpdateModuleData>()
+            .expect("Invalid module data").aflame_damage_delay;
 
         // Check damage timer
         if self.damage_end_frame > 0 && current_frame >= self.damage_end_frame {
-            self.damage_end_frame = current_frame.wrapping_add(data.aflame_damage_delay);
+            self.damage_end_frame = current_frame.wrapping_add(aflame_damage_delay);
             self.do_aflame_damage();
             if self.needs_aflame_side_effects {
                 self.apply_deferred_aflame_side_effects();
@@ -706,7 +713,11 @@ pub(crate) fn ignite_installed_silent_at(
         if !Weak::ptr_eq(&flammable.owner, &Arc::downgrade(owner)) {
             return Err("Flammable belongs to another owner".into());
         }
-        if !flammable.module_data.burning_sound_name.is_empty() {
+        if !flammable.module_data.read()
+            .downcast_ref::<FlammableUpdateModuleData>()
+            .expect("Invalid module data")
+            .burning_sound_name.is_empty()
+        {
             return Err("named burning sound requires its supplied stop/delete lifetime".into());
         }
         let mut audio = |_event: &crate::common::audio::AudioEventRts| 0;
@@ -750,9 +761,9 @@ pub struct FlammableUpdateFactory;
 impl FlammableUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FlammableUpdate::new(thing, module_data)?))
+        Ok(Box::new(FlammableUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -866,8 +877,7 @@ mod tests {
         crate::system::game_logic::GameLogic,
     ) {
         let object = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
-        let data = Arc::new(data);
-        let module_data: Arc<dyn game_engine::common::thing::module::ModuleData> = data;
+        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let mut factory = game_engine::common::thing::module_factory::ModuleFactory::new();
         crate::contain_module_overrides::register_native_module_overrides(&mut factory).unwrap();
         let thing: Arc<dyn game_engine::common::thing::module::Thing> =
@@ -894,23 +904,23 @@ mod tests {
         );
         assert_eq!(
             module.get_module_tag_name_key(),
-            module_data.get_module_tag_name_key()
+            module_data.read().get_module_tag_name_key()
         );
         object
             .write()
             .unwrap()
             .install_update_module("FlammableUpdate", module, module_data);
         if let Some(delay) = spread_delay {
-            let data = Arc::new(
+            let data = game_engine::common::thing::module::ModuleDataHandle::new(
                 crate::object::update::fire_spread_update::FireSpreadUpdateModuleData {
                     min_spread_try_delay: delay,
                     max_spread_try_delay: delay,
                     ..Default::default()
                 },
             );
-            let behavior = crate::object::update::fire_spread_update::FireSpreadUpdate::new(
+            let behavior = crate::object::update::fire_spread_update::FireSpreadUpdate::with_module_data(
                 id,
-                (*data).clone(),
+                data.clone(),
             );
             let module = crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
                 behavior,
@@ -960,8 +970,9 @@ mod tests {
         let peer = Arc::new(RwLock::new(GameObject::new_test(9203, 250.0)));
         let thing: Arc<dyn FactoryThing> =
             Arc::new(crate::object::object_thing::ObjectThingHandle::new(&owner));
-        let data: Arc<dyn game_engine::common::thing::module::ModuleData> =
-            Arc::new(FlammableUpdateModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(
+            FlammableUpdateModuleData::default(),
+        );
         let mut factory = game_engine::common::thing::module_factory::ModuleFactory::new();
         crate::contain_module_overrides::register_native_module_overrides(&mut factory).unwrap();
         let module = factory
@@ -1109,9 +1120,9 @@ mod tests {
         let object_id = 9203;
         let object = Arc::new(RwLock::new(GameObject::new_test(object_id, 10.0)));
         crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
-        let flammable = FlammableUpdate::new(
+        let flammable = FlammableUpdate::new_with_module_data(
             Arc::clone(&object),
-            Arc::new(FlammableUpdateModuleData {
+            game_engine::common::thing::module::ModuleDataHandle::new(FlammableUpdateModuleData {
                 aflame_damage_amount: 25.0,
                 ..Default::default()
             }),
@@ -1133,9 +1144,9 @@ mod tests {
         let survivor_id = 9204;
         let survivor = Arc::new(RwLock::new(GameObject::new_test(survivor_id, 100.0)));
         crate::object::registry::OBJECT_REGISTRY.register_object(survivor_id, &survivor);
-        let survivor_flammable = FlammableUpdate::new(
+        let survivor_flammable = FlammableUpdate::new_with_module_data(
             Arc::clone(&survivor),
-            Arc::new(FlammableUpdateModuleData {
+            game_engine::common::thing::module::ModuleDataHandle::new(FlammableUpdateModuleData {
                 aflame_damage_amount: 7.0,
                 ..Default::default()
             }),

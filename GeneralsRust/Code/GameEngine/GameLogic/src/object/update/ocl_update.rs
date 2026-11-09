@@ -18,7 +18,7 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType, Object as ModuleObject, OclUpdateControlInterface,
+    Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, Object as ModuleObject, OclUpdateControlInterface,
     Thing as ModuleThing,
 };
 use log::warn;
@@ -245,7 +245,7 @@ const OCL_UPDATE_FIELDS: &[FieldParse<OCLUpdateModuleData>] = &[
 #[derive(Debug, Clone)]
 pub struct OCLUpdate {
     object_id: ObjectID,
-    module_data: Arc<OCLUpdateModuleData>,
+    module_data: ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     next_creation_frame: UnsignedInt,
     timer_started_frame: UnsignedInt,
@@ -254,7 +254,7 @@ pub struct OCLUpdate {
 }
 
 impl OCLUpdate {
-    pub fn new(object_id: ObjectID, module_data: Arc<OCLUpdateModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: ModuleDataHandle) -> Self {
         Self {
             object_id,
             module_data,
@@ -279,10 +279,11 @@ impl OCLUpdate {
             return UPDATE_SLEEP_NONE;
         }
 
-        let is_faction_triggered = self.module_data.is_faction_triggered;
-        let is_create_at_edge = self.module_data.is_create_at_edge;
-        let faction_ocl = self.module_data.faction_ocl.clone();
-        let default_ocl = self.module_data.ocl.clone();
+        let (is_faction_triggered, is_create_at_edge, faction_ocl, default_ocl) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<OCLUpdateModuleData>().expect("invalid OCLUpdate data");
+            (data.is_faction_triggered, data.is_create_at_edge, data.faction_ocl.clone(), data.ocl.clone())
+        };
 
         if is_faction_triggered {
             let player = object.get_controlling_player();
@@ -394,7 +395,12 @@ impl OCLUpdate {
     }
 
     fn set_next_creation_frame(&mut self) {
-        let delay = game_logic_random_value(self.module_data.min_delay, self.module_data.max_delay);
+        let (min, max) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<OCLUpdateModuleData>().expect("invalid OCLUpdate data");
+            (data.min_delay, data.max_delay)
+        };
+        let delay = game_logic_random_value(min, max);
         let now = TheGameLogic::get_frame();
         self.timer_started_frame = now;
         self.next_creation_frame = now.saturating_add(delay);
@@ -497,17 +503,17 @@ impl OCLUpdateInterface for OCLUpdate {
 /// Module wrapper for OCLUpdate update behavior.
 pub struct OCLUpdateModule {
     module_name_key: NameKeyType,
-    module_data: Arc<OCLUpdateModuleData>,
+    module_data: ModuleDataHandle,
     update: OCLUpdate,
 }
 
 impl OCLUpdateModule {
     pub fn new(
         module_name_key: NameKeyType,
-        module_data: Arc<OCLUpdateModuleData>,
+        module_data: ModuleDataHandle,
         owner_id: ObjectID,
     ) -> Self {
-        let update = OCLUpdate::new(owner_id, Arc::clone(&module_data));
+        let update = OCLUpdate::new(owner_id, module_data.clone());
         Self {
             module_name_key,
             module_data,
@@ -570,11 +576,11 @@ impl Module for OCLUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_ocl_update_control_interface(&mut self) -> Option<&mut dyn OclUpdateControlInterface> {
@@ -625,13 +631,9 @@ pub fn ocl_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
 
 pub fn ocl_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<OCLUpdateModuleData>()
-        .expect("OCLUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<OCLUpdateModuleData>(), "OCLUpdateModuleData expected");
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
@@ -639,7 +641,7 @@ pub fn ocl_update_module_factory(
     let module_name_key = NameKeyGenerator::name_to_key("OCLUpdate");
     Box::new(OCLUpdateModule::new(
         module_name_key,
-        module_data_arc,
+        module_data,
         owner_id,
     ))
 }

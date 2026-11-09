@@ -26,7 +26,7 @@ use crate::state_machine::StateReturnType;
 use crate::weapon::WeaponLockType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 use super::deliver_payload_data::{DeliverPayloadData, RADIUS_DECAL_TEMPLATE_FIELDS};
 
@@ -312,11 +312,11 @@ const DELIVER_PAYLOAD_AI_UPDATE_FIELDS: &[FieldParse<DeliverPayloadAIUpdateModul
 #[derive(Debug)]
 pub struct DeliverPayloadAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<DeliverPayloadAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl DeliverPayloadAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<DeliverPayloadAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -330,21 +330,21 @@ impl Module for DeliverPayloadAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for DeliverPayloadAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -356,7 +356,7 @@ impl Snapshotable for DeliverPayloadAIUpdateModule {
 #[derive(Debug, Clone)]
 pub struct DeliverPayloadAIUpdate {
     owner_id: ObjectID,
-    module_data: DeliverPayloadAIUpdateModuleData,
+    module_data: ModuleDataHandle,
     data: DeliverPayloadData,
     target_pos: Coord3D,
     move_to_pos: Coord3D,
@@ -393,7 +393,7 @@ impl DeliverPayloadAIUpdate {
         }
     }
 
-    pub fn new(module_data: DeliverPayloadAIUpdateModuleData, owner_id: ObjectID) -> Self {
+    pub fn new(module_data: ModuleDataHandle, owner_id: ObjectID) -> Self {
         Self {
             owner_id,
             module_data,
@@ -444,10 +444,12 @@ impl DeliverPayloadAIUpdate {
     }
 
     pub fn get_put_in_container_template_via_module_data(&self) -> Option<Arc<dyn ThingTemplate>> {
-        if self.module_data.put_in_container_name.is_empty() {
+        let data = self.module_data.read();
+        let data = data.downcast_ref::<DeliverPayloadAIUpdateModuleData>().expect("DeliverPayload data type");
+        if data.put_in_container_name.is_empty() {
             return None;
         }
-        TheThingFactory::find_template(self.module_data.put_in_container_name.as_str())
+        TheThingFactory::find_template(data.put_in_container_name.as_str())
     }
 
     fn kill_delivery_decal(&mut self) {
@@ -763,7 +765,7 @@ impl DeliverPayloadAIUpdate {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
             let _ = guard.clear_and_set_model_condition_flags(flags_to_clear, flags_to_set);
         });
-        self.drop_delay_left = self.module_data.door_delay;
+        self.drop_delay_left = self.module_data.read().downcast_ref::<DeliverPayloadAIUpdateModuleData>().expect("DeliverPayload data type").door_delay;
         self.did_open = false;
     }
 
@@ -1525,13 +1527,16 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
 
     fn deliver_payload_via_module_data(&mut self, move_to_pos: &Coord3D) {
         let mut dp_data = DeliverPayloadData::default();
-        dp_data.drop_offset = self.module_data.drop_offset;
-        dp_data.drop_variance = self.module_data.drop_variance;
-        dp_data.dist_to_target = self.module_data.max_distance_to_target;
-        dp_data.max_attempts = self.module_data.max_number_attempts;
-        dp_data.drop_delay = self.module_data.drop_delay;
-        dp_data.delivery_decal_template = self.module_data.delivery_decal_template.clone();
-        dp_data.delivery_decal_radius = self.module_data.delivery_decal_radius;
+        let data_guard = self.module_data.read();
+        let data = data_guard.downcast_ref::<DeliverPayloadAIUpdateModuleData>().expect("DeliverPayload data type");
+        dp_data.drop_offset = data.drop_offset;
+        dp_data.drop_variance = data.drop_variance;
+        dp_data.dist_to_target = data.max_distance_to_target;
+        dp_data.max_attempts = data.max_number_attempts;
+        dp_data.drop_delay = data.drop_delay;
+        dp_data.delivery_decal_template = data.delivery_decal_template.clone();
+        dp_data.delivery_decal_radius = data.delivery_decal_radius;
+        drop(data_guard);
 
         self.deliver_payload(move_to_pos, move_to_pos, &dp_data);
     }

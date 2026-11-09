@@ -157,75 +157,77 @@ impl ContainerFactory {
     ) -> GameResult<Box<dyn ContainerInterface>> {
         let weak_object = Arc::downgrade(&object);
         drop(object);
+        use game_engine::common::thing::module::ModuleDataHandle;
+        use crate::contain_module_overrides::ContainModuleDataAdapter;
 
         match container_type {
             "OpenContain" => {
                 let data = Self::load_config::<OpenContainModuleData>(config);
-                let container = OpenContain::new(weak_object.clone(), &data)?;
+                let container = OpenContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "TransportContain" => {
                 let data = Self::load_config::<TransportContainModuleData>(config);
-                let container = TransportContain::new(weak_object.clone(), &data)?;
+                let container = TransportContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "GarrisonContain" => {
                 let data = Self::load_config::<GarrisonContainModuleData>(config);
-                let container = GarrisonContain::new(weak_object.clone(), &data)?;
+                let container = GarrisonContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "HealContain" => {
                 let data = Self::load_config::<HealContainModuleData>(config);
-                let container = HealContain::new(weak_object.clone(), &data)?;
+                let container = HealContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "CaveContain" => {
                 let data = Self::load_config::<CaveContainModuleData>(config);
                 let container = CaveContain::new(
                     weak_object.clone(),
-                    &data,
+                    ModuleDataHandle::new(ContainModuleDataAdapter::new(data)),
                     Some(Arc::clone(cave_system)),
                 )?;
                 Ok(Box::new(container))
             }
             "TunnelContain" => {
                 let data = Self::load_config::<TunnelContainModuleData>(config);
-                let container = TunnelContain::new(weak_object.clone(), &data)?;
+                let container = TunnelContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "HelixContain" => {
                 let data = Self::load_config::<HelixContainModuleData>(config);
-                let container = HelixContain::new(weak_object.clone(), &data)?;
+                let container = HelixContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "OverlordContain" => {
                 let data = Self::load_config::<OverlordContainModuleData>(config);
-                let container = OverlordContain::new(weak_object.clone(), &data)?;
+                let container = OverlordContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "ParachuteContain" => {
                 let data = Self::load_config::<ParachuteContainModuleData>(config);
-                let container = ParachuteContain::new(weak_object.clone(), &data)?;
+                let container = ParachuteContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "RailedTransportContain" => {
                 let data = Self::load_config::<RailedTransportContainModuleData>(config);
-                let container = RailedTransportContain::new(weak_object.clone(), &data)?;
+                let container = RailedTransportContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "RiderChangeContain" => {
                 let data = Self::load_config::<RiderChangeContainModuleData>(config);
-                let container = RiderChangeContain::new(weak_object.clone(), &data)?;
+                let container = RiderChangeContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "InternetHackContain" => {
                 let data = Self::load_config::<InternetHackContainModuleData>(config);
-                let container = InternetHackContain::new(weak_object.clone(), &data)?;
+                let container = InternetHackContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             "MobNexusContain" => {
                 let data = Self::load_config::<MobNexusContainModuleData>(config);
-                let container = MobNexusContain::new(weak_object.clone(), &data)?;
+                let container = MobNexusContain::new(weak_object.clone(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)))?;
                 Ok(Box::new(container))
             }
             _ => Err(format!("Unknown container type: {}", container_type).into()),

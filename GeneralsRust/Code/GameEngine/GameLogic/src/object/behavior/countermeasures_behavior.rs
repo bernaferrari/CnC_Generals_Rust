@@ -428,7 +428,7 @@ impl Default for CountermeasuresState {
 /// Countermeasures behavior. Flare runtime state is owned here, matching the C++ members.
 #[derive(Debug)]
 pub struct CountermeasuresBehavior {
-    module_data: Arc<CountermeasuresBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     state: CountermeasuresState,
     next_call_frame_and_phase: UnsignedInt,
@@ -438,15 +438,19 @@ pub struct CountermeasuresBehavior {
 impl CountermeasuresBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
-        module_data: Arc<CountermeasuresBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         _initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
         let mut state = CountermeasuresState::default();
-        state.available_countermeasures = module_data
-            .number_of_volleys
-            .saturating_mul(module_data.volley_size)
-            as u32;
-        let upgrade_mux = UpgradeMux::new(module_data.upgrade_mux_data.clone());
+        let guard = module_data.read();
+        let data = guard.downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data");
+        state.available_countermeasures = data.number_of_volleys.saturating_mul(data.volley_size) as u32;
+        drop(guard);
+        let upgrade_mux = UpgradeMux::new_shared(
+            game_engine::common::thing::module::ModuleDataView::new(module_data.clone(), |data| {
+                &data.downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data").upgrade_mux_data
+            }),
+        );
 
         Self {
             module_data,
@@ -457,13 +461,13 @@ impl CountermeasuresBehavior {
         }
     }
 
-    pub fn new(object_id: ObjectID, module_data: Arc<CountermeasuresBehaviorModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self::construct_with_object_id(object_id, module_data, None)
     }
 
     pub fn new_from_object_handle(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<CountermeasuresBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = object
             .read()
@@ -474,7 +478,7 @@ impl CountermeasuresBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<CountermeasuresBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let module_object = thing
             .as_object()
@@ -502,7 +506,7 @@ impl CountermeasuresBehavior {
         Self::cleanup_expired_countermeasures(&mut self.state)?;
 
         if is_airborne && self.state.available_countermeasures > 0 {
-            let frames_between_volleys = self.module_data.frames_between_volleys;
+            let frames_between_volleys = self.module_data.read().downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data").frames_between_volleys;
             if self.state.reaction_frame > 0 && self.state.reaction_frame == current_frame {
                 self.launch_volley(current_frame)?;
                 self.state.next_volley_frame = current_frame + frames_between_volleys;
@@ -515,12 +519,13 @@ impl CountermeasuresBehavior {
             }
         }
 
-        if self.state.available_countermeasures == 0 && self.module_data.reload_frames > 0 {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data");
+        if self.state.available_countermeasures == 0 && data.reload_frames > 0 {
             if self.state.reload_frame == 0 {
-                let reload_frames = self.module_data.reload_frames;
-                self.state.reload_frame = current_frame + reload_frames;
+                self.state.reload_frame = current_frame + data.reload_frames;
             } else if self.state.reload_frame <= current_frame {
-                Self::reload_countermeasures_internal(self.module_data.as_ref(), &mut self.state)?;
+                Self::reload_countermeasures_internal(data, &mut self.state)?;
             }
         }
 
@@ -528,7 +533,11 @@ impl CountermeasuresBehavior {
     }
 
     fn launch_volley(&mut self, _current_frame: u32) -> BehaviorResult<()> {
-        let volley_size = self.module_data.volley_size;
+        let (volley_size, volley_arc_angle) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data");
+            (data.volley_size, data.volley_arc_angle)
+        };
         if volley_size == 0 {
             return Ok(());
         }
@@ -539,7 +548,7 @@ impl CountermeasuresBehavior {
             } else {
                 0.0
             };
-            let angle = ratio * self.module_data.volley_arc_angle;
+            let angle = ratio * volley_arc_angle;
             if let Some(countermeasure_id) = self.create_countermeasure(angle)? {
                 self.state.countermeasures.push_back(countermeasure_id);
                 self.state.active_countermeasures += 1;
@@ -552,7 +561,9 @@ impl CountermeasuresBehavior {
     }
 
     fn create_countermeasure(&self, angle: f32) -> BehaviorResult<Option<ObjectId>> {
-        let template_name = self.module_data.flare_template_name.as_str();
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data");
+        let template_name = data.flare_template_name.as_str();
         if template_name.is_empty() {
             return Ok(None);
         }
@@ -560,6 +571,8 @@ impl CountermeasuresBehavior {
         let Some(template) = TheThingFactory::find_template(template_name) else {
             return Ok(None);
         };
+        let velocity_factor = data.volley_velocity_factor;
+        drop(guard);
 
         let (spawn_pos, owner_angle, team_arc, unit_dir, owner_velocity) =
             self.with_object(|obj_guard| {
@@ -597,7 +610,7 @@ impl CountermeasuresBehavior {
             velocity = -10.0;
         }
         let mut motive = Vec3D::new(rotated_x, rotated_y, 0.0);
-        motive *= velocity * self.module_data.volley_velocity_factor;
+        motive *= velocity * velocity_factor;
 
         {
             let mut flare_guard = flare.write().map_err(|_| BehaviorError::ModuleDisabled)?;
@@ -804,10 +817,14 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
 
         let has_countermeasures =
             self.state.available_countermeasures + self.state.active_countermeasures > 0;
-        if has_countermeasures && self.random_value() < self.module_data.evasion_rate {
+        let (evasion_rate, reaction_frames, decoy_frames) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data");
+            (data.evasion_rate, data.countermeasure_reaction_frames, data.missile_decoy_frames)
+        };
+        if has_countermeasures && self.random_value() < evasion_rate {
             debug_assert!(
-                self.module_data.countermeasure_reaction_frames
-                    < self.module_data.missile_decoy_frames,
+                reaction_frames < decoy_frames,
                 "MissileDecoyDelay must be larger than ReactionLaunchLatency"
             );
 
@@ -819,8 +836,6 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
             };
 
             let current_frame = self.get_current_frame();
-            let decoy_frames = self.module_data.missile_decoy_frames;
-            let reaction_frames = self.module_data.countermeasure_reaction_frames;
             let modules = missile_guard.get_behavior_modules();
 
             let mut diverted = false;
@@ -854,7 +869,7 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
         &self,
         _victim_id: ObjectID,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
-        let max_check = std::cmp::max(self.module_data.volley_size as usize, 1);
+        let max_check = std::cmp::max(self.module_data.read().downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data").volley_size as usize, 1);
         for &countermeasure_id in self.state.countermeasures.iter().rev().take(max_check) {
             if Self::object_is_valid(countermeasure_id) {
                 return Ok(countermeasure_id);
@@ -864,7 +879,9 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
     }
 
     fn reload_countermeasures(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Self::reload_countermeasures_internal(self.module_data.as_ref(), &mut self.state)
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<CountermeasuresBehaviorModuleData>().expect("Invalid module data");
+        Self::reload_countermeasures_internal(data, &mut self.state)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
@@ -948,7 +965,7 @@ impl BehaviorModuleInterface for CountermeasuresBehavior {
 pub struct CountermeasuresBehaviorModule {
     behavior: CountermeasuresBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<CountermeasuresBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl CountermeasuresBehaviorModule {
@@ -959,7 +976,7 @@ impl CountermeasuresBehaviorModule {
     pub fn new(
         behavior: CountermeasuresBehavior,
         module_name: &AsciiString,
-        module_data: Arc<CountermeasuresBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -1000,11 +1017,11 @@ impl EngineModule for CountermeasuresBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ThingModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {}
@@ -1053,18 +1070,15 @@ pub struct CountermeasuresBehaviorFactory;
 impl CountermeasuresBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn crate::common::ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        let data = module_data
-            .as_any()
-            .downcast_ref::<CountermeasuresBehaviorModuleData>()
-            .ok_or("Invalid module data type for CountermeasuresBehavior")?
-            .clone();
-
-        let behavior = CountermeasuresBehavior::new_from_object_handle(thing, Arc::new(data));
+        if !module_data.is::<CountermeasuresBehaviorModuleData>() {
+            return Err("Invalid module data type for CountermeasuresBehavior".into());
+        }
+        let behavior = CountermeasuresBehavior::new_from_object_handle(thing, module_data);
         Ok(Box::new(behavior))
     }
 }
@@ -1084,7 +1098,7 @@ mod tests {
         data.reload_frames = 30;
         data.countermeasure_reaction_frames = 3;
         data.evasion_rate = 0.5;
-        let data_arc = Arc::new(data);
+        let data_arc = game_engine::common::thing::module::ModuleDataHandle::new(data);
         CountermeasuresBehavior::new(1, data_arc)
     }
 

@@ -23,6 +23,8 @@ use crate::object::{Object, ObjectId};
 use crate::player::Player;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 /// Wave 300 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
 /// Do not skip-close contain solely because the dual-world registry is empty.
@@ -121,7 +123,7 @@ pub struct OverlordContain {
     /// Reference to the owning object (the Overlord tank)
     object_id: ObjectID,
     /// Module configuration
-    module_data: OverlordContainModuleData,
+    module_data: ModuleDataView<OverlordContainModuleData>,
     /// Whether redirection to bunker is currently active
     redirection_activated: bool,
 }
@@ -131,9 +133,14 @@ impl OverlordContain {
     /// Matches C++ OverlordContain::OverlordContain (OverlordContain.cpp:71-78)
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &OverlordContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<OverlordContainModuleData>>()
+                .expect("overlord contain module data has an incompatible type").contain_data()
+        });
+        drop(data.read());
+        let base = TransportContain::new(object.clone(), module_data)?;
 
         Ok(Self {
             base,
@@ -141,7 +148,7 @@ impl OverlordContain {
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: module_data.clone(),
+            module_data: data,
             redirection_activated: false,
         })
     }
@@ -380,7 +387,7 @@ impl OverlordContain {
         if is_portable {
             self.activate_redirected_contain()?;
 
-            if self.module_data.experience_sink_for_rider {
+            if self.module_data.read().experience_sink_for_rider {
                 let owner_id = self.get_object_id();
                 if owner_id != crate::common::INVALID_ID {
                     if let Ok(mut obj_guard) = obj.write() {
@@ -714,7 +721,7 @@ impl OverlordContain {
                 .into());
             }
         };
-        let payload_templates = self.module_data.payload_template_names.clone();
+        let payload_templates = self.module_data.read().payload_template_names.clone();
 
         self.base.base.enable_load_sounds(false);
         let mut added_any = false;
@@ -965,7 +972,7 @@ impl ContainModuleInterface for OverlordContain {
         if portable {
             self.activate_redirected_contain()
                 .expect("redirection activation is infallible");
-            if self.module_data.experience_sink_for_rider {
+            if self.module_data.read().experience_sink_for_rider {
                 passenger
                     .passenger
                     .write()
@@ -1444,7 +1451,7 @@ mod tests {
 
     #[test]
     fn overlord_payload_created_uses_inherited_transport_state_like_cpp() {
-        let mut contain = OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
+        let mut contain = OverlordContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(OverlordContainModuleData::default())))
             .expect("overlord contain constructs");
         contain.base.set_payload_created(true);
 
@@ -1456,7 +1463,7 @@ mod tests {
 
     #[test]
     fn xfer_writes_transport_state_before_overlord_redirection_like_cpp() {
-        let mut contain = OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
+        let mut contain = OverlordContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(OverlordContainModuleData::default())))
             .expect("overlord contain constructs");
         contain.base.set_payload_created(true);
         contain.redirection_activated = true;

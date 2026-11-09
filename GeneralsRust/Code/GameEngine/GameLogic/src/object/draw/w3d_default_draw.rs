@@ -77,7 +77,7 @@ impl Snapshotable for W3DDefaultDrawModuleData {
 }
 
 pub struct W3DDefaultDraw {
-    data: W3DDefaultDrawModuleData,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_id: Option<ObjectID>,
     shadows_enabled: bool,
     fully_obscured_by_shroud: bool,
@@ -85,6 +85,10 @@ pub struct W3DDefaultDraw {
 
 impl W3DDefaultDraw {
     pub fn new(data: W3DDefaultDrawModuleData) -> Self {
+        Self::new_with_module_data(game_engine::common::thing::module::ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             data,
             owner_id: None,
@@ -126,10 +130,10 @@ impl Module for W3DDefaultDraw {
         keys.name_to_key("W3DDefaultDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 

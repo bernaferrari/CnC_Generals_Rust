@@ -68,7 +68,10 @@ impl Installed {
             let mut data = TransportContainModuleData::default();
             data.slot_capacity = 4;
             assert!(!data.base.passengers_allowed_to_fire);
-            let transport = TransportContain::new(Arc::downgrade(&object), &data).unwrap();
+            let transport = TransportContain::new(
+                Arc::downgrade(&object),
+                ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+            ).unwrap();
             let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(transport));
             object.write().unwrap().set_contain(Some(contain));
         }

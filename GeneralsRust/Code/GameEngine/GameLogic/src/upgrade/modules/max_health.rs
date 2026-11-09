@@ -6,7 +6,6 @@ use crate::object::body::body_module::MaxHealthChangeType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
 pub struct MaxHealthUpgradeModuleData {
@@ -54,7 +53,7 @@ impl Snapshotable for MaxHealthUpgradeModuleData {
 
 pub struct MaxHealthUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<MaxHealthUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataView<MaxHealthUpgradeModuleData>,
     object_id: ObjectID,
     mux: UpgradeMux,
 }
@@ -62,13 +61,13 @@ pub struct MaxHealthUpgrade {
 impl MaxHealthUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<MaxHealthUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mux = UpgradeMux::new_shared(game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| &data.as_any().downcast_ref::<MaxHealthUpgradeModuleData>().expect("MaxHealthUpgradeModuleData").upgrade_mux_data));
         Self {
             module_name_key,
-            data,
+            data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<MaxHealthUpgradeModuleData>().expect("MaxHealthUpgradeModuleData")),
             object_id,
             mux,
         }
@@ -78,8 +77,12 @@ impl MaxHealthUpgrade {
         if let Some(body) = object.get_body() {
             if let Ok(mut body_guard) = body.lock() {
                 let current_max = body_guard.get_max_health();
-                let new_max = current_max + self.data.health_bonus;
-                let _ = body_guard.set_max_health(new_max, self.data.change_type);
+                let (health_bonus, change_type) = {
+                    let data = self.data.read();
+                    (data.health_bonus, data.change_type)
+                };
+                let new_max = current_max + health_bonus;
+                let _ = body_guard.set_max_health(new_max, change_type);
                 log::info!(
                     "MaxHealthUpgrade: Increased max health from {} to {} for object {}",
                     current_max,
@@ -97,7 +100,7 @@ impl UpgradeModuleInterface for MaxHealthUpgrade {
     }
     fn attempt_upgrade(&mut self, key_mask: UpgradeMask, object: &mut Object) -> bool {
         if self.mux.would_upgrade(key_mask) {
-            self.mux.data.perform_upgrade_fx(object);
+            self.mux.data_snapshot().perform_upgrade_fx(object);
             self.upgrade_implementation(object);
             self.mux.set_upgrade_executed(true);
             true
@@ -132,10 +135,10 @@ impl Module for MaxHealthUpgrade {
         self.module_name_key
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.handle().read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 

@@ -566,11 +566,14 @@ pub fn helix_napalm_ms_to_frames(ms: u32) -> u32 {
 /// Leftover FirestormDynamicGeometryInfoUpdate ParticleSystem/FXList/emission follow.
 fn leftover_tick_helix_firestorm_fx(zone: &mut HostHelixFirestormZone, current_frame: u32) {
     use gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdate;
-    let data = leftover_firestorm_module_data(zone.black_napalm);
+    let data_handle = leftover_firestorm_module_data(zone.black_napalm);
+    let data_guard = data_handle.read();
+    let data = data_guard.downcast_ref::<gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdateModuleData>()
+        .expect("FirestormDynamicGeometryInfoUpdate module data");
     let leftover_pos = leftover_helix_firestorm_coord(zone.position);
     let radius = zone.current_radius(current_frame);
     FirestormDynamicGeometryInfoUpdate::leftover_tick_particle_fx(
-        &data,
+        data,
         &leftover_pos,
         &mut zone.leftover_particle_system_ids,
         &mut zone.leftover_effects_fired,
@@ -586,18 +589,20 @@ fn leftover_helix_firestorm_coord(pos: Vec3) -> gamelogic::common::Coord3D {
 /// Leftover FirestormSmall / BlackNapalmFirestormSmall module data (RIGHT).
 fn leftover_firestorm_module_data(
     black_napalm: bool,
-) -> gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdateModuleData {
+) -> game_engine::common::thing::module::ModuleDataHandle {
     let name = if black_napalm {
         "BlackNapalmFirestormSmall"
     } else {
         "FirestormSmall"
     };
-    peel_leftover_firestorm_module_data(name).unwrap_or_default()
+    peel_leftover_firestorm_module_data(name).unwrap_or_else(|| game_engine::common::thing::module::ModuleDataHandle::new(
+        gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdateModuleData::default()
+    ))
 }
 
 fn peel_leftover_firestorm_module_data(
     template_name: &str,
-) -> Option<gamelogic::object::behavior::FirestormDynamicGeometryInfoUpdateModuleData> {
+) -> Option<game_engine::common::thing::module::ModuleDataHandle> {
     use gamelogic::object::behavior::{
         FirestormDynamicGeometryInfoUpdateModuleData, MAX_FIRESTORM_SYSTEMS,
     };
@@ -612,22 +617,20 @@ fn peel_leftover_firestorm_module_data(
         {
             continue;
         }
-        if let Some(data) = entry
-            .data
-            .downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
-        {
-            return Some(data.clone());
+        let module_data = entry.data.read();
+        if module_data.downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>().is_some() {
+            return Some(entry.data.clone());
         }
         let mut data = FirestormDynamicGeometryInfoUpdateModuleData::default();
         let mut any = false;
-        if let Some(fx) = entry.data.get_ini_field("FXList") {
+        if let Some(fx) = module_data.get_ini_field("FXList") {
             let fx = fx.trim();
             if !fx.is_empty() && !fx.eq_ignore_ascii_case("None") {
                 data.fx_list = Some(fx.to_string());
                 any = true;
             }
         }
-        if let Some(z) = entry.data.get_ini_field("ParticleOffsetZ") {
+        if let Some(z) = module_data.get_ini_field("ParticleOffsetZ") {
             if let Ok(v) = z.trim().parse::<f32>() {
                 data.particle_offset_z = v;
                 any = true;
@@ -635,7 +638,7 @@ fn peel_leftover_firestorm_module_data(
         }
         for i in 0..MAX_FIRESTORM_SYSTEMS {
             let key = format!("ParticleSystem{}", i + 1);
-            if let Some(raw) = entry.data.get_ini_field(&key) {
+            if let Some(raw) = module_data.get_ini_field(&key) {
                 let name = raw.trim();
                 if !name.is_empty() && !name.eq_ignore_ascii_case("None") {
                     data.particle_systems[i] = Some(name.to_string());
@@ -644,7 +647,7 @@ fn peel_leftover_firestorm_module_data(
             }
         }
         if any {
-            return Some(data);
+            return Some(game_engine::common::thing::module::ModuleDataHandle::new(data));
         }
     }
     None

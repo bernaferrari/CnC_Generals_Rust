@@ -5,7 +5,7 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    AsciiString, Bool, INVALID_ID, KindOf, ModuleData, ObjectID, ObjectStatusMaskType,
+    AsciiString, Bool, INVALID_ID, KindOf, ObjectID, ObjectStatusMaskType,
     ObjectStatusTypes, PathfindLayerEnum, Real, TheGameLogic, UnsignedInt, XferVersion,
     xfer::XferExt,
 };
@@ -23,9 +23,9 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
+    Module as EngineModule, ModuleData as EngineModuleData, ModuleDataHandle, ModuleDataView, NameKeyType,
 };
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug)]
 pub struct JetSlowDeathBehaviorModuleData {
@@ -348,7 +348,7 @@ const JET_SLOW_DEATH_FIELDS: &[FieldParse<JetSlowDeathBehaviorModuleData>] = &[
 
 pub struct JetSlowDeathBehavior {
     object_id: ObjectID,
-    module_data: Arc<JetSlowDeathBehaviorModuleData>,
+    module_data: ModuleDataView<JetSlowDeathBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     timer_death_frame: UnsignedInt,
     timer_on_ground_frame: UnsignedInt,
@@ -360,7 +360,7 @@ pub struct JetSlowDeathBehavior {
 impl JetSlowDeathBehavior {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<JetSlowDeathBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         Self {
             object_id: object
@@ -368,7 +368,10 @@ impl JetSlowDeathBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data,
+            module_data: ModuleDataView::new(module_data, |data| {
+                data.downcast_ref::<JetSlowDeathBehaviorModuleData>()
+                    .expect("Invalid JetSlowDeathBehavior module data")
+            }),
             next_call_frame_and_phase: 0,
             timer_death_frame: 0,
             timer_on_ground_frame: 0,
@@ -438,22 +441,22 @@ impl JetSlowDeathBehavior {
     fn begin_slow_death_internal(&mut self, _damage_info: &DamageInfo) {
         self.slow_death_activated = true;
         self.timer_death_frame = TheGameLogic::get_frame();
-        self.roll_rate = self.module_data.roll_rate;
+        self.roll_rate = self.module_data.read().roll_rate;
 
         let Some(object) = self.owner() else {
             return;
         };
 
-        self.do_fx(&self.module_data.fx_initial_death, &object);
-        self.do_ocl(&self.module_data.ocl_initial_death, &object);
+        self.do_fx(&self.module_data.read().fx_initial_death, &object);
+        self.do_ocl(&self.module_data.read().ocl_initial_death, &object);
 
-        if !self
-            .module_data
-            .death_loop_sound
-            .get_event_name()
-            .is_empty()
-        {
-            self.death_loop_sound = self.module_data.death_loop_sound.clone();
+        let death_loop_sound = {
+            let data = self.module_data.read();
+            (!data.death_loop_sound.get_event_name().is_empty())
+                .then(|| data.death_loop_sound.clone())
+        };
+        if let Some(death_loop_sound) = death_loop_sound {
+            self.death_loop_sound = death_loop_sound;
             if let Ok(object_guard) = object.read() {
                 self.death_loop_sound.set_object_id(object_guard.get_id());
             }
@@ -475,7 +478,7 @@ impl JetSlowDeathBehavior {
             ai_guard.with_cur_locomotor_mut(&mut |loco| {
                 has_loco = true;
                 let gravity = -1.0;
-                loco.set_max_lift(-gravity * (1.0 - self.module_data.fall_how_fast));
+                loco.set_max_lift(-gravity * (1.0 - self.module_data.read().fall_how_fast));
                 loco.set_max_turn_rate(0.0);
             });
         }
@@ -504,7 +507,7 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
                 }
             }
         }
-        self.roll_rate *= self.module_data.roll_rate_delta;
+        self.roll_rate *= self.module_data.read().roll_rate_delta;
 
         if self.timer_on_ground_frame == 0 {
             let (height, hit_tree) = {
@@ -536,14 +539,14 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
 
             if height <= 0.0 || hit_tree {
                 self.stop_loop_sound();
-                self.do_fx(&self.module_data.fx_hit_ground, &object);
-                self.do_ocl(&self.module_data.ocl_hit_ground, &object);
+                self.do_fx(&self.module_data.read().fx_hit_ground, &object);
+                self.do_ocl(&self.module_data.read().ocl_hit_ground, &object);
                 self.timer_on_ground_frame = TheGameLogic::get_frame();
 
                 if let Ok(object_guard) = object.read() {
                     if let Some(physics) = object_guard.get_physics() {
                         if let Ok(mut physics) = physics.access() {
-                            physics.set_pitch_rate(self.module_data.pitch_rate);
+                            physics.set_pitch_rate(self.module_data.read().pitch_rate);
                         }
                     }
                 }
@@ -551,17 +554,17 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
 
             if self.timer_death_frame != 0
                 && TheGameLogic::get_frame().saturating_sub(self.timer_death_frame)
-                    >= self.module_data.delay_secondary_from_initial_death
+                    >= self.module_data.read().delay_secondary_from_initial_death
             {
-                self.do_fx(&self.module_data.fx_secondary, &object);
-                self.do_ocl(&self.module_data.ocl_secondary, &object);
+                self.do_fx(&self.module_data.read().fx_secondary, &object);
+                self.do_ocl(&self.module_data.read().ocl_secondary, &object);
                 self.timer_death_frame = 0;
             }
         } else if TheGameLogic::get_frame().saturating_sub(self.timer_on_ground_frame)
-            >= self.module_data.delay_final_blow_up_from_hit_ground
+            >= self.module_data.read().delay_final_blow_up_from_hit_ground
         {
-            self.do_fx(&self.module_data.fx_final_blow_up, &object);
-            self.do_ocl(&self.module_data.ocl_final_blow_up, &object);
+            self.do_fx(&self.module_data.read().fx_final_blow_up, &object);
+            self.do_ocl(&self.module_data.read().ocl_final_blow_up, &object);
             self.destroy_owner();
         }
 
@@ -590,8 +593,8 @@ impl DieModuleInterface for JetSlowDeathBehavior {
             .unwrap_or(true);
 
         if ground_death {
-            self.do_fx(&self.module_data.fx_on_ground_death, &object);
-            self.do_ocl(&self.module_data.ocl_on_ground_death, &object);
+            self.do_fx(&self.module_data.read().fx_on_ground_death, &object);
+            self.do_ocl(&self.module_data.read().ocl_on_ground_death, &object);
             self.destroy_owner();
         } else {
             self.begin_slow_death_internal(damage);
@@ -700,15 +703,16 @@ impl Snapshotable for JetSlowDeathBehavior {
 pub struct JetSlowDeathBehaviorModule {
     behavior: JetSlowDeathBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<JetSlowDeathBehaviorModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl JetSlowDeathBehaviorModule {
     pub fn new(
         behavior: JetSlowDeathBehavior,
         module_name: &AsciiString,
-        module_data: Arc<JetSlowDeathBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
+        assert!(ModuleDataHandle::ptr_eq(behavior.module_data.handle(), &module_data));
         Self {
             behavior,
             module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
@@ -723,11 +727,11 @@ impl EngineModule for JetSlowDeathBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 }
 

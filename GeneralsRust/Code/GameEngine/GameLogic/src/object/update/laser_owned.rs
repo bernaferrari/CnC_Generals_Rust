@@ -76,13 +76,13 @@ impl LaserUpdate {
         if self.particle_system_id.is_none()
             && parent.is_none_or(|parent| parent.visible_to_local_player)
         {
-            if !self.module_data.particle_system_name.is_empty() {
-                self.particle_system_id =
-                    services.create_particle(&self.module_data.particle_system_name)?;
+            let (particle, target_particle) =
+                self.with_data(|particle, target, _| (particle.to_owned(), target.to_owned()));
+            if !particle.is_empty() {
+                self.particle_system_id = services.create_particle(&particle)?;
             }
-            if !self.module_data.target_particle_system_name.is_empty() {
-                self.target_particle_system_id =
-                    services.create_particle(&self.module_data.target_particle_system_name)?;
+            if !target_particle.is_empty() {
+                self.target_particle_system_id = services.create_particle(&target_particle)?;
             }
         }
         if let Some(id) = self.particle_system_id {
@@ -205,9 +205,10 @@ impl LaserUpdate {
         match services.drawable(id, "")? {
             Some(target) if !target.effectively_dead => self.end_pos = target.position,
             _ => {
-                if self.module_data.punch_through_scalar > 0.0 {
+                let punch_through_scalar = self.with_data(|_, _, scalar| scalar);
+                if punch_through_scalar > 0.0 {
                     self.end_pos = self.start_pos
-                        + (self.end_pos - self.start_pos) * self.module_data.punch_through_scalar;
+                        + (self.end_pos - self.start_pos) * punch_through_scalar;
                 }
                 self.target_id = None;
             }

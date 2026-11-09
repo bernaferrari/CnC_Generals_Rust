@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 use std::collections::HashMap;
 
@@ -818,7 +818,7 @@ pub struct AIUpdateInterface {
     owner_object_id: ObjectID,
 
     // Module data reference
-    module_data: Arc<AIUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl std::fmt::Debug for AIUpdateInterface {
@@ -840,11 +840,11 @@ impl std::fmt::Debug for AIUpdateInterface {
 }
 
 impl AIUpdateInterface {
-    pub fn new(module_data: Arc<AIUpdateModuleData>) -> Self {
+    pub fn new(module_data: ModuleDataHandle) -> Self {
         Self::new_for_object(module_data, INVALID_ID)
     }
 
-    pub fn new_for_object(module_data: Arc<AIUpdateModuleData>, owner_object_id: ObjectID) -> Self {
+    pub fn new_for_object(module_data: ModuleDataHandle, owner_object_id: ObjectID) -> Self {
         Self {
             prior_waypoint_id: 0xfacade,
             current_waypoint_id: 0xfacade,
@@ -1439,8 +1439,8 @@ impl AIUpdateInterface {
     }
 
     fn current_locomotor_set_surfaces(&self) -> u32 {
-        let Some(entries) = self
-            .module_data
+        let data = self.get_module_data();
+        let Some(entries) = data
             .locomotor_sets()
             .get(&self.cur_locomotor_set)
         else {
@@ -1859,8 +1859,8 @@ impl AIUpdateInterface {
         let previous_locomotor_tag = self.cur_locomotor_tag;
         let previous_locomotor_template = self.cur_locomotor_template.clone();
         let previous_locomotor_surfaces = self.cur_locomotor_surfaces;
-        let entries = self
-            .module_data
+        let data = self.get_module_data();
+        let entries = data
             .locomotor_sets()
             .get(&self.cur_locomotor_set)
             .map(Vec::as_slice)
@@ -1872,6 +1872,7 @@ impl AIUpdateInterface {
                     .then(|| Self::choose_ground_locomotor(entries))
                     .flatten()
             });
+        drop(data);
 
         if let Some((index, entry, surfaces)) = selected_entry {
             self.cur_locomotor_tag = (index + 1) as UnsignedInt;
@@ -2592,16 +2593,46 @@ impl AIUpdateInterface {
         self.do_final_position = false;
     }
 
-    pub fn get_module_data(&self) -> &AIUpdateModuleData {
-        &self.module_data
+    pub fn get_module_data(&self) -> parking_lot::MappedRwLockReadGuard<'_, AIUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.module_data.read(), |data| {
+            let data: &dyn Any = data;
+            if let Some(data) = data.downcast_ref::<AIUpdateModuleData>() {
+                return data;
+            }
+            macro_rules! inherited {
+                ($($ty:path),+ $(,)?) => {
+                    $(if let Some(data) = data.downcast_ref::<$ty>() {
+                        return &data.base;
+                    })+
+                };
+            }
+            inherited!(
+                crate::object::update::ai_update::assault_transport_ai_update::AssaultTransportAIUpdateModuleData,
+                crate::object::update::ai_update::chinook_ai_update::ChinookAIUpdateModuleData,
+                crate::object::update::ai_update::deliver_payload_ai_update::DeliverPayloadAIUpdateModuleData,
+                crate::object::update::ai_update::deploy_style_ai_update::DeployStyleAIUpdateModuleData,
+                crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData,
+                crate::object::update::ai_update::hack_internet_ai_update::HackInternetAIUpdateModuleData,
+                crate::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData,
+                crate::object::update::ai_update::railed_transport_ai_update::RailedTransportAIUpdateModuleData,
+                crate::object::update::ai_update::supply_truck_ai_update::SupplyTruckAIUpdateModuleData,
+                crate::object::update::ai_update::transport_ai_update::TransportAIUpdateModuleData,
+                crate::object::update::ai_update::wander_ai_update::WanderAIUpdateModuleData,
+                crate::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData,
+            );
+            if let Some(data) = data.downcast_ref::<crate::object::update::missile_ai_update::MissileAIUpdateModuleData>() {
+                return &data.ai_base;
+            }
+            panic!("invalid AIUpdate module data")
+        })
     }
 
     pub fn are_turrets_linked(&self) -> bool {
-        self.module_data.turrets_linked()
+        self.get_module_data().turrets_linked()
     }
 
     pub fn can_auto_acquire(&self) -> bool {
-        self.module_data.auto_acquire_enemies_when_idle() != 0
+        self.get_module_data().auto_acquire_enemies_when_idle() != 0
     }
 
     pub fn set_locomotor_upgrade(&mut self, set: bool) {
@@ -2638,14 +2669,17 @@ impl AIUpdateInterface {
     }
 
     fn choose_locomotor_set_explicit(&mut self, wst: LocomotorSetType) -> bool {
-        let Some(entries) = self.module_data.locomotor_sets().get(&wst) else {
+        let data = self.get_module_data();
+        let Some(entries) = data.locomotor_sets().get(&wst) else {
             return false;
         };
         if entries.is_empty() {
             return false;
         }
 
-        self.locomotor_set_tag = entries.len() as UnsignedInt;
+        let locomotor_set_tag = entries.len() as UnsignedInt;
+        drop(data);
+        self.locomotor_set_tag = locomotor_set_tag;
         self.cur_locomotor_tag = 0;
         self.cur_locomotor_template.clear();
         self.cur_locomotor_surfaces = 0;
@@ -2660,7 +2694,7 @@ impl AIUpdateInterface {
 #[derive(Debug)]
 pub struct AIUpdateInterfaceModule {
     module_name_key: NameKeyType,
-    data: Arc<AIUpdateModuleData>,
+    data: ModuleDataHandle,
     runtime_ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
     next_call_frame_and_phase: u32,
 }
@@ -2671,7 +2705,7 @@ impl AIUpdateInterfaceModule {
     ) -> Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>> {
         self.runtime_ai.clone()
     }
-    pub fn new(module_name_key: NameKeyType, data: Arc<AIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -2754,11 +2788,11 @@ impl Module for AIUpdateInterfaceModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -2864,7 +2898,7 @@ mod tests {
         ));
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, NAME.into());
-        AIUpdateInterface::new_for_object(Arc::new(data), owner_id)
+        AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id)
     }
 
     struct PathfinderCellCleanup(Coord3D);
@@ -2882,32 +2916,32 @@ mod tests {
     }
 
     fn ai_update() -> AIUpdateInterface {
-        AIUpdateInterface::new(Arc::new(AIUpdateModuleData::default()))
+        AIUpdateInterface::new(ModuleDataHandle::new(AIUpdateModuleData::default()))
     }
 
     fn ai_update_with_locomotors() -> AIUpdateInterface {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
         data.add_locomotor_set_entry(LocomotorSetType::NormalUpgraded, "Tracked".into());
-        AIUpdateInterface::new(Arc::new(data))
+        AIUpdateInterface::new(ModuleDataHandle::new(data))
     }
 
     fn ai_update_with_air_locomotor() -> AIUpdateInterface {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Supersonic, "Thrust".into());
-        AIUpdateInterface::new(Arc::new(data))
+        AIUpdateInterface::new(ModuleDataHandle::new(data))
     }
 
     #[test]
     fn new_for_object_records_owner_for_wake_up_now_like_cpp() {
-        let ai = AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), 42);
+        let ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), 42);
 
         assert_eq!(ai.owner_object_id, 42);
     }
 
     #[test]
     fn wake_up_now_noops_while_in_update_like_cpp() {
-        let mut ai = AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), 42);
+        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), 42);
         ai.is_in_update = true;
 
         ai.wake_up_now();
@@ -3021,7 +3055,7 @@ mod tests {
 
     #[test]
     fn ai_update_module_xfer_forwards_to_runtime_ai() {
-        let data = Arc::new(AIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(AIUpdateModuleData::default());
         let mut module = AIUpdateInterfaceModule::new(1, data);
         let runtime_ai = Arc::new(Mutex::new(RecordingAi { calls: 0 }));
         module.set_runtime_ai(runtime_ai.clone());
@@ -3163,7 +3197,7 @@ mod tests {
         let locomotor = crate::locomotor::LocomotorTemplate::new_wheeled("OwnedComputePath".into());
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "OwnedComputePath".into());
-        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), 7401);
+        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), 7401);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         let frame = 70;
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
@@ -3374,7 +3408,7 @@ mod tests {
             }),
         );
         let mut ai =
-            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+            AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), owner_id);
         ai.cur_locomotor_tag = 1;
         ai.cur_locomotor_surfaces = SURFACE_GROUND;
         ai.is_moving = true;
@@ -3399,7 +3433,7 @@ mod tests {
             }),
         );
         let mut ai =
-            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+            AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), owner_id);
         ai.cur_locomotor_tag = 1;
         ai.cur_locomotor_surfaces = SURFACE_GROUND;
         ai.is_moving = true;
@@ -3424,7 +3458,7 @@ mod tests {
             }),
         );
         let mut ai =
-            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+            AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), owner_id);
         ai.cur_locomotor_tag = 1;
         ai.cur_locomotor_surfaces = SURFACE_GROUND;
         ai.cur_max_blocked_speed = 12.0;
@@ -3448,7 +3482,7 @@ mod tests {
             }),
         );
         let mut ai =
-            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+            AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), owner_id);
         ai.cur_locomotor_tag = 1;
         ai.cur_locomotor_surfaces = SURFACE_GROUND;
         ai.cur_max_blocked_speed = AI_FAST_AS_POSSIBLE;
@@ -3468,7 +3502,7 @@ mod tests {
         let (_owner, _owner_cleanup) =
             register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
         let mut ai =
-            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+            AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), owner_id);
 
         ai.path = Some(vec![Coord3D::new(10.0, 0.0, 0.0)]);
         assert!(!ai.need_to_rotate());
@@ -3560,7 +3594,7 @@ mod tests {
         let (_victim, _victim_cleanup) =
             register_collision_object(victim_id, Coord3D::new(20.0, 0.0, 0.0), 0.0, None);
         let mut ai =
-            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+            AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), owner_id);
         ai.cur_locomotor_tag = 1;
         ai.cur_locomotor_surfaces = SURFACE_GROUND;
         ai.path = Some(vec![Coord3D::ZERO, Coord3D::new(4.0, 0.0, 0.0)]);
@@ -3601,7 +3635,7 @@ mod tests {
         drop(logic);
 
         let mut ai =
-            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+            AIUpdateInterface::new_for_object(ModuleDataHandle::new(AIUpdateModuleData::default()), owner_id);
         ai.cur_locomotor_tag = 1;
         ai.cur_locomotor_surfaces = SURFACE_GROUND;
         ai.path = Some(vec![Coord3D::ZERO, Coord3D::new(12.0, 0.0, 0.0)]);
@@ -3737,7 +3771,7 @@ mod tests {
         let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
-        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), owner_id);
+        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.path = Some(vec![
             Coord3D::ZERO,
@@ -3760,7 +3794,7 @@ mod tests {
         let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
-        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), owner_id);
+        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
 
         ai.set_locomotor_goal_orientation(std::f32::consts::FRAC_PI_2);
@@ -3815,7 +3849,7 @@ mod tests {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Thrust".into());
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
-        let mut ai = AIUpdateInterface::new(Arc::new(data));
+        let mut ai = AIUpdateInterface::new(ModuleDataHandle::new(data));
         ai.cur_locomotor_set = LocomotorSetType::Normal;
 
         ai.choose_locomotor_from_current_set();
@@ -3847,7 +3881,7 @@ mod tests {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Hover".into());
-        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), object_id);
+        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), object_id);
         ai.cur_locomotor_set = LocomotorSetType::Normal;
 
         ai.choose_locomotor_from_current_set();

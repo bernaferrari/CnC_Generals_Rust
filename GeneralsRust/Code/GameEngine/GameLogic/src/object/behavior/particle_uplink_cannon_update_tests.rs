@@ -79,8 +79,8 @@ impl Drop for UplinkOwner {
     }
 }
 
-fn authored_data() -> Arc<ParticleUplinkCannonUpdateModuleData> {
-    Arc::new(ParticleUplinkCannonUpdateModuleData {
+fn authored_data() -> ModuleDataHandle {
+    ModuleDataHandle::new(ParticleUplinkCannonUpdateModuleData {
         special_power_template: Some(Arc::new(SpecialPowerTemplate::new(
             "SPECIAL_PARTICLE_UPLINK_CANNON".to_string(),
             SpecialPowerType::ParticleUplinkCannon as u32,
@@ -95,7 +95,7 @@ fn authored_data() -> Arc<ParticleUplinkCannonUpdateModuleData> {
 
 fn factory_module(
     owner: &UplinkOwner,
-    data: Arc<ParticleUplinkCannonUpdateModuleData>,
+    data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     // Install the genuine GameLogic constructors on an independent rules owner.
     // Do not reset the process factory or import another thread's staged overrides.
@@ -176,7 +176,7 @@ fn test_object_at(position: Coord3D) -> Arc<RwLock<GameObject>> {
 fn constructor_defers_invalid_settings_until_object_created() {
     let _lock = crate::test_sync::lock();
     let object = test_object_at(Coord3D::new(10.0, 20.0, 3.0));
-    let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
+    let data = ModuleDataHandle::new(ParticleUplinkCannonUpdateModuleData::default());
 
     let behavior = ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
 
@@ -189,7 +189,7 @@ fn constructor_defers_invalid_settings_until_object_created() {
 fn object_created_validates_missing_template_like_cpp() {
     let _lock = crate::test_sync::lock();
     let object = test_object_at(Coord3D::new(10.0, 20.0, 3.0));
-    let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
+    let data = ModuleDataHandle::new(ParticleUplinkCannonUpdateModuleData::default());
     let mut behavior =
         ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
 
@@ -216,7 +216,7 @@ fn object_created_captures_origin_position_and_audio_names() {
     data.firing_to_idle_sound_name = AsciiString::from("PackLoop");
     data.annihilation_sound_name = AsciiString::from("AnnihilationLoop");
     let mut behavior =
-        ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), Arc::new(data)).unwrap();
+        ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), ModuleDataHandle::new(data)).unwrap();
 
     BehaviorModuleInterface::on_object_created(&mut behavior).unwrap();
 
@@ -244,7 +244,7 @@ fn remove_all_effects_preserves_orbit_to_target_beam() {
     // LaserStatus owns that beam (cpp:453-467); killEverything (cpp:187-200)
     // is the destructor-only teardown.
     let object = test_object_at(Coord3D::new(0.0, 0.0, 0.0));
-    let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
+    let data = ModuleDataHandle::new(ParticleUplinkCannonUpdateModuleData::default());
     let mut behavior =
         ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
     behavior.orbit_to_target_beam_id = 42;
@@ -305,7 +305,7 @@ fn authored_template_creation_validates_missing_power_before_game_logic_admissio
         modules: vec![TemplateModuleInfo {
             name: "ParticleUplinkCannonUpdate".into(),
             module_tag: "ModuleTag_UplinkCreation".into(),
-            data: Arc::new(ParticleUplinkCannonUpdateModuleData::default()),
+            data: ModuleDataHandle::new(ParticleUplinkCannonUpdateModuleData::default()),
             interface_mask: ModuleInterfaceType::UPDATE,
         }],
     };

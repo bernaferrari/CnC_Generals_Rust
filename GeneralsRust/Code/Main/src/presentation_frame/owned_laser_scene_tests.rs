@@ -1,6 +1,6 @@
 use super::*;
 use game_client::core::game_client::{ClientLaserServices, GameClient};
-use game_engine::common::thing::{ThingTemplate, module::ModuleInterfaceType};
+use game_engine::common::thing::{ThingTemplate, module::{ModuleDataHandle, ModuleInterfaceType}};
 use gamelogic::common::Coord3D;
 use gamelogic::object::draw::w3d_laser_draw::W3DLaserDrawModuleData;
 use gamelogic::object::update::laser_update::LaserUpdateModuleData;
@@ -11,7 +11,7 @@ fn receiving_authored_laser_geometry_freezes_once_and_packs_gpu_vertices() {
     template.add_draw_module_info(
         "W3DLaserDraw".into(),
         "Beam".into(),
-        std::sync::Arc::new(W3DLaserDrawModuleData {
+        ModuleDataHandle::new(W3DLaserDrawModuleData {
             inner_beam_width: 4.0,
             outer_beam_width: 8.0,
             ..Default::default()
@@ -21,7 +21,7 @@ fn receiving_authored_laser_geometry_freezes_once_and_packs_gpu_vertices() {
     template.add_client_update_module_info(
         "LaserUpdate".into(),
         "Laser".into(),
-        std::sync::Arc::new(LaserUpdateModuleData::default()),
+        ModuleDataHandle::new(LaserUpdateModuleData::default()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     let mut client = GameClient::new().unwrap();

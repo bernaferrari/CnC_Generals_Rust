@@ -11,7 +11,7 @@ impl InstantDeathBehaviorModuleData {
 impl InstantDeathBehavior {
     pub(crate) fn new_for_object_id(
         id: crate::common::ObjectID,
-        data: Arc<InstantDeathBehaviorModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             base: DieModule::new_for_object_id(id, data),
@@ -21,7 +21,7 @@ impl InstantDeathBehavior {
         if owner.get_id() != self.base.object_id {
             return Err("InstantDeath owner identity mismatch".into());
         }
-        self.base.module_data.validate_owned_effects()
+        self.base.module_data.read().validate_owned_effects()
     }
     /// Original predicate precedes the cached-AI dead latch. The caller admits
     /// the returned destruction at this point after releasing this module loan.
@@ -35,6 +35,7 @@ impl InstantDeathBehavior {
         Ok(self
             .base
             .module_data
+            .read()
             .base
             .die_mux_data
             .is_die_applicable(owner, damage)

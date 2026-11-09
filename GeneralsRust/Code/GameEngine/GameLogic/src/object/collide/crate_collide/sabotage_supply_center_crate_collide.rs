@@ -4,6 +4,8 @@
 //! Author: Kris Morness, June 2003 (original C++), converted to Rust
 
 use crate::common::ObjectID;
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::sync::{Arc, RwLock};
@@ -262,17 +264,23 @@ pub struct SabotageSupplyCenterCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    module_data: SabotageSupplyCenterCrateCollideModuleData,
+    module_data: ModuleDataView<SabotageSupplyCenterCrateCollideModuleData>,
 }
 
 impl SabotageSupplyCenterCrateCollide {
     /// Create new sabotage supply center crate collide module
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: SabotageSupplyCenterCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let module_data = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageSupplyCenterCrateCollideModuleData>>().expect("sabotage crate data").data
+        });
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageSupplyCenterCrateCollideModuleData>>().expect("sabotage crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, base_data),
             module_data,
         }
     }
@@ -400,8 +408,7 @@ impl SabotageSupplyCenterCrateCollide {
         };
         let available_cash = target_player_guard.get_money().count_money();
         drop(target_player_guard);
-        let module_data = &self.module_data;
-        let desired_amount = module_data.steal_cash_amount;
+        let desired_amount = self.module_data.read().steal_cash_amount;
 
         let cash_to_steal = cmp::min(desired_amount, available_cash);
         if cash_to_steal == 0 {
@@ -601,7 +608,7 @@ mod tests {
             steal_cash_amount: 500,
             ..Default::default()
         };
-        let module = SabotageSupplyCenterCrateCollide::new(&saboteur, module_data);
+        let module = SabotageSupplyCenterCrateCollide::new(&saboteur, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
 
         let target_id = target.read().expect("target read").get_id();
         assert_eq!(

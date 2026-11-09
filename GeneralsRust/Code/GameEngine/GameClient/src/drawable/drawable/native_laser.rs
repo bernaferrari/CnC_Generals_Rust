@@ -77,11 +77,13 @@ impl BasicDrawable {
                 continue;
             };
             let self_dirty = draw.is_self_dirty();
-            let aspect = if draw.texture_name().is_empty() {
+            let texture_name = draw.texture_name();
+            let aspect = if texture_name.is_empty() {
                 1.0
             } else {
-                texture_aspect(draw.texture_name())?
+                texture_aspect(&texture_name)?
             };
+            drop(texture_name);
             let update = modules[update_index]
                 .logic_module_mut()
                 .unwrap()

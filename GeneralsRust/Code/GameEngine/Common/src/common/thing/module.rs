@@ -89,8 +89,28 @@ impl std::ops::BitOrAssign for ModuleInterfaceType {
     }
 }
 
+/// Object-safe cloning used when an admitted content owner forks a session.
+pub trait ModuleDataClone {
+    fn clone_module_data(&self) -> Box<dyn ModuleData>;
+    fn clone_module_data_into(&self, target: &mut dyn ModuleData);
+}
+
+impl<T: ModuleData + Clone> ModuleDataClone for T {
+    fn clone_module_data(&self) -> Box<dyn ModuleData> {
+        Box::new(self.clone())
+    }
+
+    fn clone_module_data_into(&self, target: &mut dyn ModuleData) {
+        let target: &mut dyn Any = target;
+        target
+            .downcast_mut::<T>()
+            .expect("transactional module data type changed")
+            .clone_from(self);
+    }
+}
+
 /// Base trait for data read from INI files for modules
-pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
+pub trait ModuleData: Snapshotable + ModuleDataClone + Send + Sync + std::fmt::Debug + Any {
     fn set_module_tag_name_key(&mut self, key: NameKeyType);
     fn get_module_tag_name_key(&self) -> NameKeyType;
     fn is_ai_module_data(&self) -> bool {
@@ -144,6 +164,219 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
 
     fn get_ini_int(&self, key: &str) -> Option<i32> {
         self.get_ini_field(key)?.parse().ok()
+    }
+}
+
+/// Shared identity of one module-data definition. Readers hold a guard for
+/// the duration of their borrow; snapshot loading takes the exclusive guard.
+#[derive(Debug)]
+struct ModuleDataState {
+    data: Box<dyn ModuleData>,
+    dirty: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ModuleDataHandle(Arc<parking_lot::RwLock<ModuleDataState>>);
+
+impl ModuleDataHandle {
+    pub fn new<T: ModuleData>(data: T) -> Self {
+        Self::from_box(Box::new(data))
+    }
+
+    pub fn from_box(data: Box<dyn ModuleData>) -> Self {
+        Self(Arc::new(parking_lot::RwLock::new(ModuleDataState { data, dirty: false })))
+    }
+
+    pub fn read(&self) -> ModuleDataGuard<'_> {
+        ModuleDataGuard(parking_lot::RwLockReadGuard::map(
+            self.0.read(),
+            |state| state.data.as_ref(),
+        ))
+    }
+
+    pub fn write(&self) -> parking_lot::MappedRwLockWriteGuard<'_, dyn ModuleData> {
+        let mut state = self.0.write();
+        state.dirty = true;
+        parking_lot::RwLockWriteGuard::map(state, |state| state.data.as_mut())
+    }
+
+    /// Tests the actual allocation type, rather than a delegated `as_any` view.
+    pub fn is<T: Any>(&self) -> bool {
+        let data = self.read();
+        let any: &dyn Any = &*data;
+        any.is::<T>()
+    }
+
+    pub fn ptr_eq(a: &Self, b: &Self) -> bool {
+        Arc::ptr_eq(&a.0, &b.0)
+    }
+}
+
+/// Shared data borrow with downcasts forwarded to the definition rather than
+/// to the guard itself. This also avoids blanket `Any` implementations
+/// requiring the guard's borrow to be `'static`.
+pub struct ModuleDataGuard<'a>(
+    parking_lot::MappedRwLockReadGuard<'a, dyn ModuleData>,
+);
+
+impl<'a> ModuleDataGuard<'a> {
+    pub fn as_any(&self) -> &dyn Any {
+        ModuleData::as_any(&*self.0)
+    }
+
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.as_any().downcast_ref::<T>()
+    }
+
+    /// Keep the data borrow alive while exposing a typed definition.
+    pub fn into_downcast<T: 'static>(
+        self,
+    ) -> Option<parking_lot::MappedRwLockReadGuard<'a, T>> {
+        parking_lot::MappedRwLockReadGuard::try_map(self.0, |data| {
+            ModuleData::as_any(data).downcast_ref::<T>()
+        }).ok()
+    }
+
+    /// Conditionally project a definition while retaining its shared guard.
+    pub fn try_map<T: ?Sized>(
+        guard: Self,
+        project: impl FnOnce(&dyn ModuleData) -> Option<&T>,
+    ) -> Option<parking_lot::MappedRwLockReadGuard<'a, T>> {
+        parking_lot::MappedRwLockReadGuard::try_map(guard.0, project).ok()
+    }
+
+    pub fn map<T: ?Sized>(
+        guard: Self,
+        project: impl FnOnce(&dyn ModuleData) -> &T,
+    ) -> parking_lot::MappedRwLockReadGuard<'a, T> {
+        parking_lot::MappedRwLockReadGuard::map(guard.0, project)
+    }
+}
+
+impl std::ops::Deref for ModuleDataGuard<'_> {
+    type Target = dyn ModuleData;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+/// Preserves alias identity while copying definitions into a new session.
+#[derive(Default)]
+pub struct ModuleDataRemap {
+    entries: HashMap<usize, (ModuleDataHandle, ModuleDataHandle)>,
+    reverse: Option<HashMap<usize, ModuleDataHandle>>,
+}
+
+impl ModuleDataRemap {
+    /// A transaction tracks reverse mappings and changes to its private copies.
+    pub fn transaction_fork() -> Self {
+        Self { entries: HashMap::new(), reverse: Some(HashMap::new()) }
+    }
+
+    pub fn remap(&mut self, source: &ModuleDataHandle) -> ModuleDataHandle {
+        let key = Arc::as_ptr(&source.0) as usize;
+        if let Some((_, target)) = self.entries.get(&key) {
+            return target.clone();
+        }
+        let target = ModuleDataHandle::from_box(source.read().clone_module_data());
+        if let Some(reverse) = &mut self.reverse {
+            reverse.insert(Arc::as_ptr(&target.0) as usize, source.clone());
+        }
+        self.entries.insert(key, (source.clone(), target.clone()));
+        target
+    }
+
+    /// Resolve a private transaction copy to its original identity.
+    pub fn restore(&self, handle: &ModuleDataHandle) -> ModuleDataHandle {
+        self.reverse.as_ref()
+            .and_then(|reverse| reverse.get(&(Arc::as_ptr(&handle.0) as usize)))
+            .cloned()
+            .unwrap_or_else(|| handle.clone())
+    }
+
+    /// Publish only definitions modified by a successful transaction.
+    pub fn commit(self) {
+        for (source, target) in self.entries.into_values() {
+            let target = target.0.read();
+            if target.dirty {
+                let mut source = source.0.write();
+                target.data.clone_module_data_into(source.data.as_mut());
+                source.dirty = true;
+            }
+        }
+    }
+}
+
+/// A typed, live projection of a definition, including embedded base data.
+/// The projection is applied while the root handle's read guard is held.
+pub struct ModuleDataView<T: ?Sized + 'static> {
+    handle: ModuleDataHandle,
+    project: for<'a> fn(&'a dyn ModuleData) -> &'a T,
+}
+
+impl<T: ?Sized + 'static> Clone for ModuleDataView<T> {
+    fn clone(&self) -> Self {
+        Self { handle: self.handle.clone(), project: self.project }
+    }
+}
+
+impl<T: ?Sized + 'static> std::fmt::Debug for ModuleDataView<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("ModuleDataView").field("handle", &self.handle).finish()
+    }
+}
+
+impl<T: ?Sized + 'static> ModuleDataView<T> {
+    pub fn new(
+        handle: ModuleDataHandle,
+        project: for<'a> fn(&'a dyn ModuleData) -> &'a T,
+    ) -> Self {
+        Self { handle, project }
+    }
+
+    pub fn read(&self) -> parking_lot::MappedRwLockReadGuard<'_, T> {
+        ModuleDataGuard::map(self.handle.read(), self.project)
+    }
+
+    pub fn handle(&self) -> &ModuleDataHandle {
+        &self.handle
+    }
+}
+
+/// A module-data read, either guarded shared data or an existing immutable
+/// value owned directly by a module.
+pub enum ModuleDataRead<'a> {
+    Shared(ModuleDataGuard<'a>),
+    Borrowed(&'a dyn ModuleData),
+}
+
+impl<'a> ModuleDataRead<'a> {
+    pub fn shared(data: &'a ModuleDataHandle) -> Self {
+        Self::Shared(data.read())
+    }
+
+    pub fn borrowed(data: &'a dyn ModuleData) -> Self {
+        Self::Borrowed(data)
+    }
+
+    pub fn as_any(&self) -> &dyn Any {
+        ModuleData::as_any(&**self)
+    }
+
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.as_any().downcast_ref::<T>()
+    }
+}
+
+impl std::ops::Deref for ModuleDataRead<'_> {
+    type Target = dyn ModuleData;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Shared(data) => &**data,
+            Self::Borrowed(data) => *data,
+        }
     }
 }
 
@@ -212,6 +445,11 @@ pub struct ShroudCrateCollideConfig {
 impl dyn ModuleData {
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.as_any().downcast_ref::<T>()
+    }
+
+    /// Mutably downcast the actual allocation while holding an exclusive guard.
+    pub fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
@@ -599,13 +837,13 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     /// Called on all modules before deletion
     fn on_delete(&mut self) {}
 
-    fn get_module_data(&self) -> &dyn ModuleData {
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
         static FALLBACK_MODULE_DATA: OnceLock<BaseModuleData> = OnceLock::new();
         log::error!(
             "Module::get_module_data fell back to BaseModuleData for {}",
             std::any::type_name::<Self>()
         );
-        FALLBACK_MODULE_DATA.get_or_init(BaseModuleData::new)
+        ModuleDataRead::borrowed(FALLBACK_MODULE_DATA.get_or_init(BaseModuleData::new))
     }
 
     /// Get create interface if this module supports creation
@@ -792,12 +1030,12 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
 
 /// Base module implementation
 pub struct BaseModule {
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     module_name_key: NameKeyType,
 }
 
 impl BaseModule {
-    pub fn new(module_data: Arc<dyn ModuleData>, module_name_key: NameKeyType) -> Self {
+    pub fn new(module_data: ModuleDataHandle, module_name_key: NameKeyType) -> Self {
         Self {
             module_data,
             module_name_key,
@@ -811,11 +1049,11 @@ impl Module for BaseModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &*self.module_data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 }
 
@@ -946,7 +1184,7 @@ pub struct BaseObjectModule {
 
 impl BaseObjectModule {
     pub fn new(
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         module_name_key: NameKeyType,
         object: Option<Arc<dyn Object>>,
     ) -> Self {
@@ -966,7 +1204,7 @@ impl Module for BaseObjectModule {
         self.base.get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
         self.base.get_module_data()
     }
 }
@@ -1009,7 +1247,7 @@ pub struct BaseDrawableModule {
 
 impl BaseDrawableModule {
     pub fn new(
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         module_name_key: NameKeyType,
         drawable: Option<Arc<dyn Drawable>>,
     ) -> Self {
@@ -1029,7 +1267,7 @@ impl Module for BaseDrawableModule {
         self.base.get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
         self.base.get_module_data()
     }
 }
@@ -1309,8 +1547,44 @@ mod tests {
     }
 
     #[test]
+    fn session_fork_and_transaction_remap_preserve_aliases_and_isolation() {
+        let data = ModuleDataHandle::new(BaseModuleData::new());
+        data.write().set_module_tag_name_key(9);
+        let alias = data.clone();
+        let allocation = std::ptr::from_ref(&*data.read());
+        let mut session = ModuleDataRemap::default();
+        let session_data = session.remap(&data);
+        assert!(ModuleDataHandle::ptr_eq(&session_data, &session.remap(&alias)));
+        assert!(!ModuleDataHandle::ptr_eq(&data, &session_data));
+        session_data.write().set_module_tag_name_key(21);
+        assert_eq!(data.read().get_module_tag_name_key(), 9);
+
+        let mut rejected = ModuleDataRemap::transaction_fork();
+        rejected.remap(&data).write().set_module_tag_name_key(37);
+        drop(rejected);
+        assert_eq!(alias.read().get_module_tag_name_key(), 9);
+        assert!(std::ptr::eq(allocation, &*data.read()));
+
+        let untouched = ModuleDataHandle::new(BaseModuleData::new());
+        untouched.write().set_module_tag_name_key(5);
+        let mut accepted = ModuleDataRemap::transaction_fork();
+        let staged = accepted.remap(&data);
+        let staged_untouched = accepted.remap(&untouched);
+        staged.write().set_module_tag_name_key(44);
+        // An untouched definition must not be overwritten at commit.
+        untouched.write().set_module_tag_name_key(6);
+        assert!(ModuleDataHandle::ptr_eq(&accepted.restore(&staged), &alias));
+        assert!(ModuleDataHandle::ptr_eq(&accepted.restore(&staged_untouched), &untouched));
+        accepted.commit();
+        assert_eq!(alias.read().get_module_tag_name_key(), 44);
+        assert!(std::ptr::eq(allocation, &*data.read()));
+        assert_eq!(untouched.read().get_module_tag_name_key(), 6);
+        assert_eq!(session_data.read().get_module_tag_name_key(), 21);
+    }
+
+    #[test]
     fn base_object_module_xfer_writes_object_and_module_versions() {
-        let module_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+        let module_data = ModuleDataHandle::new(BaseModuleData::new());
         let mut module = BaseObjectModule::new(module_data, 0, None);
 
         assert_eq!(xfer_bytes(&mut module), vec![1, 1]);
@@ -1318,7 +1592,7 @@ mod tests {
 
     #[test]
     fn base_drawable_module_xfer_writes_drawable_and_module_versions() {
-        let module_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+        let module_data = ModuleDataHandle::new(BaseModuleData::new());
         let mut module = BaseDrawableModule::new(module_data, 0, None);
 
         assert_eq!(xfer_bytes(&mut module), vec![1, 1]);

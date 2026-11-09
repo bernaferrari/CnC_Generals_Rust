@@ -164,7 +164,7 @@ use crate::helpers::{FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS, FPF_NONE, FindPositionOpt
 
 impl CreateCrateDie {
     /// Create a new CreateCrateDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<CreateCrateDieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -323,7 +323,7 @@ impl DieModuleInterface for CreateCrateDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }
@@ -347,7 +347,7 @@ impl DieModuleInterface for CreateCrateDie {
             return;
         };
 
-        for crate_name in self.base.module_data.crate_name_list.clone() {
+        for crate_name in self.base.module_data.read().crate_name_list.clone() {
             let Some(template) = crate_system_guard.find_crate_template(&crate_name) else {
                 continue;
             };

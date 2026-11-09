@@ -15,6 +15,7 @@ use crate::object::Object;
 use crate::object::contain::TransportContain;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::ModuleDataHandle;
 
 /// Configuration data for InternetHackContain module
 #[derive(Debug, Clone, Default)]
@@ -54,9 +55,10 @@ impl InternetHackContain {
     /// Create a new InternetHackContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &InternetHackContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        assert!(module_data.is::<crate::contain_module_overrides::ContainModuleDataAdapter<InternetHackContainModuleData>>(), "internet hack contain module data has an incompatible type");
+        let base = TransportContain::new(object.clone(), module_data)?;
 
         Ok(Self {
             base,

@@ -221,14 +221,17 @@ fn actual_installed_special_power_pauses_on_brownout_and_extends_ready_deadline(
         )),
         ..Default::default()
     };
+    let data = ModuleDataHandle::new(data);
     let entry = Arc::new(ModuleEntry::new(
         "SpecialPowerModule".into(),
         "OwnedPower".into(),
         ModuleInterfaceType::SPECIAL_POWER,
-        Arc::new(data.clone()),
-        Box::new(SpecialPowerModule::new(
+        data.clone(),
+        Box::new(SpecialPowerModule::from_shared(
             world.consumer.read().unwrap().get_id(),
             data,
+            |data| data.as_any().downcast_ref::<SpecialPowerModuleData>().unwrap(),
+            |data| (data as &mut dyn std::any::Any).downcast_mut::<SpecialPowerModuleData>().unwrap(),
         )),
     ));
     world.consumer.write().unwrap().modules.push(entry.clone());
@@ -270,7 +273,7 @@ fn injected_real_spy_name_is_not_a_supplied_module_capability() {
     let id = world.consumer.read().unwrap().get_id();
     let spy = crate::object::update::spy_vision_update::SpyVisionUpdate::new(
         0,
-        Arc::new(crate::object::update::spy_vision_update::SpyVisionUpdateModuleData::default()),
+        ModuleDataHandle::new(crate::object::update::spy_vision_update::SpyVisionUpdateModuleData::default()),
         id,
     );
     world

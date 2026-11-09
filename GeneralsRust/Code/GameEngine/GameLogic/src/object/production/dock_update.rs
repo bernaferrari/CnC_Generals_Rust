@@ -16,7 +16,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::{Object, ObjectLockExt};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead};
 use std::sync::{Arc, RwLock};
 
 const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
@@ -92,7 +92,7 @@ pub(super) const DOCK_UPDATE_FIELDS: &[FieldParse<DockUpdateModuleData>] = &[
 #[derive(Debug)]
 pub struct DockUpdate {
     /// Module configuration
-    data: DockUpdateModuleData,
+    pub(super) data: ModuleDataHandle,
     /// Owning object ID
     owner_id: ObjectID,
     /// UpdateModule scheduler state serialized by the C++ base class.
@@ -113,10 +113,33 @@ pub struct DockUpdate {
     dock_open: Bool,
 }
 
+fn dock_base_data(data: &dyn ModuleData) -> &DockUpdateModuleData {
+    let data = data.as_any();
+    if let Some(data) = data.downcast_ref::<DockUpdateModuleData>() {
+        data
+    } else if let Some(data) = data.downcast_ref::<RepairDockUpdateData>() {
+        &data.base
+    } else if let Some(data) = data.downcast_ref::<SupplyCenterDockUpdateData>() {
+        &data.base
+    } else if let Some(data) = data.downcast_ref::<super::RailedTransportDockUpdateData>() {
+        &data.base
+    } else if let Some(data) = data.downcast_ref::<super::SupplyWarehouseDockUpdateData>() {
+        &data.base
+    } else if let Some(data) = data.downcast_ref::<super::PrisonDockUpdateData>() {
+        &data.base
+    } else {
+        panic!("DockUpdate requires dock module data")
+    }
+}
+
 impl DockUpdate {
     /// Create a new dock update module
-    pub fn new(data: DockUpdateModuleData, owner_id: ObjectID, _owner_position: &Coord3D) -> Self {
-        let number_approach_positions = data.number_approach_positions_data;
+    pub fn new(data: DockUpdateModuleData, owner_id: ObjectID, owner_position: &Coord3D) -> Self {
+        Self::from_shared(ModuleDataHandle::new(data), owner_id, owner_position)
+    }
+
+    pub fn from_shared(data: ModuleDataHandle, owner_id: ObjectID, _owner_position: &Coord3D) -> Self {
+        let number_approach_positions = dock_base_data(&*data.read()).number_approach_positions_data;
         let initial_len = if number_approach_positions != DYNAMIC_APPROACH_VECTOR_FLAG {
             number_approach_positions.max(0) as usize
         } else {
@@ -820,7 +843,7 @@ impl DockUpdateInterface for DockUpdate {
     }
 
     fn is_allow_passthrough_type(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.data.is_allow_passthrough)
+        Ok(dock_base_data(&*self.data.read()).is_allow_passthrough)
     }
 
     fn is_rally_point_after_dock_type(
@@ -983,15 +1006,19 @@ pub struct RepairDockUpdate {
     /// Base dock
     base: DockUpdate,
     /// Repair configuration
-    data: RepairDockUpdateData,
+    data: ModuleDataHandle,
     last_repair: ObjectID,
     health_to_add_per_frame: Real,
 }
 
 impl RepairDockUpdate {
     pub fn new(data: RepairDockUpdateData, owner_id: ObjectID, owner_position: &Coord3D) -> Self {
+        Self::from_shared(ModuleDataHandle::new(data), owner_id, owner_position)
+    }
+
+    pub fn from_shared(data: ModuleDataHandle, owner_id: ObjectID, owner_position: &Coord3D) -> Self {
         Self {
-            base: DockUpdate::new(data.base.clone(), owner_id, owner_position),
+            base: DockUpdate::from_shared(data.clone(), owner_id, owner_position),
             data,
             last_repair: INVALID_ID,
             health_to_add_per_frame: 0.0,
@@ -1016,8 +1043,11 @@ impl RepairDockUpdate {
         if self.last_repair == INVALID_ID {
             self.last_repair = unit_id;
             // Authored duration is a Real, including positive fractional frames.
+            let data = self.data.read();
+            let data = ModuleData::as_any(&*data).downcast_ref::<RepairDockUpdateData>()
+                .expect("RepairDockUpdate requires RepairDockUpdateData");
             self.health_to_add_per_frame =
-                (max_health - current_health) / self.data.frames_for_full_heal;
+                (max_health - current_health) / data.frames_for_full_heal;
         }
 
         if current_health >= max_health {
@@ -1301,7 +1331,7 @@ pub struct SupplyCenterDockUpdate {
     /// Base dock
     base: DockUpdate,
     /// Supply configuration
-    data: SupplyCenterDockUpdateData,
+    data: ModuleDataHandle,
 }
 
 impl SupplyCenterDockUpdate {
@@ -1310,8 +1340,12 @@ impl SupplyCenterDockUpdate {
         owner_id: ObjectID,
         owner_position: &Coord3D,
     ) -> Self {
+        Self::from_shared(ModuleDataHandle::new(data), owner_id, owner_position)
+    }
+
+    pub fn from_shared(data: ModuleDataHandle, owner_id: ObjectID, owner_position: &Coord3D) -> Self {
         Self {
-            base: DockUpdate::new(data.base.clone(), owner_id, owner_position),
+            base: DockUpdate::from_shared(data.clone(), owner_id, owner_position),
             data,
         }
     }
@@ -1376,7 +1410,13 @@ impl SupplyCenterDockUpdate {
                 player_guard.get_score_keeper_mut().add_money_earned(value);
             }
 
-            if self.data.grant_temporary_stealth_frames > 0 {
+            let stealth_frames = {
+                let data = self.data.read();
+                ModuleData::as_any(&*data).downcast_ref::<SupplyCenterDockUpdateData>()
+                    .expect("SupplyCenterDockUpdate requires SupplyCenterDockUpdateData")
+                    .grant_temporary_stealth_frames
+            };
+            if stealth_frames > 0 {
                 if let Some(owner) =
                     crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
                 {
@@ -1395,7 +1435,7 @@ impl SupplyCenterDockUpdate {
                                     if stealth_guard.is_temporary_grant() || !can_stealth {
                                         let _ = stealth_guard.receive_grant(
                                             true,
-                                            self.data.grant_temporary_stealth_frames,
+                                            stealth_frames,
                                             crate::helpers::TheGameLogic::get_frame(),
                                         );
                                     }
@@ -1648,16 +1688,18 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
 pub struct RepairDockUpdateModule {
     behavior: RepairDockUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<RepairDockUpdateData>,
+    module_data: ModuleDataHandle,
 }
 
 impl RepairDockUpdateModule {
     pub fn new(
-        behavior: RepairDockUpdate,
+        mut behavior: RepairDockUpdate,
         module_name: &AsciiString,
-        module_data: Arc<RepairDockUpdateData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.data = module_data.clone();
+        behavior.base.data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -1711,13 +1753,11 @@ impl Module for RepairDockUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 }
 
@@ -1725,16 +1765,18 @@ impl Module for RepairDockUpdateModule {
 pub struct SupplyCenterDockUpdateModule {
     behavior: SupplyCenterDockUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SupplyCenterDockUpdateData>,
+    module_data: ModuleDataHandle,
 }
 
 impl SupplyCenterDockUpdateModule {
     pub fn new(
-        behavior: SupplyCenterDockUpdate,
+        mut behavior: SupplyCenterDockUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SupplyCenterDockUpdateData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.data = module_data.clone();
+        behavior.base.data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -1782,13 +1824,11 @@ impl Module for SupplyCenterDockUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 }
 

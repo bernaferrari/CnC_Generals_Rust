@@ -436,7 +436,7 @@ pub use behavior_integration::{
     LegacyBehaviorAdapter,
 };
 
-use crate::common::ModuleData;
+use game_engine::common::thing::module::ModuleDataHandle;
 use crate::object::Object;
 use std::sync::{Arc, RwLock};
 
@@ -445,7 +445,7 @@ pub trait BehaviorModuleFactory {
     /// Create a new behavior module instance
     fn create_behavior(
         thing: Arc<RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
         Box<dyn std::error::Error + Send + Sync>,
@@ -459,7 +459,7 @@ pub struct BehaviorModuleRegistry {
         Box<
             dyn Fn(
                     Arc<RwLock<Object>>,
-                    Arc<dyn ModuleData>,
+                    ModuleDataHandle,
                 ) -> Result<
                     Box<dyn crate::modules::BehaviorModuleInterface>,
                     Box<dyn std::error::Error + Send + Sync>,
@@ -494,7 +494,7 @@ impl BehaviorModuleRegistry {
                         .ok()
                         .map(|g| g.get_id())
                         .unwrap_or(crate::common::INVALID_ID);
-                    SpawnBehavior::new(object_id, data)
+                    SpawnBehavior::new_with_data(object_id, data)
                         .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
                 },
             ),
@@ -508,7 +508,7 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "SupplyWarehouseCripplingBehavior",
             Box::new(|thing, data| {
-                SupplyWarehouseCripplingBehavior::new(thing, data)
+                SupplyWarehouseCripplingBehavior::new_with_module_data(thing, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -516,7 +516,7 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "TechBuildingBehavior",
             Box::new(|thing, data| {
-                TechBuildingBehavior::new(thing, data)
+                TechBuildingBehavior::new_with_module_data(thing, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -524,7 +524,7 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "PropagandaTowerBehavior",
             Box::new(|thing, data| {
-                PropagandaTowerBehavior::new(thing, data)
+                PropagandaTowerBehavior::new_with_module_data(thing, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -532,17 +532,8 @@ impl BehaviorModuleRegistry {
         #[cfg(feature = "allow_surrender")]
         registry.register_factory(
             "PropagandaCenterBehavior",
-            Box::new(|thing: Arc<RwLock<Object>>, data: Arc<dyn ModuleData>| {
-                let typed = data
-                    .as_any()
-                    .downcast_ref::<PropagandaCenterBehaviorModuleData>()
-                    .ok_or_else(|| {
-                        Box::<dyn std::error::Error + Send + Sync>::from(
-                            "PropagandaCenterBehaviorModuleData expected",
-                        )
-                    })?;
-                let module_data = Arc::new(typed.clone());
-                PropagandaCenterBehavior::new(thing, module_data)
+            Box::new(|thing: Arc<RwLock<Object>>, data: ModuleDataHandle| {
+                PropagandaCenterBehavior::new(thing, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -859,7 +850,7 @@ impl BehaviorModuleRegistry {
     where
         F: Fn(
                 Arc<RwLock<Object>>,
-                Arc<dyn ModuleData>,
+                ModuleDataHandle,
             ) -> Result<
                 Box<dyn crate::modules::BehaviorModuleInterface>,
                 Box<dyn std::error::Error + Send + Sync>,
@@ -875,7 +866,7 @@ impl BehaviorModuleRegistry {
         &self,
         name: &str,
         thing: Arc<RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
         Box<dyn std::error::Error + Send + Sync>,

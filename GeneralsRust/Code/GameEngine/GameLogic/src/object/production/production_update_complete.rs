@@ -48,7 +48,7 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType, ProductionControlInterface,
+    Module, ModuleDataHandle, ModuleDataRead, NameKeyType, ProductionControlInterface,
 };
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -413,7 +413,7 @@ impl ProductionEntryState {
 #[derive(Debug)]
 pub struct ProductionUpdateComplete {
     /// Module configuration
-    data: ProductionUpdateModuleData,
+    data: ModuleDataHandle,
     /// Build queue
     queue: BuildQueue,
     /// Rally point manager
@@ -452,12 +452,18 @@ pub struct ProductionUpdateComplete {
 }
 
 impl ProductionUpdateComplete {
+    fn with_data<R>(&self, f: impl FnOnce(&ProductionUpdateModuleData) -> R) -> R {
+        let data = self.data.read();
+        f(game_engine::common::thing::module::ModuleData::as_any(&*data).downcast_ref::<ProductionUpdateModuleData>()
+            .expect("ProductionUpdateComplete requires ProductionUpdateModuleData"))
+    }
+
     fn production_count(&self) -> usize {
         self.queue.len() + usize::from(self.current_production.is_some())
     }
 
     fn has_queue_capacity(&self) -> bool {
-        self.production_count() < self.data.max_queue_entries
+        self.production_count() < self.with_data(|data| data.max_queue_entries)
     }
 
     fn sync_actively_constructing_flag(&mut self) {
@@ -496,7 +502,18 @@ impl ProductionUpdateComplete {
     /// Create a new production update module
     /// Matches C++ ProductionUpdate constructor lines 162-183
     pub fn new(data: ProductionUpdateModuleData, owner_id: ObjectID) -> Self {
-        let queue = BuildQueue::new(data.max_queue_entries);
+        Self::from_shared(ModuleDataHandle::new(data), owner_id)
+    }
+
+    pub fn from_shared(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
+        let max_queue_entries = {
+            let guard = data.read();
+            game_engine::common::thing::module::ModuleData::as_any(&*guard)
+                .downcast_ref::<ProductionUpdateModuleData>()
+                .expect("ProductionUpdateComplete requires ProductionUpdateModuleData")
+                .max_queue_entries
+        };
+        let queue = BuildQueue::new(max_queue_entries);
         Self {
             data,
             queue,
@@ -872,13 +889,17 @@ impl ProductionUpdateComplete {
     /// Update door animations
     /// Matches C++ updateDoors lines 513-583
     fn update_doors(&mut self, current_frame: u32) {
-        for door_idx in 0..self.data.num_door_animations.min(DOOR_COUNT_MAX as i32) as usize {
+        let (count, opening, waiting, closing) = self.with_data(|data| (
+            data.num_door_animations, data.door_opening_time,
+            data.door_wait_open_time, data.door_closing_time,
+        ));
+        for door_idx in 0..count.min(DOOR_COUNT_MAX as i32) as usize {
             let door = &mut self.doors[door_idx];
 
             // Door opening -> wait open transition
             if door.door_opened_frame > 0 {
                 let elapsed = current_frame - door.door_opened_frame;
-                if elapsed > self.data.door_opening_time {
+                if elapsed > opening {
                     door.door_opened_frame = 0;
                     door.door_wait_open_frame = current_frame;
                     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
@@ -893,7 +914,7 @@ impl ProductionUpdateComplete {
             // Door wait open -> closing transition
             else if door.door_wait_open_frame > 0 && !door.hold_open {
                 let elapsed = current_frame - door.door_wait_open_frame;
-                if elapsed > self.data.door_wait_open_time {
+                if elapsed > waiting {
                     door.door_wait_open_frame = 0;
                     door.door_closed_frame = current_frame;
                     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
@@ -908,7 +929,7 @@ impl ProductionUpdateComplete {
             // Door closing -> closed transition
             else if door.door_closed_frame > 0 && !door.hold_open {
                 let elapsed = current_frame - door.door_closed_frame;
-                if elapsed > self.data.door_closing_time {
+                if elapsed > closing {
                     door.door_closed_frame = 0;
                     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                         self.owner_id,
@@ -926,7 +947,7 @@ impl ProductionUpdateComplete {
     fn update_construction_complete(&mut self, current_frame: u32) {
         if self.construction_complete_frame > 0 {
             let elapsed = current_frame - self.construction_complete_frame;
-            if elapsed > self.data.construction_complete_duration {
+            if elapsed > self.with_data(|data| data.construction_complete_duration) {
                 self.construction_complete_frame = 0;
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                     self.owner_id,
@@ -1090,23 +1111,22 @@ impl ProductionUpdateComplete {
     /// C++ queueCreateUnit QuantityModifier via isEquivalentTo
     /// (ProductionUpdate.cpp:417-425, ThingTemplate.cpp:1454).
     fn quantity_for_template(&self, template_name: &str) -> i32 {
-        let Some(unit_type) = TheThingFactory::find_template(template_name) else {
-            return self
-                .data
-                .quantity_modifiers
-                .iter()
-                .find(|qm| qm.template_name.eq_ignore_ascii_case(template_name))
-                .map(|qm| qm.quantity)
-                .unwrap_or(1);
-        };
-        for qm in &self.data.quantity_modifiers {
-            if let Some(production_template) = TheThingFactory::find_template(&qm.template_name) {
-                if production_template.is_equivalent_to(unit_type.as_ref()) {
-                    return qm.quantity;
+        self.with_data(|data| {
+            let Some(unit_type) = TheThingFactory::find_template(template_name) else {
+                return data.quantity_modifiers.iter()
+                    .find(|qm| qm.template_name.eq_ignore_ascii_case(template_name))
+                    .map(|qm| qm.quantity)
+                    .unwrap_or(1);
+            };
+            for qm in &data.quantity_modifiers {
+                if let Some(production_template) = TheThingFactory::find_template(&qm.template_name) {
+                    if production_template.is_equivalent_to(unit_type.as_ref()) {
+                        return qm.quantity;
+                    }
                 }
             }
-        }
-        1
+            1
+        })
     }
 
     fn refund_player_credits() -> impl FnMut(ObjectID, i32) {
@@ -1196,7 +1216,7 @@ impl ProductionUpdateComplete {
                 None
             };
 
-            if self.data.num_door_animations > 0 {
+            if self.with_data(|data| data.num_door_animations) > 0 {
                 if let Some(door_idx) = door_idx {
                     let door = &mut self.doors[door_idx];
                     if door.door_opened_frame == 0
@@ -1227,7 +1247,7 @@ impl ProductionUpdateComplete {
                 }
             }
 
-            let door_ready = self.data.num_door_animations == 0
+            let door_ready = self.with_data(|data| data.num_door_animations) == 0
                 || door_idx.is_none()
                 || door_idx
                     .map(|idx| self.doors[idx].door_wait_open_frame != 0)
@@ -1468,7 +1488,7 @@ impl BehaviorModuleInterface for ProductionUpdateComplete {
 
         // Update doors
         // Matches C++ lines 595-597
-        if self.data.num_door_animations > 0 {
+        if self.with_data(|data| data.num_door_animations) > 0 {
             self.update_doors(current_frame);
         }
 
@@ -1617,7 +1637,7 @@ impl UpdateModuleInterface for ProductionUpdateComplete {
     }
 
     fn get_disabled_types_to_process(&self) -> DisabledMaskType {
-        self.data.disabled_types_to_process
+        self.with_data(|data| data.disabled_types_to_process)
     }
 }
 
@@ -1804,7 +1824,7 @@ impl Snapshotable for ProductionUpdateComplete {
             }
         } else {
             self.current_production = None;
-            let mut new_queue = BuildQueue::new(self.data.max_queue_entries);
+            let mut new_queue = BuildQueue::new(self.with_data(|data| data.max_queue_entries));
             for index in 0..production_count {
                 let state = xfer_read_cpp_production_entry(xfer)?;
                 if index == 0 {
@@ -1972,17 +1992,17 @@ fn xfer_model_condition_flags(
 pub struct ProductionUpdateCompleteModule {
     behavior: ProductionUpdateComplete,
     module_name_key: NameKeyType,
-    module_data: Arc<ProductionUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl ProductionUpdateCompleteModule {
     pub fn new(
         module_name: &AsciiString,
-        module_data: Arc<ProductionUpdateModuleData>,
+        module_data: ModuleDataHandle,
         owner_id: ObjectID,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
-        let behavior = ProductionUpdateComplete::new((*module_data).clone(), owner_id);
+        let behavior = ProductionUpdateComplete::from_shared(module_data.clone(), owner_id);
         Self {
             behavior,
             module_name_key,
@@ -2005,13 +2025,11 @@ impl Module for ProductionUpdateCompleteModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {

@@ -74,6 +74,7 @@ impl PhysicsBehaviorUpdate {
         cargo_mass: Real,
         mut ground_height: impl FnMut(Real, Real) -> Real,
     ) -> Result<PreparedOwnedPhysicsStep, String> {
+        let data = self.module_data.read();
         let state = &self.physics_handle.state;
         let airborne_at_start =
             GameObject::is_above_terrain_height(obj.get_position().z, start_ground);
@@ -109,13 +110,13 @@ impl PhysicsBehaviorUpdate {
             || !state.mass.is_finite()
             || state.mass <= 0.0
             || !state.extra_friction.is_finite()
-            || !self.module_data.forward_friction.is_finite()
-            || !self.module_data.lateral_friction.is_finite()
-            || !self.module_data.aerodynamic_friction.is_finite()
-            || !self.module_data.pitch_roll_yaw_factor.is_finite()
-            || !self.module_data.center_of_mass_offset.is_finite()
-            || !self.module_data.min_fall_speed_for_damage.is_finite()
-            || !self.module_data.fall_height_damage_factor.is_finite()
+            || !data.forward_friction.is_finite()
+            || !data.lateral_friction.is_finite()
+            || !data.aerodynamic_friction.is_finite()
+            || !data.pitch_roll_yaw_factor.is_finite()
+            || !data.center_of_mass_offset.is_finite()
+            || !data.min_fall_speed_for_damage.is_finite()
+            || !data.fall_height_damage_factor.is_finite()
             || !state.pitch_rate.is_finite()
             || !state.roll_rate.is_finite()
             || !state.yaw_rate.is_finite()
@@ -142,13 +143,13 @@ impl PhysicsBehaviorUpdate {
         let damping = if use_ground_friction {
             1.0 - DEFAULT_LATERAL_FRICTION
         } else {
-            1.0 - Self::get_aerodynamic_friction(&self.module_data, state)
+            1.0 - Self::get_aerodynamic_friction(&data, state)
         };
         if !held {
             acceleration.z += gravity;
             if use_ground_friction {
                 acceleration += Self::ground_friction_acceleration(
-                    &self.module_data,
+                    &data,
                     obj,
                     state,
                     frame,
@@ -156,7 +157,7 @@ impl PhysicsBehaviorUpdate {
                 );
             } else {
                 acceleration +=
-                    velocity * -Self::get_aerodynamic_friction(&self.module_data, state);
+                    velocity * -Self::get_aerodynamic_friction(&data, state);
             }
             (velocity, pos) = Self::integrate_translation(
                 acceleration,
@@ -221,8 +222,8 @@ impl PhysicsBehaviorUpdate {
                     state.roll_rate * damping,
                     state.pitch_rate * damping,
                     state.yaw_rate * damping,
-                    self.module_data.pitch_roll_yaw_factor,
-                    self.module_data.center_of_mass_offset,
+                    data.pitch_roll_yaw_factor,
+                    data.center_of_mass_offset,
                 );
             }
             matrix.w_axis = pos.extend(1.0);
@@ -241,7 +242,7 @@ impl PhysicsBehaviorUpdate {
             bounce_first_transform: bounce.as_ref().and_then(|bounce| bounce.first_transform),
             bounce_expected: bounce.as_ref().is_some_and(|bounce| bounce.force.is_some()),
             resting_kill_expected: !obj.is_effectively_dead()
-                && self.module_data.kill_when_resting_on_ground
+                && data.kill_when_resting_on_ground
                 && !GameObject::is_above_terrain_height(pos.z, ground)
                 && is_very_small3d(velocity)
                 && (!obj.is_kind_of(KindOf::Drone)
@@ -250,7 +251,7 @@ impl PhysicsBehaviorUpdate {
             landing_expected,
             landing_damage: if landing_expected {
                 Self::falling_damage(
-                    &self.module_data,
+                    &data,
                     obj.get_id(),
                     active_velocity_z,
                     velocity,
@@ -434,7 +435,7 @@ impl PhysicsBehaviorUpdate {
         cargo_mass: Real,
     ) -> Option<DamageInfo> {
         Self::falling_damage(
-            &self.module_data,
+            &self.module_data.read(),
             owner.get_id(),
             active_velocity_z,
             self.physics_handle.state.vel,
@@ -474,7 +475,7 @@ impl PhysicsBehaviorUpdate {
         obj: &GameObject,
         airborne: bool,
     ) -> bool {
-        self.module_data.kill_when_resting_on_ground
+        self.module_data.read().kill_when_resting_on_ground
             && !airborne
             && is_very_small3d(self.physics_handle.state.vel)
             && (!obj.is_kind_of(KindOf::Drone)
@@ -532,7 +533,7 @@ mod tests {
             ..Default::default()
         };
         let mut physics =
-            PhysicsBehaviorUpdate::new_for_owner_id(owner.get_id(), Arc::new(data)).unwrap();
+            PhysicsBehaviorUpdate::new_for_owner_id(owner.get_id(), ModuleDataHandle::new(data)).unwrap();
         let state = &mut physics.physics_handle.state;
         state.mass = 1.0;
         state.vel = velocity;
@@ -626,7 +627,7 @@ mod tests {
         use std::io::Cursor;
         let owner = Arc::new(RwLock::new(GameObject::new_test(93523, 100.0)));
         let peer = Arc::new(RwLock::new(GameObject::new_test(93523, 100.0)));
-        let data: Arc<dyn ModuleData> = Arc::new(PhysicsBehaviorModuleData::default());
+        let data = ModuleDataHandle::new(PhysicsBehaviorModuleData::default());
         let mut physics = PhysicsBehaviorUpdate::new(owner.clone(), data.clone()).unwrap();
         let mut other = PhysicsBehaviorUpdate::new(peer.clone(), data).unwrap();
         physics.physics_handle.state.mass = 1.0;

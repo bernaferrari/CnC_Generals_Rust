@@ -119,33 +119,26 @@ const LEAFLET_DROP_BEHAVIOR_FIELDS: &[FieldParse<LeafletDropBehaviorModuleData>]
 #[derive(Debug)]
 pub struct LeafletDropBehavior {
     object_id: ObjectID,
-    module_data: Arc<LeafletDropBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     start_frame: UnsignedInt,
     fx_fired: Bool,
 }
 
 impl LeafletDropBehavior {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<LeafletDropBehaviorModuleData>()
-            .ok_or("Invalid module data")?;
-
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let delay = {
+            let guard = module_data.read();
+            guard.as_any().downcast_ref::<LeafletDropBehaviorModuleData>().ok_or("Invalid module data")?.delay_frames
+        };
         let now = TheGameLogic::get_frame();
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
-            start_frame: now.wrapping_add(data.delay_frames),
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            module_data,
+            start_frame: now.wrapping_add(delay),
             fx_fired: false,
         })
     }
+
 
     fn do_disable_attack(&self, obj: &GameObject) {
         // Wave 393: empty dual-world → no-op.
@@ -157,7 +150,9 @@ impl LeafletDropBehavior {
             return;
         };
         let now = TheGameLogic::get_frame();
-        let radius = self.module_data.radius;
+        let guard = self.module_data.read();
+        let data = guard.as_any().downcast_ref::<LeafletDropBehaviorModuleData>().expect("LeafletDropBehavior module data type");
+        let radius = data.radius;
         if radius <= 0.0 {
             return;
         }
@@ -168,7 +163,7 @@ impl LeafletDropBehavior {
                 continue;
             }
 
-            let duration = self.module_data.disabled_duration;
+            let duration = data.disabled_duration;
             let _ = OBJECT_REGISTRY.with_object_mut(id, |target| {
                 if !(target.is_kind_of(crate::common::KindOf::Infantry)
                     || target.is_kind_of(crate::common::KindOf::Vehicle))
@@ -205,7 +200,9 @@ impl UpdateModuleInterface for LeafletDropBehavior {
 
         if !self.fx_fired {
             if let Some(manager) = TheParticleSystemManager::get() {
-                if let Some(name) = self.module_data.leaflet_fx_particle_system.as_ref() {
+                let guard = self.module_data.read();
+                let data = guard.as_any().downcast_ref::<LeafletDropBehaviorModuleData>().expect("LeafletDropBehavior module data type");
+                if let Some(name) = data.leaflet_fx_particle_system.as_ref() {
                     if let Some(id) = manager.create_particle_system(Some(name.as_ref())) {
                         manager.attach_particle_system_to_object(id, obj.get_id());
                     }
@@ -286,9 +283,9 @@ pub struct LeafletDropBehaviorFactory;
 impl LeafletDropBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(LeafletDropBehavior::new(thing, module_data)?))
+        Ok(Box::new(LeafletDropBehavior::new_with_module_data(thing, module_data)?))
     }
 }
 

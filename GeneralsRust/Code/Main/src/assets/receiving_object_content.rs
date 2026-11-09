@@ -128,6 +128,7 @@ impl ReceivingObjectContent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::thing::module::ModuleDataHandle;
     use std::sync::Arc;
     // W3DTankDraw.cpp58 + INI.cpp1709: authored dist/sec becomes dist/frame.
     const FIRST_RATE_PER_FRAME: f32 = 2.5 * (1.0 / 30.0);
@@ -156,6 +157,7 @@ mod tests {
             .next()
             .unwrap()
             .data
+            .read()
             .as_any()
             .downcast_ref::<gamelogic::object::draw::W3DTankDrawModuleData>()
             .unwrap()
@@ -186,9 +188,9 @@ mod tests {
         let content = world.receiving_module_content.as_ref().unwrap();
         let parent = content.admitted_template("Actual").unwrap();
         let child = content.admitted_template("ActualChild").unwrap();
-        assert!(Arc::ptr_eq(
-            &parent.draw_modules().iter().next().unwrap().data,
-            &child.draw_modules().iter().next().unwrap().data
+        assert!(ModuleDataHandle::ptr_eq(
+            parent.draw_modules().iter().next().unwrap().data,
+            child.draw_modules().iter().next().unwrap().data
         ));
         assert!(content.action_definitions().buttons.find_command_button_resolved("OwnedButton").is_some());
         assert!(content.science_facts_ref().science("SCIENCE_Owned").is_some());
@@ -293,9 +295,9 @@ mod tests {
             .admitted_template("ActualChild")
             .unwrap();
         assert!(
-            Arc::ptr_eq(
-                &parent.draw_modules().iter().next().unwrap().data,
-                &child.draw_modules().iter().next().unwrap().data
+            ModuleDataHandle::ptr_eq(
+                parent.draw_modules().iter().next().unwrap().data,
+                child.draw_modules().iter().next().unwrap().data
             ),
             "child shares actual declaration data, never reparses parent history"
         );
@@ -346,9 +348,9 @@ mod tests {
             .unwrap();
         let plain = content.module_content().admitted_template("Plain").unwrap();
         assert_eq!(plain.draw_modules().iter().count(), 1);
-        assert!(Arc::ptr_eq(
-            &default.draw_modules().iter().next().unwrap().data,
-            &plain.draw_modules().iter().next().unwrap().data
+        assert!(ModuleDataHandle::ptr_eq(
+            default.draw_modules().iter().next().unwrap().data,
+            plain.draw_modules().iter().next().unwrap().data
         ));
         let plain_projection = content.projections().get("Plain").unwrap();
         assert_eq!(

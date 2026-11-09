@@ -26,7 +26,7 @@ fn owned_bike_template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "RiderChangeContain".into(),
             module_tag: "NativeOwnedBikeContain".into(),
-            data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
             interface_mask: ModuleInterfaceType::CONTAIN,
         }],
     })
@@ -63,7 +63,7 @@ fn body_module(tag: &str) -> TemplateModuleInfo {
     TemplateModuleInfo {
         name: "ActiveBody".into(),
         module_tag: tag.into(),
-        data: Arc::new(body),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(body),
         interface_mask: ModuleInterfaceType::BODY,
     }
 }
@@ -79,7 +79,7 @@ fn ai_module(tag: &str, loco: &str) -> TemplateModuleInfo {
     TemplateModuleInfo {
         name: "AIUpdateInterface".into(),
         module_tag: tag.into(),
-        data: Arc::new(data),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(data),
         interface_mask: ModuleInterfaceType::UPDATE,
     }
 }
@@ -117,7 +117,7 @@ fn mortal_bike_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "RiderChangeContain".into(),
                 module_tag: "NativeMortalBikeContain".into(),
-                data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
                 interface_mask: ModuleInterfaceType::CONTAIN,
             },
             ai_module("NativeMortalBikeAI", "NativeMortalBikeGround"),

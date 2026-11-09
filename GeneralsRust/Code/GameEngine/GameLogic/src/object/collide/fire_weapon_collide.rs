@@ -11,12 +11,12 @@ use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions
 use crate::weapon::{Weapon, WeaponSlotType, WeaponTemplate, with_weapon_store};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ModuleData, NameKeyType};
+use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 use std::sync::Arc;
 use std::sync::RwLock;
 
 /// Module data for fire weapon collision
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FireWeaponCollideModuleData {
     module_tag_name_key: NameKeyType,
     collide_weapon_template_name: Option<String>,
@@ -28,6 +28,22 @@ pub struct FireWeaponCollideModuleData {
     pub required_status: ObjectStatusMask,
     /// Forbidden status bits that prevent firing
     pub forbidden_status: ObjectStatusMask,
+}
+
+impl Clone for FireWeaponCollideModuleData {
+    fn clone(&self) -> Self {
+        let cached = self.collide_weapon_template.read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        Self {
+            module_tag_name_key: self.module_tag_name_key,
+            collide_weapon_template_name: self.collide_weapon_template_name.clone(),
+            collide_weapon_template: Arc::new(RwLock::new(cached)),
+            fire_once: self.fire_once,
+            required_status: self.required_status,
+            forbidden_status: self.forbidden_status,
+        }
+    }
 }
 
 impl Default for FireWeaponCollideModuleData {
@@ -156,7 +172,7 @@ impl Snapshotable for FireWeaponCollideModuleData {
 /// It can be configured to fire once or repeatedly, and can have status requirements.
 pub struct FireWeaponCollide {
     object_id: ObjectId,
-    module_data: Arc<FireWeaponCollideModuleData>,
+    module_data: ModuleDataHandle,
     #[allow(dead_code)]
     weapon_template: Arc<WeaponTemplate>,
     collide_weapon: Weapon,
@@ -172,17 +188,20 @@ impl FireWeaponCollide {
     /// * `module_data` - Configuration data for the fire weapon collision behavior
     pub fn new(
         object_id: ObjectId,
-        module_data: Arc<FireWeaponCollideModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, CollisionError> {
-        let cached_template = module_data
-            .collide_weapon_template
-            .read()
-            .ok()
-            .and_then(|guard| guard.as_ref().map(Arc::clone));
+        let (cached_template, template_name) = {
+            let guard = module_data.read();
+            let data = guard.as_any().downcast_ref::<FireWeaponCollideModuleData>()
+                .expect("FireWeaponCollide requires FireWeaponCollideModuleData");
+            let cached = data.collide_weapon_template.read().ok()
+                .and_then(|guard| guard.as_ref().map(Arc::clone));
+            (cached, data.collide_weapon_template_name.clone())
+        };
 
         let weapon_template = if let Some(template) = cached_template {
             template
-        } else if let Some(name) = module_data.collide_weapon_template_name.as_ref() {
+        } else if let Some(name) = template_name.as_ref() {
             with_weapon_store(|store| {
                 store
                     .find_weapon_template(name)
@@ -215,9 +234,14 @@ impl FireWeaponCollide {
             ))
         })?;
 
-        if let Ok(mut guard) = module_data.collide_weapon_template.write() {
-            if guard.is_none() {
-                *guard = Some(Arc::clone(&weapon_template));
+        {
+            let data = module_data.read();
+            let data = data.as_any().downcast_ref::<FireWeaponCollideModuleData>()
+                .expect("FireWeaponCollide requires FireWeaponCollideModuleData");
+            if let Ok(mut guard) = data.collide_weapon_template.write() {
+                if guard.is_none() {
+                    *guard = Some(Arc::clone(&weapon_template));
+                }
             }
         }
 
@@ -232,8 +256,8 @@ impl FireWeaponCollide {
     }
 
     /// Get the fire weapon collide module data
-    pub fn get_fire_weapon_collide_module_data(&self) -> &FireWeaponCollideModuleData {
-        self.module_data.as_ref()
+    pub fn get_fire_weapon_collide_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     /// Check if the weapon should fire based on status and configuration
@@ -242,19 +266,22 @@ impl FireWeaponCollide {
     /// * `owner` - The object that owns this collision module
     pub fn should_fire_weapon(&self, owner: &dyn GameObject) -> bool {
         let status = owner.get_status_bits();
+        let data = self.module_data.read();
+        let data = data.as_any().downcast_ref::<FireWeaponCollideModuleData>()
+            .expect("FireWeaponCollide requires FireWeaponCollideModuleData");
 
         // We need all required status bits or else we fail
-        if !status.test_for_all(self.module_data.required_status) {
+        if !status.test_for_all(data.required_status) {
             return false;
         }
 
         // If we have any forbidden status bits, then fail
-        if status.test_for_any(self.module_data.forbidden_status) {
+        if status.test_for_any(data.forbidden_status) {
             return false;
         }
 
         // If we can only fire once and have already fired, fail
-        if self.ever_fired && self.module_data.fire_once {
+        if self.ever_fired && data.fire_once {
             return false;
         }
 
@@ -550,6 +577,22 @@ mod tests {
     }
 
     #[test]
+    fn cloned_owner_definitions_have_independent_weapon_caches() {
+        let template = Arc::new(WeaponTemplate::new("OwnerWeaponCache".to_string()));
+        let mut original = FireWeaponCollideModuleData::default();
+        original.set_weapon_template(Arc::clone(&template));
+        let other = original.clone();
+
+        assert!(Arc::ptr_eq(
+            original.collide_weapon_template.read().unwrap().as_ref().unwrap(),
+            other.collide_weapon_template.read().unwrap().as_ref().unwrap(),
+        ));
+        *original.collide_weapon_template.write().unwrap() = None;
+        let other_cache = other.collide_weapon_template.read().unwrap();
+        assert!(Arc::ptr_eq(other_cache.as_ref().unwrap(), &template));
+    }
+
+    #[test]
     fn crc_does_not_include_weapon_or_ever_fired_like_cpp() {
         let _lock = crate::test_sync::lock();
 
@@ -558,7 +601,7 @@ mod tests {
         let mut data = FireWeaponCollideModuleData::default();
         data.set_weapon_template(template);
         let module =
-            FireWeaponCollide::new(42, Arc::new(data)).expect("fire weapon collide module");
+            FireWeaponCollide::new(42, ModuleDataHandle::new(data)).expect("fire weapon collide module");
 
         let mut xfer = CountingCrcXfer::default();
         module.crc(&mut xfer).expect("crc");

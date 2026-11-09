@@ -11,7 +11,7 @@ use super::w3d_tank_draw::*;
 use crate::common::*;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone)]
@@ -78,15 +78,18 @@ impl Snapshotable for W3DOverlordTankDrawModuleData {
 }
 
 pub struct W3DOverlordTankDraw {
-    data: W3DOverlordTankDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DTankDraw,
     owner_id: Option<ObjectID>,
 }
 
 impl W3DOverlordTankDraw {
     pub fn new(data: W3DOverlordTankDrawModuleData) -> Self {
-        let base_data = data.base.clone();
-        let base = W3DTankDraw::new(base_data);
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        let base = W3DTankDraw::new_with_module_data(data.clone());
 
         Self {
             data,
@@ -150,8 +153,8 @@ impl Module for W3DOverlordTankDraw {
         self.base.get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 

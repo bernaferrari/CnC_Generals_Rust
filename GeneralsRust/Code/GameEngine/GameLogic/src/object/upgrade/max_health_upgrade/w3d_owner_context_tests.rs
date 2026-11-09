@@ -66,10 +66,8 @@ End\nEnd\n"
         let mut entries = template.get_draw_module_info().iter();
         let entry = entries.next().expect("authored Draw descriptor");
         assert!(entries.next().is_none());
-        let data = entry
-            .data
-            .as_ref()
-            .as_any()
+        let guard = entry.data.read();
+        let data = guard.as_any()
             .downcast_ref::<crate::object::draw::w3d_model_draw::W3DModelDrawModuleData>()
             .expect("CommonINI must call the actual registered W3D data proc");
         assert_eq!(data.default_state, 0);
@@ -391,8 +389,8 @@ ConditionState = REALLYDAMAGED\nModel = W3DOwnerContextReallyDamaged\nEnd\nEnd\n
             },
         )
         .unwrap();
-    let data = data
-        .as_any()
+    let guard = data.read();
+    let data = guard.as_any()
         .downcast_ref::<W3DModelDrawModuleData>()
         .expect("actual registered W3D definition");
     assert_eq!(data.default_state, 0);

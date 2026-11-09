@@ -520,7 +520,7 @@ impl Object {
             .new_module(
                 Arc::new(super::ObjectThingHandle::new(owner)),
                 &info.name,
-                Arc::clone(&info.data),
+                info.data.clone(),
                 ModuleType::Behavior,
             )
             .unwrap();
@@ -535,7 +535,7 @@ impl Object {
             info.name.clone(),
             info.module_tag.clone(),
             info.interface_flags(),
-            Arc::clone(&info.data),
+            info.data.clone(),
             module,
         ));
         let mut object = owner.write().unwrap();

@@ -8,7 +8,7 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, Coord3DExt, ModuleData, PathfindLayerEnum, Real, UpgradeMaskType,
+    AsciiString, Coord3D, Coord3DExt, PathfindLayerEnum, Real, UpgradeMaskType,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::modules::{
@@ -25,7 +25,7 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData as EngineModuleData, NameKeyType, PayloadTargetControlInterface,
+    Module, ModuleDataHandle, ModuleDataView, NameKeyType, PayloadTargetControlInterface,
 };
 use game_engine::common::thing::update_module::{
     MinefieldServiceError, OwnedMinefieldServices,
@@ -503,7 +503,7 @@ pub enum MinePlacementPattern {
 #[derive(Debug)]
 pub struct GenerateMinefieldBehavior {
     /// Configuration data
-    config: GenerateMinefieldBehaviorModuleData,
+    config: ModuleDataView<GenerateMinefieldBehaviorModuleData>,
     /// Internal state
     state: MinefieldState,
     /// Object ID this behavior belongs to
@@ -681,9 +681,11 @@ impl GenerateMinefieldBehavior {
         if self.state.generated {
             return Err(BehaviorError::MinefieldAlreadyGenerated);
         }
-        if self.config.smart_border
-            || !self.config.border_only
-            || !self.config.always_circular
+        let supported = {
+            let config = self.config.read();
+            !config.smart_border && config.border_only && config.always_circular
+        };
+        if !supported
         {
             return Err(BehaviorError::ServiceUnavailable(
                 "owned minefield admits normal circular border only".into(),
@@ -695,32 +697,33 @@ impl GenerateMinefieldBehavior {
         // GenerateMinefieldBehavior.cpp:365-374: upgraded picks UpgradedMineName;
         // a missing template returns after m_generated is already set.
         let mine_name = if self.state.upgraded {
-            match self.config.mine_name_upgraded.clone() {
+            match self.config.read().mine_name_upgraded.clone() {
                 Some(name) => name,
                 None => return Ok(()),
             }
         } else {
-            self.config.mine_name.clone()
+            self.config.read().mine_name.clone()
         };
         let (mut geometry, mine_radius) = services.preflight(self.object_id, &mine_name)?;
         if let Some(target) = self.state.target {
             geometry.center = target;
         }
-        let radius = geometry.major_radius + self.config.distance_around_object;
-        let jitter = mine_radius * self.config.random_jitter;
+        let radius = geometry.major_radius + self.config.read().distance_around_object;
+        let jitter = mine_radius * self.config.read().random_jitter;
         for mut position in circle_positions(geometry.center, radius, mine_radius) {
             if jitter > 0.0 {
                 position.x += services.random_real(-jitter, jitter);
                 position.y += services.random_real(-jitter, jitter);
             }
+            let skip = self.config.read().skip_if_this_much_under_structure;
             match services.place(
                 self.object_id,
                 &mine_name,
                 &position,
-                self.config.skip_if_this_much_under_structure,
+                skip,
             ) {
                 Ok(id) => {
-                    if self.config.upgradable {
+                    if self.config.read().upgradable {
                         self.state.mine_list.push(id);
                     }
                 }
@@ -730,7 +733,7 @@ impl GenerateMinefieldBehavior {
         }
         self.state.current_mine_template = mine_name;
         // GenerateMinefieldBehavior.cpp:431: FXList::doFXObj(m_genFX) after placement.
-        if let Some(ref fx_template) = self.config.generation_fx {
+        if let Some(ref fx_template) = self.config.read().generation_fx {
             self.play_fx(fx_template, &geometry.center)?;
         }
         Ok(())
@@ -745,7 +748,7 @@ impl GenerateMinefieldBehavior {
         owner_has_upgrade: bool,
         services: &mut dyn MinefieldPlacement,
     ) -> BehaviorResult<UpdateSleepTime> {
-        if self.state.upgraded || !self.config.upgradable {
+        if self.state.upgraded || !self.config.read().upgradable {
             return Ok(UpdateSleepTime::Forever);
         }
         if self.state.generated && owner_has_upgrade {
@@ -770,15 +773,13 @@ impl GenerateMinefieldBehavior {
         &mut self,
         services: &mut dyn OwnedMinefieldServices,
     ) -> BehaviorResult<UpdateSleepTime> {
-        if self.state.upgraded || !self.config.upgradable {
+        if self.state.upgraded || !self.config.read().upgradable {
             return Ok(UpdateSleepTime::Forever);
         }
         let mut owner_has_upgrade = false;
         if self.state.generated {
-            let upgrade_name = self
-                .config
-                .mine_upgrade_trigger
-                .as_deref()
+            let config = self.config.read();
+            let upgrade_name = config.mine_upgrade_trigger.as_deref()
                 .unwrap_or("Upgrade_ChinaEMPMines");
             let mask = get_upgrade_center()
                 .read()
@@ -799,7 +800,7 @@ impl GenerateMinefieldBehavior {
         _damage: &DamageInfo,
         services: &mut dyn MinefieldPlacement,
     ) -> BehaviorResult<()> {
-        if self.config.on_death {
+        if self.config.read().on_death {
             self.place_mines_owned(services)?;
         }
         Ok(())
@@ -821,13 +822,22 @@ impl GenerateMinefieldBehavior {
         object_id: ObjectId,
         config: GenerateMinefieldBehaviorModuleData,
     ) -> Self {
+        Self::new_from_handle(object_id, ModuleDataHandle::new(config))
+    }
+
+    pub fn new_from_handle(object_id: ObjectId, module_data: ModuleDataHandle) -> Self {
+        let config = ModuleDataView::new(module_data, |data| {
+            data.downcast_ref::<GenerateMinefieldBehaviorModuleData>()
+                .expect("Invalid module data")
+        });
+        let current_mine_template = config.read().mine_name.clone();
         let state = MinefieldState {
             target: None,
             generated: false,
             upgraded: false,
             upgrade_executed: false,
             mine_list: Vec::new(),
-            current_mine_template: config.mine_name.clone(),
+            current_mine_template,
         };
 
         Self {
@@ -838,16 +848,15 @@ impl GenerateMinefieldBehavior {
     }
 
     /// Create a new generate minefield behavior from module data.
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<GenerateMinefieldBehaviorModuleData>() {
+            return Err("Invalid module data".into());
+        }
         let object_id = object.read().map(|guard| guard.get_id()).unwrap_or(0);
-        Ok(Self::new_from_config(object_id, specific_data.clone()))
+        Ok(Self::new_from_handle(object_id, module_data))
     }
 
     /// Update the behavior (called each frame)
@@ -857,16 +866,15 @@ impl GenerateMinefieldBehavior {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        if self.config.upgradable && !self.state.upgraded && self.state.generated {
-            let upgrade_name = self
-                .config
-                .mine_upgrade_trigger
-                .as_deref()
+        if self.config.read().upgradable && !self.state.upgraded && self.state.generated {
+            let config = self.config.read();
+            let upgrade_name = config.mine_upgrade_trigger.as_deref()
                 .unwrap_or("Upgrade_ChinaEMPMines");
             let upgrade = get_upgrade_center()
                 .read()
                 .ok()
                 .and_then(|center| center.find_upgrade(upgrade_name));
+            drop(config);
 
             if let Some(upgrade) = upgrade {
                 let mask_bits = UpgradeMaskType::from_bits_retain(upgrade.mask().bits());
@@ -892,7 +900,7 @@ impl GenerateMinefieldBehavior {
             return Ok(UpdateSleepTime::None);
         }
 
-        if self.config.upgradable && !self.state.upgraded {
+        if self.config.read().upgradable && !self.state.upgraded {
             return Ok(UpdateSleepTime::None);
         }
 
@@ -950,10 +958,13 @@ impl GenerateMinefieldBehavior {
         placement_geometry.center = target;
 
         // Determine mine template to use
-        let mine_template = if self.state.upgraded && self.config.mine_name_upgraded.is_some() {
-            self.config.mine_name_upgraded.as_ref().unwrap().clone()
-        } else {
-            self.config.mine_name.clone()
+        let mine_template = {
+            let config = self.config.read();
+            if self.state.upgraded && config.mine_name_upgraded.is_some() {
+                config.mine_name_upgraded.as_ref().unwrap().clone()
+            } else {
+                config.mine_name.clone()
+            }
         };
 
         // Place mines based on configuration
@@ -962,7 +973,7 @@ impl GenerateMinefieldBehavior {
         self.state.current_mine_template = mine_template;
 
         // GenerateMinefieldBehavior.cpp:431: FXList::doFXObj after placement.
-        if let Some(ref fx_template) = self.config.generation_fx {
+        if let Some(ref fx_template) = self.config.read().generation_fx {
             self.play_fx(fx_template, &geometry.center)?;
         }
 
@@ -971,10 +982,11 @@ impl GenerateMinefieldBehavior {
 
     /// Determine mine placement pattern based on configuration
     fn determine_placement_pattern(&self, geometry: &GeometryInfo) -> MinePlacementPattern {
-        if self.config.smart_border {
+        let config = self.config.read();
+        if config.smart_border {
             MinePlacementPattern::SmartBorder
-        } else if self.config.border_only {
-            if self.config.always_circular || geometry.is_circular {
+        } else if config.border_only {
+            if config.always_circular || geometry.is_circular {
                 MinePlacementPattern::Circular
             } else {
                 MinePlacementPattern::Rectangular
@@ -995,7 +1007,7 @@ impl GenerateMinefieldBehavior {
 
         match pattern {
             MinePlacementPattern::Circular => {
-                let radius = geometry.major_radius + self.config.distance_around_object;
+                let radius = geometry.major_radius + self.config.read().distance_around_object;
                 self.place_mines_around_circle(
                     &geometry.center,
                     radius,
@@ -1004,10 +1016,11 @@ impl GenerateMinefieldBehavior {
                 )?;
             }
             MinePlacementPattern::Rectangular => {
+                let distance = self.config.read().distance_around_object;
                 self.place_mines_around_rect(
                     &geometry.center,
-                    geometry.major_radius + self.config.distance_around_object,
-                    geometry.minor_radius + self.config.distance_around_object,
+                    geometry.major_radius + distance,
+                    geometry.minor_radius + distance,
                     geometry.rotation,
                     mine_template,
                     mine_radius,
@@ -1043,14 +1056,14 @@ impl GenerateMinefieldBehavior {
         mine_template: &str,
         mine_radius: f32,
     ) -> BehaviorResult<()> {
-        let mine_jitter = mine_radius * self.config.random_jitter;
+        let mine_jitter = mine_radius * self.config.read().random_jitter;
         for mut position in circle_positions(*center, radius, mine_radius) {
             if mine_jitter > 0.0 {
                 position.x += self.random_value(-mine_jitter, mine_jitter);
                 position.y += self.random_value(-mine_jitter, mine_jitter);
             }
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
-                if self.config.upgradable {
+                if self.config.read().upgradable {
                     self.state.mine_list.push(mine_id);
                 }
             }
@@ -1090,8 +1103,8 @@ impl GenerateMinefieldBehavior {
         mine_radius: f32,
     ) -> BehaviorResult<()> {
         let mut expanded_geometry = geometry.clone();
-        expanded_geometry.expand(self.config.distance_around_object);
-        if self.config.always_circular {
+        expanded_geometry.expand(self.config.read().distance_around_object);
+        if self.config.read().always_circular {
             let radius = expanded_geometry.bounding_circle_radius();
             expanded_geometry.major_radius = radius;
             expanded_geometry.minor_radius = radius;
@@ -1100,7 +1113,7 @@ impl GenerateMinefieldBehavior {
 
         let num_mines = footprint_mine_count(
             expanded_geometry.footprint_area(),
-            self.config.mines_per_square_foot,
+            self.config.read().mines_per_square_foot,
         );
         let min_dist_sqr = (mine_radius * 2.0) * (mine_radius * 2.0);
         let mut created_positions = Vec::new();
@@ -1123,7 +1136,7 @@ impl GenerateMinefieldBehavior {
 
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
                 created_positions.push(position);
-                if self.config.upgradable {
+                if self.config.read().upgradable {
                     self.state.mine_list.push(mine_id);
                 }
             }
@@ -1152,7 +1165,8 @@ impl GenerateMinefieldBehavior {
     ) -> BehaviorResult<()> {
         let mine_radius = self.mine_template_radius(mine_template)?;
         let mine_diameter = mine_radius * 2.0;
-        let mut ring_geometry = if self.config.smart_border_skip_interior {
+        let skip_interior = self.config.read().smart_border_skip_interior;
+        let mut ring_geometry = if skip_interior {
             GeometryInfo {
                 center: geometry.center,
                 major_radius: geometry.major_radius,
@@ -1162,7 +1176,7 @@ impl GenerateMinefieldBehavior {
             }
         } else {
             if let Ok(mine_id) = self.place_mine_at(&geometry.center, mine_template) {
-                if self.config.upgradable {
+                if self.config.read().upgradable {
                     self.state.mine_list.push(mine_id);
                 }
             }
@@ -1175,7 +1189,7 @@ impl GenerateMinefieldBehavior {
             }
         };
 
-        if self.config.always_circular {
+        if self.config.read().always_circular {
             let radius = ring_geometry.bounding_circle_radius();
             ring_geometry.major_radius = radius;
             ring_geometry.minor_radius = radius;
@@ -1185,7 +1199,7 @@ impl GenerateMinefieldBehavior {
         ring_geometry.expand(mine_radius);
 
         loop {
-            if !ring_geometry.is_circular && !self.config.always_circular {
+            if !ring_geometry.is_circular && !self.config.read().always_circular {
                 self.place_mines_around_rect(
                     &ring_geometry.center,
                     ring_geometry.major_radius,
@@ -1203,7 +1217,7 @@ impl GenerateMinefieldBehavior {
                 )?;
             }
 
-            if ring_geometry.bounding_circle_radius() >= self.config.distance_around_object {
+            if ring_geometry.bounding_circle_radius() >= self.config.read().distance_around_object {
                 break;
             }
             ring_geometry.expand(mine_diameter);
@@ -1227,7 +1241,7 @@ impl GenerateMinefieldBehavior {
         }
         let num_mines = line_segment_count(distance, mine_radius);
         let spacing = distance / num_mines as f32;
-        let mine_jitter = mine_radius * self.config.random_jitter;
+        let mine_jitter = mine_radius * self.config.read().random_jitter;
 
         let mut place = if skip_one_at_start { spacing } else { 0.0 };
         while place <= distance {
@@ -1244,7 +1258,7 @@ impl GenerateMinefieldBehavior {
             }
 
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
-                if self.config.upgradable {
+                if self.config.read().upgradable {
                     self.state.mine_list.push(mine_id);
                 }
             }
@@ -1307,7 +1321,7 @@ impl GenerateMinefieldBehavior {
         let template_geometry = template.get_template_geometry_info();
         let query = mine_structure_query_geometry(
             &template_geometry,
-            self.config.skip_if_this_much_under_structure,
+            self.config.read().skip_if_this_much_under_structure,
         );
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
             let max_dist = query.get_bounding_sphere_radius() * 1.1;
@@ -1443,7 +1457,7 @@ impl GenerateMinefieldBehavior {
 
     /// Upgrade the minefield
     pub fn upgrade_minefield(&mut self) -> BehaviorResult<()> {
-        if !self.config.upgradable {
+        if !self.config.read().upgradable {
             return Ok(());
         }
 
@@ -1452,7 +1466,7 @@ impl GenerateMinefieldBehavior {
         }
 
         // If mines already exist, replace them with upgraded mines.
-        if self.state.generated && self.config.mine_name_upgraded.is_some() {
+        if self.state.generated && self.config.read().mine_name_upgraded.is_some() {
             let mine_ids = self.state.mine_list.clone();
             self.state.mine_list.clear();
             self.state.generated = false;
@@ -1546,7 +1560,7 @@ impl DieModuleInterface for GenerateMinefieldBehavior {
         &mut self,
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.config.on_death {
+        if self.config.read().on_death {
             self.place_mines()?;
         }
         Ok(())
@@ -1650,15 +1664,16 @@ impl UpgradeModuleInterface for GenerateMinefieldBehavior {
 pub struct GenerateMinefieldBehaviorModule {
     behavior: GenerateMinefieldBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<GenerateMinefieldBehaviorModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl GenerateMinefieldBehaviorModule {
     pub fn new(
         behavior: GenerateMinefieldBehavior,
         module_name: &AsciiString,
-        module_data: Arc<GenerateMinefieldBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
+        assert!(ModuleDataHandle::ptr_eq(behavior.config.handle(), &module_data));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -1700,11 +1715,11 @@ impl Module for GenerateMinefieldBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_payload_target_control_interface(
@@ -1757,7 +1772,7 @@ pub struct MinefieldStatistics {
 /// Builder for creating GenerateMinefieldBehavior with fluent interface
 #[derive(Debug, Default)]
 pub struct GenerateMinefieldBehaviorBuilder {
-    config: GenerateMinefieldBehaviorModuleData,
+    settings: GenerateMinefieldBehaviorModuleData,
 }
 
 impl GenerateMinefieldBehaviorBuilder {
@@ -1766,62 +1781,62 @@ impl GenerateMinefieldBehaviorBuilder {
     }
 
     pub fn mine_name<S: Into<String>>(mut self, name: S) -> Self {
-        self.config.mine_name = name.into();
+        self.settings.mine_name = name.into();
         self
     }
 
     pub fn upgraded_mine_name<S: Into<String>>(mut self, name: S) -> Self {
-        self.config.mine_name_upgraded = Some(name.into());
+        self.settings.mine_name_upgraded = Some(name.into());
         self
     }
 
     pub fn distance_around_object(mut self, distance: f32) -> Self {
-        self.config.distance_around_object = distance;
+        self.settings.distance_around_object = distance;
         self
     }
 
     pub fn mines_per_square_foot(mut self, density: f32) -> Self {
-        self.config.mines_per_square_foot = density;
+        self.settings.mines_per_square_foot = density;
         self
     }
 
     pub fn on_death(mut self, on_death: bool) -> Self {
-        self.config.on_death = on_death;
+        self.settings.on_death = on_death;
         self
     }
 
     pub fn border_only(mut self, border_only: bool) -> Self {
-        self.config.border_only = border_only;
+        self.settings.border_only = border_only;
         self
     }
 
     pub fn always_circular(mut self, circular: bool) -> Self {
-        self.config.always_circular = circular;
+        self.settings.always_circular = circular;
         self
     }
 
     pub fn upgradable(mut self, upgradable: bool) -> Self {
-        self.config.upgradable = upgradable;
+        self.settings.upgradable = upgradable;
         self
     }
 
     pub fn random_jitter(mut self, jitter: f32) -> Self {
-        self.config.random_jitter = jitter;
+        self.settings.random_jitter = jitter;
         self
     }
 
     pub fn smart_border(mut self, smart: bool) -> Self {
-        self.config.smart_border = smart;
+        self.settings.smart_border = smart;
         self
     }
 
     pub fn generation_fx<S: Into<String>>(mut self, fx: S) -> Self {
-        self.config.generation_fx = Some(fx.into());
+        self.settings.generation_fx = Some(fx.into());
         self
     }
 
     pub fn build(self, object_id: ObjectId) -> GenerateMinefieldBehavior {
-        GenerateMinefieldBehavior::new_from_config(object_id, self.config)
+        GenerateMinefieldBehavior::new_from_config(object_id, self.settings)
     }
 }
 
@@ -1845,12 +1860,12 @@ pub struct GenerateMinefieldBehaviorFactory;
 impl GenerateMinefieldBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<crate::object::Object>>,
-        module_data: Arc<dyn crate::common::ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        Ok(Box::new(GenerateMinefieldBehavior::new(
+        Ok(Box::new(GenerateMinefieldBehavior::new_with_module_data(
             thing,
             module_data,
         )?))

@@ -64,11 +64,11 @@ impl Snapshotable for LockWeaponCreateModuleData {
 #[derive(Debug)]
 pub struct LockWeaponCreate {
     base: CreateModule,
-    module_data: Arc<LockWeaponCreateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl LockWeaponCreate {
-    pub fn new(thing: Arc<dyn ThingTrait>, module_data: Arc<LockWeaponCreateModuleData>) -> Self {
+    pub fn new(thing: Arc<dyn ThingTrait>, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             base: CreateModule::new(thing),
             module_data,
@@ -93,10 +93,10 @@ impl CreateInterface for LockWeaponCreate {
             return;
         }
 
-        obj.set_weapon_lock(
-            self.module_data.slot_to_lock,
-            WeaponLockType::LockedPermanently,
-        );
+        let slot = self.module_data.read().as_any()
+            .downcast_ref::<LockWeaponCreateModuleData>()
+            .expect("LockWeaponCreate data type").slot_to_lock;
+        obj.set_weapon_lock(slot, WeaponLockType::LockedPermanently);
     }
 
     fn should_do_on_build_complete(&self) -> bool {

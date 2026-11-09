@@ -47,8 +47,8 @@ pub fn leftover_cluster_mines_generation_fx(template_name: &str) -> Option<Strin
         {
             continue;
         }
-        if let Some(data) = entry
-            .data
+        let data_guard = entry.data.read();
+        if let Some(data) = data_guard
             .downcast_ref::<gamelogic::object::behavior::GenerateMinefieldBehaviorModuleData>(
         ) {
             let name = data
@@ -62,8 +62,7 @@ pub fn leftover_cluster_mines_generation_fx(template_name: &str) -> Option<Strin
             }
             return Some(name);
         }
-        let name = entry
-            .data
+        let name = data_guard
             .get_ini_field("GenerationFX")
             .unwrap_or("")
             .trim()

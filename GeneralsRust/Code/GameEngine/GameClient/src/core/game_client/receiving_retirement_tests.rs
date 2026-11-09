@@ -11,7 +11,7 @@ fn template() -> ThingTemplate {
     template.add_client_update_module_info(
         "AnimatedParticleSysBoneClientUpdate".into(),
         "RetirementCU".into(),
-        Arc::new(BaseModuleData::new()),
+        game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     template
@@ -181,9 +181,9 @@ fn receiving_retirement_rejects_classic_cu_without_flushing_dirty_model() {
     basic(&mut client, id).add_draw_module(Box::new(
         LogicDrawModuleSnapshotAdapter::client_update_module(
             "ClassicUnsupported",
-            Box::new(LaserUpdateModule::new(
+            Box::new(LaserUpdateModule::new_with_module_data(
                 0,
-                Arc::new(LaserUpdateModuleData::default()),
+                game_engine::common::thing::module::ModuleDataHandle::new(LaserUpdateModuleData::default()),
                 Some(id.0),
             )),
         ),

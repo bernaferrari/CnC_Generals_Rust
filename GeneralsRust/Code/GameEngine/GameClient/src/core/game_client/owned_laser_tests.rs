@@ -7,7 +7,7 @@ fn template() -> ThingTemplate {
     template.add_draw_module_info(
         "W3DLaserDraw".into(),
         "Beam".into(),
-        Arc::new(W3DLaserDrawModuleData {
+        game_engine::common::thing::module::ModuleDataHandle::new(W3DLaserDrawModuleData {
             inner_beam_width: 4.0,
             outer_beam_width: 8.0,
             ..W3DLaserDrawModuleData::default()
@@ -17,7 +17,7 @@ fn template() -> ThingTemplate {
     template.add_client_update_module_info(
         "LaserUpdate".into(),
         "Laser".into(),
-        Arc::new(LaserUpdateModuleData::default()),
+        game_engine::common::thing::module::ModuleDataHandle::new(LaserUpdateModuleData::default()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     template
@@ -126,14 +126,14 @@ fn same_id_actual_laser_destructor_retires_only_its_receiving_particle_manager()
         particle_template.add_draw_module_info(
             entry.name.clone(),
             entry.module_tag.clone(),
-            Arc::clone(entry.data),
+            entry.data.clone(),
             ModuleInterfaceType::DRAW,
         );
     }
     particle_template.add_client_update_module_info(
         "LaserUpdate".into(),
         "Laser".into(),
-        Arc::new(LaserUpdateModuleData {
+        game_engine::common::thing::module::ModuleDataHandle::new(LaserUpdateModuleData {
             particle_system_name: "Lens".into(),
             target_particle_system_name: "Target".into(),
             ..LaserUpdateModuleData::default()
@@ -256,7 +256,7 @@ fn actual_multibeam_arc_preserves_cpp_draw_order_and_receiving_terrain_clamp() {
     template.add_draw_module_info(
         "W3DLaserDraw".into(),
         "Beam".into(),
-        Arc::new(W3DLaserDrawModuleData {
+        game_engine::common::thing::module::ModuleDataHandle::new(W3DLaserDrawModuleData {
             inner_beam_width: 2.0,
             outer_beam_width: 8.0,
             num_beams: 4,
@@ -269,7 +269,7 @@ fn actual_multibeam_arc_preserves_cpp_draw_order_and_receiving_terrain_clamp() {
     template.add_client_update_module_info(
         "LaserUpdate".into(),
         "Laser".into(),
-        Arc::new(LaserUpdateModuleData::default()),
+        game_engine::common::thing::module::ModuleDataHandle::new(LaserUpdateModuleData::default()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     let mut client = GameClient::new().unwrap();
@@ -436,9 +436,9 @@ fn actual_classic_module_rejects_owned_services_before_any_mutation() {
     drawable.add_draw_module(Box::new(
         LogicDrawModuleSnapshotAdapter::client_update_module(
             "ClassicLaser",
-            Box::new(LaserUpdateModule::new(
+            Box::new(LaserUpdateModule::new_with_module_data(
                 NameKeyGenerator::name_to_key("LaserUpdate"),
-                Arc::new(LaserUpdateModuleData::default()),
+                game_engine::common::thing::module::ModuleDataHandle::new(LaserUpdateModuleData::default()),
                 None,
             )),
         ),
@@ -557,7 +557,7 @@ fn invalid_normal_laser_data_is_rejected_before_native_id_or_slot_admission() {
     malformed.add_client_update_module_info(
         "LaserUpdate".into(),
         "BadLaser".into(),
-        Arc::new(W3DLaserDrawModuleData::default()),
+        game_engine::common::thing::module::ModuleDataHandle::new(W3DLaserDrawModuleData::default()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     let counter = client.get_drawable_id_counter();
@@ -584,14 +584,14 @@ fn supplied_native_reset_marks_real_laser_particles_and_preserves_other_drawable
         authored.add_draw_module_info(
             entry.name.clone(),
             entry.module_tag.clone(),
-            Arc::clone(entry.data),
+            entry.data.clone(),
             ModuleInterfaceType::DRAW,
         );
     }
     authored.add_client_update_module_info(
         "LaserUpdate".into(),
         "Laser".into(),
-        Arc::new(LaserUpdateModuleData {
+        game_engine::common::thing::module::ModuleDataHandle::new(LaserUpdateModuleData {
             particle_system_name: "Lens".into(),
             target_particle_system_name: "Target".into(),
             ..LaserUpdateModuleData::default()

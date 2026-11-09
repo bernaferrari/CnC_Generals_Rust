@@ -22,12 +22,12 @@ pub(super) fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coo
 /// rejects it before installation or scheduling; it never substitutes behavior.
 struct MissingOwnerModule {
     module_name_key: NameKeyType,
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     error: String,
 }
 
 impl MissingOwnerModule {
-    fn new(module_name: &str, data: Arc<dyn ModuleData>, error: String) -> Self {
+    fn new(module_name: &str, data: ModuleDataHandle, error: String) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
             data,
@@ -46,11 +46,11 @@ impl Module for MissingOwnerModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -70,7 +70,7 @@ impl Snapshotable for MissingOwnerModule {
 
 pub(super) fn failed_initialization_module(
     module_name: &str,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     error: String,
 ) -> Box<dyn Module> {
     Box::new(MissingOwnerModule::new(module_name, module_data, error))
@@ -78,7 +78,7 @@ pub(super) fn failed_initialization_module(
 
 pub(super) fn missing_owner_module(
     module_name: &str,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     failed_initialization_module(
         module_name,
@@ -89,9 +89,9 @@ pub(super) fn missing_owner_module(
 
 pub(super) fn missing_owner_module_auto(
     module_name: &str,
-    module_data: &Arc<dyn ModuleData>,
+    module_data: &ModuleDataHandle,
 ) -> Box<dyn Module> {
-    missing_owner_module(module_name, Arc::clone(module_data))
+    missing_owner_module(module_name, module_data.clone())
 }
 
 pub(super) fn resolve_drawable_id(thing: &Arc<dyn ModuleThing>) -> u32 {
@@ -110,12 +110,12 @@ pub(super) fn owner_weak(owner_id: ObjectID) -> Weak<RwLock<crate::object::Objec
 #[derive(Debug)]
 pub(crate) struct ActiveBehaviorModule<T: BehaviorModuleInterface + Snapshotable + 'static> {
     module_name_key: NameKeyType,
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     behavior: T,
 }
 
 impl<T: BehaviorModuleInterface + Snapshotable + 'static> ActiveBehaviorModule<T> {
-    pub(crate) fn new(module_name: &str, data: Arc<dyn ModuleData>, behavior: T) -> Self {
+    pub(crate) fn new(module_name: &str, data: ModuleDataHandle, behavior: T) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
             data,
@@ -133,8 +133,8 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> ActiveBehaviorModule<T
 }
 
 impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehaviorModule<T> {
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn get_module_name_key(&self) -> NameKeyType {
@@ -142,7 +142,7 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehav
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
     fn get_deletion_lifetime_interface(&mut self) -> Option<&mut dyn DeletionLifetimeInterface> {
@@ -188,104 +188,54 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> Snapshotable for Activ
 
 pub(super) fn active_behavior_module<TBehavior, TData>(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     module_name: &str,
     create: fn(
         Arc<RwLock<crate::object::Object>>,
-        Arc<dyn LegacyModuleData>,
+        ModuleDataHandle,
     ) -> Result<TBehavior, Box<dyn std::error::Error + Send + Sync>>,
 ) -> Box<dyn Module>
 where
     TBehavior: BehaviorModuleInterface + Snapshotable + 'static,
     TData: ModuleData + LegacyModuleData + Clone + 'static,
 {
-    let Some(data) = module_data.as_any().downcast_ref::<TData>() else {
+    if !module_data.read().as_any().is::<TData>() {
         return failed_initialization_module(
             module_name,
             module_data,
             format!("expected module data {}", std::any::type_name::<TData>()),
         );
-    };
-    let data_arc = Arc::new(data.clone());
-    let engine_data: Arc<dyn ModuleData> = data_arc.clone();
-    let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
+    }
     // C++ constructs the module for the supplied Thing. A numeric ID cannot
     // select another match's owner, including when a retired ID is reused.
     let object = match crate::object::supplied_module_owner(thing.as_ref()) {
         Ok(object) => object,
         Err(error) => {
-            return failed_initialization_module(module_name, engine_data, error);
+            return failed_initialization_module(module_name, module_data, error);
         }
     };
-    let behavior = match create(object, legacy_data) {
+    let behavior = match create(object, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(err) => {
-            return failed_initialization_module(module_name, engine_data, err.to_string());
+            return failed_initialization_module(module_name, module_data, err.to_string());
         }
     };
     Box::new(ActiveBehaviorModule::new(
         module_name,
-        engine_data,
+        module_data,
         behavior,
     ))
-}
-
-pub(super) fn cloned_module_data<TData>(
-    module_name: &str,
-    module_data: &Arc<dyn ModuleData>,
-) -> Arc<TData>
-where
-    TData: ModuleData + Clone + 'static,
-{
-    Arc::new(
-        module_data
-            .as_any()
-            .downcast_ref::<TData>()
-            .unwrap_or_else(|| panic!("{module_name} module data type expected"))
-            .clone(),
-    )
-}
-
-pub(super) fn cloned_module_data_or_default<TData>(
-    module_name: &str,
-    module_data: &Arc<dyn ModuleData>,
-) -> Arc<TData>
-where
-    TData: ModuleData + Clone + Default + 'static,
-{
-    cloned_module_data_or_else(module_name, module_data, TData::default)
-}
-
-pub(super) fn cloned_module_data_or_else<TData, F>(
-    module_name: &str,
-    module_data: &Arc<dyn ModuleData>,
-    fallback: F,
-) -> Arc<TData>
-where
-    TData: ModuleData + Clone + 'static,
-    F: FnOnce() -> TData,
-{
-    Arc::new(
-        module_data
-            .as_any()
-            .downcast_ref::<TData>()
-            .cloned()
-            .unwrap_or_else(|| {
-                warn!("{module_name} module data expected; using defaults");
-                fallback()
-            }),
-    )
 }
 
 #[derive(Debug)]
 struct ActiveCreateModule<T: CreateInterface + Snapshotable + Send + Sync + 'static> {
     module_name_key: NameKeyType,
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     create: T,
 }
 
 impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> ActiveCreateModule<T> {
-    fn new(module_name: &str, data: Arc<dyn ModuleData>, create: T) -> Self {
+    fn new(module_name: &str, data: ModuleDataHandle, create: T) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
             data,
@@ -300,11 +250,11 @@ impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> Module for Activ
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn get_create_interface(&self) -> Option<&dyn CreateInterface> {
@@ -347,14 +297,12 @@ macro_rules! parsed_create_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
-            let engine_data: Arc<dyn ModuleData> = data_arc.clone();
             Box::new(ActiveCreateModule::new(
                 $module_name,
-                engine_data,
-                <$module_ty>::new(thing, data_arc),
+                module_data.clone(),
+                <$module_ty>::new(thing, module_data),
             ))
         }
     };
@@ -368,10 +316,10 @@ macro_rules! empty_create_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let data_arc = cloned_module_data::<CreateModuleData>($module_name, &module_data);
-            let engine_data: Arc<dyn ModuleData> = data_arc;
+            assert!(module_data.read().as_any().is::<CreateModuleData>(), "{} module data type expected", $module_name);
+            let engine_data = module_data;
             Box::new(ActiveCreateModule::new(
                 $module_name,
                 engine_data,
@@ -446,13 +394,13 @@ macro_rules! active_behavior_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
             active_behavior_module::<$behavior_ty, $data_ty>(
                 thing,
                 module_data,
                 $module_name,
-                <$behavior_ty>::new,
+                <$behavior_ty>::new_with_module_data,
             )
         }
     };

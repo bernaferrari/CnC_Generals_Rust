@@ -1655,9 +1655,10 @@ mod tests {
     fn test_advice_generation() {
         let stats = AcademyStats::new();
         let mut info = AcademyAdviceInfo::new();
+        let mut client_random = crate::common::random_value::RandomState::default();
 
         // New player should get advice
-        let has_advice = stats.calculate_academy_advice(&mut info);
+        let has_advice = stats.calculate_academy_advice(&mut info, &mut client_random);
         assert!(has_advice);
         assert!(info.num_tips > 0);
     }
@@ -1680,9 +1681,10 @@ mod tests {
         let mut stats = AcademyStats::new();
         stats.unknown_side = false;
         let mut info = AcademyAdviceInfo::new();
+        let mut client_random = crate::common::random_value::RandomState::default();
 
         // Should get advice about using control groups
-        stats.evaluate_tier2_advice(&mut info, -1);
+        stats.evaluate_tier2_advice(&mut info, -1, &mut client_random);
 
         assert!(info.num_tips > 0);
     }
@@ -1692,6 +1694,7 @@ mod tests {
         let mut stats = AcademyStats::new();
         stats.unknown_side = false;
         let mut info = AcademyAdviceInfo::new();
+        let mut client_random = crate::common::random_value::RandomState::default();
 
         // Should get advice about building barracks sooner
         stats.evaluate_tier3_advice(
@@ -1701,6 +1704,7 @@ mod tests {
                 frame: time::frame(),
                 ..Default::default()
             },
+            &mut client_random,
         );
 
         assert!(info.num_tips > 0);
@@ -1759,7 +1763,8 @@ mod tests {
         stats.unknown_side = true;
 
         let mut info = AcademyAdviceInfo::new();
-        let has_advice = stats.calculate_academy_advice(&mut info);
+        let mut client_random = crate::common::random_value::RandomState::default();
+        let has_advice = stats.calculate_academy_advice(&mut info, &mut client_random);
 
         // Unknown side should not generate advice
         assert!(!has_advice);

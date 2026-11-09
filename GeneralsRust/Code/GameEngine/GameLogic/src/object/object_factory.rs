@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
+use game_engine::common::thing::module::ModuleDataHandle;
 
 use crate::common::*;
 use crate::common::{DefaultThingTemplate, ThingTemplate};
@@ -16,13 +17,13 @@ use crate::object::simple_object::{SimpleObject, SimpleObjectExt};
 use crate::object::structure::{Structure, StructureExt};
 use crate::object::unit::{Unit, UnitAIUpdate, UnitExt};
 use crate::object::update::{
-    AIUpdateModuleData, AssaultTransportAIUpdate, AssaultTransportAIUpdateData,
-    AssaultTransportAIUpdateModuleData, ChinookAIUpdate, ChinookAIUpdateData,
+    AIUpdateModuleData, AssaultTransportAIUpdate,
+    AssaultTransportAIUpdateModuleData, ChinookAIUpdate,
     ChinookAIUpdateModuleData, DeliverPayloadAIUpdate, DeliverPayloadAIUpdateModuleData,
-    DeployStyleAIUpdate, DeployStyleAIUpdateData, DeployStyleAIUpdateModuleData, DozerAIUpdate,
-    DozerAIUpdateData, DozerAIUpdateModuleData, HackInternetAIUpdate, HackInternetAIUpdateData,
+    DeployStyleAIUpdate, DeployStyleAIUpdateModuleData, DozerAIUpdate,
+    DozerAIUpdateModuleData, HackInternetAIUpdate,
     HackInternetAIUpdateModuleData, JetAIUpdate, JetAIUpdateModuleData, RailedTransportAIUpdate,
-    RailedTransportAIUpdateData, RailedTransportAIUpdateModuleData, SupplyTruckAIUpdateModuleData,
+    RailedTransportAIUpdateModuleData, SupplyTruckAIUpdateModuleData,
     TransportAIUpdate, TransportAIUpdateModuleData, WanderAIUpdate, WanderAIUpdateModuleData,
     WorkerAIUpdateModuleData,
 };
@@ -787,18 +788,18 @@ impl ObjectFactory {
             ModuleInterfaceType,
             AsciiString,
             AsciiString,
-            Arc<dyn ModuleData>,
+            ModuleDataHandle,
             Box<dyn Module>,
         )> = Vec::new();
 
         let mut install_drawable_modules = |factory: &ModuleFactory| {
             for entry in template.get_draw_module_info().iter() {
                 let module_name = entry.name.clone();
-                let module_data = Arc::clone(&entry.data);
-                let module_data_for_entry = Arc::clone(&module_data);
+                let module_data = entry.data.clone();
+                let module_data_for_entry = module_data.clone();
                 let interface_mask = entry.interface_flags();
 
-                if draw_module_below_min_lod(module_data.as_ref()) {
+                if draw_module_below_min_lod(&*module_data.read()) {
                     continue;
                 }
 
@@ -836,8 +837,8 @@ impl ObjectFactory {
 
             for entry in template.get_client_update_module_info().iter() {
                 let module_name = entry.name.clone();
-                let module_data = Arc::clone(&entry.data);
-                let module_data_for_entry = Arc::clone(&module_data);
+                let module_data = entry.data.clone();
+                let module_data_for_entry = module_data.clone();
                 let interface_mask = entry.interface_flags();
 
                 if factory.find_module_interface_mask(&module_name, ModuleType::ClientUpdate)

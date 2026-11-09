@@ -10,7 +10,8 @@ use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData, NameKeyType,
+    ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData, ModuleDataHandle,
+    ModuleDataRead, NameKeyType,
 };
 use std::any::Any;
 use std::sync::Arc;
@@ -133,7 +134,7 @@ pub use owned::{LaserDrawableObservation, LaserExecution, LaserObjectObservation
 pub struct LaserUpdate {
     thing: ThingId,
     external_particle_lifetime: bool,
-    module_data: LaserUpdateModuleData,
+    module_data: ModuleDataHandle,
     dirty: bool,
     start_pos: Coord3D,
     end_pos: Coord3D,
@@ -154,18 +155,22 @@ pub struct LaserUpdate {
 /// Module wrapper for LaserUpdate client-update behavior.
 pub struct LaserUpdateModule {
     module_name_key: NameKeyType,
-    module_data: Arc<LaserUpdateModuleData>,
+    module_data: ModuleDataHandle,
     update: LaserUpdate,
 }
 
 impl LaserUpdateModule {
-    pub fn new(
+    pub fn new_with_module_data(
         module_name_key: NameKeyType,
-        module_data: Arc<LaserUpdateModuleData>,
+        module_data: ModuleDataHandle,
         owner: Option<ThingId>,
     ) -> Self {
-        let thing_id = owner.unwrap_or(0);
-        let update = LaserUpdate::new(thing_id, module_data.as_ref().clone());
+        assert!(
+            module_data.is::<LaserUpdateModuleData>()
+                || module_data.is::<crate::object::behavior::laser_update::LaserUpdateModuleData>(),
+            "invalid LaserUpdate module data"
+        );
+        let update = LaserUpdate::with_module_data(owner.unwrap_or(0), module_data.clone());
         Self {
             module_name_key,
             module_data,
@@ -173,12 +178,19 @@ impl LaserUpdateModule {
         }
     }
 
-    pub fn new_owned(
+
+    pub fn new_owned_with_module_data(
         module_name_key: NameKeyType,
-        module_data: Arc<LaserUpdateModuleData>,
+        module_data: ModuleDataHandle,
         owner: ThingId,
     ) -> Self {
-        let update = LaserUpdate::new_owned(owner, module_data.as_ref().clone());
+        assert!(
+            module_data.is::<LaserUpdateModuleData>()
+                || module_data.is::<crate::object::behavior::laser_update::LaserUpdateModuleData>(),
+            "invalid LaserUpdate module data"
+        );
+        let mut update = LaserUpdate::with_module_data(owner, module_data.clone());
+        update.external_particle_lifetime = true;
         Self {
             module_name_key,
             module_data,
@@ -221,11 +233,11 @@ impl Module for LaserUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
@@ -402,6 +414,10 @@ impl Snapshotable for LaserUpdateModule {
 
 impl LaserUpdate {
     pub fn new(thing: ThingId, module_data: LaserUpdateModuleData) -> Self {
+        Self::with_module_data(thing, ModuleDataHandle::new(module_data))
+    }
+
+    pub fn with_module_data(thing: ThingId, module_data: ModuleDataHandle) -> Self {
         Self {
             thing,
             external_particle_lifetime: false,
@@ -421,6 +437,17 @@ impl LaserUpdate {
             parent_id: None,
             target_id: None,
             parent_bone_name: String::new(),
+        }
+    }
+
+    fn with_data<R>(&self, f: impl FnOnce(&str, &str, f32) -> R) -> R {
+        let data = self.module_data.read();
+        if let Some(data) = data.as_any().downcast_ref::<LaserUpdateModuleData>() {
+            f(&data.particle_system_name, &data.target_particle_system_name, data.punch_through_scalar)
+        } else {
+            let data = data.as_any().downcast_ref::<crate::object::behavior::laser_update::LaserUpdateModuleData>()
+                .expect("invalid LaserUpdate module data");
+            f(&data.particle_system_name, &data.target_particle_system_name, data.punch_through_scalar)
         }
     }
 
@@ -656,8 +683,8 @@ mod tests {
 
     #[test]
     fn laser_update_xfer_preserves_cpp_runtime_fields() {
-        let module_data = Arc::new(LaserUpdateModuleData::default());
-        let mut saved = LaserUpdateModule::new(11, module_data.clone(), Some(22));
+        let module_data = ModuleDataHandle::new(LaserUpdateModuleData::default());
+        let mut saved = LaserUpdateModule::new_with_module_data(11, module_data.clone(), Some(22));
         let update = saved.update_mut();
         update.start_pos = Coord3D {
             x: 1.25,
@@ -692,7 +719,7 @@ mod tests {
             save.close().unwrap();
         }
 
-        let mut loaded = LaserUpdateModule::new(11, module_data, Some(22));
+        let mut loaded = LaserUpdateModule::new_with_module_data(11, module_data, Some(22));
         {
             let mut load = XferLoad::new(Cursor::new(bytes), 1);
             load.open("laser_update").unwrap();
@@ -734,8 +761,8 @@ mod tests {
 
     #[test]
     fn laser_update_xfer_loads_cpp_invalid_ids_as_none() {
-        let module_data = Arc::new(LaserUpdateModuleData::default());
-        let mut saved = LaserUpdateModule::new(11, module_data.clone(), Some(22));
+        let module_data = ModuleDataHandle::new(LaserUpdateModuleData::default());
+        let mut saved = LaserUpdateModule::new_with_module_data(11, module_data.clone(), Some(22));
         saved.update_mut().dirty = true;
 
         let mut bytes = Vec::new();
@@ -747,7 +774,7 @@ mod tests {
             save.close().unwrap();
         }
 
-        let mut loaded = LaserUpdateModule::new(11, module_data, Some(22));
+        let mut loaded = LaserUpdateModule::new_with_module_data(11, module_data, Some(22));
         loaded.update_mut().particle_system_id = Some(1);
         loaded.update_mut().target_particle_system_id = Some(2);
         loaded.update_mut().parent_id = Some(3);
@@ -837,16 +864,16 @@ mod tests {
 
     #[test]
     fn laser_update_exposes_typed_client_update_interface() {
-        let module_data = Arc::new(LaserUpdateModuleData::default());
-        let mut module = LaserUpdateModule::new(11, module_data, Some(22));
+        let module_data = ModuleDataHandle::new(LaserUpdateModuleData::default());
+        let mut module = LaserUpdateModule::new_with_module_data(11, module_data, Some(22));
 
         assert!(module.get_client_update_interface().is_some());
     }
 
     #[test]
     fn laser_update_exposes_typed_laser_update_interface() {
-        let module_data = Arc::new(LaserUpdateModuleData::default());
-        let mut module = LaserUpdateModule::new(11, module_data, Some(22));
+        let module_data = ModuleDataHandle::new(LaserUpdateModuleData::default());
+        let mut module = LaserUpdateModule::new_with_module_data(11, module_data, Some(22));
 
         assert!(module.get_laser_update_interface().is_some());
     }
@@ -898,8 +925,8 @@ mod tests {
 
     #[test]
     fn laser_update_interface_exposes_set_decay_frames() {
-        let module_data = Arc::new(LaserUpdateModuleData::default());
-        let mut module = LaserUpdateModule::new(11, module_data, Some(22));
+        let module_data = ModuleDataHandle::new(LaserUpdateModuleData::default());
+        let mut module = LaserUpdateModule::new_with_module_data(11, module_data, Some(22));
         module
             .get_laser_update_interface()
             .expect("laser interface")

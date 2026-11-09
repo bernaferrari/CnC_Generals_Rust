@@ -55,21 +55,20 @@ const ANIMATION_STEERING_UPDATE_FIELDS: &[FieldParse<AnimationSteeringUpdateModu
 
 pub struct AnimationSteeringUpdate {
     object_id: ObjectID,
-    module_data: Arc<AnimationSteeringUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     current_turn_anim: ModelConditionFlags,
     next_transition_frame: UnsignedInt,
 }
 
 impl AnimationSteeringUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<AnimationSteeringUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<AnimationSteeringUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -77,7 +76,7 @@ impl AnimationSteeringUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             current_turn_anim: ModelConditionFlags::Invalid,
             next_transition_frame: 0,
@@ -131,15 +130,18 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
             Ok(guard) => guard,
             Err(_) => return UpdateSleepTime::None,
         };
+        let transition_frames = self.module_data.read()
+            .downcast_ref::<AnimationSteeringUpdateModuleData>()
+            .expect("Invalid module data").transition_frames;
 
         if self.current_turn_anim == ModelConditionFlags::Invalid {
             if turn_state == ModelConditionFlags::CenterToRight {
                 drawable_guard.set_model_condition_state(ModelConditionFlags::CenterToRight);
-                self.next_transition_frame = now + self.module_data.transition_frames;
+                self.next_transition_frame = now + transition_frames;
                 self.current_turn_anim = ModelConditionFlags::CenterToRight;
             } else if turn_state == ModelConditionFlags::CenterToLeft {
                 drawable_guard.set_model_condition_state(ModelConditionFlags::CenterToLeft);
-                self.next_transition_frame = now + self.module_data.transition_frames;
+                self.next_transition_frame = now + transition_frames;
                 self.current_turn_anim = ModelConditionFlags::CenterToLeft;
             }
         } else if self.current_turn_anim == ModelConditionFlags::CenterToRight {
@@ -148,7 +150,7 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
                     ModelConditionFlags::CenterToRight,
                     ModelConditionFlags::RightToCenter,
                 );
-                self.next_transition_frame = now + self.module_data.transition_frames;
+                self.next_transition_frame = now + transition_frames;
                 self.current_turn_anim = ModelConditionFlags::RightToCenter;
             }
         } else if self.current_turn_anim == ModelConditionFlags::CenterToLeft {
@@ -157,7 +159,7 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
                     ModelConditionFlags::CenterToLeft,
                     ModelConditionFlags::LeftToCenter,
                 );
-                self.next_transition_frame = now + self.module_data.transition_frames;
+                self.next_transition_frame = now + transition_frames;
                 self.current_turn_anim = ModelConditionFlags::LeftToCenter;
             }
         } else if self.current_turn_anim == ModelConditionFlags::LeftToCenter
@@ -212,8 +214,8 @@ pub struct AnimationSteeringUpdateFactory;
 impl AnimationSteeringUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(AnimationSteeringUpdate::new(thing, module_data)?))
+        Ok(Box::new(AnimationSteeringUpdate::new_with_module_data(thing, module_data)?))
     }
 }

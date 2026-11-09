@@ -22,6 +22,7 @@ use crate::player::player_list;
 pub use crate::waypoint::Waypoint;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::rts::academy_stats::AcademyClassificationType;
+use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataRead, ModuleDataView};
 use std::fmt;
 use std::sync::Arc;
 
@@ -135,7 +136,7 @@ pub trait SpecialPowerModuleInterface: EngineSpecialPowerModuleInterface {
     fn start_power_recharge_at(&mut self, current_frame: FrameCount);
 
     /// Get initiate sound
-    fn get_initiate_sound(&self) -> &AudioEventRts;
+    fn get_initiate_sound(&self) -> AudioEventRts;
 
     /// Is this script only?
     fn is_script_only(&self) -> bool;
@@ -148,7 +149,8 @@ pub trait SpecialPowerModuleInterface: EngineSpecialPowerModuleInterface {
 #[derive(Clone)]
 pub struct SpecialPowerModule {
     /// Module data
-    module_data: SpecialPowerModuleData,
+    module_data: ModuleDataView<SpecialPowerModuleData>,
+    project_mut: for<'a> fn(&'a mut dyn ModuleData) -> &'a mut SpecialPowerModuleData,
 
     /// Owner object ID
     owner_object_id: ObjectId,
@@ -169,8 +171,25 @@ pub struct SpecialPowerModule {
 impl SpecialPowerModule {
     /// Create a new special power module
     pub fn new(owner_object_id: ObjectId, module_data: SpecialPowerModuleData) -> Self {
+        Self::from_shared(
+            owner_object_id,
+            ModuleDataHandle::new(module_data),
+            |data| data.as_any().downcast_ref::<SpecialPowerModuleData>()
+                .expect("SpecialPowerModule requires SpecialPowerModuleData"),
+            |data| (data as &mut dyn std::any::Any).downcast_mut::<SpecialPowerModuleData>()
+                .expect("SpecialPowerModule requires SpecialPowerModuleData"),
+        )
+    }
+
+    pub fn from_shared(
+        owner_object_id: ObjectId,
+        module_data: ModuleDataHandle,
+        project: for<'a> fn(&'a dyn ModuleData) -> &'a SpecialPowerModuleData,
+        project_mut: for<'a> fn(&'a mut dyn ModuleData) -> &'a mut SpecialPowerModuleData,
+    ) -> Self {
         Self {
-            module_data,
+            module_data: ModuleDataView::new(module_data, project),
+            project_mut,
             owner_object_id,
             available_on_frame: 0,
             paused_count: 0,
@@ -180,13 +199,16 @@ impl SpecialPowerModule {
     }
 
     fn resolve_special_power(&mut self) {
-        let Some(template) = self.module_data.special_power_template.as_ref() else {
-            return;
+        let template_name = {
+            let data = self.module_data.read();
+            let Some(template) = data.special_power_template.as_ref() else {
+                return;
+            };
+            AsciiString::from(template.get_name())
         };
-        let template_name = AsciiString::from(template.get_name());
-
-        self.module_data.special_power_template =
-            Some(find_or_create_special_power_template(&template_name));
+        let template = find_or_create_special_power_template(&template_name);
+        let mut data = self.module_data.handle().write();
+        (self.project_mut)(&mut *data).special_power_template = Some(template);
     }
 
     /// Initialize the module (called after construction)
@@ -203,7 +225,7 @@ impl SpecialPowerModule {
 
         // If pre-built, start counting down
         if !is_under_construction {
-            if let Some(template) = &self.module_data.special_power_template {
+            if let Some(template) = &self.special_power_template() {
                 if !template.is_shared_n_sync() {
                     self.start_power_recharge_at(current_frame);
                 }
@@ -211,7 +233,7 @@ impl SpecialPowerModule {
         }
 
         // Some powers need to be activated by upgrade
-        if self.module_data.starts_paused {
+        if self.module_data.read().starts_paused {
             SpecialPowerModuleInterface::pause_countdown(self, true);
         }
 
@@ -219,7 +241,7 @@ impl SpecialPowerModule {
 
         // Register with UI if has public timer
         if self.paused_count == 0 {
-            if let Some(template) = &self.module_data.special_power_template {
+            if let Some(template) = &self.special_power_template() {
                 if template.is_shared_n_sync() && template.has_public_timer() && is_structure {
                     let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
                         self.owner_object_id,
@@ -265,8 +287,12 @@ impl SpecialPowerModule {
     }
 
     /// Get the module data
-    pub fn get_module_data(&self) -> &SpecialPowerModuleData {
-        &self.module_data
+    pub fn get_module_data(&self) -> impl std::ops::Deref<Target = SpecialPowerModuleData> + '_ {
+        self.module_data.read()
+    }
+
+    fn special_power_template(&self) -> Option<Arc<SpecialPowerTemplate>> {
+        self.module_data.read().special_power_template.clone()
     }
 
     /// Get the owner object ID
@@ -365,7 +391,7 @@ impl SpecialPowerModule {
         if self.paused_count > 0 {
             return self.paused_percent;
         }
-        let Some(template) = &self.module_data.special_power_template else {
+        let Some(template) = &self.special_power_template() else {
             return 0.0;
         };
         1.0 - shared
@@ -412,7 +438,7 @@ impl SpecialPowerModule {
     }
 
     /// Compatibility wrapper for call sites that invoke trait methods directly on the struct.
-    pub fn get_initiate_sound(&self) -> &AudioEventRts {
+    pub fn get_initiate_sound(&self) -> AudioEventRts {
         SpecialPowerModuleInterface::get_initiate_sound(self)
     }
 
@@ -454,7 +480,7 @@ impl SpecialPowerModule {
             return false;
         }
 
-        let Some(template) = &self.module_data.special_power_template else {
+        let Some(template) = &self.special_power_template() else {
             return false;
         };
 
@@ -502,7 +528,7 @@ impl SpecialPowerModule {
             });
             });
 
-        if !valid && self.module_data.update_module_starts_attack {
+        if !valid && self.module_data.read().update_module_starts_attack {
             log::error!(
                 "SpecialPowerModule '{}' missing update module to execute special power.",
                 template.get_name()
@@ -526,7 +552,7 @@ impl SpecialPowerModule {
             return;
         }
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             let vision_range = template.get_view_object_range();
             let vision_duration = template.get_view_object_duration();
 
@@ -604,7 +630,7 @@ impl SpecialPowerModule {
         }
 
         // Notify script engine (matches C++ SpecialPowerModule.cpp lines 315-318)
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if let Some(owner) =
                 crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id)
             {
@@ -628,7 +654,7 @@ impl SpecialPowerModule {
         }
 
         // Play EVA launch events with C++ relationship semantics.
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             let power_type = template.get_special_power_type();
             let __player_list_arc = player_list();
                 let local_player = __player_list_arc.read()
@@ -715,7 +741,7 @@ impl SpecialPowerModule {
         }
 
         // Play initiate sound
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if let Some(audio) = TheAudio::get() {
                 let mut audio_event = template.get_initiate_sound().clone();
                 audio_event.set_object_id(self.owner_object_id);
@@ -745,7 +771,7 @@ impl SpecialPowerModule {
 
 impl SpecialPowerModuleInterface for SpecialPowerModule {
     fn is_module_for_power(&self, special_power_template: &SpecialPowerTemplate) -> bool {
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             // Compare template IDs or names
             template.get_id() == special_power_template.get_id()
         } else {
@@ -785,7 +811,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
 
         // Calculate percent based on ready frame vs current frame
         // Matches C++ SpecialPowerModule::getPercentReady() lines 154-163
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             let reload_time = template.get_reload_time() as f32;
             if reload_time > 0.0 {
                 let current_frame = crate::helpers::TheGameLogic::get_frame();
@@ -816,7 +842,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn get_power_name(&self) -> String {
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             template.get_name().to_string()
         } else {
             String::from("Unknown")
@@ -824,11 +850,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn get_special_power_template_full(&self) -> Option<Arc<SpecialPowerTemplate>> {
-        self.module_data.special_power_template.clone()
+        self.special_power_template()
     }
 
     fn get_required_science(&self) -> ScienceType {
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             template.get_required_science()
         } else {
             SCIENCE_INVALID
@@ -847,7 +873,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         // Start recharge timer
         self.start_power_recharge_at(current_frame);
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if template.is_shared_n_sync() {
                 if let Some(owner) =
                     crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id)
@@ -866,11 +892,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         }
 
         // Some powers start paused (e.g., require upgrade to activate)
-        if self.module_data.starts_paused {
+        if self.module_data.read().starts_paused {
             SpecialPowerModuleInterface::pause_countdown(self, true);
         }
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if template.has_public_timer() {
                 if let Some(owner) =
                     crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id)
@@ -939,7 +965,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         // Trigger immediately if update module doesn't start attack
         // Some powers are executed by update modules (like aircraft strikes)
         // Others execute immediately (like emergency repair)
-        if !self.module_data.update_module_starts_attack {
+        if !self.module_data.read().update_module_starts_attack {
             let current_frame = crate::helpers::TheGameLogic::get_frame();
             self.trigger_special_power(None, current_frame);
         }
@@ -972,7 +998,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
 
         self.initiate_intent_to_do_special_power(Some(object_id), None, None, command_options);
 
-        if !self.module_data.update_module_starts_attack {
+        if !self.module_data.read().update_module_starts_attack {
             let current_frame = crate::helpers::TheGameLogic::get_frame();
             let target_pos = crate::helpers::TheGameLogic::find_object_by_id(object_id)
                 .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()));
@@ -1008,7 +1034,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
 
         self.initiate_intent_to_do_special_power(None, Some(location), None, command_options);
 
-        if !self.module_data.update_module_starts_attack {
+        if !self.module_data.read().update_module_starts_attack {
             let current_frame = crate::helpers::TheGameLogic::get_frame();
             self.trigger_special_power(Some(location), current_frame);
         }
@@ -1041,7 +1067,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
 
         self.initiate_intent_to_do_special_power(None, None, Some(waypoint), command_options);
 
-        if !self.module_data.update_module_starts_attack {
+        if !self.module_data.read().update_module_starts_attack {
             let current_frame = crate::helpers::TheGameLogic::get_frame();
             self.trigger_special_power(None, current_frame);
         }
@@ -1071,7 +1097,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
             }
         }
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if template.is_shared_n_sync() {
                 // Reset or start the shared timer in player's special power manager
                 if let Some(owner) =
@@ -1095,12 +1121,12 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         }
     }
 
-    fn get_initiate_sound(&self) -> &AudioEventRts {
-        &self.module_data.initiate_sound
+    fn get_initiate_sound(&self) -> AudioEventRts {
+        self.module_data.read().initiate_sound.clone()
     }
 
     fn is_script_only(&self) -> bool {
-        self.module_data.scripted_special_power_only
+        self.module_data.read().scripted_special_power_only
     }
 
     fn get_reference_thing_template(&self) -> Option<String> {
@@ -1135,7 +1161,7 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn get_power_type(&self) -> u32 {
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             template.get_id()
         } else {
             0
@@ -1154,7 +1180,7 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
             return 0;
         }
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if template.is_shared_n_sync() {
                 if let Some(owner) =
                     crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id)
@@ -1202,7 +1228,7 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
             }
         }
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if template.is_shared_n_sync() {
                 if let Some(owner) =
                     crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id)
@@ -1226,14 +1252,12 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn get_special_power_template(&self) -> Option<Arc<dyn std::any::Any>> {
-        self.module_data
-            .special_power_template
-            .clone()
+        self.special_power_template()
             .map(|t| t as Arc<dyn std::any::Any>)
     }
 
     fn get_special_power_template_full(&self) -> Option<Arc<SpecialPowerTemplate>> {
-        self.module_data.special_power_template.clone()
+        self.special_power_template()
     }
 
     fn is_module_for_power(&self, special_power_template: &SpecialPowerTemplate) -> bool {
@@ -1412,13 +1436,11 @@ impl game_engine::common::thing::module::Module for SpecialPowerModule {
         game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("SpecialPowerModule")
     }
     fn get_module_tag_name_key(&self) -> game_engine::common::thing::module::NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            &self.module_data.base,
-        )
+        self.module_data.handle().read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn game_engine::common::thing::module::ModuleData {
-        &self.module_data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(self.module_data.handle())
     }
 
     fn on_object_created(&mut self) {
@@ -1437,7 +1459,7 @@ impl BehaviorModule for SpecialPowerModule {
             return;
         }
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if template.has_public_timer() {
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
                     self.owner_object_id,
@@ -1499,7 +1521,7 @@ impl game_engine::common::system::snapshot::Snapshotable for SpecialPowerModule 
 
         self.resolve_special_power();
 
-        if let Some(template) = &self.module_data.special_power_template {
+        if let Some(template) = &self.special_power_template() {
             if self.paused_count == 0 && template.is_shared_n_sync() && template.has_public_timer()
             {
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
@@ -1577,11 +1599,7 @@ mod tests {
         let mut module = SpecialPowerModule::new(1, data);
         module.resolve_special_power();
 
-        let resolved = module
-            .module_data
-            .special_power_template
-            .as_ref()
-            .expect("template should be resolved");
+        let resolved = module.special_power_template().expect("template should be resolved");
         assert_eq!(resolved.get_name(), canonical.get_name());
         assert_eq!(resolved.get_id(), canonical.get_id());
     }

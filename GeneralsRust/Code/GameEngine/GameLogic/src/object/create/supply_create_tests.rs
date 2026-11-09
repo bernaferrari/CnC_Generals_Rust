@@ -5,7 +5,7 @@ use crate::object::update::ai_update::dozer_ai_update::construction_callback_tes
 use crate::player::{Player, player_list};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    BaseModuleData, CreateInterface, Module, ModuleData, ModuleInterfaceType,
+    BaseModuleData, CreateInterface, Module, ModuleDataHandle, ModuleInterfaceType,
 };
 use std::sync::{Arc, RwLock};
 
@@ -13,15 +13,15 @@ use std::sync::{Arc, RwLock};
 // Object module dispatch exercise them without changing production factories.
 struct SupplyCreateModule<T> {
     create: T,
-    data: Arc<BaseModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> Module for SupplyCreateModule<T> {
     fn get_module_name_key(&self) -> u32 {
         crate::common::name_key_generate("SupplyCreateTest")
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
     fn get_create_interface(&self) -> Option<&dyn CreateInterface> {
         Some(&self.create)
@@ -47,7 +47,7 @@ fn install<T: CreateInterface + Snapshotable + Send + Sync + 'static>(
     name: &str,
     create: T,
 ) {
-    let data = Arc::new(BaseModuleData::new());
+    let data = ModuleDataHandle::new(BaseModuleData::new());
     fixture.structure.write().unwrap().install_module_for_test(
         name,
         Box::new(SupplyCreateModule {

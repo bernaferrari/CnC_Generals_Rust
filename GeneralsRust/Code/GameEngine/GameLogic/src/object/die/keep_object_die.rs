@@ -23,7 +23,7 @@ pub struct KeepObjectDie {
 
 impl KeepObjectDie {
     /// Create a new KeepObjectDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<DieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -40,7 +40,7 @@ impl DieModuleInterface for KeepObjectDie {
     /// (Matches C++ KeepObjectDie::onDie)
     fn on_die(&mut self, object: &mut Object, damage_info: &DamageInfo) {
         // Check if this die module should activate
-        if !self.is_die_applicable(object, damage_info, &self.base.module_data.die_mux_data) {
+        if !self.is_die_applicable(object, damage_info, &self.base.module_data.read().die_mux_data) {
             return;
         }
     }

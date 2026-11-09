@@ -15,7 +15,7 @@ use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::terrain::get_terrain_logic;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 use log::warn;
 
 /// Wave 407: host-only path has no dual-world factory objects.
@@ -217,11 +217,11 @@ const RAILED_TRANSPORT_AI_UPDATE_FIELDS: &[FieldParse<RailedTransportAIUpdateMod
 #[derive(Debug)]
 pub struct RailedTransportAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<RailedTransportAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl RailedTransportAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<RailedTransportAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -276,21 +276,21 @@ impl Module for RailedTransportAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for RailedTransportAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -298,24 +298,10 @@ impl Snapshotable for RailedTransportAIUpdateModule {
     }
 }
 
-/// Runtime data for RailedTransportAIUpdate.
-#[derive(Debug, Clone)]
-pub struct RailedTransportAIUpdateData {
-    pub path_prefix_name: AsciiString,
-}
-
-impl Default for RailedTransportAIUpdateData {
-    fn default() -> Self {
-        Self {
-            path_prefix_name: AsciiString::new(),
-        }
-    }
-}
-
 /// Railed transport AI update logic.
 #[derive(Debug, Clone)]
 pub struct RailedTransportAIUpdate {
-    data: RailedTransportAIUpdateData,
+    data: ModuleDataHandle,
     owner_id: ObjectID,
     in_transit: Bool,
     path: [WaypointPathInfo; MAX_WAYPOINT_PATHS],
@@ -325,7 +311,7 @@ pub struct RailedTransportAIUpdate {
 }
 
 impl RailedTransportAIUpdate {
-    pub fn new(data: RailedTransportAIUpdateData, owner_id: ObjectID) -> Self {
+    pub fn new(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
         Self {
             data,
             owner_id,
@@ -513,18 +499,22 @@ impl RailedTransportAIUpdate {
             return;
         };
 
+        let prefix = self.data.read()
+            .downcast_ref::<RailedTransportAIUpdateModuleData>()
+            .expect("RailedTransport data type")
+            .path_prefix_name.clone();
         for i in 0..MAX_WAYPOINT_PATHS {
             let mut name = AsciiString::new();
             name.format(format_args!(
                 "{}Start{:02}",
-                self.data.path_prefix_name.as_str(),
+                prefix.as_str(),
                 i + 1
             ));
             let start = terrain_guard.get_waypoint_by_name(&name);
 
             name.format(format_args!(
                 "{}End{:02}",
-                self.data.path_prefix_name.as_str(),
+                prefix.as_str(),
                 i + 1
             ));
             let end = terrain_guard.get_waypoint_by_name(&name);

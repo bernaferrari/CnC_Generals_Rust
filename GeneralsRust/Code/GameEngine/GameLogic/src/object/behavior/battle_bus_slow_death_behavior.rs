@@ -174,8 +174,7 @@ fn with_base_mut<F>(data: &mut BattleBusSlowDeathBehaviorModuleData, f: F) -> Re
 where
     F: FnOnce(&mut SlowDeathBehaviorModuleData) -> Result<(), INIError>,
 {
-    let base = Arc::get_mut(&mut data.base).ok_or(INIError::InvalidData)?;
-    f(base)
+    f(&mut data.base)
 }
 
 fn parse_base_sink_rate(
@@ -448,7 +447,7 @@ const BATTLE_BUS_SLOW_DEATH_FIELDS: &[FieldParse<BattleBusSlowDeathBehaviorModul
 #[derive(Debug, Clone)]
 pub struct BattleBusSlowDeathBehaviorModuleData {
     module_tag_name_key: NameKeyType,
-    pub base: Arc<SlowDeathBehaviorModuleData>,
+    pub base: SlowDeathBehaviorModuleData,
     pub fx_start_undeath: Option<FXList>,
     pub ocl_start_undeath: Option<Arc<ObjectCreationList>>,
     pub fx_hit_ground: Option<FXList>,
@@ -462,7 +461,7 @@ impl BattleBusSlowDeathBehaviorModuleData {
     pub fn new() -> Self {
         Self {
             module_tag_name_key: 0,
-            base: Arc::new(SlowDeathBehaviorModuleData::new()),
+            base: SlowDeathBehaviorModuleData::new(),
             fx_start_undeath: None,
             ocl_start_undeath: None,
             fx_hit_ground: None,
@@ -528,7 +527,7 @@ const GROUND_CHECK_DELAY: UnsignedInt = 10;
 const EMPTY_HULK_CHECK_DELAY: UnsignedInt = 15;
 
 pub struct BattleBusSlowDeathBehavior {
-    module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     base_behavior: Option<SlowDeathBehavior>,
     last_damage_info: Option<DamageInfo>,
@@ -541,7 +540,7 @@ pub struct BattleBusSlowDeathBehavior {
 impl BattleBusSlowDeathBehavior {
     fn construct_with_object(
         object_id: ObjectID,
-        module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
         Self {
@@ -558,7 +557,7 @@ impl BattleBusSlowDeathBehavior {
 
     pub fn new_from_object(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = object
             .read()
@@ -569,7 +568,7 @@ impl BattleBusSlowDeathBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let module_object = thing
             .as_object()
@@ -630,8 +629,11 @@ impl BattleBusSlowDeathBehavior {
         &mut self,
     ) -> Result<&mut SlowDeathBehavior, Box<dyn std::error::Error + Send + Sync>> {
         if self.base_behavior.is_none() {
-            let base_data: Arc<dyn ModuleData> = self.module_data.base.clone();
-            let base = SlowDeathBehavior::new_with_object_id(self.object_id, base_data)?;
+            let view = game_engine::common::thing::module::ModuleDataView::new(
+                self.module_data.clone(),
+                |data| &data.downcast_ref::<BattleBusSlowDeathBehaviorModuleData>().expect("invalid battle bus module data").base,
+            );
+            let base = SlowDeathBehavior::new_with_object_id_and_view(self.object_id, view)?;
             self.base_behavior = Some(base);
         }
 
@@ -700,12 +702,15 @@ impl BattleBusSlowDeathBehavior {
     }
 
     fn finish_first_death(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(fx) = &self.module_data.fx_hit_ground {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattleBusSlowDeathBehaviorModuleData>().expect("invalid battle bus module data");
+        if let Some(fx) = &data.fx_hit_ground {
             self.execute_fx_at_object_id(fx)?;
         }
-        if let Some(ocl) = &self.module_data.ocl_hit_ground {
+        if let Some(ocl) = &data.ocl_hit_ground {
             self.execute_ocl_at_object_id(ocl)?;
         }
+        drop(guard);
 
         self.is_in_first_death = false;
 
@@ -748,7 +753,9 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let data = &self.module_data;
+        let handle = self.module_data.clone();
+        let guard = handle.read();
+        let data = guard.downcast_ref::<BattleBusSlowDeathBehaviorModuleData>().expect("invalid battle bus module data");
         self.last_damage_info = Some(damage_info.clone());
 
         if !self.is_real_death {
@@ -801,6 +808,7 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
                 }
             }
         } else {
+            drop(guard);
             // C++ lines 159-163: If a real death, delegate to base SlowDeathBehavior
             self.is_in_first_death = false;
             self.begin_base_slow_death(damage_info)?;
@@ -810,6 +818,8 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
     }
 
     fn get_probability_modifier(&self, damage_info: &DamageInfo) -> Int {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattleBusSlowDeathBehaviorModuleData>().expect("invalid battle bus module data");
         let overkill_damage =
             damage_info.output.actual_damage_dealt - damage_info.output.actual_damage_clipped;
         let Some(max_health) = self.with_object(|obj_read| {
@@ -823,7 +833,7 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
                 1.0
             }
         }) else {
-            return self.module_data.base.probability_modifier;
+            return data.base.probability_modifier;
         };
 
         let overkill_percent = if max_health > 0.0 {
@@ -832,14 +842,16 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
             0.0
         };
         let overkill_modifier =
-            (overkill_percent * self.module_data.base.modifier_bonus_per_overkill_percent) as Int;
+            (overkill_percent * data.base.modifier_bonus_per_overkill_percent) as Int;
 
-        (self.module_data.base.probability_modifier + overkill_modifier).max(1)
+        (data.base.probability_modifier + overkill_modifier).max(1)
     }
 
     fn is_die_applicable(&self, damage_info: &DamageInfo) -> bool {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattleBusSlowDeathBehaviorModuleData>().expect("invalid battle bus module data");
         self.with_object(|obj_read| {
-            self.module_data
+            data
                 .base
                 .die_mux_data
                 .is_die_applicable(obj_read, damage_info)
@@ -888,7 +900,10 @@ impl BattleBusSlowDeathBehavior {
 
 impl UpdateModuleInterface for BattleBusSlowDeathBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let empty_hulk_destruction_delay = self.module_data.empty_hulk_destruction_delay;
+        let empty_hulk_destruction_delay = {
+            let guard = self.module_data.read();
+            guard.downcast_ref::<BattleBusSlowDeathBehaviorModuleData>().expect("invalid battle bus module data").empty_hulk_destruction_delay
+        };
         let now = self.get_current_frame();
 
         if self.is_in_first_death {
@@ -1017,14 +1032,14 @@ impl DieModuleInterface for BattleBusSlowDeathBehavior {
 pub struct BattleBusSlowDeathBehaviorModule {
     behavior: BattleBusSlowDeathBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BattleBusSlowDeathBehaviorModule {
     pub fn new(
         behavior: BattleBusSlowDeathBehavior,
         module_name: &AsciiString,
-        module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -1059,12 +1074,12 @@ impl EngineModule for BattleBusSlowDeathBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ThingModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     fn on_object_created(&mut self) {}
 
@@ -1112,22 +1127,17 @@ pub fn battle_bus_slow_death_data_factory(ini: Option<&mut INI>) -> Box<dyn Thin
 
 pub fn battle_bus_slow_death_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ThingModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn EngineModule> {
-    let typed = module_data
-        .as_any()
-        .downcast_ref::<BattleBusSlowDeathBehaviorModuleData>()
-        .expect("BattleBusSlowDeathBehaviorModuleData expected");
-
-    let shared_data = Arc::new(typed.clone());
-    let behavior = BattleBusSlowDeathBehavior::from_module_thing(thing, Arc::clone(&shared_data))
+    assert!(module_data.is::<BattleBusSlowDeathBehaviorModuleData>());
+    let behavior = BattleBusSlowDeathBehavior::from_module_thing(thing, module_data.clone())
         .expect("BattleBusSlowDeathBehavior requires an owning object");
 
     let module_name = AsciiString::from("BattleBusSlowDeathBehavior");
     Box::new(BattleBusSlowDeathBehaviorModule::new(
         behavior,
         &module_name,
-        shared_data,
+        module_data,
     ))
 }
 
@@ -1175,9 +1185,18 @@ mod tests {
     }
 
     #[test]
+    fn cloned_data_keeps_inherited_fields_independently_parseable() {
+        let original = BattleBusSlowDeathBehaviorModuleData::default();
+        let mut fork = original.clone();
+        parse_base_probability_modifier(&mut INI::new(), &mut fork, &["42"])
+            .expect("parse inherited field in cloned data");
+        assert_eq!(original.base.probability_modifier, 10);
+        assert_eq!(fork.base.probability_modifier, 42);
+    }
+
+    #[test]
     fn module_factory_downcasts_data() {
-        let data =
-            Arc::new(BattleBusSlowDeathBehaviorModuleData::default()) as Arc<dyn ThingModuleData>;
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BattleBusSlowDeathBehaviorModuleData::default());
         let thing: Arc<dyn ModuleThing> = Arc::new(StubThing);
         let module = battle_bus_slow_death_module_factory(thing, data);
         assert!(

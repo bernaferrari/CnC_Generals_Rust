@@ -837,6 +837,7 @@ mod retail_receiving_content_tests {
         assert_eq!(draw.module_tag.as_str(), "ModuleTag_01");
         assert!(
             draw.data
+                .read()
                 .as_any()
                 .is::<gamelogic::object::draw::W3DTracerDrawModuleData>()
         );

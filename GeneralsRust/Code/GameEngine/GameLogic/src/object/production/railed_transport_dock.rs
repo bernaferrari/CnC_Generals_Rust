@@ -17,7 +17,7 @@ use crate::modules::{
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData};
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataRead};
 use std::sync::{Arc, RwLock};
 
 /// Wave 361: host-only path has no dual-world factory objects.
@@ -131,7 +131,7 @@ pub struct RailedTransportDockUpdate {
     /// Base dock functionality
     base: super::DockUpdate,
     /// Transport configuration
-    data: RailedTransportDockUpdateData,
+    data: ModuleDataHandle,
     /// Object currently docking with us
     docking_object_id: ObjectID,
     /// Distance to move per frame when pulling inside
@@ -150,8 +150,12 @@ impl RailedTransportDockUpdate {
         owner_id: ObjectID,
         owner_position: &Coord3D,
     ) -> Self {
+        Self::from_shared(ModuleDataHandle::new(data), owner_id, owner_position)
+    }
+
+    pub fn from_shared(data: ModuleDataHandle, owner_id: ObjectID, owner_position: &Coord3D) -> Self {
         Self {
-            base: super::DockUpdate::new(data.base.clone(), owner_id, owner_position),
+            base: super::DockUpdate::from_shared(data.clone(), owner_id, owner_position),
             data,
             docking_object_id: INVALID_ID,
             pull_inside_distance_per_frame: 0.0,
@@ -417,7 +421,12 @@ impl RailedTransportDockUpdate {
         );
         let mag = v.length();
 
-        let duration = self.data.push_outside_duration_frames;
+        let duration = {
+            let data = self.data.read();
+            game_engine::common::thing::module::ModuleData::as_any(&*data).downcast_ref::<RailedTransportDockUpdateData>()
+                .expect("RailedTransportDockUpdate requires RailedTransportDockUpdateData")
+                .push_outside_duration_frames
+        };
         if duration > 0 {
             self.push_outside_distance_per_frame = mag / duration as Real;
         } else {
@@ -517,7 +526,13 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             );
             let mag = v.length();
 
-            if mag <= self.data.tolerance_distance {
+            let tolerance = {
+                let data = self.data.read();
+                game_engine::common::thing::module::ModuleData::as_any(&*data).downcast_ref::<RailedTransportDockUpdateData>()
+                    .expect("RailedTransportDockUpdate requires RailedTransportDockUpdateData")
+                    .tolerance_distance
+            };
+            if mag <= tolerance {
                 self.docking_object_id = docker_id;
 
                 if let Ok(mut docker_guard) = obj.write() {
@@ -529,7 +544,12 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
                     let _ = docker_guard.set_orientation(angle);
                 }
 
-                let duration = self.data.pull_inside_duration_frames;
+                let duration = {
+                    let data = self.data.read();
+                    game_engine::common::thing::module::ModuleData::as_any(&*data).downcast_ref::<RailedTransportDockUpdateData>()
+                        .expect("RailedTransportDockUpdate requires RailedTransportDockUpdateData")
+                        .pull_inside_duration_frames
+                };
                 if duration > 0 {
                     self.pull_inside_distance_per_frame = mag / duration as Real;
                 } else {
@@ -717,16 +737,18 @@ impl RailedTransportDockUpdateInterface for RailedTransportDockUpdate {
 pub struct RailedTransportDockUpdateModule {
     behavior: RailedTransportDockUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<RailedTransportDockUpdateData>,
+    module_data: ModuleDataHandle,
 }
 
 impl RailedTransportDockUpdateModule {
     pub fn new(
-        behavior: RailedTransportDockUpdate,
+        mut behavior: RailedTransportDockUpdate,
         module_name: &AsciiString,
-        module_data: Arc<RailedTransportDockUpdateData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.data = module_data.clone();
+        behavior.base.data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -799,13 +821,11 @@ impl Module for RailedTransportDockUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

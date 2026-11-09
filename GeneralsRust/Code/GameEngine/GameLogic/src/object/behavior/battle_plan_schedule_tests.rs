@@ -52,7 +52,7 @@ fn authored_normal_battle_plan_controls_registered_detector_before_next_callback
     );
     let base_vision = fixture.object.read().unwrap().get_vision_range();
 
-    let data: Arc<dyn EngineModuleData> = Arc::new(BattlePlanUpdateModuleData {
+    let data = game_engine::common::thing::module::ModuleDataHandle::new(BattlePlanUpdateModuleData {
         special_power_template: Some(1),
         strategy_center_search_and_destroy_sight_range_scalar: 2.0,
         ..Default::default()

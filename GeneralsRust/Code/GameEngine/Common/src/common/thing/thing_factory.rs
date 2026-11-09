@@ -2418,13 +2418,13 @@ mod tests {
             .find(|entry| entry.name.as_str() == "ActiveBody")
             .expect("ActiveBody module");
         assert!(
-            body.data.downcast_ref::<BaseModuleData>().is_none(),
+            body.data.read().downcast_ref::<BaseModuleData>().is_none(),
             "ActiveBody must not be empty BaseModuleData"
         );
-        assert_eq!(body.data.get_ini_real("MaxHealth"), Some(4000.0));
-        assert_eq!(body.data.get_ini_real("InitialHealth"), Some(4000.0));
-        let captured = body
-            .data
+        assert_eq!(body.data.read().get_ini_real("MaxHealth"), Some(4000.0));
+        assert_eq!(body.data.read().get_ini_real("InitialHealth"), Some(4000.0));
+        let body_data = body.data.read();
+        let captured = body_data
             .downcast_ref::<CapturedModuleData>()
             .expect("captured ActiveBody fields");
         assert_eq!(captured.field("MaxHealth"), Some("4000"));
@@ -2434,7 +2434,7 @@ mod tests {
             .iter()
             .find(|entry| entry.name.as_str() == "ProductionUpdate")
             .expect("ProductionUpdate module");
-        assert_eq!(production.data.get_ini_int("NumDoorAnimations"), Some(1));
+        assert_eq!(production.data.read().get_ini_int("NumDoorAnimations"), Some(1));
     }
 
     #[test]

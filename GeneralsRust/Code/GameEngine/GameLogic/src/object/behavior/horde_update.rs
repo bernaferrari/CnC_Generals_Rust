@@ -323,7 +323,7 @@ const HORDE_UPDATE_FIELDS: &[FieldParse<HordeUpdateModuleData>] = &[
 
 pub struct HordeUpdate {
     object_id: ObjectID,
-    module_data: Arc<HordeUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<HordeUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     last_horde_refresh_frame: UnsignedInt,
     in_horde: Bool,
@@ -332,22 +332,11 @@ pub struct HordeUpdate {
 }
 
 impl HordeUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<HordeUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !data.is::<HordeUpdateModuleData>() { return Err("Invalid module data".into()); }
         let mut instance = Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<HordeUpdateModuleData>().expect("HordeUpdate module data type")),
             next_call_frame_and_phase: 0,
             last_horde_refresh_frame: TheGameLogic::get_frame(),
             in_horde: false,
@@ -355,34 +344,12 @@ impl HordeUpdate {
             has_flag: false,
         };
         instance.arm_initial_wake();
-
         Ok(instance)
     }
 
-    pub fn new_from_object_handle(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<HordeUpdateModuleData>,
-    ) -> Self {
-        let mut instance = Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data,
-            next_call_frame_and_phase: 0,
-            last_horde_refresh_frame: TheGameLogic::get_frame(),
-            in_horde: false,
-            true_horde_member: false,
-            has_flag: false,
-        };
-        instance.arm_initial_wake();
-
-        instance
-    }
 
     fn arm_initial_wake(&mut self) {
-        let delay = self.module_data.update_rate;
+        let delay = self.module_data.read().update_rate;
         if delay > 0 {
             let wake = GameLogicRandomValue(1, delay as i32) as u32;
             let now = TheGameLogic::get_frame();
@@ -403,13 +370,13 @@ impl HordeUpdate {
     }
 
     pub fn is_allowed_nationalism(&self) -> Bool {
-        self.module_data.allowed_nationalism
+        self.module_data.read().allowed_nationalism
     }
 
     fn show_hide_flag(&mut self, show: Bool) {
         // C++ showHideFlag always walks FlagSubObjectNames when present.
         self.has_flag = show;
-        if self.module_data.flag_sub_obj_names.is_empty() {
+        if self.module_data.read().flag_sub_obj_names.is_empty() {
             return;
         }
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
@@ -425,7 +392,7 @@ impl HordeUpdate {
         };
         if let Some(drawable) = obj.get_drawable() {
             if let Ok(mut draw_guard) = drawable.write() {
-                for name in &self.module_data.flag_sub_obj_names {
+                for name in &self.module_data.read().flag_sub_obj_names {
                     draw_guard.show_sub_object(name, show);
                 }
                 draw_guard.update_sub_objects();
@@ -453,7 +420,7 @@ impl HordeUpdate {
 
         let mut horde_candidates = Vec::new();
         for id in
-            partition.get_objects_in_range_boundary_3d_from_object(&obj, self.module_data.min_dist)
+            partition.get_objects_in_range_boundary_3d_from_object(&obj, self.module_data.read().min_dist)
         {
             if id == owner_id {
                 continue;
@@ -465,7 +432,7 @@ impl HordeUpdate {
                 continue;
             };
 
-            if self.module_data.exact_match
+            if self.module_data.read().exact_match
                 && obj.get_template().get_name() != other.get_template().get_name()
             {
                 continue;
@@ -479,11 +446,11 @@ impl HordeUpdate {
                 continue;
             }
 
-            if !other.is_kind_of_multi(self.module_data.kindof, KIND_OF_MASK_NONE) {
+            if !other.is_kind_of_multi(self.module_data.read().kindof, KIND_OF_MASK_NONE) {
                 continue;
             }
 
-            if self.module_data.allies_only {
+            if self.module_data.read().allies_only {
                 let relationship = obj.relationship_to(&other);
                 if !matches!(relationship, crate::common::Relationship::Allies) {
                     continue;
@@ -497,7 +464,7 @@ impl HordeUpdate {
             horde_candidates.push(id);
         }
 
-        let required = self.module_data.min_count - 1;
+        let required = self.module_data.read().min_count - 1;
         if required <= 0 || horde_candidates.len() as Int >= required {
             self.in_horde = true;
             self.true_horde_member = true;
@@ -507,7 +474,8 @@ impl HordeUpdate {
         self.in_horde = false;
         self.true_horde_member = false;
 
-        let rub_off_radius_sq = self.module_data.rub_off_radius * self.module_data.rub_off_radius;
+        let radius = self.module_data.read().rub_off_radius;
+        let rub_off_radius_sq = radius * radius;
         for id in &horde_candidates {
             let Some(other_arc) = TheGameLogic::find_object_by_id(*id) else {
                 continue;
@@ -554,7 +522,7 @@ impl UpdateModuleInterface for HordeUpdate {
         let was_in_horde = self.in_horde;
 
         if is_infantry
-            || current_frame > self.last_horde_refresh_frame + self.module_data.update_rate
+            || current_frame > self.last_horde_refresh_frame + self.module_data.read().update_rate
         {
             self.last_horde_refresh_frame = current_frame;
             self.check_horde_status();
@@ -596,7 +564,7 @@ impl UpdateModuleInterface for HordeUpdate {
             }
         }
 
-        horde_update_sleep_after_tick(is_infantry, self.module_data.update_rate)
+        horde_update_sleep_after_tick(is_infantry, self.module_data.read().update_rate)
     }
 }
 
@@ -659,7 +627,7 @@ impl crate::modules::HordeUpdateInterface for HordeUpdate {
 pub struct HordeUpdateModule {
     behavior: HordeUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<HordeUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl HordeUpdateModule {
@@ -670,7 +638,7 @@ impl HordeUpdateModule {
     pub fn new(
         behavior: HordeUpdate,
         module_name: &AsciiString,
-        module_data: Arc<HordeUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -713,11 +681,11 @@ impl Module for HordeUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_drawable_bound_to_object(&mut self) {
@@ -756,9 +724,9 @@ pub struct HordeUpdateFactory;
 impl HordeUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(HordeUpdate::new(thing, module_data)?))
+        Ok(Box::new(HordeUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -851,10 +819,10 @@ mod tests {
     fn on_drawable_bound_hides_flag_subobjects() {
         let mut horde = HordeUpdate {
             object_id: crate::common::INVALID_ID,
-            module_data: Arc::new(HordeUpdateModuleData {
+            module_data: game_engine::common::thing::module::ModuleDataView::new(game_engine::common::thing::module::ModuleDataHandle::new(HordeUpdateModuleData {
                 flag_sub_obj_names: vec!["FLAG".to_string(), "HordeFlag".to_string()],
                 ..HordeUpdateModuleData::default()
-            }),
+            }), |data| data.as_any().downcast_ref::<HordeUpdateModuleData>().unwrap()),
             next_call_frame_and_phase: 0,
             last_horde_refresh_frame: 0,
             in_horde: false,
@@ -866,7 +834,7 @@ mod tests {
         let mut module = HordeUpdateModule {
             behavior: horde,
             module_name_key: 0,
-            module_data: Arc::new(HordeUpdateModuleData::default()),
+            module_data: game_engine::common::thing::module::ModuleDataHandle::new(HordeUpdateModuleData::default()),
         };
         module.behavior.has_flag = true;
         Module::on_drawable_bound_to_object(&mut module);

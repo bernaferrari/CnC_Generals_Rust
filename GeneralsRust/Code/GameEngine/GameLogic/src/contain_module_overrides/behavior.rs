@@ -112,23 +112,21 @@ pub(super) fn minefield_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn 
 
 pub(super) fn minefield_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<MinefieldBehaviorModuleData>("MinefieldBehavior", &module_data);
+    assert!(module_data.is::<MinefieldBehaviorModuleData>());
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
         // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("MinefieldBehavior", data_for_missing);
+        return missing_owner_module("MinefieldBehavior", module_data);
     };
-    let behavior = MinefieldBehavior::new(object, Arc::clone(&data_arc))
+    let behavior = MinefieldBehavior::new(object, module_data.clone())
         .expect("MinefieldBehavior failed to initialize");
     let module_name = AsciiString::from("MinefieldBehavior");
     Box::new(MinefieldBehaviorModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -186,24 +184,20 @@ pub(super) fn missile_launcher_building_update_data_factory(
 
 pub(super) fn missile_launcher_building_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<MissileLauncherBuildingUpdateModuleData>(
-        "MissileLauncherBuildingUpdate",
-        &module_data,
-    );
-    let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
+    assert!(module_data.is::<MissileLauncherBuildingUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("MissileLauncherBuildingUpdate", &module_data);
     };
-    let behavior = MissileLauncherBuildingUpdate::new(object, engine_data)
+    let behavior = MissileLauncherBuildingUpdate::new(object, module_data.clone())
         .expect("MissileLauncherBuildingUpdate failed to initialize");
     Box::new(MissileLauncherBuildingUpdateModule::new(
         behavior,
         &AsciiString::from("MissileLauncherBuildingUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -247,18 +241,13 @@ pub(super) fn radar_update_data_factory(ini: Option<&mut INI>) -> Box<dyn Module
 
 pub(super) fn radar_update_module_factory(
     _thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data = cloned_module_data::<RadarUpdateModuleData>("RadarUpdate", &module_data);
+    assert!(module_data.is::<RadarUpdateModuleData>());
     Box::new(
-        crate::object::behavior::radar_update::RadarUpdateModule::new(
-            RadarUpdate::from_config(
-                module_data
-                    .get_radar_update_config()
-                    .expect("RadarUpdate rules"),
-            ),
+        crate::object::behavior::radar_update::RadarUpdateModule::new_with_module_data(
             &AsciiString::from("RadarUpdate"),
-            data,
+            module_data,
         ),
     )
 }
@@ -293,22 +282,17 @@ pub(super) fn stealth_detector_update_data_factory(ini: Option<&mut INI>) -> Box
 
 pub(super) fn stealth_detector_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data = cloned_module_data::<StealthDetectorUpdateModuleData>(
-        "StealthDetectorUpdate",
-        &module_data,
-    );
-    let engine_data: Arc<dyn ModuleData> = data.clone();
-    let legacy_data: Arc<dyn LegacyModuleData> = data.clone();
+    assert!(module_data.is::<StealthDetectorUpdateModuleData>());
     let Some(object) = TheGameLogic::find_object_by_id(resolve_owner_id(&thing)) else {
-        return missing_owner_module("StealthDetectorUpdate", engine_data);
+        return missing_owner_module("StealthDetectorUpdate", module_data);
     };
-    let behavior = match StealthDetectorUpdate::new(object, legacy_data) {
+    let behavior = match StealthDetectorUpdate::new(object, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(err) => {
             warn!("StealthDetectorUpdate init failed: {err}; installing no-op module");
-            return missing_owner_module("StealthDetectorUpdate", engine_data);
+            return missing_owner_module("StealthDetectorUpdate", module_data);
         }
     };
     // C++ StealthDetectorUpdate.h: UpdateModule + StealthDetectorInterface
@@ -316,7 +300,7 @@ pub(super) fn stealth_detector_update_module_factory(
     Box::new(StealthDetectorUpdateModule::new(
         behavior,
         &AsciiString::from("StealthDetectorUpdate"),
-        data,
+        module_data,
     ))
 }
 active_behavior_factories!(
@@ -356,25 +340,23 @@ pub(super) fn physics_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn Mo
 
 pub(super) fn physics_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data = cloned_module_data::<PhysicsBehaviorModuleData>("PhysicsBehavior", &module_data);
-    let engine_data: Arc<dyn ModuleData> = data.clone();
-    let legacy_data: Arc<dyn LegacyModuleData> = data;
+    assert!(module_data.is::<PhysicsBehaviorModuleData>());
     let owner_id = resolve_owner_id(&thing);
     if owner_id == crate::common::INVALID_ID {
-        return missing_owner_module("PhysicsBehavior", engine_data);
+        return missing_owner_module("PhysicsBehavior", module_data);
     }
-    let behavior = match PhysicsBehaviorUpdate::new_for_owner_id(owner_id, legacy_data) {
+    let behavior = match PhysicsBehaviorUpdate::new_for_owner_id(owner_id, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(err) => {
             warn!("PhysicsBehavior init failed: {err}; installing no-op module");
-            return missing_owner_module("PhysicsBehavior", engine_data);
+            return missing_owner_module("PhysicsBehavior", module_data);
         }
     };
     Box::new(ActiveBehaviorModule::new(
         "PhysicsBehavior",
-        engine_data,
+        module_data,
         behavior,
     ))
 }
@@ -402,22 +384,20 @@ pub(super) fn special_ability_update_data_factory(ini: Option<&mut INI>) -> Box<
 
 pub(super) fn special_ability_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<SpecialAbilityUpdateModuleData>("SpecialAbilityUpdate", &module_data);
-    let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
+    assert!(module_data.is::<SpecialAbilityUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SpecialAbilityUpdate", &module_data);
     };
-    let behavior = SpecialAbilityUpdate::new(Arc::downgrade(&object), engine_data);
+    let behavior = SpecialAbilityUpdate::new(Arc::downgrade(&object), module_data.clone());
     let module_name = AsciiString::from("SpecialAbilityUpdate");
     Box::new(SpecialAbilityUpdateModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -451,7 +431,7 @@ pub(super) fn missile_ai_update_data_factory(ini: Option<&mut INI>) -> Box<dyn M
 
 pub(super) fn missile_ai_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     active_behavior_module::<MissileAIUpdateBehavior, MissileAIUpdateModuleData>(
         thing,
@@ -477,10 +457,9 @@ pub(super) fn railroad_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn M
 
 pub(super) fn railroad_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<RailroadBehaviorModuleData>("RailroadBehavior", &module_data);
+    assert!(module_data.is::<RailroadBehaviorModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
@@ -488,7 +467,25 @@ pub(super) fn railroad_behavior_module_factory(
     };
     let module_name_key = NameKeyGenerator::name_to_key("RailroadBehavior");
     Box::new(
-        RailroadBehaviorModule::new(module_name_key, data_arc, object)
+        RailroadBehaviorModule::new(module_name_key, module_data, object)
             .expect("RailroadBehavior init failed"),
     )
+}
+
+#[cfg(test)]
+mod shared_data_tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct UnattachedOwner;
+    impl ModuleThing for UnattachedOwner {}
+
+    #[test]
+    fn radar_factory_observes_mutations_to_supplied_definition() {
+        let data = ModuleDataHandle::new(RadarUpdateModuleData::default());
+        let module = radar_update_module_factory(Arc::new(UnattachedOwner), data.clone());
+        let tag = NameKeyGenerator::name_to_key("RadarSharedTag");
+        data.write().set_module_tag_name_key(tag);
+        assert_eq!(module.get_module_data().get_module_tag_name_key(), tag);
+    }
 }

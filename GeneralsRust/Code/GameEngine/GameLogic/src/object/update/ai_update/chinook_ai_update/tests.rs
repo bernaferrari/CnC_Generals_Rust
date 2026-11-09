@@ -2,7 +2,7 @@
 
 use super::module_data::CHINOOK_AI_UPDATE_FIELDS;
 use super::{
-    CHINOOK_ARRIVE_THRESH_SQR, ChinookAIUpdate, ChinookAIUpdateData, ChinookAIUpdateModuleData,
+    CHINOOK_ARRIVE_THRESH_SQR, ChinookAIUpdate, ChinookAIUpdateModuleData,
     ChinookFlightStatus, chinook_attack_allowed_by_kind_of, chinook_dist_sqr,
     chinook_evac_and_exit_pipeline, chinook_evac_needs_takeoff_first, chinook_evac_pipeline,
     chinook_free_to_exit, chinook_move_to_bldg_arrived, chinook_move_to_bldg_preferred_height,
@@ -106,7 +106,7 @@ fn chinook_fields_accept_ini_equals_token() {
 
 #[test]
 fn chinook_xfer_preserves_cpp_runtime_fields() {
-    let data = ChinookAIUpdateData::default();
+    let data = super::ModuleDataHandle::new(ChinookAIUpdateModuleData::default());
     let mut original = ChinookAIUpdate::new(data.clone(), 77, 1);
     original.base.set_preferred_dock(1234);
     original.base.set_force_wanting_state(true);
@@ -244,16 +244,15 @@ fn chinook_combat_drop_waits_for_move_to_bldg_height() {
 /// Chinook supply interface's counter contract, not a landing/combat-drop flow.
 #[test]
 fn chinook_box_counter_honors_authored_capacity() {
-    let mut default_ai = ChinookAIUpdate::new(ChinookAIUpdateData::default(), INVALID_ID, 0);
+    let mut default_ai = ChinookAIUpdate::new(super::ModuleDataHandle::new(ChinookAIUpdateModuleData::default()), INVALID_ID, 0);
     assert_eq!(default_ai.get_number_boxes(), 0);
     assert!(!default_ai.gain_one_box(2));
     assert!(!default_ai.lose_one_box());
 
     let mut module = ChinookAIUpdateModuleData::default();
     parse_field(&mut module, "MaxBoxes", &["=", "2"]);
-    let data = ChinookAIUpdateData::from_module(&module);
-    assert_eq!(data.supply.max_boxes, 2);
-    let mut ai = ChinookAIUpdate::new(data, INVALID_ID, 0);
+    assert_eq!(module.max_boxes_data, 2);
+    let mut ai = ChinookAIUpdate::new(super::ModuleDataHandle::new(module), INVALID_ID, 0);
     assert!(ai.gain_one_box(2));
     assert!(ai.gain_one_box(1));
     assert_eq!(ai.get_number_boxes(), 2);

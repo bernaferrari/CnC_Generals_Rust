@@ -266,12 +266,12 @@ fn w3d_cache_transfer_contract_registered_derived_crc_has_no_extra_prefix() {
                     .ok_or(INIError::InvalidData)
             })
             .unwrap();
-        let alias = std::sync::Arc::clone(&data);
-        let tag = data.get_module_tag_name_key();
+        let alias = data.clone();
+        let tag = data.read().get_module_tag_name_key();
         let mut bytes = Vec::new();
         let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
         save.open("registered-w3d-cache-crc").unwrap();
-        data.crc(&mut save).unwrap();
+        data.read().crc(&mut save).unwrap();
         save.close().unwrap();
         drop(save);
         assert_eq!(
@@ -279,7 +279,7 @@ fn w3d_cache_transfer_contract_registered_derived_crc_has_no_extra_prefix() {
             [1, 0],
             "{name}: one inherited condition-cache payload"
         );
-        assert!(std::sync::Arc::ptr_eq(&data, &alias));
-        assert_eq!(alias.get_module_tag_name_key(), tag);
+        assert!(ModuleDataHandle::ptr_eq(&data, &alias));
+        assert_eq!(alias.read().get_module_tag_name_key(), tag);
     }
 }

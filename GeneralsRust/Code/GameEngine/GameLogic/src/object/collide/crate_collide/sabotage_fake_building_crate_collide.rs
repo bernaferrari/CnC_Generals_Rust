@@ -4,6 +4,8 @@
 //! Author: Kris Morness, July 2003 (original C++), converted to Rust
 
 use crate::common::ObjectID;
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
@@ -236,19 +238,19 @@ const SABOTAGE_FAKE_BUILDING_CRATE_COLLIDE_FIELDS: &[IniFieldParse<
 pub struct SabotageFakeBuildingCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
-    /// Module-specific data
-    module_data: SabotageFakeBuildingCrateCollideModuleData,
 }
 
 impl SabotageFakeBuildingCrateCollide {
     /// Create new sabotage fake building crate collide module
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: SabotageFakeBuildingCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageFakeBuildingCrateCollideModuleData>>().expect("sabotage crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data,
+            base: LegacyCrateCollide::from_object_handle(&object, base_data),
         }
     }
 

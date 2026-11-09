@@ -157,7 +157,7 @@ const HEIGHT_DIE_UPDATE_FIELDS: &[FieldParse<HeightDieUpdateModuleData>] = &[
 /// Matches C++ HeightDieUpdate::update() at HeightDieUpdate.cpp:92-246
 pub struct HeightDieUpdate {
     object_id: ObjectID,
-    module_data: Arc<HeightDieUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     /// TRUE once we have triggered death. C++ m_hasDied.
     has_died: Bool,
@@ -170,14 +170,13 @@ pub struct HeightDieUpdate {
 }
 
 impl HeightDieUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<HeightDieUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<HeightDieUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -185,7 +184,7 @@ impl HeightDieUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             // Matches C++ HeightDieUpdate.cpp:73-78
             has_died: false,
@@ -213,12 +212,15 @@ impl UpdateModuleInterface for HeightDieUpdate {
             None => return UPDATE_SLEEP_NONE,
         };
 
+        let handle = self.module_data.clone();
+        let guard = handle.read();
+        let d = guard.as_any().downcast_ref::<HeightDieUpdateModuleData>().expect("HeightDieUpdate module data type");
         // Matches C++ HeightDieUpdate.cpp:94-96
         // Initialize earliest death frame on first call
         if self.earliest_death_frame == u32::MAX {
             let current_frame = TheGameLogic::get_frame();
             self.earliest_death_frame =
-                current_frame.wrapping_add(self.module_data.initial_delay);
+                current_frame.wrapping_add(d.initial_delay);
         }
 
         // If at least a one frame delay has been set, then stop for a while
@@ -241,8 +243,6 @@ impl UpdateModuleInterface for HeightDieUpdate {
             return UPDATE_SLEEP_NONE;
         }
 
-        // Get the module data
-        let d = &self.module_data;
 
         // Get our current position. C++ line 118
         let mut pos = *me.get_position();
@@ -433,8 +433,8 @@ pub struct HeightDieUpdateFactory;
 impl HeightDieUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(HeightDieUpdate::new(thing, module_data)?))
+        Ok(Box::new(HeightDieUpdate::new_with_module_data(thing, module_data)?))
     }
 }

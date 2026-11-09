@@ -44,7 +44,7 @@ fn removal_template(orient: bool) -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "TransportContain".into(),
             module_tag: "NativeRemovalCargo".into(),
-            data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
             interface_mask: ModuleInterfaceType::CONTAIN,
         }],
     })
@@ -374,14 +374,14 @@ fn with_physics(
         .map(|info| TemplateModuleInfo {
             name: info.name.clone(),
             module_tag: info.module_tag.clone(),
-            data: Arc::clone(&info.data),
+            data: info.data.clone(),
             interface_mask: info.interface_flags(),
         })
         .collect::<Vec<_>>();
     modules.push(TemplateModuleInfo {
         name: "PhysicsBehavior".into(),
         module_tag: "OwnedRemovalPhysics".into(),
-        data: Arc::new(
+        data: game_engine::common::thing::module::ModuleDataHandle::new(
             crate::object::behavior::physics_update::PhysicsBehaviorModuleData {
                 mass,
                 center_of_mass_offset: center,

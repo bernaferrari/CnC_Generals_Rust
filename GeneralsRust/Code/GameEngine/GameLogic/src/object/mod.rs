@@ -93,7 +93,7 @@ use game_engine::common::{
     name_key_generator::NameKeyGenerator,
     system::{Snapshotable as EngineSnapshotable, Xfer as EngineXfer},
     thing::module::{
-        self as engine_module, Drawable as ModuleDrawableTrait, Module, ModuleData,
+        self as engine_module, Drawable as ModuleDrawableTrait, Module, ModuleData, ModuleDataHandle, ModuleDataRead,
         ModuleInterfaceType, ModuleType, Object as ModuleObjectTrait, Thing as ModuleThing,
         TimeOfDay,
     },
@@ -1457,7 +1457,7 @@ pub struct ModuleEntry {
     name: AsciiString,
     tag: AsciiString,
     interface_mask: ModuleInterfaceType,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     module: Mutex<Box<dyn Module>>,
     has_dock_update: bool,
     has_firing_tracker: bool,
@@ -1481,7 +1481,7 @@ impl ModuleEntry {
         name: AsciiString,
         tag: AsciiString,
         interface_mask: ModuleInterfaceType,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         mut module: Box<dyn Module>,
     ) -> Self {
         // The concrete module type never changes after installation. This is
@@ -1528,7 +1528,7 @@ impl ModuleEntry {
         self.interface_mask
     }
 
-    fn data(&self) -> &Arc<dyn ModuleData> {
+    fn data(&self) -> &ModuleDataHandle {
         &self.module_data
     }
 
@@ -1613,7 +1613,7 @@ where
 impl ModuleUpdateProxy {
     fn new(entry: Arc<ModuleEntry>, object_id: ObjectID) -> Self {
         let module_name = entry.name().clone();
-        let phase = if entry.data().is_ai_module_data() {
+        let phase = if entry.data().read().is_ai_module_data() {
             // C++ AIUpdate.h:570-580: immutable class metadata puts AI before Physics.
             // Missing dispatch stays missing until the exact runtime is bound.
             SleepyUpdatePhase::Initial
@@ -1819,11 +1819,11 @@ impl BehaviorModuleHandle {
     where
         F: FnOnce(&dyn ModuleData) -> R,
     {
-        func(self.entry.data().as_ref())
+        func(&*self.entry.data().read())
     }
 
-    pub fn module_data_arc(&self) -> Arc<dyn ModuleData> {
-        Arc::clone(self.entry.data())
+    pub fn module_data_arc(&self) -> ModuleDataHandle {
+        self.entry.data().clone()
     }
 
     pub fn module_name_key(&self) -> NameKeyType {
@@ -1884,8 +1884,8 @@ impl engine_module::Module for BehaviorModuleProxy {
             .with_module(|module| module.get_module_tag_name_key())
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.entry.data().as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(self.entry.data())
     }
 
     fn on_object_created(&mut self) {

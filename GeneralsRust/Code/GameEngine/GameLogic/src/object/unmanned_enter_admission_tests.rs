@@ -4,6 +4,7 @@
 //! or PhysicsBehavior collision execution.
 
 use super::{Object, ObjectPrivateStatusBits};
+use game_engine::common::thing::module::ModuleDataHandle;
 use crate::action_manager::CanEnterType;
 use crate::ai::CommandSourceType;
 use crate::common::{
@@ -81,7 +82,7 @@ fn open(allowed: KindOf, allow_enemies: bool) -> Arc<dyn ThingTemplate> {
     carrier(Some(TemplateModuleInfo {
         name: "OpenContain".into(),
         module_tag: "UnmannedAdmissionOpen".into(),
-        data: Arc::new(
+        data: ModuleDataHandle::new(
             crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData {
                 contain_max: 1,
                 number_of_exit_paths: 0,
@@ -97,7 +98,7 @@ fn transport(capacity: i32) -> Arc<dyn ThingTemplate> {
     carrier(Some(TemplateModuleInfo {
         name: "TransportContain".into(),
         module_tag: "UnmannedAdmissionTransport".into(),
-        data: Arc::new(
+        data: ModuleDataHandle::new(
             crate::contain_module_overrides::ContainModuleDataAdapter::new(
                 TransportContainModuleData {
                     slot_capacity: capacity,

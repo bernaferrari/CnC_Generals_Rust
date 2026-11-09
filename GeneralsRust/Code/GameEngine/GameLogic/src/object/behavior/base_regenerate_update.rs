@@ -4,7 +4,7 @@
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, DamageInfo, DisabledMaskType, LOGICFRAMES_PER_SECOND, ModuleData, ObjectID, Real,
+    AsciiString, DamageInfo, DisabledMaskType, LOGICFRAMES_PER_SECOND, ObjectID, Real,
     UnsignedInt, XferVersion,
 };
 use crate::damage::{DamageInfoInput, DamageType, DeathType};
@@ -50,20 +50,19 @@ impl BaseRegenerateUpdateModuleData {
 #[allow(dead_code)]
 pub struct BaseRegenerateUpdate {
     object_id: ObjectID,
-    module_data: Arc<BaseRegenerateUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
 }
 
 impl BaseRegenerateUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<BaseRegenerateUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<BaseRegenerateUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -71,7 +70,7 @@ impl BaseRegenerateUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
         })
     }
@@ -266,14 +265,14 @@ impl Snapshotable for BaseRegenerateUpdate {
 pub struct BaseRegenerateUpdateModule {
     behavior: BaseRegenerateUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<BaseRegenerateUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BaseRegenerateUpdateModule {
     pub fn new(
         behavior: BaseRegenerateUpdate,
         module_name: &AsciiString,
-        module_data: Arc<BaseRegenerateUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -316,12 +315,12 @@ impl Module for BaseRegenerateUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -338,9 +337,9 @@ pub struct BaseRegenerateUpdateFactory;
 impl BaseRegenerateUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(BaseRegenerateUpdate::new(thing, module_data)?))
+        Ok(Box::new(BaseRegenerateUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -353,8 +352,8 @@ mod tests {
     #[test]
     fn processes_while_underpowered_like_cpp() {
         let object = Arc::new(RwLock::new(GameObject::new_test(9601, 100.0)));
-        let data: Arc<dyn ModuleData> = Arc::new(BaseRegenerateUpdateModuleData::default());
-        let update = BaseRegenerateUpdate::new(object, data).unwrap();
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BaseRegenerateUpdateModuleData::default());
+        let update = BaseRegenerateUpdate::new_with_module_data(object, data).unwrap();
 
         assert_eq!(
             update.get_disabled_types_to_process(),

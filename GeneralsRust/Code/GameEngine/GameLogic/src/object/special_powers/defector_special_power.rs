@@ -85,7 +85,7 @@ impl Snapshotable for DefectorSpecialPowerModuleData {
 /// When activated on an enemy object, the target defects to the caster's team.
 pub struct DefectorSpecialPower {
     module_name_key: NameKeyType,
-    data: Arc<DefectorSpecialPowerModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -94,12 +94,13 @@ impl DefectorSpecialPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<DefectorSpecialPowerModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        let base_module = super::interface::make_shared_base_module!(owner_object_id, data, DefectorSpecialPowerModuleData);
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module,
             data,
         }
     }
@@ -126,13 +127,14 @@ impl DefectorSpecialPower {
         };
 
         // Get the detection time from the special power template
-        let detection_time = self
-            .data
-            .base
+        let data = self.data.read();
+        let detection_time = data.downcast_ref::<DefectorSpecialPowerModuleData>()
+            .expect("DefectorSpecialPower data type").base
             .special_power_template
             .as_ref()
             .map(|t| t.get_detection_time())
             .unwrap_or(0);
+        drop(data);
 
         // Get the caster's default team
         let new_team = {
@@ -215,11 +217,11 @@ impl Module for DefectorSpecialPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -299,7 +301,7 @@ mod tests {
     #[test]
     fn test_do_special_power_at_location_returns_ok() {
         let data = DefectorSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = DefectorSpecialPower::new(0, 0, arc_data);
         let loc = crate::common::Coord3D::new(0.0, 0.0, 0.0);
         // Should return Ok (does nothing - only objects allowed)

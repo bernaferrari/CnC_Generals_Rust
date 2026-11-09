@@ -133,10 +133,11 @@ impl OpenContain {
         world.maintain_contained_partition(&mut rider, self.is_garrisonable());
         drop(rider);
         if self.load_sounds_enabled && self.last_load_sound_frame != world.frame() {
-            if let Some(sound) = self.module_data.enter_sound.as_ref() {
-                let name = sound.get_event_name();
-                if leftover_contain_sound_name_is_playable(name) {
-                    let mut event = AudioEventRts::new(name);
+            let name = self.module_data.read().enter_sound.as_ref()
+                .map(|sound| sound.get_event_name().to_string());
+            if let Some(name) = name {
+                if leftover_contain_sound_name_is_playable(&name) {
+                    let mut event = AudioEventRts::new(&name);
                     event.set_object_id(self.object_id);
                     world.play_containment_sound(&event);
                 }
@@ -175,7 +176,7 @@ impl OpenContain {
         for rider in prepared.members.iter().rev() {
             let point = self.owned_next_firepoint(&points);
             let matrix = match point {
-                Some(_) if self.module_data.passengers_in_turret => prepared
+                Some(_) if self.module_data.read().passengers_in_turret => prepared
                     .owner
                     .read()
                     .expect("admitted contain owner poisoned")

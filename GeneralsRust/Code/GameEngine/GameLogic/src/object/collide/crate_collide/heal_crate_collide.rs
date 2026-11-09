@@ -8,6 +8,8 @@ use crate::common::*;
 use crate::helpers::TheAudio;
 use crate::object::collide::crate_collide::*;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 /// Configuration data for HealCrateCollide.
 ///
@@ -221,19 +223,25 @@ pub struct HealCrateCollide {
     /// Base crate collision functionality
     base_crate: CrateCollide,
     /// Module-specific configuration
-    module_data: HealCrateCollideModuleData,
+    module_data: ModuleDataView<HealCrateCollideModuleData>,
 }
 
 impl HealCrateCollide {
-    pub fn new(object_id: ObjectId, module_data: HealCrateCollideModuleData) -> Self {
+    pub fn new(object_id: ObjectId, handle: ModuleDataHandle) -> Self {
+        let base = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<HealCrateCollideModuleData>>().expect("HealCrateCollide data").data.base
+        });
+        let module_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<HealCrateCollideModuleData>>().expect("HealCrateCollide data").data
+        });
         Self {
-            base_crate: CrateCollide::new(object_id, module_data.base.clone()),
+            base_crate: CrateCollide::new(object_id, base),
             module_data,
         }
     }
 
-    pub fn get_module_data(&self) -> &HealCrateCollideModuleData {
-        &self.module_data
+    pub fn get_module_data(&self) -> impl std::ops::Deref<Target = HealCrateCollideModuleData> + '_ {
+        self.module_data.read()
     }
 
     /// Execute the C++ heal-crate behavior.
@@ -305,14 +313,14 @@ pub struct HealCrateCollideFactory;
 impl HealCrateCollideFactory {
     pub fn create(object_id: ObjectId) -> HealCrateCollide {
         let data = HealCrateCollideModuleData::new();
-        HealCrateCollide::new(object_id, data)
+        HealCrateCollide::new(object_id, ModuleDataHandle::new(CrateCollideDataAdapter::new(data)))
     }
 
     pub fn create_with_config(
         object_id: ObjectId,
         config: HealCrateCollideModuleData,
     ) -> HealCrateCollide {
-        HealCrateCollide::new(object_id, config)
+        HealCrateCollide::new(object_id, ModuleDataHandle::new(CrateCollideDataAdapter::new(config)))
     }
 }
 

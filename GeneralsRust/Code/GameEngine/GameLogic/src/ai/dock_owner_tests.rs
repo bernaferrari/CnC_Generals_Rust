@@ -123,12 +123,12 @@ impl Fixture {
         }
         let mut data = RepairDockUpdateData::default();
         data.base.number_approach_positions_data = 3;
-        let data = Arc::new(data);
         let dock = RepairDockUpdate::new(
-            (*data).clone(),
+            data.clone(),
             objects[0].read().unwrap().get_id(),
             &Coord3D::ZERO,
         );
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let module =
             RepairDockUpdateModule::new(dock, &AsciiString::from("RepairDockUpdate"), data.clone());
         objects[0].write().unwrap().install_module_for_test(

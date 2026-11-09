@@ -84,16 +84,16 @@ fn authored_factory_ai_initializes_normal_without_unit_registry() {
         "Object OwnedNormalUnit\n KindOf = VEHICLE\n Behavior = AIUpdateInterface OwnedAI\n End\n Locomotor = SET_NORMAL OwnedNormalLoco\nEnd\n"
     ), 1);
     let template = TheThingFactory::find_template("OwnedNormalUnit").unwrap();
-    let data = template
-        .as_ref()
-        .get_behavior_module_info()
-        .iter()
-        .find_map(|entry| entry.data.as_ref().downcast_ref::<AIUpdateModuleData>())
+    let entry = template.as_ref().get_behavior_module_info().iter()
+        .find(|entry| entry.data.read().as_any().is::<AIUpdateModuleData>())
         .unwrap();
+    let guard = entry.data.read();
+    let data = guard.downcast_ref::<AIUpdateModuleData>().unwrap();
     assert_eq!(
         data.locomotor_sets()[&LocomotorSetType::Normal][0].as_str(),
         "OwnedNormalLoco"
     );
+    drop(guard);
     let mut factory = ObjectFactory::new();
     let id = factory
         .create_object(

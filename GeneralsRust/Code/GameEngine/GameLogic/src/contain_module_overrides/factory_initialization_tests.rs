@@ -10,11 +10,11 @@ const FAILURE: &str = "authored constructor initialization control";
 const NAME: &str = "InitializationFailureControl";
 fn rejecting_constructor(
     _owner: Arc<RwLock<crate::object::Object>>,
-    _data: Arc<dyn LegacyModuleData>,
+    _data: ModuleDataHandle,
 ) -> Result<FlammableUpdate, Box<dyn std::error::Error + Send + Sync>> {
     Err(FAILURE.into())
 }
-fn rejecting_factory(thing: Arc<dyn ModuleThing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+fn rejecting_factory(thing: Arc<dyn ModuleThing>, data: ModuleDataHandle) -> Box<dyn Module> {
     active_behavior_module::<FlammableUpdate, FlammableUpdateModuleData>(
         thing,
         data,
@@ -42,7 +42,7 @@ fn supplied_owner(id: u32) -> (Arc<RwLock<crate::object::Object>>, Arc<dyn Modul
 #[test]
 fn actual_factory_preserves_constructor_error_without_installing_replacement() {
     let (owner, thing) = supplied_owner(0xFACA_0001);
-    let data: Arc<dyn ModuleData> = Arc::new(FlammableUpdateModuleData::default());
+    let data = ModuleDataHandle::new(FlammableUpdateModuleData::default());
     let before = owner.read().unwrap().behavior_modules().len();
     let error = catalog()
         .new_module(thing, NAME, data, ModuleType::Behavior)
@@ -56,7 +56,7 @@ fn actual_factory_preserves_constructor_error_without_installing_replacement() {
 #[test]
 fn actual_factory_rejects_wrong_data_without_panicking_or_constructing() {
     let (owner, thing) = supplied_owner(0xFACA_0002);
-    let data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+    let data = ModuleDataHandle::new(BaseModuleData::new());
     let before = owner.read().unwrap().behavior_modules().len();
     let error = catalog()
         .new_module(thing, NAME, data, ModuleType::Behavior)
@@ -68,6 +68,17 @@ fn actual_factory_rejects_wrong_data_without_panicking_or_constructing() {
         "constructor cannot run before data validation"
     );
     assert_eq!(owner.read().unwrap().behavior_modules().len(), before);
+}
+
+#[test]
+fn body_factory_exposes_the_original_mutable_definition() {
+    let (_owner, thing) = supplied_owner(0xFACA_0005);
+    let data = ModuleDataHandle::new(crate::object::body::body_module::BodyModuleData::default());
+    let module = body::inactive_body_module_factory(thing, data.clone());
+    let tag = NameKeyGenerator::name_to_key("UpdatedBodyTag");
+    data.write().set_module_tag_name_key(tag);
+    assert_eq!(module.get_module_tag_name_key(), tag);
+    assert_eq!(module.get_module_data().get_module_tag_name_key(), tag);
 }
 
 #[test]
@@ -89,8 +100,12 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
         );
         let mut data = CaveContainModuleData::default();
         data.cave_index_data = 4;
-        let data: Arc<dyn ModuleData> = Arc::new(ContainModuleDataAdapter::new(data));
-        let mut module = cave_contain_module_factory(thing, data);
+        let data = ModuleDataHandle::new(ContainModuleDataAdapter::new(data));
+        let mut module = cave_contain_module_factory(thing, data.clone());
+        let tag = NameKeyGenerator::name_to_key("UpdatedCaveTag");
+        data.write().set_module_tag_name_key(tag);
+        assert_eq!(module.get_module_tag_name_key(), tag);
+        assert_eq!(module.get_module_data().get_module_tag_name_key(), tag);
         module.on_object_created();
         assert_eq!(receiving_cave.lock().unwrap().registered_indices(), vec![4]);
         assert!(foreign_cave.lock().unwrap().registered_indices().is_empty());
@@ -110,7 +125,7 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
             modules: vec![crate::common::TemplateModuleInfo {
                 name: "CaveContain".into(),
                 module_tag: "OwnedCave".into(),
-                data: Arc::new(ContainModuleDataAdapter::new(native_data)),
+                data: ModuleDataHandle::new(ContainModuleDataAdapter::new(native_data)),
                 interface_mask: cave_mask,
             }],
         });
@@ -150,7 +165,8 @@ fn cave_index_script_uses_the_interpreters_world_with_foreign_world_active() {
     for world in [&receiving, &foreign] {
         let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
         let caves = Arc::clone(&world.services().logic_managers().cave);
-        let mut cave = CaveContain::new(Arc::downgrade(&owner), &CaveContainModuleData::default(), Some(caves)).unwrap();
+        let data = ModuleDataHandle::new(ContainModuleDataAdapter::new(CaveContainModuleData::default()));
+        let mut cave = CaveContain::new(Arc::downgrade(&owner), data, Some(caves)).unwrap();
         cave.on_owner_created().unwrap();
         owner.write().unwrap().set_contain(Some(Arc::new(Mutex::new(cave))));
         world.services().object_registry().register_object(id, &owner);
@@ -227,7 +243,7 @@ fn failed_native_factory_assembly_does_not_admit_object_or_schedule() {
         modules: vec![crate::common::TemplateModuleInfo {
             name: NAME.into(),
             module_tag: "InvalidConstructor".into(),
-            data: Arc::new(FlammableUpdateModuleData::default()),
+            data: ModuleDataHandle::new(FlammableUpdateModuleData::default()),
             interface_mask: ModuleInterfaceType::UPDATE,
         }],
     });

@@ -156,13 +156,13 @@ fn installed_model_hiding_is_independent_from_drawable_visibility() {
         "HidePropagation".into(),
         DrawableType::Static,
     );
-    let data = W3DModelDrawModuleData::new();
+    let data = ModuleDataHandle::new(W3DModelDrawModuleData::new());
     let entry = drawable.add_module(
         ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         "HidePropagation".into(),
-        Arc::new(data.clone()),
-        Box::new(W3DModelDraw::new(data)),
+        data.clone(),
+        Box::new(W3DModelDraw::new_with_module_data(data)),
     );
     for (hidden, visible) in [(false, false), (true, false), (true, true), (false, true)] {
         drawable.set_drawable_hidden(hidden).unwrap();

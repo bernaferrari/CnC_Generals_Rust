@@ -32,7 +32,7 @@ impl Catalog {
             modules: vec![TemplateModuleInfo {
                 name: "AIUpdateInterface".into(),
                 module_tag: "FreshNativeAI".into(),
-                data: Arc::new(data),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(data),
                 interface_mask: ModuleInterfaceType::UPDATE,
             }],
         }) as Arc<dyn ThingTemplate>;

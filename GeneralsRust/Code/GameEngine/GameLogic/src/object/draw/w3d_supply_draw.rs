@@ -3,7 +3,7 @@ use super::w3d_model_draw::*;
 use crate::common::*;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone)]
@@ -105,15 +105,19 @@ impl Snapshotable for W3DSupplyDrawModuleData {
 }
 
 pub struct W3DSupplyDraw {
-    data: W3DSupplyDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DModelDraw,
     total_bones: i32,
     last_number_shown: i32,
 }
 impl W3DSupplyDraw {
     pub fn new(data: W3DSupplyDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        assert!(data.is::<W3DSupplyDrawModuleData>());
         Self {
-            base: W3DModelDraw::new(data.base.clone()),
+            base: W3DModelDraw::new_with_module_data(data.clone()),
             data,
             total_bones: -1,
             last_number_shown: 0,
@@ -153,8 +157,8 @@ impl Module for W3DSupplyDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 impl DrawModule for W3DSupplyDraw {
@@ -369,12 +373,13 @@ impl ObjectDrawInterface for W3DSupplyDraw {
         if max_supply <= 0 {
             return;
         }
+        let prefix = self.data.read().as_any().downcast_ref::<W3DSupplyDrawModuleData>().expect("W3DSupplyDraw module data").supply_bone_prefix.clone();
         if self.total_bones == -1 {
             let mut positions = vec![Coord3D::origin(); 1024];
             let mut transforms = vec![Matrix3D::IDENTITY; 1024];
             self.total_bones = self.base.get_pristine_bone_positions(
                 &self.base.last_model_conditions(),
-                self.data.supply_bone_prefix.as_str(),
+                prefix.as_str(),
                 1,
                 &mut positions,
                 &mut transforms,
@@ -388,7 +393,6 @@ impl ObjectDrawInterface for W3DSupplyDraw {
         if bones_to_show == self.last_number_shown {
             return;
         }
-        let prefix = self.data.supply_bone_prefix.as_str();
         let low = self.last_number_shown.min(bones_to_show);
         let high = self.last_number_shown.max(bones_to_show);
         let hide = bones_to_show < self.last_number_shown;

@@ -31,7 +31,7 @@ struct BuildCompleteView {
 struct ObservedCreate<T> {
     create: T,
     observations: Arc<Mutex<Vec<Option<BuildCompleteView>>>>,
-    data: Arc<BaseModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> CreateInterface
@@ -80,8 +80,8 @@ impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> Module for Obser
     fn get_module_name_key(&self) -> u32 {
         crate::common::name_key_generate("ObservedPreorderCreate")
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
     fn get_create_interface(&self) -> Option<&dyn CreateInterface> {
         Some(self)
@@ -137,12 +137,13 @@ fn worker_create_modules_observe_completed_player_and_ai_phases() {
                     SupplyCenterDockUpdate, SupplyCenterDockUpdateData,
                     SupplyCenterDockUpdateModule,
                 };
-                let data = Arc::new(SupplyCenterDockUpdateData::default());
+                let data = SupplyCenterDockUpdateData::default();
                 let (id, position) = {
                     let structure = fixture.structure.read().unwrap();
                     (structure.get_id(), *structure.get_position())
                 };
-                let behavior = SupplyCenterDockUpdate::new((*data).clone(), id, &position);
+                let behavior = SupplyCenterDockUpdate::new(data.clone(), id, &position);
+                let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
                 let module = SupplyCenterDockUpdateModule::new(
                     behavior,
                     &"SupplyCenterDockUpdate".into(),
@@ -155,7 +156,7 @@ fn worker_create_modules_observe_completed_player_and_ai_phases() {
                 );
             }
             let observations = Arc::new(Mutex::new(Vec::new()));
-            let data = Arc::new(BaseModuleData::new());
+            let data = game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new());
             fixture.structure.write().unwrap().install_module_for_test(
                 "ObservedPreorderCreate",
                 Box::new(ObservedCreate {
@@ -213,7 +214,7 @@ fn assert_unowned_completion_skips_create(worker: bool) {
         let fixture = CompletionFixture::new(0);
         fixture.structure.write().unwrap().set_team(None);
         let observations = Arc::new(Mutex::new(Vec::new()));
-        let data = Arc::new(BaseModuleData::new());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new());
         fixture.structure.write().unwrap().install_module_for_test(
             "ObservedPreorderCreate",
             Box::new(ObservedCreate {
@@ -260,7 +261,7 @@ fn real_supply_center_create_completes_without_relocking_its_object() {
     let fixture = CompletionFixture::new(0);
     fixture.player.write().unwrap().init_from_dict_defaults();
     let observations = Arc::new(Mutex::new(Vec::new()));
-    let data = Arc::new(BaseModuleData::new());
+    let data = game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new());
     let thing = Arc::new(crate::object::ObjectThingHandle::new(&fixture.structure));
     fixture.structure.write().unwrap().install_module_for_test(
         "SupplyCenterCreate",
@@ -381,14 +382,14 @@ fn worker_runs_real_player_upgrade_grant_after_notification() {
                 .has_upgrade_complete(&upgrade)
         );
         let observations = Arc::new(Mutex::new(Vec::new()));
-        let data = Arc::new(BaseModuleData::new());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new());
         let thing = Arc::new(crate::object::ObjectThingHandle::new(&fixture.structure));
         fixture.structure.write().unwrap().install_module_for_test(
             "GrantUpgradeCreate",
             Box::new(ObservedCreate {
                 create: GrantUpgradeCreate::new(
                     thing,
-                    Arc::new(GrantUpgradeCreateModuleData {
+                    game_engine::common::thing::module::ModuleDataHandle::new(GrantUpgradeCreateModuleData {
                         upgrade_name: name.into(),
                         ..Default::default()
                     }),

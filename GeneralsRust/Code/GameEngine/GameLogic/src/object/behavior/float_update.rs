@@ -68,20 +68,19 @@ const FLOAT_UPDATE_FIELDS: &[FieldParse<FloatUpdateModuleData>] = &[FieldParse {
 pub struct FloatUpdate {
     object_id: ObjectID,
     #[allow(dead_code)]
-    module_data: Arc<FloatUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
 }
 
 impl FloatUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
+        let enabled = module_data.read()
             .downcast_ref::<FloatUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+            .ok_or("Invalid module data")?.enabled;
 
         Ok(Self {
             object_id: object
@@ -89,9 +88,9 @@ impl FloatUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
-            enabled: specific_data.enabled,
+            enabled,
         })
     }
 
@@ -197,14 +196,14 @@ impl Snapshotable for FloatUpdate {
 pub struct FloatUpdateModule {
     behavior: FloatUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<FloatUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl FloatUpdateModule {
     pub fn new(
         behavior: FloatUpdate,
         module_name: &AsciiString,
-        module_data: Arc<FloatUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -247,12 +246,12 @@ impl Module for FloatUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -269,9 +268,9 @@ pub struct FloatUpdateFactory;
 impl FloatUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FloatUpdate::new(thing, module_data)?))
+        Ok(Box::new(FloatUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 

@@ -136,16 +136,18 @@ impl W3DModelDraw {
         if self.pause_animation {
             return;
         }
-        let Some(cur_state) = self.current_state().cloned() else {
+        let animation = self.current_state().and_then(|state| {
+            if self.which_anim_in_cur_state < 0 || state.animations.is_empty() {
+                None
+            } else {
+                Some((self.animation_total_frames(&state).max(1), state.anim_mode))
+            }
+        });
+        let Some((num_frames, anim_mode)) = animation else {
             self.current_anim_complete = true;
             return;
         };
-        if self.which_anim_in_cur_state < 0 || cur_state.animations.is_empty() {
-            self.current_anim_complete = true;
-            return;
-        }
-
-        self.current_anim_num_frames = self.animation_total_frames(&cur_state).max(1);
+        self.current_anim_num_frames = num_frames;
         let speed = if self.current_anim_speed_factor.is_finite() {
             self.current_anim_speed_factor.max(0.0)
         } else {
@@ -155,7 +157,7 @@ impl W3DModelDraw {
         let steps = self.anim_frame_accumulator.floor() as i32;
         self.anim_frame_accumulator -= steps as Real;
         let (frame, complete, direction) = advance_anim_mode(
-            cur_state.anim_mode,
+            anim_mode,
             self.current_anim_frame,
             self.current_anim_num_frames,
             steps,

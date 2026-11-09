@@ -269,14 +269,14 @@ use crate::message_stream::game_message::GameMessageType;
     fn test_create_drawable_from_template_attaches_w3d_snapshot_modules() {
         crate::test_support::ensure_ambient_host();
         use game_engine::common::rts::AsciiString;
-        use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
+        use game_engine::common::thing::module::{ModuleDataHandle, ModuleInterfaceType};
 
         let mut template = ThingTemplate::new();
         template.set_template_name(AsciiString::from("SnapshotTemplate"));
         template.add_draw_module_info(
             AsciiString::from("W3DTreeDraw"),
             AsciiString::from("TreeDrawTag"),
-            Arc::new(W3DTreeDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleDataHandle::new(W3DTreeDrawModuleData::new()),
             ModuleInterfaceType::DRAW,
         );
 
@@ -308,26 +308,26 @@ use crate::message_stream::game_message::GameMessageType;
         crate::test_support::ensure_ambient_host();
         // C++ W3DModuleFactory.cpp:38-52 addModule(W3DTankDraw/W3DLaserDraw/W3DDebrisDraw).
         use game_engine::common::rts::AsciiString;
-        use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
+        use game_engine::common::thing::module::{ModuleDataHandle, ModuleInterfaceType};
 
         let mut template = ThingTemplate::new();
         template.set_template_name(AsciiString::from("SpecializedDrawTemplate"));
         template.add_draw_module_info(
             AsciiString::from("W3DTankDraw"),
             AsciiString::from("TankDrawTag"),
-            Arc::new(W3DTankDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleDataHandle::new(W3DTankDrawModuleData::new()),
             ModuleInterfaceType::DRAW,
         );
         template.add_draw_module_info(
             AsciiString::from("W3DLaserDraw"),
             AsciiString::from("LaserDrawTag"),
-            Arc::new(W3DLaserDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleDataHandle::new(W3DLaserDrawModuleData::new()),
             ModuleInterfaceType::DRAW,
         );
         template.add_draw_module_info(
             AsciiString::from("W3DDebrisDraw"),
             AsciiString::from("DebrisDrawTag"),
-            Arc::new(W3DDebrisDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleDataHandle::new(W3DDebrisDrawModuleData::new()),
             ModuleInterfaceType::DRAW,
         );
 
@@ -528,14 +528,14 @@ use crate::message_stream::game_message::GameMessageType;
     fn test_create_drawable_from_template_attaches_client_update_snapshot_modules() {
         crate::test_support::ensure_ambient_host();
         use game_engine::common::rts::AsciiString;
-        use game_engine::common::thing::module::{BaseModuleData, ModuleData, ModuleInterfaceType};
+        use game_engine::common::thing::module::{BaseModuleData, ModuleDataHandle, ModuleInterfaceType};
 
         let mut template = ThingTemplate::new();
         template.set_template_name(AsciiString::from("ClientUpdateSnapshotTemplate"));
         template.add_client_update_module_info(
             AsciiString::from("SwayClientUpdate"),
             AsciiString::from("SwayTag"),
-            Arc::new(BaseModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleDataHandle::new(BaseModuleData::new()),
             ModuleInterfaceType::CLIENT_UPDATE,
         );
 

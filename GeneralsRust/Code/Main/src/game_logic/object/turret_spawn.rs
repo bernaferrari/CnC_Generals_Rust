@@ -134,7 +134,7 @@ pub(super) fn turret_spawn_alt_for_thing_template(
         .receiving_client_template
         .as_ref()
         .and_then(|source| source.receiving_ai_base_data())?;
-    alt_turret_spawn_from_ai(ai)
+    alt_turret_spawn_from_ai(&ai)
 }
 
 fn alt_turret_spawn_from_ai(

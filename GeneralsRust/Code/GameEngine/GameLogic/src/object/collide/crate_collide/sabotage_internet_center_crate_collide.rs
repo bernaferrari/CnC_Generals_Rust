@@ -4,6 +4,8 @@
 //! Author: Kris Morness, July 2003 (original C++), converted to Rust
 
 use crate::common::ObjectID;
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
@@ -272,17 +274,23 @@ pub struct SabotageInternetCenterCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    module_data: SabotageInternetCenterCrateCollideModuleData,
+    module_data: ModuleDataView<SabotageInternetCenterCrateCollideModuleData>,
 }
 
 impl SabotageInternetCenterCrateCollide {
     /// Create new sabotage internet center crate collide module
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: SabotageInternetCenterCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let module_data = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageInternetCenterCrateCollideModuleData>>().expect("sabotage crate data").data
+        });
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageInternetCenterCrateCollideModuleData>>().expect("sabotage crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, base_data),
             module_data,
         }
     }
@@ -355,8 +363,7 @@ impl SabotageInternetCenterCrateCollide {
         }
         drop(object_lock);
 
-        let module_data = &self.module_data;
-        let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
+        let disable_frame = TheGameLogic::get_frame() + self.module_data.read().sabotage_frames;
 
         // C++ feedback calls are void side effects; sabotage still completes if they fail.
         let _ = TheRadar::try_infiltration_event(other.clone());
@@ -551,17 +558,17 @@ mod tests {
         let second_object = Arc::new(RwLock::new(Object::new_test(77_301, 100.0)));
         let mut first = SabotageInternetCenterCrateCollide::new(
             &first_object,
-            SabotageInternetCenterCrateCollideModuleData {
+            ModuleDataHandle::new(CrateCollideDataAdapter::new(SabotageInternetCenterCrateCollideModuleData {
                 sabotage_frames: 45,
                 ..Default::default()
-            },
+            })),
         );
         let mut second = SabotageInternetCenterCrateCollide::new(
             &second_object,
-            SabotageInternetCenterCrateCollideModuleData {
+            ModuleDataHandle::new(CrateCollideDataAdapter::new(SabotageInternetCenterCrateCollideModuleData {
                 sabotage_frames: 150,
                 ..Default::default()
-            },
+            })),
         );
         let mut first_bytes = Vec::new();
         first
@@ -576,8 +583,8 @@ mod tests {
         second
             .xfer(&mut XferLoad::new(Cursor::new(first_bytes), 1))
             .unwrap();
-        assert_eq!(first.module_data.sabotage_frames, 45);
-        assert_eq!(second.module_data.sabotage_frames, 150);
+        assert_eq!(first.module_data.read().sabotage_frames, 45);
+        assert_eq!(second.module_data.read().sabotage_frames, 150);
     }
 
     #[test]

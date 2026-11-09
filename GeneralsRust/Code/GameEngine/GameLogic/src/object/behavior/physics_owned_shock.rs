@@ -5,15 +5,16 @@ use game_engine::common::random_value::RandomState;
 impl PhysicsBehaviorUpdate {
     pub(in crate::object) fn validate_shock_at(&self, owner: &GameObject) -> Result<(), String> {
         let h = &self.physics_handle;
+        let data = h.module_data.read();
         if self.object_id != owner.get_id() || owner.get_contain().is_some() {
             return Err("shock requires its supplied owner without ambient cargo lookup".into());
         }
         if !h.state.mass.is_finite()
             || h.state.mass <= 0.0
-            || !h.module_data.shock_resistance.is_finite()
-            || !h.module_data.shock_max_yaw.is_finite()
-            || !h.module_data.shock_max_pitch.is_finite()
-            || !h.module_data.shock_max_roll.is_finite()
+            || !data.shock_resistance.is_finite()
+            || !data.shock_max_yaw.is_finite()
+            || !data.shock_max_pitch.is_finite()
+            || !data.shock_max_roll.is_finite()
         {
             return Err("nonfinite shock Physics configuration".into());
         }
@@ -30,7 +31,7 @@ impl PhysicsBehaviorUpdate {
             return Err("nonfinite shock force".into());
         }
         let h = &mut self.physics_handle;
-        let resisted = *force * (1.0 - h.module_data.shock_resistance.clamp(0.0, 1.0));
+        let resisted = *force * (1.0 - h.module_data.read().shock_resistance.clamp(0.0, 1.0));
         h.apply_force_with_obj_at(&resisted, Some(owner), frame, false);
         Ok(!h.state.has_flag(FLAG_IS_IN_UPDATE))
     }
@@ -45,9 +46,11 @@ impl PhysicsBehaviorUpdate {
             return Ok(false);
         }
         h.state.set_flag(FLAG_ALLOW_BOUNCE, true);
-        h.state.yaw_rate += h.module_data.shock_max_yaw * random.next_real(-1.0, 1.0);
-        h.state.pitch_rate += h.module_data.shock_max_pitch * random.next_real(-1.0, 1.0);
-        h.state.roll_rate += h.module_data.shock_max_roll * random.next_real(-1.0, 1.0);
+        let data = h.module_data.read();
+        h.state.yaw_rate += data.shock_max_yaw * random.next_real(-1.0, 1.0);
+        h.state.pitch_rate += data.shock_max_pitch * random.next_real(-1.0, 1.0);
+        h.state.roll_rate += data.shock_max_roll * random.next_real(-1.0, 1.0);
+        drop(data);
         h.update_pitch_roll_yaw_flag();
         Ok(!h.state.has_flag(FLAG_IS_IN_UPDATE))
     }

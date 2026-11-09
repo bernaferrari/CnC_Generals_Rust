@@ -1,18 +1,18 @@
 //! C++ `ThingTemplate::friend_getAIModuleInfo` + `AIUpdateModuleData::parseLocomotorSet`
 //! hook. Common cannot name GameLogic `AIUpdateModuleData`, so GameLogic registers
-//! an applier that clones, writes locomotor names, and returns the updated Arc.
+//! an applier that updates the admitted definition through its shared handle.
 
 use crate::common::rts::AsciiString;
-use crate::common::thing::module::ModuleData;
-use std::sync::{Arc, OnceLock};
+use crate::common::thing::module::ModuleDataHandle;
+use std::sync::OnceLock;
 
-/// Rewrite an AI module-data Arc with one top-level `Locomotor = SET_* …` line.
+/// Apply one top-level `Locomotor = SET_* …` line to the admitted data.
 pub type ApplyTemplateLocomotorFn = fn(
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     set_name: &str,
     names: &[AsciiString],
     overrides_allowed: bool,
-) -> Result<Arc<dyn ModuleData>, String>;
+) -> Result<ModuleDataHandle, String>;
 
 static APPLY_TEMPLATE_LOCOMOTOR: OnceLock<ApplyTemplateLocomotorFn> = OnceLock::new();
 
@@ -25,11 +25,11 @@ pub fn template_locomotor_applier() -> Option<ApplyTemplateLocomotorFn> {
 }
 
 pub fn apply_locomotor_set_to_module_data(
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     set_name: &str,
     names: &[AsciiString],
     overrides_allowed: bool,
-) -> Result<Arc<dyn ModuleData>, String> {
+) -> Result<ModuleDataHandle, String> {
     match template_locomotor_applier() {
         Some(apply) => apply(data, set_name, names, overrides_allowed),
         None => Ok(data),

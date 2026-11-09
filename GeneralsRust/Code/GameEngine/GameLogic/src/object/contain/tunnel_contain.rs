@@ -25,6 +25,8 @@ use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::{INVALID_ID, Object, ObjectID};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 /// Wave 280 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
 /// Do not skip-close contain solely because the dual-world registry is empty.
@@ -98,7 +100,7 @@ pub struct TunnelContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
     /// Configuration retained for per-frame tunnel healing.
-    module_data: TunnelContainModuleData,
+    module_data: ModuleDataView<TunnelContainModuleData>,
     // Owner is base.object_id (OpenContain).
     /// Whether we need to run onBuildComplete logic
     need_to_run_on_build_complete: bool,
@@ -113,13 +115,18 @@ impl TunnelContain {
     /// Matches C++ TunnelContain::TunnelContain (TunnelContain.cpp:34-38)
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &TunnelContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<TunnelContainModuleData>>()
+                .expect("tunnel contain module data has an incompatible type").contain_data()
+        });
+        drop(data.read());
+        let base = OpenContain::new(object.clone(), module_data)?;
 
         Ok(Self {
             base,
-            module_data: module_data.clone(),
+            module_data: data,
             need_to_run_on_build_complete: true,
             is_currently_registered: false,
             contained_object_ids: Vec::new(),
@@ -780,6 +787,7 @@ impl TunnelContain {
                 }
             };
         if let Some(controlling_player) = controlling_player {
+            let frames_for_full_heal = self.module_data.read().frames_for_full_heal;
             {
                 let Ok(mut player_write) = controlling_player.try_write() else {
                     log::warn!("TunnelContain::update player lock busy");
@@ -787,7 +795,7 @@ impl TunnelContain {
                 };
                 if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
                     if let Err(err) =
-                        tunnel_system.heal_objects(self.module_data.frames_for_full_heal)
+                        tunnel_system.heal_objects(frames_for_full_heal)
                     {
                         log::warn!("TunnelContain::update heal failed: {}", err);
                     }
@@ -1304,7 +1312,7 @@ mod tests {
     }
 
     fn tunnel_for(owner: &Arc<RwLock<Object>>) -> TunnelContain {
-        TunnelContain::new(Arc::downgrade(owner), &TunnelContainModuleData::default())
+        TunnelContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(TunnelContainModuleData::default())))
             .expect("tunnel contain")
     }
 

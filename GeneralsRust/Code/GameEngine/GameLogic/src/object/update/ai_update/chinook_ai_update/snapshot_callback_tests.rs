@@ -1,7 +1,7 @@
 //! Bounded Chinook-to-SupplyTruck snapshot delegation. Full AI CRC and
 //! post-load locomotor/pathfinder reconstruction remain separate contracts.
 
-use super::{ChinookAIUpdate, ChinookAIUpdateData, ChinookFlightStatus};
+use super::{ChinookAIUpdate, ChinookFlightStatus};
 use crate::common::Coord3D;
 use crate::modules::SupplyTruckAIInterface;
 use crate::supply_system::SupplyTruckState;
@@ -16,7 +16,7 @@ use std::io::Cursor;
 /// it does not equate a save payload or this incomplete base with C++ CRC bytes.
 #[test]
 fn chinook_crc_propagates_the_actual_supply_base_validation_error() {
-    let chinook = ChinookAIUpdate::new(ChinookAIUpdateData::default(), 77, 1);
+    let chinook = ChinookAIUpdate::new(super::ModuleDataHandle::new(super::ChinookAIUpdateModuleData::default()), 77, 1);
     let mut base_probe = XferLoad::new(Cursor::new([2u8]), 1);
     let expected = chinook
         .base
@@ -47,7 +47,7 @@ fn saved(runtime: &mut ChinookAIUpdate) -> Vec<u8> {
 /// coordinates; complete C++ AI/StateMachine save compatibility is not claimed.
 #[test]
 fn chinook_base_delegation_keeps_existing_v2_xfer_bytes_and_restored_fields() {
-    let mut original = ChinookAIUpdate::new(ChinookAIUpdateData::default(), 77, 1);
+    let mut original = ChinookAIUpdate::new(super::ModuleDataHandle::new(super::ChinookAIUpdateModuleData::default()), 77, 1);
     original.base.set_state(SupplyTruckState::Busy);
     original.base.set_preferred_dock(0x1234);
     original.base.set_force_wanting_state(true);
@@ -69,7 +69,7 @@ fn chinook_base_delegation_keeps_existing_v2_xfer_bytes_and_restored_fields() {
     let bytes = saved(&mut original);
     assert_eq!(bytes, expected);
 
-    let mut restored = ChinookAIUpdate::new(ChinookAIUpdateData::default(), 77, 1);
+    let mut restored = ChinookAIUpdate::new(super::ModuleDataHandle::new(super::ChinookAIUpdateModuleData::default()), 77, 1);
     let mut load = XferLoad::new(Cursor::new(bytes.as_slice()), 1);
     restored.xfer(&mut load).unwrap();
     assert_eq!(load.bytes_read(), bytes.len() as u64);

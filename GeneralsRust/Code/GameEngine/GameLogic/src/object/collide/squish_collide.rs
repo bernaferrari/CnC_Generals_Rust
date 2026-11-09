@@ -21,7 +21,7 @@ use crate::object::collide::collision_geometry::{
 use crate::object::collide::partition_manager::world_partition_manager;
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ModuleData, NameKeyType};
+use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 use game_engine::system::geometry::GeometryType as EngineGeometryType;
 use log::trace;
 use std::sync::{Arc, Mutex, RwLock};
@@ -117,14 +117,14 @@ impl Snapshotable for SquishCollide {
 #[derive(Debug)]
 pub struct SquishCollide {
     owner_id: ObjectId,
-    module_data: Arc<SquishCollideModuleData>,
+    module_data: ModuleDataHandle,
     #[allow(dead_code)]
     version: u32,
 }
 
 impl SquishCollide {
     /// Construct a new collision module for the supplied object.
-    pub fn new(owner_id: ObjectId, module_data: Arc<SquishCollideModuleData>) -> Self {
+    pub fn new(owner_id: ObjectId, module_data: ModuleDataHandle) -> Self {
         Self {
             owner_id,
             module_data,
@@ -133,8 +133,8 @@ impl SquishCollide {
     }
 
     /// Provide read-only access to the module data.
-    pub fn module_data(&self) -> &SquishCollideModuleData {
-        &self.module_data
+    pub fn module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn owner_handle(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
@@ -664,7 +664,7 @@ mod tests {
     fn allows_squish_when_owner_not_registered() {
         let _lock = crate::test_sync::lock();
 
-        let module = SquishCollide::new(1, Arc::new(SquishCollideModuleData::default()));
+        let module = SquishCollide::new(1, ModuleDataHandle::new(SquishCollideModuleData::default()));
         let owner = OwnerSnapshot {
             id: 1,
             position: Coord3D::new(0.0, 0.0, 0.0),
@@ -688,7 +688,7 @@ mod tests {
     fn crc_and_xfer_follow_cpp_base_chain() {
         let _lock = crate::test_sync::lock();
 
-        let mut module = SquishCollide::new(1, Arc::new(SquishCollideModuleData::default()));
+        let mut module = SquishCollide::new(1, ModuleDataHandle::new(SquishCollideModuleData::default()));
         let mut crc_xfer = CountingXfer::default();
         module.crc(&mut crc_xfer).expect("crc");
         assert_eq!(crc_xfer.bytes, 0);

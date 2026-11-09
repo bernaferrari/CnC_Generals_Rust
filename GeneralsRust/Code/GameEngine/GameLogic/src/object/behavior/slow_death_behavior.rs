@@ -54,7 +54,7 @@ use crate::object::{Object, ObjectArcExt, ObjectStatusTypes};
 use crate::weapon::{WeaponStore, WeaponTemplate};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 // Constants
 const BEGIN_MIDPOINT_RATIO: Real = 0.35;
@@ -577,11 +577,10 @@ impl std::fmt::Debug for BoundUpdateModule {
 }
 
 /// Main SlowDeathBehavior implementation
-#[derive(Debug)]
 pub struct SlowDeathBehavior {
     // Base module data
     object_id: ObjectID,
-    module_data: Arc<SlowDeathBehaviorModuleData>,
+    module_data: ModuleDataView<SlowDeathBehaviorModuleData>,
 
     // State tracking
     next_call_frame_and_phase: UnsignedInt,
@@ -593,6 +592,12 @@ pub struct SlowDeathBehavior {
     update_proxy: BoundUpdateModule,
 }
 
+impl std::fmt::Debug for SlowDeathBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SlowDeathBehavior").field("object_id", &self.object_id).finish()
+    }
+}
+
 impl SlowDeathBehavior {
     // Flag bits
     const SLOW_DEATH_ACTIVATED: u32 = 0;
@@ -602,7 +607,7 @@ impl SlowDeathBehavior {
 
     pub fn new(
         thing: Arc<RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let object_id = thing.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
         Self::new_with_object_id(object_id, module_data)
@@ -610,23 +615,36 @@ impl SlowDeathBehavior {
 
     pub fn new_with_object_id(
         object_id: ObjectID,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = {
-            let data_ref = module_data
-                .as_any()
-                .downcast_ref::<SlowDeathBehaviorModuleData>()
-                .ok_or("Invalid module data type")?;
-            data_ref.clone()
-        };
+        if !module_data.is::<SlowDeathBehaviorModuleData>() {
+            return Err("Invalid module data type".into());
+        }
+        let view = ModuleDataView::new(module_data, |data| {
+            data.as_any().downcast_ref::<SlowDeathBehaviorModuleData>().expect("SlowDeathBehavior module data")
+        });
+        Self::new_with_object_id_and_view(object_id, view)
+    }
 
-        if data.probability_modifier < 1 {
+    pub fn new_with_view(
+        thing: Arc<RwLock<Object>>,
+        module_data: ModuleDataView<SlowDeathBehaviorModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let object_id = thing.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        Self::new_with_object_id_and_view(object_id, module_data)
+    }
+
+    pub fn new_with_object_id_and_view(
+        object_id: ObjectID,
+        module_data: ModuleDataView<SlowDeathBehaviorModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if module_data.read().probability_modifier < 1 {
             return Err("ProbabilityModifier must be >= 1".into());
         }
 
         Ok(Self {
             object_id,
-            module_data: Arc::new(data),
+            module_data,
             next_call_frame_and_phase: 0,
             flags: 0,
             sink_frame: 0,
@@ -741,7 +759,8 @@ impl SlowDeathBehavior {
         &mut self,
         phase: SlowDeathPhaseType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let data = &self.module_data;
+        let module_data = self.module_data.clone();
+        let data = module_data.read();
 
         // Early exit if no effects (C++ line 320-321)
         if data.mask_of_loaded_effects == 0 {
@@ -829,7 +848,8 @@ impl UpdateModuleInterface for SlowDeathBehavior {
             return Err("SlowDeathBehavior::update called when not activated".into());
         }
 
-        let data = &self.module_data;
+        let module_data = self.module_data.clone();
+        let data = module_data.read();
         // Get current time scale from LOD manager (C++ line 367)
         let time_scale = TheGameLODManager::get_slow_death_scale();
 
@@ -932,6 +952,7 @@ impl UpdateModuleInterface for SlowDeathBehavior {
             })??;
         }
 
+        drop(data);
         // Handle midpoint effects (C++ lines 440-444)
         if now >= self.midpoint_frame && (self.flags & (1 << Self::MIDPOINT_EXECUTED)) == 0 {
             self.do_phase_stuff(SlowDeathPhaseType::Midpoint)?;
@@ -1110,7 +1131,8 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             return Ok(());
         }
 
-        let data = &self.module_data;
+        let module_data = self.module_data.clone();
+        let data = module_data.read();
         let sink_rate = data.sink_rate;
         let (is_infantry, is_hulk) = self.with_object(|obj| {
             (
@@ -1252,6 +1274,7 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             self.wake_this_module_only(sleep_time);
         }
 
+        drop(data);
         // Mark as activated
         self.flags |= 1 << Self::SLOW_DEATH_ACTIVATED;
 
@@ -1276,7 +1299,7 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             }
         }) {
             Ok(h) => h,
-            Err(_) => return self.module_data.probability_modifier,
+            Err(_) => return self.module_data.read().probability_modifier,
         };
 
         // Calculate overkill percentage (C++ lines 163-165)
@@ -1284,16 +1307,16 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             - damage_info.output.actual_damage_clipped) as Int;
         let overkill_percent = (overkill_damage as Real) / max_health;
         let overkill_modifier =
-            (overkill_percent * self.module_data.modifier_bonus_per_overkill_percent) as Int;
+            (overkill_percent * self.module_data.read().modifier_bonus_per_overkill_percent) as Int;
 
         // Return at least 1 (C++ line 167)
-        (self.module_data.probability_modifier + overkill_modifier).max(1)
+        (self.module_data.read().probability_modifier + overkill_modifier).max(1)
     }
 
     fn is_die_applicable(&self, damage_info: &DamageInfo) -> bool {
         // Matches C++ SlowDeathBehavior.h:132 - Check die mux data applicability
         self.with_object(|obj_read| {
-            self.module_data
+            self.module_data.read()
                 .die_mux_data
                 .is_die_applicable(obj_read, damage_info)
         })
@@ -1328,11 +1351,11 @@ impl Module for SlowDeathBehavior {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.handle().read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.module_data.handle())
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -1491,9 +1514,29 @@ mod tests {
     }
 
     #[test]
+    fn module_reads_the_shared_definition_after_mutation() {
+        let data = ModuleDataHandle::new(SlowDeathBehaviorModuleData::new());
+        let sd = SlowDeathBehavior::new_with_object_id(1, data.clone()).expect("ctor");
+        {
+            let mut guard = data.write();
+            let any: &mut dyn std::any::Any = &mut *guard;
+            let definition = any.downcast_mut::<SlowDeathBehaviorModuleData>().expect("definition");
+            definition.probability_modifier = 37;
+            EngineModuleData::set_module_tag_name_key(definition, 42);
+        }
+        assert_eq!(sd.get_module_tag_name_key(), 42);
+        let exposed = sd.get_module_data();
+        assert_eq!(
+            exposed.as_any().downcast_ref::<SlowDeathBehaviorModuleData>()
+                .expect("definition").probability_modifier,
+            37
+        );
+    }
+
+    #[test]
     fn disabled_mask_is_all_like_cpp() {
         // C++ SlowDeathBehavior.h:124 getDisabledTypesToProcess = DISABLEDMASK_ALL
-        let data: Arc<dyn ModuleData> = Arc::new(SlowDeathBehaviorModuleData::new());
+        let data = ModuleDataHandle::new(SlowDeathBehaviorModuleData::new());
         let sd = SlowDeathBehavior::new_with_object_id(1, data).expect("ctor");
         assert_eq!(
             UpdateModuleInterface::get_disabled_types_to_process(&sd),
@@ -1512,7 +1555,7 @@ mod tests {
     #[test]
     fn wake_without_bound_proxy_does_not_wake_all_modules() {
         // C++ UpdateModule.cpp:61-64 setWakeFrame wakes only `this`.
-        let data: Arc<dyn ModuleData> = Arc::new(SlowDeathBehaviorModuleData::new());
+        let data = ModuleDataHandle::new(SlowDeathBehaviorModuleData::new());
         let mut sd = SlowDeathBehavior::new_with_object_id(1, data).expect("ctor");
         sd.wake_this_module_only(UPDATE_SLEEP_NONE);
         assert!(sd.update_proxy.0.is_none());

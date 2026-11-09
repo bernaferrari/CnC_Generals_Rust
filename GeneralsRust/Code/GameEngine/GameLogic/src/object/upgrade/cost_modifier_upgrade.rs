@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::common::{KindOfMaskType, LegacyModuleData, ObjectID, Real, UpgradeMaskType};
+use crate::common::{KindOfMaskType, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::upgrade::upgrade_module::{
     UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
@@ -74,7 +74,7 @@ impl Snapshotable for CostModifierUpgradeModuleData {
 /// Upgrade module that modifies production costs for buildings/factories.
 pub struct CostModifierUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<CostModifierUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     applied: bool,
 }
@@ -82,7 +82,7 @@ pub struct CostModifierUpgrade {
 impl CostModifierUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<CostModifierUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         Self {
@@ -108,11 +108,11 @@ impl Module for CostModifierUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -139,7 +139,7 @@ impl Snapshotable for CostModifierUpgrade {
 
 impl UpgradeModuleInterface for CostModifierUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+        mux_can_upgrade(&self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -151,11 +151,11 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
         if self.applied {
             return false;
         }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
+        { let data = self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
         use crate::object::registry::OBJECT_REGISTRY;
 
-        let kind = self.data.kind_of();
-        let percentage = self.data.percentage();
+        let kind = self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").kind_of();
+        let percentage = self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").percentage();
         let Some(()) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
             object_guard.with_controlling_player_mut(|player_guard| {
                 player_guard.add_kind_of_production_cost_change(kind, percentage);
@@ -172,7 +172,7 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ does not remove the cost change; resetUpgrade only clears executed.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );
@@ -183,10 +183,15 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
             return;
         }
 
+        let (kind, percentage) = {
+            let data = self.data.read();
+            let data = data.as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData");
+            (data.kind_of(), data.percentage())
+        };
         object.with_controlling_player_mut(|player_guard| {
             player_guard.remove_kind_of_production_cost_change(
-                self.data.kind_of(),
-                self.data.percentage(),
+                kind,
+                percentage,
             );
         });
 
@@ -202,12 +207,17 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
         if !self.applied {
             return;
         }
+        let (kind, percentage) = {
+            let data = self.data.read();
+            let data = data.as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData");
+            (data.kind_of(), data.percentage())
+        };
 
         if let Some(old_owner) = old_owner {
             if let Ok(mut player_guard) = old_owner.write() {
                 player_guard.remove_kind_of_production_cost_change(
-                    self.data.kind_of(),
-                    self.data.percentage(),
+                    kind,
+                    percentage,
                 );
                 self.applied = false;
             }
@@ -216,8 +226,8 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
         if let Some(new_owner) = new_owner {
             if let Ok(mut player_guard) = new_owner.write() {
                 player_guard.add_kind_of_production_cost_change(
-                    self.data.kind_of(),
-                    self.data.percentage(),
+                    kind,
+                    percentage,
                 );
                 self.applied = true;
             }

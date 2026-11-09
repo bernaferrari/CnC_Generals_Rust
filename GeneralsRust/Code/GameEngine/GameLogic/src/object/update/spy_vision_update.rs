@@ -15,7 +15,7 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData, ModuleData as EngineModuleData, NameKeyType, SpyVisionControlInterface,
+    Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, SpyVisionControlInterface,
 };
 use log::{debug, warn};
 use std::sync::{Arc, RwLock};
@@ -116,7 +116,7 @@ impl Snapshotable for SpyVisionUpdateModuleData {
 
 #[derive(Debug)]
 pub struct SpyVisionController {
-    data: Arc<SpyVisionUpdateModuleData>,
+    data: ModuleDataHandle,
     object_id: ObjectID,
     deactivate_frame: UnsignedInt,
     currently_active: Bool,
@@ -125,7 +125,7 @@ pub struct SpyVisionController {
 }
 
 impl SpyVisionController {
-    pub fn new(data: Arc<SpyVisionUpdateModuleData>, object_id: ObjectID) -> Self {
+    pub fn new(data: ModuleDataHandle, object_id: ObjectID) -> Self {
         Self {
             data,
             object_id,
@@ -134,6 +134,12 @@ impl SpyVisionController {
             reset_timers_next_update: false,
             disabled_until_frame: 0,
         }
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, SpyVisionUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.as_any().downcast_ref::<SpyVisionUpdateModuleData>().expect("invalid SpyVision data")
+        })
     }
 
     pub fn activate_spy_vision(&mut self, duration: UnsignedInt) {
@@ -181,7 +187,7 @@ impl SpyVisionController {
             if let Ok(mut target_player_write) = target_player_arc.write() {
                 target_player_write.set_units_vision_spied(
                     setting,
-                    self.data.spy_on_kind_of,
+                    self.data().spy_on_kind_of,
                     spying_player_index,
                 );
             }
@@ -263,20 +269,24 @@ impl SpyVisionController {
 
     pub fn update(&mut self) -> UpdateSleepTime {
         let now = crate::helpers::TheGameLogic::get_frame();
+        let (self_powered, interval, duration) = {
+            let data = self.data();
+            (data.self_powered, data.self_powered_interval, data.self_powered_duration)
+        };
 
         // C++ update() does not re-read m_disabledUntilFrame. The wake was
         // already programmed by setDisabledUntilFrame.
         if self.reset_timers_next_update {
             self.reset_timers_next_update = false;
 
-            if self.data.self_powered {
-                if self.data.self_powered_interval == 0 {
+            if self_powered {
+                if interval == 0 {
                     // Always-on self-powered: turn back on and sleep forever.
                     // C++ returns UPDATE_SLEEP(UPDATE_SLEEP_FOREVER).
                     self.do_activation_work_for_current_owner(true);
                     return UpdateSleepTime::Forever;
                 } else {
-                    return cpp_update_sleep(self.data.self_powered_interval);
+                    return cpp_update_sleep(interval);
                 }
             }
         }
@@ -284,20 +294,20 @@ impl SpyVisionController {
         if self.currently_active && self.deactivate_frame <= now {
             self.do_activation_work_for_current_owner(false);
             self.deactivate_frame = 0;
-        } else if !self.currently_active && self.data.self_powered {
+        } else if !self.currently_active && self_powered {
             self.do_activation_work_for_current_owner(true);
-            if self.data.self_powered_duration == 0 {
+            if duration == 0 {
                 self.deactivate_frame = u32::MAX;
             } else {
-                self.deactivate_frame = now.wrapping_add(self.data.self_powered_duration);
+                self.deactivate_frame = now.wrapping_add(duration);
             }
         }
 
-        if self.data.self_powered {
+        if self_powered {
             if self.currently_active {
-                return cpp_update_sleep(self.data.self_powered_duration);
+                return cpp_update_sleep(duration);
             } else {
-                return cpp_update_sleep(self.data.self_powered_interval);
+                return cpp_update_sleep(interval);
             }
         }
 
@@ -307,7 +317,7 @@ impl SpyVisionController {
 
 pub struct SpyVisionUpdate {
     module_name_key: NameKeyType,
-    data: Arc<SpyVisionUpdateModuleData>,
+    data: ModuleDataHandle,
     controller: SpyVisionController,
     next_call_frame_and_phase: UnsignedInt,
     object_id: ObjectID,
@@ -318,10 +328,14 @@ pub struct SpyVisionUpdate {
 impl SpyVisionUpdate {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<SpyVisionUpdateModuleData>,
+        data: ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let upgrade_mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let upgrade_mux = UpgradeMux::new_shared(
+            game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| {
+                &data.as_any().downcast_ref::<SpyVisionUpdateModuleData>().expect("invalid SpyVision data").upgrade_mux_data
+            }),
+        );
         let controller = SpyVisionController::new(data.clone(), object_id);
         Self {
             module_name_key,
@@ -378,8 +392,12 @@ impl SpyVisionUpdate {
 
     /// C++ `SpyVisionUpdate::upgradeImplementation`.
     pub fn upgrade_implementation(&mut self) {
-        if self.data.needs_upgrade && !self.upgrade_mux.is_already_upgraded() {
-            self.activate_spy_vision(self.data.self_powered_duration);
+        let (needs_upgrade, duration) = {
+            let data = self.controller.data();
+            (data.needs_upgrade, data.self_powered_duration)
+        };
+        if needs_upgrade && !self.upgrade_mux.is_already_upgraded() {
+            self.activate_spy_vision(duration);
         }
     }
 
@@ -391,7 +409,7 @@ impl SpyVisionUpdate {
                 .clone()
                 .ok_or("SpyVision has no admitted update proxy")?,
             self.controller.currently_active,
-            self.data.spy_on_kind_of,
+            self.controller.data().spy_on_kind_of,
         ))
     }
     pub(crate) fn finish_disabled_at(&mut self, frame: UnsignedInt, now: UnsignedInt) {
@@ -453,11 +471,11 @@ impl SpyVisionUpdate {
             return;
         }
 
-        if !self.data.needs_upgrade || self.upgrade_mux.is_already_upgraded() {
+        if !self.controller.data().needs_upgrade || self.upgrade_mux.is_already_upgraded() {
             return;
         }
 
-        let mux_data = self.upgrade_mux.data.clone();
+        let mux_data = self.upgrade_mux.data_snapshot();
         let would = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
             let upgrade_mask = self.build_upgrade_mask(obj_guard);
             if self.upgrade_mux.would_upgrade(upgrade_mask) {
@@ -495,11 +513,11 @@ impl Module for SpyVisionUpdate {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn on_delete(&mut self) {
@@ -554,16 +572,25 @@ impl Snapshotable for SpyVisionUpdate {
 pub struct SpyVisionUpdateModule {
     behavior: SpyVisionUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SpyVisionUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl SpyVisionUpdateModule {
     pub fn new(
-        behavior: SpyVisionUpdate,
+        mut behavior: SpyVisionUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SpyVisionUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.data = module_data.clone();
+        behavior.controller.data = module_data.clone();
+        let upgraded = behavior.upgrade_mux.is_already_upgraded();
+        behavior.upgrade_mux = UpgradeMux::new_shared(
+            game_engine::common::thing::module::ModuleDataView::new(module_data.clone(), |data| {
+                &data.as_any().downcast_ref::<SpyVisionUpdateModuleData>().expect("invalid SpyVision data").upgrade_mux_data
+            }),
+        );
+        behavior.upgrade_mux.set_upgrade_executed(upgraded);
         Self {
             behavior,
             module_name_key,
@@ -608,11 +635,11 @@ impl Module for SpyVisionUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_spy_vision_control_interface(&mut self) -> Option<&mut dyn SpyVisionControlInterface> {
@@ -951,7 +978,7 @@ mod tests {
 
     #[test]
     fn ctor_packs_forever_wake_like_cpp() {
-        let update = SpyVisionUpdate::new(0, Arc::new(SpyVisionUpdateModuleData::default()), 1);
+        let update = SpyVisionUpdate::new(0, ModuleDataHandle::new(SpyVisionUpdateModuleData::default()), 1);
         assert_eq!(update.initial_wake_frame(), UPDATE_SLEEP_FOREVER_FRAMES);
         assert_eq!(update.next_call_frame_and_phase & 3, PHASE_NORMAL);
     }
@@ -972,7 +999,7 @@ mod tests {
     fn update_does_not_resleep_on_disabled_until_frame() {
         // C++ update() ignores m_disabledUntilFrame; only reset-timers / deactivate run.
         let mut controller =
-            SpyVisionController::new(Arc::new(SpyVisionUpdateModuleData::default()), 1);
+            SpyVisionController::new(ModuleDataHandle::new(SpyVisionUpdateModuleData::default()), 1);
         controller.disabled_until_frame = u32::MAX;
         assert_eq!(controller.update(), UpdateSleepTime::Forever);
         assert!(!controller.currently_active);

@@ -5,7 +5,7 @@ impl super::Object {
         object_id: crate::common::ObjectID,
         name: &str,
         module: Box<dyn game_engine::common::thing::module::Module>,
-        data: std::sync::Arc<dyn game_engine::common::thing::module::ModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> (
         Self,
         game_engine::common::thing::update_module::UpdateModulePtr,

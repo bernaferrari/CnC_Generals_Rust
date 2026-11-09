@@ -36,7 +36,7 @@ fn spy_template() -> Arc<dyn ThingTemplate> {
     modules.push(TemplateModuleInfo {
         name: "SpyVisionUpdate".into(),
         module_tag: "NativeOwnedSpyVision".into(),
-        data: Arc::new(SpyVisionUpdateModuleData::default()),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(SpyVisionUpdateModuleData::default()),
         interface_mask: ModuleInterfaceType::UPDATE,
     });
     Arc::new(EntryTemplate { base, modules })

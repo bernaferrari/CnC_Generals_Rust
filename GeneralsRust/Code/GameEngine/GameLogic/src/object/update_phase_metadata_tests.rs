@@ -7,7 +7,7 @@ use std::time::Duration;
 
 struct PhaseModule {
     phase: SleepyUpdatePhase,
-    data: Arc<BaseModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl EngineSnapshotable for PhaseModule {
@@ -29,8 +29,8 @@ impl Module for PhaseModule {
         0
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
@@ -49,7 +49,7 @@ impl UpdateModuleInterface for PhaseModule {
 }
 
 fn installed(phase: SleepyUpdatePhase) -> (Object, UpdateModulePtr) {
-    let data = Arc::new(BaseModuleData::new());
+    let data = ModuleDataHandle::new(BaseModuleData::new());
     Object::installed_update_proxy_for_test(
         0xA1_2A_0003,
         "ClassPhaseProbe",

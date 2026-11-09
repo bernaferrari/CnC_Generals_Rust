@@ -1311,11 +1311,19 @@ impl GameLogic {
         // Helix identifies its portable structure separately from passengers.
         let rider_id_for = |parent: &Object| {
             use gamelogic::contain_module_overrides::ContainModuleDataKind;
+            enum RiderSource { FirstContained, PortableStructure, None }
             let receiving = parent.thing().template.receiving_client_template.as_ref()?;
             let mut contains = receiving
                 .behavior_modules()
                 .iter()
-                .filter_map(|module| ContainModuleDataKind::from_module_data(module.data.as_ref()));
+                .filter_map(|module| {
+                    let guard = module.data.read();
+                    ContainModuleDataKind::from_module_data(&*guard).map(|kind| match kind {
+                        ContainModuleDataKind::RiderChange(_) | ContainModuleDataKind::Overlord(_) => RiderSource::FirstContained,
+                        ContainModuleDataKind::Helix(_) => RiderSource::PortableStructure,
+                        _ => RiderSource::None,
+                    })
+                });
             // Multiple contain interfaces are invalid in C++ and cannot be
             // safely selected through a partial host metadata projection.
             let kind = contains.next()?;
@@ -1323,11 +1331,9 @@ impl GameLogic {
                 return None;
             }
             match kind {
-                ContainModuleDataKind::RiderChange(_) | ContainModuleDataKind::Overlord(_) => {
-                    first_contained(parent)
-                }
-                ContainModuleDataKind::Helix(_) => parent.overlord_portable_occupant,
-                _ => None,
+                RiderSource::FirstContained => first_contained(parent),
+                RiderSource::PortableStructure => parent.overlord_portable_occupant,
+                RiderSource::None => None,
             }
         };
         let rider = self.host_object(id).and_then(|parent| {

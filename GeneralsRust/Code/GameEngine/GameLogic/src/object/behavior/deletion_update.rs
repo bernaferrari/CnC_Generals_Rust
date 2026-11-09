@@ -78,7 +78,7 @@ const DELETION_UPDATE_FIELDS: &[FieldParse<DeletionUpdateModuleData>] = &[
 pub struct DeletionUpdate {
     #[allow(dead_code)]
     object_id: ObjectID,
-    module_data: Arc<DeletionUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     delete_frame: UnsignedInt,
     update_proxy: Option<crate::object::UpdateModulePtr>,
@@ -87,17 +87,23 @@ pub struct DeletionUpdate {
 impl DeletionUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<DeletionUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        Self::new_with_module_data(object, module_data)
+    }
+
+    pub(crate) fn new_with_module_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let guard = module_data.read();
+        let specific_data = guard.downcast_ref::<DeletionUpdateModuleData>().ok_or("Invalid module data")?;
 
         // Get current frame from game logic - matches C++ DeletionUpdate.cpp
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         let lifetime =
             Self::calc_sleep_delay_static(specific_data.min_lifetime, specific_data.max_lifetime);
+        drop(guard);
 
         Ok(Self {
             object_id: object
@@ -105,7 +111,7 @@ impl DeletionUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: current_frame + lifetime,
             delete_frame: current_frame + lifetime,
             update_proxy: None,
@@ -225,7 +231,7 @@ pub struct DeletionUpdateFactory;
 impl DeletionUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(DeletionUpdate::new(thing, module_data)?))
     }
@@ -238,7 +244,7 @@ mod tests {
     fn test_update() -> DeletionUpdate {
         DeletionUpdate {
             object_id: crate::common::INVALID_ID,
-            module_data: Arc::new(DeletionUpdateModuleData::default()),
+            module_data: game_engine::common::thing::module::ModuleDataHandle::new(DeletionUpdateModuleData::default()),
             next_call_frame_and_phase: 0,
             delete_frame: 0,
             update_proxy: None,
@@ -261,7 +267,7 @@ mod tests {
     #[test]
     fn update_destroys_even_before_delete_frame_when_invoked_like_cpp() {
         let object = Arc::new(RwLock::new(GameObject::new_test(9701, 100.0)));
-        let module_data: Arc<dyn ModuleData> = Arc::new(DeletionUpdateModuleData {
+        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(DeletionUpdateModuleData {
             min_lifetime: 30,
             max_lifetime: 30,
             ..DeletionUpdateModuleData::default()

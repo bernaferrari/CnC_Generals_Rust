@@ -183,6 +183,7 @@ pub(super) fn execute(case: &str) {
     );
     let probe = definitions[2]
         .data
+        .read()
         .as_any()
         .downcast_ref::<SentinelData>()
         .unwrap()

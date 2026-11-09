@@ -7,7 +7,7 @@
 
 use crate::common::NameKeyType;
 use crate::common::{
-    Bool, CommandSourceType, Coord3D, DisabledMaskType, Int, KindOf, ModuleData,
+    Bool, CommandSourceType, Coord3D, DisabledMaskType, Int, KindOf,
     ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt, XferVersion,
 };
 use crate::modules::{
@@ -19,6 +19,7 @@ use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, Objec
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Thing as ModuleThing;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use log::{debug, trace};
 use std::any::Any;
 use std::collections::HashMap;
@@ -185,7 +186,7 @@ impl Default for StealthUpdateModuleData {
     }
 }
 
-impl crate::common::LegacyModuleData for StealthUpdateModuleData {
+impl game_engine::common::thing::module::ModuleData for StealthUpdateModuleData {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -224,7 +225,7 @@ impl Snapshotable for StealthUpdateModuleData {
 #[allow(dead_code)]
 pub struct StealthUpdate {
     object_id: ObjectID,
-    module_data: Arc<StealthUpdateModuleData>,
+    module_data: ModuleDataView<StealthUpdateModuleData>,
 
     // State
     next_call_frame_and_phase: UnsignedInt,
@@ -247,8 +248,6 @@ pub struct StealthUpdate {
     // Runtime state
     xfer_restore_disguise: Bool,
 
-    // Distance-based reveal configuration
-    reveal_distance_config: RevealDistanceConfig,
     last_distance_check_frame: UnsignedInt,
 }
 
@@ -256,18 +255,21 @@ impl StealthUpdate {
     /// Create a new StealthUpdate instance
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<StealthUpdateModuleData>()
-            .ok_or("Invalid module data type for StealthUpdate")?;
-
-        let reveal_distance_config =
-            RevealDistanceConfig::new(specific_data.reveal_distance_from_target);
+        let (innate_stealth, stealth_delay, team_disguised) = {
+            let data = module_data.read();
+            let data = data.downcast_ref::<StealthUpdateModuleData>()
+                .ok_or("Invalid module data type for StealthUpdate")?;
+            (data.innate_stealth, data.stealth_delay, data.team_disguised)
+        };
+        let module_data = ModuleDataView::new(module_data, |data| {
+            data.downcast_ref::<StealthUpdateModuleData>()
+                .expect("validated StealthUpdate module data")
+        });
 
         // C++ StealthUpdate.cpp:132-136 — innate units receive CAN_STEALTH at construction.
-        if specific_data.innate_stealth {
+        if innate_stealth {
             if let Ok(mut obj) = object.write() {
                 obj.set_status(OBJECT_STATUS_CAN_STEALTH, true);
             }
@@ -279,13 +281,13 @@ impl StealthUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             stealth_allowed_frame: crate::helpers::TheGameLogic::get_frame()
-                .saturating_add(specific_data.stealth_delay),
+                .saturating_add(stealth_delay),
             detection_expires_frame: 0,
             next_black_market_check_frame: 0,
-            enabled: !specific_data.team_disguised,
+            enabled: !team_disguised,
             pulse_phase_rate: 0.2,
             pulse_phase: 0.0,
             disguise_as_player_index: -1,
@@ -296,14 +298,13 @@ impl StealthUpdate {
             disguised: false,
             frames_granted: 0,
             xfer_restore_disguise: false,
-            reveal_distance_config,
             last_distance_check_frame: 0,
         })
     }
 
     /// Get reveal distance from target (used by C++ reference)
     pub fn get_reveal_distance_from_target(&self) -> Real {
-        self.module_data.reveal_distance_from_target
+        self.module_data.read().reveal_distance_from_target
     }
 
     /// C++ `StealthUpdate::isDisguised` is `m_disguiseAsTemplate != NULL`.
@@ -332,7 +333,7 @@ impl StealthUpdate {
             self.disguised = false;
             self.disguise_as_player_index = -1;
             self.transitioning_to_disguise = false;
-            self.disguise_transition_frames = self.module_data.disguise_reveal_transition_frames;
+            self.disguise_transition_frames = self.module_data.read().disguise_reveal_transition_frames;
             self.disguise_halfpoint_reached = false;
         }
 
@@ -349,7 +350,7 @@ impl StealthUpdate {
     }
 
     fn calc_stealth_owner(&self) -> ObjectID {
-        if !self.module_data.use_rider_stealth {
+        if !self.module_data.read().use_rider_stealth {
             return self.object_id;
         }
         if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
@@ -370,7 +371,7 @@ impl StealthUpdate {
 
     fn stealth_delay_for(&self, owner_id: ObjectID) -> UnsignedInt {
         if owner_id == self.object_id {
-            return self.module_data.stealth_delay;
+            return self.module_data.read().stealth_delay;
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
@@ -379,12 +380,12 @@ impl StealthUpdate {
                     .and_then(|handle| handle.lock().ok().map(|guard| guard.get_stealth_delay()))
             })
             .flatten()
-            .unwrap_or(self.module_data.stealth_delay)
+            .unwrap_or(self.module_data.read().stealth_delay)
     }
 
     fn stealth_level_for(&self, owner_id: ObjectID) -> UnsignedInt {
         if owner_id == self.object_id {
-            return self.module_data.stealth_level;
+            return self.module_data.read().stealth_level;
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
@@ -393,12 +394,12 @@ impl StealthUpdate {
                     .and_then(|handle| handle.lock().ok().map(|guard| guard.get_stealth_level()))
             })
             .flatten()
-            .unwrap_or(self.module_data.stealth_level)
+            .unwrap_or(self.module_data.read().stealth_level)
     }
 
     fn order_idles_for(&self, owner_id: ObjectID) -> bool {
         if owner_id == self.object_id {
-            return self.module_data.order_idle_enemies_to_attack_me_upon_reveal;
+            return self.module_data.read().order_idle_enemies_to_attack_me_upon_reveal;
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
@@ -410,7 +411,7 @@ impl StealthUpdate {
                 })
             })
             .flatten()
-            .unwrap_or(self.module_data.order_idle_enemies_to_attack_me_upon_reveal)
+            .unwrap_or(self.module_data.read().order_idle_enemies_to_attack_me_upon_reveal)
     }
 
     fn order_idle_enemies_to_attack(&self) {
@@ -461,15 +462,16 @@ impl StealthUpdate {
 
     /// Get friendly opacity for rendering
     pub fn get_friendly_opacity(&self) -> Real {
-        if self.module_data.pulse_frames > 0 {
-            let min_opacity = self.module_data.friendly_opacity_min;
-            let max_opacity = self.module_data.friendly_opacity_max;
+        let data = self.module_data.read();
+        if data.pulse_frames > 0 {
+            let min_opacity = data.friendly_opacity_min;
+            let max_opacity = data.friendly_opacity_max;
             let range = max_opacity - min_opacity;
 
             // Pulse between min and max
             min_opacity + (self.pulse_phase.sin() * 0.5 + 0.5) * range
         } else {
-            self.module_data.friendly_opacity_max
+            data.friendly_opacity_max
         }
     }
 
@@ -729,8 +731,7 @@ impl StealthUpdate {
     /// Calculate reveal distance for distance-based stealth break
     /// Returns the effective reveal distance threshold in game units
     pub fn calculate_reveal_distance(&self) -> Real {
-        // Use base reveal distance from configuration
-        self.reveal_distance_config.base_reveal_distance
+        self.module_data.read().reveal_distance_from_target.max(0.0)
     }
 
     /// Check if unit is too close to a hostile target (stealth reveal condition)
@@ -744,7 +745,7 @@ impl StealthUpdate {
         // Implement proximity checks (C++ StealthUpdate.cpp:675-693)
         // This requires partition manager query APIs which may not be fully exposed yet
         // The logic checks if the unit's current victim is within reveal distance
-        if self.module_data.reveal_distance_from_target <= 0.0 {
+        if self.module_data.read().reveal_distance_from_target <= 0.0 {
             return false; // Feature disabled
         }
 
@@ -759,7 +760,7 @@ impl StealthUpdate {
                 if let Some(victim_pos) = obj.get_current_victim_pos() {
                     let self_pos = obj.get_position();
                     let distance = (victim_pos - *self_pos).length();
-                    return distance < self.module_data.reveal_distance_from_target;
+                    return distance < self.module_data.read().reveal_distance_from_target;
                 }
             }
         }
@@ -843,20 +844,20 @@ impl StealthUpdate {
                     }
                 }
 
+                let (required_status, forbidden_status) = {
+                    let data = self.module_data.read();
+                    (data.required_status, data.forbidden_status)
+                };
                 // Check required status bits - must have ALL required bits
-                if !self.module_data.required_status.is_empty() {
-                    if (obj.get_status_bits() & self.module_data.required_status)
-                        != self.module_data.required_status
-                    {
+                if !required_status.is_empty() {
+                    if (obj.get_status_bits() & required_status) != required_status {
                         return false;
                     }
                 }
 
                 // Check forbidden status bits - must NOT have ANY forbidden bits
-                if !self.module_data.forbidden_status.is_empty() {
-                    if obj
-                        .get_status_bits()
-                        .intersects(self.module_data.forbidden_status)
+                if !forbidden_status.is_empty() {
+                    if obj.get_status_bits().intersects(forbidden_status)
                     {
                         return false;
                     }
@@ -914,7 +915,7 @@ impl StealthUpdate {
 
                 // Check STEALTH_NOT_WHILE_MOVING condition
                 if (level & STEALTH_NOT_WHILE_MOVING) != 0 {
-                    if self.get_velocity() > self.module_data.stealth_speed {
+                    if self.get_velocity() > self.module_data.read().stealth_speed {
                         return false;
                     }
                 }
@@ -942,7 +943,7 @@ impl StealthUpdate {
 
     /// C++ StealthUpdate::receiveGrant — always applies when active (refresh timer).
     pub fn receive_grant(&mut self, active: Bool, frames: UnsignedInt) {
-        if self.module_data.team_disguised {
+        if self.module_data.read().team_disguised {
             return;
         }
         self.enabled = active;
@@ -981,7 +982,7 @@ impl StealthUpdate {
             return UpdateSleepTime::Frames(1); // Update every frame during transition
         }
 
-        if self.module_data.pulse_frames > 0 {
+        if self.module_data.read().pulse_frames > 0 {
             return UpdateSleepTime::Frames(1); // Update every frame for pulsing
         }
 
@@ -1033,7 +1034,7 @@ impl UpdateModuleInterface for StealthUpdate {
                 }
 
                 // Update pulse phase
-                if self.module_data.pulse_frames > 0 {
+                if self.module_data.read().pulse_frames > 0 {
                     self.pulse_phase += self.pulse_phase_rate;
                 }
 
@@ -1043,9 +1044,9 @@ impl UpdateModuleInterface for StealthUpdate {
                         self.disguise_transition_frames.saturating_sub(1);
 
                     let halfway = if self.transitioning_to_disguise {
-                        self.module_data.disguise_transition_frames / 2
+                        self.module_data.read().disguise_transition_frames / 2
                     } else {
-                        self.module_data.disguise_reveal_transition_frames / 2
+                        self.module_data.read().disguise_reveal_transition_frames / 2
                     };
 
                     if !self.disguise_halfpoint_reached
@@ -1228,7 +1229,7 @@ pub struct StealthUpdateFactory;
 impl StealthUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let behavior = StealthUpdate::new(thing, module_data)?;
         Ok(Box::new(behavior))

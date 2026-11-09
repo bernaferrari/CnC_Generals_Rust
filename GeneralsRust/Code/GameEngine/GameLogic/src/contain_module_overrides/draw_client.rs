@@ -35,14 +35,9 @@ macro_rules! owner_bound_draw_factory {
     ($factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
         pub(super) fn $factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let data = cloned_module_data_or_else::<$data_ty, _>(
-                $module_name,
-                &module_data,
-                <$data_ty>::new,
-            );
-            let mut module = <$module_ty>::new(data.as_ref().clone());
+            let mut module = <$module_ty>::new_with_module_data(module_data);
             let owner_id = resolve_owner_id(&thing);
             if owner_id != INVALID_ID {
                 module.bind_owner_id(owner_id);
@@ -56,14 +51,9 @@ macro_rules! plain_draw_factory {
     ($factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
         pub(super) fn $factory(
             _thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let data = cloned_module_data_or_else::<$data_ty, _>(
-                $module_name,
-                &module_data,
-                <$data_ty>::new,
-            );
-            Box::new(<$module_ty>::new(data.as_ref().clone()))
+            Box::new(<$module_ty>::new_with_module_data(module_data))
         }
     };
 }
@@ -258,14 +248,9 @@ draw_data_factory!(
 );
 pub(super) fn w3d_tree_draw_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data = cloned_module_data_or_else::<W3DTreeDrawModuleData, _>(
-        "W3DTreeDraw",
-        &module_data,
-        W3DTreeDrawModuleData::new,
-    );
-    let mut module = W3DTreeDraw::new(data.as_ref().clone());
+    let mut module = W3DTreeDraw::new_with_module_data(module_data);
     let drawable_id = resolve_drawable_id(&thing);
     if drawable_id != INVALID_ID {
         module.bind_drawable_id(drawable_id);
@@ -341,14 +326,12 @@ pub(super) fn laser_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn laser_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let module_data =
-        cloned_module_data_or_default::<LaserClientUpdateModuleData>("LaserUpdate", &module_data);
-    Box::new(LaserClientUpdateModule::new(
+    Box::new(LaserClientUpdateModule::new_owned_with_module_data(
         NameKeyGenerator::name_to_key("LaserUpdate"),
         module_data,
-        Some(resolve_owner_id(&thing)),
+        resolve_owner_id(&thing),
     ))
 }
 
@@ -370,13 +353,9 @@ pub(super) fn beacon_client_update_module_data_factory(
 
 pub(super) fn beacon_client_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let module_data = cloned_module_data_or_default::<BeaconClientUpdateModuleData>(
-        "BeaconClientUpdate",
-        &module_data,
-    );
-    Box::new(BeaconClientUpdateModule::new(
+    Box::new(BeaconClientUpdateModule::new_with_module_data(
         NameKeyGenerator::name_to_key("BeaconClientUpdate"),
         module_data,
         resolve_owner_id(&thing),
@@ -391,9 +370,9 @@ pub(super) fn base_client_update_module_data_factory(
 
 pub(super) fn sway_client_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    Box::new(SwayClientUpdateModule::new(
+    Box::new(SwayClientUpdateModule::new_with_module_data(
         NameKeyGenerator::name_to_key("SwayClientUpdate"),
         module_data,
         resolve_owner_id(&thing),
@@ -402,9 +381,9 @@ pub(super) fn sway_client_update_module_factory(
 
 pub(super) fn animated_particle_sys_bone_client_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    Box::new(AnimatedParticleSysBoneClientUpdateModule::new(
+    Box::new(AnimatedParticleSysBoneClientUpdateModule::new_with_module_data(
         NameKeyGenerator::name_to_key("AnimatedParticleSysBoneClientUpdate"),
         module_data,
         resolve_owner_id(&thing),

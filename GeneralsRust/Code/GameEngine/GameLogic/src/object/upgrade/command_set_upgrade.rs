@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
+use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::upgrade::upgrade_module::{
     UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
@@ -74,7 +72,7 @@ impl Snapshotable for CommandSetUpgradeModuleData {
 /// Upgrade module that changes available commands on the owning object.
 pub struct CommandSetUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<CommandSetUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     applied: bool,
 }
@@ -82,7 +80,7 @@ pub struct CommandSetUpgrade {
 impl CommandSetUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<CommandSetUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         Self {
@@ -108,11 +106,11 @@ impl Module for CommandSetUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -139,21 +137,21 @@ impl Snapshotable for CommandSetUpgrade {
 
 impl UpgradeModuleInterface for CommandSetUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+        mux_can_upgrade(&self.data.read().as_any().downcast_ref::<CommandSetUpgradeModuleData>().expect("CommandSetUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
+        { let data = self.data.read().as_any().downcast_ref::<CommandSetUpgradeModuleData>().expect("CommandSetUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
         use crate::helpers::TheGameLogic;
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::upgrade::center::with_upgrade_center;
 
-        let trigger_alt = self.data.trigger_alt().clone();
-        let command_set_alt = self.data.command_set_alt().clone();
-        let command_set_name = self.data.command_set_name().clone();
+        let trigger_alt = self.data.read().as_any().downcast_ref::<CommandSetUpgradeModuleData>().expect("CommandSetUpgradeModuleData").trigger_alt().clone();
+        let command_set_alt = self.data.read().as_any().downcast_ref::<CommandSetUpgradeModuleData>().expect("CommandSetUpgradeModuleData").command_set_alt().clone();
+        let command_set_name = self.data.read().as_any().downcast_ref::<CommandSetUpgradeModuleData>().expect("CommandSetUpgradeModuleData").command_set_name().clone();
 
         let apply_to = |object_guard: &mut crate::object::Object| {
             let mut use_alt = false;
@@ -207,7 +205,7 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ leaves the override; resetUpgrade only clears executed.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().as_any().downcast_ref::<CommandSetUpgradeModuleData>().expect("CommandSetUpgradeModuleData").upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );

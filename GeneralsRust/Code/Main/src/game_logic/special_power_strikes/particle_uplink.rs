@@ -1395,14 +1395,11 @@ fn leftover_puc_authored_types(
         {
             continue;
         }
-        let ini_damage = entry
-            .data
-            .get_ini_field("DamageType")
+        let data = entry.data.read();
+        let ini_damage = data.get_ini_field("DamageType")
             .and_then(|raw| gamelogic::damage::DamageType::from_str(raw.trim()).ok())
             .map(crate::game_logic::combat::DamageType::from_store);
-        let ini_death = entry
-            .data
-            .get_ini_field("DeathType")
+        let ini_death = data.get_ini_field("DeathType")
             .map(|raw| parse_puc_death_type(raw.trim()));
         if let Some(damage) = ini_damage {
             return Some((
@@ -1410,8 +1407,7 @@ fn leftover_puc_authored_types(
                 ini_death.unwrap_or(crate::game_logic::host_usa_pilot::HostDeathType::Lasered),
             ));
         }
-        if let Some(data) = entry
-            .data
+        if let Some(data) = data
             .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
         ) {
             return Some((

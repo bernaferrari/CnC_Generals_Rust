@@ -11,7 +11,7 @@ use crate::common::{AsciiString, Bool, Int, Real, UnsignedInt};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
     "YES",
@@ -318,11 +318,11 @@ const SUPPLY_TRUCK_AI_UPDATE_FIELDS: &[FieldParse<SupplyTruckAIUpdateModuleData>
 #[derive(Debug)]
 pub struct SupplyTruckAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<SupplyTruckAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl SupplyTruckAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<SupplyTruckAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -336,21 +336,21 @@ impl Module for SupplyTruckAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for SupplyTruckAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

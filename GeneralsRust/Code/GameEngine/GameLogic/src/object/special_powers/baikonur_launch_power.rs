@@ -72,7 +72,7 @@ impl Snapshotable for BaikonurLaunchPowerModuleData {
 
 pub struct BaikonurLaunchPower {
     module_name_key: NameKeyType,
-    data: Arc<BaikonurLaunchPowerModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: SpecialPowerModule,
 }
@@ -81,12 +81,12 @@ impl BaikonurLaunchPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<BaikonurLaunchPowerModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             module_name_key,
             owner_object_id,
-            base_module: SpecialPowerModule::new(owner_object_id, data.base.clone()),
+            base_module: super::interface::make_shared_base_module!(owner_object_id, data, BaikonurLaunchPowerModuleData),
             data,
         }
     }
@@ -136,7 +136,12 @@ impl BaikonurLaunchPower {
     }
 
     fn spawn_detonation(&self, loc: &Coord3D) -> Result<(), String> {
-        let Some(template) = TheThingFactory::find_template(self.data.detonation_object.as_str())
+        let detonation_object = {
+            let guard = self.data.read();
+            guard.as_any().downcast_ref::<BaikonurLaunchPowerModuleData>()
+                .expect("BaikonurLaunchPower data type").detonation_object.clone()
+        };
+        let Some(template) = TheThingFactory::find_template(detonation_object.as_str())
         else {
             return Ok(());
         };
@@ -214,11 +219,11 @@ impl Module for BaikonurLaunchPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {

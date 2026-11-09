@@ -207,7 +207,7 @@ impl GrantStealthBehaviorModuleData {
 /// GrantStealthBehavior module
 pub struct GrantStealthBehavior {
     object_id: ObjectID,
-    module_data: Arc<GrantStealthBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     radius_particle_system_id: ParticleSystemID,
     current_scan_radius: Real,
@@ -217,22 +217,21 @@ impl GrantStealthBehavior {
     /// Create a new GrantStealthBehavior instance
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = {
-            let data_ref = module_data
-                .as_ref()
-                .downcast_ref::<GrantStealthBehaviorModuleData>()
-                .ok_or("Invalid module data type for GrantStealthBehavior")?;
-            data_ref.clone()
-        };
-        Self::new_with_data(object, Arc::new(specific_data))
+        Self::new_with_data(object, module_data)
     }
 
     pub fn new_with_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<GrantStealthBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<GrantStealthBehaviorModuleData>() {
+            return Err("Invalid module data type for GrantStealthBehavior".into());
+        }
+        let handle = module_data.clone();
+        let guard = handle.read();
+        let data = guard.as_any().downcast_ref::<GrantStealthBehaviorModuleData>().expect("GrantStealthBehavior module data type");
         let mut behavior = Self {
             object_id: object
                 .read()
@@ -244,9 +243,9 @@ impl GrantStealthBehavior {
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
             current_scan_radius: 0.0,
         };
-        behavior.current_scan_radius = behavior.module_data.start_radius;
+        behavior.current_scan_radius = data.start_radius;
 
-        if let Some(radius_tmpl) = &behavior.module_data.radius_particle_system_tmpl {
+        if let Some(radius_tmpl) = &data.radius_particle_system_tmpl {
             if let Some(manager) = TheParticleSystemManager::get() {
                 if let Some(system_id) =
                     manager.create_particle_system(Some(radius_tmpl.name.as_str()))
@@ -342,11 +341,9 @@ impl GrantStealthBehavior {
     /// Helper for C++ line 167: obj->isAnyKindOf(d->m_kindOf)
     fn matches_kind_of(&self, obj: &GameObject) -> bool {
         // Matches C++ `obj->isAnyKindOf(m_kindOf)` semantics.
-        if self.module_data.kind_of == KIND_OF_MASK_ALL {
-            return true;
-        }
-
-        (obj.get_kind_of() & self.module_data.kind_of) != 0
+        let guard = self.module_data.read();
+        let data = guard.as_any().downcast_ref::<GrantStealthBehaviorModuleData>().expect("GrantStealthBehavior module data type");
+        data.kind_of == KIND_OF_MASK_ALL || (obj.get_kind_of() & data.kind_of) != 0
     }
 
     /// Scan for objects to grant stealth to
@@ -469,10 +466,15 @@ impl UpdateModuleInterface for GrantStealthBehavior {
             return UPDATE_SLEEP_FOREVER;
         }
 
-        self.current_scan_radius += self.module_data.radius_grow_rate;
+        let (grow_rate, final_radius) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<GrantStealthBehaviorModuleData>().expect("GrantStealthBehavior module data type");
+            (data.radius_grow_rate, data.final_radius)
+        };
+        self.current_scan_radius += grow_rate;
         let mut this_is_final_scan = false;
-        if self.current_scan_radius >= self.module_data.final_radius {
-            self.current_scan_radius = self.module_data.final_radius;
+        if self.current_scan_radius >= final_radius {
+            self.current_scan_radius = final_radius;
             this_is_final_scan = true;
         }
 
@@ -544,7 +546,7 @@ impl BehaviorModuleInterface for GrantStealthBehavior {
 pub struct GrantStealthBehaviorModule {
     behavior: GrantStealthBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<GrantStealthBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl GrantStealthBehaviorModule {
@@ -555,7 +557,7 @@ impl GrantStealthBehaviorModule {
     pub fn new(
         behavior: GrantStealthBehavior,
         module_name: &AsciiString,
-        module_data: Arc<GrantStealthBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -594,11 +596,11 @@ impl Module for GrantStealthBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {}
@@ -619,7 +621,7 @@ pub struct GrantStealthBehaviorFactory;
 impl GrantStealthBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let behavior = GrantStealthBehavior::new(thing, module_data)?;
         Ok(Box::new(behavior))
@@ -644,7 +646,7 @@ mod tests {
             mut register: impl FnMut(ObjectID, UpdateModulePtr, UnsignedInt),
             tag: NameKeyType,
         ) -> UpdateModulePtr {
-            let data = Arc::new(GrantStealthBehaviorModuleData {
+            let data = game_engine::common::thing::module::ModuleDataHandle::new(GrantStealthBehaviorModuleData {
                 module_tag_name_key: tag,
                 ..Default::default()
             });
@@ -760,7 +762,7 @@ mod tests {
 
     #[test]
     fn grant_stealth_behavior_xfer_preserves_cpp_runtime_fields() {
-        let module_data = Arc::new(GrantStealthBehaviorModuleData::default());
+        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(GrantStealthBehaviorModuleData::default());
         let mut saved = GrantStealthBehavior {
             object_id: crate::common::INVALID_ID,
             module_data: module_data.clone(),

@@ -103,12 +103,12 @@ mod tests {
     #[test]
     fn module_update_proxy_dispatches_fire_spread_update() {
         for owner_id in [crate::common::INVALID_ID, 9001] {
-            let data = Arc::new(
+            let data = ModuleDataHandle::new(
                 crate::object::update::fire_spread_update::FireSpreadUpdateModuleData::default(),
             );
-            let behavior = crate::object::update::fire_spread_update::FireSpreadUpdate::new(
+            let behavior = crate::object::update::fire_spread_update::FireSpreadUpdate::with_module_data(
                 owner_id,
-                (*data).clone(),
+                data.clone(),
             );
             let mut module = crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
                 behavior,
@@ -135,10 +135,10 @@ mod tests {
     #[test]
     fn find_flammable_update_requires_currently_ignitable_module() {
         let normal_object = Arc::new(RwLock::new(Object::new_test(9103, 100.0)));
-        let normal_data = Arc::new(
+        let normal_data = ModuleDataHandle::new(
             crate::object::behavior::flammable_update::FlammableUpdateModuleData::default(),
         );
-        let normal_flammable = crate::object::behavior::flammable_update::FlammableUpdate::new(
+        let normal_flammable = crate::object::behavior::flammable_update::FlammableUpdate::new_with_module_data(
             Arc::clone(&normal_object),
             normal_data,
         )
@@ -154,10 +154,10 @@ mod tests {
         assert!(normal_object.find_flammable_update().is_some());
 
         let aflame_object = Arc::new(RwLock::new(Object::new_test(9104, 100.0)));
-        let aflame_data = Arc::new(
+        let aflame_data = ModuleDataHandle::new(
             crate::object::behavior::flammable_update::FlammableUpdateModuleData::default(),
         );
-        let mut aflame_flammable = crate::object::behavior::flammable_update::FlammableUpdate::new(
+        let mut aflame_flammable = crate::object::behavior::flammable_update::FlammableUpdate::new_with_module_data(
             Arc::clone(&aflame_object),
             aflame_data,
         )
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn deletion_update_active_wrapper_reports_initial_wake_and_dispatches() {
-        let data = Arc::new(
+        let engine_data = ModuleDataHandle::new(
             crate::object::behavior::deletion_update::DeletionUpdateModuleData {
                 min_lifetime: 7,
                 max_lifetime: 7,
@@ -184,11 +184,9 @@ mod tests {
             },
         );
         let object = Arc::new(RwLock::new(Object::new_test(9101, 100.0)));
-        let legacy_data: Arc<dyn crate::common::ModuleData> = data.clone();
-        let engine_data: Arc<dyn game_engine::common::thing::module::ModuleData> = data.clone();
         let expected_wake_frame = crate::helpers::TheGameLogic::get_frame() + 7;
         let behavior =
-            crate::object::behavior::deletion_update::DeletionUpdate::new(object, legacy_data)
+            crate::object::behavior::deletion_update::DeletionUpdate::new_with_module_data(object, engine_data.clone())
                 .expect("deletion update");
         let module = crate::contain_module_overrides::ActiveBehaviorModule::new(
             "DeletionUpdate",
@@ -217,19 +215,17 @@ mod tests {
 
     #[test]
     fn module_update_proxy_dispatches_active_animation_steering_update() {
-        let data = Arc::new(
+        let engine_data = ModuleDataHandle::new(
             crate::object::behavior::animation_steering_update::AnimationSteeringUpdateModuleData {
                 transition_frames: 3,
                 ..Default::default()
             },
         );
         let object = Arc::new(RwLock::new(Object::new_test(9102, 100.0)));
-        let legacy_data: Arc<dyn crate::common::ModuleData> = data.clone();
-        let engine_data: Arc<dyn game_engine::common::thing::module::ModuleData> = data.clone();
         let behavior =
-            crate::object::behavior::animation_steering_update::AnimationSteeringUpdate::new(
+            crate::object::behavior::animation_steering_update::AnimationSteeringUpdate::new_with_module_data(
                 Arc::clone(&object),
-                legacy_data,
+                engine_data.clone(),
             )
             .expect("animation steering update");
         let mut module = crate::contain_module_overrides::ActiveBehaviorModule::new(
@@ -620,7 +616,7 @@ mod tests {
         let _lock = crate::test_sync::lock();
         struct Probe {
             events: Arc<Mutex<Vec<&'static str>>>,
-            data: Arc<game_engine::common::thing::module::BaseModuleData>,
+            data: ModuleDataHandle,
         }
         impl game_engine::common::system::snapshot::Snapshotable for Probe {
             fn crc(&self, _: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
@@ -637,8 +633,8 @@ mod tests {
             }
         }
         impl Module for Probe {
-            fn get_module_data(&self) -> &dyn ModuleData {
-                self.data.as_ref()
+            fn get_module_data(&self) -> ModuleDataRead<'_> {
+                ModuleDataRead::shared(&self.data)
             }
             fn on_delete(&mut self) {
                 self.events.lock().unwrap().push("on_delete");
@@ -650,7 +646,7 @@ mod tests {
             }
         }
         let events = Arc::new(Mutex::new(Vec::new()));
-        let data = Arc::new(game_engine::common::thing::module::BaseModuleData::new());
+        let data = ModuleDataHandle::new(game_engine::common::thing::module::BaseModuleData::new());
         let mut object = Object::new_test(0xD153, 100.0);
         object.modules.push(Arc::new(ModuleEntry::new(
             "DestructionProbe".into(),
@@ -902,7 +898,7 @@ mod tests {
             self.behaviors.push(crate::common::TemplateModuleInfo {
                 name: crate::common::AsciiString::from("InactiveBody"),
                 module_tag: crate::common::AsciiString::from("ModuleTag_InactiveBody"),
-                data: std::sync::Arc::new(game_engine::common::thing::module::BaseModuleData::new()),
+                data: ModuleDataHandle::new(game_engine::common::thing::module::BaseModuleData::new()),
                 interface_mask: game_engine::common::thing::module::ModuleInterfaceType::NONE,
             });
             self
@@ -921,7 +917,7 @@ mod tests {
             self.behaviors.push(TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: "ModuleTag_ActiveBody".into(),
-                data: Arc::new(data),
+                data: ModuleDataHandle::new(data),
                 interface_mask: ModuleInterfaceType::BODY,
             });
             self

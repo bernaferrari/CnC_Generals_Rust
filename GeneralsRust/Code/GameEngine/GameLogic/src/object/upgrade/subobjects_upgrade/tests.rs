@@ -71,14 +71,14 @@ impl Installed {
             .unwrap()
             .find_module_by_name("SubObjectsUpgrade")
             .expect("canonical authored SubObjectsUpgrade entry");
-        let data = W3DModelDrawModuleData::new();
+        let data = ModuleDataHandle::new(W3DModelDrawModuleData::new());
         let mut drawable = Drawable::new(ID + 1, ID, name.to_owned(), DrawableType::Static);
         let draw = drawable.add_module(
             ModuleInterfaceType::DRAW,
             AsciiString::from("W3DModelDraw"),
             AsciiString::from("ActualVisibility"),
-            Arc::new(data.clone()),
-            Box::new(W3DModelDraw::new(data)),
+            data.clone(),
+            Box::new(W3DModelDraw::new_with_module_data(data)),
         );
         object
             .write()
@@ -207,6 +207,7 @@ impl FXListManagerInterface for Effects {
                 .downcast_ref::<SubObjectsUpgrade>()
                 .unwrap()
                 .data
+                .read()
                 .upgrade_mux_data
                 .removal_upgrade_names
                 .clone()

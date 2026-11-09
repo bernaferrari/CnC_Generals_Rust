@@ -1521,8 +1521,8 @@ fn leftover_calculate_veterancy_overlay_for_thing(template_name: &str) -> Option
         if entry.name.as_str() != "VeterancyGainCreate" {
             continue;
         }
-        if let Some(data) = entry
-            .data
+        let module_data = entry.data.read();
+        if let Some(data) = module_data
             .as_any()
             .downcast_ref::<gamelogic::object::create::VeterancyGainCreateModuleData>(
         ) {
@@ -1538,12 +1538,11 @@ fn leftover_calculate_veterancy_overlay_for_thing(template_name: &str) -> Option
             }
             continue;
         }
-        let starting = entry
-            .data
+        let starting = module_data
             .get_ini_field("StartingLevel")
             .unwrap_or("")
             .to_ascii_uppercase();
-        let science_name = entry.data.get_ini_field("ScienceRequired").unwrap_or("");
+        let science_name = module_data.get_ini_field("ScienceRequired").unwrap_or("");
         let science = if science_name.is_empty() {
             SCIENCE_INVALID
         } else {

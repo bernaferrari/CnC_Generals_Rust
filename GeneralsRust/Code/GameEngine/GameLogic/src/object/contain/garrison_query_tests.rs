@@ -5,6 +5,8 @@ use super::tests::{
 };
 use super::*;
 use crate::common::ThingTemplate;
+use game_engine::common::thing::module::ModuleDataHandle;
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 struct AuthoredBuildingTemplate {
     base: crate::common::DefaultThingTemplate,
@@ -50,7 +52,7 @@ pub(super) fn building_template(name: &str) -> Arc<dyn crate::common::ThingTempl
         modules: vec![crate::common::TemplateModuleInfo {
             name: "ActiveBody".into(),
             module_tag: "GarrisonBuildingBody".into(),
-            data: Arc::new(data),
+            data: ModuleDataHandle::new(data),
             interface_mask: game_engine::common::thing::module::ModuleInterfaceType::BODY,
         }],
     })
@@ -70,7 +72,7 @@ fn trait_query_returns_real_eligibility_and_capacity_without_changing_roster() {
     let waiting = infantry("QueryWaiting", 96103, 0);
     let default = GarrisonContain::new(
         Arc::downgrade(&owner),
-        &GarrisonContainModuleData::default(),
+        ModuleDataHandle::new(ContainModuleDataAdapter::new(GarrisonContainModuleData::default())),
     )
     .unwrap();
     assert!(
@@ -78,7 +80,7 @@ fn trait_query_returns_real_eligibility_and_capacity_without_changing_roster() {
         "CPP strict capacity does not treat unknown -1 as unlimited for Garrison"
     );
     let mut contain =
-        GarrisonContain::new(Arc::downgrade(&owner), &authored_capacity_one(false)).unwrap();
+        GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false)))).unwrap();
     assert!(ContainModuleInterface::can_contain(&contain, 96102));
     assert!(ContainModuleInterface::can_contain(&contain, 96103));
     assert!(!ContainModuleInterface::can_contain(&contain, INVALID_ID));

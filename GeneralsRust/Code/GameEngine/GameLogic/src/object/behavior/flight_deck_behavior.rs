@@ -519,7 +519,7 @@ impl Default for Runway {
 #[derive(Debug)]
 pub struct FlightDeckBehavior {
     /// Configuration data
-    config: FlightDeckBehaviorModuleData,
+    config: game_engine::common::thing::module::ModuleDataView<FlightDeckBehaviorModuleData>,
     /// Template for aircraft creation
     thing_template: Option<Arc<dyn ThingTemplate>>,
     /// Internal state
@@ -574,6 +574,14 @@ struct FlightDeckState {
 impl FlightDeckBehavior {
     /// Create a new flight deck behavior
     pub fn new(object_id: ObjectID, config: FlightDeckBehaviorModuleData) -> Self {
+        Self::new_with_module_data(object_id, game_engine::common::thing::module::ModuleDataHandle::new(config))
+    }
+
+    pub fn new_with_module_data(object_id: ObjectID, handle: game_engine::common::thing::module::ModuleDataHandle) -> Self {
+        let view = game_engine::common::thing::module::ModuleDataView::new(handle, |data| {
+            data.downcast_ref::<FlightDeckBehaviorModuleData>().expect("Invalid FlightDeckBehavior data")
+        });
+        let config = view.read();
         let num_spaces = (config.num_rows * config.num_cols) as usize;
         let mut parking_spaces = Vec::with_capacity(num_spaces);
 
@@ -615,9 +623,10 @@ impl FlightDeckBehavior {
             ramp_up: [false; MAX_RUNWAYS],
             got_info: false,
         };
+        drop(config);
         let now = crate::helpers::TheGameLogic::get_frame();
         Self {
-            config,
+            config: view,
             thing_template: None,
             state,
             taxi_locations_cache: vec![Vec::new(); num_cols],
@@ -632,15 +641,15 @@ impl FlightDeckBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<FlightDeckBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<FlightDeckBehaviorModuleData>() {
+            return Err("Invalid module data type for FlightDeckBehavior".into());
+        }
         let module_object = thing
             .as_object()
             .ok_or_else(|| "FlightDeckBehavior requires an owning object".to_string())?;
-        Ok(Self::new(
-            module_object.get_object_id(),
-            module_data.as_ref().clone(),
-        ))
+        Ok(Self::new_with_module_data(module_object.get_object_id(), module_data))
     }
 
     /// Update the flight deck behavior (called each frame)
@@ -650,6 +659,7 @@ impl FlightDeckBehavior {
             self.build_info(true)?;
         }
         {
+            let config = self.config.read();
             let state = &mut self.state;
             Self::purge_dead(state);
 
@@ -658,7 +668,7 @@ impl FlightDeckBehavior {
                 state,
                 current_frame,
                 self.object_id,
-                self.config.heal_amount,
+                config.heal_amount,
             )?;
 
             // Update parking space assignments
@@ -667,11 +677,11 @@ impl FlightDeckBehavior {
                 current_frame,
                 self.object_id,
                 self.designated_command,
-                &self.config,
+                &config,
             );
 
             // Handle replacement production
-            Self::update_replacements(state, current_frame, self.object_id, &self.config);
+            Self::update_replacements(state, current_frame, self.object_id, &config);
         }
 
         let mut state_for_launch = { self.state.clone() };
@@ -772,10 +782,10 @@ impl FlightDeckBehavior {
         }
 
         self.thing_template =
-            TheThingFactory::find_template(self.config.thing_template_name.as_str());
+            TheThingFactory::find_template(self.config.read().thing_template_name.as_str());
 
         let template = self.thing_template.clone();
-        let deck_height_offset = self.config.landing_deck_height_offset;
+        let deck_height_offset = self.config.read().landing_deck_height_offset;
         self.build_geometry_for_owner(&owner_guard, |prep, orient| {
             let mut object_id = INVALID_OBJECT_ID;
             if let (Some(template), true) = (&template, create_units) {
@@ -814,9 +824,10 @@ impl FlightDeckBehavior {
         owner_guard: &GameObject,
         mut create_unit: impl FnMut(Coord3D, Real) -> ObjectID,
     ) -> BehaviorResult<()> {
+        let config = self.config.read();
         let state = &mut self.state;
-        let num_rows = self.config.num_rows.max(0) as usize;
-        let num_cols = self.config.num_cols.max(0).min(MAX_RUNWAYS as i32) as usize;
+        let num_rows = config.num_rows.max(0) as usize;
+        let num_cols = config.num_cols.max(0).min(MAX_RUNWAYS as i32) as usize;
 
         state.parking_spaces.clear();
         state.runways.clear();
@@ -825,7 +836,7 @@ impl FlightDeckBehavior {
 
         for row in 0..num_rows {
             for col in 0..num_cols {
-                let runway_info = &self.config.runway_info[col];
+                let runway_info = &config.runway_info[col];
                 let bone_name = runway_info.spaces_bone_names.get(row);
                 let mut prep = Coord3D::origin();
                 let mut orient = 0.0;
@@ -851,7 +862,7 @@ impl FlightDeckBehavior {
         }
 
         for col in 0..num_cols {
-            let runway_info = &self.config.runway_info[col];
+            let runway_info = &config.runway_info[col];
             let mut runway = Runway::default();
 
             let (found_start, start, _) =
@@ -1253,7 +1264,10 @@ impl FlightDeckBehavior {
     }
 
     fn update_launch_waves(&mut self, state: &mut FlightDeckState, now: UnsignedInt) {
-        let num_cols = self.config.num_cols.max(0) as usize;
+        let (num_cols, launch_ramp_frames, launch_wave_frames, catapult_fire_frames, lower_ramp_frames) = {
+            let config = self.config.read();
+            (config.num_cols.max(0) as usize, config.launch_ramp_frames, config.launch_wave_frames, config.catapult_fire_frames, config.lower_ramp_frames)
+        };
 
         let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
@@ -1283,7 +1297,7 @@ impl FlightDeckBehavior {
                 if state.next_launch_wave_frame[i] <= now {
                     if !state.ramp_up[i] {
                         state.ramp_up[i] = true;
-                        state.ramp_up_frame[i] = now + self.config.launch_ramp_frames;
+                        state.ramp_up_frame[i] = now + launch_ramp_frames;
                         state.lower_ramp_frame[i] = NEVER;
 
                         if let Some((opening, closing)) = self.door_flags_for_runway(i) {
@@ -1294,18 +1308,16 @@ impl FlightDeckBehavior {
 
                     if state.ramp_up[i] && state.ramp_up_frame[i] <= now {
                         self.propagate_order_to_specific_plane(&jet_guard);
-                        state.next_launch_wave_frame[i] = now + self.config.launch_wave_frames;
-                        state.catapult_system_frame[i] = now + self.config.catapult_fire_frames;
-                        state.lower_ramp_frame[i] = now + self.config.lower_ramp_frames;
+                        state.next_launch_wave_frame[i] = now + launch_wave_frames;
+                        state.catapult_system_frame[i] = now + catapult_fire_frames;
+                        state.lower_ramp_frame[i] = now + lower_ramp_frames;
                     }
                 }
             }
 
             if state.catapult_system_frame[i] <= now {
-                if let Some(template) = self
-                    .config
-                    .runway_info
-                    .get(i)
+                let config = self.config.read();
+                if let Some(template) = config.runway_info.get(i)
                     .and_then(|info| info.catapult_particle_system.as_deref())
                 {
                     if let Some(manager) = TheParticleSystemManager::get() {
@@ -1651,12 +1663,12 @@ impl FlightDeckBehavior {
 
     /// Get approach height
     pub fn get_approach_height(&self) -> f32 {
-        self.config.approach_height
+        self.config.read().approach_height
     }
 
     /// Get landing deck height offset
     pub fn get_landing_deck_height_offset(&self) -> f32 {
-        self.config.landing_deck_height_offset
+        self.config.read().landing_deck_height_offset
     }
 
     pub fn ai_do_command(
@@ -1739,7 +1751,7 @@ impl FlightDeckBehavior {
             return false;
         }
 
-        let num_cols = self.config.num_cols.max(0) as usize;
+        let num_cols = self.config.read().num_cols.max(0) as usize;
         let row_limit = num_cols.min(state.parking_spaces.len());
         for space in state.parking_spaces.iter().take(row_limit) {
             if space.object_id == jet.get_id() {
@@ -1902,7 +1914,7 @@ impl FlightDeckBehavior {
         {
             return Err("flight deck owner is unavailable".into());
         }
-        if !self.config.thing_template_name.is_empty() {
+        if !self.config.read().thing_template_name.is_empty() {
             return Err("flight deck creation requires a supplied factory".into());
         }
         self.build_geometry_for_owner(owner, |_, _| INVALID_OBJECT_ID)
@@ -1926,7 +1938,7 @@ impl FlightDeckBehavior {
         let Some(_) = Self::reserve_space_index(&mut self.state, id) else {
             return Ok(false);
         };
-        if self.config.landing_deck_height_offset != 0.0 {
+        if self.config.read().landing_deck_height_offset != 0.0 {
             rider.set_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET, true);
         }
         self.calc_pp_info(id, info);
@@ -1965,7 +1977,7 @@ impl FlightDeckBehavior {
         Self::purge_dead_with_lookup(&mut self.state, now, dead);
         Ok(Self::reserve_runway_in_state(
             &mut self.state,
-            self.config.num_cols,
+            self.config.read().num_cols,
             id,
             landing,
         ))
@@ -2047,7 +2059,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         let Some(_) = Self::reserve_space_index(state, object_id) else {
             return false;
         };
-        if self.config.landing_deck_height_offset != 0.0 {
+        if self.config.read().landing_deck_height_offset != 0.0 {
             if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(mut guard) = obj.write() {
                     guard.set_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET, true);
@@ -2090,10 +2102,11 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         }
         let state = &mut self.state;
         Self::purge_dead(state);
-        Self::reserve_runway_in_state(state, self.config.num_cols, object_id, for_landing)
+        Self::reserve_runway_in_state(state, self.config.read().num_cols, object_id, for_landing)
     }
 
     fn calc_pp_info(&self, object_id: ObjectID, info: &mut SharedPPInfo) {
+        let config = self.config.read();
         let state = &self.state;
         if !state.got_info {
             return;
@@ -2117,8 +2130,8 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
                 info.runway_exit.x += (runway.end.x - runway.start.x) * approach_dist;
                 info.runway_exit.y += (runway.end.y - runway.start.y) * approach_dist;
                 info.runway_exit.z = runway.end.z
-                    + self.config.approach_height
-                    + self.config.landing_deck_height_offset;
+                    + config.approach_height
+                    + config.landing_deck_height_offset;
 
                 info.runway_landing_start = runway.landing_start;
                 info.runway_landing_end = runway.landing_end;
@@ -2128,8 +2141,8 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
                 info.runway_approach.y +=
                     (runway.landing_start.y - runway.landing_end.y) * approach_dist;
                 info.runway_approach.z = runway.landing_start.z
-                    + self.config.approach_height
-                    + self.config.landing_deck_height_offset;
+                    + config.approach_height
+                    + config.landing_deck_height_offset;
 
                 let vector = info.runway_start - info.runway_end;
                 info.runway_takeoff_dist = vector.length();
@@ -2160,7 +2173,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn get_runway_count(&self) -> Int {
-        self.config.num_cols.max(0)
+        self.config.read().num_cols.max(0)
     }
 
     fn get_runway_reservation(
@@ -2182,11 +2195,11 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn get_approach_height(&self) -> Real {
-        self.config.approach_height
+        self.config.read().approach_height
     }
 
     fn get_landing_deck_height_offset(&self) -> Real {
-        self.config.landing_deck_height_offset
+        self.config.read().landing_deck_height_offset
     }
 
     fn set_healee(&mut self, healee: Option<ObjectID>, add: Bool) {
@@ -2630,7 +2643,7 @@ impl Snapshotable for FlightDeckBehavior {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.thing_template =
-            TheThingFactory::find_template(self.config.thing_template_name.as_str());
+            TheThingFactory::find_template(self.config.read().thing_template_name.as_str());
         Ok(())
     }
 }
@@ -2639,7 +2652,7 @@ impl Snapshotable for FlightDeckBehavior {
 pub struct FlightDeckBehaviorModule {
     behavior: FlightDeckBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<FlightDeckBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl FlightDeckBehaviorModule {
@@ -2650,7 +2663,7 @@ impl FlightDeckBehaviorModule {
     pub fn new(
         behavior: FlightDeckBehavior,
         module_name: &AsciiString,
-        module_data: Arc<FlightDeckBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -2685,12 +2698,12 @@ impl Module for FlightDeckBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -2725,19 +2738,17 @@ pub struct FlightDeckBehaviorFactory;
 impl FlightDeckBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<crate::object::Object>>,
-        module_data: Arc<dyn crate::common::ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        let data = module_data
-            .as_any()
-            .downcast_ref::<FlightDeckBehaviorModuleData>()
-            .ok_or("Invalid module data type for FlightDeckBehavior")?
-            .clone();
+        if !module_data.is::<FlightDeckBehaviorModuleData>() {
+            return Err("Invalid module data type for FlightDeckBehavior".into());
+        }
 
         let object_id = thing.read().map(|guard| guard.get_object_id()).unwrap_or(0);
-        let behavior = FlightDeckBehavior::new(object_id, data);
+        let behavior = FlightDeckBehavior::new_with_module_data(object_id, module_data);
         Ok(Box::new(behavior))
     }
 }

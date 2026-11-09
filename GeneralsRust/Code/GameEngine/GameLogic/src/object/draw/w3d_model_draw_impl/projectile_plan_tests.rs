@@ -20,8 +20,8 @@ fn frozen_plan_does_not_resume_mutated_module_state_or_cache_a_different_name() 
     let plan = draw
         .prepare_projectile_launch_offset(&ModelConditionFlags::empty(), 0, 0, TurretType::Primary)
         .unwrap();
-    draw.data.attach_to_drawable_bone = "other".into();
-    draw.data.condition_states[0].weapon_barrels[0][0].projectile_offset_mtx = Matrix3D::IDENTITY;
+    draw.model_data_mut().attach_to_drawable_bone = "other".into();
+    draw.model_data_mut().condition_states[0].weapon_barrels[0][0].projectile_offset_mtx = Matrix3D::IDENTITY;
     let offset = draw.cache_projectile_attachment(
         plan.attachment_bone.as_ref().unwrap().as_str(),
         Coord3D::new(7.0, 8.0, 9.0),

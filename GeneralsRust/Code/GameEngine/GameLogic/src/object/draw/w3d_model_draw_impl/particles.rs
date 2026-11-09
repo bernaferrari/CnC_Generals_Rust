@@ -58,8 +58,11 @@ impl W3DModelDraw {
             };
             let index = self
                 .current_state()
-                .and_then(|state| state.find_pristine_bone_by_name(bone_name))
-                .map(|(_, bone)| bone.bone_index)
+                .and_then(|state| {
+                    state
+                        .find_pristine_bone_by_name(bone_name)
+                        .map(|(_, bone)| bone.bone_index)
+                })
                 .unwrap_or(0);
             (index, Matrix3D::from_scale(Coord3D::splat(scale)) * local)
         };
@@ -173,21 +176,21 @@ impl W3DModelDraw {
             };
 
             let model_bone = if let Some(runtime) = receiver.as_mut() {
-                let model = self
-                    .current_state()
-                    .map(|state| state.model_name.as_str())
-                    .unwrap_or("");
+                let model = self.current_state()
+                    .map(|state| state.model_name.clone())
+                    .unwrap_or_default();
                 // C++ resolves the selected render object's authored name here,
                 // independently of the public/pristine-bone cache.
-                runtime.model_space_bone(model, info.bone_name.as_str())
+                runtime.model_space_bone(model.as_str(), info.bone_name.as_str())
             } else {
                 self.live_particle_bone_model_space(info.bone_name.as_str(), driver)
                     .or_else(|| {
                         self.current_state()
                             .and_then(|state| {
-                                state.find_pristine_bone_by_name(info.bone_name.as_str())
+                                state
+                                    .find_pristine_bone_by_name(info.bone_name.as_str())
+                                    .map(|(_, bone)| (bone.bone_index, bone.transform))
                             })
-                            .map(|(_, bone)| (bone.bone_index, bone.transform))
                     })
             };
             let (bone_index, bone_transform) = model_bone.unwrap_or((0, Matrix3D::IDENTITY));
@@ -276,39 +279,38 @@ impl W3DModelDraw {
         context: &NativeStateParticleContext,
         receiver: &mut dyn ClientParticleStateRuntime,
     ) -> Result<NativeStateParticlePreparation, String> {
-        let terrain_tracks = !self.data.track_file.is_empty();
-        let animation_pose = self
-            .data
-            .condition_states
-            .iter()
-            .any(|state| !state.animations.is_empty())
-            || self
-                .data
-                .transition_states
+        {
+            let data = self.model_data();
+            let terrain_tracks = !data.track_file.is_empty();
+            let animation_pose = data
+                .condition_states
                 .iter()
-                .any(|state| !state.animations.is_empty());
-        if animation_pose || terrain_tracks {
-            // Unrelated unsupported animation/terrain models must retain their
-            // existing WGPU route. Static models still select state because
-            // their ObjectDraw may answer a later ordered bone query.
-            if self.particle_systems.is_empty()
-                && self
-                    .data
-                    .condition_states
-                    .iter()
-                    .all(|state| state.particle_sys_bones.is_empty())
-                && self
-                    .data
+                .any(|state| !state.animations.is_empty())
+                || data
                     .transition_states
                     .iter()
-                    .all(|state| state.particle_sys_bones.is_empty())
-            {
-                return Ok(NativeStateParticlePreparation::Prepared(false));
+                    .any(|state| !state.animations.is_empty());
+            if animation_pose || terrain_tracks {
+                // Unrelated unsupported animation/terrain models must retain their
+                // existing WGPU route. Static models still select state because
+                // their ObjectDraw may answer a later ordered bone query.
+                if self.particle_systems.is_empty()
+                    && data
+                        .condition_states
+                        .iter()
+                        .all(|state| state.particle_sys_bones.is_empty())
+                    && data
+                        .transition_states
+                        .iter()
+                        .all(|state| state.particle_sys_bones.is_empty())
+                {
+                    return Ok(NativeStateParticlePreparation::Prepared(false));
+                }
+                return Ok(NativeStateParticlePreparation::Unsupported {
+                    animation_pose,
+                    terrain_tracks,
+                });
             }
-            return Ok(NativeStateParticlePreparation::Unsupported {
-                animation_pose,
-                terrain_tracks,
-            });
         }
         // Drawable's original early return permits visibility synchronization
         // but no state selection, cache lookup, RNG, or emitter birth.
@@ -425,10 +427,10 @@ impl W3DModelDraw {
         &self,
         receiver: &mut dyn ClientParticleBoneRuntime,
     ) -> bool {
-        let Some(state) = self.current_state() else {
+        let Some(model) = self.current_state().map(|state| state.model_name.clone()) else {
             return true;
         };
-        if state.model_name.as_str().is_empty() {
+        if model.as_str().is_empty() {
             return true;
         }
         for tracker in &self.particle_systems {
@@ -441,7 +443,7 @@ impl W3DModelDraw {
                 continue;
             }
             if let Some(transform) = receiver.bone_transform(
-                state.model_name.as_str(),
+                model.as_str(),
                 tracker.bone_index,
                 tracker.bone_name.as_str(),
             ) {

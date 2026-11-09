@@ -229,30 +229,33 @@ const FIRE_WEAPON_WHEN_DEAD_FIELDS: &[FieldParse<FireWeaponWhenDeadBehaviorModul
 /// Matches C++ FireWeaponWhenDeadBehavior.cpp lines 42-145
 pub struct FireWeaponWhenDeadBehavior {
     object_id: ObjectID,
-    module_data: FireWeaponWhenDeadBehaviorModuleData,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     upgrade_mux: UpgradeMux,
 }
 
 impl FireWeaponWhenDeadBehavior {
     /// Creates new FireWeaponWhenDeadBehavior. Matches C++ lines 42-49
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
+        let guard = module_data.read();
+        let data = guard.downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
             .ok_or("Invalid module data for FireWeaponWhenDeadBehavior")?;
-
-        let data = specific_data.clone();
-        let mut upgrade_mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mut upgrade_mux = UpgradeMux::new_shared(
+            game_engine::common::thing::module::ModuleDataView::new(module_data.clone(), |data| {
+                &data.downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
+                    .expect("Invalid module data").upgrade_mux_data
+            }),
+        );
         if data.initially_active {
             if let Ok(mut obj_guard) = object.write() {
-                upgrade_mux.data.perform_upgrade_fx(&mut obj_guard);
-                upgrade_mux.data.process_upgrade_removal(&mut obj_guard);
+                data.upgrade_mux_data.perform_upgrade_fx(&mut obj_guard);
+                data.upgrade_mux_data.process_upgrade_removal(&mut obj_guard);
             }
             upgrade_mux.set_upgrade_executed(true);
         }
+        drop(guard);
 
         Ok(Self {
             object_id: object
@@ -260,7 +263,7 @@ impl FireWeaponWhenDeadBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: data,
+            module_data,
             upgrade_mux,
         })
     }
@@ -272,7 +275,8 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>().expect("Invalid module data");
 
         // Check if upgrade is active. Matches C++ lines 65-66
         if !self.upgrade_mux.is_already_upgraded() {
@@ -376,7 +380,8 @@ impl UpgradeModuleInterface for FireWeaponWhenDeadBehavior {
 
 impl FireWeaponWhenDeadBehavior {
     fn get_upgrade_activation_masks(&self) -> (UpgradeMaskType, UpgradeMaskType) {
-        let mut mux = self.module_data.upgrade_mux_data.clone();
+        let mut mux = self.module_data.read().downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
+            .expect("Invalid module data").upgrade_mux_data.clone();
         let (activation, conflicting) = mux.get_upgrade_activation_masks();
         (
             UpgradeMaskType::from_bits_retain(activation.to_bits()),
@@ -422,14 +427,14 @@ impl Snapshotable for FireWeaponWhenDeadBehavior {
 pub struct FireWeaponWhenDeadBehaviorModule {
     behavior: FireWeaponWhenDeadBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<FireWeaponWhenDeadBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl FireWeaponWhenDeadBehaviorModule {
     pub fn new(
         behavior: FireWeaponWhenDeadBehavior,
         module_name: &AsciiString,
-        module_data: Arc<FireWeaponWhenDeadBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -472,12 +477,12 @@ impl Module for FireWeaponWhenDeadBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 }
 
 /// Factory for creating FireWeaponWhenDeadBehavior
@@ -486,9 +491,9 @@ pub struct FireWeaponWhenDeadBehaviorFactory;
 impl FireWeaponWhenDeadBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FireWeaponWhenDeadBehavior::new(
+        Ok(Box::new(FireWeaponWhenDeadBehavior::new_with_module_data(
             thing,
             module_data,
         )?))

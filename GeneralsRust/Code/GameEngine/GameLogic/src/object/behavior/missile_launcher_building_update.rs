@@ -173,7 +173,7 @@ const MISSILE_LAUNCHER_BUILDING_UPDATE_FIELDS: &[FieldParse<
 /// MissileLauncherBuildingUpdate - manages building doors for special powers
 pub struct MissileLauncherBuildingUpdate {
     object_id: ObjectID,
-    module_data: Arc<MissileLauncherBuildingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<MissileLauncherBuildingUpdateModuleData>,
 
     next_call_frame_and_phase: UnsignedInt,
     door_state: DoorStateType,
@@ -185,16 +185,18 @@ pub struct MissileLauncherBuildingUpdate {
 impl MissileLauncherBuildingUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
+        if !module_data.is::<MissileLauncherBuildingUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(module_data, |data| data.as_any().downcast_ref::<MissileLauncherBuildingUpdateModuleData>().expect("MissileLauncherBuildingUpdate module data type"));
         let mut audio = AudioEventRts::default();
-        if let Some(audio_name) = &data.open_idle_audio {
-            audio.set_event_name(audio_name.clone());
+        {
+            let data = module_data.read();
+            if let Some(audio_name) = &data.open_idle_audio {
+                audio.set_event_name(audio_name.clone());
+            }
         }
 
         Ok(Self {
@@ -203,7 +205,7 @@ impl MissileLauncherBuildingUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             door_state: DoorStateType::Closed,
             timeout_state: DoorStateType::Closed,
@@ -229,7 +231,7 @@ impl MissileLauncherBuildingUpdate {
                 clr.insert(MODELCONDITION_DOOR_1_WAITING_OPEN);
                 self.timeout_frame = 0;
                 self.timeout_state = DoorStateType::Closed;
-                if let Some(fx_name) = &self.module_data.closed_fx {
+                if let Some(fx_name) = &self.module_data.read().closed_fx {
                     if let Some(fx) = TheFXList::get() {
                         fx.do_fx_at_position(fx_name, obj.get_position());
                     }
@@ -251,7 +253,7 @@ impl MissileLauncherBuildingUpdate {
                 };
                 self.timeout_state = DoorStateType::Open;
 
-                if let Some(fx_name) = &self.module_data.opening_fx {
+                if let Some(fx_name) = &self.module_data.read().opening_fx {
                     if let Some(fx) = TheFXList::get() {
                         fx.do_fx_at_position(fx_name, obj.get_position());
                     }
@@ -266,7 +268,7 @@ impl MissileLauncherBuildingUpdate {
                 self.timeout_frame = 0;
                 self.timeout_state = DoorStateType::Open;
 
-                if let Some(fx_name) = &self.module_data.open_fx {
+                if let Some(fx_name) = &self.module_data.read().open_fx {
                     if let Some(fx) = TheFXList::get() {
                         fx.do_fx_at_position(fx_name, obj.get_position());
                     }
@@ -278,10 +280,10 @@ impl MissileLauncherBuildingUpdate {
                 clr.insert(MODELCONDITION_DOOR_1_OPENING);
                 clr.insert(MODELCONDITION_DOOR_1_WAITING_OPEN);
                 set.insert(MODELCONDITION_DOOR_1_WAITING_TO_CLOSE);
-                self.timeout_frame = now + self.module_data.door_wait_open_time;
+                self.timeout_frame = now + self.module_data.read().door_wait_open_time;
                 self.timeout_state = DoorStateType::Closing;
 
-                if let Some(fx_name) = &self.module_data.waiting_to_close_fx {
+                if let Some(fx_name) = &self.module_data.read().waiting_to_close_fx {
                     if let Some(fx) = TheFXList::get() {
                         fx.do_fx_at_position(fx_name, obj.get_position());
                     }
@@ -293,7 +295,7 @@ impl MissileLauncherBuildingUpdate {
                 clr.insert(MODELCONDITION_DOOR_1_WAITING_OPEN);
                 clr.insert(MODELCONDITION_DOOR_1_OPENING);
                 set.insert(MODELCONDITION_DOOR_1_CLOSING);
-                self.timeout_frame = now + self.module_data.door_closing_time;
+                self.timeout_frame = now + self.module_data.read().door_closing_time;
 
                 // Adjust timeout if power recharges faster
                 let ready_frame = self.get_power_ready_frame();
@@ -307,7 +309,7 @@ impl MissileLauncherBuildingUpdate {
                 }
 
                 self.timeout_state = DoorStateType::Closed;
-                if let Some(fx_name) = &self.module_data.closing_fx {
+                if let Some(fx_name) = &self.module_data.read().closing_fx {
                     if let Some(fx) = TheFXList::get() {
                         fx.do_fx_at_position(fx_name, obj.get_position());
                     }
@@ -348,7 +350,7 @@ impl MissileLauncherBuildingUpdate {
         }) {
             if let Ok(obj) = obj_arc.read() {
                 if let Some(frame) = obj.with_special_power_module_interface_by_name(
-                    &self.module_data.special_power_template_name,
+                    &self.module_data.read().special_power_template_name,
                     |spm| spm.get_ready_frame(),
                 ) {
                     return frame;
@@ -372,7 +374,7 @@ impl MissileLauncherBuildingUpdate {
         }) {
             if let Ok(obj) = obj_arc.read() {
                 if let Some(is_ready) = obj.with_special_power_module_interface_by_name(
-                    &self.module_data.special_power_template_name,
+                    &self.module_data.read().special_power_template_name,
                     |spm| spm.is_ready(),
                 ) {
                     return is_ready;
@@ -432,7 +434,7 @@ impl UpdateModuleInterface for MissileLauncherBuildingUpdate {
 
         let has_special_power = if let Ok(obj) = obj_arc.read() {
             obj.with_special_power_module_interface_by_name(
-                &self.module_data.special_power_template_name,
+                &self.module_data.read().special_power_template_name,
                 |_| true,
             )
             .unwrap_or(false)
@@ -442,8 +444,9 @@ impl UpdateModuleInterface for MissileLauncherBuildingUpdate {
 
         if has_special_power {
             let ready_frame = self.get_power_ready_frame();
-            let when_to_start_opening = if ready_frame >= self.module_data.door_open_time {
-                ready_frame - self.module_data.door_open_time
+            let door_open_time = self.module_data.read().door_open_time;
+            let when_to_start_opening = if ready_frame >= door_open_time {
+                ready_frame - door_open_time
             } else {
                 0
             };
@@ -564,26 +567,23 @@ pub struct MissileLauncherBuildingUpdateFactory;
 impl MissileLauncherBuildingUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(MissileLauncherBuildingUpdate::new(
-            thing,
-            module_data,
-        )?))
+        Ok(Box::new(MissileLauncherBuildingUpdate::new(thing, module_data)?))
     }
 }
 
 pub struct MissileLauncherBuildingUpdateModule {
     behavior: MissileLauncherBuildingUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<MissileLauncherBuildingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl MissileLauncherBuildingUpdateModule {
     pub fn new(
         behavior: MissileLauncherBuildingUpdate,
         module_name: &AsciiString,
-        module_data: Arc<MissileLauncherBuildingUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -668,11 +668,11 @@ impl Module for MissileLauncherBuildingUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

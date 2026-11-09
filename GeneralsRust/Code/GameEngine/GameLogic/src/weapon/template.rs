@@ -276,7 +276,7 @@ impl WeaponTemplate {
             if info.name.as_str() != "SpecialPowerCompletionDie" {
                 continue;
             }
-            if let Some(template_name) = info.data.get_special_power_completion_template() {
+            if let Some(template_name) = info.data.read().get_special_power_completion_template() {
                 return Some(template_name.to_string());
             }
         }
@@ -304,6 +304,7 @@ impl WeaponTemplate {
             }
             if let Some(data) = info
                 .data
+                .read()
                 .as_any()
                 .downcast_ref::<MissileAIUpdateModuleData>()
             {

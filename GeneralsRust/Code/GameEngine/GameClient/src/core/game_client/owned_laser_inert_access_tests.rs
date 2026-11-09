@@ -28,7 +28,7 @@ impl World {
         template.add_draw_module_info(
             "W3DLaserDraw".into(),
             "Beam".into(),
-            Arc::new(W3DLaserDrawModuleData {
+            game_engine::common::thing::module::ModuleDataHandle::new(W3DLaserDrawModuleData {
                 inner_beam_width: 4.,
                 outer_beam_width: 8.,
                 texture_name: "OwnedBeam".into(),
@@ -39,7 +39,7 @@ impl World {
         template.add_client_update_module_info(
             "LaserUpdate".into(),
             "Laser".into(),
-            Arc::new(LaserUpdateModuleData {
+            game_engine::common::thing::module::ModuleDataHandle::new(LaserUpdateModuleData {
                 particle_system_name: "Lens".into(),
                 target_particle_system_name: "Target".into(),
                 ..LaserUpdateModuleData::default()

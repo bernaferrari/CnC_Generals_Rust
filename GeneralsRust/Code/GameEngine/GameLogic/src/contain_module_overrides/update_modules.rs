@@ -56,22 +56,20 @@ pub(super) fn battle_plan_update_data_factory(ini: Option<&mut INI>) -> Box<dyn 
 
 pub(super) fn battle_plan_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<BattlePlanUpdateModuleData>("BattlePlanUpdate", &module_data);
-    let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
+    assert!(module_data.is::<BattlePlanUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("BattlePlanUpdate", &module_data);
     };
     let behavior =
-        BattlePlanUpdate::new(object, engine_data).expect("BattlePlanUpdate failed to initialize");
+        BattlePlanUpdate::new_with_module_data(object, module_data.clone()).expect("BattlePlanUpdate failed to initialize");
     Box::new(BattlePlanUpdateModule::new(
         behavior,
         &AsciiString::from("BattlePlanUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -91,22 +89,20 @@ pub(super) fn cleanup_hazard_update_data_factory(ini: Option<&mut INI>) -> Box<d
 
 pub(super) fn cleanup_hazard_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<CleanupHazardUpdateModuleData>("CleanupHazardUpdate", &module_data);
-    let engine_data: Arc<dyn crate::common::ModuleData> = data_arc.clone();
+    assert!(module_data.is::<CleanupHazardUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("CleanupHazardUpdate", &module_data);
     };
-    let behavior = CleanupHazardUpdate::new(object, engine_data)
+    let behavior = CleanupHazardUpdate::new(object, module_data.clone())
         .expect("CleanupHazardUpdate failed to initialize");
     Box::new(CleanupHazardUpdateModule::new(
         behavior,
         &AsciiString::from("CleanupHazardUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -128,18 +124,15 @@ pub(super) fn command_button_hunt_update_data_factory(
 
 pub(super) fn command_button_hunt_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CommandButtonHuntUpdateModuleData>(
-        "CommandButtonHuntUpdate",
-        &module_data,
-    );
+    assert!(module_data.is::<CommandButtonHuntUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
-    let behavior = CommandButtonHuntUpdate::new(owner_id, data_arc.clone());
+    let behavior = CommandButtonHuntUpdate::new(owner_id, module_data.clone());
     Box::new(CommandButtonHuntUpdateModule::new(
         behavior,
         &AsciiString::from("CommandButtonHuntUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -159,14 +152,14 @@ pub(super) fn spy_vision_update_data_factory(ini: Option<&mut INI>) -> Box<dyn M
 
 pub(super) fn spy_vision_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<SpyVisionUpdateModuleData>("SpyVisionUpdate", &module_data);
+    assert!(module_data.is::<SpyVisionUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let module_name = AsciiString::from("SpyVisionUpdate");
     let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
-    let behavior = SpyVisionUpdate::new(module_name_key, data_arc.clone(), owner_id);
-    Box::new(SpyVisionUpdateModule::new(behavior, &module_name, data_arc))
+    let behavior = SpyVisionUpdate::new(module_name_key, module_data.clone(), owner_id);
+    Box::new(SpyVisionUpdateModule::new(behavior, &module_name, module_data))
 }
 
 pub(super) fn slaved_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
@@ -185,16 +178,16 @@ pub(super) fn slaved_update_data_factory(ini: Option<&mut INI>) -> Box<dyn Modul
 
 pub(super) fn slaved_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<SlavedUpdateModuleData>("SlavedUpdate", &module_data);
+    assert!(module_data.is::<SlavedUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let behavior =
-        SlavedUpdate::new(owner_id, data_arc.clone()).expect("SlavedUpdate failed to initialize");
+        SlavedUpdate::new(owner_id, module_data.clone()).expect("SlavedUpdate failed to initialize");
     Box::new(SlavedUpdateModule::new(
         behavior,
         &AsciiString::from("SlavedUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -214,24 +207,20 @@ pub(super) fn mob_member_slaved_update_data_factory(ini: Option<&mut INI>) -> Bo
 
 pub(super) fn mob_member_slaved_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<MobMemberSlavedUpdateModuleData>(
-        "MobMemberSlavedUpdate",
-        &module_data,
-    );
+    assert!(module_data.is::<MobMemberSlavedUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("MobMemberSlavedUpdate", &module_data);
     };
-    let legacy_data: Arc<dyn LegacyModuleData> = data_arc.clone();
-    let behavior = MobMemberSlavedUpdate::new(object, legacy_data)
+    let behavior = MobMemberSlavedUpdate::new(object, module_data.clone())
         .expect("MobMemberSlavedUpdate failed to initialize");
     Box::new(MobMemberSlavedUpdateModule::new(
         behavior,
         &AsciiString::from("MobMemberSlavedUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -251,16 +240,14 @@ pub(super) fn fire_spread_update_data_factory(ini: Option<&mut INI>) -> Box<dyn 
 
 pub(super) fn fire_spread_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<FireSpreadUpdateModuleData>("FireSpreadUpdate", &module_data);
-    let owner_id = resolve_owner_id(&thing);
-    let behavior = FireSpreadUpdate::new(owner_id, (*data_arc).clone());
+    assert!(module_data.is::<FireSpreadUpdateModuleData>());
+    let behavior = FireSpreadUpdate::with_module_data(resolve_owner_id(&thing), module_data.clone());
     Box::new(FireSpreadUpdateModule::new(
         behavior,
         &AsciiString::from("FireSpreadUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -280,15 +267,14 @@ pub(super) fn rebuild_hole_behavior_data_factory(ini: Option<&mut INI>) -> Box<d
 
 pub(super) fn rebuild_hole_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<RebuildHoleBehaviorModuleData>("RebuildHoleBehavior", &module_data);
-    let behavior = RebuildHoleBehavior::from_module_thing(thing, data_arc.clone());
+    assert!(module_data.is::<RebuildHoleBehaviorModuleData>());
+    let behavior = RebuildHoleBehavior::from_module_thing(thing, module_data.clone());
     Box::new(RebuildHoleBehaviorModule::new(
         behavior,
         &AsciiString::from("RebuildHoleBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -308,15 +294,14 @@ pub(super) fn overcharge_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn overcharge_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<OverchargeBehaviorModuleData>("OverchargeBehavior", &module_data);
-    let behavior = OverchargeBehavior::from_module_thing(thing, data_arc.clone());
+    assert!(module_data.is::<OverchargeBehaviorModuleData>());
+    let behavior = OverchargeBehavior::from_module_thing(thing, module_data.clone());
     Box::new(OverchargeBehaviorModule::new(
         behavior,
         &"OverchargeBehavior".to_string(),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -336,15 +321,14 @@ pub(super) fn auto_heal_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn 
 
 pub(super) fn auto_heal_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<AutoHealBehaviorModuleData>("AutoHealBehavior", &module_data);
-    let behavior = AutoHealBehavior::from_module_thing(thing, data_arc.clone());
+    assert!(module_data.is::<AutoHealBehaviorModuleData>());
+    let behavior = AutoHealBehavior::from_module_thing(thing, module_data.clone());
     Box::new(AutoHealBehaviorModule::new(
         behavior,
         &AsciiString::from("AutoHealBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -360,17 +344,17 @@ pub(crate) fn register_inert_auto_heal(
 }
 fn auto_heal_behavior_module_factory_inert(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data = cloned_module_data::<AutoHealBehaviorModuleData>("AutoHealBehavior", &module_data);
+    assert!(module_data.is::<AutoHealBehaviorModuleData>());
     let id = thing
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(crate::common::INVALID_ID);
     Box::new(AutoHealBehaviorModule::new(
-        AutoHealBehavior::construct_inert_with_object_id(id, Arc::clone(&data)),
+        AutoHealBehavior::construct_inert_with_object_id(id, module_data.clone()),
         &AsciiString::from("AutoHealBehavior"),
-        data,
+        module_data,
     ))
 }
 
@@ -390,24 +374,20 @@ pub(super) fn countermeasures_behavior_data_factory(ini: Option<&mut INI>) -> Bo
 
 pub(super) fn countermeasures_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CountermeasuresBehaviorModuleData>(
-        "CountermeasuresBehavior",
-        &module_data,
-    );
-    let behavior = match CountermeasuresBehavior::from_module_thing(thing, data_arc.clone()) {
+    assert!(module_data.is::<CountermeasuresBehaviorModuleData>());
+    let behavior = match CountermeasuresBehavior::from_module_thing(thing, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("CountermeasuresBehavior", data_for_missing);
+            return missing_owner_module("CountermeasuresBehavior", module_data);
         }
     };
     Box::new(CountermeasuresBehaviorModule::new(
         behavior,
         &AsciiString::from("CountermeasuresBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -427,24 +407,20 @@ pub(super) fn dumb_projectile_behavior_data_factory(ini: Option<&mut INI>) -> Bo
 
 pub(super) fn dumb_projectile_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<DumbProjectileBehaviorModuleData>(
-        "DumbProjectileBehavior",
-        &module_data,
-    );
-    let behavior = match DumbProjectileBehavior::from_module_thing(thing, data_arc.clone()) {
+    assert!(module_data.is::<DumbProjectileBehaviorModuleData>());
+    let behavior = match DumbProjectileBehavior::from_module_thing(thing, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("DumbProjectileBehavior", data_for_missing);
+            return missing_owner_module("DumbProjectileBehavior", module_data);
         }
     };
     Box::new(DumbProjectileBehaviorModule::new(
         behavior,
         &AsciiString::from("DumbProjectileBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -464,21 +440,20 @@ pub(super) fn bridge_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn Mod
 
 pub(super) fn bridge_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<BridgeBehaviorModuleData>("BridgeBehavior", &module_data);
-    let behavior = match BridgeBehavior::from_module_thing(thing, data_arc.clone()) {
+    assert!(module_data.is::<BridgeBehaviorModuleData>());
+    let behavior = match BridgeBehavior::from_module_thing(thing, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("BridgeBehavior", data_for_missing);
+            return missing_owner_module("BridgeBehavior", module_data);
         }
     };
     Box::new(BridgeBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -498,24 +473,20 @@ pub(super) fn bridge_scaffold_behavior_data_factory(ini: Option<&mut INI>) -> Bo
 
 pub(super) fn bridge_scaffold_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<BridgeScaffoldBehaviorModuleData>(
-        "BridgeScaffoldBehavior",
-        &module_data,
-    );
-    let behavior = match BridgeScaffoldBehavior::from_module_thing(thing, data_arc.clone()) {
+    assert!(module_data.is::<BridgeScaffoldBehaviorModuleData>());
+    let behavior = match BridgeScaffoldBehavior::from_module_thing(thing, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("BridgeScaffoldBehavior", data_for_missing);
+            return missing_owner_module("BridgeScaffoldBehavior", module_data);
         }
     };
     Box::new(BridgeScaffoldBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeScaffoldBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -535,22 +506,20 @@ pub(super) fn bridge_tower_behavior_data_factory(ini: Option<&mut INI>) -> Box<d
 
 pub(super) fn bridge_tower_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<BridgeTowerBehaviorModuleData>("BridgeTowerBehavior", &module_data);
-    let behavior = match BridgeTowerBehavior::from_module_thing(thing, data_arc.clone()) {
+    assert!(module_data.is::<BridgeTowerBehaviorModuleData>());
+    let behavior = match BridgeTowerBehavior::from_module_thing(thing, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("BridgeTowerBehavior", data_for_missing);
+            return missing_owner_module("BridgeTowerBehavior", module_data);
         }
     };
     Box::new(BridgeTowerBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeTowerBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -570,29 +539,25 @@ pub(super) fn structure_collapse_update_data_factory(ini: Option<&mut INI>) -> B
 
 pub(super) fn structure_collapse_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
     let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("StructureCollapseUpdate", &module_data);
     };
-    let data_arc = cloned_module_data::<StructureCollapseUpdateModuleData>(
-        "StructureCollapseUpdate",
-        &module_data,
-    );
-    let behavior = match StructureCollapseUpdate::new_with_data(owner, data_arc.clone()) {
+    assert!(module_data.is::<StructureCollapseUpdateModuleData>());
+    let behavior = match StructureCollapseUpdate::new_with_data(owner, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("StructureCollapseUpdate", data_for_missing);
+            return missing_owner_module("StructureCollapseUpdate", module_data);
         }
     };
     Box::new(StructureCollapseUpdateModule::new(
         behavior,
         &AsciiString::from("StructureCollapseUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -612,29 +577,25 @@ pub(super) fn structure_topple_update_data_factory(ini: Option<&mut INI>) -> Box
 
 pub(super) fn structure_topple_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
     let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("StructureToppleUpdate", &module_data);
     };
-    let data_arc = cloned_module_data::<StructureToppleUpdateModuleData>(
-        "StructureToppleUpdate",
-        &module_data,
-    );
-    let behavior = match StructureToppleUpdate::new_with_data(owner, data_arc.clone()) {
+    assert!(module_data.is::<StructureToppleUpdateModuleData>());
+    let behavior = match StructureToppleUpdate::new_with_data(owner, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("StructureToppleUpdate", data_for_missing);
+            return missing_owner_module("StructureToppleUpdate", module_data);
         }
     };
     Box::new(StructureToppleUpdateModule::new(
         behavior,
         &AsciiString::from("StructureToppleUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -654,27 +615,25 @@ pub(super) fn grant_stealth_behavior_data_factory(ini: Option<&mut INI>) -> Box<
 
 pub(super) fn grant_stealth_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
     let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("GrantStealthBehavior", &module_data);
     };
-    let data_arc =
-        cloned_module_data::<GrantStealthBehaviorModuleData>("GrantStealthBehavior", &module_data);
-    let behavior = match GrantStealthBehavior::new_with_data(owner, data_arc.clone()) {
+    assert!(module_data.is::<GrantStealthBehaviorModuleData>());
+    let behavior = match GrantStealthBehavior::new_with_data(owner, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("GrantStealthBehavior", data_for_missing);
+            return missing_owner_module("GrantStealthBehavior", module_data);
         }
     };
     Box::new(GrantStealthBehaviorModule::new(
         behavior,
         &AsciiString::from("GrantStealthBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -694,14 +653,14 @@ pub(super) fn stealth_update_module_data_factory(ini: Option<&mut INI>) -> Box<d
 
 pub(super) fn stealth_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<CoreStealthUpdateModuleData>("StealthUpdate", &module_data);
+    assert!(module_data.is::<CoreStealthUpdateModuleData>());
     let object_id = resolve_owner_id(&thing);
     let module_name_key = NameKeyGenerator::name_to_key("StealthUpdate");
     Box::new(CoreStealthUpdateModule::new_staged(
         module_name_key,
-        data_arc,
+        module_data,
         object_id,
     ))
 }
@@ -724,22 +683,20 @@ pub(super) fn transition_damage_fx_module_data_factory(
 
 pub(super) fn transition_damage_fx_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<TransitionDamageFXModuleData>("TransitionDamageFX", &module_data);
-    let behavior = match TransitionDamageFX::from_module_thing(thing, data_arc.clone()) {
+    assert!(module_data.is::<TransitionDamageFXModuleData>());
+    let behavior = match TransitionDamageFX::from_module_thing(thing, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(_) => {
             // Wave 449: missing owner → no-op module.
-            let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-            return missing_owner_module("TransitionDamageFX", data_for_missing);
+            return missing_owner_module("TransitionDamageFX", module_data);
         }
     };
     Box::new(TransitionDamageFXModule::new(
         behavior,
         &AsciiString::from("TransitionDamageFX"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -759,7 +716,7 @@ pub(super) fn emp_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleDa
 
 pub(super) fn emp_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
     let owner = match TheGameLogic::find_object_by_id(owner_id) {
@@ -769,13 +726,13 @@ pub(super) fn emp_update_module_factory(
             return missing_owner_module_auto("EMPUpdate", &module_data);
         }
     };
-    let data_arc = cloned_module_data::<EMPUpdateModuleData>("EMPUpdate", &module_data);
+    assert!(module_data.is::<EMPUpdateModuleData>());
     let behavior =
-        EMPUpdate::new_with_data(owner, data_arc.clone()).expect("EMPUpdate failed to initialize");
+        EMPUpdate::new_with_data(owner, module_data.clone()).expect("EMPUpdate failed to initialize");
     Box::new(EMPUpdateModule::new(
         behavior,
         &AsciiString::from("EMPUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -795,15 +752,15 @@ pub(super) fn bone_fx_update_data_factory(ini: Option<&mut INI>) -> Box<dyn Modu
 
 pub(super) fn bone_fx_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let data_arc = cloned_module_data::<BoneFXUpdateModuleData>("BoneFXUpdate", &module_data);
-    let behavior = BoneFXUpdate::new(owner_id, data_arc.clone());
+    assert!(module_data.is::<BoneFXUpdateModuleData>());
+    let behavior = BoneFXUpdate::new(owner_id, module_data.clone());
     Box::new(BoneFXUpdateModule::new(
         behavior,
         &AsciiString::from("BoneFXUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -813,15 +770,15 @@ pub(super) fn bone_fx_damage_data_factory(_ini: Option<&mut INI>) -> Box<dyn Mod
 
 pub(super) fn bone_fx_damage_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
-    let data_arc = cloned_module_data::<DamageModuleData>("BoneFXDamage", &module_data);
+    assert!(module_data.is::<DamageModuleData>());
     let behavior = BoneFXDamage::new(owner_id);
     Box::new(BoneFXDamageModule::new(
         behavior,
         &AsciiString::from("BoneFXDamage"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -841,7 +798,7 @@ pub(super) fn spawn_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn Modu
 
 pub(super) fn spawn_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     // C++ SpawnBehavior(thing, moduleData): the supplied thing is the owner;
     // owned construction must not require a registry publication.
@@ -849,13 +806,13 @@ pub(super) fn spawn_behavior_module_factory(
     if owner_id == crate::common::INVALID_ID {
         return missing_owner_module_auto("SpawnBehavior", &module_data);
     }
-    let data_arc = cloned_module_data::<SpawnBehaviorModuleData>("SpawnBehavior", &module_data);
-    let behavior = SpawnBehavior::new_with_data(owner_id, data_arc.clone())
+    assert!(module_data.is::<SpawnBehaviorModuleData>());
+    let behavior = SpawnBehavior::new_with_data(owner_id, module_data.clone())
     .expect("SpawnBehavior failed to initialize");
     Box::new(SpawnBehaviorModule::new(
         behavior,
         &AsciiString::from("SpawnBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -877,22 +834,19 @@ pub(super) fn particle_uplink_cannon_update_data_factory(
 
 pub(super) fn particle_uplink_cannon_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let owner_id = resolve_owner_id(&thing);
     let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("ParticleUplinkCannonUpdate", &module_data);
     };
-    let data_arc = cloned_module_data::<ParticleUplinkCannonUpdateModuleData>(
-        "ParticleUplinkCannonUpdate",
-        &module_data,
-    );
-    let behavior = ParticleUplinkCannonUpdate::new_with_data(owner, data_arc.clone())
+    assert!(module_data.is::<ParticleUplinkCannonUpdateModuleData>());
+    let behavior = ParticleUplinkCannonUpdate::new_with_data(owner, module_data.clone())
         .expect("ParticleUplinkCannonUpdate failed to initialize");
     Box::new(ParticleUplinkCannonUpdateModule::new(
         behavior,
         &AsciiString::from("ParticleUplinkCannonUpdate"),
-        data_arc,
+        module_data,
     ))
 }

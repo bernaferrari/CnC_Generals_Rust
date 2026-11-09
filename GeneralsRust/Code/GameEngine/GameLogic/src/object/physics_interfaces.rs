@@ -48,7 +48,8 @@ impl super::Object {
         &self,
     ) -> Result<game_engine::common::thing::update_module::UpdateModulePtr, String> {
         let mut entries = self.modules.iter().filter(|entry| {
-            let data = entry.data().as_any();
+            let guard = entry.data().read();
+            let data = guard.as_any();
             data.is::<crate::object::update::ai_update_interface::AIUpdateModuleData>()
                 || data.is::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData>()
         });
@@ -575,13 +576,11 @@ mod tests {
     fn installed_physics(
         owner: &Arc<RwLock<Object>>,
     ) -> (PhysicsInterfaceHandle, BehaviorModuleHandle) {
-        let data = Arc::new(PhysicsBehaviorModuleData::default());
-        let behavior_data: Arc<dyn crate::common::ModuleData> = data.clone();
-        let data: Arc<dyn game_engine::common::thing::module::ModuleData> = data;
-        let update = PhysicsBehaviorUpdate::new(Arc::clone(owner), behavior_data).unwrap();
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(PhysicsBehaviorModuleData::default());
+        let update = PhysicsBehaviorUpdate::new(Arc::clone(owner), data.clone()).unwrap();
         let module = crate::contain_module_overrides::ActiveBehaviorModule::new(
             "PhysicsBehavior",
-            Arc::clone(&data),
+            data.clone(),
             update,
         );
         let mut owner = owner.write().unwrap();

@@ -14,7 +14,7 @@ use crate::object::Object;
 use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, SupplyWarehouseDockInterface};
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataRead, SupplyWarehouseDockInterface};
 use std::sync::{Arc, RwLock};
 
 /// Wave 405: host-only path has no dual-world factory objects.
@@ -145,7 +145,7 @@ pub struct SupplyWarehouseDockUpdate {
     /// Base dock functionality
     base: super::DockUpdate,
     /// Warehouse configuration
-    data: SupplyWarehouseDockUpdateData,
+    data: ModuleDataHandle,
     /// Current number of boxes stored
     boxes_stored: i32,
     /// Whether the warehouse is crippled (disabled)
@@ -159,8 +159,18 @@ impl SupplyWarehouseDockUpdate {
         owner_id: ObjectID,
         owner_position: &Coord3D,
     ) -> Self {
-        let base = super::DockUpdate::new(data.base.clone(), owner_id, owner_position);
-        let starting_boxes = data.starting_boxes;
+        Self::from_shared(ModuleDataHandle::new(data), owner_id, owner_position)
+    }
+
+    pub fn from_shared(data: ModuleDataHandle, owner_id: ObjectID, owner_position: &Coord3D) -> Self {
+        let base = super::DockUpdate::from_shared(data.clone(), owner_id, owner_position);
+        let starting_boxes = {
+            let guard = data.read();
+            game_engine::common::thing::module::ModuleData::as_any(&*guard)
+                .downcast_ref::<SupplyWarehouseDockUpdateData>()
+                .expect("SupplyWarehouseDockUpdate requires SupplyWarehouseDockUpdateData")
+                .starting_boxes
+        };
 
         Self {
             base,
@@ -210,7 +220,13 @@ impl SupplyWarehouseDockUpdate {
         let Ok(mut drawable_guard) = drawable.write() else {
             return;
         };
-        drawable_guard.update_supply_status(self.data.starting_boxes, self.boxes_stored);
+        let starting_boxes = {
+            let data = self.data.read();
+            game_engine::common::thing::module::ModuleData::as_any(&*data).downcast_ref::<SupplyWarehouseDockUpdateData>()
+                .expect("SupplyWarehouseDockUpdate requires SupplyWarehouseDockUpdateData")
+                .starting_boxes
+        };
+        drawable_guard.update_supply_status(starting_boxes, self.boxes_stored);
     }
 
     fn perform_supply_transfer(
@@ -280,7 +296,13 @@ impl SupplyWarehouseDockUpdate {
         }
 
         if gained {
-            if self.boxes_stored == 0 && self.data.delete_when_empty {
+            let delete_when_empty = {
+                let data = self.data.read();
+                game_engine::common::thing::module::ModuleData::as_any(&*data).downcast_ref::<SupplyWarehouseDockUpdateData>()
+                    .expect("SupplyWarehouseDockUpdate requires SupplyWarehouseDockUpdateData")
+                    .delete_when_empty
+            };
+            if self.boxes_stored == 0 && delete_when_empty {
                 if let Err(err) =
                     crate::helpers::TheGameLogic::destroy_object_by_id(self.base.owner_id())
                 {
@@ -524,16 +546,18 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
 pub struct SupplyWarehouseDockUpdateModule {
     behavior: SupplyWarehouseDockUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SupplyWarehouseDockUpdateData>,
+    module_data: ModuleDataHandle,
 }
 
 impl SupplyWarehouseDockUpdateModule {
     pub fn new(
-        behavior: SupplyWarehouseDockUpdate,
+        mut behavior: SupplyWarehouseDockUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SupplyWarehouseDockUpdateData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.data = module_data.clone();
+        behavior.base.data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -588,13 +612,11 @@ impl Module for SupplyWarehouseDockUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_supply_warehouse_dock_interface(
@@ -697,16 +719,16 @@ mod tests {
 
     #[test]
     fn test_supply_warehouse_module_exposes_typed_interface() {
-        let data = Arc::new(SupplyWarehouseDockUpdateData {
+        let data = SupplyWarehouseDockUpdateData {
             starting_boxes: 4,
             ..Default::default()
-        });
+        };
         let pos = Coord3D::new(0.0, 0.0, 0.0);
-        let behavior = SupplyWarehouseDockUpdate::new((*data).clone(), 1, &pos);
+        let behavior = SupplyWarehouseDockUpdate::new(data.clone(), 1, &pos);
         let mut module = SupplyWarehouseDockUpdateModule::new(
             behavior,
             &AsciiString::from("SupplyWarehouseDockUpdate"),
-            data,
+            ModuleDataHandle::new(data),
         );
 
         let dock = module

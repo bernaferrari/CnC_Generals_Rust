@@ -328,7 +328,7 @@ const STRUCTURE_COLLAPSE_UPDATE_FIELDS: &[FieldParse<StructureCollapseUpdateModu
 
 pub struct StructureCollapseUpdate {
     object_id: ObjectID,
-    module_data: Arc<StructureCollapseUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     collapse_frame: UnsignedInt,
     burst_frame: UnsignedInt,
@@ -340,8 +340,11 @@ pub struct StructureCollapseUpdate {
 impl StructureCollapseUpdate {
     pub fn new_with_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<StructureCollapseUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<StructureCollapseUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
         let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(obj) = object.read() {
             obj.reschedule_named_update("StructureCollapseUpdate", forever);
@@ -363,17 +366,6 @@ impl StructureCollapseUpdate {
         })
     }
 
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<StructureCollapseUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
-        Self::new_with_data(object, Arc::new(specific_data.clone()))
-    }
 
     fn build_non_dup_indices(range: usize, count: usize) -> Vec<usize> {
         let mut indices = Vec::with_capacity(count);
@@ -392,24 +384,26 @@ impl StructureCollapseUpdate {
             return;
         }
 
+        let guard = self.module_data.read();
+        let data = guard.as_any().downcast_ref::<StructureCollapseUpdateModuleData>().expect("StructureCollapseUpdate module data");
         let phase_idx = phase.idx();
-        let list_size = self.module_data.fxs[phase_idx].len();
+        let list_size = data.fxs[phase_idx].len();
         if list_size > 0 {
-            let count = self.module_data.fx_count[phase_idx] as usize;
+            let count = data.fx_count[phase_idx] as usize;
             debug_assert!(
                 count <= list_size && count <= MAX_IDX,
                 "StructureCollapseUpdate FX count exceeds list size or MAX_IDX"
             );
             for idx in Self::build_non_dup_indices(list_size, count) {
-                if let Some(Some(fx)) = self.module_data.fxs[phase_idx].get(idx) {
+                if let Some(Some(fx)) = data.fxs[phase_idx].get(idx) {
                     let _ = fx.do_fx_at_position(target);
                 }
             }
         }
 
-        let list_size = self.module_data.ocls[phase_idx].len();
+        let list_size = data.ocls[phase_idx].len();
         if list_size > 0 {
-            let count = self.module_data.ocl_count[phase_idx] as usize;
+            let count = data.ocl_count[phase_idx] as usize;
             debug_assert!(
                 count <= list_size && count <= MAX_IDX,
                 "StructureCollapseUpdate OCL count exceeds list size or MAX_IDX"
@@ -435,7 +429,7 @@ impl StructureCollapseUpdate {
             let primary = *target;
             let secondary = *target;
             for idx in Self::build_non_dup_indices(list_size, count) {
-                if let Some(Some(ocl)) = self.module_data.ocls[phase_idx].get(idx) {
+                if let Some(Some(ocl)) = data.ocls[phase_idx].get(idx) {
                     let _ = ocl.create_with_angle(
                         &ctx,
                         Some(&*owner_guard),
@@ -493,10 +487,11 @@ impl StructureCollapseUpdate {
 
         // Calculate random delay within range
         // C++ uses GameLogicRandomValue for this
-        let random_delay = GameLogicRandomValue(
-            self.module_data.min_collapse_delay as i32,
-            self.module_data.max_collapse_delay as i32,
-        ) as UnsignedInt;
+        let random_delay = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<StructureCollapseUpdateModuleData>().expect("StructureCollapseUpdate module data");
+            GameLogicRandomValue(data.min_collapse_delay as i32, data.max_collapse_delay as i32) as UnsignedInt
+        };
         self.collapse_frame = current_frame.wrapping_add(random_delay);
 
         if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
@@ -528,6 +523,11 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
             return UpdateSleepTime::Forever;
         }
 
+        let (max_shudder, min_burst_delay, max_burst_delay, collapse_damping, big_burst_frequency) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<StructureCollapseUpdateModuleData>().expect("StructureCollapseUpdate module data");
+            (data.max_shudder, data.min_burst_delay, data.max_burst_delay, data.collapse_damping, data.big_burst_frequency)
+        };
         let now = TheGameLogic::get_frame();
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -546,12 +546,12 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
                         if let Some(drawable) = obj.get_drawable() {
                             let shudder = Coord3D::new(
                                 crate::system::engine_stores::active_services().client_random_value_real(
-                                    -self.module_data.max_shudder,
-                                    self.module_data.max_shudder,
+                                    -max_shudder,
+                                    max_shudder,
                                 ),
                                 crate::system::engine_stores::active_services().client_random_value_real(
-                                    -self.module_data.max_shudder,
-                                    self.module_data.max_shudder,
+                                    -max_shudder,
+                                    max_shudder,
                                 ),
                                 0.0,
                             );
@@ -565,8 +565,8 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
                             let pos = *obj.get_position();
                             self.do_phase_stuff(StructureCollapsePhaseType::Burst, &pos);
                             let burst_delay = GameLogicRandomValue(
-                                self.module_data.min_burst_delay as i32,
-                                self.module_data.max_burst_delay as i32,
+                                min_burst_delay as i32,
+                                max_burst_delay as i32,
                             ) as UnsignedInt;
                             self.burst_frame = now.wrapping_add(burst_delay);
                             continue;
@@ -581,17 +581,17 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
                             .map(|data| data.gravity)
                             .unwrap_or(GRAVITY);
                         self.collapse_velocity -=
-                            gravity * (1.0 - self.module_data.collapse_damping);
+                            gravity * (1.0 - collapse_damping);
 
                         if let Some(drawable) = obj.get_drawable() {
                             let shudder = Coord3D::new(
                                 crate::system::engine_stores::active_services().client_random_value_real(
-                                    -self.module_data.max_shudder,
-                                    self.module_data.max_shudder,
+                                    -max_shudder,
+                                    max_shudder,
                                 ),
                                 crate::system::engine_stores::active_services().client_random_value_real(
-                                    -self.module_data.max_shudder,
-                                    self.module_data.max_shudder,
+                                    -max_shudder,
+                                    max_shudder,
                                 ),
                                 self.current_height,
                             );
@@ -602,14 +602,14 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
 
                         if now >= self.burst_frame {
                             let pos = *obj.get_position();
-                            if GameLogicRandomValue(1, self.module_data.big_burst_frequency) == 1 {
+                            if GameLogicRandomValue(1, big_burst_frequency) == 1 {
                                 self.do_phase_stuff(StructureCollapsePhaseType::Burst, &pos);
                             } else {
                                 self.do_phase_stuff(StructureCollapsePhaseType::Delay, &pos);
                             }
                             let burst_delay = GameLogicRandomValue(
-                                self.module_data.min_burst_delay as i32,
-                                self.module_data.max_burst_delay as i32,
+                                min_burst_delay as i32,
+                                max_burst_delay as i32,
                             ) as UnsignedInt;
                             self.burst_frame = self.burst_frame.wrapping_add(burst_delay);
                         }
@@ -675,10 +675,10 @@ impl DieModuleInterface for StructureCollapseUpdate {
             return Ok(());
         };
 
-        if !self
-            .module_data
-            .die_mux_data
-            .is_die_applicable(&*obj_read, damage_info)
+        if !self.module_data.read().as_any()
+            .downcast_ref::<StructureCollapseUpdateModuleData>()
+            .expect("StructureCollapseUpdate module data")
+            .die_mux_data.is_die_applicable(&*obj_read, damage_info)
         {
             return Ok(());
         }
@@ -756,7 +756,7 @@ impl Snapshotable for StructureCollapseUpdate {
 pub struct StructureCollapseUpdateModule {
     behavior: StructureCollapseUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<StructureCollapseUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl StructureCollapseUpdateModule {
@@ -767,7 +767,7 @@ impl StructureCollapseUpdateModule {
     pub fn new(
         behavior: StructureCollapseUpdate,
         module_name: &AsciiString,
-        module_data: Arc<StructureCollapseUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -810,11 +810,11 @@ impl Module for StructureCollapseUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -839,8 +839,8 @@ pub struct StructureCollapseUpdateFactory;
 impl StructureCollapseUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(StructureCollapseUpdate::new(thing, module_data)?))
+        Ok(Box::new(StructureCollapseUpdate::new_with_data(thing, module_data)?))
     }
 }

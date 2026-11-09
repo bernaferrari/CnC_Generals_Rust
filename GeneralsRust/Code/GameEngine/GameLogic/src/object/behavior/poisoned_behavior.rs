@@ -92,7 +92,7 @@ const POISONED_BEHAVIOR_FIELDS: &[FieldParse<PoisonedBehaviorModuleData>] = &[
 
 pub struct PoisonedBehavior {
     object_id: ObjectID,
-    module_data: Arc<PoisonedBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<PoisonedBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     poison_damage_frame: UnsignedInt,
     poison_overall_stop_frame: UnsignedInt,
@@ -103,8 +103,9 @@ pub struct PoisonedBehavior {
 impl PoisonedBehavior {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<PoisonedBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(module_data, |data| data.as_any().downcast_ref::<PoisonedBehaviorModuleData>().expect("PoisonedBehavior module data type"));
         let behavior = Self {
             object_id: object
                 .read()
@@ -179,9 +180,9 @@ impl PoisonedBehavior {
     fn start_poisoned_effects(&mut self, damage_info: &DamageInfo) {
         let now = TheGameLogic::get_frame();
         self.poison_damage_amount = damage_info.output.actual_damage_dealt;
-        self.poison_overall_stop_frame = now + self.module_data.poison_duration;
+        self.poison_overall_stop_frame = now + self.module_data.read().poison_duration;
 
-        let next_damage = now + self.module_data.poison_damage_interval;
+        let next_damage = now + self.module_data.read().poison_damage_interval;
         if self.poison_damage_frame != 0 {
             self.poison_damage_frame = self.poison_damage_frame.min(next_damage);
         } else {
@@ -257,7 +258,7 @@ impl UpdateModuleInterface for PoisonedBehavior {
                 }
             }
             // C++ always arms the next tick after the attempt, even if the body is missing.
-            self.poison_damage_frame = now + self.module_data.poison_damage_interval;
+            self.poison_damage_frame = now + self.module_data.read().poison_damage_interval;
         }
 
         if self.poison_overall_stop_frame != 0 && now >= self.poison_overall_stop_frame {
@@ -369,7 +370,7 @@ impl Snapshotable for PoisonedBehavior {
 pub struct PoisonedBehaviorModule {
     behavior: PoisonedBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<PoisonedBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl PoisonedBehaviorModule {
@@ -380,7 +381,7 @@ impl PoisonedBehaviorModule {
     pub fn new(
         behavior: PoisonedBehavior,
         module_name: &AsciiString,
-        module_data: Arc<PoisonedBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             behavior,
@@ -396,11 +397,11 @@ impl EngineModule for PoisonedBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule` initial wake frame, reached through the typed
@@ -445,7 +446,7 @@ mod tests {
 
     fn test_behavior() -> PoisonedBehavior {
         let object = Arc::new(RwLock::new(GameObject::new_test(9501, 100.0)));
-        let data = Arc::new(PoisonedBehaviorModuleData {
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(PoisonedBehaviorModuleData {
             poison_damage_interval: 5,
             poison_duration: 20,
             ..PoisonedBehaviorModuleData::default()

@@ -181,13 +181,17 @@ impl Snapshotable for W3DProjectileStreamDrawModuleData {
 }
 
 pub struct W3DProjectileStreamDraw {
-    data: W3DProjectileStreamDrawModuleData,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     cached_lines: Vec<Vec<Coord3D>>,
     owner_id: Option<ObjectID>,
 }
 
 impl W3DProjectileStreamDraw {
     pub fn new(data: W3DProjectileStreamDrawModuleData) -> Self {
+        Self::new_with_module_data(game_engine::common::thing::module::ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             data,
             cached_lines: Vec::new(),
@@ -213,13 +217,19 @@ impl W3DProjectileStreamDraw {
         };
 
         if let Some(client) = TheGameClient::get() {
+            let (texture, width, tile_factor, scroll_rate) = {
+                let guard = self.data.read();
+                let data = guard.as_any().downcast_ref::<W3DProjectileStreamDrawModuleData>()
+                    .expect("W3DProjectileStreamDraw module data");
+                (data.texture_name.clone(), data.width, data.tile_factor, data.scroll_rate)
+            };
             client.set_drawable_projectile_stream(
                 owner_id,
                 lines,
-                self.data.texture_name.clone(),
-                self.data.width,
-                self.data.tile_factor,
-                self.data.scroll_rate,
+                texture,
+                width,
+                tile_factor,
+                scroll_rate,
             );
         }
     }
@@ -262,10 +272,10 @@ impl Module for W3DProjectileStreamDraw {
         keys.name_to_key("W3DProjectileStreamDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.module_tag_name_key
+        self.data.read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -306,8 +316,11 @@ impl DrawModule for W3DProjectileStreamDraw {
         };
 
         let mut points = points;
-        if self.data.max_segments > 0 && points.len() > self.data.max_segments as usize {
-            points = points[points.len() - self.data.max_segments as usize..].to_vec();
+        let max_segments = self.data.read().as_any()
+            .downcast_ref::<W3DProjectileStreamDrawModuleData>()
+            .expect("W3DProjectileStreamDraw module data").max_segments;
+        if max_segments > 0 && points.len() > max_segments as usize {
+            points = points[points.len() - max_segments as usize..].to_vec();
         }
 
         let lines = self.build_lines_from_points(&points);

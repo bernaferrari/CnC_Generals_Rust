@@ -7,7 +7,7 @@ use crate::helpers::{TheGameLogic};
 use crate::object::drawable::DrawableArcExt;
 use crate::scripting::engine::{BreezeInfo, get_script_engine};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 use glam::Mat4;
 use std::any::Any;
 use std::f32::consts::PI;
@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub struct SwayClientUpdateModule {
     module_name_key: NameKeyType,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     owner_id: ObjectID,
     cur_value: f32,
     cur_angle: f32,
@@ -32,9 +32,9 @@ impl SwayClientUpdateModule {
         self.owner_id = owner_id;
     }
 
-    pub fn new(
+    pub fn new_with_module_data(
         module_name_key: NameKeyType,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         owner_id: ObjectID,
     ) -> Self {
         Self {
@@ -138,11 +138,11 @@ impl Module for SwayClientUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
@@ -216,8 +216,8 @@ mod tests {
 
     #[test]
     fn test_sway_client_update_xfer_preserves_cpp_runtime_fields() {
-        let module_data = Arc::new(BaseModuleData::new());
-        let mut saved = SwayClientUpdateModule::new(11, module_data.clone(), 22);
+        let module_data = ModuleDataHandle::new(BaseModuleData::new());
+        let mut saved = SwayClientUpdateModule::new_with_module_data(11, module_data.clone(), 22);
         saved.cur_value = 1.25;
         saved.cur_angle = -0.5;
         saved.cur_delta = 0.125;
@@ -235,7 +235,7 @@ mod tests {
             save.close().unwrap();
         }
 
-        let mut loaded = SwayClientUpdateModule::new(11, module_data, 22);
+        let mut loaded = SwayClientUpdateModule::new_with_module_data(11, module_data, 22);
         {
             let mut load = XferLoad::new(Cursor::new(bytes), 1);
             load.open("sway_client_update").unwrap();
@@ -254,8 +254,8 @@ mod tests {
 
     #[test]
     fn sway_client_update_exposes_typed_client_update_interface() {
-        let module_data = Arc::new(BaseModuleData::new());
-        let mut module = SwayClientUpdateModule::new(11, module_data, 22);
+        let module_data = ModuleDataHandle::new(BaseModuleData::new());
+        let mut module = SwayClientUpdateModule::new_with_module_data(11, module_data, 22);
 
         assert!(module.get_client_update_interface().is_some());
     }

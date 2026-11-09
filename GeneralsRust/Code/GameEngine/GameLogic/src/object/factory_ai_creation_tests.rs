@@ -1,12 +1,13 @@
 //! C++ Object.cpp:424-461 exposes the installed AI before creation callbacks.
 use super::*;
 use crate::object::update::ai_update_interface::{AIUpdateInterfaceModule, AIUpdateModuleData};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataRead};
 
 const AI_PROBE: &str = "FactoryAiCreationProbe";
 
 struct AiCreationProbe {
     owner_id: ObjectID,
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     created: bool,
 }
 
@@ -14,12 +15,12 @@ impl Module for AiCreationProbe {
     fn get_module_name_key(&self) -> u32 {
         NameKeyGenerator::name_to_key(AI_PROBE)
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
     fn on_object_created(&mut self) {
         assert!(!self.created);
-        let expected = self.data.get_module_tag_name_key()
+        let expected = self.data.read().get_module_tag_name_key()
             == NameKeyGenerator::name_to_key("ExpectAiBeforeCreation");
         let owner = OBJECT_REGISTRY.get_object(self.owner_id).unwrap();
         let owner = owner.try_read().expect("creation callback releases owner");
@@ -70,7 +71,7 @@ impl Snapshotable for AiCreationProbe {
         Ok(())
     }
 }
-fn ai_probe_factory(thing: Arc<dyn ModuleThing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+fn ai_probe_factory(thing: Arc<dyn ModuleThing>, data: ModuleDataHandle) -> Box<dyn Module> {
     Box::new(AiCreationProbe {
         owner_id: thing.as_object().unwrap().get_object_id(),
         data,
@@ -95,13 +96,13 @@ fn ai_template(name: &str, expect_ai: bool) -> AuthoredBodyTemplate {
             crate::common::TemplateModuleInfo {
                 name: AI_PROBE.into(),
                 module_tag: "AiCreationProbe".into(),
-                data: Arc::new(probe),
+                data: ModuleDataHandle::new(probe),
                 interface_mask: ModuleInterfaceType::NONE,
             },
             crate::common::TemplateModuleInfo {
                 name: "AIUpdateInterface".into(),
                 module_tag: "AuthoredAi".into(),
-                data: Arc::new(ai),
+                data: ModuleDataHandle::new(ai),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
         ],

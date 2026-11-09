@@ -166,7 +166,7 @@ pub struct CreateObjectDie {
 
 impl CreateObjectDie {
     /// Create a new CreateObjectDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<CreateObjectDieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -185,7 +185,8 @@ impl CreateObjectDie {
     ) -> Vec<Arc<RwLock<Object>>> {
         let mut created_objects = Vec::new();
 
-        let ocl_name = match self.base.module_data.ocl.first() {
+        let module_data = self.base.module_data.read();
+        let ocl_name = match module_data.ocl.first() {
             Some(name) => name,
             None => return created_objects,
         };
@@ -203,7 +204,7 @@ impl CreateObjectDie {
 
     /// Transfer health and damage state from old object to new object
     fn transfer_health(&self, old_object: &Object, _new_object: &mut Object) {
-        if !self.base.module_data.transfer_previous_health {
+        if !self.base.module_data.read().transfer_previous_health {
             return;
         }
 
@@ -296,7 +297,7 @@ impl DieModuleInterface for CreateObjectDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }
@@ -311,7 +312,7 @@ impl DieModuleInterface for CreateObjectDie {
         };
 
         // If we created objects and should transfer health
-        if self.base.module_data.transfer_previous_health && !created_objects.is_empty() {
+        if self.base.module_data.read().transfer_previous_health && !created_objects.is_empty() {
             for created_obj_arc in created_objects.iter() {
                 let new_id = {
                     let Ok(mut created_obj) = created_obj_arc.write() else {

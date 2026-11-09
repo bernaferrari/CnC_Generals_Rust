@@ -492,7 +492,7 @@ const SPECTRE_GUNSHIP_UPDATE_FIELDS: &[FieldParse<SpectreGunshipUpdateModuleData
 
 pub struct SpectreGunshipUpdate {
     object_id: ObjectID,
-    module_data: Arc<SpectreGunshipUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<SpectreGunshipUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     gattling_id: ObjectID,
     status: GunshipStatus,
@@ -511,22 +511,19 @@ pub struct SpectreGunshipUpdate {
 }
 
 impl SpectreGunshipUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<SpectreGunshipUpdateModuleData>()
-            .ok_or("Invalid module data")?;
 
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, handle: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !handle.is::<SpectreGunshipUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<SpectreGunshipUpdateModuleData>().expect("SpectreGunshipUpdate module data"));
         Ok(Self {
             object_id: object
                 .read()
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             gattling_id: crate::common::INVALID_ID,
             status: GunshipStatus::Idle,
@@ -565,7 +562,8 @@ impl SpectreGunshipUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         })?;
         let obj = obj_arc.read().ok()?;
-        let template = self.module_data.special_power_template.as_ref()?;
+        let data = self.module_data.read();
+        let template = data.special_power_template.as_ref()?;
         obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
             let func = func.take().expect("special power callback already used");
             func(module)
@@ -603,7 +601,7 @@ impl SpectreGunshipUpdate {
         };
         let ship_pos = *gunship.get_position();
         let delta = ship_pos - target_pos;
-        delta.length() > self.module_data.gunship_orbit_radius * 0.75
+        delta.length() > self.module_data.read().gunship_orbit_radius * 0.75
     }
 
     fn is_disguised_as_enemy(&self, target: &GameObject, gunship: &GameObject) -> bool {
@@ -890,6 +888,10 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
             None
         };
 
+        let (orbit_slope, orbit_radius, attack_radius, reticle_radius, orbit_frames, firing_rate, follow_lag, strafe_increment) = {
+            let data = self.module_data.read();
+            (data.orbit_insertion_slope, data.gunship_orbit_radius, data.attack_area_radius, data.targeting_reticle_radius, data.orbit_frames, data.howitzer_firing_rate, data.howitzer_follow_lag, data.strafing_increment)
+        };
         if matches!(
             self.status,
             GunshipStatus::Inserting | GunshipStatus::Orbiting
@@ -903,21 +905,18 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
             }
 
             let apogee = Coord3D::new(-perigee_dir.y, perigee_dir.x, 0.0);
-            let slope = self
-                .module_data
-                .orbit_insertion_slope
+            let slope = orbit_slope
                 .clamp(ORBIT_INSERTION_SLOPE_MIN, ORBIT_INSERTION_SLOPE_MAX);
             let mut declination = perigee_dir * slope + apogee * (1.0 - slope);
             declination.z = 0.0;
-            declination *= self.module_data.gunship_orbit_radius;
+            declination *= orbit_radius;
 
             self.satellite_position = self.initial_target_position + declination;
             if let Some(ai) = gunship.get_ai_update_interface() {
                 ai.ai_move_to_position(&self.satellite_position, false, CommandSourceType::FromAi);
             }
 
-            let constraint_radius =
-                self.module_data.attack_area_radius - self.module_data.targeting_reticle_radius;
+            let constraint_radius = attack_radius - reticle_radius;
             let mut override_delta =
                 self.initial_target_position - self.override_target_destination;
             if override_delta.length() > constraint_radius {
@@ -932,10 +931,10 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
             );
 
             if self.status == GunshipStatus::Inserting
-                && distance_to_target < self.module_data.gunship_orbit_radius
+                && distance_to_target < orbit_radius
             {
                 self.set_status(GunshipStatus::Orbiting);
-                self.orbit_escape_frame = current_frame + self.module_data.orbit_frames;
+                self.orbit_escape_frame = current_frame + orbit_frames;
 
                 if self.gattling_id != crate::common::INVALID_ID {
                     if let Some(gattling_arc) = TheGameLogic::find_object_by_id(self.gattling_id) {
@@ -966,8 +965,8 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                 self.clean_up();
                 self.set_status(GunshipStatus::Departing);
                 self.disengage_and_depart_ao(&mut gunship);
-            } else if self.module_data.howitzer_firing_rate > 0
-                && current_frame % self.module_data.howitzer_firing_rate < 1
+            } else if firing_rate > 0
+                && current_frame % firing_rate < 1
             {
                 let mut _target_pos = self.override_target_destination;
                 let mut target_id: Option<ObjectID> = None;
@@ -976,7 +975,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                 if let Some((id, pos)) = self.find_target_in_radius(
                     &gunship,
                     self.override_target_destination,
-                    self.module_data.targeting_reticle_radius,
+                    reticle_radius,
                 ) {
                     target_id = Some(id);
                     _target_pos = pos;
@@ -987,7 +986,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     if let Some((id, pos)) = self.find_target_in_radius(
                         &gunship,
                         self.initial_target_position,
-                        self.module_data.attack_area_radius,
+                        attack_radius,
                     ) {
                         target_id = Some(id);
                         _target_pos = pos;
@@ -1007,9 +1006,10 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     }
                 }
 
-                if self.ok_to_fire_howitzer_counter > self.module_data.howitzer_follow_lag {
-                    if let Some(template) = self.module_data.howitzer_weapon_template.as_ref() {
-                        let offs = self.module_data.random_offset_for_howitzer;
+                if self.ok_to_fire_howitzer_counter > follow_lag {
+                    let data = self.module_data.read();
+                    if let Some(template) = data.howitzer_weapon_template.as_ref() {
+                        let offs = data.random_offset_for_howitzer;
                         let attack_pos = Coord3D::new(
                             self.gattling_target_position.x
                                 + GameLogicRandomValueReal!(-offs, offs),
@@ -1047,19 +1047,16 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                 };
 
             if gattling_firing
-                && !self
-                    .module_data
-                    .gattling_strafe_fx_particle_system
-                    .is_empty()
+                && !self.module_data.read().gattling_strafe_fx_particle_system.is_empty()
             {
                 let mut delta = self.position_to_shoot_at - self.gattling_target_position;
                 let dist = delta.length();
-                if dist < self.module_data.strafing_increment {
+                if dist < strafe_increment {
                     self.gattling_target_position = self.position_to_shoot_at;
                     self.ok_to_fire_howitzer_counter += 1;
                 } else {
                     self.ok_to_fire_howitzer_counter = 0;
-                    delta = delta.normalize() * self.module_data.strafing_increment;
+                    delta = delta.normalize() * strafe_increment;
                     self.gattling_target_position += delta;
                 }
 
@@ -1085,7 +1082,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                         .unwrap_or(impact.z);
                     if let Some(manager) = TheParticleSystemManager::get() {
                         if let Some(id) = manager.create_particle_system(Some(
-                            self.module_data.gattling_strafe_fx_particle_system.as_str(),
+                            self.module_data.read().gattling_strafe_fx_particle_system.as_str(),
                         )) {
                             manager.set_particle_system_position(id, &impact);
                         }
@@ -1207,7 +1204,7 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
                         self.gattling_id = crate::common::INVALID_ID;
                     }
                     let gattling_template = crate::helpers::TheThingFactory::find_template(
-                        self.module_data.gattling_template_name.as_str(),
+                        self.module_data.read().gattling_template_name.as_str(),
                     );
                     if let Some(template) = gattling_template {
                         let team = gunship.get_team();
@@ -1231,17 +1228,18 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
                     }
                 }
 
+                let data = self.module_data.read();
                 let owner_index = gunship.with_controlling_player(|p| p.get_player_index());
                 self.attack_area_decal = Some(Self::create_decal(
-                    &self.module_data.attack_area_decal_template,
+                    &data.attack_area_decal_template,
                     *gunship.get_position(),
-                    self.module_data.attack_area_radius,
+                    data.attack_area_radius,
                     owner_index,
                 ));
                 self.targeting_reticle_decal = Some(Self::create_decal(
-                    &self.module_data.targeting_reticle_decal_template,
+                    &data.targeting_reticle_decal_template,
                     *gunship.get_position(),
-                    self.module_data.targeting_reticle_radius,
+                    data.targeting_reticle_radius,
                     owner_index,
                 ));
             }
@@ -1362,7 +1360,8 @@ impl BehaviorModuleInterface for SpectreGunshipUpdate {
         };
         let obj = obj_arc.read().ok();
         if let Some(obj) = obj {
-            let Some(_template) = &self.module_data.special_power_template else {
+            let data = self.module_data.read();
+            let Some(_template) = &data.special_power_template else {
                 return Err(format!(
                     "SpectreGunshipUpdate missing SpecialPowerTemplate on object {}",
                     obj.get_template().get_name().as_str()
@@ -1442,29 +1441,26 @@ pub struct SpectreGunshipUpdateFactory;
 impl SpectreGunshipUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(SpectreGunshipUpdate::new(thing, module_data)?))
+        Ok(Box::new(SpectreGunshipUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
 pub struct SpectreGunshipUpdateModule {
     behavior: SpectreGunshipUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SpectreGunshipUpdateModuleData>,
 }
 
 impl SpectreGunshipUpdateModule {
     pub fn new(
         behavior: SpectreGunshipUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SpectreGunshipUpdateModuleData>,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
             module_name_key,
-            module_data,
         }
     }
 
@@ -1501,11 +1497,11 @@ impl Module for SpectreGunshipUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.behavior.module_data.handle().read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.behavior.module_data.handle())
     }
 
     /// C++ `UpdateModule : Module` interface query

@@ -347,7 +347,7 @@ const NEUTRON_MISSILE_SLOW_DEATH_FIELDS: &[FieldParse<NeutronMissileSlowDeathUpd
 
 pub struct NeutronMissileSlowDeathUpdate {
     object_id: ObjectID,
-    module_data: Arc<NeutronMissileSlowDeathUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<NeutronMissileSlowDeathUpdateModuleData>,
     activated: Bool,
     next_call_frame_and_phase: UnsignedInt,
     slow_death_sink_frame: UnsignedInt,
@@ -364,12 +364,10 @@ pub struct NeutronMissileSlowDeathUpdate {
 impl NeutronMissileSlowDeathUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<NeutronMissileSlowDeathUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<NeutronMissileSlowDeathUpdateModuleData>() { return Err("Invalid module data".into()); }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(module_data, |data| data.as_any().downcast_ref::<NeutronMissileSlowDeathUpdateModuleData>().expect("NeutronMissileSlowDeathUpdate module data type"));
 
         Ok(Self {
             object_id: object
@@ -377,7 +375,7 @@ impl NeutronMissileSlowDeathUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             activated: false,
             next_call_frame_and_phase: 0,
             slow_death_sink_frame: 0,
@@ -407,7 +405,7 @@ impl NeutronMissileSlowDeathUpdate {
             .unwrap_or(0.0);
         self.activation_frame = TheGameLogic::get_frame();
 
-        if let Some(fx) = &self.module_data.fx_list {
+        if let Some(fx) = &self.module_data.read().fx_list {
             let _ = fx.do_fx_at_position(&pos);
         }
     }
@@ -436,7 +434,7 @@ impl NeutronMissileSlowDeathUpdate {
 
         let candidates = partition.get_objects_in_range(&missile_pos, blast_info.outer_radius);
         for id in candidates {
-            let scorch_size = self.module_data.scorch_size;
+            let scorch_size = self.module_data.read().scorch_size;
             let place_scorch = !self.scorch_placed;
             let did_scorch = OBJECT_REGISTRY.with_object_mut(id, |other| {
                 let other_pos = *other.get_position();
@@ -553,7 +551,7 @@ impl UpdateModuleInterface for NeutronMissileSlowDeathUpdate {
         let elapsed = (curr_frame - self.activation_frame) as Real;
 
         for i in 0..MAX_NEUTRON_BLASTS {
-            let blast = self.module_data.blast_info[i];
+            let blast = self.module_data.read().blast_info[i];
             if !blast.enabled {
                 continue;
             }
@@ -589,7 +587,7 @@ impl SlowDeathBehaviorInterface for NeutronMissileSlowDeathUpdate {
     }
 
     fn get_probability_modifier(&self, _damage_info: &DamageInfo) -> i32 {
-        self.module_data.base.probability_modifier.max(1)
+        self.module_data.read().base.probability_modifier.max(1)
     }
 
     fn is_die_applicable(&self, _damage_info: &DamageInfo) -> bool {
@@ -603,7 +601,7 @@ impl SlowDeathBehaviorInterface for NeutronMissileSlowDeathUpdate {
 
         let mut all_done = true;
         for i in 0..MAX_NEUTRON_BLASTS {
-            if !self.module_data.blast_info[i].enabled {
+            if !self.module_data.read().blast_info[i].enabled {
                 continue;
             }
 
@@ -727,7 +725,7 @@ pub struct NeutronMissileSlowDeathUpdateFactory;
 impl NeutronMissileSlowDeathUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(NeutronMissileSlowDeathUpdate::new(
             thing,
@@ -738,14 +736,14 @@ impl NeutronMissileSlowDeathUpdateFactory {
 
 pub struct NeutronMissileSlowDeathUpdateModule {
     module_name_key: NameKeyType,
-    module_data: Arc<NeutronMissileSlowDeathUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     behavior: NeutronMissileSlowDeathUpdate,
 }
 
 impl NeutronMissileSlowDeathUpdateModule {
     fn new(
         module_name: &str,
-        module_data: Arc<NeutronMissileSlowDeathUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         behavior: NeutronMissileSlowDeathUpdate,
     ) -> Self {
         Self {
@@ -776,11 +774,11 @@ impl EngineModule for NeutronMissileSlowDeathUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 }
 
@@ -800,12 +798,9 @@ pub fn neutron_missile_slow_death_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub fn neutron_missile_slow_death_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn EngineModule> {
-    let typed = module_data
-        .as_any()
-        .downcast_ref::<NeutronMissileSlowDeathUpdateModuleData>()
-        .expect("NeutronMissileSlowDeathUpdateModuleData expected");
+    assert!(module_data.is::<NeutronMissileSlowDeathUpdateModuleData>(), "NeutronMissileSlowDeathUpdateModuleData expected");
 
     let object_id = thing
         .as_object()
@@ -813,14 +808,12 @@ pub fn neutron_missile_slow_death_module_factory(
         .unwrap_or(crate::common::INVALID_ID);
     let object = TheGameLogic::find_object_by_id(object_id)
         .expect("NeutronMissileSlowDeathBehavior requires an owning object");
-    let shared_data = Arc::new(typed.clone());
-    let behavior =
-        NeutronMissileSlowDeathUpdate::new(object, Arc::clone(&shared_data) as Arc<dyn ModuleData>)
-            .expect("NeutronMissileSlowDeathBehavior failed to initialize");
+    let behavior = NeutronMissileSlowDeathUpdate::new(object, module_data.clone())
+        .expect("NeutronMissileSlowDeathBehavior failed to initialize");
 
     Box::new(NeutronMissileSlowDeathUpdateModule::new(
         "NeutronMissileSlowDeathBehavior",
-        shared_data,
+        module_data,
         behavior,
     ))
 }

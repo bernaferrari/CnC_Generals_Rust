@@ -55,7 +55,7 @@ crate::impl_behavior_module_data_via_base!(AutoFindHealingUpdateModuleData, base
 /// Matches C++ AutoFindHealingUpdate.cpp lines 56-205
 pub struct AutoFindHealingUpdate {
     object_id: ObjectID,
-    module_data: Arc<AutoFindHealingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// Countdown to next scan. Matches C++ line 58
     next_scan_frames: Int,
 }
@@ -64,16 +64,15 @@ impl AutoFindHealingUpdate {
     /// Creates a new AutoFindHealingUpdate. Matches C++ lines 56-59
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-        .downcast_ref::<AutoFindHealingUpdateModuleData>()
-            .ok_or("Invalid module data for AutoFindHealingUpdate")?;
+        if !module_data.is::<AutoFindHealingUpdateModuleData>() {
+            return Err("Invalid module data for AutoFindHealingUpdate".into());
+        }
 
         Ok(Self {
             object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_scan_frames: 0, // Matches C++ line 58
         })
     }
@@ -85,7 +84,9 @@ impl AutoFindHealingUpdate {
             return None;
         }
 
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoFindHealingUpdateModuleData>()
+            .expect("Invalid module data for AutoFindHealingUpdate");
         let mut best_target: Option<crate::common::ObjectID> = None;
         let mut closest_dist_sqr = 0.0;
 
@@ -148,7 +149,13 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
             self.next_scan_frames -= 1;
             return 0; // UPDATE_SLEEP_NONE
         }
-        self.next_scan_frames = self.module_data.scan_frames as Int;
+        let (scan_frames, never_heal) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<AutoFindHealingUpdateModuleData>()
+                .expect("Invalid module data for AutoFindHealingUpdate");
+            (data.scan_frames, data.never_heal)
+        };
+        self.next_scan_frames = scan_frames as Int;
 
         // Get AI interface. Matches C++ lines 95-96
         let ai_available = obj_read.get_ai_update_interface().is_some();
@@ -167,7 +174,7 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
             let max_health = body_guard.get_max_health();
 
             // If we're very healthy, don't bother looking for healing. Matches C++ lines 102-104
-            if health > max_health * self.module_data.never_heal {
+            if health > max_health * never_heal {
                 return 0; // UPDATE_SLEEP_NONE
             }
 
@@ -225,7 +232,7 @@ pub struct AutoFindHealingUpdateFactory;
 impl AutoFindHealingUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(AutoFindHealingUpdate::new(thing, module_data)?))
     }

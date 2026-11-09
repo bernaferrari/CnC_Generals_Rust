@@ -55,7 +55,7 @@ impl ProjectileStreamUpdateModuleData {
 pub struct ProjectileStreamUpdate {
     object_id: ObjectID,
     #[allow(dead_code)]
-    module_data: Arc<ProjectileStreamUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     projectile_ids: [ObjectID; MAX_PROJECTILE_STREAM],
     next_free_index: i32,
@@ -68,12 +68,9 @@ pub struct ProjectileStreamUpdate {
 impl ProjectileStreamUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<ProjectileStreamUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<ProjectileStreamUpdateModuleData>() { return Err("Invalid module data".into()); }
 
         Ok(Self {
             object_id: object
@@ -81,7 +78,7 @@ impl ProjectileStreamUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             projectile_ids: [OBJECT_INVALID_ID; MAX_PROJECTILE_STREAM],
             next_free_index: 0,
@@ -354,14 +351,14 @@ impl Snapshotable for ProjectileStreamUpdate {
 pub struct ProjectileStreamUpdateModule {
     behavior: ProjectileStreamUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<ProjectileStreamUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl ProjectileStreamUpdateModule {
     pub fn new(
         behavior: ProjectileStreamUpdate,
         module_name: &AsciiString,
-        module_data: Arc<ProjectileStreamUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -404,11 +401,11 @@ impl Module for ProjectileStreamUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_projectile_stream_draw_interface(
@@ -432,7 +429,7 @@ pub struct ProjectileStreamUpdateFactory;
 impl ProjectileStreamUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(ProjectileStreamUpdate::new(thing, module_data)?))
     }
@@ -454,26 +451,22 @@ pub fn projectile_stream_update_data_factory(ini: Option<&mut INI>) -> Box<dyn E
 
 pub fn projectile_stream_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<ProjectileStreamUpdateModuleData>()
-        .expect("ProjectileStreamUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<ProjectileStreamUpdateModuleData>(), "ProjectileStreamUpdateModuleData expected");
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("ProjectileStreamUpdate requires object");
-    let behavior = ProjectileStreamUpdate::new(object, module_data_arc.clone())
+    let behavior = ProjectileStreamUpdate::new(object, module_data.clone())
         .expect("ProjectileStreamUpdate failed to initialize");
     let module_name = AsciiString::from("ProjectileStreamUpdate");
     Box::new(ProjectileStreamUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }
 

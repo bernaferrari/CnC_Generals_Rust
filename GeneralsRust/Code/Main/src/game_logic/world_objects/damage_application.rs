@@ -1487,9 +1487,15 @@ impl GameLogic {
                     })
                 })
                 .and_then(|entry| {
-                    entry.data.as_any().downcast_ref::<
+                    let data = entry.data.read();
+                    let data = data.as_any().downcast_ref::<
                         gamelogic::object::body::hive_structure_body::HiveStructureBodyModuleData,
-                    >()
+                    >()?;
+                    let kind = damage_type.to_store();
+                    Some((
+                        data.damage_types_to_propagate_to_slaves.test_damage_type(kind),
+                        data.damage_types_to_swallow.test_damage_type(kind),
+                    ))
                 });
             let Some(data) = data else {
                 log::error!(
@@ -1505,12 +1511,7 @@ impl GameLogic {
                     victim_team: team,
                 });
             };
-            let kind = damage_type.to_store();
-            (
-                data.damage_types_to_propagate_to_slaves
-                    .test_damage_type(kind),
-                data.damage_types_to_swallow.test_damage_type(kind),
-            )
+            data
         } else {
             let class = hive_damage_class_for_type(damage_type);
             (

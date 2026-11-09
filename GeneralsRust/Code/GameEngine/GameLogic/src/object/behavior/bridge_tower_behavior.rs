@@ -66,7 +66,7 @@ crate::impl_behavior_module_data_via_base!(BridgeTowerBehaviorModuleData, base);
 
 /// BridgeTowerBehavior - mirrors tower damage/healing back to the owning bridge.
 pub struct BridgeTowerBehavior {
-    pub module_data: Arc<BridgeTowerBehaviorModuleData>,
+    pub module_data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     bridge_id: ObjectID,
     tower_type: BridgeTowerType,
@@ -75,7 +75,7 @@ pub struct BridgeTowerBehavior {
 impl BridgeTowerBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
-        module_data: Arc<BridgeTowerBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         _initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
         Self {
@@ -88,7 +88,7 @@ impl BridgeTowerBehavior {
 
     pub fn new_from_object_handle(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<BridgeTowerBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = object
             .read()
@@ -100,7 +100,7 @@ impl BridgeTowerBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<BridgeTowerBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 318: empty dual-world → fail closed.
         if dual_world_registry_unavailable() {
@@ -576,14 +576,14 @@ impl BehaviorModuleInterface for BridgeTowerBehavior {
 pub struct BridgeTowerBehaviorModule {
     behavior: BridgeTowerBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<BridgeTowerBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BridgeTowerBehaviorModule {
     pub fn new(
         behavior: BridgeTowerBehavior,
         module_name: &AsciiString,
-        module_data: Arc<BridgeTowerBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -624,12 +624,12 @@ impl EngineModule for BridgeTowerBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     fn get_bridge_tower_control_interface(
         &mut self,
@@ -684,14 +684,13 @@ impl DieModuleInterface for BridgeTowerBehaviorModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     #[test]
     fn bridge_tower_behavior_constructs_with_defaults() {
-        let data = Arc::new(BridgeTowerBehaviorModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BridgeTowerBehaviorModuleData::default());
         let behavior = BridgeTowerBehavior::construct_with_object_id(
             OBJECT_INVALID_ID,
-            Arc::clone(&data),
+            data,
             None,
         );
         assert_eq!(behavior.bridge_id, OBJECT_INVALID_ID);

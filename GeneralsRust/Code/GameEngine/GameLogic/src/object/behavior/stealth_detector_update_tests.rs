@@ -74,7 +74,7 @@ impl DetectorFixture {
         // the already-admitted owner is resolved through ObjectThingHandle.
         let mut factory = ModuleFactory::new();
         crate::contain_module_overrides::register_module_overrides(&mut factory).unwrap();
-        let data: Arc<dyn EngineModuleData> = Arc::new(data);
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let thing: Arc<dyn ModuleThing> = Arc::new(ObjectThingHandle::new(&self.object));
         let module = factory
             .new_module(
@@ -512,9 +512,8 @@ fn owned_detector_without_admission_with_data(
     data: StealthDetectorUpdateModuleData,
 ) -> (Arc<RwLock<GameObject>>, UpdateModulePtr) {
     let object = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
-    let data = Arc::new(data);
-    let legacy_data: Arc<dyn ModuleData> = data.clone();
-    let behavior = StealthDetectorUpdate::new(object.clone(), legacy_data).unwrap();
+    let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
+    let behavior = StealthDetectorUpdate::new(object.clone(), data.clone()).unwrap();
     let module = StealthDetectorUpdateModule::new(
         behavior,
         &AsciiString::from("StealthDetectorUpdate"),

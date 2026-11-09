@@ -27,6 +27,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::{PlayerType, player_list};
 use crate::system::game_logic::current_frame;
 use game_engine::common::bit_flags::{ArmorSetBitFlags, ArmorSetFlags, create_armor_set_flags};
+use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataView};
 use game_engine::common::game_common::convert_duration_from_msecs_to_frames;
 use game_engine::common::global_data;
 use game_engine::common::ini::ini_damage_fx::{
@@ -682,6 +683,7 @@ pub struct ActiveBody {
     base: BodyModule,
     /// Module-specific configuration
     module_data: ActiveBodyModuleData,
+    shared_module_data: Option<ModuleDataView<ActiveBodyModuleData>>,
     /// Mutable simulation state; writes require exclusive access to this body.
     state: ActiveBodyState,
     /// Current armor. C++ `m_curArmor` is a plain member of the body the
@@ -708,6 +710,27 @@ pub struct ActiveBody {
 }
 
 impl ActiveBody {
+    /// Bind the exact admitted definition, including derived body definitions.
+    pub fn bind_module_data(&mut self, data: ModuleDataHandle) {
+        fn project(data: &dyn ModuleData) -> &ActiveBodyModuleData {
+            data.downcast_ref::<ActiveBodyModuleData>()
+                .or_else(|| data.downcast_ref::<super::structure_body::StructureBodyModuleData>().map(|d| &d.base))
+                .or_else(|| data.downcast_ref::<super::hive_structure_body::HiveStructureBodyModuleData>().map(|d| &d.base.base))
+                .or_else(|| data.downcast_ref::<super::undead_body::UndeadBodyModuleData>().map(|d| &d.base))
+                .expect("active body module data has an incompatible type")
+        }
+        let view = ModuleDataView::new(data, project);
+        drop(view.read());
+        self.shared_module_data = Some(view);
+    }
+
+    fn with_module_data<R>(&self, f: impl FnOnce(&ActiveBodyModuleData) -> R) -> R {
+        match &self.shared_module_data {
+            Some(data) => f(&data.read()),
+            None => f(&self.module_data),
+        }
+    }
+
     /// Native Object restore cannot rebind process-local particle IDs without
     /// the receiving ParticleSystemManager. Invalid C++ sentinel IDs are inert.
     pub(crate) fn validate_native_restore_particles(&self) -> Result<(), String> {
@@ -775,6 +798,7 @@ impl ActiveBody {
         Self {
             base,
             module_data,
+            shared_module_data: None,
             state,
             armor: Armor::default(),
             armor_template_name: None,
@@ -931,11 +955,11 @@ impl ActiveBody {
         // Retain the exact selected flags for cache publication, but only on
         // the dirty path that actually resolves a new armor choice.
         let flags = self.state.armor_set_flags.clone();
-        let (desired_armor_name, damage_fx_name) = Self::resolve_armor_choice(
+        let (desired_armor_name, damage_fx_name) = self.with_module_data(|data| Self::resolve_armor_choice(
             self.engine_template.as_ref(),
             &flags,
-            self.module_data.default_armor_template.as_ref(),
-        );
+            data.default_armor_template.as_ref(),
+        ));
 
         self.apply_named_armor(desired_armor_name)?;
 
@@ -999,11 +1023,11 @@ impl ActiveBody {
         if !self.state.armor_flags_dirty && self.armor.template().is_some() {
             return Ok(Cow::Borrowed(&self.armor));
         }
-        let (name, _) = Self::resolve_armor_choice(
+        let (name, _) = self.with_module_data(|data| Self::resolve_armor_choice(
             self.engine_template.as_ref(),
             &self.state.armor_set_flags,
-            self.module_data.default_armor_template.as_ref(),
-        );
+            data.default_armor_template.as_ref(),
+        ));
         match name {
             Some(armor_name) => {
                 let template = self
@@ -1320,12 +1344,13 @@ impl ActiveBody {
 
     /// Internal method to add subdual damage
     fn internal_add_subdual_damage(&mut self, delta: f32) -> BodyResult<()> {
+        let cap = self.with_module_data(|data| data.subdual_damage_cap);
         {
             let state = &mut self.state;
             state.current_subdual_damage += delta;
             state.current_subdual_damage = state
                 .current_subdual_damage
-                .min(self.module_data.subdual_damage_cap);
+                .min(cap);
             Ok(())
         }
     }
@@ -1429,7 +1454,7 @@ impl ActiveBody {
 
     /// Check if this body can be subdued
     pub fn can_be_subdued(&self) -> bool {
-        self.module_data.subdual_damage_cap > 0.0
+        self.with_module_data(|data| data.subdual_damage_cap > 0.0)
     }
 
     /// Check if this body is currently subdued
@@ -1954,11 +1979,11 @@ impl BodyModuleInterface for ActiveBody {
         if !self.state.armor_flags_dirty && self.armor.template().is_some() {
             return Ok(());
         }
-        let (name, _) = Self::resolve_armor_choice(
+        let (name, _) = self.with_module_data(|data| Self::resolve_armor_choice(
             self.engine_template.as_ref(),
             &self.state.armor_set_flags,
-            self.module_data.default_armor_template.as_ref(),
-        );
+            data.default_armor_template.as_ref(),
+        ));
         if name.is_none() {
             Ok(())
         } else {
@@ -2121,11 +2146,11 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn get_subdual_damage_heal_rate(&self) -> u32 {
-        self.module_data.subdual_damage_heal_rate
+        self.with_module_data(|data| data.subdual_damage_heal_rate)
     }
 
     fn get_subdual_damage_heal_amount(&self) -> f32 {
-        self.module_data.subdual_damage_heal_amount
+        self.with_module_data(|data| data.subdual_damage_heal_amount)
     }
 
     fn has_any_subdual_damage(&self) -> bool {
@@ -2789,6 +2814,22 @@ mod owned_state_xfer_tests {
 
         ActiveBody::new(module_data)
     }
+    #[test]
+    fn admitted_derived_definition_changes_are_visible_to_active_body() {
+        let data = super::super::structure_body::StructureBodyModuleData::default();
+        let handle = ModuleDataHandle::new(data.clone());
+        let mut body = ActiveBody::new_inert_with_owner(data.base, INVALID_ID);
+        body.bind_module_data(handle.clone());
+        assert!(!body.can_be_subdued());
+        {
+            let mut data = handle.write();
+            (&mut *data as &mut dyn std::any::Any)
+                .downcast_mut::<super::super::structure_body::StructureBodyModuleData>()
+                .unwrap().base.subdual_damage_cap = 25.0;
+        }
+        assert!(body.can_be_subdued());
+    }
+
 
     #[test]
     fn body_definitions_and_state_are_independent_for_equal_owner_ids() {

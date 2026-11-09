@@ -1961,7 +1961,7 @@ fn visible_friendly_stealth_uses_module_friendly_opacity_like_cpp() {
         Object::new_with_id(template, object_id, ObjectStatusMaskType::none(), None).unwrap();
 
     let mut stealth_module =
-        StealthUpdateModule::new(0, Arc::new(StealthUpdateModuleData::default()), object_id);
+        StealthUpdateModule::new(0, game_engine::common::thing::module::ModuleDataHandle::new(StealthUpdateModuleData::default()), object_id);
     stealth_module.on_object_created();
 
     let mut drawable = BasicDrawable::new(DrawableId(3));
@@ -1991,7 +1991,7 @@ fn disguised_friendly_stealth_leaves_opacity_and_second_pass_like_cpp_break() {
         Object::new_with_id(template, object_id, ObjectStatusMaskType::none(), None).unwrap();
 
     let mut stealth_module =
-        StealthUpdateModule::new(0, Arc::new(StealthUpdateModuleData::default()), object_id);
+        StealthUpdateModule::new(0, game_engine::common::thing::module::ModuleDataHandle::new(StealthUpdateModuleData::default()), object_id);
     stealth_module.on_object_created();
     stealth_module
         .get_stealth_disguise_control_interface()

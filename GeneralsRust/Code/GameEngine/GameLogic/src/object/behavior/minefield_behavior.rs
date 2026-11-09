@@ -294,7 +294,7 @@ struct DetonatorInfo {
 
 pub struct MinefieldBehavior {
     object_id: ObjectID,
-    module_data: Arc<MinefieldBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<MinefieldBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     next_death_check_frame: UnsignedInt,
     scoot_frames_left: UnsignedInt,
@@ -311,8 +311,16 @@ pub struct MinefieldBehavior {
 impl MinefieldBehavior {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<MinefieldBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<MinefieldBehaviorModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(module_data, |data| data.as_any().downcast_ref::<MinefieldBehaviorModuleData>().expect("MinefieldBehavior module data type"));
+        let (virtual_mines_remaining, regenerates) = {
+            let data = module_data.read();
+            (data.num_virtual_mines.max(1), data.regenerates)
+        };
         let object_id = object.read().map_err(|_| "object lock poisoned")?.get_id();
         if let Ok(mut object) = object.write() {
             object.set_status(OBJECT_STATUS_NO_ATTACK_FROM_AI, true);
@@ -329,11 +337,11 @@ impl MinefieldBehavior {
             scoot_frames_left: 0,
             scoot_vel: Coord3D::new(0.0, 0.0, 0.0),
             scoot_accel: Coord3D::new(0.0, 0.0, 0.0),
-            virtual_mines_remaining: module_data.num_virtual_mines.max(1),
+            virtual_mines_remaining,
             immunes: std::array::from_fn(|_| ImmuneInfo::default()),
             detonators: Vec::new(),
             ignore_damage: false,
-            regenerates: module_data.regenerates,
+            regenerates,
             draining: false,
             module_data,
         })
@@ -362,7 +370,7 @@ impl MinefieldBehavior {
         }
 
         let mut sleep_time = u32::MAX;
-        if self.regenerates && self.module_data.stops_regen_after_creator_dies {
+        if self.regenerates && self.module_data.read().stops_regen_after_creator_dies {
             sleep_time = sleep_time.min(
                 self.next_death_check_frame
                     .saturating_sub(Self::current_frame()),
@@ -394,7 +402,7 @@ impl MinefieldBehavior {
         &mut self,
         position: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(weapon) = &self.module_data.detonation_weapon {
+        if let Some(weapon) = &self.module_data.read().detonation_weapon {
             if let Some(store) = TheWeaponStore::get() {
                 let _ = store.create_and_fire_temp_weapon_at_pos(weapon, self.object_id, position);
             }
@@ -408,7 +416,7 @@ impl MinefieldBehavior {
             let _ = TheGameLogic::destroy_object_by_id(self.object_id);
         } else if let Some(owner) = self.owner() {
             let percent =
-                self.virtual_mines_remaining as Real / self.module_data.num_virtual_mines as Real;
+                self.virtual_mines_remaining as Real / self.module_data.read().num_virtual_mines as Real;
             let (health, max_health) = owner
                 .read()
                 .ok()
@@ -438,7 +446,7 @@ impl MinefieldBehavior {
 
         self.set_depleted_visuals(self.virtual_mines_remaining == 0);
 
-        if let (Some(ocl), Some(owner)) = (&self.module_data.ocl, self.owner()) {
+        if let (Some(ocl), Some(owner)) = (&self.module_data.read().ocl, self.owner()) {
             let _ = ObjectCreationList::create(ocl, &owner, None);
         }
 
@@ -455,7 +463,7 @@ impl MinefieldBehavior {
             end_on_ground.z = terrain.get_ground_height(end_on_ground.x, end_on_ground.y, None);
         }
 
-        let mut scoot_time = self.module_data.scoot_from_starting_point_time;
+        let mut scoot_time = self.module_data.read().scoot_from_starting_point_time;
         let gravity = crate::object::die::eject_pilot_die::current_gravity();
         if start.z > end_on_ground.z {
             let falling_time = (2.0 * (start.z - end_on_ground.z) / gravity.abs())
@@ -600,9 +608,9 @@ impl MinefieldBehavior {
 
         if now >= self.next_death_check_frame
             && self.regenerates
-            && self.module_data.stops_regen_after_creator_dies
+            && self.module_data.read().stops_regen_after_creator_dies
         {
-            self.next_death_check_frame = now + self.module_data.creator_death_check_rate;
+            self.next_death_check_frame = now + self.module_data.read().creator_death_check_rate;
             let producer_id = self
                 .owner()
                 .and_then(|owner| owner.read().ok().map(|object| object.get_producer_id()))
@@ -634,7 +642,7 @@ impl MinefieldBehavior {
                     .and_then(|object| object.get_body_module())
                     .and_then(|body| body.lock().ok().map(|body| body.get_max_health()))
                     .unwrap_or(0.0);
-                let amount = (max_health * self.module_data.health_percent_to_drain_per_second)
+                let amount = (max_health * self.module_data.read().health_percent_to_drain_per_second)
                     / LOGICFRAMES_PER_SECOND as Real;
                 if amount > 0.0 {
                     if let Ok(mut object) = owner.write() {
@@ -723,10 +731,10 @@ impl MinefieldBehavior {
             )
         };
 
-        if !self.module_data.workers_detonate && should_ignore_worker {
+        if !self.module_data.read().workers_detonate && should_ignore_worker {
             return;
         }
-        if (self.module_data.detonated_by & relationship_mask(relationship)) == 0 {
+        if (self.module_data.read().detonated_by & relationship_mask(relationship)) == 0 {
             return;
         }
         if self.scoot_frames_left > 0 {
@@ -747,8 +755,8 @@ impl MinefieldBehavior {
             return;
         }
 
-        let threshold_sqr = self.module_data.repeat_detonate_move_thresh
-            * self.module_data.repeat_detonate_move_thresh;
+        let threshold = self.module_data.read().repeat_detonate_move_thresh;
+        let threshold_sqr = threshold * threshold;
         if let Some(detonator) = self
             .detonators
             .iter_mut()
@@ -798,13 +806,13 @@ impl MinefieldBehavior {
                 })
                 .unwrap_or((0.0, 1.0, Coord3D::new(0.0, 0.0, 0.0)));
 
-            let expected_f = self.module_data.num_virtual_mines as Real * health / max_health;
+            let expected_f = self.module_data.read().num_virtual_mines as Real * health / max_health;
             let mut expected = if damage_info.input.damage_type == DamageType::Healing {
                 expected_f.floor() as UnsignedInt
             } else {
                 expected_f.ceil() as UnsignedInt
             };
-            expected = expected.min(self.module_data.num_virtual_mines);
+            expected = expected.min(self.module_data.read().num_virtual_mines);
 
             if self.virtual_mines_remaining < expected {
                 self.virtual_mines_remaining = expected;
@@ -1063,7 +1071,7 @@ impl Snapshotable for MinefieldBehavior {
 pub struct MinefieldBehaviorModule {
     behavior: MinefieldBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<MinefieldBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl MinefieldBehaviorModule {
@@ -1074,7 +1082,7 @@ impl MinefieldBehaviorModule {
     pub fn new(
         behavior: MinefieldBehavior,
         module_name: &AsciiString,
-        module_data: Arc<MinefieldBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             behavior,
@@ -1108,11 +1116,11 @@ impl EngineModule for MinefieldBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -1139,12 +1147,8 @@ pub struct MinefieldBehaviorFactory;
 impl MinefieldBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        let _ = module_data;
-        Ok(Box::new(MinefieldBehavior::new(
-            thing,
-            Arc::new(MinefieldBehaviorModuleData::default()),
-        )?))
+        Ok(Box::new(MinefieldBehavior::new(thing, module_data)?))
     }
 }

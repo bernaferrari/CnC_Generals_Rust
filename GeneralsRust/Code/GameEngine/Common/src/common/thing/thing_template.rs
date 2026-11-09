@@ -42,7 +42,7 @@ use crate::common::{
         Overridable, Xfer,
         geometry::{GeometryInfo, GeometryType},
     },
-    thing::module::{ModuleData, ModuleInterfaceType, ModuleType},
+    thing::module::{ModuleData, ModuleDataHandle, ModuleInterfaceType, ModuleType},
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -542,7 +542,7 @@ pub struct ModuleInfo {
 pub struct ModuleInfoEntry<'a> {
     pub name: &'a AsciiString,
     pub module_tag: &'a AsciiString,
-    pub data: &'a Arc<dyn ModuleData>,
+    pub data: &'a ModuleDataHandle,
     pub interface_mask: i32,
     pub inheritable: bool,
     pub overrideable_by_like_kind: bool,
@@ -553,7 +553,7 @@ pub struct ModuleInfoEntry<'a> {
 pub struct ModuleNugget {
     name: AsciiString,
     module_tag: AsciiString,
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     interface_mask: i32,
     copied_from_default: bool,
     inheritable: bool,
@@ -564,7 +564,7 @@ impl ModuleNugget {
     fn new(
         name: AsciiString,
         module_tag: AsciiString,
-        data: Arc<dyn ModuleData>,
+        data: ModuleDataHandle,
         interface_mask: i32,
         inheritable: bool,
         overrideable_by_like_kind: bool,
@@ -701,7 +701,7 @@ impl ModuleInfo {
         &mut self,
         name: AsciiString,
         module_tag: AsciiString,
-        data: Arc<dyn ModuleData>,
+        data: ModuleDataHandle,
         interface_mask: i32,
         inheritable: bool,
         overrideable_by_like_kind: bool,
@@ -733,15 +733,15 @@ impl ModuleInfo {
         self.info.get(index).map(|nugget| &nugget.module_tag)
     }
 
-    pub fn get_nth_data(&self, index: usize) -> Option<&Arc<dyn ModuleData>> {
+    pub fn get_nth_data(&self, index: usize) -> Option<&ModuleDataHandle> {
         self.info.get(index).map(|nugget| &nugget.data)
     }
 
-    fn replace_first_ai_module_data(&mut self, data: Arc<dyn ModuleData>) -> bool {
+    fn replace_first_ai_module_data(&mut self, data: ModuleDataHandle) -> bool {
         if let Some(nugget) = self
             .info
             .iter_mut()
-            .find(|nugget| nugget.data.is_ai_module_data())
+            .find(|nugget| nugget.data.read().is_ai_module_data())
         {
             nugget.data = data;
             return true;
@@ -827,7 +827,7 @@ impl ModuleInfo {
 
     pub fn clear_ai_module_info(&mut self) -> bool {
         let initial_len = self.info.len();
-        self.info.retain(|nugget| !nugget.data.is_ai_module_data());
+        self.info.retain(|nugget| !nugget.data.read().is_ai_module_data());
         self.info.len() != initial_len
     }
 }
@@ -1507,6 +1507,37 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    /// Fork a receiving template graph while preserving shared inherited module data.
+    pub(crate) fn fork_receiving_template(
+        source: &Arc<Self>,
+        templates: &mut HashMap<*const Self, (Arc<Self>, Arc<Self>)>,
+        remap: &mut impl FnMut(&ModuleDataHandle) -> ModuleDataHandle,
+    ) -> Arc<Self> {
+        let key = Arc::as_ptr(source);
+        if let Some((_, template)) = templates.get(&key) {
+            return Arc::clone(template);
+        }
+        let mut fork = source.as_ref().clone();
+        for info in [
+            &mut fork.behavior_module_info,
+            &mut fork.draw_module_info,
+            &mut fork.client_update_module_info,
+        ] {
+            for nugget in &mut info.info {
+                nugget.data = remap(&nugget.data);
+            }
+        }
+        fork.reskinned_from = source.reskinned_from.as_ref().map(|parent| {
+            Self::fork_receiving_template(parent, templates, remap)
+        });
+        fork.next_thing_template = source.next_thing_template.as_ref().map(|next| {
+            Self::fork_receiving_template(next, templates, remap)
+        });
+        let fork = Arc::new(fork);
+        templates.insert(key, (Arc::clone(source), Arc::clone(&fork)));
+        fork
+    }
+
     pub fn get_fence_width(&self) -> Real {
         self.fence_width
     }
@@ -1786,7 +1817,7 @@ impl ThingTemplate {
         &mut self,
         name: AsciiString,
         module_tag: AsciiString,
-        data: Arc<dyn ModuleData>,
+        data: ModuleDataHandle,
         interface_mask: ModuleInterfaceType,
     ) {
         self.draw_module_info.add_module_info(
@@ -1811,7 +1842,7 @@ impl ThingTemplate {
         &mut self,
         name: AsciiString,
         module_tag: AsciiString,
-        data: Arc<dyn ModuleData>,
+        data: ModuleDataHandle,
         interface_mask: ModuleInterfaceType,
     ) {
         self.client_update_module_info.add_module_info(
@@ -2454,10 +2485,10 @@ impl ThingTemplate {
     }
 
     /// C++ `ThingTemplate::friend_getAIModuleInfo`.
-    pub fn friend_get_ai_module_info(&self) -> Option<&Arc<dyn ModuleData>> {
+    pub fn friend_get_ai_module_info(&self) -> Option<&ModuleDataHandle> {
         for i in 0..self.behavior_module_info.get_count() {
             if let Some(data) = self.behavior_module_info.get_nth_data(i) {
-                if data.is_ai_module_data() {
+                if data.read().is_ai_module_data() {
                     return Some(data);
                 }
             }

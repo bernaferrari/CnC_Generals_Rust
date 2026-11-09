@@ -71,7 +71,7 @@ impl Snapshotable for W3DTracerDrawModuleData {
 }
 
 pub struct W3DTracerDraw {
-    _data: W3DTracerDrawModuleData,
+    _data: game_engine::common::thing::module::ModuleDataHandle,
     length: Real,
     width: Real,
     color: RGBColor,
@@ -93,6 +93,10 @@ pub struct W3DTracerDraw {
 
 impl W3DTracerDraw {
     pub fn new(data: W3DTracerDrawModuleData) -> Self {
+        Self::new_with_module_data(game_engine::common::thing::module::ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             _data: data,
             length: 20.0,
@@ -292,10 +296,10 @@ impl Module for W3DTracerDraw {
         keys.name_to_key("W3DTracerDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self._data.module_tag_name_key
+        self._data.read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self._data
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self._data)
     }
 }
 

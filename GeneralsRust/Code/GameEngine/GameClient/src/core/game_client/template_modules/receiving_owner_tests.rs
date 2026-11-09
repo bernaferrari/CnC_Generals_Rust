@@ -98,6 +98,7 @@ fn actual_authored_native_modules_keep_receiving_data_tags_and_namespace_with_fo
         .next()
         .unwrap()
         .data
+        .read()
         .get_module_tag_name_key();
     let peer_tag = peer
         .draw_modules()
@@ -105,6 +106,7 @@ fn actual_authored_native_modules_keep_receiving_data_tags_and_namespace_with_fo
         .next()
         .unwrap()
         .data
+        .read()
         .get_module_tag_name_key();
     assert_ne!(first_tag, peer_tag);
     let mut receiver = GameClient::new().unwrap();
@@ -193,14 +195,14 @@ fn actual_model_parser_allocates_turret_transition_then_tag_in_receiving_namespa
         "Draw = W3DModelDraw ModelTag\n  DefaultConditionState\n    Model = None\n    Turret = TurretBone\n    TransitionKey = OpenState\n  End\nEnd",
     );
     let entry = plan.draw_modules().iter().next().unwrap();
-    let data = entry
-        .data
+    let guard = entry.data.read();
+    let data = guard
         .as_any()
         .downcast_ref::<W3DModelDrawModuleData>()
         .unwrap();
     let turret = data.condition_states[0].turrets[0].turret_angle_name_key;
     let transition = data.condition_states[0].transition_key;
-    let tag = entry.data.get_module_tag_name_key();
+    let tag = guard.get_module_tag_name_key();
     let keys = content.receiving_name_keys_mut().unwrap();
     assert_eq!(keys.key_to_name(turret).as_deref(), Some("turretbone"));
     assert_eq!(keys.key_to_name(transition).as_deref(), Some("openstate"));
@@ -229,7 +231,7 @@ fn actual_model_parser_allocates_turret_transition_then_tag_in_receiving_namespa
             .name_to_key("AfterRejected"),
         expected.name_to_key("AfterRejected")
     );
-    assert_eq!(entry.data.get_module_tag_name_key(), tag);
+    assert_eq!(guard.get_module_tag_name_key(), tag);
 }
 
 #[test]
@@ -633,6 +635,7 @@ fn authored_science_uses_received_player_and_definition_identity_with_foreign_fa
                 .next()
                 .unwrap()
                 .data
+                .read()
                 .as_any()
                 .downcast_ref::<W3DScienceModelDrawModuleData>()
                 .unwrap()

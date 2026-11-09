@@ -283,13 +283,22 @@ pub struct FXListDie {
 
 impl FXListDie {
     /// Create a new FXListDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<FXListDieModuleData>) -> Self {
-        let initially_active = module_data.initially_active;
-        let mut upgrade_mux = UpgradeMux::new(module_data.upgrade_mux_data.clone());
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
+        let view = super::ModuleDataView::new(module_data.clone(), |data| {
+            &data.as_any().downcast_ref::<FXListDieModuleData>()
+                .expect("incorrect FXListDie module data").upgrade_mux_data
+        });
+        let initially_active = {
+            let guard = module_data.read();
+            guard.as_any().downcast_ref::<FXListDieModuleData>()
+                .expect("incorrect FXListDie module data").initially_active
+        };
+        let mut upgrade_mux = UpgradeMux::new_shared(view);
         if initially_active {
             if let Ok(mut obj_guard) = object.write() {
-                upgrade_mux.data.perform_upgrade_fx(&mut obj_guard);
-                upgrade_mux.data.process_upgrade_removal(&mut obj_guard);
+                let data = upgrade_mux.data_snapshot();
+                data.perform_upgrade_fx(&mut obj_guard);
+                data.process_upgrade_removal(&mut obj_guard);
             }
             upgrade_mux.set_upgrade_executed(true);
         }
@@ -311,8 +320,7 @@ impl FXListDie {
 
     /// Check if conflicting upgrades are present
     fn check_conflicting_upgrades(&self, object: &Object) -> bool {
-        let mut mux_data = self.base.module_data.upgrade_mux_data.clone();
-        let (_activation, conflicting) = mux_data.get_upgrade_activation_masks();
+        let (_activation, conflicting) = self.upgrade_mux.activation_masks();
         if !conflicting.any() {
             return false;
         }
@@ -331,7 +339,8 @@ impl FXListDie {
 
     /// Play the death FX
     fn play_death_fx(&self, object: &Object, damage_info: &DamageInfo) {
-        let fx_name = match &self.base.module_data.default_death_fx {
+        let module_data = self.base.module_data.read();
+        let fx_name = match &module_data.default_death_fx {
             Some(fx) => fx,
             None => return, // No FX to play
         };
@@ -340,7 +349,7 @@ impl FXListDie {
             return;
         };
 
-        if self.base.module_data.orient_to_object {
+        if module_data.orient_to_object {
             let source_id = TheGameLogic::find_object_by_id(damage_info.input.source_id)
                 .map(|_| damage_info.input.source_id);
             let _ = fx_list.do_fx_obj_ids(object.get_id(), source_id, None);
@@ -363,7 +372,7 @@ impl DieModuleInterface for FXListDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }
@@ -398,9 +407,10 @@ impl crate::modules::UpgradeModuleInterface for FXListDie {
             return false;
         }
 
+        let data = self.upgrade_mux.data_snapshot();
         let applied = self.base.with_object_mut(|obj_guard| {
-            self.upgrade_mux.data.perform_upgrade_fx(obj_guard);
-            self.upgrade_mux.data.process_upgrade_removal(obj_guard);
+            data.perform_upgrade_fx(obj_guard);
+            data.process_upgrade_removal(obj_guard);
         });
         if applied.is_none() {
             return false;
@@ -437,6 +447,23 @@ mod tests {
         assert_eq!(data.upgrade_mux_data.trigger_upgrade_names.len(), 0);
         assert_eq!(data.upgrade_mux_data.conflicting_upgrade_names.len(), 0);
         assert_eq!(data.upgrade_mux_data.requires_all_triggers, false);
+    }
+
+    #[test]
+    fn upgrade_mux_reads_live_definition() {
+        let mut definition = FXListDieModuleData::default();
+        definition.initially_active = false;
+        let data = super::super::ModuleDataHandle::new(definition);
+        let object = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
+        let module = FXListDie::new(object, data.clone());
+        assert!(super::super::ModuleDataHandle::ptr_eq(&data, module.base.module_data.handle()));
+        assert!(!module.upgrade_mux.data_snapshot().requires_all_triggers);
+        {
+            let mut guard = data.write();
+            let any: &mut dyn std::any::Any = &mut *guard;
+            any.downcast_mut::<FXListDieModuleData>().unwrap().upgrade_mux_data.requires_all_triggers = true;
+        }
+        assert!(module.upgrade_mux.data_snapshot().requires_all_triggers);
     }
 
     #[test]

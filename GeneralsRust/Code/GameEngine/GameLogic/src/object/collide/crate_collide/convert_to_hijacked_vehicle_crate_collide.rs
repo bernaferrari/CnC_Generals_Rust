@@ -34,6 +34,8 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::update::ai_update::dozer_ai_update::DozerTask;
 use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 /// Module data for hijacked vehicle conversion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,19 +249,19 @@ const CONVERT_TO_HIJACKED_VEHICLE_CRATE_COLLIDE_FIELDS: &[IniFieldParse<
 pub struct ConvertToHijackedVehicleCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
-    /// Module-specific data
-    module_data: ConvertToHijackedVehicleCrateCollideModuleData,
 }
 
 impl ConvertToHijackedVehicleCrateCollide {
     /// Create new hijacker conversion crate collide module.
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: ConvertToHijackedVehicleCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let base = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<ConvertToHijackedVehicleCrateCollideModuleData>>().expect("ConvertToHijackedVehicleCrateCollide data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data,
+            base: LegacyCrateCollide::from_object_handle(&object, base),
         }
     }
 
@@ -631,7 +633,7 @@ mod tests {
         let object = Arc::new(RwLock::new(Object::new_test(77_200, 100.0)));
         let module = ConvertToHijackedVehicleCrateCollide::new(
             &object,
-            ConvertToHijackedVehicleCrateCollideModuleData::default(),
+            ModuleDataHandle::new(CrateCollideDataAdapter::new(ConvertToHijackedVehicleCrateCollideModuleData::default())),
         );
 
         assert!(crate::object::collide::CollideModule::is_hijacked_vehicle_crate_collide(&module));

@@ -56,14 +56,15 @@ fn install_owner(
     Arc<RwLock<Drawable>>,
     crate::object::drawable::DrawableModuleHandle,
 ) {
-    let mut model = W3DModelDraw::new(data.clone());
+    let data = ModuleDataHandle::new(data);
+    let mut model = W3DModelDraw::new_with_module_data(data.clone());
     model.owner_id = Some(id);
     let mut drawable = Drawable::new(id, id, format!("AttachCache{id}"), DrawableType::Static);
     let entry = drawable.add_module(
         ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         format!("AttachCache{id}").into(),
-        Arc::new(data),
+        data,
         Box::new(model),
     );
     let drawable = Arc::new(RwLock::new(drawable));
@@ -131,7 +132,7 @@ fn installed_projectile_attach_cache_miss_does_not_reenter_draw_entry() {
         let model = (module as &mut dyn std::any::Any)
             .downcast_mut::<W3DModelDraw>()
             .expect("installed W3DModelDraw");
-        model.data.condition_states[0]
+        model.model_data_mut().condition_states[0]
             .pristine_bones
             .get_mut(&NameKeyGenerator::name_to_key("attach"))
             .expect("attach bone fixture")
@@ -156,7 +157,7 @@ fn installed_projectile_attach_cache_miss_does_not_reenter_draw_entry() {
         let model = (module as &mut dyn std::any::Any)
             .downcast_mut::<W3DModelDraw>()
             .expect("installed W3DModelDraw");
-        model.data.condition_states[0]
+        model.model_data_mut().condition_states[0]
             .pristine_bones
             .get_mut(&NameKeyGenerator::name_to_key("attach"))
             .expect("attach bone fixture")
@@ -208,7 +209,7 @@ fn invalid_turret_skips_attachment_and_missing_bone_caches_zero() {
         let model = (module as &mut dyn std::any::Any)
             .downcast_mut::<W3DModelDraw>()
             .unwrap();
-        model.data.condition_states[0]
+        model.model_data_mut().condition_states[0]
             .pristine_bones
             .remove(&NameKeyGenerator::name_to_key("attach"));
     });
@@ -225,7 +226,7 @@ fn invalid_turret_skips_attachment_and_missing_bone_caches_zero() {
             *model.attach_offset_cache.lock().unwrap(),
             Some(Coord3D::origin())
         );
-        model.data.condition_states[0].pristine_bones.insert(
+        model.model_data_mut().condition_states[0].pristine_bones.insert(
             NameKeyGenerator::name_to_key("attach"),
             PristineBoneInfo {
                 transform: Matrix3D::from_translation(Coord3D::new(90.0, 90.0, 90.0)),
@@ -273,8 +274,8 @@ fn empty_barrels_still_prime_attachment_before_returning_no_launch() {
             *model.attach_offset_cache.lock().unwrap(),
             Some(Coord3D::new(4.0, 5.0, 6.0))
         );
-        model.data.condition_states[0].weapon_barrels[0].push(WeaponBarrelInfo::new());
-        model.data.condition_states[0]
+        model.model_data_mut().condition_states[0].weapon_barrels[0].push(WeaponBarrelInfo::new());
+        model.model_data_mut().condition_states[0]
             .pristine_bones
             .get_mut(&NameKeyGenerator::name_to_key("attach"))
             .unwrap()
@@ -367,18 +368,20 @@ fn dependency_and_supply_modules_use_the_driving_drawable_query() {
     let ids = [0xA77A_1006, 0xA77A_1007];
     let _registered = Registered(ids);
     for (index, id) in ids.into_iter().enumerate() {
-        let (name, data, module): (&str, Arc<dyn ModuleData>, Box<dyn Module>) = if index == 0 {
+        let (name, data, module): (&str, ModuleDataHandle, Box<dyn Module>) = if index == 0 {
             let mut data = W3DDependencyModelDrawModuleData::new();
             data.base = model_data(true);
-            let mut module = W3DDependencyModelDraw::new(data.clone());
+            let data = ModuleDataHandle::new(data);
+            let mut module = W3DDependencyModelDraw::new_with_module_data(data.clone());
             module.bind_owner_id(id);
-            ("W3DDependencyModelDraw", Arc::new(data), Box::new(module))
+            ("W3DDependencyModelDraw", data, Box::new(module))
         } else {
             let mut data = W3DSupplyDrawModuleData::new();
             data.base = model_data(true);
-            let mut module = W3DSupplyDraw::new(data.clone());
+            let data = ModuleDataHandle::new(data);
+            let mut module = W3DSupplyDraw::new_with_module_data(data.clone());
             module.bind_owner_id(id);
-            ("W3DSupplyDraw", Arc::new(data), Box::new(module))
+            ("W3DSupplyDraw", data, Box::new(module))
         };
         let mut drawable = Drawable::new(id, id, name.to_owned(), DrawableType::Static);
         drawable.add_module(

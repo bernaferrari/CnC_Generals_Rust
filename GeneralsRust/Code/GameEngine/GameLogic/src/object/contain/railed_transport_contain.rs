@@ -16,6 +16,7 @@ use crate::object::contain::{ObjectTemplate, TransportContain};
 use crate::player::Player;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::ModuleDataHandle;
 
 /// Configuration data for RailedTransportContain module
 #[derive(Debug, Clone, Default)]
@@ -53,9 +54,10 @@ impl RailedTransportContain {
     /// Create a new RailedTransportContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &RailedTransportContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let mut base = TransportContain::new(object.clone(), &module_data.base)?;
+        assert!(module_data.is::<crate::contain_module_overrides::ContainModuleDataAdapter<RailedTransportContainModuleData>>(), "railed transport contain module data has an incompatible type");
+        let mut base = TransportContain::new(object.clone(), module_data)?;
         // C++ RailedTransportContain::isSpecificRiderFreeToExit: dock closed = in transit.
         base.set_require_open_dock_to_exit(true);
 

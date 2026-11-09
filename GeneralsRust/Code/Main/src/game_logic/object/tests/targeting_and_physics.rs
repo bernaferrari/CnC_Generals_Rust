@@ -2985,11 +2985,11 @@ fn jet_lockon_time_comes_from_authored_jet_ai_not_template_name() {
         authored.jet_lockon_time_frames(),
         STEALTH_FIGHTER_LOCKON_TIME_FRAMES
     );
-    assert_eq!(authored.jet_lockon_cursor_name(), Some("LockonCursor"));
+    assert_eq!(authored.jet_lockon_cursor_name().as_deref(), Some("LockonCursor"));
 
     let mut named_t = ThingTemplate::new("AmericaJetStealthFighter");
     named_t.add_kind_of(KindOf::Aircraft);
     let named = Object::new(named_t, ObjectId(2), Team::USA);
     assert_eq!(named.jet_lockon_time_frames(), 0, "no name-sniff lockon");
-    assert_eq!(named.jet_lockon_cursor_name(), None);
+    assert!(named.jet_lockon_cursor_name().is_none());
 }

@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn turret_controls_preserve_absent_and_invalid_slots() {
-    let mut ai = AIUpdateInterface::new(Arc::new(AIUpdateModuleData::default()));
+    let mut ai = AIUpdateInterface::new(ModuleDataHandle::new(AIUpdateModuleData::default()));
     for slot in [
         WhichTurretType::Main,
         WhichTurretType::Alt,
@@ -22,8 +22,8 @@ fn turret_controls_preserve_absent_and_invalid_slots() {
 
 #[test]
 fn turret_controls_borrow_only_the_selected_ai_and_slot() {
-    let data = Arc::new(AIUpdateModuleData::default());
-    let mut first = AIUpdateInterface::new(Arc::clone(&data));
+    let data = ModuleDataHandle::new(AIUpdateModuleData::default());
+    let mut first = AIUpdateInterface::new(data.clone());
     let mut second = AIUpdateInterface::new(data);
     // Explicit private fixture installation: this adapter has no production
     // installation yet. Do not claim these are admitted native world turrets.

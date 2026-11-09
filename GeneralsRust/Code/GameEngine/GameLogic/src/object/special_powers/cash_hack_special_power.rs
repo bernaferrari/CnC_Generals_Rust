@@ -125,7 +125,7 @@ impl Snapshotable for CashHackSpecialPowerModuleData {
 /// Steals money from an enemy building when activated on it.
 pub struct CashHackSpecialPower {
     module_name_key: NameKeyType,
-    data: Arc<CashHackSpecialPowerModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -134,12 +134,13 @@ impl CashHackSpecialPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<CashHackSpecialPowerModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        let base_module = super::interface::make_shared_base_module!(owner_object_id, data, CashHackSpecialPowerModuleData);
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module,
             data,
         }
     }
@@ -147,12 +148,17 @@ impl CashHackSpecialPower {
     /// Find the amount to steal based on player's science.
     /// Matches C++ CashHackSpecialPower::findAmountToSteal().
     fn find_amount_to_steal(&self) -> Int {
+        let (upgrades, default_amount) = {
+            let guard = self.data.read();
+            let data = guard.as_any().downcast_ref::<CashHackSpecialPowerModuleData>()
+                .expect("CashHackSpecialPower data type");
+            (data.upgrades.clone(), data.default_amount_to_steal)
+        };
         let stolen = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_object_id, |owner_guard| {
                 owner_guard
                     .with_controlling_player(|player_guard| {
-                        self.data
-                            .upgrades
+                        upgrades
                             .iter()
                             .find(|upgrade| player_guard.has_science(upgrade.science))
                             .map(|upgrade| upgrade.amount_to_steal)
@@ -163,7 +169,7 @@ impl CashHackSpecialPower {
         if let Some(amount) = stolen {
             return amount;
         }
-        self.data.default_amount_to_steal
+        default_amount
     }
 
     /// Execute cash hack at a location - returns immediately.
@@ -348,11 +354,11 @@ impl Module for CashHackSpecialPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -473,7 +479,7 @@ mod tests {
     #[test]
     fn test_cash_hack_module_name() {
         let data = CashHackSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = CashHackSpecialPower::new(0, 0, arc_data);
         assert_eq!(power.get_module_name(), "CashHackSpecialPower");
     }
@@ -482,7 +488,7 @@ mod tests {
     fn test_find_amount_to_steal_no_upgrades() {
         let mut data = CashHackSpecialPowerModuleData::default();
         data.default_amount_to_steal = 1000;
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = CashHackSpecialPower::new(0, 0, arc_data);
         assert_eq!(power.find_amount_to_steal(), 1000);
     }
@@ -490,7 +496,7 @@ mod tests {
     #[test]
     fn test_do_special_power_at_location_returns_ok() {
         let data = CashHackSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = CashHackSpecialPower::new(0, 0, arc_data);
         // Should return Ok (does nothing - only objects allowed)
         assert!(
@@ -503,7 +509,7 @@ mod tests {
     #[test]
     fn test_do_special_power_at_object_no_owner() {
         let data = CashHackSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = CashHackSpecialPower::new(0, 0, arc_data);
         // Should return Ok without panicking when owner doesn't exist
         assert!(power.do_special_power_at_object(999).is_ok());

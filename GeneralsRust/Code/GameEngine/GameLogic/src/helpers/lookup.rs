@@ -38,7 +38,7 @@ impl EngineThingTemplateAdapter {
             .map(|entry| crate::common::TemplateModuleInfo {
                 name: entry.name.clone().into(),
                 module_tag: entry.module_tag.clone().into(),
-                data: Arc::clone(entry.data),
+                data: entry.data.clone(),
                 interface_mask: entry.interface_flags(),
             })
             .collect()

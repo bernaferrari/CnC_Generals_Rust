@@ -90,35 +90,24 @@ impl Snapshotable for PowerPlantUpdateModuleData {
 /// PowerPlantUpdate behavior module
 pub struct PowerPlantUpdate {
     object_id: ObjectID,
-    module_data: Arc<PowerPlantUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<PowerPlantUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     extended: Bool,
     extend_done_frame: UnsignedInt,
 }
 
 impl PowerPlantUpdate {
-    /// Create a new PowerPlantUpdate instance
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<PowerPlantUpdateModuleData>()
-            .ok_or("Invalid module data type for PowerPlantUpdate")?;
-
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !data.is::<PowerPlantUpdateModuleData>() { return Err("Invalid module data type for PowerPlantUpdate".into()); }
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<PowerPlantUpdateModuleData>().expect("PowerPlantUpdate module data type")),
             next_call_frame_and_phase: 0,
             extended: false,
             extend_done_frame: 0,
         })
     }
+
 
     /// Extend or retract the power plant rods
     pub fn extend_rods(&mut self, extend: Bool) {
@@ -146,7 +135,7 @@ impl PowerPlantUpdate {
                 self.extended = true;
                 let now = crate::helpers::TheGameLogic::get_frame();
                 self.next_call_frame_and_phase =
-                    now.saturating_add(self.module_data.rods_extend_time);
+                    now.saturating_add(self.module_data.read().rods_extend_time);
                 self.reschedule_self();
             }
         } else {
@@ -262,14 +251,14 @@ impl Snapshotable for PowerPlantUpdate {
 pub struct PowerPlantUpdateModule {
     behavior: PowerPlantUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<PowerPlantUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl PowerPlantUpdateModule {
     pub fn new(
         behavior: PowerPlantUpdate,
         module_name: &AsciiString,
-        module_data: Arc<PowerPlantUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -304,11 +293,11 @@ impl Module for PowerPlantUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -328,9 +317,9 @@ pub struct PowerPlantUpdateFactory;
 impl PowerPlantUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        let behavior = PowerPlantUpdate::new(thing, module_data)?;
+        let behavior = PowerPlantUpdate::new_with_module_data(thing, module_data)?;
         Ok(Box::new(behavior))
     }
 }
@@ -395,8 +384,8 @@ mod tests {
     fn power_plant_retract_cancels_pending_extension_before_completion() {
         let _lock = crate::test_sync::lock();
         let owner = RodOwner::new(0xD158);
-        let data = Arc::new(PowerPlantUpdateModuleData::default());
-        let mut update = PowerPlantUpdate::new(owner.object.clone(), data).unwrap();
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(PowerPlantUpdateModuleData::default());
+        let mut update = PowerPlantUpdate::new_with_module_data(owner.object.clone(), data).unwrap();
         update.extend_done_frame = 123;
         update.extend_rods(false);
 
@@ -408,11 +397,11 @@ mod tests {
     fn power_plant_extension_marks_extended_immediately_like_cpp() {
         let _lock = crate::test_sync::lock();
         let owner = RodOwner::new(0xD159);
-        let data = Arc::new(PowerPlantUpdateModuleData {
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(PowerPlantUpdateModuleData {
             rods_extend_time: 25,
             ..PowerPlantUpdateModuleData::default()
         });
-        let mut update = PowerPlantUpdate::new(owner.object.clone(), data).unwrap();
+        let mut update = PowerPlantUpdate::new_with_module_data(owner.object.clone(), data).unwrap();
         update.extend_rods(true);
 
         assert!(update.extended);
@@ -420,7 +409,7 @@ mod tests {
 
     #[test]
     fn power_plant_update_xfer_preserves_cpp_runtime_fields_only() {
-        let module_data = Arc::new(PowerPlantUpdateModuleData::default());
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(game_engine::common::thing::module::ModuleDataHandle::new(PowerPlantUpdateModuleData::default()), |data| data.as_any().downcast_ref::<PowerPlantUpdateModuleData>().unwrap());
         let mut saved = PowerPlantUpdate {
             object_id: crate::common::INVALID_ID,
             module_data: module_data.clone(),

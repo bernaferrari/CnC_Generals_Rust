@@ -1,10 +1,62 @@
+fn project_model_data(data: &dyn ModuleData) -> &W3DModelDrawModuleData {
+    let any = data as &dyn Any;
+    macro_rules! project {
+        ($ty:ty, $($field:ident).+) => {
+            if let Some(data) = any.downcast_ref::<$ty>() {
+                return &data.$($field).+;
+            }
+        };
+    }
+    if let Some(data) = any.downcast_ref::<W3DModelDrawModuleData>() {
+        return data;
+    }
+    project!(super::W3DDependencyModelDrawModuleData, base);
+    project!(super::W3DScienceModelDrawModuleData, base);
+    project!(super::W3DSupplyDrawModuleData, base);
+    project!(super::W3DProjectileDrawModuleData, base);
+    project!(super::W3DOverlordAircraftDrawModuleData, base);
+    project!(super::W3DTankDrawModuleData, base);
+    project!(super::W3DTruckDrawModuleData, base);
+    project!(super::W3DOverlordTankDrawModuleData, base.base);
+    project!(super::W3DOverlordTruckDrawModuleData, base.base);
+    project!(super::W3DPoliceCarDrawModuleData, base.base);
+    project!(super::W3DTankTruckDrawModuleData, base.base);
+    panic!("W3DModelDraw received incompatible module data")
+}
+
+fn project_model_data_mut(data: &mut dyn ModuleData) -> &mut W3DModelDrawModuleData {
+    let any = data as &mut dyn Any;
+    macro_rules! project {
+        ($ty:ty, $($field:ident).+) => {
+            if any.is::<$ty>() {
+                return &mut any.downcast_mut::<$ty>().unwrap().$($field).+;
+            }
+        };
+    }
+    if any.is::<W3DModelDrawModuleData>() {
+        return any.downcast_mut::<W3DModelDrawModuleData>().unwrap();
+    }
+    project!(super::W3DDependencyModelDrawModuleData, base);
+    project!(super::W3DScienceModelDrawModuleData, base);
+    project!(super::W3DSupplyDrawModuleData, base);
+    project!(super::W3DProjectileDrawModuleData, base);
+    project!(super::W3DOverlordAircraftDrawModuleData, base);
+    project!(super::W3DTankDrawModuleData, base);
+    project!(super::W3DTruckDrawModuleData, base);
+    project!(super::W3DOverlordTankDrawModuleData, base.base);
+    project!(super::W3DOverlordTruckDrawModuleData, base.base);
+    project!(super::W3DPoliceCarDrawModuleData, base.base);
+    project!(super::W3DTankTruckDrawModuleData, base.base);
+    panic!("W3DModelDraw received incompatible module data")
+}
+
 /// W3DModelDraw module instance
 ///
 /// Reference: W3DModelDraw in W3DModelDraw.h
 #[allow(dead_code)]
 pub struct W3DModelDraw {
     /// Module data
-    data: W3DModelDrawModuleData,
+    data: ModuleDataHandle,
 
     /// Current model condition state
     cur_state: Option<ActiveModelState>,
@@ -102,6 +154,10 @@ pub struct W3DModelDraw {
 
 impl W3DModelDraw {
     pub fn new(data: W3DModelDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
         let weapon_recoil_info = vec![Vec::new(); WEAPONSLOT_COUNT];
 
         Self {
@@ -144,6 +200,18 @@ impl W3DModelDraw {
         }
     }
 
+    fn model_data(&self) -> parking_lot::MappedRwLockReadGuard<'_, W3DModelDrawModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            project_model_data(data)
+        })
+    }
+
+    fn model_data_mut(&self) -> parking_lot::MappedRwLockWriteGuard<'_, W3DModelDrawModuleData> {
+        parking_lot::MappedRwLockWriteGuard::map(self.data.write(), |data| {
+            project_model_data_mut(data)
+        })
+    }
+
     fn rebuild_weapon_recoil_info(&mut self, state_ref: Option<ActiveModelState>) {
         let mut target_counts = [0usize; WEAPONSLOT_COUNT];
         if let Some(state_ref) = state_ref {
@@ -167,7 +235,7 @@ impl W3DModelDraw {
     }
 
     pub fn has_any_turrets(&self) -> bool {
-        self.data
+        self.model_data()
             .condition_states
             .iter()
             .any(|state| !state.turrets.is_empty())
@@ -191,8 +259,9 @@ impl W3DModelDraw {
         // Both stores use the same driving owner, with no ID lookup.
         self.hex_color = packed_indicator_hex(binding.indicator_color);
         self.apply_receives_dynamic_lights();
-        if self.data.default_state >= 0 {
-            self.set_model_state_for_drawable(self.data.default_state as usize, Some(drawable));
+        let default_state = self.model_data().default_state;
+        if default_state >= 0 {
+            self.set_model_state_for_drawable(default_state as usize, Some(drawable));
         } else if let Some(state_index) = self.find_best_state_index(&ModelConditionFlags::empty())
         {
             self.set_model_state_for_drawable(state_index, Some(drawable));
@@ -225,7 +294,7 @@ impl W3DModelDraw {
     }
 
     fn apply_receives_dynamic_lights(&self) {
-        if self.data.receives_dynamic_lights {
+        if self.model_data().receives_dynamic_lights {
             return;
         }
         let Some(owner_id) = self.owner_id else {
@@ -244,7 +313,7 @@ impl W3DModelDraw {
         color: i32,
         drawable: Option<&ModelDrawContext>,
     ) {
-        if !self.data.ok_to_change_model_color {
+        if !self.model_data().ok_to_change_model_color {
             return;
         }
         // C++ returns before the store when getRenderObject() is null.
@@ -272,14 +341,16 @@ impl W3DModelDraw {
                 self.set_model_state_for_drawable(index, drawable)
             }
             ActiveModelState::Transition(index) => {
-                if let Some(state) = self.data.transition_states.get(index) {
-                    if let Some(dest) =
-                        self.data.condition_states.iter().position(|candidate| {
+                let dest = {
+                    let data = self.model_data();
+                    data.transition_states.get(index).and_then(|state| {
+                        data.condition_states.iter().position(|candidate| {
                             candidate.transition_key == state.transition_to_key
                         })
-                    {
-                        self.set_model_state_for_drawable(dest, drawable);
-                    }
+                    })
+                };
+                if let Some(dest) = dest {
+                    self.set_model_state_for_drawable(dest, drawable);
                 }
             }
         }
@@ -330,21 +401,18 @@ impl W3DModelDraw {
         Some(func(&drawable_guard))
     }
 
-    fn resolve_state(&self, state_ref: ActiveModelState) -> Option<&ModelConditionInfo> {
-        match state_ref {
-            ActiveModelState::Condition(index) => self.data.condition_states.get(index),
-            ActiveModelState::Transition(index) => self.data.transition_states.get(index),
-        }
+    fn resolve_state(&self, state_ref: ActiveModelState) -> Option<parking_lot::MappedRwLockReadGuard<'_, ModelConditionInfo>> {
+        parking_lot::MappedRwLockReadGuard::try_map(self.model_data(), |data| match state_ref {
+            ActiveModelState::Condition(index) => data.condition_states.get(index),
+            ActiveModelState::Transition(index) => data.transition_states.get(index),
+        }).ok()
     }
 
-    fn resolve_state_mut(
-        &mut self,
-        state_ref: ActiveModelState,
-    ) -> Option<&mut ModelConditionInfo> {
-        match state_ref {
-            ActiveModelState::Condition(index) => self.data.condition_states.get_mut(index),
-            ActiveModelState::Transition(index) => self.data.transition_states.get_mut(index),
-        }
+    fn resolve_state_mut(&self, state_ref: ActiveModelState) -> Option<parking_lot::MappedRwLockWriteGuard<'_, ModelConditionInfo>> {
+        parking_lot::MappedRwLockWriteGuard::try_map(self.model_data_mut(), |data| match state_ref {
+            ActiveModelState::Condition(index) => data.condition_states.get_mut(index),
+            ActiveModelState::Transition(index) => data.transition_states.get_mut(index),
+        }).ok()
     }
 
     pub fn has_render_model(&self) -> bool {
@@ -357,7 +425,7 @@ impl W3DModelDraw {
     pub fn has_bound_animation(&self) -> bool {
         self.which_anim_in_cur_state >= 0
     }
-    fn current_state(&self) -> Option<&ModelConditionInfo> {
+    fn current_state(&self) -> Option<parking_lot::MappedRwLockReadGuard<'_, ModelConditionInfo>> {
         self.cur_state
             .and_then(|state_ref| self.resolve_state(state_ref))
     }
@@ -387,8 +455,9 @@ impl W3DModelDraw {
     }
 
     fn find_best_state_index(&self, conditions: &ModelConditionFlags) -> Option<usize> {
-        let best_info = self.data.find_best_info(conditions)?;
-        self.data
+        let data = self.model_data();
+        let best_info = data.find_best_info(conditions)?;
+        data
             .condition_states
             .iter()
             .position(|state| std::ptr::eq(state, best_info))
@@ -399,7 +468,7 @@ impl W3DModelDraw {
         from_key: NameKeyType,
         to_key: NameKeyType,
     ) -> Option<usize> {
-        self.data.transition_states.iter().position(|state| {
+        self.model_data().transition_states.iter().position(|state| {
             state.transition_from_key == from_key && state.transition_to_key == to_key
         })
     }
@@ -460,8 +529,9 @@ impl W3DModelDraw {
         if duration_ms <= 0.0 {
             return;
         }
+        drop(state);
 
-        if let Some(state) = self.resolve_state_mut(state_ref) {
+        if let Some(mut state) = self.resolve_state_mut(state_ref) {
             if let Some(anim) = state.animations.get_mut(anim_index) {
                 if anim.natural_duration_ms <= 0.0 {
                     anim.natural_duration_ms = duration_ms;
@@ -616,7 +686,11 @@ impl W3DModelDraw {
         &self,
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) -> Option<Coord3D> {
-        if self.data.attach_to_drawable_bone.is_empty() {
+        let (bone_name, fallback_offset) = {
+            let data = self.model_data();
+            (data.attach_to_drawable_bone.clone(), data.attach_to_drawable_bone_offset)
+        };
+        if bone_name.is_empty() {
             return None;
         }
         if let Ok(guard) = self.attach_offset_cache.lock() {
@@ -630,7 +704,7 @@ impl W3DModelDraw {
                 driver
                     .get_pristine_bone_positions(
                         self,
-                        self.data.attach_to_drawable_bone.as_str(),
+                        bone_name.as_str(),
                         0,
                         1,
                     )
@@ -640,7 +714,7 @@ impl W3DModelDraw {
         } else {
             self.with_owner_drawable(|drawable| {
                 drawable
-                    .get_pristine_bone_positions(self.data.attach_to_drawable_bone.as_str(), 0, 1)
+                    .get_pristine_bone_positions(bone_name.as_str(), 0, 1)
                     .into_iter()
                     .next()
             })
@@ -653,7 +727,7 @@ impl W3DModelDraw {
             return Some(offset);
         }
 
-        Some(self.data.attach_to_drawable_bone_offset)
+        Some(fallback_offset)
     }
 
     fn client_bone_world_transform(
@@ -673,6 +747,7 @@ impl W3DModelDraw {
             .find_pristine_bone_by_name(bone_name.as_str())
             .map(|(_, bone)| bone.bone_index)
             .unwrap_or(0);
+        drop(state);
         if bone_index == 0 {
             *transform = Matrix3D::IDENTITY;
             return false;
@@ -708,6 +783,7 @@ impl W3DModelDraw {
             return;
         };
         let distance_covered = anim.distance_covered;
+        drop(state);
         if distance_covered <= 0.0 {
             return;
         }
@@ -874,7 +950,7 @@ impl W3DModelDraw {
         if self.track_handle.is_some() {
             return;
         }
-        if self.data.track_file.is_empty() {
+        if self.model_data().track_file.is_empty() {
             return;
         }
         if !game_engine::common::global_data::read().make_track_marks {
@@ -886,8 +962,8 @@ impl W3DModelDraw {
         let Some(client) = terrain_track_client() else {
             return;
         };
-        self.track_handle =
-            client.bind_track(owner_id, MAP_XY_FACTOR, self.data.track_file.as_str());
+        let handle = client.bind_track(owner_id, MAP_XY_FACTOR, self.model_data().track_file.as_str());
+        self.track_handle = handle;
     }
 
     fn update_terrain_track(&mut self) {
@@ -965,7 +1041,7 @@ impl W3DModelDraw {
 
     /// Missing attach-cache query needed by the driving Drawable, outside this entry guard.
     pub(crate) fn terrain_decal_attachment_query(&self) -> Option<AsciiString> {
-        if self.data.attach_to_drawable_bone.is_empty()
+        if self.model_data().attach_to_drawable_bone.is_empty()
             || self
                 .attach_offset_cache
                 .lock()
@@ -974,7 +1050,7 @@ impl W3DModelDraw {
         {
             return None;
         }
-        Some(self.data.attach_to_drawable_bone.clone())
+        Some(self.model_data().attach_to_drawable_bone.clone())
     }
 
     /// C++ setTerrainDecal/adjustTransformMtx using the actual borrowed owner.
@@ -991,7 +1067,11 @@ impl W3DModelDraw {
             return None;
         }
         let mut transform = *drawable_transform;
-        if !self.data.attach_to_drawable_bone.is_empty() {
+        let (has_attach_bone, fallback_offset) = {
+            let data = self.model_data();
+            (!data.attach_to_drawable_bone.is_empty(), data.attach_to_drawable_bone_offset)
+        };
+        if has_attach_bone {
             let mut cache = self
                 .attach_offset_cache
                 .lock()
@@ -999,7 +1079,7 @@ impl W3DModelDraw {
             if cache.is_none() {
                 *cache = queried_offset;
             }
-            let offset = cache.unwrap_or(self.data.attach_to_drawable_bone_offset);
+            let offset = cache.unwrap_or(fallback_offset);
             Self::apply_attach_to_drawable_bone_offset(&mut transform, offset);
         }
         let adjust_height = self
@@ -1208,8 +1288,9 @@ impl W3DModelDraw {
     }
 
     fn owner_should_animate(&self) -> bool {
+        let animations_require_power = self.model_data().animations_require_power;
         if let Some(should) = self.with_owner_drawable(|drawable| {
-            drawable.get_should_animate(self.data.animations_require_power)
+            drawable.get_should_animate(animations_require_power)
         }) {
             return should;
         }
@@ -1222,7 +1303,7 @@ impl W3DModelDraw {
         let Ok(obj) = object.read() else {
             return true;
         };
-        object_should_animate(&obj, self.data.animations_require_power)
+        object_should_animate(&obj, animations_require_power)
     }
 }
 

@@ -65,7 +65,7 @@ const PRONE_UPDATE_FIELDS: &[FieldParse<ProneUpdateModuleData>] = &[FieldParse {
 /// ProneUpdate module - Makes units go prone when damaged
 pub struct ProneUpdate {
     owner: Weak<RwLock<GameObject>>,
-    module_data: Arc<ProneUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     /// Number of frames remaining in prone state
@@ -75,16 +75,15 @@ pub struct ProneUpdate {
 impl ProneUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<ProneUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<ProneUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             owner: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             prone_frames: 0,
         })
@@ -94,7 +93,11 @@ impl ProneUpdate {
     /// damage_dealt: The actual damage dealt to the unit
     pub fn go_prone(&mut self, damage_dealt: i32) {
         let was_prone = self.prone_frames > 0;
-        self.prone_frames += (damage_dealt as f32 * self.module_data.damage_to_frames_ratio) as i32;
+        let ratio = {
+            let guard = self.module_data.read();
+            guard.as_any().downcast_ref::<ProneUpdateModuleData>().expect("ProneUpdate module data type").damage_to_frames_ratio
+        };
+        self.prone_frames += (damage_dealt as f32 * ratio) as i32;
 
         if !was_prone && self.prone_frames > 0 {
             self.start_prone_effects();
@@ -184,14 +187,14 @@ impl Snapshotable for ProneUpdate {
 pub struct ProneUpdateModule {
     behavior: ProneUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<ProneUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl ProneUpdateModule {
     pub fn new(
         behavior: ProneUpdate,
         module_name: &AsciiString,
-        module_data: Arc<ProneUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -234,11 +237,11 @@ impl Module for ProneUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_prone_control_interface(&mut self) -> Option<&mut dyn ProneControlInterface> {
@@ -283,7 +286,7 @@ mod tests {
         let owner = Arc::new(RwLock::new(GameObject::new_test(SAME_ID, 100.0)));
         let foreign = Arc::new(RwLock::new(GameObject::new_test(SAME_ID, 200.0)));
         crate::object::registry::OBJECT_REGISTRY.register_object(SAME_ID, &foreign);
-        let module_data: Arc<dyn ModuleData> = Arc::new(ProneUpdateModuleData::default());
+        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(ProneUpdateModuleData::default());
 
         let mut prone = ProneUpdate::new(Arc::clone(&owner), module_data.clone()).unwrap();
         prone.go_prone(1);
@@ -336,7 +339,7 @@ mod tests {
 
     #[test]
     fn prone_update_exposes_typed_control_interface() {
-        let data = Arc::new(ProneUpdateModuleData {
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(ProneUpdateModuleData {
             damage_to_frames_ratio: 2.0,
             ..ProneUpdateModuleData::default()
         });
@@ -361,7 +364,7 @@ pub struct ProneUpdateFactory;
 impl ProneUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(ProneUpdate::new(thing, module_data)?))
     }

@@ -29,7 +29,7 @@ use game_engine::common::rts::AsciiString;
 #[cfg(feature = "allow_surrender")]
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 #[cfg(feature = "allow_surrender")]
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 #[cfg(feature = "allow_surrender")]
 use crate::common::xfer::XferExt;
@@ -129,7 +129,7 @@ crate::impl_legacy_module_data_with_key_field!(
 #[derive(Debug)]
 pub struct PropagandaCenterBehavior {
     object_id: ObjectID,
-    module_data: Arc<PropagandaCenterBehaviorModuleData>,
+    module_data: ModuleDataView<PropagandaCenterBehaviorModuleData>,
     prison_behavior: PrisonBehavior,
     brainwashing_subject_id: ObjectID,
     brainwashing_subject_start_frame: UnsignedInt,
@@ -140,10 +140,23 @@ pub struct PropagandaCenterBehavior {
 impl PropagandaCenterBehavior {
     pub fn new(
         object: Arc<RwLock<Object>>,
-        module_data: Arc<PropagandaCenterBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let prison_behavior =
-            PrisonBehavior::new(Arc::clone(&object), Arc::new(module_data.base.clone()))?;
+        let prison_data = ModuleDataView::new(module_data.clone(), |data| {
+            &data.as_any().downcast_ref::<PropagandaCenterBehaviorModuleData>()
+                .expect("incorrect PropagandaCenterBehavior module data").base
+        });
+        let contain_data = ModuleDataView::new(module_data.clone(), |data| {
+            &data.as_any().downcast_ref::<PropagandaCenterBehaviorModuleData>()
+                .expect("incorrect PropagandaCenterBehavior module data").base.base
+        });
+        let prison_behavior = PrisonBehavior::new_with_module_data_view(
+            Arc::clone(&object), prison_data, contain_data,
+        )?;
+        let module_data = ModuleDataView::new(module_data, |data| {
+            data.as_any().downcast_ref::<PropagandaCenterBehaviorModuleData>()
+                .expect("incorrect PropagandaCenterBehavior module data")
+        });
         Ok(Self {
             object_id: object
                 .read()
@@ -230,7 +243,7 @@ impl PropagandaCenterBehavior {
             };
 
             if current_frame.saturating_sub(self.brainwashing_subject_start_frame)
-                >= self.module_data.brainwash_duration
+                >= self.module_data.read().brainwash_duration
             {
                 let Some(mut exit_interface) = self
                     .with_object(|guard| guard.get_object_exit_interface())
@@ -538,7 +551,7 @@ impl Snapshotable for PropagandaCenterBehavior {
 pub struct PropagandaCenterBehaviorModule {
     behavior: Arc<Mutex<PropagandaCenterBehavior>>,
     module_name_key: NameKeyType,
-    module_data: Arc<PropagandaCenterBehaviorModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -546,7 +559,7 @@ impl PropagandaCenterBehaviorModule {
     pub fn new(
         behavior: PropagandaCenterBehavior,
         module_name: &AsciiString,
-        module_data: Arc<PropagandaCenterBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -657,11 +670,11 @@ impl Module for PropagandaCenterBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_delete(&mut self) {
@@ -757,16 +770,19 @@ mod contain_snapshot_tests {
             None,
         )
         .expect("owner");
+        let data = ModuleDataHandle::new(PropagandaCenterBehaviorModuleData::default());
         let behavior = PropagandaCenterBehavior::new(
             Arc::clone(&object),
-            Arc::new(PropagandaCenterBehaviorModuleData::default()),
+            data.clone(),
         )
         .expect("behavior");
+        assert!(ModuleDataHandle::ptr_eq(&data, behavior.module_data.handle()));
         let module = PropagandaCenterBehaviorModule::new(
             behavior,
             &AsciiString::from("PropagandaCenterBehavior"),
-            Arc::new(PropagandaCenterBehaviorModuleData::default()),
+            data.clone(),
         );
+        assert!(ModuleDataHandle::ptr_eq(&data, &module.module_data));
         let handle = module.contain_handle();
         let guard = handle.lock().expect("contain handle");
 

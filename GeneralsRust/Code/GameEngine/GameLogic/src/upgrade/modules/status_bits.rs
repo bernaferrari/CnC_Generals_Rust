@@ -5,7 +5,6 @@ use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct StatusBitsUpgradeModuleData {
@@ -170,30 +169,34 @@ const STATUS_BITS_UPGRADE_FIELDS: &[FieldParse<StatusBitsUpgradeModuleData>] = &
 
 pub struct StatusBitsUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<StatusBitsUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataView<StatusBitsUpgradeModuleData>,
     mux: UpgradeMux,
 }
 
 impl StatusBitsUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<StatusBitsUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         _object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mux = UpgradeMux::new_shared(game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| &data.as_any().downcast_ref::<StatusBitsUpgradeModuleData>().expect("StatusBitsUpgradeModuleData").upgrade_mux_data));
         Self {
             module_name_key,
-            data,
+            data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<StatusBitsUpgradeModuleData>().expect("StatusBitsUpgradeModuleData")),
             mux,
         }
     }
 
     fn upgrade_implementation(&mut self, object: &mut Object) {
-        if self.data.status_to_set.any() {
-            object.set_status(self.data.status_to_set, true);
+        let (status_to_set, status_to_clear) = {
+            let data = self.data.read();
+            (data.status_to_set, data.status_to_clear)
+        };
+        if status_to_set.any() {
+            object.set_status(status_to_set, true);
         }
-        if self.data.status_to_clear.any() {
-            object.set_status(self.data.status_to_clear, false);
+        if status_to_clear.any() {
+            object.set_status(status_to_clear, false);
         }
     }
 }
@@ -204,7 +207,7 @@ impl UpgradeModuleInterface for StatusBitsUpgrade {
     }
     fn attempt_upgrade(&mut self, key_mask: UpgradeMask, object: &mut Object) -> bool {
         if self.mux.would_upgrade(key_mask) {
-            self.mux.data.perform_upgrade_fx(object);
+            self.mux.data_snapshot().perform_upgrade_fx(object);
             self.upgrade_implementation(object);
             self.mux.set_upgrade_executed(true);
             true
@@ -235,10 +238,10 @@ impl Module for StatusBitsUpgrade {
         self.module_name_key
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.handle().read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 

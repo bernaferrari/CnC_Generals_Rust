@@ -20,23 +20,20 @@ pub(super) fn prone_update_data_factory(ini: Option<&mut INI>) -> Box<dyn Module
 
 pub(super) fn prone_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<ProneUpdateModuleData>("ProneUpdate", &module_data);
+    assert!(module_data.is::<ProneUpdateModuleData>());
     let owner_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("ProneUpdate", data_for_missing);
+        return missing_owner_module("ProneUpdate", module_data);
     };
-    let legacy: Arc<dyn crate::common::ModuleData> = data_arc.clone();
-    let behavior = match ProneUpdate::new(object, legacy) {
+    let behavior = match ProneUpdate::new(object, module_data.clone()) {
         Ok(behavior) => behavior,
         Err(err) => {
             warn!("ProneUpdate init failed: {err}; installing no-op module");
-            let data_for_missing: Arc<dyn ModuleData> = data_arc;
-            return missing_owner_module("ProneUpdate", data_for_missing);
+            return missing_owner_module("ProneUpdate", module_data);
         }
     };
     let module_name = AsciiString::from("ProneUpdate");
-    Box::new(ProneUpdateModule::new(behavior, &module_name, data_arc))
+    Box::new(ProneUpdateModule::new(behavior, &module_name, module_data))
 }

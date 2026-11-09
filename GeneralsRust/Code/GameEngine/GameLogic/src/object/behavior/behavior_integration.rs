@@ -13,10 +13,11 @@ use super::{
 };
 
 use crate::GameLogicResult;
-use crate::common::{LOGICFRAMES_PER_SECOND, ModuleData};
+use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use crate::object::{Object, ObjectId};
+use game_engine::common::thing::module::ModuleDataHandle;
 use async_trait::async_trait;
 use std::any::Any;
 use std::collections::HashMap;
@@ -48,7 +49,7 @@ pub struct IntegratedBehaviorSystem {
 pub enum BehaviorConfiguration {
     Stealth(StealthConfig),
     Formation(FormationConfig),
-    Legacy(Arc<dyn ModuleData>),
+    Legacy(ModuleDataHandle),
 }
 
 /// Bridge adapter that wraps legacy behaviors to work with the async system
@@ -239,7 +240,7 @@ impl IntegratedBehaviorSystem {
     fn create_legacy_adapter(
         &self,
         behavior_name: &str,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         object: &Object,
     ) -> Result<LegacyBehaviorAdapter, crate::GameLogicError> {
         // Wave 453: empty dual-world → Configuration error.
@@ -409,7 +410,7 @@ impl BehaviorConfigurationBuilder {
         self
     }
 
-    pub fn add_legacy_behavior(mut self, name: &str, module_data: Arc<dyn ModuleData>) -> Self {
+    pub fn add_legacy_behavior(mut self, name: &str, module_data: ModuleDataHandle) -> Self {
         self.configs
             .insert(name.to_string(), BehaviorConfiguration::Legacy(module_data));
         self

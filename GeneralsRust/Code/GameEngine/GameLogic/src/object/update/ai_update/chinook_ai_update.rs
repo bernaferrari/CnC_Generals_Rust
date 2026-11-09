@@ -17,7 +17,7 @@ use crate::object::Object;
 use crate::object::drawable::Drawable;
 use crate::supply_system::SupplyTruckAIUpdate;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 mod combat_drop;
 mod commands;
@@ -36,7 +36,7 @@ mod runtime_tests;
 #[cfg(test)]
 mod tests;
 
-pub use module_data::{ChinookAIUpdateData, ChinookAIUpdateModuleData};
+pub use module_data::ChinookAIUpdateModuleData;
 
 /// Wave 349: host-only path has no dual-world factory objects.
 #[inline]
@@ -206,7 +206,7 @@ struct ChinookCombatDropState {
 /// Chinook AI Update module (matches C++ ChinookAIUpdate).
 #[derive(Debug)]
 pub struct ChinookAIUpdate {
-    data: ChinookAIUpdateData,
+    data: ModuleDataHandle,
     base: SupplyTruckAIUpdate,
     object_id: ObjectID,
     flight_status: ChinookFlightStatus,
@@ -228,8 +228,14 @@ pub struct ChinookAIUpdate {
 }
 
 impl ChinookAIUpdate {
-    pub fn new(data: ChinookAIUpdateData, object_id: ObjectID, player_index: i32) -> Self {
-        let base = SupplyTruckAIUpdate::new(data.supply.clone(), object_id, player_index as u32);
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, ChinookAIUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.downcast_ref::<ChinookAIUpdateModuleData>().expect("ChinookAIUpdate data type")
+        })
+    }
+
+    pub fn new(data: ModuleDataHandle, object_id: ObjectID, player_index: i32) -> Self {
+        let base = SupplyTruckAIUpdate::new_with_module_data(data.clone(), object_id, player_index as u32);
         Self {
             data,
             base,
@@ -266,11 +272,11 @@ impl ChinookAIUpdate {
 #[derive(Debug)]
 pub struct ChinookAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<ChinookAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl ChinookAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<ChinookAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -284,21 +290,21 @@ impl Module for ChinookAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for ChinookAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

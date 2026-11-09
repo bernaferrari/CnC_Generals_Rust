@@ -79,23 +79,17 @@ pub(super) fn parse_dam_die_data(ini: &mut INI, data: &mut DamDieModuleData) -> 
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
 
-pub(super) fn build_die_module<T>(
+pub(super) fn build_die_module(
     module_name: &str,
     thing: Arc<dyn ModuleThing>,
-    data: T,
-    create_die: fn(Arc<RwLock<crate::object::Object>>, Arc<T>) -> Box<dyn DieModuleInterface>,
-) -> Box<dyn Module>
-where
-    T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
-{
+    module_data: ModuleDataHandle,
+    create_die: fn(Arc<RwLock<crate::object::Object>>, ModuleDataHandle) -> Box<dyn DieModuleInterface>,
+) -> Box<dyn Module> {
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
-        // Wave 449: missing owner → no-op module.
-        return missing_owner_module(module_name, Arc::new(data.clone()) as Arc<dyn ModuleData>);
+        return missing_owner_module(module_name, module_data);
     };
-    let typed_data = Arc::new(data);
-    let module_data: Arc<dyn ModuleData> = typed_data.clone();
-    let die_module = create_die(Arc::clone(&object), typed_data);
+    let die_module = create_die(Arc::clone(&object), module_data.clone());
     Box::new(DieModuleWrapper::new(
         &AsciiString::from(module_name),
         module_data,
@@ -125,13 +119,12 @@ macro_rules! die_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let typed_data = cloned_module_data_or_default::<$data_ty>($module_name, &module_data);
             build_die_module(
                 $module_name,
                 thing,
-                typed_data.as_ref().clone(),
+                module_data,
                 |object, data| Box::new(<$die_ty>::new(object, data)),
             )
         }
@@ -249,22 +242,14 @@ pub(super) fn slow_death_behavior_module_data_factory(
 
 pub(super) fn slow_death_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = cloned_module_data_or_else::<SlowDeathBehaviorModuleData, _>(
-        "SlowDeathBehavior",
-        &module_data,
-        SlowDeathBehaviorModuleData::new,
-    );
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
-        // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = typed_data;
-        return missing_owner_module("SlowDeathBehavior", data_for_missing);
+        return missing_owner_module("SlowDeathBehavior", module_data);
     };
-    let data: Arc<dyn crate::common::ModuleData> = typed_data;
     Box::new(
-        SlowDeathBehavior::new(object, data)
+        SlowDeathBehavior::new(object, module_data)
             .expect("SlowDeathBehavior failed to initialize from module data"),
     )
 }
@@ -285,24 +270,18 @@ pub(super) fn helicopter_slow_death_data_factory(ini: Option<&mut INI>) -> Box<d
 
 pub(super) fn helicopter_slow_death_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<HelicopterSlowDeathBehaviorModuleData>(
-        "HelicopterSlowDeathBehavior",
-        &module_data,
-    );
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
-        // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("HelicopterSlowDeathBehavior", data_for_missing);
+        return missing_owner_module("HelicopterSlowDeathBehavior", module_data);
     };
-    let behavior = HelicopterSlowDeathBehavior::new(object, Arc::clone(&data_arc));
+    let behavior = HelicopterSlowDeathBehavior::new(object, module_data.clone());
     let module_name = AsciiString::from("HelicopterSlowDeathBehavior");
     Box::new(HelicopterSlowDeathBehaviorModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -322,22 +301,18 @@ pub(super) fn poisoned_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn M
 
 pub(super) fn poisoned_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<PoisonedBehaviorModuleData>("PoisonedBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
-        // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("PoisonedBehavior", data_for_missing);
+        return missing_owner_module("PoisonedBehavior", module_data);
     };
-    let behavior = PoisonedBehavior::new(object, Arc::clone(&data_arc));
+    let behavior = PoisonedBehavior::new(object, module_data.clone());
     let module_name = AsciiString::from("PoisonedBehavior");
     Box::new(PoisonedBehaviorModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -357,22 +332,18 @@ pub(super) fn jet_slow_death_behavior_data_factory(ini: Option<&mut INI>) -> Box
 
 pub(super) fn jet_slow_death_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<JetSlowDeathBehaviorModuleData>("JetSlowDeathBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
     let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
-        // Wave 449: missing owner → no-op module.
-        let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
-        return missing_owner_module("JetSlowDeathBehavior", data_for_missing);
+        return missing_owner_module("JetSlowDeathBehavior", module_data);
     };
-    let behavior = JetSlowDeathBehavior::new(object, Arc::clone(&data_arc));
+    let behavior = JetSlowDeathBehavior::new(object, module_data.clone());
     let module_name = AsciiString::from("JetSlowDeathBehavior");
     Box::new(JetSlowDeathBehaviorModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -396,34 +367,23 @@ pub(crate) fn register_owned_death_constructors(
 }
 fn instant_death_behavior_module_factory_owned(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let id = resolve_owner_id(&thing);
-    let data = cloned_module_data_or_default::<InstantDeathBehaviorModuleData>(
-        "InstantDeathBehavior",
-        &module_data,
-    );
-    let metadata: Arc<dyn ModuleData> = data.clone();
     Box::new(DieModuleWrapper::new_for_object_id(
         &AsciiString::from("InstantDeathBehavior"),
-        metadata,
+        module_data.clone(),
         id,
-        Box::new(InstantDeathBehavior::new_for_object_id(id, data)),
+        Box::new(InstantDeathBehavior::new_for_object_id(id, module_data)),
     ))
 }
 fn slow_death_behavior_module_factory_owned(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     let id = resolve_owner_id(&thing);
-    let data = cloned_module_data_or_else::<SlowDeathBehaviorModuleData, _>(
-        "SlowDeathBehavior",
-        &module_data,
-        SlowDeathBehaviorModuleData::new,
-    );
-    let metadata: Arc<dyn crate::common::ModuleData> = data;
     Box::new(
-        SlowDeathBehavior::new_with_object_id(id, metadata)
+        SlowDeathBehavior::new_with_object_id(id, module_data)
             .expect("admitted SlowDeath module definition"),
     )
 }

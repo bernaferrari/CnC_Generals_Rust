@@ -518,7 +518,7 @@ pub trait SpawnBehaviorInterface: Send + Sync {
 pub struct SpawnBehavior {
     // Base module data
     object_id: ObjectID,
-    module_data: Arc<SpawnBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<SpawnBehaviorModuleData>,
 
     // Spawn management
     spawn_template: Option<Arc<ObjectTemplate>>,
@@ -541,25 +541,16 @@ pub struct SpawnBehavior {
 }
 
 impl SpawnBehavior {
-    pub fn new(
-        object_id: ObjectID,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = {
-            let data_ref = module_data
-                .as_any()
-                .downcast_ref::<SpawnBehaviorModuleData>()
-                .ok_or("Invalid module data type")?;
-            data_ref.clone()
-        };
-
-        Self::new_with_data(object_id, Arc::new(data))
-    }
 
     pub fn new_with_data(
         object_id: ObjectID,
-        data: Arc<SpawnBehaviorModuleData>,
+        handle: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !handle.is::<SpawnBehaviorModuleData>() {
+            return Err("Invalid module data type".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<SpawnBehaviorModuleData>().expect("SpawnBehavior module data"));
+        let data = module_data.read();
         if data.spawn_template_name_data.is_empty() {
             return Err("SpawnBehavior requires at least one spawn template".into());
         }
@@ -576,20 +567,23 @@ impl SpawnBehavior {
             -1
         };
 
+        let initial_burst_countdown = data.initial_burst as UnsignedInt;
+        let aggregate_health = data.aggregate_health;
+        drop(data);
         Ok(Self {
             object_id,
-            module_data: data.clone(),
+            module_data,
             spawn_template: Some(spawn_template),
             template_name_iterator: 0,
             one_shot_countdown,
             frames_to_wait: 0,
             first_batch_count: 0,
-            initial_burst_countdown: data.initial_burst as UnsignedInt,
+            initial_burst_countdown,
             initial_burst_times_inited: false,
             replacement_times: VecDeque::new(),
             spawn_ids: Vec::new(),
             active: true,
-            aggregate_health: data.aggregate_health,
+            aggregate_health,
             spawn_count: NONE_SPAWNED_YET,
             self_tasking_spawn_count: 0,
         })
@@ -605,7 +599,7 @@ impl SpawnBehavior {
     ) -> Self {
         Self {
             object_id,
-            module_data: data.clone(),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(game_engine::common::thing::module::ModuleDataHandle::new((*data).clone()), |data| data.as_any().downcast_ref::<SpawnBehaviorModuleData>().expect("SpawnBehavior module data")),
             spawn_template: None,
             template_name_iterator: 0,
             one_shot_countdown: -1,
@@ -697,7 +691,7 @@ impl SpawnBehavior {
     }
 
     fn should_try_to_spawn(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let data = Arc::clone(&self.module_data);
+        let is_one_shot_data = self.module_data.read().is_one_shot_data;
 
         if !self.active {
             return Ok(false);
@@ -708,7 +702,7 @@ impl SpawnBehavior {
                 obj_guard
                     .get_status_bits()
                     .test(OBJECT_STATUS_RECONSTRUCTING),
-                data.is_one_shot_data,
+                is_one_shot_data,
             );
             let blocked = obj_guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION)
                 || obj_guard.test_status(OBJECT_STATUS_SOLD);
@@ -734,7 +728,10 @@ impl SpawnBehavior {
             return Ok(false);
         }
 
-        let data = Arc::clone(&self.module_data);
+        let should_reclaim = {
+            let data = self.module_data.read();
+            should_attempt_orphan_reclaim(data.can_reclaim_orphans, data.is_one_shot_data)
+        };
 
         // Get exit interface
         let mut exit_interface = self
@@ -752,12 +749,16 @@ impl SpawnBehavior {
         let mut reclaimed_orphan = false;
 
         // Try to reclaim orphaned objects if possible
-        if should_attempt_orphan_reclaim(data.can_reclaim_orphans, data.is_one_shot_data) {
+        if should_reclaim {
             new_spawn = self.reclaim_orphan_spawn()?;
             if new_spawn.is_some() {
                 reclaimed_orphan = true;
             }
         }
+        let (exit_by_budding, is_one_shot) = {
+            let data = self.module_data.read();
+            (data.exit_by_budding, data.is_one_shot_data)
+        };
 
         // Create new spawn if no orphan was reclaimed
         if new_spawn.is_none() {
@@ -785,15 +786,16 @@ impl SpawnBehavior {
                 })
             });
 
-            // Advance template iterator
-            self.template_name_iterator += 1;
-            if self.template_name_iterator >= data.spawn_template_name_data.len() {
-                self.template_name_iterator = 0;
+            // Advance using the current definition, including snapshot-loaded template names.
+            {
+                let data = self.module_data.read();
+                self.template_name_iterator += 1;
+                if self.template_name_iterator >= data.spawn_template_name_data.len() {
+                    self.template_name_iterator = 0;
+                }
+                let next_template_name = &data.spawn_template_name_data[self.template_name_iterator];
+                self.spawn_template = TheObjectFactory::find_template(next_template_name);
             }
-
-            // Update spawn template for next time
-            let next_template_name = &data.spawn_template_name_data[self.template_name_iterator];
-            self.spawn_template = TheObjectFactory::find_template(next_template_name);
 
             new_spawn = Some(spawn_obj);
         }
@@ -829,7 +831,7 @@ impl SpawnBehavior {
 
         // Handle exit behavior
         if !reclaimed_orphan {
-            if data.exit_by_budding {
+            if exit_by_budding {
                 let mut barracks_exit_success = false;
 
                 if self.initial_burst_countdown > 0 {
@@ -920,7 +922,7 @@ impl SpawnBehavior {
         }
 
         // Update counters
-        if data.is_one_shot_data {
+        if is_one_shot {
             self.one_shot_countdown -= 1;
         }
 
@@ -941,7 +943,7 @@ impl SpawnBehavior {
             return Ok(None);
         }
 
-        let data = self.module_data.clone();
+        let data = self.module_data.read();
 
         let (player, object_pos) = self.with_object(|obj_guard| {
             let player = obj_guard.get_controlling_player();
@@ -1017,10 +1019,9 @@ impl SpawnBehavior {
         if self.get_object_id() == INVALID_ID {
             return Err("SpawnBehavior missing owning object".into());
         }
-        let data = self.module_data.clone();
+        let spawn_count_max = self.module_data.read().spawn_number_data;
 
         let mut spawn_count = 0;
-        let spawn_count_max = data.spawn_number_data;
         let mut avg_spawn_pos = Coord3D::new(0.0, 0.0, 0.0);
         let mut acr_health = 0.0;
         let mut avg_health_max = 0.0;
@@ -1211,7 +1212,10 @@ impl UpdateModuleInterface for SpawnBehavior {
             self.compute_aggregate_states()?;
         }
 
-        let data = self.module_data.clone();
+        let (spawn_number, initial_burst, is_one_shot) = {
+            let data = self.module_data.read();
+            (data.spawn_number_data, data.initial_burst, data.is_one_shot_data)
+        };
 
         // Initialize burst times on first update
         if !self.initial_burst_times_inited {
@@ -1223,8 +1227,8 @@ impl UpdateModuleInterface for SpawnBehavior {
             let now = TheGameLogic::get_frame();
             for birth in initial_burst_replacement_times(
                 now,
-                data.spawn_number_data,
-                data.initial_burst,
+                spawn_number,
+                initial_burst,
                 runtime_produced,
             ) {
                 self.replacement_times.push_back(birth);
@@ -1261,7 +1265,7 @@ impl UpdateModuleInterface for SpawnBehavior {
             }
 
             // Check if one-shot spawning is complete
-            if data.is_one_shot_data && self.one_shot_countdown <= 0 {
+            if is_one_shot && self.one_shot_countdown <= 0 {
                 self.stop_spawning();
             }
         }
@@ -1280,11 +1284,13 @@ impl DieModuleInterface for SpawnBehavior {
             return Ok(());
         }
 
-        let data = Arc::clone(&self.module_data);
+        let view = self.module_data.clone();
+        let data = view.read();
         let spawned_require_spawner = data.spawned_require_spawner;
         if !self.with_object(|obj| data.die_mux_data.is_die_applicable(obj, damage_info))? {
             return Ok(());
         }
+        drop(data);
 
         let spawn_ids = self.spawn_ids.clone();
 
@@ -1456,8 +1462,9 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         if let Some(pos) = self.spawn_ids.iter().position(|&id| id == dead_spawn) {
             self.spawn_ids.remove(pos);
 
-            let data = &self.module_data;
+            let data = self.module_data.read();
             let replacement_time = data.spawn_replace_delay_data + TheGameLogic::get_frame() as Int;
+            drop(data);
             self.replacement_times.push_back(replacement_time);
 
             let count_was_zero = self.spawn_count == 0;
@@ -1815,7 +1822,7 @@ impl SpawnBehaviorInterface for SpawnBehavior {
     }
 
     fn do_slaves_have_freedom(&self) -> bool {
-        self.module_data.slaves_have_free_will
+        self.module_data.read().slaves_have_free_will
     }
 }
 
@@ -1873,7 +1880,7 @@ impl Drop for SpawnBehavior {
             return;
         }
 
-        let data = &self.module_data;
+        let data = self.module_data.read();
 
         // Destroy spawns that require the spawner
         if data.spawned_require_spawner {
@@ -1972,14 +1979,14 @@ impl Snapshotable for SpawnBehavior {
 pub struct SpawnBehaviorModule {
     behavior: SpawnBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<SpawnBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl SpawnBehaviorModule {
     pub fn new(
         behavior: SpawnBehavior,
         module_name: &AsciiString,
-        module_data: Arc<SpawnBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -2022,11 +2029,11 @@ impl Module for SpawnBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_spawn_control_interface(&mut self) -> Option<&mut dyn SpawnControlInterface> {

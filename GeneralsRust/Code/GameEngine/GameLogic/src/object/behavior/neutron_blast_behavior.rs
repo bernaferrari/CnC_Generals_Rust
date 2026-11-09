@@ -93,30 +93,20 @@ const NEUTRON_BLAST_BEHAVIOR_FIELDS: &[FieldParse<NeutronBlastBehaviorModuleData
 
 pub struct NeutronBlastBehavior {
     object_id: ObjectID,
-    module_data: Arc<NeutronBlastBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<NeutronBlastBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
 }
 
 impl NeutronBlastBehavior {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<NeutronBlastBehaviorModuleData>()
-            .ok_or("Invalid module data")?;
-
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !data.is::<NeutronBlastBehaviorModuleData>() { return Err("Invalid module data".into()); }
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<NeutronBlastBehaviorModuleData>().expect("NeutronBlastBehavior module data type")),
             next_call_frame_and_phase: 0,
         })
     }
+
 
     fn neutron_blast_to_object(&self, source_id: ObjectID, target_id: ObjectID) {
         // Wave 327: empty dual-world → no-op.
@@ -124,7 +114,7 @@ impl NeutronBlastBehavior {
             return;
         }
 
-        if !self.module_data.affect_allies {
+        if !self.module_data.read().affect_allies {
             let is_ally = OBJECT_REGISTRY
                 .with_object(source_id, |source| {
                     OBJECT_REGISTRY.with_object(target_id, |target| {
@@ -207,13 +197,13 @@ impl DieModuleInterface for NeutronBlastBehavior {
         else {
             return Ok(());
         };
-        let hit_air = self.module_data.is_affect_airborne;
+        let hit_air = self.module_data.read().is_affect_airborne;
 
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(());
         };
 
-        let candidates = partition.get_objects_in_range(&source_pos, self.module_data.blast_radius);
+        let candidates = partition.get_objects_in_range(&source_pos, self.module_data.read().blast_radius);
         for id in candidates {
             if id == source_id {
                 continue;
@@ -286,8 +276,8 @@ pub struct NeutronBlastBehaviorFactory;
 impl NeutronBlastBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(NeutronBlastBehavior::new(thing, module_data)?))
+        Ok(Box::new(NeutronBlastBehavior::new_with_module_data(thing, module_data)?))
     }
 }

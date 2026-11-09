@@ -1,7 +1,7 @@
 use super::*;
 use crate::common::ini::INI;
 use crate::common::name_key_generator::NameKeyNamespace;
-use crate::common::thing::module::{BaseModuleData, ModuleData, ModuleInterfaceType, ModuleType};
+use crate::common::thing::module::{BaseModuleData, ModuleData, ModuleDataHandle, ModuleInterfaceType, ModuleType};
 
 fn content() -> ReceivingModuleContent {
     fn data(_: Option<&mut INI>) -> Box<dyn ModuleData> {
@@ -54,7 +54,7 @@ fn receiving_template_resolution_preserves_base_and_effective_identity_per_catal
     assert_eq!(a.effective_admission().template().get_build_cost(), 100);
     assert_eq!(b.base_admission().template().get_build_cost(), 50);
     assert_eq!(b.effective_admission().template().get_build_cost(), 200);
-    assert_eq!(a.base_identity(), b.base_identity());
+    assert_ne!(a.base_identity(), b.base_identity());
     assert_ne!(a.effective_identity(), b.effective_identity());
     assert_eq!(a.effective_identity().name(), b.effective_identity().name());
 
@@ -118,7 +118,7 @@ fn ordered_overrides_keep_master_and_completed_children_local_until_reset() {
     assert_eq!(b.admitted_template("Parent").unwrap().template().get_build_cost(), 200);
 }
 
-fn first_data(plan: &AdmittedReceivingTemplate) -> &Arc<dyn ModuleData> {
+fn first_data(plan: &AdmittedReceivingTemplate) -> &ModuleDataHandle {
     plan.template()
         .get_draw_module_info()
         .get_nth_data(0)
@@ -132,8 +132,8 @@ fn ordered_receiving_producer_shares_default_parent_data_and_resets_only_map_ver
     let default = owner.admitted_template("DefaultThingTemplate").unwrap();
     let parent = owner.admitted_template("Parent").unwrap();
     let child = owner.admitted_template("Child").unwrap();
-    assert!(Arc::ptr_eq(first_data(&default), first_data(&parent)));
-    assert!(Arc::ptr_eq(first_data(&parent), first_data(&child)));
+    assert!(ModuleDataHandle::ptr_eq(first_data(&default), first_data(&parent)));
+    assert!(ModuleDataHandle::ptr_eq(first_data(&parent), first_data(&child)));
     assert_eq!(
         owner.modules.retained_module_data_count(),
         1,
@@ -142,7 +142,7 @@ fn ordered_receiving_producer_shares_default_parent_data_and_resets_only_map_ver
     let view = owner.compatibility_template_view();
     let viewed = view.find_template("Parent", false).unwrap();
     assert_eq!(viewed.get_asset_scale(), 2.0);
-    assert!(Arc::ptr_eq(
+    assert!(ModuleDataHandle::ptr_eq(
         first_data(&parent),
         viewed.get_draw_module_info().get_nth_data(0).unwrap()
     ));
@@ -157,7 +157,7 @@ fn ordered_receiving_producer_shares_default_parent_data_and_resets_only_map_ver
     assert!(!Arc::ptr_eq(&parent, &overridden));
     assert_eq!(overridden.template().get_draw_module_info().get_count(), 2);
     assert_eq!(parent.template().get_draw_module_info().get_count(), 1);
-    assert!(Arc::ptr_eq(
+    assert!(!Arc::ptr_eq(
         &peer.admitted_template("Parent").unwrap(),
         &parent
     ));
@@ -182,6 +182,82 @@ fn ordered_receiving_producer_shares_default_parent_data_and_resets_only_map_ver
             .collect::<Vec<_>>(),
         ["Child", "Parent", "DefaultThingTemplate"]
     );
+}
+
+#[test]
+fn cloned_receiving_sessions_fork_data_but_keep_inherited_aliases() {
+    let mut original = content();
+    original.load_ini_text(
+        "Object DefaultThingTemplate\nDraw = ReceivingDraw DefaultTag\nEnd\nEnd\n\
+         Object Parent\nEnd\nChildObject Child Parent\nEnd",
+        INILoadType::Overwrite,
+    ).unwrap();
+    let cloned = original.clone();
+    let original_parent = original.admitted_template("Parent").unwrap();
+    let cloned_parent = cloned.admitted_template("Parent").unwrap();
+    let cloned_default = cloned.admitted_template("DefaultThingTemplate").unwrap();
+    let cloned_child = cloned.admitted_template("Child").unwrap();
+    let original_data = first_data(&original_parent);
+    let cloned_data = first_data(&cloned_parent);
+
+    assert!(!ModuleDataHandle::ptr_eq(original_data, cloned_data));
+    assert!(ModuleDataHandle::ptr_eq(cloned_data, first_data(&cloned_default)));
+    assert!(ModuleDataHandle::ptr_eq(cloned_data, first_data(&cloned_child)));
+    let original_tag = original_data.read().get_module_tag_name_key();
+    cloned_data.write().set_module_tag_name_key(original_tag + 100);
+    assert_eq!(original_data.read().get_module_tag_name_key(), original_tag);
+    assert_eq!(first_data(&cloned_child).read().get_module_tag_name_key(), original_tag + 100);
+}
+
+#[test]
+fn cloned_session_rebinds_reskin_parents_and_sibling_equivalence() {
+    let mut original = content();
+    original.load_ini_text(
+        "Object Parent\nEnd\n\
+         ObjectReskin FirstSkin Parent\nEnd\n\
+         ObjectReskin SecondSkin Parent\nEnd",
+        INILoadType::Overwrite,
+    ).unwrap();
+    let cloned = original.clone();
+    let original_parent = original.admitted_template("Parent").unwrap();
+    let cloned_parent = cloned.admitted_template("Parent").unwrap();
+    let first = cloned.admitted_template("FirstSkin").unwrap();
+    let second = cloned.admitted_template("SecondSkin").unwrap();
+
+    for skin in [&first, &second] {
+        let parent = skin.template().get_reskinned_from().unwrap();
+        assert!(Arc::ptr_eq(parent, cloned_parent.template_arc()));
+        assert!(!Arc::ptr_eq(parent, original_parent.template_arc()));
+        assert!(skin.template().is_equivalent_to(cloned_parent.template()));
+    }
+    assert!(first.template().is_equivalent_to(second.template()));
+    assert!(second.template().is_equivalent_to(first.template()));
+}
+
+#[test]
+fn receiving_transactions_keep_existing_data_identity() {
+    let mut owner = content();
+    owner.load_ini_text(
+        "Object Resident\nDraw = ReceivingDraw ResidentTag\nEnd\nEnd",
+        INILoadType::Overwrite,
+    ).unwrap();
+    let resident = owner.admitted_template("Resident").unwrap();
+    let data = first_data(&resident).clone();
+    owner.load_ini_text(
+        "Object NewObject\nDraw = ReceivingDraw NewTag\nEnd\nEnd",
+        INILoadType::Overwrite,
+    ).unwrap();
+    let after_success = owner.admitted_template("Resident").unwrap();
+    assert!(ModuleDataHandle::ptr_eq(&data, first_data(&after_success)));
+
+    assert!(owner.load_ini_text(
+        "Object Invalid\nDraw = ReceivingDraw InvalidTag\nEnd\nUnknownField = Yes\nEnd",
+        INILoadType::Overwrite,
+    ).is_err());
+    let after_failure = owner.admitted_template("Resident").unwrap();
+    assert!(ModuleDataHandle::ptr_eq(&data, first_data(&after_failure)));
+    data.write().set_module_tag_name_key(9876);
+    assert_eq!(first_data(&after_failure).read().get_module_tag_name_key(), 9876);
 }
 
 #[test]
@@ -246,7 +322,7 @@ fn receiving_scalar_link_key_and_module_tag_share_source_order_without_peer_name
     peer.load_ini_text(source, INILoadType::Overwrite).unwrap();
     let plan = first.admitted_template("ScalarA").unwrap();
     let group = plan.template().get_max_simultaneous_link_key();
-    let tag = first_data(&plan).get_module_tag_name_key();
+    let tag = first_data(&plan).read().get_module_tag_name_key();
     assert!(
         group < tag,
         "scalar key precedes the subsequent module declaration/tag"
@@ -452,7 +528,7 @@ fn receiving_catalog_versions_are_frozen_while_detached_views_keep_real_override
         assert!(plan.template().has_frozen_override_link(), "{name}");
         assert!(plan.template().get_next_override().is_none(), "{name}");
         assert!(
-            Arc::ptr_eq(first_data(&plan), first_data(&parent)),
+            ModuleDataHandle::ptr_eq(first_data(&plan), first_data(&parent)),
             "{name}"
         );
     }
@@ -464,7 +540,7 @@ fn receiving_catalog_versions_are_frozen_while_detached_views_keep_real_override
     for name in ["DefaultThingTemplate", "Parent", "Child", "Skin"] {
         let template = view.find_template(name, false).unwrap();
         assert!(!template.has_frozen_override_link(), "view {name}");
-        assert!(Arc::ptr_eq(
+        assert!(ModuleDataHandle::ptr_eq(
             first_data(&parent),
             template.get_draw_module_info().get_nth_data(0).unwrap()
         ));
@@ -518,7 +594,7 @@ fn receiving_catalog_versions_are_frozen_while_detached_views_keep_real_override
         &parent
     ));
     assert!(owner.admitted_template("MapOnly").is_none());
-    assert!(Arc::ptr_eq(
+    assert!(!Arc::ptr_eq(
         &peer.admitted_template("Parent").unwrap(),
         &parent
     ));

@@ -25,7 +25,7 @@ use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 /// Wave 402: host-only path has no dual-world factory objects.
 #[inline]
@@ -460,7 +460,7 @@ enum RepairState {
 #[derive(Debug)]
 pub struct SlavedUpdate {
     object_id: ObjectID,
-    module_data: Arc<SlavedUpdateModuleData>,
+    module_data: ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     slaver: ObjectID,
     guard_point_offset: Coord3D,
@@ -472,7 +472,7 @@ pub struct SlavedUpdate {
 impl SlavedUpdate {
     pub fn new(
         object_id: ObjectID,
-        module_data: Arc<SlavedUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Self {
             object_id,
@@ -483,6 +483,12 @@ impl SlavedUpdate {
             frames_to_wait: 0,
             repair_state: RepairState::None,
             repairing: false,
+        })
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, SlavedUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.module_data.read(), |data| {
+            data.as_any().downcast_ref::<SlavedUpdateModuleData>().expect("invalid SlavedUpdate data")
         })
     }
 
@@ -508,7 +514,7 @@ impl SlavedUpdate {
     }
 
     fn on_object_created_internal(&mut self) {
-        if self.module_data.repair_rate_per_second > 0.0 {
+        if self.data().repair_rate_per_second > 0.0 {
             if let Some(object_arc) = self.object_arc() {
                 if let Ok(mut object) = object_arc.write() {
                     object.set_model_condition_state(ModelConditionFlag::Packing);
@@ -522,10 +528,9 @@ impl SlavedUpdate {
 
         let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
         self.guard_point_offset = Coord3D::ZERO;
-        self.guard_point_offset.x +=
-            self.module_data.guard_max_range as Real * random_direction.cos();
-        self.guard_point_offset.y +=
-            self.module_data.guard_max_range as Real * random_direction.sin();
+        let guard_range = self.data().guard_max_range as Real;
+        self.guard_point_offset.x += guard_range * random_direction.cos();
+        self.guard_point_offset.y += guard_range * random_direction.sin();
 
         let stealth = if let Some(object_arc) = self.object_arc() {
             if let Ok(mut object) = object_arc.write() {
@@ -598,7 +603,10 @@ impl SlavedUpdate {
             )
         };
 
-        let attack_range = self.module_data.attack_range as Real;
+        let (attack_range, attack_wander_range, bonus_range) = {
+            let data = self.data();
+            (data.attack_range as Real, data.attack_wander_range, data.dist_to_target_to_grant_range_bonus as Real)
+        };
         let mut attack_position = if dist_sqr > attack_range * attack_range {
             let mut vector = target_pos - master_pos;
             if vector.length_squared() > 0.0 {
@@ -609,13 +617,13 @@ impl SlavedUpdate {
             target_pos
         };
 
-        if self.module_data.attack_wander_range > 0 {
+        if attack_wander_range > 0 {
             let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
-                self.module_data.attack_wander_range as Real * random_direction.cos();
+                attack_wander_range as Real * random_direction.cos();
             self.guard_point_offset.y +=
-                self.module_data.attack_wander_range as Real * random_direction.sin();
+                attack_wander_range as Real * random_direction.sin();
 
             attack_position.x += self.guard_point_offset.x;
             attack_position.y += self.guard_point_offset.y;
@@ -633,7 +641,7 @@ impl SlavedUpdate {
             ai.ai_move_to_position(&attack_position, false, CommandSourceType::FromAi);
         }
 
-        if dist_sqr < (self.module_data.dist_to_target_to_grant_range_bonus as Real).powi(2) {
+        if dist_sqr < bonus_range.powi(2) {
             if let Ok(mut master) = master_arc.write() {
                 master.set_weapon_bonus_condition(WeaponBonusConditionType::DroneSpotting);
             }
@@ -661,7 +669,10 @@ impl SlavedUpdate {
             (*master.get_position(), dist_sqr)
         };
 
-        let scout_range = self.module_data.scout_range as Real;
+        let (scout_range, scout_wander_range) = {
+            let data = self.data();
+            (data.scout_range as Real, data.scout_wander_range)
+        };
         let mut scout_position = if dist_sqr > scout_range * scout_range {
             let mut vector = *masters_destination - master_pos;
             if vector.length_squared() > 0.0 {
@@ -672,13 +683,13 @@ impl SlavedUpdate {
             *masters_destination
         };
 
-        if self.module_data.scout_wander_range > 0 {
+        if scout_wander_range > 0 {
             let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
-                self.module_data.scout_wander_range as Real * random_direction.cos();
+                scout_wander_range as Real * random_direction.cos();
             self.guard_point_offset.y +=
-                self.module_data.scout_wander_range as Real * random_direction.sin();
+                scout_wander_range as Real * random_direction.sin();
 
             scout_position.x += self.guard_point_offset.x;
             scout_position.y += self.guard_point_offset.y;
@@ -703,13 +714,17 @@ impl SlavedUpdate {
         };
 
         let mut target_position = *pinned_position;
-        if self.module_data.guard_wander_range > 0 {
+        let (guard_wander_range, guard_max_range) = {
+            let data = self.data();
+            (data.guard_wander_range, data.guard_max_range as Real)
+        };
+        if guard_wander_range > 0 {
             let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
-                self.module_data.guard_max_range as Real * random_direction.cos();
+                guard_max_range * random_direction.cos();
             self.guard_point_offset.y +=
-                self.module_data.guard_max_range as Real * random_direction.sin();
+                guard_max_range * random_direction.sin();
 
             target_position.x += self.guard_point_offset.x;
             target_position.y += self.guard_point_offset.y;
@@ -786,10 +801,11 @@ impl SlavedUpdate {
                 });
 
                 let mut pos = master_pos;
-                let altitude = crate::GameLogicRandomValueReal!(
-                    self.module_data.repair_min_altitude,
-                    self.module_data.repair_max_altitude
-                );
+                let (min_altitude, max_altitude) = {
+                    let data = self.data();
+                    (data.repair_min_altitude, data.repair_max_altitude)
+                };
+                let altitude = crate::GameLogicRandomValueReal!(min_altitude, max_altitude);
                 pos.z += altitude;
                 ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
 
@@ -802,7 +818,7 @@ impl SlavedUpdate {
         if close_enough && self.repairing {
             if let Some(body) = master_body {
                 let repair_amount =
-                    self.module_data.repair_rate_per_second / LOGICFRAMES_PER_SECOND as Real;
+                    self.data().repair_rate_per_second / LOGICFRAMES_PER_SECOND as Real;
                 let mut healing_info = DamageInfo::new();
                 healing_info.input.amount = repair_amount;
                 healing_info.input.damage_type = DamageType::Healing;
@@ -859,7 +875,11 @@ impl SlavedUpdate {
         let Some(master_arc) = self.master_arc() else {
             return;
         };
-        if self.module_data.repair_range <= 0 {
+        let (repair_range, min_altitude, max_altitude) = {
+            let data = self.data();
+            (data.repair_range, data.repair_min_altitude, data.repair_max_altitude)
+        };
+        if repair_range <= 0 {
             return;
         }
 
@@ -872,8 +892,8 @@ impl SlavedUpdate {
 
         let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
         self.guard_point_offset = master_pos;
-        self.guard_point_offset.x += self.module_data.repair_range as Real * random_direction.cos();
-        self.guard_point_offset.y += self.module_data.repair_range as Real * random_direction.sin();
+        self.guard_point_offset.x += repair_range as Real * random_direction.cos();
+        self.guard_point_offset.y += repair_range as Real * random_direction.sin();
         if let Some(terrain) = TheTerrainLogic::get() {
             self.guard_point_offset.z = terrain.get_ground_height(
                 self.guard_point_offset.x,
@@ -881,10 +901,7 @@ impl SlavedUpdate {
                 None,
             );
         }
-        let altitude = crate::GameLogicRandomValueReal!(
-            self.module_data.repair_min_altitude,
-            self.module_data.repair_max_altitude
-        );
+        let altitude = crate::GameLogicRandomValueReal!(min_altitude, max_altitude);
         self.guard_point_offset.z += altitude;
 
         let ai = {
@@ -937,10 +954,11 @@ impl SlavedUpdate {
                 }
                 _ => {
                     self.repair_state = RepairState::Ready;
-                    self.frames_to_wait = crate::GameLogicRandomValue!(
-                        self.module_data.min_ready_frames as Int,
-                        self.module_data.max_ready_frames as Int
-                    );
+                    let (min, max) = {
+                        let data = self.data();
+                        (data.min_ready_frames as Int, data.max_ready_frames as Int)
+                    };
+                    self.frames_to_wait = crate::GameLogicRandomValue!(min, max);
                     return;
                 }
             },
@@ -953,12 +971,13 @@ impl SlavedUpdate {
                 }
 
                 self.repair_state = RepairState::Welding;
-                self.frames_to_wait = crate::GameLogicRandomValue!(
-                    self.module_data.min_weld_frames as Int,
-                    self.module_data.max_weld_frames as Int
-                );
+                let (min, max) = {
+                    let data = self.data();
+                    (data.min_weld_frames as Int, data.max_weld_frames as Int)
+                };
+                self.frames_to_wait = crate::GameLogicRandomValue!(min, max);
 
-                if !self.module_data.welding_sys_name.is_empty() {
+                if !self.data().welding_sys_name.is_empty() {
                     self.spawn_welding_fx();
                 }
 
@@ -989,15 +1008,18 @@ impl SlavedUpdate {
             return;
         };
 
-        let particle_id =
-            manager.create_particle_system(Some(self.module_data.welding_sys_name.as_str()));
+        let (system_name, bone_name) = {
+            let data = self.data();
+            (data.welding_sys_name.clone(), data.welding_fx_bone.clone())
+        };
+        let particle_id = manager.create_particle_system(Some(system_name.as_str()));
         let Some(particle_id) = particle_id else {
             return;
         };
 
         let mut pos = *object.get_position();
         let positions =
-            drawable.get_pristine_bone_positions(self.module_data.welding_fx_bone.as_str(), 0, 1);
+            drawable.get_pristine_bone_positions(bone_name.as_str(), 0, 1);
         if let Some(local_pos) = positions.first() {
             pos = *local_pos + *object.get_position();
         }
@@ -1165,7 +1187,7 @@ impl UpdateModuleInterface for SlavedUpdate {
                 .and_then(|ai| ai.get_current_victim());
 
             let mut health_percentage = 100;
-            if self.module_data.repair_rate_per_second > 0.0 {
+            if self.data().repair_rate_per_second > 0.0 {
                 if let Some(body) = master.get_body_module() {
                     let health = body.get_health();
                     let max_health = body.get_max_health();
@@ -1207,7 +1229,7 @@ impl UpdateModuleInterface for SlavedUpdate {
             }
         }
 
-        if self.module_data.stay_on_same_layer_as_master {
+        if self.data().stay_on_same_layer_as_master {
             if let Ok(mut me_write) = me_arc.write() {
                 me_write.set_layer(master_layer);
             }
@@ -1217,12 +1239,16 @@ impl UpdateModuleInterface for SlavedUpdate {
             master_write.clear_weapon_bonus_condition(WeaponBonusConditionType::DroneSpotting);
         }
 
-        if health_percentage <= self.module_data.repair_when_health_below_percentage {
+        let (repair_below, attack_range, scout_range, guard_max_range) = {
+            let data = self.data();
+            (data.repair_when_health_below_percentage, data.attack_range, data.scout_range, data.guard_max_range)
+        };
+        if health_percentage <= repair_below {
             self.do_repair_logic();
             return UpdateSleepTime::None;
         }
 
-        if self.module_data.attack_range > 0 {
+        if attack_range > 0 {
             if let Some(target_id) = target_id {
                 self.end_repair();
                 self.do_attack_logic(target_id);
@@ -1230,7 +1256,7 @@ impl UpdateModuleInterface for SlavedUpdate {
             }
         }
 
-        if self.module_data.scout_range > 0 {
+        if scout_range > 0 {
             let master_ai = master_arc
                 .read()
                 .ok()
@@ -1244,7 +1270,7 @@ impl UpdateModuleInterface for SlavedUpdate {
                         FROM_BOUNDING_SPHERE_2D,
                     )
                 });
-                let guard_half = self.module_data.guard_max_range as Real * 0.5;
+                let guard_half = guard_max_range as Real * 0.5;
                 if dist_sqr.is_some_and(|dist| dist > guard_half * guard_half) {
                     self.end_repair();
                     self.do_scout_logic(&master_dest);
@@ -1266,7 +1292,7 @@ impl UpdateModuleInterface for SlavedUpdate {
                 terrain.get_ground_height(pinned_position.x, pinned_position.y, None);
         }
 
-        if self.module_data.guard_max_range > 0 {
+        if guard_max_range > 0 {
             let pin_dist = if my_ai_idle {
                 me_arc.read().ok().map(|me| {
                     ThePartitionManager::get_distance_squared_to_pos(
@@ -1294,7 +1320,7 @@ impl UpdateModuleInterface for SlavedUpdate {
                 self.end_repair();
                 self.do_guard_logic(&pinned_position);
             } else if let Some(dist_sqr) = stray_dist {
-                let max_dist = STRAY_MULTIPLIER * self.module_data.guard_max_range as Real;
+                let max_dist = STRAY_MULTIPLIER * guard_max_range as Real;
                 if dist_sqr > max_dist * max_dist {
                     self.end_repair();
                     self.do_guard_logic(&pinned_position);
@@ -1422,16 +1448,17 @@ impl Snapshotable for SlavedUpdate {
 pub struct SlavedUpdateModule {
     behavior: SlavedUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SlavedUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl SlavedUpdateModule {
     pub fn new(
-        behavior: SlavedUpdate,
+        mut behavior: SlavedUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SlavedUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.module_data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -1472,11 +1499,11 @@ impl Module for SlavedUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {
@@ -1502,7 +1529,7 @@ mod tests {
 
     #[test]
     fn slaver_id_reports_current_slaver() {
-        let data = Arc::new(SlavedUpdateModuleData::default());
+        let data = ModuleDataHandle::new(SlavedUpdateModuleData::default());
         let mut update = SlavedUpdate::new(7, data).expect("slaved update");
 
         assert_eq!(update.slaver_id(), None);
@@ -1512,7 +1539,7 @@ mod tests {
 
     #[test]
     fn module_on_object_created_forwards_packing() {
-        let data = Arc::new(SlavedUpdateModuleData::default());
+        let data = ModuleDataHandle::new(SlavedUpdateModuleData::default());
         let behavior = SlavedUpdate::new(1, data.clone()).expect("slaved update");
         let mut module = SlavedUpdateModule::new(behavior, &AsciiString::new(), data);
         Module::on_object_created(&mut module);

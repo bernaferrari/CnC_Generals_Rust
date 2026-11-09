@@ -209,7 +209,8 @@ impl ProjectileDefinitions {
         let mut selected = None;
         for module in template.get_behavior_module_info().iter() {
             let class = module.name.as_str();
-            let data = module.data.as_ref();
+            let data_guard = module.data.read();
+            let data = &*data_guard;
             let pair = if class.eq_ignore_ascii_case("MissileAIUpdate") {
                 super::weapon_bootstrap::parse_missile_lifecycle(data).map(|lifecycle| {
                     (

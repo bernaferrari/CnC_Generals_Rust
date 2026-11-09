@@ -4,31 +4,79 @@
 use super::helpers::*;
 use super::*;
 
+trait BindBodyData {
+    fn bind_body_data(&mut self, data: ModuleDataHandle);
+}
+
+impl BindBodyData for InactiveBody {
+    fn bind_body_data(&mut self, _data: ModuleDataHandle) {}
+}
+
+impl BindBodyData for ActiveBody {
+    fn bind_body_data(&mut self, data: ModuleDataHandle) {
+        self.bind_module_data(data);
+    }
+}
+
+macro_rules! bind_nested_active_body {
+    ($($body:ty),+ $(,)?) => {$(
+        impl BindBodyData for $body {
+            fn bind_body_data(&mut self, data: ModuleDataHandle) {
+                self.active_body_mut().bind_module_data(data);
+            }
+        }
+    )+};
+}
+
+bind_nested_active_body!(StructureBody, HighlanderBody, ImmortalBody);
+
+macro_rules! bind_derived_body {
+    ($($body:ty),+ $(,)?) => {$(
+        impl BindBodyData for $body {
+            fn bind_body_data(&mut self, data: ModuleDataHandle) {
+                self.bind_module_data(data);
+            }
+        }
+    )+};
+}
+
+bind_derived_body!(HiveStructureBody, UndeadBody);
+
 struct BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
     B: BodyModuleInterface + Snapshotable + 'static,
 {
     module_name_key: NameKeyType,
-    data: Arc<T>,
+    data: ModuleDataHandle,
     body: Arc<Mutex<B>>,
+    data_type: std::marker::PhantomData<T>,
 }
 
 impl<T, B> BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
-    B: BodyModuleInterface + Snapshotable + 'static,
+    B: BodyModuleInterface + Snapshotable + BindBodyData + 'static,
 {
     fn new(
         module_name: &str,
         owner_id: ObjectID,
-        data: Arc<T>,
+        data: ModuleDataHandle,
         create_body: fn(T, ObjectID) -> Arc<Mutex<B>>,
     ) -> Self {
+        let body = {
+            let guard = data.read();
+            let typed = guard.as_any().downcast_ref::<T>()
+                .unwrap_or_else(|| panic!("{module_name} module data type mismatch"));
+            create_body(typed.clone(), owner_id)
+        };
+        body.lock().expect("body lock poisoned during construction")
+            .bind_body_data(data.clone());
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
-            body: create_body((*data).clone(), owner_id),
+            body,
             data,
+            data_type: std::marker::PhantomData,
         }
     }
 
@@ -42,18 +90,18 @@ where
 impl<T, B> Module for BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
-    B: BodyModuleInterface + Snapshotable + 'static,
+    B: BodyModuleInterface + Snapshotable + BindBodyData + 'static,
 {
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -121,7 +169,7 @@ pub(crate) fn install_body_for_module_with_definitions(
 impl<T, B> Snapshotable for BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
-    B: BodyModuleInterface + Snapshotable + 'static,
+    B: BodyModuleInterface + Snapshotable + BindBodyData + 'static,
 {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.snapshot_body()?.crc(xfer)
@@ -161,13 +209,12 @@ fn active_body_instance_inert(
 
 fn active_body_module_factory_inert(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data = cloned_module_data_or_default::<ActiveBodyModuleData>("ActiveBody", &module_data);
     Box::new(BodyBindingModule::new(
         "ActiveBody",
         resolve_owner_id(&thing),
-        data,
+        module_data,
         active_body_instance_inert,
     ))
 }
@@ -289,13 +336,12 @@ macro_rules! body_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let typed_data = cloned_module_data_or_default::<$data_ty>($module_name, &module_data);
             Box::new(BodyBindingModule::new(
                 $module_name,
                 resolve_owner_id(&thing),
-                typed_data,
+                module_data,
                 $body_ctor,
             ))
         }

@@ -51,18 +51,18 @@ impl ThingTemplate {
     }
 
     /// First authored behavior module of `class` whose typed module data is `T`.
-    pub(crate) fn authored_module_data<T: 'static>(&self, class: &str) -> Option<&T> {
+    pub(crate) fn authored_module_data<T: 'static>(&self, class: &str) -> Option<impl std::ops::Deref<Target = T> + '_> {
         self.receiving_client_template
             .as_ref()?
             .behavior_modules()
             .iter()
             .filter(|entry| entry.name.as_str().eq_ignore_ascii_case(class))
-            .find_map(|entry| entry.data.downcast_ref::<T>())
+            .find_map(|entry| entry.data.read().into_downcast::<T>())
     }
 
     /// Every authored behavior module of `class` whose typed data is `T`,
     /// in declaration order.
-    pub(crate) fn authored_modules_data<T: 'static>(&self, class: &str) -> Vec<&T> {
+    pub(crate) fn authored_modules_data<T: 'static>(&self, class: &str) -> Vec<impl std::ops::Deref<Target = T> + '_> {
         let Some(template) = self.receiving_client_template.as_ref() else {
             return Vec::new();
         };
@@ -70,7 +70,7 @@ impl ThingTemplate {
             .behavior_modules()
             .iter()
             .filter(|entry| entry.name.as_str().eq_ignore_ascii_case(class))
-            .filter_map(|entry| entry.data.downcast_ref::<T>())
+            .filter_map(|entry| entry.data.read().into_downcast::<T>())
             .collect()
     }
 }

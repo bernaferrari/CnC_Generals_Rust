@@ -103,7 +103,7 @@ const CLEANUP_HAZARD_UPDATE_FIELDS: &[FieldParse<CleanupHazardUpdateModuleData>]
 
 pub struct CleanupHazardUpdate {
     object_id: ObjectID,
-    module_data: Arc<CleanupHazardUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     best_target_id: ObjectID,
@@ -118,12 +118,11 @@ pub struct CleanupHazardUpdate {
 impl CleanupHazardUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<CleanupHazardUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<CleanupHazardUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -131,7 +130,7 @@ impl CleanupHazardUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             best_target_id: INVALID_ID,
             next_scan_frames: 0,
@@ -165,10 +164,11 @@ impl CleanupHazardUpdate {
             me.get_position()
         };
 
+        let scan_range = self.module_data.read().downcast_ref::<CleanupHazardUpdateModuleData>().expect("Invalid module data").scan_range;
         let radius = if self.move_range > 0.0 {
-            self.module_data.scan_range + self.move_range
+            scan_range + self.move_range
         } else {
-            self.module_data.scan_range
+            scan_range
         };
 
         let cleaner_off_map = me.is_off_map();
@@ -218,7 +218,7 @@ impl CleanupHazardUpdate {
                         self.best_target_id = INVALID_ID;
                         if self.next_scan_frames == 0 {
                             self.scan_closest_target();
-                            self.next_scan_frames = self.module_data.scan_frames as i32;
+                            self.next_scan_frames = self.module_data.read().downcast_ref::<CleanupHazardUpdateModuleData>().expect("Invalid module data").scan_frames as i32;
                             target_id = INVALID_ID;
                         }
                     } else {
@@ -242,7 +242,7 @@ impl CleanupHazardUpdate {
                             return;
                         }
                         me.set_weapon_lock(
-                            self.module_data.weapon_slot,
+                            self.module_data.read().downcast_ref::<CleanupHazardUpdateModuleData>().expect("Invalid module data").weapon_slot,
                             WeaponLockType::LockedTemporarily,
                         );
                         let mut params = AiCommandParams::new(
@@ -315,7 +315,7 @@ impl UpdateModuleInterface for CleanupHazardUpdate {
             self.fire_when_ready();
             return UPDATE_SLEEP_NONE;
         }
-        self.next_scan_frames = self.module_data.scan_frames as i32;
+        self.next_scan_frames = self.module_data.read().downcast_ref::<CleanupHazardUpdateModuleData>().expect("Invalid module data").scan_frames as i32;
 
         if self.scan_closest_target().is_some() {
             self.fire_when_ready();
@@ -363,7 +363,9 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
         let mut me = me_arc.write().unwrap();
 
         me.set_weapon_set_flag(WeaponSetType::Veteran);
-        if let Some(weapon_arc) = me.get_weapon_in_slot(self.module_data.weapon_slot) {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<CleanupHazardUpdateModuleData>().expect("Invalid module data");
+        if let Some(weapon_arc) = me.get_weapon_in_slot(data.weapon_slot) {
             self.weapon_template = Some(Arc::clone(weapon_arc.get_template()));
         } else {
             error!(
@@ -376,11 +378,11 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
         // Validate scan range vs attack range
         if let Some(ref template) = self.weapon_template {
             let attack_range = template.get_attack_range(&Default::default());
-            if self.module_data.scan_range <= attack_range {
+            if data.scan_range <= attack_range {
                 error!(
                     "CleanupHazardUpdate for {} requires the scan range ({:.1}) being larger than the firing range ({:.1})",
                     me.get_template().get_name(),
-                    self.module_data.scan_range,
+                    data.scan_range,
                     attack_range
                 );
             }
@@ -436,14 +438,14 @@ impl Snapshotable for CleanupHazardUpdate {
 pub struct CleanupHazardUpdateModule {
     behavior: CleanupHazardUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<CleanupHazardUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl CleanupHazardUpdateModule {
     pub fn new(
         behavior: CleanupHazardUpdate,
         module_name: &AsciiString,
-        module_data: Arc<CleanupHazardUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -486,11 +488,11 @@ impl Module for CleanupHazardUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_cleanup_hazard_control_interface(
@@ -521,7 +523,7 @@ pub struct CleanupHazardUpdateFactory;
 impl CleanupHazardUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(CleanupHazardUpdate::new(thing, module_data)?))
     }
@@ -534,7 +536,7 @@ mod tests {
     fn lost_owner_update() -> CleanupHazardUpdate {
         CleanupHazardUpdate {
             object_id: crate::common::INVALID_ID,
-            module_data: Arc::new(CleanupHazardUpdateModuleData {
+            module_data: game_engine::common::thing::module::ModuleDataHandle::new(CleanupHazardUpdateModuleData {
                 scan_frames: 7,
                 scan_range: 100.0,
                 ..CleanupHazardUpdateModuleData::default()
@@ -584,7 +586,7 @@ mod tests {
 
     #[test]
     fn cleanup_hazard_module_exposes_typed_control_hook() {
-        let data = Arc::new(CleanupHazardUpdateModuleData {
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(CleanupHazardUpdateModuleData {
             scan_frames: 7,
             scan_range: 100.0,
             ..CleanupHazardUpdateModuleData::default()

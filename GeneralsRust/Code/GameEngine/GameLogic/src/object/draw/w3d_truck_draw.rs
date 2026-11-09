@@ -8,7 +8,7 @@ use crate::helpers::{
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 /// C++ `W3DTruckDraw.cpp:380-614` emitter/audio inputs.
@@ -246,8 +246,22 @@ impl Snapshotable for W3DTruckDrawModuleData {
     }
 }
 
+fn truck_data(data: &dyn ModuleData) -> &W3DTruckDrawModuleData {
+    let any = data as &dyn Any;
+    if let Some(data) = any.downcast_ref::<W3DTruckDrawModuleData>() {
+        data
+    } else if let Some(data) = any.downcast_ref::<super::w3d_tank_truck_draw::W3DTankTruckDrawModuleData>() {
+        &data.base
+    } else if let Some(data) = any.downcast_ref::<super::w3d_overlord_truck_draw::W3DOverlordTruckDrawModuleData>() {
+        &data.base
+    } else {
+        &any.downcast_ref::<super::w3d_police_car_draw::W3DPoliceCarDrawModuleData>()
+            .expect("expected truck draw data").base
+    }
+}
+
 pub struct W3DTruckDraw {
-    data: W3DTruckDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DModelDraw,
     dust_effect: Option<u32>,
     dirt_effect: Option<u32>,
@@ -284,9 +298,12 @@ impl W3DTruckDraw {
     }
 
     pub fn new(data: W3DTruckDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
         Self {
-            data: data.clone(),
-            base: W3DModelDraw::new(data.base.clone()),
+            base: W3DModelDraw::new_with_module_data(data.clone()),
+            data,
             dust_effect: None,
             dirt_effect: None,
             powerslide_effect: None,
@@ -441,12 +458,14 @@ impl W3DTruckDraw {
             return;
         };
         let owner = self.base.owner_id();
+        let guard = self.data.read();
+        let data = truck_data(&*guard);
         for (slot, name) in [
-            (&mut self.dust_effect, &self.data.dust_effect_name),
-            (&mut self.dirt_effect, &self.data.dirt_effect_name),
+            (&mut self.dust_effect, &data.dust_effect_name),
+            (&mut self.dirt_effect, &data.dirt_effect_name),
             (
                 &mut self.powerslide_effect,
-                &self.data.powerslide_effect_name,
+                &data.powerslide_effect_name,
             ),
         ] {
             if slot.is_none() && !name.is_empty() {
@@ -632,8 +651,11 @@ impl W3DTruckDraw {
         else {
             return;
         };
+        let handle = self.data.clone();
+        let guard = handle.read();
+        let data = truck_data(&*guard);
         let conditions = ModelConditionFlags::from_bits_retain(state.condition_flags_bits);
-        let Some(info) = self.data.base.find_best_info(&conditions) else {
+        let Some(info) = data.base.find_best_info(&conditions) else {
             return;
         };
         let mut overrides = state.bone_overrides;
@@ -661,27 +683,27 @@ impl W3DTruckDraw {
         };
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.front_left_tire_bone_name),
+            self.bone_index(info, &data.front_left_tire_bone_name),
             steered(heights.front_left_height_offset, front),
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.front_right_tire_bone_name),
+            self.bone_index(info, &data.front_right_tire_bone_name),
             steered(heights.front_right_height_offset, front),
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.rear_left_tire_bone_name),
+            self.bone_index(info, &data.rear_left_tire_bone_name),
             unsteered(heights.rear_left_height_offset, rear),
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.rear_right_tire_bone_name),
+            self.bone_index(info, &data.rear_right_tire_bone_name),
             unsteered(heights.rear_right_height_offset, rear),
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.mid_front_left_tire_bone_name),
+            self.bone_index(info, &data.mid_front_left_tire_bone_name),
             steered(
                 heights.front_left_height_offset,
                 self.mid_front_wheel_rotation,
@@ -689,7 +711,7 @@ impl W3DTruckDraw {
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.mid_front_right_tire_bone_name),
+            self.bone_index(info, &data.mid_front_right_tire_bone_name),
             steered(
                 heights.front_right_height_offset,
                 self.mid_front_wheel_rotation,
@@ -697,7 +719,7 @@ impl W3DTruckDraw {
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.mid_rear_left_tire_bone_name),
+            self.bone_index(info, &data.mid_rear_left_tire_bone_name),
             unsteered(
                 heights.rear_left_height_offset,
                 self.mid_rear_wheel_rotation,
@@ -705,7 +727,7 @@ impl W3DTruckDraw {
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.mid_rear_right_tire_bone_name),
+            self.bone_index(info, &data.mid_rear_right_tire_bone_name),
             unsteered(
                 heights.rear_right_height_offset,
                 self.mid_rear_wheel_rotation,
@@ -713,7 +735,7 @@ impl W3DTruckDraw {
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.mid_mid_left_tire_bone_name),
+            self.bone_index(info, &data.mid_mid_left_tire_bone_name),
             unsteered(
                 heights.rear_left_height_offset,
                 self.mid_rear_wheel_rotation,
@@ -721,13 +743,13 @@ impl W3DTruckDraw {
         );
         add(
             &mut overrides,
-            self.bone_index(info, &self.data.mid_mid_right_tire_bone_name),
+            self.bone_index(info, &data.mid_mid_right_tire_bone_name),
             unsteered(
                 heights.rear_right_height_offset,
                 self.mid_rear_wheel_rotation,
             ),
         );
-        let mut desired_cab = wheel_angle * self.data.cab_rotation_factor;
+        let mut desired_cab = wheel_angle * data.cab_rotation_factor;
         if wheel_info.is_some() {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
@@ -758,10 +780,10 @@ impl W3DTruckDraw {
                 }
             });
         }
-        let cab_index = self.bone_index(info, &self.data.cab_bone_name);
-        let trailer_index = self.bone_index(info, &self.data.trailer_bone_name);
+        let cab_index = self.bone_index(info, &data.cab_bone_name);
+        let trailer_index = self.bone_index(info, &data.trailer_bone_name);
         if wheel_info.is_some() && cab_index != 0 {
-            let cab_damping = self.data.rotation_damping_factor.max(0.0);
+            let cab_damping = data.rotation_damping_factor.max(0.0);
             let cab_delta = (desired_cab - self.cur_cab_rotation) * cab_damping;
             self.cur_cab_rotation += cab_delta;
             add(
@@ -770,7 +792,7 @@ impl W3DTruckDraw {
                 Matrix3D::from_rotation_z(self.cur_cab_rotation),
             );
             if trailer_index != 0 {
-                let desired_trailer = -wheel_angle * self.data.trailer_rotation_factor;
+                let desired_trailer = -wheel_angle * data.trailer_rotation_factor;
                 let trailer_delta = (desired_trailer - self.cur_trailer_rotation) * cab_damping;
                 self.cur_trailer_rotation += trailer_delta;
                 add(
@@ -835,8 +857,8 @@ impl Module for W3DTruckDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -935,14 +957,19 @@ impl DrawModule for W3DTruckDraw {
             .map(|info| info.frames_airborne)
             .unwrap_or(0);
         // C++ spins wheels from last-frame powerslide, then refreshes emitters.
+        let (powerslide_rotation_addition, rotation_speed_multiplier) = {
+            let guard = self.data.read();
+            let data = truck_data(&*guard);
+            (data.powerslide_rotation_addition, data.rotation_speed_multiplier)
+        };
         let signed_speed = if backwards { -speed } else { speed };
         let signed_addition = if backwards {
-            -self.data.powerslide_rotation_addition
+            -powerslide_rotation_addition
         } else {
-            self.data.powerslide_rotation_addition
+            powerslide_rotation_addition
         };
-        self.front_wheel_rotation += self.data.rotation_speed_multiplier * signed_speed;
-        self.rear_wheel_rotation += self.data.rotation_speed_multiplier
+        self.front_wheel_rotation += rotation_speed_multiplier * signed_speed;
+        self.rear_wheel_rotation += rotation_speed_multiplier
             * if self.is_powersliding {
                 signed_speed + signed_addition
             } else {
