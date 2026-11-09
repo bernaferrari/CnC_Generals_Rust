@@ -103,6 +103,9 @@ pub struct CaveContain {
     contained_object_ids: Vec<ObjectID>,
     /// Reference to the owning object
     object_id: ObjectID,
+    /// Exact owner supplied at construction; an equal ID in another world
+    /// must never select a different cave entrance.
+    object: Weak<RwLock<Object>>,
     /// Reference to cave system
     cave_system: Option<Arc<Mutex<CaveSystem>>>,
 }
@@ -127,6 +130,7 @@ impl CaveContain {
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
+            object,
             cave_system,
         })
     }
@@ -195,35 +199,24 @@ impl CaveContain {
         self.object_id
     }
 
-    /// Borrow the owning object for one operation via ObjectID.
+    /// Borrow the exact owning object for one operation.
     fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+        self.object.upgrade().and_then(|owner| {
+            let owner = owner.read().ok()?;
+            Some(f(&owner))
+        })
     }
 
     fn with_owner_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+        self.object.upgrade().and_then(|owner| {
+            let mut owner = owner.write().ok()?;
+            Some(f(&mut owner))
+        })
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 279: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        self.object.upgrade()
     }
 
     /// Check if this is a garrisonable unit
@@ -1783,6 +1776,13 @@ mod tests {
 
             let mut cave_a = world_cave(&owner, &handle_a);
             let mut cave_b = world_cave(&owner, &handle_b);
+
+            // A same-ID registry entry from another world cannot replace the
+            // exact owner carried by the cave module.
+            let foreign_owner = Arc::new(RwLock::new(Object::new_test(93201, 100.0)));
+            OBJECT_REGISTRY.register_object(93201, &foreign_owner);
+            assert!(Arc::ptr_eq(&cave_a.get_object().expect("exact owner"), &owner));
+            OBJECT_REGISTRY.register_object(93201, &owner);
 
             // Interleave enters across the two worlds.
             ContainModuleInterface::contain_object(&mut cave_a, 93202).expect("a enter");

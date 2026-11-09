@@ -70,6 +70,33 @@ fn actual_factory_rejects_wrong_data_without_panicking_or_constructing() {
     assert_eq!(owner.read().unwrap().behavior_modules().len(), before);
 }
 
+#[test]
+fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
+    use crate::contain_module_overrides::contain::{
+        ContainModuleDataAdapter, cave_contain_module_factory,
+    };
+    use crate::object::contain::CaveContainModuleData;
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+
+    let receiving = Arc::new(EngineStores::new_for_world());
+    let foreign = Arc::new(EngineStores::new_for_world());
+    let receiving_cave = Arc::clone(&receiving.services().logic_managers().cave);
+    let foreign_cave = Arc::clone(&foreign.services().logic_managers().cave);
+    with_active_stores(&foreign, || {
+        let owner = Arc::new(RwLock::new(crate::object::Object::new_test(0xFACA_0003, 100.0)));
+        let thing: Arc<dyn ModuleThing> = Arc::new(
+            crate::object::ObjectThingHandle::with_cave_system(&owner, Some(Arc::clone(&receiving_cave))),
+        );
+        let mut data = CaveContainModuleData::default();
+        data.cave_index_data = 4;
+        let data: Arc<dyn ModuleData> = Arc::new(ContainModuleDataAdapter::new(data));
+        let mut module = cave_contain_module_factory(thing, data);
+        module.on_object_created();
+        assert_eq!(receiving_cave.lock().unwrap().registered_indices(), vec![4]);
+        assert!(foreign_cave.lock().unwrap().registered_indices().is_empty());
+    });
+}
+
 struct FailingTemplate {
     base: crate::common::DefaultThingTemplate,
     modules: Vec<crate::common::TemplateModuleInfo>,
