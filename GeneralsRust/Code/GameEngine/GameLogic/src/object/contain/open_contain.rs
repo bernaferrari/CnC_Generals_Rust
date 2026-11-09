@@ -3233,6 +3233,20 @@ mod tests {
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
+    /// An INFANTRY rider: C++ `isAnyKindOf(AllowInsideKindOf)` rejects a
+    /// kindless entrant (OpenContain.cpp:862).
+    fn test_infantry(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        template.add_kind_of(crate::common::KindOf::Infantry);
+        Object::new_with_id(
+            Arc::new(template),
+            id,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("test infantry")
+    }
+
     fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
         Object::new_with_id(
             Arc::new(DefaultThingTemplate::new(name.to_string())),
@@ -3481,7 +3495,7 @@ mod tests {
             .write()
             .expect("owner write")
             .set_position(&Coord3D::new(10.0, 10.0, 100.0));
-        let rider = test_object("AirborneRider", 92006);
+        let rider = test_infantry("AirborneRider", 92006);
 
         let mut contain =
             OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())))
@@ -3612,7 +3626,7 @@ mod tests {
 
     fn witness_door_exit_callbacks(hurry: bool, owner_id: ObjectID, rider_id: ObjectID) {
         let owner = test_object("DoorExitTransport", owner_id);
-        let rider = test_object("DoorExitRider", rider_id);
+        let rider = test_infantry("DoorExitRider", rider_id);
         let original_end = Coord3D::new(10.0, 20.0, 100.0);
         owner
             .write()
