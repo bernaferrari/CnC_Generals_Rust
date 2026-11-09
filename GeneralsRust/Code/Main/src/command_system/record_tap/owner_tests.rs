@@ -166,6 +166,9 @@ fn receiving_playback_continuation_clears_actual_world_before_mode_or_header_adm
     world.replay_pending.reset_recorder_owned(owner.clone());
     world.admit_object_ini_sources([("ReplayFixture.ini".into(), "Object USA_Ranger\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n".into())]).unwrap();
     world.start_new_game_for_restore(GameMode::Skirmish).unwrap();
+    // Restore-mode startup deliberately leaves player admission to its caller.
+    // This old match needs an actual non-neutral owner for factory creation.
+    world.add_player(crate::game_logic::Player::new(0, Team::USA, "ReplayFixture", true));
     world.force_map_loaded_for_path_test(true);
     let unit = world
         .create_object_for_player("USA_Ranger", 0, Vec3::ZERO)
