@@ -1583,30 +1583,11 @@ fn stealth_residual_detection_expires() {
 
 #[test]
 fn base_defense_residual_patriot_auto_fires_without_attack_object() {
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    let _ = super::weapon_bootstrap::ensure_host_weapon_store();
-
-    // GameLogic::new does not load faction buildings; register residual template.
-    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
-    patriot_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(600.0)
-        .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(super::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
-    game_logic
-        .templates
-        .insert("USA_Patriot".to_string(), patriot_tpl);
-
-    let patriot_id = game_logic
-        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("patriot");
-    let enemy_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
-        .expect("enemy");
+    // Use the retail powered battery and missile content: a frame's combat
+    // phase launches a projectile, it does not apply the warhead immediately.
+    let (mut game_logic, patriot_id, enemy_id) =
+        crate::game_logic::game_logic::accepted_projectile_owner_tests::
+            patriot_retail_battery_tests::world();
 
     {
         let p = game_logic.host_object(patriot_id).expect("patriot obj");
@@ -1647,11 +1628,22 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
         .unwrap_or(0.0);
     game_logic.health_events.clear_damage();
 
-    // Several combat ticks (reload residual) without any AttackObject command.
-    for f in 0..80 {
-        game_logic.frame = f;
-        game_logic.update_combat(&[patriot_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+    // Drive whole logic frames with the receiving asset owner, including
+    // acquisition, projectile admission, physics and collision callbacks.
+    let assets = game_logic.application_assets().expect("retail W3D owner");
+    let mut observed_owned_flight = false;
+    for _ in 0..80 {
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(assets.as_ref()),
+            ..Default::default()
+        };
+        game_logic.tick_logic_frame_with_script_effects(
+            LOGIC_FRAME_TIMESTEP, None, None, effects, |_| {}, |_| {},
+        );
+        observed_owned_flight |= game_logic.combat_system.projectiles_snapshot()
+            .iter().any(|projectile| projectile.missile_motion.is_some());
     }
+    assert!(observed_owned_flight, "auto-fire must admit a real Patriot missile flight");
 
     let enemy_hp_after = game_logic
         .host_object(enemy_id)
@@ -2085,42 +2077,11 @@ fn camo_netting_structure_attack_and_damage_reveal() {
 #[test]
 fn patriot_residual_aa_secondary_auto_fires() {
     use crate::game_logic::host_base_defense::{
-        PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE, PATRIOT_GROUND_DAMAGE, PATRIOT_PRIMARY_WEAPON,
-        PATRIOT_SECONDARY_WEAPON, is_patriot_battery_structure,
+        PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE, PATRIOT_GROUND_DAMAGE, is_patriot_battery_structure,
     };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-
-    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
-    patriot_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(600.0)
-        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON)
-        .set_tertiary_weapon_name(PATRIOT_SECONDARY_WEAPON);
-    game_logic
-        .templates
-        .insert("USA_Patriot".to_string(), patriot_tpl);
-
-    let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
-    aircraft_tpl
-        .add_kind_of(KindOf::Aircraft)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(200.0);
-    game_logic
-        .templates
-        .insert("TestAircraft".to_string(), aircraft_tpl);
-
-    let patriot_id = game_logic
-        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("patriot");
+    let (mut game_logic, patriot_id, air_id) =
+        crate::game_logic::game_logic::accepted_projectile_owner_tests::
+            patriot_retail_battery_tests::world_with_air_target();
     {
         let p = game_logic.host_object(patriot_id).expect("patriot");
         assert!(is_patriot_battery_structure(&p.template_name));
@@ -2134,29 +2095,29 @@ fn patriot_residual_aa_secondary_auto_fires() {
         assert!(!sec.can_target_ground);
     }
 
-    let air_id = game_logic
-        .create_object("TestAircraft", Team::GLA, Vec3::new(250.0, 0.0, 0.0))
-        .expect("aircraft");
-    {
-        let a = game_logic.host_object_mut(air_id).unwrap();
-        a.status.airborne_target = true;
-    }
-    {
-        let p = game_logic.host_object_mut(patriot_id).unwrap();
-        if let Some(w) = p.secondary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
-        }
-    }
 
     let air_hp_before = game_logic
         .host_object(air_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
     game_logic.health_events.clear_damage();
-    for f in 0..80 {
-        game_logic.frame = f;
-        game_logic.update_combat(&[patriot_id, air_id], LOGIC_FRAME_TIMESTEP);
+    let assets = game_logic.application_assets().expect("retail W3D owner");
+    let mut observed_aa_flight = false;
+    for _ in 0..80 {
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(assets.as_ref()),
+            ..Default::default()
+        };
+        game_logic.tick_logic_frame_with_script_effects(
+            LOGIC_FRAME_TIMESTEP, None, None, effects, |_| {}, |_| {},
+        );
+        observed_aa_flight |= game_logic.combat_system.projectiles_snapshot().iter().any(|projectile| {
+            projectile.target_id == Some(air_id)
+                && projectile.missile_motion.is_some()
+                && (projectile.damage - PATRIOT_AIR_DAMAGE).abs() < 0.01
+        });
     }
+    assert!(observed_aa_flight, "retail tertiary weapon must launch an owned AA missile");
     let air_hp_after = game_logic
         .host_object(air_id)
         .map(|e| e.health.current)
@@ -2179,76 +2140,35 @@ fn patriot_residual_aa_secondary_auto_fires() {
 #[test]
 fn patriot_assisted_targeting_request_assist_range_residual() {
     use crate::game_logic::host_base_defense::{
-        PATRIOT_ASSIST_DAMAGE, PATRIOT_ASSISTING_CLIP_SIZE, PATRIOT_PRIMARY_WEAPON,
-        PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+        PATRIOT_ASSIST_DAMAGE, PATRIOT_ASSISTING_CLIP_SIZE, PATRIOT_REQUEST_ASSIST_RANGE,
     };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-
-    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
-    patriot_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(600.0)
-        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
-    game_logic
-        .templates
-        .insert("USA_Patriot".to_string(), patriot_tpl);
-
-    // Requester at origin; assistant within RequestAssistRange 200.
-    let requester_id = game_logic
-        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("requester");
-    let assistant_id = game_logic
-        .create_object(
-            "USA_Patriot",
-            Team::USA,
-            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
-        )
-        .expect("assistant");
-    // Far patriot outside RequestAssistRange — must not assist.
-    let far_id = game_logic
-        .create_object(
-            "USA_Patriot",
-            Team::USA,
-            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE + 50.0, 0.0, 0.0),
-        )
-        .expect("far");
-    // Enemy in primary range of requester (50 < 225).
-    let enemy_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
-        .expect("enemy");
-    // Buff enemy HP so assist clip can land multiple shots.
-    {
-        let e = game_logic.host_object_mut(enemy_id).unwrap();
-        e.health.current = 500.0;
-        e.health.maximum = 500.0;
-        e.max_health = 500.0;
+    // C++ assistance uses equivalent templates, the actual requester's
+    // WeaponTemplate range, and the assistant's AssistedTargetingUpdate.
+    let (mut game_logic, requester_id, enemy_id) =
+        crate::game_logic::game_logic::accepted_projectile_owner_tests::
+            patriot_retail_battery_tests::world();
+    // Three batteries consume nine Energy; admit actual retail producers.
+    for z in [30.0, 50.0] {
+        game_logic.create_object_for_player("AmericaPowerPlant", 0, Vec3::new(10.0, 0.0, z)).unwrap();
     }
+    let assistant_id = game_logic.create_object_for_player(
+        "AmericaPatriotBattery", 0,
+        Vec3::new(100.0, 30.0, 100.0 + PATRIOT_REQUEST_ASSIST_RANGE * 0.5),
+    ).unwrap();
+    let far_id = game_logic.create_object_for_player(
+        "AmericaPatriotBattery", 0, Vec3::new(10.0, 30.0, 310.0),
+    ).unwrap();
+    assert!(!game_logic.host_object(assistant_id).unwrap().is_disabled());
+    assert!(!game_logic.host_object(far_id).unwrap().is_disabled());
     {
-        let p = game_logic.host_object_mut(requester_id).unwrap();
-        if let Some(w) = p.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-        }
+        let enemy = game_logic.host_object_mut(enemy_id).unwrap();
+        enemy.health.current = 500.0;
+        enemy.health.maximum = 500.0;
+        enemy.max_health = 500.0;
     }
-    {
-        let p = game_logic.host_object_mut(assistant_id).unwrap();
-        if let Some(w) = p.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-        }
-    }
-    {
-        let p = game_logic.host_object_mut(far_id).unwrap();
-        if let Some(w) = p.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-        }
-    }
+    // An attack may limit its own shots; the assisting AI receives its own
+    // authored four-shot budget, independent of this requester's budget.
+    game_logic.host_object_mut(requester_id).unwrap().set_max_shots_to_fire(1);
 
     let enemy_hp_before = game_logic
         .host_object(enemy_id)
@@ -2256,12 +2176,26 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         .unwrap_or(0.0);
     game_logic.health_events.clear_damage();
 
-    // One combat tick: requester primary fire → assist request → first assist shot.
-    game_logic.frame = 1;
-    game_logic.update_combat(
-        &[requester_id, assistant_id, far_id, enemy_id],
-        LOGIC_FRAME_TIMESTEP,
-    );
+    let assets = game_logic.application_assets().expect("retail W3D owner");
+    let mut observed_assist_flight = false;
+    // Let the real turret aim and fire; capture the actual admitted missiles.
+    for _ in 0..80 {
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(assets.as_ref()),
+            ..Default::default()
+        };
+        game_logic.tick_logic_frame_with_script_effects(
+            LOGIC_FRAME_TIMESTEP, None, None, effects, |_| {}, |_| {},
+        );
+        observed_assist_flight |= game_logic.combat_system.projectiles_snapshot().iter().any(|p| {
+            p.shooter_id == assistant_id && p.target_id == Some(enemy_id)
+                && p.missile_motion.is_some()
+                && (p.damage - PATRIOT_ASSIST_DAMAGE).abs() < 0.01
+        });
+        if game_logic.patriot_assist_residual_requests() > 0 {
+            break;
+        }
+    }
 
     assert!(
         game_logic.patriot_assist_residual_requests() > 0,
@@ -2279,17 +2213,23 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         "accepted assistant must TEMP-lock AssistingWeaponSlot = SECONDARY"
     );
 
-    // Advance AssistingClipSize shots (DelayBetweenShots 8 frames).
-    for f in 2..(2 + PATRIOT_ASSISTING_CLIP_SIZE * 10) {
-        game_logic.frame = f;
-        // Keep weapons cold so only assist residual continues (no re-request spam).
-        if let Some(p) = game_logic.host_object_mut(requester_id) {
-            if let Some(w) = p.weapon.as_mut() {
-                w.last_fire_time = f as f32 * LOGIC_FRAME_TIMESTEP;
-            }
-        }
-        game_logic.update_pending_patriot_assists();
+    // Run the complete owned AI / missile / impact phases, not just the
+    // assist queue. Weapon.cpp delivers damage when each projectile detonates.
+    for _ in 0..(PATRIOT_ASSISTING_CLIP_SIZE * 30) {
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(assets.as_ref()),
+            ..Default::default()
+        };
+        game_logic.tick_logic_frame_with_script_effects(
+            LOGIC_FRAME_TIMESTEP, None, None, effects, |_| {}, |_| {},
+        );
+        observed_assist_flight |= game_logic.combat_system.projectiles_snapshot().iter().any(|p| {
+            p.shooter_id == assistant_id && p.target_id == Some(enemy_id)
+                && p.missile_motion.is_some()
+                && (p.damage - PATRIOT_ASSIST_DAMAGE).abs() < 0.01
+        });
     }
+    assert!(observed_assist_flight, "assistant must launch its authored assist missile");
 
     let enemy_hp_after = game_logic
         .host_object(enemy_id)

@@ -24,7 +24,15 @@ fn definition(source: &str, header: &str) -> String {
     panic!("unterminated retail definition: {header}");
 }
 
-fn world() -> (GameLogic, ObjectId, ObjectId) {
+pub(in crate::game_logic) fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_for_target(false)
+}
+
+pub(in crate::game_logic) fn world_with_air_target() -> (GameLogic, ObjectId, ObjectId) {
+    world_for_target(true)
+}
+
+fn world_for_target(air_target: bool) -> (GameLogic, ObjectId, ObjectId) {
     use crate::assets::ini_template_loader::{parse_weapon_definitions_ini_into, WeaponDefinitionLoadType};
     let weapon_text = base_ini("Weapon.ini");
     let mut weapons = HashMap::new();
@@ -69,7 +77,11 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     let battery = definition(&buildings, "Object AmericaPatriotBattery");
     // The retail battery's Prerequisites block references this real template.
     let power_plant = definition(&buildings, "Object AmericaPowerPlant");
-    let target = "Object RetailPatriotTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n";
+    let target = if air_target {
+        "Object RetailPatriotTarget\nKindOf = AIRCRAFT SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n"
+    } else {
+        "Object RetailPatriotTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n"
+    };
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
         ("AmericaPowerPlant.ini".into(), power_plant),
         ("FactionBuilding.ini".into(), battery),
@@ -81,7 +93,15 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     world.create_object_for_player("AmericaPowerPlant", 0, Vec3::new(10.0, 0.0, 10.0)).unwrap();
     let source = world.create_object_for_player("AmericaPatriotBattery", 0, Vec3::new(100.0, 30.0, 100.0)).unwrap();
     assert!(!world.objects[&source].is_disabled(), "retail battery must have power before firing");
-    let target = world.create_object_for_player("RetailPatriotTarget", 1, Vec3::new(280.0, 30.0, 100.0)).unwrap();
+    let target_position = if air_target {
+        Vec3::new(350.0, 80.0, 100.0)
+    } else {
+        Vec3::new(280.0, 30.0, 100.0)
+    };
+    let target = world.create_object_for_player("RetailPatriotTarget", 1, target_position).unwrap();
+    if air_target {
+        world.objects.get_mut(&target).unwrap().status.airborne_target = true;
+    }
     world.frame = 100;
     let target_pos = world.objects[&target].get_position();
     world.objects.get_mut(&source).unwrap().set_prev_victim_pos(Some(target_pos));
