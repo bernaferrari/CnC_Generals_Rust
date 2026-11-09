@@ -100,9 +100,12 @@ impl GameLogic {
     /// C++ reference: GameLogic::getRankLevelLimit()
     pub fn get_rank_level_limit(&self) -> Int {
         match self.owning_world_services() {
-            Some(services) => services.players().read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .rank_level_limit(),
+            Some(services) => {
+                let cap = services.players().read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .rank_level_limit();
+                cap
+            }
             None => self.standalone_rank_level_limit,
         }
     }
@@ -127,9 +130,11 @@ impl GameLogic {
     /// C++ reference: GameLogic::setRankLevelLimit()
     pub fn set_rank_level_limit(&mut self, level: Int) {
         match self.owning_world_services() {
-            Some(services) => services.players().write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .set_rank_level_limit(level),
+            Some(services) => {
+                services.players().write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .set_rank_level_limit(level);
+            }
             None => self.standalone_rank_level_limit = level.max(1),
         }
     }

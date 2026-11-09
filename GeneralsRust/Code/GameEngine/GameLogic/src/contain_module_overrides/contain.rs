@@ -602,19 +602,14 @@ pub(super) fn cave_contain_module_factory(
     };
     let cave_system = crate::object::supplied_module_cave_system(thing.as_ref())
         .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
-    let contain = CaveContain::new(
+    let contain = match CaveContain::new(
         Arc::downgrade(&owner),
         contain_data,
-        Some(cave_system.clone()),
-    )
-    .unwrap_or_else(|_| {
-        CaveContain::new(
-            Weak::new(),
-            &CaveContainModuleData::default(),
-            Some(cave_system),
-        )
-        .expect("CaveContain default construction failed")
-    });
+        Some(cave_system),
+    ) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("CaveContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("CaveContain", thing, module_data, contain)
 }

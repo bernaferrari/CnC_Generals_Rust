@@ -381,7 +381,7 @@ impl ObjectFactory {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
-        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        mut cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
@@ -392,10 +392,15 @@ impl ObjectFactory {
         // Allocate object ID
         let object_id = match saved_id {
             Some(id) => id,
-            None => crate::system::game_logic::get_game_logic()
-                .lock()
-                .map_err(|_| "Object creation identity owner poisoned")?
-                .allocate_object_id(),
+            None => {
+                let mut logic = crate::system::game_logic::get_game_logic()
+                    .lock()
+                    .map_err(|_| "Object creation identity owner poisoned")?;
+                if cave_system.is_none() {
+                    cave_system = logic.owned_cave_system();
+                }
+                logic.allocate_object_id()
+            }
         };
         if object_id == crate::common::INVALID_ID || self.object_registry.contains_key(&object_id) {
             return Err(format!("invalid or duplicate Object id {object_id}").into());
