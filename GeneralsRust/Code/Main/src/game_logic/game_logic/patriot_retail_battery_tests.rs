@@ -76,7 +76,11 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         ("retail-patriot-target.ini".into(), target.into()),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
+    // POWERED structures consume Energy immediately on admission. The retail
+    // Patriot consumes 3, so its authored 5-Energy plant must exist first.
+    world.create_object_for_player("AmericaPowerPlant", 0, Vec3::new(10.0, 0.0, 10.0)).unwrap();
     let source = world.create_object_for_player("AmericaPatriotBattery", 0, Vec3::new(100.0, 30.0, 100.0)).unwrap();
+    assert!(!world.objects[&source].is_disabled(), "retail battery must have power before firing");
     let target = world.create_object_for_player("RetailPatriotTarget", 1, Vec3::new(280.0, 30.0, 100.0)).unwrap();
     world.frame = 100;
     let target_pos = world.objects[&target].get_position();
