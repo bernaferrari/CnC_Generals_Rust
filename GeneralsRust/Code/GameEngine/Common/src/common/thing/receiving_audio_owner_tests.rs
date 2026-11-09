@@ -115,7 +115,7 @@ fn receiving_nosound_clears_inherited_and_map_solo_audio_without_affecting_peer_
             .load_ini_text(&malformed, INILoadType::CreateOverrides)
             .unwrap_err();
         assert!(
-            error.contains("Missing SoundAmbient audio event token"),
+            error.to_string().contains("Missing SoundAmbient audio event token"),
             "{error}"
         );
         assert!(Arc::ptr_eq(

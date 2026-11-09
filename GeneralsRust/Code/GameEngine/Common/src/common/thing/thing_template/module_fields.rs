@@ -169,7 +169,7 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         module_factory: &mut Option<&mut ModuleFactory>,
         strict: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         let mut tokens = value.split_whitespace();
         let module_name = tokens
             .next()
@@ -183,7 +183,7 @@ impl ThingTemplate {
             "Body" => (ModuleType::Behavior, ModuleInterfaceType::BODY),
             "Draw" => (ModuleType::Draw, ModuleInterfaceType::DRAW),
             "ClientUpdate" => (ModuleType::ClientUpdate, ModuleInterfaceType::CLIENT_UPDATE),
-            other => return Err(format!("Unknown module field '{}'", other)),
+            other => return Err(format!("Unknown module field '{}'", other).into()),
         };
 
         let interface_mask = if strict {
@@ -193,13 +193,13 @@ impl ThingTemplate {
             if !factory.has_module_data_proc(module_name, module_type) {
                 return Err(format!(
                     "Module data constructor '{module_name}' ({module_type:?}) not registered"
-                ));
+                ).into());
             }
             let mask = factory.find_module_interface_mask(module_name, module_type);
             if mask == ModuleInterfaceType::NONE {
                 return Err(format!(
                     "Module '{module_name}' ({module_type:?}) has no registered interface mask"
-                ));
+                ).into());
             }
             mask
         } else {
@@ -214,10 +214,10 @@ impl ThingTemplate {
         // inherited modules or invoking the registered data constructor.
         let is_body = interface_mask.0 & ModuleInterfaceType::BODY.0 != 0;
         if field_name == "Body" && !is_body {
-            return Err("Only Body allowed here".to_string());
+            return Err("Only Body allowed here".into());
         }
         if field_name != "Body" && is_body {
-            return Err("No Body allowed here".to_string());
+            return Err("No Body allowed here".into());
         }
 
         if load_type != crate::common::ini::INILoadType::CreateOverrides {
@@ -255,7 +255,7 @@ impl ThingTemplate {
             return Err(format!(
                 "ReplaceModule must replace modules with another module of the same type, but you are attempting to replace a {} with a {}",
                 self.module_being_replaced_name, module_name
-            ));
+            ).into());
         }
         if self.module_parsing_mode == ModuleParseMode::AddRemoveReplace
             && !self.module_being_replaced_tag.is_empty()
@@ -264,7 +264,7 @@ impl ThingTemplate {
             return Err(format!(
                 "ReplaceModule must specify a new, unique tag for the replaced module, but you are not doing so for {} ({})",
                 module_tag, self.module_being_replaced_name
-            ));
+            ).into());
         }
 
         let (raw_body, fields) = collect_module_body(properties, property_key);
@@ -287,8 +287,7 @@ impl ThingTemplate {
                     Err(message) => error = Some(message),
                 }
                 Ok(())
-            })
-            .map_err(|error| error.to_string())?;
+            })?;
             if let Some(error) = error {
                 return Err(error);
             }
@@ -326,7 +325,7 @@ impl ThingTemplate {
                 return Err(format!(
                     "Duplicate module tag '{module_tag}' on '{}'",
                     self.get_name()
-                ));
+                ).into());
             }
         }
         let target_info = match module_type {
@@ -357,14 +356,14 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         module_factory: &mut Option<&mut ModuleFactory>,
         strict: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         if is_module_object_field(field) {
             if load_type == crate::common::ini::INILoadType::CreateOverrides
                 && self.module_parsing_mode != ModuleParseMode::AddRemoveReplace
             {
                 return Err(format!(
                     "Use AddModule or ReplaceModule for '{field}' in override INI files"
-                ));
+                ).into());
             }
             self.add_module_from_property(
                 field,
@@ -406,7 +405,7 @@ impl ThingTemplate {
         prefix: &str,
         module_factory: &mut Option<&mut ModuleFactory>,
         strict: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         let nested = ObjectIniFields::new(properties).nested_properties(prefix);
         // C++ wrappers recurse into the entire Object field table, not just
         // module declarations. Unknown Object fields must remain errors.
@@ -427,12 +426,12 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         module_factory: &mut Option<&mut ModuleFactory>,
         strict: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         // ThingTemplate.cpp:715-816 permits wrappers only in NORMAL mode.
         if self.module_parsing_mode != ModuleParseMode::Normal {
             return Err(format!(
                 "{field} cannot be nested inside another module operation"
-            ));
+            ).into());
         }
         let old_mode = self.module_parsing_mode;
         self.module_parsing_mode = match field {

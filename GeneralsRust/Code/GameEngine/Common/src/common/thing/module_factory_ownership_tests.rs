@@ -44,14 +44,14 @@ fn create_data(_: Option<&mut INI>) -> Box<dyn ModuleData> {
     Box::new(BaseModuleData::new())
 }
 
-fn rejected_data(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
+fn rejected_data(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, INIError> {
     let ini = ini.unwrap();
     ini.name_to_key("Existing");
     ini.name_to_key("RejectedParserName");
-    Err("rejected data".into())
+    Err(INIError::UnknownToken)
 }
 
-fn accepted_data(_: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
+fn accepted_data(_: Option<&mut INI>) -> Result<Box<dyn ModuleData>, INIError> {
     Ok(Box::new(BaseModuleData::new()))
 }
 
@@ -63,13 +63,13 @@ fn rejected_module_admission_does_not_consume_owner_names_or_register_data() {
     factory.register_fallible_data_constructor("Rejected", ModuleType::Behavior, rejected_data);
     factory.register_fallible_data_constructor("Accepted", ModuleType::Behavior, accepted_data);
 
-    assert!(factory.new_module_data_from_ini_strict(
+    assert!(matches!(factory.new_module_data_from_ini_strict(
         None, "Missing", ModuleType::Behavior, "MissingTag",
-    ).is_err());
+    ), Err(ReceivingModuleError::Message(_))));
     let mut ini = INI::new();
-    assert!(factory.new_module_data_from_ini_strict(
+    assert!(matches!(factory.new_module_data_from_ini(
         Some(&mut ini), "Rejected", ModuleType::Behavior, "RejectedTag",
-    ).is_err());
+    ), Err(ReceivingModuleError::Ini(INIError::UnknownToken))));
     assert!(factory.module_data_list.is_empty());
     let keys = factory.runtime_name_keys.as_ref().unwrap();
     assert_eq!(keys.key_for_name("Existing"), Some(1));

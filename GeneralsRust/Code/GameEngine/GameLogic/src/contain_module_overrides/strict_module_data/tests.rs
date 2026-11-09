@@ -1,4 +1,5 @@
 use super::*;
+use game_engine::common::ini::INIError;
 
 // C++ Module.h:96-99,138-144: empty tables still parse and malformed module
 // fields propagate out of friend_newModuleData. No module instance is made.
@@ -64,14 +65,14 @@ impl DataParsers {
         ini: Option<&mut INI>,
         name: &str,
         kind: ModuleType,
-    ) -> Result<Arc<dyn ModuleData>, String> {
+    ) -> Result<Arc<dyn ModuleData>, INIError> {
         let parser = self
             .callbacks
             .iter()
             .find_map(|(&(registered_kind, registered_name), parser)| {
                 (registered_kind == kind as usize && registered_name == name).then_some(*parser)
             })
-            .ok_or_else(|| format!("No actual typed parser for {name}"))?;
+            .ok_or(INIError::UnknownError)?;
         parser(ini).map(Arc::from)
     }
 }
@@ -91,8 +92,112 @@ fn parse(
     body: &str,
 ) -> Result<Arc<dyn ModuleData>, String> {
     INI::new()
-        .with_inline_source(body, |ini| Ok(factory.construct(Some(ini), name, kind)))
+        .with_inline_source(body, |ini| {
+            // Preserve source context for the older diagnostic assertions while
+            // keeping construct's registered callback result typed.
+            Ok(factory.construct(Some(ini), name, kind).map_err(|error| {
+                format!(
+                    "{} data at line {} [{}]: {}",
+                    name,
+                    ini.get_line_num(),
+                    ini.get_line_tokens().join(" "),
+                    error
+                )
+            }))
+        })
         .expect("owned inline source")
+}
+
+#[test]
+fn registered_parser_families_preserve_unknown_field_error_variants() {
+    let factory = catalog();
+    for name in [
+        "FireWeaponCollide",
+        "SquishCollide",
+        "ConvertToCarBombCrateCollide",
+        "OpenContain",
+    ] {
+        let error = INI::new()
+            .with_inline_source("NotAnAuthoredModuleField = 4\nEnd\n", |ini| {
+                Ok(factory.construct(Some(ini), name, ModuleType::Behavior).unwrap_err())
+            })
+            .expect("owned inline source");
+        assert_eq!(error, INIError::UnknownToken, "{name}");
+    }
+}
+
+#[test]
+fn registered_draw_parser_preserves_distinct_condition_error_variants() {
+    let factory = catalog();
+    for (body, expected) in [
+        ("IgnoreConditionStates = NOT_AN_ORIGINAL_MODEL_CONDITION\nEnd\n", INIError::InvalidData),
+        ("IgnoreConditionStates = NIGHT +SNOW\nEnd\n", INIError::InvalidNameList),
+    ] {
+        let error = INI::new()
+            .with_inline_source(body, |ini| {
+                Ok(factory.construct(Some(ini), "W3DModelDraw", ModuleType::Draw).unwrap_err())
+            })
+            .expect("owned inline source");
+        assert_eq!(error, expected, "{body}");
+    }
+}
+
+#[test]
+fn receiving_sessions_roll_back_real_native_parser_errors_independently() {
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::name_key_generator::NameKeyNamespace;
+    use game_engine::common::thing::module_factory::ReceivingModuleError;
+    use game_engine::common::thing::receiving_module_content::ReceivingModuleContent;
+
+    fn session(cost: u32) -> ReceivingModuleContent {
+        let mut modules = ModuleFactory::new_receiving(NameKeyNamespace::new());
+        super::super::register_native_module_overrides(&mut modules).unwrap();
+        let mut content = ReceivingModuleContent::new(modules);
+        content
+            .load_ini_text(
+                &format!("Object SharedUnit\nBuildCost = {cost}\nBody = ActiveBody SharedBody\nMaxHealth = 100\nEnd\nEnd\n"),
+                INILoadType::Overwrite,
+            )
+            .unwrap();
+        content
+    }
+
+    let mut first = session(50);
+    let mut peer = session(200);
+    let first_before = first.admitted_template("SharedUnit").unwrap();
+    let peer_before = peer.admitted_template("SharedUnit").unwrap();
+    assert_eq!(first_before.template_id(), peer_before.template_id());
+    let first_data = first_before.template().get_behavior_module_info().get_nth_data(0).unwrap().clone();
+    let peer_data = peer_before.template().get_behavior_module_info().get_nth_data(0).unwrap().clone();
+    let first_tag = first_data.read().get_module_tag_name_key();
+    let peer_tag = peer_data.read().get_module_tag_name_key();
+
+    let error = first
+        .load_ini_text(
+            "Object Prefix\nBody = ActiveBody PrefixBody\nMaxHealth = 80\nEnd\nEnd\n\
+             Object Broken\nBody = ActiveBody BrokenBody\nNotAnAuthoredBodyField = 4\nEnd\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .unwrap_err();
+    assert_eq!(error, ReceivingModuleError::Ini(INIError::UnknownToken));
+    assert!(first.admitted_template("Prefix").is_none());
+    assert!(first.admitted_template("Broken").is_none());
+    let first_after = first.admitted_template("SharedUnit").unwrap();
+    assert!(Arc::ptr_eq(&first_before, &first.admitted_template("SharedUnit").unwrap()));
+    assert_eq!(first_before.template().get_build_cost(), 50);
+    assert!(Arc::ptr_eq(&peer_before, &peer.admitted_template("SharedUnit").unwrap()));
+    assert_eq!(peer_before.template().get_build_cost(), 200);
+    let peer_after = peer.admitted_template("SharedUnit").unwrap();
+    assert!(game_engine::common::thing::module::ModuleDataHandle::ptr_eq(
+        &first_data, first_after.template().get_behavior_module_info().get_nth_data(0).unwrap()
+    ));
+    assert!(game_engine::common::thing::module::ModuleDataHandle::ptr_eq(
+        &peer_data, peer_after.template().get_behavior_module_info().get_nth_data(0).unwrap()
+    ));
+    assert_eq!(first_data.read().get_module_tag_name_key(), first_tag);
+    assert_eq!(peer_data.read().get_module_tag_name_key(), peer_tag);
+    assert!(peer.admitted_template("Prefix").is_none());
+    assert!(peer.admitted_template("Broken").is_none());
 }
 
 #[test]

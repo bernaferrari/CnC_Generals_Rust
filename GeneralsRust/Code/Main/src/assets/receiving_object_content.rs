@@ -3,7 +3,7 @@ use super::ReceivingObjectDefinitions;
 use game_engine::common::{
     ini::INILoadType,
     name_key_generator::NameKeyNamespace,
-    thing::{module_factory::ModuleFactory, receiving_module_content::ReceivingModuleContent},
+    thing::{module_factory::{ModuleFactory, ReceivingModuleError}, receiving_module_content::ReceivingModuleContent},
 };
 
 /// Owned startup definitions from one ordered Object source stream and the
@@ -14,12 +14,13 @@ pub struct ReceivingStartupContent {
 }
 
 impl ReceivingStartupContent {
+    /// Admit ordered sources, retaining typed module INI failures and source context.
     pub fn from_sources<I>(
         sources: I,
         sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
         actions: std::sync::Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
         weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
-    ) -> Result<Self, String>
+    ) -> Result<Self, ReceivingModuleError>
     where
         I: IntoIterator<Item = (String, String)>,
     {
@@ -40,7 +41,7 @@ pub(crate) struct ReceivingObjectContent {
     projections: ReceivingObjectDefinitions,
 }
 impl ReceivingObjectContent {
-    pub(crate) fn from_sources<I>(sources: I) -> Result<Self, String>
+    pub(crate) fn from_sources<I>(sources: I) -> Result<Self, ReceivingModuleError>
     where
         I: IntoIterator<Item = (String, String)>,
     {
@@ -52,7 +53,7 @@ impl ReceivingObjectContent {
     pub(crate) fn from_sources_with_sciences<I>(
         sources: I,
         sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
-    ) -> Result<Self, String>
+    ) -> Result<Self, ReceivingModuleError>
     where
         I: IntoIterator<Item = (String, String)>,
     {
@@ -64,7 +65,7 @@ impl ReceivingObjectContent {
         actions: std::sync::Arc<
             game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
         >,
-    ) -> Result<Self, String>
+    ) -> Result<Self, ReceivingModuleError>
     where
         I: IntoIterator<Item = (String, String)>,
     {
@@ -76,7 +77,7 @@ impl ReceivingObjectContent {
         } else {
             None
         };
-        let build = || -> Result<Self, String> {
+        let build = || -> Result<Self, ReceivingModuleError> {
             let sources = sources.into_iter().collect::<Vec<_>>();
             let mut factory =
                 ModuleFactory::new_receiving_with_sciences(NameKeyNamespace::new(), sciences);
@@ -86,7 +87,7 @@ impl ReceivingObjectContent {
             for (path, text) in &sources {
                 modules
                     .load_ini_text(text, INILoadType::Overwrite)
-                    .map_err(|error| format!("Receiving Object source '{path}': {error}"))?;
+                    .map_err(|error| error.context(format!("Receiving Object source '{path}'")))?;
             }
             modules.validate_production_prerequisites()?;
             let projections = ReceivingObjectDefinitions::from_boot_sources(&sources)?;
@@ -310,6 +311,21 @@ mod tests {
         );
     }
     #[test]
+    fn paired_source_loading_preserves_native_ini_error_and_filename() {
+        use game_engine::common::ini::INIError;
+        let error = ReceivingObjectContent::from_sources([(
+            "bad-native.ini".into(),
+            "Object Bad\nClientUpdate = SwayClientUpdate ClientTag\nUnknownField = 7\nEnd\nEnd".into(),
+        )]).err().unwrap();
+        assert!(error.to_string().contains("bad-native.ini"));
+        let mut cause = &error;
+        while let ReceivingModuleError::Context(_, inner) = cause {
+            cause = inner;
+        }
+        assert_eq!(*cause, ReceivingModuleError::Ini(INIError::UnknownToken));
+    }
+
+    #[test]
     fn rejected_paired_source_tail_cannot_publish_partial_typed_or_projection_content() {
         let accepted = ReceivingObjectContent::from_sources(sources(2.5)).unwrap();
         let retained = accepted
@@ -323,7 +339,7 @@ mod tests {
         ));
         let error = ReceivingObjectContent::from_sources(bad).err().unwrap();
         assert!(
-            error.contains("Bad.ini") && error.contains("Unknown Object field"),
+            error.to_string().contains("Bad.ini") && error.to_string().contains("Unknown Object field"),
             "{error}"
         );
         assert!(Arc::ptr_eq(

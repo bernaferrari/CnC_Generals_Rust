@@ -6,7 +6,7 @@ use game_engine::common::{
     rts::science::{ScienceInfo, ScienceNameFacts, ScienceStore},
     thing::{
         module::{ModuleDataHandle, ModuleType},
-        module_factory::ModuleFactory,
+        module_factory::{ModuleFactory, ReceivingModuleError},
     },
 };
 use std::sync::Arc;
@@ -22,7 +22,7 @@ fn catalog(rows: &[(&str, i32)]) -> ModuleFactory {
     crate::contain_module_overrides::register_native_module_overrides(&mut f).unwrap();
     f
 }
-fn parse(f: &mut ModuleFactory, ini: &mut INI, text: &str) -> Result<ModuleDataHandle, String> {
+fn parse(f: &mut ModuleFactory, ini: &mut INI, text: &str) -> Result<ModuleDataHandle, ReceivingModuleError> {
     ini.with_inline_source(text, |ini| {
         Ok(f.new_module_data_from_ini(
             Some(ini),

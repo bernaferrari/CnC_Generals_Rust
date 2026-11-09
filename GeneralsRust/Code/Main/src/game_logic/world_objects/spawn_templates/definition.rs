@@ -77,13 +77,13 @@ impl GameLogic {
     /// Admit an ordered Object INI stream into this session. This entry point
     /// is for content without external science or command definitions; normal
     /// application startup supplies those catalogs along with its source.
-    pub fn admit_object_ini_sources<I>(&mut self, sources: I) -> Result<(), String>
+    pub fn admit_object_ini_sources<I>(&mut self, sources: I) -> Result<(), game_engine::common::thing::module_factory::ReceivingModuleError>
     where
         I: IntoIterator<Item = (String, String)>,
     {
         self.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources(
             sources,
-        )?)
+        )?).map_err(Into::into)
     }
 
     /// Admit the ordered startup owner and its application-specific catalogs.

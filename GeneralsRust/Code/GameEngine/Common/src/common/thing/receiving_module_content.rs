@@ -4,7 +4,7 @@
 #[path = "receiving_module_content/upgrade_tooltip.rs"]
 mod upgrade_tooltip;
 use super::{
-    module_factory::ModuleFactory,
+    module_factory::{ModuleFactory, ReceivingModuleError},
     thing_factory::{strip_ini_comment, try_parse_object_block_properties},
     thing_template::{AdmittedReceivingTemplate, ReceivingTemplateKind, ThingTemplate},
 };
@@ -386,7 +386,7 @@ impl ReceivingModuleContent {
         &mut self,
         content: &str,
         load_type: INILoadType,
-    ) -> Result<usize, String> {
+    ) -> Result<usize, ReceivingModuleError> {
         let (mut candidate, data_remap, templates, admissions) = self.clone_for_transaction();
         let lines = content.lines().collect::<Vec<_>>();
         let mut index = 0;
@@ -434,7 +434,7 @@ impl ReceivingModuleContent {
         kind: ReceivingDefinitionKind,
         properties: &HashMap<String, String>,
         load_type: INILoadType,
-    ) -> Result<Arc<AdmittedReceivingTemplate>, String> {
+    ) -> Result<Arc<AdmittedReceivingTemplate>, ReceivingModuleError> {
         let (mut candidate, data_remap, templates, admissions) = self.clone_for_transaction();
         candidate.admit_source_in_place(name, parent, kind, properties, load_type)?;
         self.commit_transaction(candidate, data_remap, templates, admissions);
@@ -447,7 +447,7 @@ impl ReceivingModuleContent {
         kind: ReceivingDefinitionKind,
         properties: &HashMap<String, String>,
         load_type: INILoadType,
-    ) -> Result<Arc<AdmittedReceivingTemplate>, String> {
+    ) -> Result<Arc<AdmittedReceivingTemplate>, ReceivingModuleError> {
         if name.is_empty() {
             return Err("Receiving Object name is empty".into());
         }

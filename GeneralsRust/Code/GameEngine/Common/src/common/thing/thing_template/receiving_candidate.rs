@@ -56,7 +56,7 @@ impl ReceivingTemplateCandidate {
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
         kind: ReceivingTemplateKind,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, ReceivingModuleError> {
         self.template.prepare_named_receiving_candidate(
             target_name,
             properties,
@@ -80,7 +80,7 @@ impl ReceivingTemplateCandidate {
 impl ThingTemplate {
     /// Capture this explicitly selected definition, never an implicitly chosen
     /// compatibility final override. The original seed and its links stay intact.
-    fn detached_receiving_clone(&self) -> Result<Self, String> {
+    fn detached_receiving_clone(&self) -> Result<Self, ReceivingModuleError> {
         if self.get_next_override().is_some() {
             return Err(
                 "Receiving admission requires an explicitly selected definition, not a linked compatibility template"
@@ -101,7 +101,7 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         kind: ReceivingTemplateKind,
         module_factory: &ModuleFactory,
-    ) -> Result<ReceivingTemplateCandidate, String> {
+    ) -> Result<ReceivingTemplateCandidate, ReceivingModuleError> {
         self.prepare_named_receiving_candidate(
             self.get_name().as_str(),
             properties,
@@ -119,9 +119,9 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         kind: ReceivingTemplateKind,
         module_factory: &ModuleFactory,
-    ) -> Result<ReceivingTemplateCandidate, String> {
+    ) -> Result<ReceivingTemplateCandidate, ReceivingModuleError> {
         if target_name.is_empty() {
-            return Err("Receiving template name cannot be empty".to_owned());
+            return Err("Receiving template name cannot be empty".into());
         }
         if kind == ReceivingTemplateKind::Reskin {
             module_fields::validate_receiving_reskin_fields(properties)?;
@@ -257,7 +257,7 @@ impl AdmittedReceivingTemplate {
         Self { template }
     }
 
-    pub(crate) fn from_parsed_template(template: ThingTemplate) -> Result<Self, String> {
+    pub(crate) fn from_parsed_template(template: ThingTemplate) -> Result<Self, ReceivingModuleError> {
         if !matches!(&template.next_override, TemplateOverrideLink::Frozen) {
             return Err("Admitted receiving template retains a compatibility override link".into());
         }
@@ -276,7 +276,7 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         kind: ReceivingTemplateKind,
         module_factory: &mut ModuleFactory,
-    ) -> Result<AdmittedReceivingTemplate, String> {
+    ) -> Result<AdmittedReceivingTemplate, ReceivingModuleError> {
         if target_name.is_empty() {
             return Err("Receiving template name cannot be empty".into());
         }
@@ -319,7 +319,7 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         kind: ReceivingTemplateKind,
         modules: &mut ModuleFactory,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         if kind == ReceivingTemplateKind::Reskin {
             module_fields::validate_receiving_reskin_fields(properties)?;
         }
@@ -338,7 +338,7 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         kind: ReceivingTemplateKind,
         module_factory: &mut ModuleFactory,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         if kind == ReceivingTemplateKind::Reskin {
             module_fields::validate_receiving_reskin_fields(properties)?;
         }

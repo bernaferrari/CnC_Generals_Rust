@@ -171,7 +171,7 @@ impl ObjectDefinition {
         factory: &game_engine::common::thing::module_factory::ModuleFactory,
     ) -> std::result::Result<
         game_engine::common::thing::thing_template::ReceivingTemplateCandidate,
-        String,
+        game_engine::common::thing::module_factory::ReceivingModuleError,
     > {
         use game_engine::common::ini::INILoadType;
         use game_engine::common::thing::thing_template::{
@@ -182,10 +182,10 @@ impl ObjectDefinition {
             .as_ref()
             .filter(|history| !history.is_empty())
             .ok_or_else(|| {
-                format!(
+                game_engine::common::thing::module_factory::ReceivingModuleError::from(format!(
                     "{} has no complete captured Object declaration history",
                     self.name
-                )
+                ))
             })?;
         let mut candidate: Option<ReceivingTemplateCandidate> = None;
         for source in history {
@@ -216,12 +216,11 @@ impl ObjectDefinition {
                 )
             };
             candidate = Some(next.map_err(|error| {
-                format!(
-                    "{}:{} Object {}: {error}",
-                    source.filename, source.line, source.name
-                )
+                error.context(format!(
+                    "{}:{} Object {}", source.filename, source.line, source.name
+                ))
             })?);
         }
-        candidate.ok_or_else(|| "Object declaration history is empty".to_owned())
+        candidate.ok_or_else(|| "Object declaration history is empty".into())
     }
 }

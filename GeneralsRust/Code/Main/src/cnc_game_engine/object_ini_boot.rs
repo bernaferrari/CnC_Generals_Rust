@@ -30,7 +30,7 @@ impl ObjectSourceSnapshot {
             self.sources.iter().cloned(),
             sciences,
             actions,
-        )
+        ).map_err(|error| error.to_string())
     }
     pub(super) fn admit(
         &self,
@@ -39,7 +39,7 @@ impl ObjectSourceSnapshot {
         crate::assets::ReceivingObjectContent::from_sources_with_sciences(
             self.sources.iter().cloned(),
             sciences,
-        )
+        ).map_err(|error| error.to_string())
     }
 }
 
@@ -163,7 +163,7 @@ impl StandaloneStartupSources {
             std::sync::Arc::clone(&self.sciences),
             std::sync::Arc::clone(&self.actions),
             self.weapons.to_vec(),
-        )
+        ).map_err(|error| error.to_string())
     }
 
     /// Ordered sources of one definition catalog whose path ends with `file`
@@ -471,6 +471,7 @@ pub(super) fn load_receiving_object_content_with_catalogs(
         }
     }
     crate::assets::ReceivingObjectContent::from_sources_with_catalogs(sources, sciences, actions)
+        .map_err(|error| error.to_string())
 }
 
 /// Read one selected startup source without turning malformed/busy/unreadable

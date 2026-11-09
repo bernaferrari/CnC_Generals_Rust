@@ -237,7 +237,7 @@ fn rejected_receiving_map_tail_keeps_both_catalogs_and_host_templates_unchanged(
     );
     let error = world.apply_receiving_module_overrides(&[
         format!("Object {NAME}\nScale = 9\nEnd\nObject InvalidTail\nUnrecognizedReceivingField = Yes\nEnd")]).unwrap_err();
-    assert!(error.contains("Unknown Object field"), "{error}");
+    assert!(error.to_string().contains("Unknown Object field"), "{error}");
     assert_eq!(world.templates[NAME].asset_scale, 3.0);
     assert!(Arc::ptr_eq(
         &plan,
