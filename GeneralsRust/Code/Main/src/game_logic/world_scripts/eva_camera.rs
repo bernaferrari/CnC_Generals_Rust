@@ -107,10 +107,11 @@ impl GameLogic {
     /// Award skill points and fire GeneralLevelUp EVA on rank change residual.
     pub fn add_player_skill_points(&mut self, player_id: u32, points: i32) -> bool {
         let rank_level_limit = self.rank_level_limit();
+        let ranks = self.authored_ranks();
         let Some(p) = self.players.get_mut(&player_id) else {
             return false;
         };
-        let leveled = p.add_skill_points_limited(points, rank_level_limit);
+        let leveled = p.add_skill_points(points, &ranks, rank_level_limit);
         if leveled {
             self.try_eva_general_level_up(player_id);
         }

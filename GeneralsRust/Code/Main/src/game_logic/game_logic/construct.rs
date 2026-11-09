@@ -1024,9 +1024,9 @@ impl GameLogic {
         self.select_local_player(None);
         self.skirmish_rules.starting_cash = Player::DEFAULT_STARTING_MONEY;
         self.skirmish_rules.starting_cash_default = Some(Player::DEFAULT_STARTING_MONEY);
-        self.set_rank_level_limit(
-            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
-        );
+        // C++ GameLogic::reset (GameLogic.cpp:1140): "m_rankLevelLimit = 1000;
+        // this is reset every game", written to this world's own roster cap.
+        self.set_rank_level_limit(gamelogic::player::DEFAULT_RANK_LEVEL_LIMIT);
         self.world_services.common().ini.rank.write().reset();
         self.rank_points_to_add_at_game_start = 0;
         self.buildable_status_overrides.clear();

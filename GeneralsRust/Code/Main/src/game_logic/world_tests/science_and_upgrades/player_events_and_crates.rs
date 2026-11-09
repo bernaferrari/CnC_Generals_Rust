@@ -23,6 +23,73 @@ fn run_rank_script(world: &mut GameLogic, action: gamelogic::scripting::core::Sc
         .unwrap();
 }
 
+
+/// Admit authored Rank.ini rows into one world's own CommonServices.
+fn admit_rank_rows(world: &GameLogic, skill_points: &[i32]) {
+    let mut ranks = world.world_services.common().ini.rank.write();
+    ranks.init();
+    for &skill in skill_points {
+        let mut rank = game_engine::common::ini::ini_rank::RankInfo::new();
+        rank.skill_points_needed = skill;
+        rank.science_purchase_points_granted = 1;
+        ranks.add_rank(rank).unwrap();
+    }
+}
+
+/// Retail ZH Rank.ini SkillPointsNeeded (Data/INI/Rank.ini).
+fn admit_retail_ranks(world: &GameLogic) {
+    use crate::game_logic::host_science_rank::RETAIL_RANK_TABLE;
+    let rows: Vec<i32> = RETAIL_RANK_TABLE.iter().map(|row| row.skill_points_needed).collect();
+    admit_rank_rows(world, &rows);
+}
+
+#[test]
+fn skill_awards_read_each_worlds_authored_rank_catalog() {
+    // Player.cpp:2437-2458 / 2654-2715 read TheRankInfoStore; per world that is
+    // the Rank.ini admitted into the world's own CommonServices. Same player
+    // id, interleaved awards, different catalogs: neither world sees the other.
+    use crate::game_logic::{Player, Team};
+    let mut first = GameLogic::new();
+    let mut second = GameLogic::new();
+    admit_rank_rows(&first, &[0, 100, 200]);
+    admit_rank_rows(&second, &[0, 1000, 5000, 9000]);
+    for world in [&mut first, &mut second] {
+        world.add_player(Player::new(0, Team::USA, "Local", true));
+    }
+    assert!(first.add_player_skill_points(0, 150));
+    assert!(!second.add_player_skill_points(0, 150));
+    assert_eq!(first.get_player(0).unwrap().rank_level, 2);
+    assert_eq!(second.get_player(0).unwrap().rank_level, 1);
+    assert_eq!(second.get_player(0).unwrap().skill_points, 150);
+
+    // Cap at the top authored rank's SkillPointsNeeded (Player.cpp:2444-2445).
+    assert!(first.add_player_skill_points(0, 999_999));
+    assert!(second.add_player_skill_points(0, 999_999));
+    assert_eq!(first.get_player(0).unwrap().rank_level, 3);
+    assert_eq!(first.get_player(0).unwrap().skill_points, 200);
+    assert_eq!(second.get_player(0).unwrap().rank_level, 4);
+    assert_eq!(second.get_player(0).unwrap().skill_points, 9000);
+
+    // Rank.ini SciencePurchasePointsGranted per crossed rank, per world.
+    let first_spp = first.get_player(0).unwrap().science_purchase_points;
+    let second_spp = second.get_player(0).unwrap().science_purchase_points;
+    assert_eq!(second_spp - first_spp, 1);
+
+    // Explicit set clamps to the receiving world's rank count.
+    assert!(first.set_player_rank_level(0, 1));
+    assert!(!first.set_player_rank_level(0, 1));
+    assert_eq!(second.get_player(0).unwrap().rank_level, 4);
+    assert!(first.set_player_rank_level(0, 9));
+    assert_eq!(first.get_player(0).unwrap().rank_level, 3);
+
+    // A world with no admitted Rank.ini never invents a rank table.
+    let mut bare = GameLogic::new();
+    bare.add_player(Player::new(0, Team::USA, "Local", true));
+    assert!(!bare.add_player_skill_points(0, 5000));
+    assert_eq!(bare.get_player(0).unwrap().rank_level, 1);
+    assert!(!bare.set_player_rank_level(0, 3));
+}
+
 #[test]
 fn script_rank_caps_stay_with_the_driving_match() {
     // GameLogic.h:205-209 owns the cap; Player.cpp:2433-2456 and
@@ -33,6 +100,7 @@ fn script_rank_caps_stay_with_the_driving_match() {
     let mut second = GameLogic::new();
     for world in [&mut first, &mut second] {
         world.scripts_loaded = true;
+        admit_retail_ranks(world);
         world.add_player(Player::new(0, Team::USA, "Local", true));
     }
 
@@ -67,6 +135,7 @@ fn script_rank_caps_stay_with_the_driving_match() {
         4
     );
     crate::save_load::snapshot::persist_v18::restore_persist_v18(&saved, &mut candidate).unwrap();
+    admit_retail_ranks(&candidate);
     candidate.add_player(Player::new(0, Team::USA, "Local", true));
     assert!(candidate.add_player_skill_points(0, 999_999));
     assert_eq!(candidate.get_player(0).unwrap().rank_level, 2);
@@ -140,27 +209,30 @@ fn add_skill_points_modifier_cap_negative_and_reset_rank() {
     };
     let mut p = crate::game_logic::Player::new(0, Team::USA, "U", true);
     p.apply_faction_intrinsic_sciences();
+    // Fresh-world cap (C++ GameLogic.cpp:1140) passed explicitly by the owner.
+    let cap = gamelogic::player::DEFAULT_RANK_LEVEL_LIMIT;
+    let ranks = crate::game_logic::AuthoredRanks::retail_fixture();
     p.skill_points_modifier = 2.0;
-    assert!(!p.add_skill_points(50));
+    assert!(!p.add_skill_points(50, &ranks, cap));
     assert_eq!(p.skill_points, 100);
     assert_eq!(p.rank_level, 1);
 
     p.skill_points_modifier = 1.0;
-    assert!(!p.add_skill_points(-40));
+    assert!(!p.add_skill_points(-40, &ranks, cap));
     assert_eq!(p.skill_points, 60);
 
-    assert!(p.add_skill_points(RANK2_SKILL_POINTS_NEEDED - 60));
+    assert!(p.add_skill_points(RANK2_SKILL_POINTS_NEEDED - 60, &ranks, cap));
     assert_eq!(p.rank_level, 2);
     assert_eq!(p.skill_points, RANK2_SKILL_POINTS_NEEDED);
 
-    assert!(p.add_skill_points_limited(999_999, 3));
+    assert!(p.add_skill_points(999_999, &ranks, 3));
     assert_eq!(p.rank_level, 3);
     assert_eq!(p.skill_points, RANK3_SKILL_POINTS_NEEDED);
 
-    assert!(p.set_rank_level(5));
+    assert!(p.set_rank_level_from_template(5, None, &ranks, cap));
     assert_eq!(p.rank_level, 5);
     assert_eq!(p.skill_points, RANK5_SKILL_POINTS_NEEDED);
-    assert!(p.set_rank_level(1));
+    assert!(p.set_rank_level_from_template(1, None, &ranks, cap));
     assert_eq!(p.rank_level, 1);
     assert_eq!(p.skill_points, 0);
 }

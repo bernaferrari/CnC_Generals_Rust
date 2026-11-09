@@ -59,7 +59,7 @@ pub(self) use player::{
     capture_upgrade_names_for_team, normalize_upgrade_name,
 };
 pub use player::{
-    HostAuthoredBuild, Player, PlayerMapSideState, PlayerTemplateIdentity, SkirmishRulesState,
+    AuthoredRank, AuthoredRanks, HostAuthoredBuild, Player, PlayerMapSideState, PlayerTemplateIdentity, SkirmishRulesState,
 };
 pub use script_camera::{
     ATTACK_PRIORITY_DISTANCE_MODIFIER, AbleToAttackType, AttackAimResult, AttackFireResult,

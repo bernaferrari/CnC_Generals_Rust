@@ -1497,6 +1497,29 @@ impl GameLogic {
             .rank_level_limit()
     }
 
+    /// This world's authored Rank.ini rows (C++ `TheRankInfoStore`), each
+    /// granted science named through this world's receiving science catalog.
+    pub fn authored_ranks(&self) -> crate::game_logic::AuthoredRanks {
+        use crate::game_logic::{AuthoredRank, AuthoredRanks};
+        let ranks = self.world_services.common().ini.rank.read();
+        let facts = self.receiving_module_content.as_ref().map(|content| content.science_facts());
+        AuthoredRanks::from_rows(
+            (1..=ranks.get_rank_level_count())
+                .filter_map(|level| ranks.get_rank_info(level))
+                .map(|rank| AuthoredRank {
+                    skill_points_needed: rank.skill_points_needed,
+                    science_purchase_points_granted: rank.science_purchase_points_granted as i32,
+                    sciences_granted: rank
+                        .sciences_granted
+                        .iter()
+                        .filter_map(|&science| facts.as_ref().and_then(|facts| facts.name(science)))
+                        .map(str::to_owned)
+                        .collect(),
+                })
+                .collect(),
+        )
+    }
+
     /// C++ GameLogic.h:206-209; changing the cap does not reset player ranks.
     pub fn set_rank_level_limit(&mut self, limit: i32) {
         self.world_services

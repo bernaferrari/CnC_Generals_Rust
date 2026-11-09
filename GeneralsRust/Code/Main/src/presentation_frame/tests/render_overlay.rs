@@ -2142,7 +2142,7 @@ fn presentation_freezes_local_rank_skill_residual() {
     p.skill_points = 850; // rank 2 threshold 800
     p.rank_level = 1;
     // Recompute rank via add_skill_points path residual.
-    let _ = p.add_skill_points(0); // no-op if 0
+    let _ = p.add_skill_points(0, &logic.authored_ranks(), logic.rank_level_limit()); // no-op if 0
     // Force rank apply by setting skill then calling add with 0 won't promote;
     // set rank manually for freeze honesty.
     p.rank_level = 2;

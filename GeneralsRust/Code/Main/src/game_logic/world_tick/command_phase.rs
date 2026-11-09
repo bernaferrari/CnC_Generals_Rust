@@ -30,13 +30,14 @@ impl GameLogic {
             let mut slots: Vec<_> = self.players.keys().copied().collect();
             slots.sort_unstable();
             let limit = self.rank_level_limit();
+            let ranks = self.authored_ranks();
             for slot in slots {
                 let player = self
                     .players
                     .get_mut(&slot)
                     .expect("retained source player slot");
                 if player.is_human {
-                    player.add_skill_points_limited(points, limit);
+                    player.add_skill_points(points, &ranks, limit);
                 }
             }
         }

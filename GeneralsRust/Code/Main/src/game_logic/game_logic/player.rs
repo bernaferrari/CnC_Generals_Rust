@@ -1056,142 +1056,105 @@ impl Player {
         bounty
     }
 
-    /// Standalone player award with the C++ default match cap.
-    /// Match-owned callers pass their cap to `add_skill_points_limited`.
-    /// Negative deltas lower skill points (C++ `min(pointCap, skill+delta)`).
-    /// Rank-down is `set_rank_level` / `reset_rank`, not this loop.
-    pub fn add_skill_points(&mut self, points: i32) -> bool {
-        self.add_skill_points_limited(
+    /// C++ `Player::addSkillPoints` (Player.cpp:2437-2458) against the owning
+    /// world's authored Rank.ini rows and `GameLogic::getRankLevelLimit()`.
+    pub fn add_skill_points(&mut self, points: i32, ranks: &AuthoredRanks, rank_level_limit: i32) -> bool {
+        let delta = crate::game_logic::host_rank_ui_residual::skill_points_delta_after_modifier(
             points,
-            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
-        )
-    }
-
-    /// C++ Player::addSkillPoints with GameLogic rank-level limit.
-    pub fn add_skill_points_limited(&mut self, points: i32, rank_level_limit: i32) -> bool {
-        use crate::game_logic::host_rank_ui_residual::{
-            RankSkillStateResidual, add_skill_points_residual, rank_level_down_threshold_residual,
-            rank_level_up_threshold_residual,
-        };
-        use crate::game_logic::host_science_rank::retail_rank_for_level;
-
-        let old_level = self.rank_level.max(1);
-        let state = RankSkillStateResidual {
-            rank_level: old_level,
-            skill_points: self.skill_points,
-            science_purchase_points: self.science_purchase_points,
-            level_up: rank_level_up_threshold_residual(old_level),
-            level_down: rank_level_down_threshold_residual(old_level),
-        };
-        let (new_state, level_gained) =
-            add_skill_points_residual(state, points, self.skill_points_modifier, rank_level_limit);
-        self.rank_level = new_state.rank_level;
-        self.skill_points = new_state.skill_points;
-        self.science_purchase_points = new_state.science_purchase_points;
-        if new_state.rank_level > old_level {
-            for lvl in (old_level + 1)..=new_state.rank_level {
-                if let Some(row) = retail_rank_for_level(lvl) {
-                    self.unlocked_sciences
-                        .insert(row.science_granted.to_string());
-                }
+            self.skill_points_modifier,
+        );
+        if delta == 0 {
+            return false;
+        }
+        let count = ranks.rank_level_count();
+        if count == 0 {
+            // No authored ranks admitted: nothing to cap against or level into.
+            self.skill_points = self.skill_points.saturating_add(delta);
+            return false;
+        }
+        // Player.cpp:2444-2445: cap at the lowest point of the cap level.
+        let level_cap = (rank_level_limit.max(1) as u32).min(count);
+        let point_cap = ranks.get(level_cap).map_or(i32::MAX, |rank| rank.skill_points_needed);
+        self.skill_points = self.skill_points.saturating_add(delta).min(point_cap);
+        let mut level_gained = false;
+        while self.skill_points >= ranks.level_up_threshold(self.rank_level.max(1)) {
+            // setRankLevel raises m_levelUp (INT_MAX past the top rank).
+            if !self.set_rank_level_from_template(self.rank_level.max(1) + 1, None, ranks, rank_level_limit) {
+                break;
             }
+            level_gained = true;
         }
         level_gained
     }
 
-    /// C++ Player::addSkillPointsForKill — victim template SkillPointValue.
-    /// Standalone default cap; match kill awards pass their owner's cap directly.
-    pub fn add_skill_points_for_kill(&mut self, victim_skill_value: i32) -> bool {
-        self.add_skill_points(victim_skill_value)
-    }
-
-    /// C++ Player::resetRank — rank 1, skill 0, intrinsic+Rank1 SPP, sciences reset.
-    pub fn reset_rank(&mut self) {
-        self.reset_rank_from_template(None);
-    }
-
-    /// C++ `Player::resetRank` + `resetSciences` with a resolved PlayerTemplate.
-    /// Intrinsic sciences / IntrinsicSciencePurchasePoints come from the
-    /// template when present; otherwise the base-faction residual is used.
+    /// C++ `Player::resetRank` + `resetSciences` (Player.cpp:2478-2500,
+    /// 2637-2650) with a resolved PlayerTemplate and the world's ranks.
+    /// Without a template the base-faction intrinsic science is used.
     pub(crate) fn reset_rank_from_template(
         &mut self,
         template: Option<&game_engine::common::rts::player_template::PlayerTemplate>,
+        ranks: &AuthoredRanks,
     ) {
-        use crate::game_logic::host_rank_ui_residual::reset_rank_residual;
-        use crate::game_logic::host_science_rank::SCIENCE_RANK1;
-
+        self.rank_level = 1;
+        self.skill_points = 0;
+        self.unlocked_sciences.clear();
         let intrinsic_spp = template
             .map(|t| t.get_intrinsic_science_purchase_points())
             .unwrap_or(0);
-        let reset = reset_rank_residual(intrinsic_spp);
-        self.rank_level = reset.rank_level;
-        self.skill_points = reset.skill_points;
-        self.unlocked_sciences.clear();
         if let Some(template) = template {
             self.unlocked_sciences
                 .extend(template.get_intrinsic_sciences().iter().cloned());
-            self.unlocked_sciences.insert(SCIENCE_RANK1.to_string());
-        } else {
-            self.apply_faction_intrinsic_sciences();
+        } else if let Some(sci) =
+            crate::game_logic::host_faction_skirmish_residual::intrinsic_science_for_team(self.team)
+        {
+            self.unlocked_sciences.insert(sci.to_string());
         }
-        self.science_purchase_points = reset.science_purchase_points;
+        let rank1 = ranks.get(1);
+        self.science_purchase_points = intrinsic_spp
+            .max(0)
+            .saturating_add(rank1.map_or(0, |rank| rank.science_purchase_points_granted));
+        if let Some(rank1) = rank1 {
+            self.unlocked_sciences
+                .extend(rank1.sciences_granted.iter().cloned());
+        }
     }
 
-    /// Standalone player rank change with the C++ default match cap.
-    /// Match-owned callers use their cap and bound PlayerTemplate.
-    pub fn set_rank_level(&mut self, new_level: u32) -> bool {
-        self.set_rank_level_from_template(
-            new_level,
-            None,
-            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
-        )
-    }
-
+    /// C++ `Player::setRankLevel` (Player.cpp:2654-2715) against the owning
+    /// world's authored ranks and `GameLogic::getRankLevelLimit()`.
     pub(crate) fn set_rank_level_from_template(
         &mut self,
         new_level: u32,
         template: Option<&game_engine::common::rts::player_template::PlayerTemplate>,
+        ranks: &AuthoredRanks,
         rank_level_limit: i32,
     ) -> bool {
-        use crate::game_logic::host_rank_ui_residual::{
-            RankSkillStateResidual, rank_level_down_threshold_residual,
-            rank_level_up_threshold_residual, set_rank_level_residual,
-        };
-        use crate::game_logic::host_science_rank::{RETAIL_RANK_COUNT, retail_rank_for_level};
-
-        let limit = rank_level_limit.max(1) as u32;
+        let count = ranks.rank_level_count();
+        if count == 0 {
+            return false;
+        }
+        let target = new_level.max(1).min(count).min(rank_level_limit.max(1) as u32);
         let old = self.rank_level.max(1);
-        let target = new_level.max(1).min(RETAIL_RANK_COUNT).min(limit);
         if target == old {
             return false;
         }
         if target < old {
-            self.reset_rank_from_template(template);
-            if target == 1 {
-                return true;
-            }
+            // "when downgrading in rank, you lose everything" (Player.cpp:2671).
+            self.reset_rank_from_template(template, ranks);
         }
-        let climb_from = self.rank_level.max(1);
-        let state = RankSkillStateResidual {
-            rank_level: climb_from,
-            skill_points: self.skill_points,
-            science_purchase_points: self.science_purchase_points,
-            level_up: rank_level_up_threshold_residual(climb_from),
-            level_down: rank_level_down_threshold_residual(climb_from),
-        };
-        let new_state = set_rank_level_residual(state, target, limit as i32);
-        self.rank_level = new_state.rank_level;
-        self.skill_points = new_state.skill_points;
-        self.science_purchase_points = new_state.science_purchase_points;
-        if new_state.rank_level > climb_from {
-            for lvl in (climb_from + 1)..=new_state.rank_level {
-                if let Some(row) = retail_rank_for_level(lvl) {
-                    self.unlocked_sciences
-                        .insert(row.science_granted.to_string());
+        for level in (self.rank_level.max(1) + 1)..=target {
+            if let Some(rank) = ranks.get(level) {
+                self.science_purchase_points = self
+                    .science_purchase_points
+                    .saturating_add(rank.science_purchase_points_granted)
+                    .max(0);
+                if self.skill_points < rank.skill_points_needed {
+                    self.skill_points = rank.skill_points_needed;
                 }
+                self.unlocked_sciences
+                    .extend(rank.sciences_granted.iter().cloned());
             }
         }
-
+        self.rank_level = target;
         true
     }
 
@@ -2308,5 +2271,58 @@ mod map_side_dict_tests {
         assert_eq!(owner.academy_stats.get_upgrades_purchased(), 0);
         assert!(!owner.cancel_queued_upgrade("Cancelled", &cost, &mut economy));
         assert_eq!(owner.resources.supplies, 1000);
+    }
+}
+
+
+/// One world's authored Rank.ini rows (C++ `TheRankInfoStore`), each granted
+/// science named through that world's receiving science catalog.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AuthoredRanks {
+    rows: Vec<AuthoredRank>,
+}
+
+/// One `Rank` block (RankInfo.cpp: SkillPointsNeeded,
+/// SciencePurchasePointsGranted, SciencesGranted).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthoredRank {
+    pub skill_points_needed: i32,
+    pub science_purchase_points_granted: i32,
+    pub sciences_granted: Vec<String>,
+}
+
+impl AuthoredRanks {
+    pub fn from_rows(rows: Vec<AuthoredRank>) -> Self {
+        Self { rows }
+    }
+
+    /// C++ `RankInfoStore::getRankLevelCount`.
+    pub fn rank_level_count(&self) -> u32 {
+        self.rows.len() as u32
+    }
+
+    /// C++ `RankInfoStore::getRankInfo(level)` (1-based).
+    pub fn get(&self, level: u32) -> Option<&AuthoredRank> {
+        level.checked_sub(1).and_then(|index| self.rows.get(index as usize))
+    }
+
+    /// C++ `m_levelUp`: the next rank's SkillPointsNeeded, INT_MAX at the top.
+    pub fn level_up_threshold(&self, rank_level: u32) -> i32 {
+        self.get(rank_level + 1).map_or(i32::MAX, |rank| rank.skill_points_needed)
+    }
+
+    /// Retail ZH Rank.ini rows, for tests that do not load the INI.
+    #[cfg(test)]
+    pub fn retail_fixture() -> Self {
+        Self::from_rows(
+            crate::game_logic::host_science_rank::RETAIL_RANK_TABLE
+                .iter()
+                .map(|row| AuthoredRank {
+                    skill_points_needed: row.skill_points_needed,
+                    science_purchase_points_granted: row.science_purchase_points_granted,
+                    sciences_granted: vec![row.science_granted.to_string()],
+                })
+                .collect(),
+        )
     }
 }

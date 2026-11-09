@@ -1435,10 +1435,11 @@ impl GameLogic {
     pub fn set_player_rank_level(&mut self, player_id: u32, new_level: u32) -> bool {
         let template = self.resolved_player_template(player_id);
         let rank_level_limit = self.rank_level_limit();
+        let ranks = self.authored_ranks();
         let Some(player) = self.players.get_mut(&player_id) else {
             return false;
         };
-        player.set_rank_level_from_template(new_level, template.as_ref(), rank_level_limit)
+        player.set_rank_level_from_template(new_level, template.as_ref(), &ranks, rank_level_limit)
     }
 
     /// C++ ScriptActions::updatePlayerRelationTowardPlayer live drain.
