@@ -164,7 +164,7 @@ fn receiving_science_facts_and_failed_map_admission_keep_own_names_and_atomic_re
         ])
         .unwrap_err();
     assert!(
-        error.contains("Unknown receiving science prerequisite"),
+        error.to_string().contains("Unknown receiving science prerequisite"),
         "{error}"
     );
     assert!(Arc::ptr_eq(

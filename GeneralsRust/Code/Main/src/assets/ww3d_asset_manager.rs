@@ -1412,6 +1412,24 @@ mod strict_receiving_source_tests {
     }
 
     #[test]
+    fn strict_receiving_source_preserves_native_ini_error_and_source_context() {
+        use game_engine::common::ini::INIError;
+        use game_engine::common::thing::module_factory::ReceivingModuleError;
+
+        let bad = parse("Receiving", "ClientUpdate = SwayClientUpdate ClientTag\nUnknownField = 7\nEnd");
+        let error = match bad.validate_receiving_module_source(&catalog()) {
+            Err(error) => error,
+            Ok(_) => panic!("unknown native module field must be rejected"),
+        };
+        assert!(error.to_string().contains("strict-receiving.ini:1 Object Receiving"));
+        let mut cause = &error;
+        while let ReceivingModuleError::Context(_, inner) = cause {
+            cause = inner;
+        }
+        assert_eq!(*cause, ReceivingModuleError::Ini(INIError::UnknownToken));
+    }
+
+    #[test]
     fn strict_receiving_source_uses_actual_typed_catalog_and_leaves_same_name_worlds_untouched() {
         let valid_body = "Body = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nClientUpdate = SwayClientUpdate ClientTag\nEnd";
         let valid = parse("Receiving", valid_body);

@@ -15,7 +15,7 @@ use crate::common::thing::thing_template::{
     ModuleDescriptorSet as TemplateModuleDescriptorSet,
 };
 use crate::common::{
-    ini::INI,
+    ini::{INIError, INI},
     rts::{AsciiString, NameKeyType},
     system::{SubsystemInterface, Xfer},
     thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleInterfaceType, ModuleType, Thing},
@@ -395,7 +395,53 @@ pub type NewModuleProc =
 /// Function pointer type for creating new module data
 pub type NewModuleDataProc = fn(ini: Option<&mut INI>) -> Box<dyn ModuleData>;
 /// Receiving-content admission must preserve the constructor's parse result.
-pub type FallibleModuleDataProc = fn(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String>;
+pub type FallibleModuleDataProc = fn(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, INIError>;
+
+/// Receiving admission retains parser error identity and non-INI diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceivingModuleError {
+    Ini(INIError),
+    Message(String),
+    Context(String, Box<ReceivingModuleError>),
+}
+
+impl ReceivingModuleError {
+    pub fn context(self, message: impl Into<String>) -> Self {
+        Self::Context(message.into(), Box::new(self))
+    }
+}
+
+impl From<INIError> for ReceivingModuleError {
+    fn from(error: INIError) -> Self { Self::Ini(error) }
+}
+
+impl From<String> for ReceivingModuleError {
+    fn from(message: String) -> Self { Self::Message(message) }
+}
+
+impl From<&str> for ReceivingModuleError {
+    fn from(message: &str) -> Self { Self::Message(message.to_owned()) }
+}
+
+impl std::fmt::Display for ReceivingModuleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ini(error) => std::fmt::Display::fmt(error, f),
+            Self::Message(message) => f.write_str(message),
+            Self::Context(message, error) => write!(f, "{message}: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ReceivingModuleError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Ini(error) => Some(error),
+            Self::Context(_, error) => Some(error.as_ref()),
+            Self::Message(_) => None,
+        }
+    }
+}
 
 // Stub module creation removed; missing modules must be implemented.
 
@@ -753,7 +799,7 @@ impl ModuleFactory {
         name: &str,
         module_type: ModuleType,
         module_tag: &str,
-    ) -> Result<ModuleDataHandle, String> {
+    ) -> Result<ModuleDataHandle, ReceivingModuleError> {
         let constructor = self.fallible_data_constructors[module_type as usize]
             .get(name)
             .copied()
@@ -788,7 +834,7 @@ impl ModuleFactory {
                     keys.rollback(checkpoint);
                     self.runtime_name_keys = Some(keys);
                 }
-                return Err(error);
+                return Err(error.into());
             }
         };
         if receiving {
@@ -817,12 +863,12 @@ impl ModuleFactory {
         name: &str,
         module_type: ModuleType,
         module_tag: &str,
-    ) -> Result<ModuleDataHandle, String> {
+    ) -> Result<ModuleDataHandle, ReceivingModuleError> {
         if self.runtime_name_keys.is_some() {
             return self.new_module_data_from_ini_strict(ini, name, module_type, module_tag);
         }
         if name.is_empty() {
-            return Err("Module name cannot be empty".to_string());
+            return Err("Module name cannot be empty".into());
         }
 
         let mut module_data = if let Some(template) = self.find_module_template(name, module_type) {
@@ -834,7 +880,7 @@ impl ModuleFactory {
             // template/descriptor or changing their registration order.
             (constructors.create_data_proc)(ini)
         } else {
-            return Err(format!("Module template '{}' not found", name));
+            return Err(format!("Module template '{}' not found", name).into());
         };
 
         // Set the module tag name key

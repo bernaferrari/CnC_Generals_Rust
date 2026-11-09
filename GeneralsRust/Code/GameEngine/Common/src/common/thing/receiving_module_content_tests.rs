@@ -7,7 +7,7 @@ fn content() -> ReceivingModuleContent {
     fn data(_: Option<&mut INI>) -> Box<dyn ModuleData> {
         Box::new(BaseModuleData::new())
     }
-    fn parse(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
+    fn parse(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, crate::common::ini::INIError> {
         Ok(data(ini))
     }
     let mut modules = ModuleFactory::new_receiving(NameKeyNamespace::new());
@@ -273,7 +273,7 @@ fn rejected_receiving_file_preserves_live_plans_namespace_and_module_xfer_list()
     let mut expected = owner.modules.receiving_name_keys_mut().unwrap().clone();
     let before = owner.modules.retained_module_data_count();
     let error = owner.load_ini_text("Object Prefix\nDraw = ReceivingDraw PrefixTag\nEnd\nEnd\nObject Broken\nUnknownField = Yes\nEnd", INILoadType::Overwrite).unwrap_err();
-    assert!(error.contains("Unknown Object field"), "{error}");
+    assert!(error.to_string().contains("Unknown Object field"), "{error}");
     assert!(owner.admitted_template("Prefix").is_none());
     assert!(owner.admitted_template("Broken").is_none());
     assert!(Arc::ptr_eq(
@@ -427,7 +427,7 @@ fn receiving_production_facts_resolve_boot_forward_names_but_reject_late_overrid
             INILoadType::CreateOverrides,
         )
         .unwrap_err();
-    assert!(error.contains("FutureMap"), "{error}");
+    assert!(error.to_string().contains("FutureMap"), "{error}");
     assert!(Arc::ptr_eq(
         &before,
         &owner.admitted_template("Candidate").unwrap()
@@ -440,7 +440,7 @@ fn receiving_production_facts_resolve_boot_forward_names_but_reject_late_overrid
         )
         .unwrap_err();
     assert!(
-        error.contains("Unknown receiving science prerequisite"),
+        error.to_string().contains("Unknown receiving science prerequisite"),
         "{error}"
     );
     assert!(Arc::ptr_eq(

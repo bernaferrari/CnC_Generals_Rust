@@ -305,7 +305,13 @@ fn receiving_map_solo_and_reset_rebuild_only_the_effective_projectile_catalog() 
             .map(|m| m.module_tag.as_deref())
             .collect::<Vec<_>>()
     );
-    assert!(owner.apply_receiving_module_overrides(&["Object MapProjectile\nReplaceModule FlightTag\nBehavior = MissileAIUpdate BrokenFlight\nFuelLifetime = invalid\nEnd\nEnd\nEnd".into()]).is_err());
+    let error = owner.apply_receiving_module_overrides(&["Object MapProjectile\nReplaceModule FlightTag\nBehavior = MissileAIUpdate BrokenFlight\nFuelLifetime = invalid\nEnd\nEnd\nEnd".into()]).unwrap_err();
+    assert!(matches!(
+        error,
+        game_engine::common::thing::module_factory::ReceivingModuleError::Ini(
+            game_engine::common::ini::INIError::InvalidData
+        )
+    ));
     assert_eq!(fuel(&owner), 90);
     assert_eq!(fuel(&peer), 300);
     owner.apply_receiving_module_overrides(&[]).unwrap();

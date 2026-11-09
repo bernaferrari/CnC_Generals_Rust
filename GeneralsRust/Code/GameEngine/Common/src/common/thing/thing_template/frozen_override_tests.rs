@@ -172,7 +172,7 @@ fn receiving_admission_detaches_empty_seeds_and_rejects_linked_compatibility_inp
             &mut modules,
         )
         .expect_err("caller must explicitly select a definition before admission");
-    assert!(error.contains("explicitly selected definition"), "{error}");
+    assert!(error.to_string().contains("explicitly selected definition"), "{error}");
     assert!(
         seed.prepare_named_receiving_candidate(
             "WrongValidation",

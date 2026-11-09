@@ -1,14 +1,14 @@
 use super::*;
-use crate::common::ini::INILoadType;
+use crate::common::ini::{INIError, INILoadType};
 
 fn data(_: Option<&mut INI>) -> Box<dyn ModuleData> {
     Box::new(BaseModuleData::new())
 }
-fn valid(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
+fn valid(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, INIError> {
     Ok(data(ini))
 }
-fn rejected(_: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
-    Err("authored module body rejected".into())
+fn rejected(_: Option<&mut INI>) -> Result<Box<dyn ModuleData>, INIError> {
+    Err(INIError::UnknownToken)
 }
 
 fn factory() -> ModuleFactory {
@@ -45,7 +45,7 @@ fn prepare(
     base: &ThingTemplate,
     factory: &ModuleFactory,
     body: &str,
-) -> Result<ReceivingTemplateCandidate, String> {
+) -> Result<ReceivingTemplateCandidate, ReceivingModuleError> {
     base.prepare_named_receiving_candidate(
         "StrictReceiving",
         &fields(body),
@@ -91,7 +91,7 @@ fn strict_candidate_rejects_unknown_class_and_unvalidated_legacy_constructor() {
     let error = prepare(&base, &factory, "Draw = LegacyDraw Tag\nEnd")
         .err()
         .unwrap();
-    assert!(error.contains("fallible"), "{error}");
+    assert!(error.to_string().contains("fallible"), "{error}");
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn strict_candidate_propagates_typed_constructor_error_without_fallback() {
     )
     .err()
     .unwrap();
-    assert!(error.contains("authored module body rejected"), "{error}");
+    assert_eq!(error, ReceivingModuleError::Ini(INIError::UnknownToken));
 }
 
 #[test]
@@ -243,16 +243,14 @@ fn strict_candidate_failed_peer_admission_preserves_receiver_and_catalog() {
     .into_parts()
     .0;
     let input = fields("AddModule\nClientUpdate = StrictClient Added\nEnd\nEnd");
-    assert!(
-        base.prepare_named_receiving_candidate(
-            "StrictReceiving",
-            &input,
-            INILoadType::CreateOverrides,
-            ReceivingTemplateKind::Object,
-            &factory_b
-        )
-        .is_err()
-    );
+    let error = base.prepare_named_receiving_candidate(
+        "StrictReceiving",
+        &input,
+        INILoadType::CreateOverrides,
+        ReceivingTemplateKind::Object,
+        &factory_b,
+    ).err().unwrap();
+    assert_eq!(error, ReceivingModuleError::Ini(INIError::UnknownToken));
     let a = base
         .prepare_named_receiving_candidate(
             "StrictReceiving",
@@ -425,7 +423,7 @@ impl ModuleData for AiData {
 fn ai_data(_: Option<&mut INI>) -> Box<dyn ModuleData> {
     Box::new(AiData(BaseModuleData::new()))
 }
-fn valid_ai(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
+fn valid_ai(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, INIError> {
     Ok(ai_data(ini))
 }
 
@@ -473,7 +471,7 @@ fn strict_candidate_body_never_trusts_authored_field_as_missing_catalog_mask() {
     let error = prepare(&ThingTemplate::new(), &factory, "Body = NoMask Tag\nEnd")
         .err()
         .unwrap();
-    assert!(error.contains("registered interface mask"), "{error}");
+    assert!(error.to_string().contains("registered interface mask"), "{error}");
     assert!(
         prepare(
             &ThingTemplate::new(),

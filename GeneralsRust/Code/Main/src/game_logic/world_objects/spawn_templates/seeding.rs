@@ -68,7 +68,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn apply_receiving_module_overrides(
         &mut self,
         sources: &[String],
-    ) -> Result<(), String> {
+    ) -> Result<(), game_engine::common::thing::module_factory::ReceivingModuleError> {
         let Some(current) = self.receiving_module_content.as_ref() else {
             return Ok(());
         };

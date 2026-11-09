@@ -25,7 +25,7 @@ pub use receiving_candidate::{
 use crate::common::system::Snapshotable;
 use crate::common::thing::module::{BaseModuleData, CapturedModuleData};
 use crate::common::thing::module_factory::{
-    ModuleFactory, get_module_factory, register_descriptor_set_global,
+    ModuleFactory, ReceivingModuleError, get_module_factory, register_descriptor_set_global,
 };
 use crate::common::thing::sparse_match_finder::{
     SparseBitSet, SparseMatchCandidate, SparseMatchFinder,
@@ -3130,6 +3130,7 @@ impl ThingTemplate {
         module_factory: Option<&mut ModuleFactory>,
     ) -> Result<(), String> {
         self.parse_object_fields_with_policy(properties, load_type, module_factory, false)
+            .map_err(|error| error.to_string())
     }
 
     fn parse_object_fields_with_policy(
@@ -3138,7 +3139,7 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         module_factory: Option<&mut ModuleFactory>,
         strict: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         self.parse_object_fields_with_scalar_policy(
             properties,
             load_type,
@@ -3155,7 +3156,7 @@ impl ThingTemplate {
         mut module_factory: Option<&mut ModuleFactory>,
         strict: bool,
         receiving_scalars: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReceivingModuleError> {
         if !strict {
             // Compatibility for explicit flattened HashMaps without captured
             // block headers. Actual loaders always record the header and ordinal.
@@ -3213,7 +3214,7 @@ impl ThingTemplate {
             // ambient definition/translation adapters here.
             if strict {
                 if !is_cpp_object_field(base_key, true) {
-                    return Err(format!("Unknown Object field '{base_key}'"));
+                    return Err(format!("Unknown Object field '{base_key}'").into());
                 }
                 if !receiving_scalars && !matches!(base_key, "KindOf" | "IsTrainable") {
                     continue;
@@ -3621,7 +3622,7 @@ impl ThingTemplate {
                     properties.contains_key(&format!("{key}.__declaration_order")),
                 ) => {}
                 _ => {
-                    return Err(format!("Unknown object field '{}'", key));
+                    return Err(format!("Unknown object field '{}'", key).into());
                 }
             }
         }
