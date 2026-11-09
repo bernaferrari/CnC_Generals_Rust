@@ -125,21 +125,31 @@ impl SharedSkirmishAssets {
 /// Inputs that identify one instance's match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SkirmishSpec {
-    /// GameInfo seed (C++ `InitGameLogicRandom(TheSkirmishGameInfo->getSeed())`).
+    /// Unsigned bit pattern passed as C++ GameInfo's seed. The Rust RNG
+    /// backend is not the original C++ generator.
     pub seed: u32,
     /// Logic frames to run after map load.
     pub frames: u32,
 }
 
-/// What one instance observed.
+/// A bounded observation of one world, not a complete simulation snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkirmishObservation {
+    pub frame: u32,
+    pub logic_crc: u32,
+    pub object_count: usize,
+    pub players: Vec<(u32, u32, usize)>,
+    /// Match seed and the Rust RNG backend's current state words.
+    pub base_seed: u32,
+    pub random_state: [u32; 6],
+}
+
+/// Initial observation and one observation after each logic step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkirmishTrace {
     pub spec: SkirmishSpec,
-    /// `frame_crcs[i]` is the partial logic CRC after step `i + 1`.
-    pub frame_crcs: Vec<u32>,
-    pub objects_at_start: usize,
-    pub objects_at_end: usize,
-    pub final_frame: u32,
+    pub initial: SkirmishObservation,
+    pub frames: Vec<SkirmishObservation>,
 }
 
 /// A headless game instance with its own `GameLogic`.
@@ -208,6 +218,19 @@ impl HeadlessSkirmish {
     pub fn object_count(&self) -> usize {
         self.logic.host_objects().registered_len()
     }
+
+    /// Observe owned state without advancing the simulation. This intentionally
+    /// covers only the listed fields and the partial Rust logic checksum.
+    pub fn observe(&self) -> SkirmishObservation {
+        SkirmishObservation {
+            frame: self.frame(),
+            logic_crc: self.logic_crc(),
+            object_count: self.object_count(),
+            players: self.player_summary(),
+            base_seed: self.logic.logic_base_seed,
+            random_state: self.logic.logic_random.seed_words(),
+        }
+    }
 }
 
 /// Run one instance to completion on the calling thread.
@@ -216,15 +239,14 @@ pub fn run_headless_skirmish(
     spec: SkirmishSpec,
 ) -> Result<SkirmishTrace, String> {
     let mut game = HeadlessSkirmish::start(assets, spec.seed)?;
-    let objects_at_start = game.object_count();
-    let frame_crcs = (0..spec.frames).map(|_| game.step()).collect();
-    Ok(SkirmishTrace {
-        spec,
-        frame_crcs,
-        objects_at_start,
-        objects_at_end: game.object_count(),
-        final_frame: game.frame(),
-    })
+    let initial = game.observe();
+    let frames = (0..spec.frames)
+        .map(|_| {
+            game.advance();
+            game.observe()
+        })
+        .collect();
+    Ok(SkirmishTrace { spec, initial, frames })
 }
 
 /// Run specs on separate threads; results keep spec order.
