@@ -1376,20 +1376,17 @@ impl ScriptActionDispatcher<'_> {
         let cave_index = self.get_int_param(action, 1)?;
         log::debug!("Setting cave '{}' index to {}", cave_name, cave_index);
 
-        // Live host: leftover OBJECT_REGISTRY is empty. C++ doSetCaveIndex
-        // still looks up the named cave and tryToSetCaveIndex.
-        if super::dual_world_registry_unavailable() {
-            super::request_host_set_cave_index(&cave_name, cave_index);
-            return Ok(ScriptActionResult::Success);
-        }
-
-        let tracker = get_named_object_tracker();
-        if let Ok(Some(object_id)) = tracker.get_object_id(&cave_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    if let Some(contain) = obj_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            contain_guard.try_to_set_cave_index(cave_index);
+        let (names, objects, caves) = self.context.borrowed_engine().cave_action_owners();
+        if let Ok(Some(object_id)) = names.get_object_id(&cave_name) {
+            if let Some(object) = objects.get_object(object_id) {
+                if let Ok(object) = object.read() {
+                    if let Some(contain) = object.get_contain() {
+                        if let Ok(mut contain) = contain.lock() {
+                            if let Ok(mut caves) = caves.lock() {
+                                if let Err(error) = contain.try_to_set_cave_index(cave_index, &mut caves) {
+                                    log::warn!("Cave '{}' index switch failed: {}", cave_name, error);
+                                }
+                            }
                         }
                     }
                 }

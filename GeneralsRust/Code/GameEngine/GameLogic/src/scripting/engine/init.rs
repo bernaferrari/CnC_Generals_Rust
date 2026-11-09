@@ -51,6 +51,12 @@ impl ScriptEngine {
         &self.players
     }
 
+    pub(crate) fn cave_action_owners(
+        &self,
+    ) -> (&NamedObjectTracker, &crate::object::registry::ObjectRegistry, &Mutex<crate::system::cave_system::CaveSystem>) {
+        (&self.cave_names, &self.cave_objects, &self.cave_system)
+    }
+
     pub fn new() -> GameLogicResult<Self> {
         // Prefer the published world; otherwise allocate a private owner so unit
         // tests never touch a process-wide bag.
@@ -84,6 +90,9 @@ impl ScriptEngine {
                 .next_script_engine_instance_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             players: Arc::clone(services.players()),
+            cave_system: Arc::clone(&services.logic_managers().cave),
+            cave_objects: Arc::clone(services.object_registry()),
+            cave_names: Arc::clone(services.scripts().named_objects()),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),

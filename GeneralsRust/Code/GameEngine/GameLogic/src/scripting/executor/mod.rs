@@ -532,7 +532,6 @@ pub struct HostScriptSkirmishBaseDefenseRequest {
 pub struct HostScriptRequestQueues {
     pub(crate) skirmish_fire_special_requests: Mutex<Vec<(String, String)>>,
     pub(crate) skirmish_build_requests: Mutex<Vec<(String, String)>>,
-    pub(crate) set_cave_index_requests: Mutex<Vec<(String, i32)>>,
     pub(crate) object_panel_flag_requests: Mutex<Vec<(String, String, bool)>>,
     pub(crate) team_panel_flag_requests: Mutex<Vec<(String, String, bool)>>,
     pub(crate) science_action_requests: Mutex<Vec<(String, String, bool)>>,
@@ -584,7 +583,6 @@ impl Default for HostScriptRequestQueues {
         Self {
             skirmish_fire_special_requests: Mutex::new(Vec::new()),
             skirmish_build_requests: Mutex::new(Vec::new()),
-            set_cave_index_requests: Mutex::new(Vec::new()),
             object_panel_flag_requests: Mutex::new(Vec::new()),
             team_panel_flag_requests: Mutex::new(Vec::new()),
             science_action_requests: Mutex::new(Vec::new()),
@@ -675,17 +673,6 @@ pub fn take_host_skirmish_build_requests() -> Vec<(String, String)> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_build_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
-/// Live host drain: `SET_CAVE_INDEX` → `CaveContain::tryToSetCaveIndex`.
-/// Leftover crate objects are empty on the player path.
-pub fn request_host_set_cave_index(cave_name: &str, cave_index: i32) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().set_cave_index_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q.push((cave_name.to_string(), cave_index));
-    }
-}
-
 /// Live host drain: UNIT_AFFECT_OBJECT_PANEL_FLAGS when leftover registry is empty.
 pub fn request_host_object_panel_flag(unit_name: &str, flag_name: &str, enable: bool) {
     {
@@ -714,10 +701,6 @@ pub fn request_host_team_panel_flag(team_name: &str, flag_name: &str, enable: bo
 
 pub fn take_host_team_panel_flag_requests() -> Vec<(String, String, bool)> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-pub fn take_host_set_cave_index_requests() -> Vec<(String, i32)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().set_cave_index_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: PLAYER_GRANT_SCIENCE / PLAYER_PURCHASE_SCIENCE.
