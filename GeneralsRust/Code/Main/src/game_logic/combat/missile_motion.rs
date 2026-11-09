@@ -67,9 +67,15 @@ impl MissileMotion {
             previous_position: position, dive_distance: launch.distance_before_diving })
     }
 
-    pub(super) fn advance(&mut self, goal: Vec3, armed: bool, can_turn: bool, braking: bool, frame: u32) {
+    pub(super) fn advance(
+        &mut self, goal: Vec3, armed: bool, can_turn: bool, braking: bool, frame: u32,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    ) {
         self.actor.physics_rules.gravity = self.gravity;
         let pos = self.actor.get_position();
+        if let Some(terrain) = terrain {
+            self.actor.ground_height = terrain.raw_ground(pos, self.actor.ground_height);
+        }
         if armed && self.no_turn_distance > 0.0 {
             self.no_turn_distance -= pos.distance(self.previous_position);
             self.previous_position = pos;
@@ -93,7 +99,7 @@ impl MissileMotion {
             }
         }
         let speed = self.actor.movement.max_speed;
-        let ground = self.actor.ground_height;
+        let ground = terrain.map_or(self.actor.ground_height, |view| view.highest_surface(&self.actor));
         self.actor.move_towards_thrust_with_status_and_effects(goal, pos.distance(goal), speed,
             1.0 / 30.0, frame, braking, ground, &mut Default::default());
         self.actor.movement.turn_rate = old_turn;

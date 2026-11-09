@@ -554,7 +554,7 @@ impl Projectile {
         let ignition_ready = self.try_enter_missile_ignition(frame, runtime);
         if !ignition_ready {
             if let Some(motion) = &mut self.missile_motion {
-                motion.advance(self.target_position, false, false, false, frame);
+                motion.advance(self.target_position, false, false, false, frame, terrain);
                 self.position = motion.position();
                 self.velocity = motion.velocity();
             }
@@ -589,7 +589,7 @@ impl Projectile {
                         }),
                 _ => false,
             };
-            motion.advance(goal, !expired, missile_was_armed && !expired, was_kill, frame);
+            motion.advance(goal, !expired, missile_was_armed && !expired, was_kill, frame, terrain);
             self.position = motion.position();
             self.velocity = motion.velocity();
             if was_kill && self.position.distance_squared(goal) <= 0.001 * 0.001 {
