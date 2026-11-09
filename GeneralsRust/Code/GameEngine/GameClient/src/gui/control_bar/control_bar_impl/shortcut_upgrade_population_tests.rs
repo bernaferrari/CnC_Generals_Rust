@@ -73,9 +73,13 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
         ) -> ControlBar {
             let mut bar = ControlBar::new();
             // This test's instance catalog (the one the fixture wrote above).
-            bar.bind_command_definitions(Some(game_engine::common::ini::command_definitions::CommandDefinitions::from_common(
-                &game_engine::common::common_services::common_services(),
-            )));
+            // This test's instance catalog and the bridge rebuilt from it above.
+            bar.bind_logic_owner(
+                Some(game_engine::common::ini::command_definitions::CommandDefinitions::from_common(
+                    &game_engine::common::common_services::common_services(),
+                )),
+                gamelogic::control_bar::get_control_bar_bridge(),
+            );
             bar.special_power_shortcut_layout = layout.to_owned();
             bar.special_power_shortcut_count = 1;
             bar.special_power_shortcuts.push(SpecialPowerShortcutState {
