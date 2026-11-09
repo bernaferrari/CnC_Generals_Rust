@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
 
 use game_engine::common::global_data;
 use game_engine::common::language::{Language, LanguageId, get_current_language};
@@ -78,41 +77,33 @@ impl GameText {
         self.no_string_list.clear();
     }
 
+    /// Unbound lookup for callers that do not yet borrow their client's
+    /// catalog: only the CSF table this instance published into its own
+    /// `CommonServices` Language strings (`publish_legacy_language_strings`).
+    /// Map strings are owned per client; read them with [`Self::fetch_owned`].
     pub fn fetch(key: &str) -> String {
         Self::fetch_with_exists(key).0
     }
 
-    /// C++ `GameTextManager::fetch(label, exists)` — missing labels become
-    /// `MISSING: 'key'` and are cached on the no-string list.
+    /// C++ `GameTextManager::fetch(label, exists)` over the published CSF
+    /// table — missing labels become `MISSING: 'key'` (GameText.cpp:1268).
     pub fn fetch_with_exists(key: &str) -> (String, bool) {
         let key = key.trim();
         if key.is_empty() {
             return (String::new(), false);
         }
-        if let Some(text) = Self::lookup_string(key) {
+        if let Some(text) = Self::lookup_published_csf(key) {
             return (text, true);
         }
-        let missing = format!("MISSING: '{key}'");
-        let __gt = get_game_text();
-        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
-        guard
-            .no_string_list
-            .entry(key.to_string())
-            .or_insert_with(|| missing.clone());
-        drop(guard);
-        (missing, false)
+        (format!("MISSING: '{key}'"), false)
     }
 
-    /// C++ `GameTextManager::getStringsWithLabelPrefix`.
-    pub fn get_strings_with_label_prefix(prefix: &str) -> Vec<String> {
-        let __gt = get_game_text();
-        let Ok(guard) = __gt.read() else {
-            return Vec::new();
-        };
-        let mut labels: Vec<String> = guard
+    /// C++ `GameTextManager::getStringsWithLabelPrefix` over this catalog.
+    pub fn get_strings_with_label_prefix(&self, prefix: &str) -> Vec<String> {
+        let mut labels: Vec<String> = self
             .map_strings
             .keys()
-            .chain(guard.csf_strings.keys())
+            .chain(self.csf_strings.keys())
             .filter(|label| label.starts_with(prefix))
             .cloned()
             .collect();
@@ -121,10 +112,9 @@ impl GameText {
         labels
     }
 
-    pub fn init_map_string_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let __gt = get_game_text();
-        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
-        guard.load_map_strings(path)
+    /// C++ `GameTextManager::initMapStringFile` for this catalog only.
+    pub fn init_map_string_file_owned(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.load_map_strings(path)
     }
 
     pub fn load_runtime_strings(&mut self) -> Result<usize, Box<dyn std::error::Error>> {
@@ -180,42 +170,8 @@ impl GameText {
         }
     }
 
-    pub fn reset() {
-        let __gt = get_game_text();
-        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
-        guard.reset_owned();
-    }
-
-    fn lookup_string(key: &str) -> Option<String> {
+    fn lookup_published_csf(key: &str) -> Option<String> {
         let lookup = key.strip_prefix("LOC:").unwrap_or(key);
-        let __gt = get_game_text();
-        if let Ok(guard) = __gt.read() {
-            // C++ searches the CSF lookup table first and the map-string
-            // table only on a miss (GameText.cpp:1253-1258).
-            if let Some(text) = guard
-                .csf_strings
-                .get(key)
-                .or_else(|| guard.csf_strings.get(lookup))
-            {
-                return Some(text.clone());
-            }
-            if let Some(text) = guard
-                .map_strings
-                .get(key)
-                .or_else(|| guard.map_strings.get(lookup))
-            {
-                return Some(text.clone());
-            }
-            // C++ bsearch + stricmp: case-insensitive label match.
-            let lower = lookup.to_ascii_lowercase();
-            if let Some(text) = guard
-                .csf_strings_lower
-                .get(&lower)
-                .or_else(|| guard.map_strings_lower.get(&lower))
-            {
-                return Some(text.clone());
-            }
-        }
         let localized = Language::get_localized_string(key);
         if localized != lookup && localized != key {
             Some(localized)
@@ -236,29 +192,15 @@ fn prefer_richer_csf(
     }
 }
 
+/// Test fixtures stage labels in this instance's published CSF table, the
+/// one unbound `GameText::fetch` reads.
 #[cfg(test)]
-thread_local! {
-    static TEST_GAME_TEXT: std::cell::RefCell<Option<Arc<RwLock<GameText>>>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-fn game_text_handle() -> Arc<RwLock<GameText>> {
-    #[cfg(test)]
-    {
-        return TEST_GAME_TEXT.with(|slot| {
-            slot.borrow_mut()
-                .get_or_insert_with(|| Arc::new(RwLock::new(GameText::default())))
-                .clone()
-        });
+pub(crate) fn publish_string_file_for_test(path: &Path) {
+    let mut labels = HashMap::new();
+    parse_string_file(&fs::read_to_string(path).expect("read string fixture"), &mut labels);
+    for (label, value) in labels {
+        Language::register_localized_string(label, value);
     }
-    #[cfg(not(test))]
-    {
-        Arc::new(RwLock::new(GameText::default()))
-    }
-}
-
-pub fn get_game_text() -> Arc<RwLock<GameText>> {
-    game_text_handle()
 }
 
 fn parse_string_file(contents: &str, out: &mut HashMap<String, String>) {
@@ -643,10 +585,37 @@ mod csf_tests {
     #[test]
     fn missing_labels_use_cpp_missing_prefix() {
         crate::test_support::ensure_ambient_host();
-        GameText::reset();
         let (text, exists) = GameText::fetch_with_exists("DefinitelyNotARealLabel");
         assert!(!exists);
         assert_eq!(text, "MISSING: 'DefinitelyNotARealLabel'");
-        assert!(GameText::get_strings_with_label_prefix("Definitely").is_empty());
+        let mut owned = GameText::default();
+        let (text, exists) = owned.fetch_with_exists_owned("DefinitelyNotARealLabel");
+        assert!(!exists);
+        assert_eq!(text, "MISSING: 'DefinitelyNotARealLabel'");
+        assert!(owned.get_strings_with_label_prefix("Definitely").is_empty());
+    }
+
+    #[test]
+    fn two_clients_keep_their_own_map_strings() {
+        // C++ loads map.str into TheGameText per map load (GameText.cpp
+        // initMapStringFile). Two clients in one process each own a catalog:
+        // the same label resolves to each one's map text, and resetting one
+        // never clears the other.
+        let directory = tempfile::tempdir().unwrap();
+        let a = directory.path().join("a.str");
+        let b = directory.path().join("b.str");
+        std::fs::write(&a, "MAP:Name\n\"Alpha Valley\"\nEND\n").unwrap();
+        std::fs::write(&b, "MAP:Name\n\"Bravo Ridge\"\nEND\nMAP:Only\n\"B\"\nEND\n").unwrap();
+        let mut first = GameText::default();
+        let mut second = GameText::default();
+        first.init_map_string_file_owned(a.to_str().unwrap()).unwrap();
+        second.init_map_string_file_owned(b.to_str().unwrap()).unwrap();
+        assert_eq!(first.fetch_owned("MAP:Name"), "Alpha Valley");
+        assert_eq!(second.fetch_owned("map:name"), "Bravo Ridge");
+        assert_eq!(first.fetch_with_exists_owned("MAP:Only").1, false);
+        assert_eq!(second.get_strings_with_label_prefix("MAP:"), vec!["MAP:Name", "MAP:Only"]);
+        first.reset_owned();
+        assert_eq!(first.fetch_with_exists_owned("MAP:Name").1, false);
+        assert_eq!(second.fetch_owned("MAP:Name"), "Bravo Ridge");
     }
 }

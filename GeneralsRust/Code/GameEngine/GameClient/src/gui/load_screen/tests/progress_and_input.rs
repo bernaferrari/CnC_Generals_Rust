@@ -42,8 +42,7 @@ fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
                 ),
             )
             .unwrap();
-            GameText::init_map_string_file(strings.to_str().unwrap())
-                .expect("admit actual selected map-string catalog");
+            crate::game_text::publish_string_file_for_test(&strings);
             for (label, expected) in [
                 ("MapTransfer:Unpacking", "Unpacking map"),
                 ("MapTransfer:Timeout", "%d:%d remaining"),

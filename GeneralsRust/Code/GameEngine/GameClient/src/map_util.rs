@@ -881,12 +881,19 @@ fn compute_display_name(metadata: &MapMetaData, map_path: &str) -> UnicodeString
         return display;
     }
 
-    let map_str_path = map_string_file_for_map(map_path);
-    if let Some(path) = map_str_path {
-        let _ = GameText::init_map_string_file(&path);
-    }
-    let localized = GameText::fetch(&map_name_tag);
-    GameText::reset();
+    // C++ MapUtil.cpp:717 initMapStringFile + fetch. The map's
+    // strings live in a catalog owned by this lookup only, behind the
+    // published CSF table (GameText.cpp CSF-first search order).
+    let (csf, in_csf) = GameText::fetch_with_exists(&map_name_tag);
+    let localized = if in_csf {
+        csf
+    } else {
+        let mut map_text = GameText::default();
+        if let Some(path) = map_string_file_for_map(map_path) {
+            let _ = map_text.init_map_string_file_owned(&path);
+        }
+        map_text.fetch_owned(&map_name_tag)
+    };
 
     let mut display = UnicodeString::new();
     display.translate(&localized);

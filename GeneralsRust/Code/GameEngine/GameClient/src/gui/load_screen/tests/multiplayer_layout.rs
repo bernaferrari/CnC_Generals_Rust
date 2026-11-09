@@ -28,8 +28,7 @@ fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
         let directory = tempfile::tempdir().unwrap();
         let strings = directory.path().join("MultiplayerTeams.str");
         std::fs::write(&strings, "Team:3\n\"Team Three\"\nEND\n").unwrap();
-        GameText::init_map_string_file(strings.to_str().unwrap())
-            .expect("admit actual selected team map-string catalog");
+        crate::game_text::publish_string_file_for_test(&strings);
         assert_eq!(
             GameText::fetch_with_exists("Team:3"),
             ("Team Three".to_owned(), true),
@@ -182,8 +181,7 @@ fn multiplayer_row_team_text_is_localized_like_cpp() {
         let directory = tempfile::tempdir().unwrap();
         let strings = directory.path().join("MultiplayerTeams.str");
         std::fs::write(&strings, "Team:2\n\"Team Two\"\nEND\n").unwrap();
-        GameText::init_map_string_file(strings.to_str().unwrap())
-            .expect("admit actual selected team map-string catalog");
+        crate::game_text::publish_string_file_for_test(&strings);
         assert_eq!(
             GameText::fetch_with_exists("Team:2"),
             ("Team Two".to_owned(), true),
