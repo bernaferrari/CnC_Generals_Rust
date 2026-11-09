@@ -55,9 +55,11 @@ fn integer(value: i32) -> Parameter {
 fn rank_and_experience_actions_use_the_receiving_world() {
     let mut first = world("First");
     let mut peer = world("Peer");
+    // ScriptEngine.cpp:5555-5557 selects PlayerList::getNthPlayer(side).
+    // These fixtures admit player 1, so its side script belongs in slot 1.
     run(
         &mut first,
-        0,
+        1,
         vec![
             action(
                 ScriptActionType::PlayerSetRanklevellimit,
@@ -73,7 +75,7 @@ fn rank_and_experience_actions_use_the_receiving_world() {
     );
     run(
         &mut peer,
-        0,
+        1,
         vec![
             action(
                 ScriptActionType::PlayerSetRanklevellimit,
@@ -92,7 +94,7 @@ fn rank_and_experience_actions_use_the_receiving_world() {
 
     run(
         &mut first,
-        0,
+        1,
         vec![
             action(
                 ScriptActionType::PlayerAddRanklevel,
@@ -118,7 +120,7 @@ fn rank_and_experience_actions_use_the_receiving_world() {
 
     run(
         &mut first,
-        1,
+        0,
         vec![action(
             ScriptActionType::PlayerSetRanklevel,
             Some(THIS_PLAYER),
