@@ -17,13 +17,6 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use crate::contain_module_overrides::ContainModuleDataAdapter;
 
-/// Wave 370 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
 
 /// Configuration data for HealContain module
 #[derive(Debug, Clone)]
@@ -114,15 +107,11 @@ impl HealContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 370: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
 
         (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         })
     }
 
@@ -132,10 +121,6 @@ impl HealContain {
     }
 
     fn update_with_frames(&mut self, frames_for_full_heal: u32) -> GameResult<UpdateSleepTime> {
-        // Wave 370: empty dual-world → Ok(None).
-        if dual_world_registry_unavailable() {
-            return Ok(UpdateSleepTime::None);
-        }
 
         if let Err(err) = self.base.update() {
             log::warn!("HealContain::update base update failed: {}", err);
@@ -160,7 +145,7 @@ impl HealContain {
 
             if done_healing {
                 // Reserve door for exit
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(patient_id) {
+                if let Some(obj) = self.base.objects().get_object(patient_id) {
                     if let Ok(object) = obj.try_read() {
                         if let Ok(exit_door) = self
                             .base
@@ -199,14 +184,10 @@ impl HealContain {
 
     /// Perform healing on a single object for a single frame
     pub fn do_heal(&mut self, obj_id: ObjectID, frames_for_full_heal: u32) -> GameResult<bool> {
-        // Wave 370: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
 
         let mut done_healing = false;
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("HealContain patient not found")?;
 
@@ -340,12 +321,8 @@ impl ContainModuleInterface for HealContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        // Wave 370: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
 
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self.base.is_valid_container_for(&*obj_guard, true);
             })
@@ -353,12 +330,8 @@ impl ContainModuleInterface for HealContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        // Wave 370: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = TheGameLogic::find_object_by_id(object_id)
+        let obj = self.base.objects().get_object(object_id)
             .ok_or_else(|| format!("Contain object {} not found", object_id))?;
         self.base
             .add_to_contain(
@@ -371,10 +344,6 @@ impl ContainModuleInterface for HealContain {
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        // Wave 370: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         self.base
             .remove_from_contain(object_id, false)
@@ -460,7 +429,7 @@ impl ContainModuleInterface for HealContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other

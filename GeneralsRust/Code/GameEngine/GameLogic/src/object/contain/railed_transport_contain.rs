@@ -74,14 +74,14 @@ impl RailedTransportContain {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
+        self.base.objects().with_object(self.object_id, f)
     }
 
     fn with_owner_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, f)
+        self.base.objects().with_object_mut(self.object_id, f)
     }
 
     /// C++ RailedTransportContain::onRemoving: reopen dock when empty.
@@ -134,7 +134,7 @@ impl ContainModuleInterface for RailedTransportContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
+        if let Some(obj) = self.base.objects().get_object(object_id) {
             if let Ok(obj_guard) = obj.try_read() {
                 return self.base.is_valid_container_for(&*obj_guard, true);
             }
@@ -216,7 +216,7 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -288,7 +288,7 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.get_contained_objects().contains(&object_id) {
             return false;
         }
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(obj) = self.base.objects().get_object(object_id) else {
             return false;
         };
         obj.try_read()

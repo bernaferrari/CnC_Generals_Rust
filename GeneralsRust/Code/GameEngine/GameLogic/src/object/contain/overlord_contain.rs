@@ -26,13 +26,6 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use crate::contain_module_overrides::ContainModuleDataAdapter;
 
-/// Wave 300 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
 
 /// Configuration data for OverlordContain module
 /// Matches C++ OverlordContainModuleData (OverlordContain.h:20-33)
@@ -163,21 +156,17 @@ impl OverlordContain {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+        self.base.objects().with_object(id, f)
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 300: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
 
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        self.base.objects().get_object(id)
     }
 
     /// Check if this is a garrisonable container (depends on redirection).
@@ -227,7 +216,7 @@ impl OverlordContain {
     /// Matches C++ OverlordContain::isPassengerAllowedToFire (OverlordContain.h:56)
     pub fn is_passenger_allowed_to_fire(&self, id: Option<ObjectId>) -> bool {
         if let Some(obj_id) = id {
-            if let Some(passenger) = TheGameLogic::find_object_by_id(obj_id) {
+            if let Some(passenger) = self.base.objects().get_object(obj_id) {
                 let Ok(passenger_guard) = passenger.try_read() else {
                     return false;
                 };
@@ -262,10 +251,6 @@ impl OverlordContain {
         owner: Option<&Object>,
         damage_info: Option<&DamageInfo>,
     ) -> GameResult<()> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         // Do you mean me the Overlord, or my behavior of passing stuff on to my passengers?
         if !(self.redirection_activated && self.base.base.get_contain_count() >= 1) {
@@ -280,7 +265,7 @@ impl OverlordContain {
         let rider_id = self.base.base.get_contained_object_ids().first().copied();
         self.deactivate_redirected_contain()?;
         if let Some(rider_id) = rider_id {
-            if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
+            if let Some(rider) = self.base.objects().get_object(rider_id) {
                 if let Ok(mut rider_guard) = rider.try_write() {
                     rider_guard.kill(None, None);
                 }
@@ -321,10 +306,6 @@ impl OverlordContain {
         _old_owner: Option<&Arc<RwLock<Player>>>,
         new_owner: Option<&Arc<RwLock<Player>>>,
     ) -> GameResult<()> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if self.base.base.get_contain_count() < 1 {
             return Ok(());
@@ -333,7 +314,7 @@ impl OverlordContain {
         // Need to capture our specific rider. He will then kick passengers out if he is a Transport
         if let Some(new_owner_arc) = new_owner {
             if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
-                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
+                if let Some(rider) = self.base.objects().get_object(rider_id) {
                     let Ok(mut rider_guard) = rider.try_write() else {
                         return Ok(());
                     };
@@ -359,12 +340,8 @@ impl OverlordContain {
     /// Called when this object starts containing another object.
     /// Matches C++ OverlordContain::onContaining (OverlordContain.h:65)
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -442,7 +419,7 @@ impl OverlordContain {
             let mut objs: Vec<Arc<RwLock<Object>>> = guard
                 .get_contained_objects()
                 .iter()
-                .filter_map(|id| TheGameLogic::find_object_by_id(*id))
+                .filter_map(|id| self.base.objects().get_object(*id))
                 .collect();
             drop(guard);
 
@@ -463,10 +440,6 @@ impl OverlordContain {
     /// Called when removing an object from containment.
     /// Matches C++ OverlordContain::onRemoving (OverlordContain.h:66)
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if let Some(redirected) = self.redirected_contain_for_mutation()? {
             self.base.base.on_removing(obj_id)?;
@@ -504,7 +477,7 @@ impl OverlordContain {
             let Ok(mut guard) = redirected.try_lock() else {
                 return Err("Overlord redirected contain lock busy".into());
             };
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(obj) = self.base.objects().get_object(obj_id) else {
                 return Err("Overlord contain object not found".into());
             };
             let Ok(obj_guard) = obj.try_read() else {
@@ -522,7 +495,7 @@ impl OverlordContain {
             let Ok(mut guard) = redirected.try_lock() else {
                 return Err("Overlord redirected contain lock busy".into());
             };
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(obj) = self.base.objects().get_object(obj_id) else {
                 return Err("Overlord contain object not found".into());
             };
             let Ok(obj_guard) = obj.try_read() else {
@@ -669,13 +642,9 @@ impl OverlordContain {
     /// Flash selected for visible contained units.
     /// Matches C++ OverlordContain::clientVisibleContainedFlashAsSelected (OverlordContain.h:89)
     pub fn client_visible_contained_flash_as_selected(&self) -> GameResult<()> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         for &item_id in self.base.base.get_contained_object_ids() {
-            if let Some(item) = crate::object::registry::OBJECT_REGISTRY.get_object(item_id) {
+            if let Some(item) = self.base.objects().get_object(item_id) {
                 let drawable = {
                     let Ok(item_guard) = item.try_read() else {
                         continue;
@@ -789,10 +758,6 @@ impl OverlordContain {
         _old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) -> GameResult<()> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         // I can't use any convenience functions, as they will all get routed to the bunker I may carry.
         // I want just me.
@@ -800,7 +765,7 @@ impl OverlordContain {
         // be handled on my death.
         if new_state != BodyDamageType::Rubble && self.base.base.get_contain_count() == 1 {
             if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
-                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
+                if let Some(rider) = self.base.objects().get_object(rider_id) {
                     let Ok(rider_guard) = rider.try_read() else {
                         return Err("Overlord rider lock busy".into());
                     };
@@ -821,10 +786,6 @@ impl OverlordContain {
     /// Get redirected contain interface (bunker inside).
     /// Matches C++ OverlordContain::getRedirectedContain (OverlordContain.cpp:157-175)
     fn get_redirected_contain(&self) -> Option<Arc<Mutex<dyn ContainModuleInterface>>> {
-        // Wave 300: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
 
         // Naturally, I cannot use a redirectible convenience function
         // to answer if I am redirecting yet.
@@ -842,7 +803,7 @@ impl OverlordContain {
 
         // Get the first rider
         if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
-            if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
+            if let Some(rider) = self.base.objects().get_object(rider_id) {
                 if let Ok(rider_guard) = rider.try_read() {
                     return rider_guard.get_contain();
                 }
@@ -860,7 +821,7 @@ impl OverlordContain {
         let Some(&rider_id) = self.base.base.get_contained_object_ids().first() else {
             return Ok(None);
         };
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
+        let Some(rider) = self.base.objects().get_object(rider_id) else {
             return Ok(None);
         };
         let Ok(rider_guard) = rider.try_read() else {
@@ -1003,7 +964,7 @@ impl ContainModuleInterface for OverlordContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
             })
@@ -1106,7 +1067,7 @@ impl ContainModuleInterface for OverlordContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1182,12 +1143,8 @@ impl ContainModuleInterface for OverlordContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1207,12 +1164,8 @@ impl ContainModuleInterface for OverlordContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 300: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 

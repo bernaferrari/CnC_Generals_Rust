@@ -306,7 +306,7 @@ impl MobNexusContain {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
+        self.base.objects().with_object(self.object_id, f)
     }
 
     pub fn get_contain_max(&self) -> i32 {
@@ -324,7 +324,7 @@ impl MobNexusContain {
     /// C++ MobNexusContain::isValidContainerFor
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         if let Some(rider_id) = unwrap_special_zero_slot_rider(obj) {
-            return crate::object::registry::OBJECT_REGISTRY
+            return self.base.objects()
                 .with_object(rider_id, |rider| {
                     self.is_valid_container_for_rider(rider, check_capacity)
                 })
@@ -361,7 +361,7 @@ impl MobNexusContain {
 
     /// C++ MobNexusContain::onContaining
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -393,7 +393,7 @@ impl MobNexusContain {
 
     /// C++ MobNexusContain::onRemoving
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -579,7 +579,7 @@ impl MobNexusContain {
     }
 
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("MobNexus contain object not found")?;
         let was_selected = obj
@@ -617,7 +617,7 @@ impl MobNexusContain {
             return Err("Mob passenger lock busy".into());
         };
         if expose_stealth_units {
-            if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
+            if let Some(obj) = self.base.objects().get_object(obj_id) {
                 if let Ok(obj_guard) = obj.try_read() {
                     if let Some(stealth) = obj_guard.get_stealth() {
                         if let Ok(mut stealth_guard) = stealth.try_lock() {
@@ -650,7 +650,7 @@ impl MobNexusContain {
         if self.module_data.read().health_regen != 0.0 {
             let owner_id = self.object_id;
             for object_id in self.base.get_contained_object_ids().to_vec() {
-                if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+                if let Some(object) = self.base.objects().get_object(object_id)
                 {
                     let Ok(guard) = object.try_read() else {
                         log::warn!("MobNexusContain::update regen lock busy for {}", object_id);
@@ -681,7 +681,7 @@ impl MobNexusContain {
                         continue;
                     };
                     if owner_id != crate::common::INVALID_ID {
-                        let _ = crate::object::registry::OBJECT_REGISTRY
+                        let _ = self.base.objects()
                             .with_object(owner_id, |source| {
                                 object_guard.attempt_healing(regen, Some(source))
                             });
@@ -788,7 +788,7 @@ impl MobNexusContain {
         let mut exited_anyone = false;
         let ids = self.base.get_contained_object_ids().to_vec();
         for obj_id in ids {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(obj) = self.base.objects().get_object(obj_id) else {
                 continue;
             };
             let door = obj
@@ -854,7 +854,7 @@ impl ContainModuleInterface for MobNexusContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
             })
@@ -934,7 +934,7 @@ impl ContainModuleInterface for MobNexusContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other

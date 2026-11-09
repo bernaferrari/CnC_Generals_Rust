@@ -244,10 +244,11 @@ impl ParachuteContain {
             .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
             .unwrap_or(crate::common::INVALID_ID);
 
-        if object_id != crate::common::INVALID_ID {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |owner| {
+        // C++ ParachuteContain ctor sets PARACHUTING on its own owner.
+        if let Some(owner) = object.upgrade() {
+            if let Ok(mut owner) = owner.try_write() {
                 owner.set_status(ObjectStatusMaskType::PARACHUTING, true);
-            });
+            }
         }
 
         Ok(Self {
@@ -285,14 +286,14 @@ impl ParachuteContain {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
+        self.base.objects().with_object(self.object_id, f)
     }
 
     fn with_owner_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, f)
+        self.base.objects().with_object_mut(self.object_id, f)
     }
 
     fn first_rider_id(&self) -> Option<ObjectID> {
@@ -301,7 +302,7 @@ impl ParachuteContain {
 
     fn resolve_rider(&self) -> Option<Arc<RwLock<Object>>> {
         let id = self.first_rider_id()?;
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        self.base.objects().get_object(id)
     }
 
     pub fn process_damage_to_contained(&mut self, percent_damage: f32) -> GameResult<()> {
@@ -470,7 +471,7 @@ impl ParachuteContain {
     fn position_contained_objects(&mut self) {
         let ids = self.base.get_contained_object_ids().to_vec();
         for id in ids {
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(id) {
+            if let Some(obj) = self.base.objects().get_object(id) {
                 if let Ok(mut rider) = obj.write() {
                     self.position_rider(&mut rider);
                 }
@@ -487,7 +488,7 @@ impl ParachuteContain {
     /// C++ ParachuteContain::onContaining
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
         self.base.on_containing(obj_id, was_selected)?;
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
         let Ok(mut rider) = obj.try_write() else {
@@ -509,7 +510,7 @@ impl ParachuteContain {
     /// C++ ParachuteContain::onRemoving
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
         self.base.on_removing(obj_id)?;
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -552,12 +553,12 @@ impl ParachuteContain {
                 let producer_id = rider.get_producer_id();
                 if producer_id != crate::common::INVALID_ID {
                     if let Some(transport) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(producer_id)
+                        self.base.objects().get_object(producer_id)
                     {
                         if let Ok(transport_guard) = transport.read() {
                             let building_id = transport_guard.get_producer_id();
                             if building_id != crate::common::INVALID_ID {
-                                if let Some(building) = TheGameLogic::find_object_by_id(building_id)
+                                if let Some(building) = self.base.objects().get_object(building_id)
                                 {
                                     if let Ok(building_guard) = building.read() {
                                         if let Some(mut exit) =
@@ -918,7 +919,7 @@ impl ParachuteContain {
     }
 
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Parachute contain object not found")?;
         let Ok(obj_ref) = obj.try_read() else {
@@ -1035,7 +1036,7 @@ impl ContainModuleInterface for ParachuteContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
             })

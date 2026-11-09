@@ -50,13 +50,6 @@ const GARRISON_POINT_REALLY_DAMAGED: usize = 2;
 /// Muzzle flash lifetime in logic frames
 const MUZZLE_FLASH_LIFETIME: u32 = 30 / 7; // LOGICFRAMES_PER_SECOND / 7
 
-/// Wave 260 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
 
 /// Initial roster configuration for garrison
 #[derive(Debug, Clone)]
@@ -432,16 +425,12 @@ pub struct GarrisonContain {
 
 impl GarrisonContain {
     fn garrison_point_object(&self, point_index: usize) -> Option<Arc<RwLock<Object>>> {
-        // Wave 260: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
 
         let id = self.garrison_point_data.get(point_index)?.object_id;
         if id == INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        self.base.objects().get_object(id)
     }
 
     /// Create a new GarrisonContain module
@@ -488,7 +477,7 @@ impl GarrisonContain {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+        self.base.objects().with_object(id, f)
     }
 
     fn with_owner_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
@@ -496,30 +485,22 @@ impl GarrisonContain {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+        self.base.objects().with_object_mut(id, f)
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 260: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
 
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        self.base.objects().get_object(id)
     }
 
     /// Update method called once per frame
     /// C++ reference: GarrisonContain::update() lines 180-220
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
-        // Wave 260: empty dual-world → sleep none.
-        if dual_world_registry_unavailable() {
-            return Ok(UpdateSleepTime::None);
-        }
 
         if let Err(err) = self.base.update() {
             log::warn!("GarrisonContain::update base update failed: {}", err);
@@ -527,7 +508,7 @@ impl GarrisonContain {
 
         let contained_ids = self.base.get_contained_object_ids().to_vec();
         for object_id in contained_ids {
-            let is_dead = crate::object::registry::OBJECT_REGISTRY
+            let is_dead = self.base.objects()
                 .with_object(object_id, |guard| guard.is_effectively_dead())
                 .unwrap_or(false);
             if is_dead {
@@ -539,7 +520,7 @@ impl GarrisonContain {
                     );
                     continue;
                 }
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
+                if let Some(obj) = self.base.objects().get_object(object_id) {
                     if let Ok(mut contained) = obj.try_write() {
                         contained.set_safe_occlusion_frame(
                             TheGameLogic::get_frame()
@@ -641,12 +622,8 @@ impl GarrisonContain {
 
     /// Add object to containment using garrison virtual callbacks.
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         if super::should_cancel_containment_after_booby_trap(
@@ -707,12 +684,8 @@ impl GarrisonContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let owner_id = self.get_object_id();
@@ -764,7 +737,7 @@ impl GarrisonContain {
         }
         let owner_id = self.get_object_id();
         if owner_id != crate::common::INVALID_ID {
-            if let Some(owner_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id) {
+            if let Some(owner_arc) = self.base.objects().get_object(owner_id) {
                 if let Ok(owner_guard) = owner_arc.try_read() {
                     let pos = *owner_guard.get_position();
                     let layer = owner_guard.get_layer();
@@ -825,12 +798,9 @@ impl GarrisonContain {
         exit_id: ObjectID,
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let _ = exit_door;
-        let exit_obj = crate::object::registry::OBJECT_REGISTRY
+        let exit_obj = self.base.objects()
             .get_object(exit_id)
             .ok_or("exit object not found")?;
         // C++ removeFromContain defaults exposeStealthUnits = FALSE.
@@ -1027,12 +997,8 @@ impl GarrisonContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1101,12 +1067,8 @@ impl GarrisonContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1303,10 +1265,6 @@ impl GarrisonContain {
 
     /// Recalculate apparent controlling player
     pub fn recalc_apparent_controlling_player(&mut self) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         // Record original team first time
         if self.original_team.is_none() {
@@ -1326,13 +1284,13 @@ impl GarrisonContain {
 
         if contain_count > 0 {
             if let Some(&first_id) = contained_ids.first() {
-                if let Some(first) = crate::object::registry::OBJECT_REGISTRY.get_object(first_id) {
+                if let Some(first) = self.base.objects().get_object(first_id) {
                     if let Ok(rider) = first.read() {
                         let detected = rider.test_status(ObjectStatusTypes::Detected);
                         let stealth_count = contained_ids
                             .iter()
                             .filter(|&&id| {
-                                crate::object::registry::OBJECT_REGISTRY
+                                self.base.objects()
                                     .with_object(id, |guard| {
                                         guard.test_status(ObjectStatusTypes::Stealthed)
                                             && !guard.test_status(ObjectStatusTypes::Detected)
@@ -1375,7 +1333,7 @@ impl GarrisonContain {
         let mut set_model_garrisoned = false;
         if contain_count > 0 {
             if let Some(&first_id) = contained_ids.first() {
-                let detected = crate::object::registry::OBJECT_REGISTRY
+                let detected = self.base.objects()
                     .with_object(first_id, |occupant| {
                         occupant.test_status(ObjectStatusTypes::Detected)
                     })
@@ -1629,15 +1587,11 @@ impl GarrisonContain {
         weapon: &Weapon,
         victim_id: ObjectID,
     ) -> bool {
-        // Wave 260: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
 
-        let Some(victim) = crate::object::registry::OBJECT_REGISTRY.get_object(victim_id) else {
+        let Some(victim) = self.base.objects().get_object(victim_id) else {
             return false;
         };
-        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id) else {
+        let Some(source) = self.base.objects().get_object(source_id) else {
             return false;
         };
 
@@ -1682,12 +1636,8 @@ impl GarrisonContain {
         weapon: &Weapon,
         target_pos: &Coord3D,
     ) -> bool {
-        // Wave 260: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
 
-        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id) else {
+        let Some(source) = self.base.objects().get_object(source_id) else {
             return false;
         };
 
@@ -1720,17 +1670,13 @@ impl GarrisonContain {
 
     /// Update effects (muzzle flashes, etc.)
     fn update_effects(&mut self) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let current_frame = TheGameLogic::get_frame();
         let contained_objects: Vec<_> = self
             .base
             .get_contained_object_ids()
             .iter()
-            .filter_map(|&id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            .filter_map(|&id| self.base.objects().get_object(id))
             .collect();
 
         // Check for objects that fired last frame and create muzzle flash
@@ -1873,7 +1819,7 @@ impl GarrisonContain {
         target_pos: Option<&Coord3D>,
     ) -> GameResult<()> {
         // C++ putObjectAtBestGarrisonPoint: already-placed occupants stay put.
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
+        if let Some(obj) = self.base.objects().get_object(obj_id) {
             if let Ok(obj_guard) = obj.read() {
                 if self.get_object_garrison_point_index(&obj_guard).is_some() {
                     return Ok(());
@@ -1883,7 +1829,7 @@ impl GarrisonContain {
 
         let mut resolved_target = target_pos.cloned();
         if let Some(tid) = target_id {
-            if let Some(target_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(tid) {
+            if let Some(target_obj) = self.base.objects().get_object(tid) {
                 if let Ok(target_guard) = target_obj.read() {
                     resolved_target = Some(*target_guard.get_position());
                 }
@@ -1915,12 +1861,8 @@ impl GarrisonContain {
         condition_index: usize,
         point_index: usize,
     ) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("garrison point object not found")?;
         if point_index >= MAX_GARRISON_POINTS || condition_index >= MAX_GARRISON_POINT_CONDITIONS {
@@ -1967,12 +1909,8 @@ impl GarrisonContain {
         obj_id: ObjectID,
         index: Option<usize>,
     ) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id);
+        let obj = self.base.objects().get_object(obj_id);
         let point_index = if let Some(idx) = index {
             idx
         } else {
@@ -1996,7 +1934,7 @@ impl GarrisonContain {
         let owner_id = self.get_object_id();
         if owner_id != crate::common::INVALID_ID {
             if let Some(obj) = obj {
-                if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                if let Some(pos) = self.base.objects()
                     .with_object(owner_id, |owner_guard| *owner_guard.get_position())
                 {
                     if let Ok(mut obj_guard) = obj.write() {
@@ -2032,16 +1970,12 @@ impl GarrisonContain {
 
     /// Add valid objects to garrison points
     fn add_valid_objects_to_garrison_points(&mut self) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let contained_objects: Vec<_> = self
             .base
             .get_contained_object_ids()
             .iter()
-            .filter_map(|&id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            .filter_map(|&id| self.base.objects().get_object(id))
             .collect();
 
         for obj in contained_objects {
@@ -2051,9 +1985,9 @@ impl GarrisonContain {
                     let obj_id = contained.get_id();
                     // Get target position (victim or target position)
                     if let Some(victim_id) = contained.get_current_victim_id() {
-                        if let Some(target_obj) = TheGameLogic::find_object_by_id(victim_id)
+                        if let Some(target_obj) = self.base.objects().get_object(victim_id)
                             .or_else(|| {
-                                crate::object::registry::OBJECT_REGISTRY.get_object(victim_id)
+                                self.base.objects().get_object(victim_id)
                             })
                         {
                             if let Ok(target) = target_obj.read() {
@@ -2131,10 +2065,6 @@ impl GarrisonContain {
 
     /// Track targets and keep attackers at closest garrison points
     fn track_targets(&mut self) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         // Only track if this is an enclosing container
         if !self.is_enclosing_container_for_any() {
@@ -2146,7 +2076,7 @@ impl GarrisonContain {
             .base
             .get_contained_object_ids()
             .iter()
-            .filter_map(|&id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            .filter_map(|&id| self.base.objects().get_object(id))
             .collect();
 
         for obj in contained_objects {
@@ -2156,9 +2086,9 @@ impl GarrisonContain {
                 if let Some(our_index) = our_index {
                     // Get current target
                     let victim_pos = if let Some(victim_id) = contained.get_current_victim_id() {
-                        TheGameLogic::find_object_by_id(victim_id)
+                        self.base.objects().get_object(victim_id)
                             .or_else(|| {
-                                crate::object::registry::OBJECT_REGISTRY.get_object(victim_id)
+                                self.base.objects().get_object(victim_id)
                             })
                             .and_then(|v| v.read().ok().map(|g| *g.get_position()))
                     } else {
@@ -2246,10 +2176,6 @@ impl GarrisonContain {
 
     /// Position objects at their assigned station garrison points
     fn position_objects_at_station_garrison_points(&mut self) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if !self.station_garrison_points_initialized {
             self.load_station_garrison_points()?;
@@ -2260,7 +2186,7 @@ impl GarrisonContain {
             for station in &self.station_point_list {
                 if station.occupant_id == Some(object_id) {
                     if let Some(obj) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+                        self.base.objects().get_object(object_id)
                     {
                         if let Ok(mut guard) = obj.write() {
                             if let Err(err) = guard.set_position(&station.position) {
@@ -2276,7 +2202,7 @@ impl GarrisonContain {
             }
 
             if !found {
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
+                if let Some(obj) = self.base.objects().get_object(object_id) {
                     if let Ok(contained) = obj.read() {
                         if self.pick_a_station_for_me(&contained) {
                             drop(contained);
@@ -2470,15 +2396,11 @@ impl GarrisonContain {
 
     /// Heal all contained objects
     fn heal_objects(&mut self, frames_for_full_heal: f32) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
 
         let contained_ids = self.base.get_contained_object_ids().to_vec();
         for object_id in contained_ids {
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
+            if let Some(obj) = self.base.objects().get_object(object_id) {
                 if let Err(err) = self.heal_single_object(obj, frames_for_full_heal) {
                     log::warn!(
                         "GarrisonContain::heal_objects skipped {}: {}",
@@ -2543,14 +2465,10 @@ impl GarrisonContain {
 
     /// Move all contained objects with this container (mobile garrison)
     fn move_objects_with_me(&mut self) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if let Some(pos) = self.with_owner_object(|owner| *owner.get_position()) {
             for object_id in self.base.get_contained_object_ids().to_vec() {
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
+                if let Some(obj) = self.base.objects().get_object(object_id) {
                     if let Ok(mut contained) = obj.try_write() {
                         if let Err(err) = contained.set_position(&pos) {
                             log::debug!(
@@ -2804,17 +2722,13 @@ impl GarrisonContain {
 
     /// Post-process after loading to reconnect object/effect pointers
     pub fn load_post_process(&mut self) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         self.base.load_post_process()?;
 
         for point in &mut self.garrison_point_data {
             if point.object_id != INVALID_ID {
-                let resolved = TheGameLogic::find_object_by_id(point.object_id).or_else(|| {
-                    crate::object::registry::OBJECT_REGISTRY.get_object(point.object_id)
+                let resolved = self.base.objects().get_object(point.object_id).or_else(|| {
+                    self.base.objects().get_object(point.object_id)
                 });
                 if resolved.is_none() {
                     return Err("GarrisonContain::load_post_process: missing object".into());
@@ -2966,7 +2880,7 @@ impl ContainModuleInterface for GarrisonContain {
         if object_id == INVALID_ID || object_id == self.base.get_object_id() {
             return false;
         }
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |passenger| {
                 self.is_valid_container_for(passenger, true)
             })
@@ -3078,7 +2992,7 @@ impl ContainModuleInterface for GarrisonContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -3200,12 +3114,8 @@ impl ContainModuleInterface for GarrisonContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -3216,12 +3126,8 @@ impl ContainModuleInterface for GarrisonContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 260: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -3253,7 +3159,7 @@ impl ContainModuleInterface for GarrisonContain {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         while let Some(object_id) = self.get_contained_objects().first().cloned() {
             let _ = self.release_object(object_id);
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+            let _ = self.base.objects().with_object_mut(object_id, |guard| {
                 let _ = guard.attempt_damage(damage_info);
             });
         }
@@ -3263,7 +3169,7 @@ impl ContainModuleInterface for GarrisonContain {
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         while let Some(object_id) = self.get_contained_objects().first().cloned() {
             let _ = self.release_object(object_id);
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+            let _ = self.base.objects().with_object_mut(object_id, |guard| {
                 guard.kill(None, None);
             });
         }
@@ -3721,10 +3627,6 @@ mod tests {
     }
 
     pub(super) fn cleanup_objects(ids: &[ObjectID]) {
-        // Wave 260: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
 
         for id in ids {
             OBJECT_REGISTRY.unregister_object(*id);

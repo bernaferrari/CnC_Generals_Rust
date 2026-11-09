@@ -23,13 +23,6 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use crate::contain_module_overrides::ContainModuleDataAdapter;
 
-/// Wave 277 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
 
 /// Configuration data for RiderChangeContain module
 #[derive(Debug, Clone)]
@@ -659,10 +652,6 @@ mod tests {
     }
 
     fn cleanup_objects(ids: &[ObjectID]) {
-        // Wave 277: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
 
         for id in ids {
             OBJECT_REGISTRY.unregister_object(*id);
@@ -1472,10 +1461,6 @@ impl RiderChangeContain {
     }
 
     pub fn add_to_contain(&mut self, rider_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 277: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let owner_id = if self.object_id == crate::common::INVALID_ID {
             None
@@ -1486,7 +1471,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let rider = crate::object::registry::OBJECT_REGISTRY
+        let rider = self.base.objects()
             .get_object(rider_id)
             .ok_or("Rider object not found")?;
 
@@ -1534,12 +1519,8 @@ impl RiderChangeContain {
         rider_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        // Wave 277: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
+        let Some(rider) = self.base.objects().get_object(rider_id) else {
             return Ok(());
         };
 
@@ -1564,7 +1545,7 @@ impl RiderChangeContain {
             if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
-                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                self.base.objects().get_object(self.object_id)
             }) {
                 if let (Ok(owner_guard), Ok(mut rider_guard)) =
                     (owner.try_read(), rider.try_write())
@@ -1609,12 +1590,8 @@ impl RiderChangeContain {
     }
 
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 277: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(rider) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1643,7 +1620,7 @@ impl RiderChangeContain {
         let owner_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         });
 
         if let Some(owner) = owner_arc.as_ref() {
@@ -1683,15 +1660,11 @@ impl RiderChangeContain {
         Ok(())
     }
     fn evacuate_existing_payload_via_owner_ai(&self) {
-        // Wave 277: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
 
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         }) else {
             return;
         };
@@ -1712,10 +1685,6 @@ impl RiderChangeContain {
     }
 
     fn transfer_selection_to_owner_on_entry(&self, was_selected: bool) {
-        // Wave 277: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
 
         if !was_selected {
             return;
@@ -1724,7 +1693,7 @@ impl RiderChangeContain {
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         }) else {
             return;
         };
@@ -1752,18 +1721,14 @@ impl RiderChangeContain {
     }
 
     fn transfer_selection_to_rider_on_exit(&self, rider_id: ObjectID) {
-        // Wave 277: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
+        let Some(rider) = self.base.objects().get_object(rider_id) else {
             return;
         };
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         }) else {
             return;
         };
@@ -1815,18 +1780,14 @@ impl RiderChangeContain {
     }
 
     fn has_exit_scuttle_drawables(&self, rider_id: ObjectID) -> bool {
-        // Wave 277: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
+        let Some(rider) = self.base.objects().get_object(rider_id) else {
             return false;
         };
         let owner_has_drawable = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         })
         .and_then(|owner| owner.read().ok()?.get_drawable())
         .is_some();
@@ -1839,19 +1800,15 @@ impl RiderChangeContain {
     }
 
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 277: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(rider) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
         if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         }) {
             if let Ok(owner_guard) = owner.read() {
                 if owner_guard.is_effectively_dead() {
@@ -1879,14 +1836,14 @@ impl RiderChangeContain {
         let owner_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         });
         let mut transfer_to_rider = false;
 
         if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            self.base.objects().get_object(self.object_id)
         }) {
             if let Ok(mut owner_guard) = owner.write() {
                 if let Some(rider_info) = self.matching_rider_info(rider_template.as_ref()) {
@@ -1905,7 +1862,7 @@ impl RiderChangeContain {
             if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
-                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+                self.base.objects().get_object(self.object_id)
             }) {
                 if let Ok(mut owner_guard) = owner.write() {
                     self.scuttled_on_frame = TheGameLogic::get_frame();
@@ -1947,10 +1904,6 @@ impl RiderChangeContain {
     }
 
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
-        // Wave 277: empty dual-world → sleep forever (no factory walks).
-        if dual_world_registry_unavailable() {
-            return Ok(UpdateSleepTime::Forever);
-        }
 
         if self.scuttled_on_frame != 0 {
             let now = TheGameLogic::get_frame();
@@ -1958,9 +1911,7 @@ impl RiderChangeContain {
                 if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                     None
                 } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
+                    self.base.objects().get_object(self.object_id)
                 }) {
                     if let Ok(mut owner_guard) = owner.try_write() {
                         owner_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Toppled));
@@ -2037,7 +1988,7 @@ impl ContainModuleInterface for RiderChangeContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
             })
@@ -2131,7 +2082,7 @@ impl ContainModuleInterface for RiderChangeContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other

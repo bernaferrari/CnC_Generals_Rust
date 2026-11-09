@@ -22,13 +22,6 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use crate::contain_module_overrides::ContainModuleDataAdapter;
 
-/// Wave 274 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
 
 /// Configuration data for HelixContain module
 #[derive(Debug, Clone)]
@@ -156,21 +149,17 @@ impl HelixContain {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+        self.base.objects().with_object(id, f)
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 274: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
 
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        self.base.objects().get_object(id)
     }
 
     /// Treat as open container
@@ -208,13 +197,9 @@ impl HelixContain {
         owner: Option<&Object>,
         damage_info: Option<&DamageInfo>,
     ) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
+            if let Some(portable) = self.base.objects().get_object(portable_id)
             {
                 if let Ok(mut portable_guard) = portable.write() {
                     portable_guard.kill(None, None);
@@ -241,13 +226,9 @@ impl HelixContain {
         _old_owner: Option<&Arc<RwLock<Player>>>,
         new_owner: Option<&Arc<RwLock<Player>>>,
     ) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
+            if let Some(portable) = self.base.objects().get_object(portable_id)
             {
                 if let (Ok(mut portable_guard), Some(new_owner_arc)) = (portable.write(), new_owner)
                 {
@@ -270,12 +251,8 @@ impl HelixContain {
     /// Called when this object starts containing another object
     /// Matches C++ HelixContain::onContaining (HelixContain.cpp:368-393)
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -321,12 +298,8 @@ impl HelixContain {
     /// Called when removing an object from containment
     /// Matches C++ HelixContain::onRemoving (HelixContain.cpp:395-404)
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -346,15 +319,11 @@ impl HelixContain {
         _old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if new_state != BodyDamageType::Rubble {
             if let Some(portable_id) = self.portable_structure_id() {
                 if let Some(portable) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
+                    self.base.objects().get_object(portable_id)
                 {
                     let Ok(portable_guard) = portable.try_read() else {
                         return Err("Helix portable lock busy".into());
@@ -376,10 +345,6 @@ impl HelixContain {
     /// Update method called once per frame
     /// Matches C++ HelixContain::update (HelixContain.cpp:98-109)
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
-        // Wave 274: empty dual-world → sleep forever (no factory walks).
-        if dual_world_registry_unavailable() {
-            return Ok(UpdateSleepTime::Forever);
-        }
 
         if !self.base.is_payload_created() {
             if let Err(err) = self.create_payload() {
@@ -390,7 +355,7 @@ impl HelixContain {
         // Update portable structure position to follow Helix (matches C++ lines 101-105)
         if let Some(_portable_id) = self.portable_structure_id {
             if let Some(portable_obj) =
-                crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id)
+                self.base.objects().get_object(_portable_id)
             {
                 if let Some((owner_pos, owner_orient)) =
                     self.with_owner_object(|owner| (*owner.get_position(), owner.get_orientation()))
@@ -424,12 +389,8 @@ impl HelixContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Helix contain object not found")?;
 
@@ -510,12 +471,8 @@ impl HelixContain {
 
     /// Add object to contain list
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Helix contain object not found")?;
 
@@ -554,12 +511,8 @@ impl HelixContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -601,7 +554,7 @@ impl HelixContain {
     pub fn is_enclosing_container_for(&self, obj: &Object) -> bool {
         if let Some(portable_id) = self.portable_structure_id {
             if portable_id == obj.get_id() {
-                let is_same = crate::object::registry::OBJECT_REGISTRY
+                let is_same = self.base.objects()
                     .with_object(portable_id, |portable_guard| {
                         portable_guard.get_id() == obj.get_id()
                     })
@@ -632,7 +585,7 @@ impl HelixContain {
                 }
             }
 
-            if let Some(rider) = TheGameLogic::find_object_by_id(obj_id) {
+            if let Some(rider) = self.base.objects().get_object(obj_id) {
                 if let Ok(rider_guard) = rider.try_read() {
                     if rider_guard.is_kind_of(crate::common::KindOf::Infantry) {
                         return self.base.is_passenger_allowed_to_fire(id);
@@ -651,13 +604,9 @@ impl HelixContain {
     }
 
     pub fn friend_get_rider(&self) -> Option<ObjectID> {
-        // Wave 274: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
 
         let id = self.portable_structure_id()?;
-        let portable = crate::object::registry::OBJECT_REGISTRY.get_object(id)?;
+        let portable = self.base.objects().get_object(id)?;
         let guard = portable.read().ok()?;
         if guard.is_kind_of(crate::common::KindOf::PortableStructure) {
             Some(id)
@@ -668,13 +617,9 @@ impl HelixContain {
 
     /// Flash contained units as selected when container is selected
     pub fn client_visible_contained_flash_as_selected(&mut self) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
+            if let Some(portable) = self.base.objects().get_object(portable_id)
             {
                 let drawable = {
                     let Ok(portable_guard) = portable.try_read() else {
@@ -697,17 +642,13 @@ impl HelixContain {
 
     /// Redeploy occupants
     pub fn redeploy_occupants(&mut self) -> GameResult<()> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if let Some(mut fire_pos) =
             self.with_owner_object(|owner_guard| *owner_guard.get_position())
         {
             fire_pos.z += 8.0;
             for rider_id in self.base.base.get_contained_object_ids().to_vec() {
-                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
+                if let Some(rider) = self.base.objects().get_object(rider_id) {
                     if let Ok(mut rider_guard) = rider.write() {
                         if let Err(err) = rider_guard.set_position(&fire_pos) {
                             log::warn!(
@@ -897,7 +838,7 @@ impl ContainModuleInterface for HelixContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
             })
@@ -1005,7 +946,7 @@ impl ContainModuleInterface for HelixContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1105,12 +1046,8 @@ impl ContainModuleInterface for HelixContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1125,12 +1062,8 @@ impl ContainModuleInterface for HelixContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 274: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 

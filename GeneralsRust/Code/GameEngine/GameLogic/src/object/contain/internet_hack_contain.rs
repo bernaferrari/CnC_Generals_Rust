@@ -76,7 +76,7 @@ impl InternetHackContain {
     }
 
     fn on_containing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(rider) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -112,7 +112,7 @@ impl ContainModuleInterface for InternetHackContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self.base.is_valid_container_for(&*obj_guard, true);
             })
@@ -191,7 +191,7 @@ impl ContainModuleInterface for InternetHackContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
