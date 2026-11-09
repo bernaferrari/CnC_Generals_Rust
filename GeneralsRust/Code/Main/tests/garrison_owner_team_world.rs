@@ -679,7 +679,7 @@ fn cave_snapshot_postload_restores_receiving_passengers_and_original_team() {
     let (first, second) = make_caves(&mut source);
     let (peer_first, peer_second) = make_caves(&mut peer);
     assert_eq!((first, second, rider), (peer_first, peer_second, peer_rider));
-    let original_team = source.host_object(first).unwrap().team_instance_id;
+    let original_team = source.host_object(first).unwrap().team_instance_identity();
     source.unit_command_set_ai_state(rider, AIState::Entering).unwrap();
     source.host_object_mut(rider).unwrap().target = Some(first);
     source.try_physics_collide(rider, first, 1.0).unwrap();
@@ -702,8 +702,8 @@ fn cave_snapshot_postload_restores_receiving_passengers_and_original_team() {
     assert!(receiving.host_object(rider).unwrap().drawable_hidden);
     assert_eq!(receiving.host_object(first).unwrap().owner_player_id, Some(2));
     assert!(receiving.exit_cave_unit(rider, second));
-    assert_eq!(receiving.host_object(first).unwrap().team_instance_id, original_team);
-    assert_eq!(receiving.host_object(second).unwrap().team_instance_id, original_team);
+    assert_eq!(receiving.host_object(first).unwrap().team_instance_identity(), original_team);
+    assert_eq!(receiving.host_object(second).unwrap().team_instance_identity(), original_team);
     assert_eq!(receiving.host_object(rider).unwrap().contained_by, None);
     assert!(!receiving.host_object(rider).unwrap().drawable_hidden);
     assert_eq!(source.cave_system_residual().contained_for_index(7), vec![rider]);

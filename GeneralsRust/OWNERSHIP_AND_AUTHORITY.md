@@ -3260,4 +3260,7 @@ GameLogic transfers its receiving world's CaveSystem, even if another world is
 published. A missing cave owner or poisoned tracker fails the snapshot rather
 than silently substituting empty state. Native cave entry, capture, exit and
 death still require the full world-owned lifecycle migration (hq-ssws0).
+Main host cave evacuation and death use the receiving world's shared roster;
+snapshot restore retains cave entrances, passengers and original team identity.
+Core's separate containment lifecycle still retains ambient paths.
 
