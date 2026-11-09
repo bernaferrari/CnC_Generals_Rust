@@ -2569,16 +2569,24 @@ mod tests {
         assert_eq!((first.get_rank_level_limit(), second.get_rank_level_limit()), (2, 4));
 
         let rank_after_set = |owner: &Arc<crate::system::engine_stores::EngineStores>| {
-            with_listed_player_mut(owner.services().players(), 0, |player, cap| {
-                player.set_rank_level(5, cap);
-                player.get_rank_level()
+            crate::system::engine_stores::with_active_stores(owner, || {
+                *game_engine::common::ini::get_rank_info_store_mut() =
+                    game_engine::common::ini::RankInfoStore::new();
+                {
+                    use crate::system::rank_info::{RankDefinition, RankDefinitionMode, RankInfoStore};
+                    let mut ranks = owner.services().rank_info_store().write().unwrap();
+                    *ranks = RankInfoStore::new();
+                    for rank in 1..=5 {
+                        ranks.apply_rank_definition(RankDefinition::new(rank, RankDefinitionMode::Create)).unwrap();
+                    }
+                }
+                with_listed_player_mut(owner.services().players(), 0, |player, cap| {
+                    player.set_rank_level(5, cap);
+                    player.get_rank_level()
+                }).unwrap()
             })
-            .unwrap()
         };
-        // Rank store may cap below 5 in fixtures; the world cap is the binding one.
-        let (rank_a, rank_b) = (rank_after_set(&a), rank_after_set(&b));
-        assert!(rank_a <= 2 && rank_b <= 4, "{rank_a} {rank_b}");
-        assert!(rank_a <= rank_b);
+        assert_eq!((rank_after_set(&a), rank_after_set(&b)), (2, 4));
 
         first.set_rank_level_limit(-5);
         assert_eq!((first.get_rank_level_limit(), second.get_rank_level_limit()), (1, 4));
