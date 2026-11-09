@@ -134,6 +134,55 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
     });
 }
 
+#[test]
+fn cave_index_script_uses_the_interpreters_world_with_foreign_world_active() {
+    use crate::object::contain::{CaveContain, CaveContainModuleData};
+    use crate::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use crate::scripting::engine::ScriptEngine;
+    use crate::scripting::executor::{ScriptActionDispatcher, ScriptContext};
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+    use std::cell::RefCell;
+
+    let receiving = Arc::new(EngineStores::new_for_world());
+    let foreign = Arc::new(EngineStores::new_for_world());
+    let id = 0xFACA_0004;
+    let mut owners = Vec::new();
+    for world in [&receiving, &foreign] {
+        let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+        let caves = Arc::clone(&world.services().logic_managers().cave);
+        let mut cave = CaveContain::new(Arc::downgrade(&owner), &CaveContainModuleData::default(), Some(caves)).unwrap();
+        cave.on_owner_created().unwrap();
+        owner.write().unwrap().set_contain(Some(Arc::new(Mutex::new(cave))));
+        world.services().object_registry().register_object(id, &owner);
+        world.services().scripts().named_objects().register_named_object("Cave".into(), id).unwrap();
+        owners.push(owner);
+    }
+    let receiving_caves = &receiving.services().logic_managers().cave;
+    let foreign_caves = &foreign.services().logic_managers().cave;
+    let old = receiving_caves.lock().unwrap().get_tunnel_tracker_for_cave_index(0).unwrap();
+    old.write().unwrap().add_to_contain_list(123).unwrap();
+    let engine = ScriptEngine::new_with_services(receiving.services()).unwrap();
+    let state = RefCell::new(ScriptContext::new());
+    let mut action = ScriptAction::new(ScriptActionType::SetCaveIndex);
+    action.add_parameter(Parameter::with_string(ParameterType::Unit, "Cave".into())).unwrap();
+    action.add_parameter(Parameter::with_int(ParameterType::Int, 2)).unwrap();
+    with_active_stores(&foreign, || {
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
+        dispatcher.execute_action(&action).unwrap();
+        assert_eq!(receiving_caves.lock().unwrap().registered_indices(), vec![0]);
+        old.write().unwrap().remove_from_contain(123, false).unwrap();
+        dispatcher.execute_action(&action).unwrap();
+        assert_eq!(receiving_caves.lock().unwrap().registered_indices(), vec![0, 2]);
+        assert_eq!(old.read().unwrap().get_tunnel_count(), 0);
+        let moved = receiving_caves.lock().unwrap().get_tunnel_tracker_for_cave_index(2).unwrap();
+        assert_eq!(moved.read().unwrap().get_tunnel_count(), 1);
+        let foreign_old = foreign_caves.lock().unwrap().get_tunnel_tracker_for_cave_index(0).unwrap();
+        assert_eq!(foreign_old.read().unwrap().get_tunnel_count(), 1);
+        assert_eq!(foreign_caves.lock().unwrap().registered_indices(), vec![0]);
+    });
+    drop(owners);
+}
+
 struct FailingTemplate {
     base: crate::common::DefaultThingTemplate,
     modules: Vec<crate::common::TemplateModuleInfo>,

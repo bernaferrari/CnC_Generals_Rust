@@ -532,7 +532,13 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Script hook for cave/tunnel containers (default: no-op).
-    fn try_to_set_cave_index(&mut self, _new_index: Int) {}
+    fn try_to_set_cave_index(
+        &mut self,
+        _new_index: Int,
+        _caves: &mut crate::system::cave_system::CaveSystem,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
 
     /// Script hook for garrison evac disposition (default: no-op).
     fn set_evac_disposition(&mut self, _disposition: UnsignedInt) {}

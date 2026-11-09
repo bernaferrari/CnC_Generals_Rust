@@ -734,7 +734,6 @@ impl GameLogic {
         let supply_centers =
             gamelogic::scripting::take_host_ai_player_build_supply_center_requests();
         let nearest = gamelogic::scripting::take_host_ai_player_build_type_nearest_team_requests();
-        let cave_indexes = gamelogic::scripting::take_host_set_cave_index_requests();
         let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
         let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
         let sciences = gamelogic::scripting::take_host_science_action_requests();
@@ -743,7 +742,6 @@ impl GameLogic {
             && builds.is_empty()
             && supply_centers.is_empty()
             && nearest.is_empty()
-            && cave_indexes.is_empty()
             && unit_flags.is_empty()
             && team_flags.is_empty()
             && sciences.is_empty()
@@ -788,9 +786,6 @@ impl GameLogic {
             }
         }
         self.ai_manager = ai_mgr;
-        for (cave_name, index) in cave_indexes {
-            let _ = self.set_named_cave_index(&cave_name, index);
-        }
         for (unit_name, flag_name, enable) in unit_flags {
             if let Some(id) = self.host_object_id_by_script_name(&unit_name) {
                 if panel_flag_is_indestructible(&flag_name) {

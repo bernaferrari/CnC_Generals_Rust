@@ -164,23 +164,20 @@ fn ini_cave_index_registers_on_create() {
 }
 
 #[test]
-fn leftover_set_cave_index_drains_onto_live_host() {
+fn set_cave_index_runs_on_the_receiving_host() {
     let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
 
-    // C++ ScriptActions.cpp:5063 SET_CAVE_INDEX on empty leftover registry.
+    // C++ ScriptActions.cpp:5063 SET_CAVE_INDEX targets the named cave immediately.
     let mut logic = GameLogic::new();
     let a = create_cave(&mut logic, "CaveScriptA", Vec3::ZERO, 0);
     let b = create_cave(&mut logic, "CaveScriptB", Vec3::new(40.0, 0.0, 0.0), 0);
     assert_eq!(logic.cave_system.index_of(a), Some(0));
     assert_eq!(logic.cave_system.index_of(b), Some(0));
 
-    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
-    use gamelogic::scripting::executor::{
-        ScriptActionDispatcher, ScriptActionResult, ScriptContext,
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
     };
-    use std::sync::{Arc, RwLock};
-
-    let _ = gamelogic::scripting::take_host_set_cave_index_requests();
     let mut action = ScriptAction::new(ScriptActionType::SetCaveIndex);
     action
         .add_parameter(Parameter::with_string(
@@ -191,13 +188,16 @@ fn leftover_set_cave_index_drains_onto_live_host() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 2))
         .expect("cave index");
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    assert_eq!(
-        dispatcher.execute_action(&action).expect("SET_CAVE_INDEX"),
-        ScriptActionResult::Success
-    );
-    logic.apply_host_set_cave_index_requests();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.condition = Some(Box::new(condition));
+    script.is_one_shot = true;
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    dispatch_engine.set_script_list_for_player(0, Some(Box::new(list))).unwrap();
+    logic.update_local_script_engine_with_owner(&dispatch_engine).unwrap();
     assert_eq!(logic.host_object(b).unwrap().cave_index, 2);
     assert_eq!(logic.cave_system.index_of(b), Some(2));
     assert_eq!(logic.cave_system.index_of(a), Some(0));

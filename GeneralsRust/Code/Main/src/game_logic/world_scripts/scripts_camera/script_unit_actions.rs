@@ -3,13 +3,6 @@
 use super::*;
 
 impl GameLogic {
-    /// C++ ScriptActions::doSetCaveIndex live drain.
-    pub fn apply_host_set_cave_index_requests(&mut self) {
-        for (cave_name, index) in gamelogic::scripting::take_host_set_cave_index_requests() {
-            let _ = self.set_named_cave_index(&cave_name, index);
-        }
-    }
-
     /// C++ ScriptActions TEAM/NAMED attack live drain.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; unsupported legacy
     /// attack actions queue [`gamelogic::scripting::HostScriptMoveAttackRequest`].

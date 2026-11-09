@@ -2607,6 +2607,10 @@ pub struct ScriptEngine {
     instance_id: u64,
     /// Roster of the world that constructed this engine, for Core rank actions.
     players: Arc<RwLock<crate::player::PlayerList>>,
+    /// Exact world owners for Core cave-index actions.
+    cave_system: Arc<Mutex<crate::system::cave_system::CaveSystem>>,
+    cave_objects: Arc<crate::object::registry::ObjectRegistry>,
+    cave_names: Arc<NamedObjectTracker>,
     /// Synchronous re-entry budget for this engine, independent of its peers.
     /// The guard holds only this scalar, never an inner-state borrow across dispatch.
     subroutine_call_depth: Cell<u32>,

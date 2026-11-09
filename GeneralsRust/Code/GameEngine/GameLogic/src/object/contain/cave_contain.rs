@@ -667,50 +667,33 @@ impl CaveContain {
     }
 
     /// Try to set a new cave index
-    pub fn try_to_set_cave_index(&mut self, new_index: i32) -> GameResult<()> {
-        // Each phase borrows the cave system only for its own step; the borrow
-        // ends before tracker callbacks run (they can re-enter other caves).
-        if self.cave_system.is_none() {
+    pub fn try_to_set_cave_index(&mut self, new_index: i32, system: &mut CaveSystem) -> GameResult<()> {
+        // Both tracker rosters must be empty before C++ retires the old
+        // entrance, so there are no passenger callbacks to run during this
+        // borrow (CaveSystem.cpp:44-65, TunnelTracker.cpp:187-212).
+        if !system.can_switch_index_to_index(self.cave_index, new_index)? {
             return Ok(());
         }
 
-        let can_switch = self
-            .with_cave_system(|system| system.can_switch_index_to_index(self.cave_index, new_index))?
-            .unwrap_or(false);
-
-        if !can_switch {
-            return Ok(());
-        }
-
-        // Unregister from old index
-        let old_tracker = self
-            .with_cave_system_mut(|system| {
-                let tracker = self.tracker_in(system)?;
-                self.unregister_in(system)?;
-                Ok(tracker)
-            })?
-            .ok_or("Cave system unavailable")?;
-
-        if let Ok(mut tunnel) = old_tracker.write() {
+        let old_tracker = self.tracker_in(system)?;
+        self.unregister_in(system)?;
+        {
+            let mut tunnel = old_tracker.write().map_err(|_| GameError::LockError)?;
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
-                tunnel.on_tunnel_destroyed_id(owner_id)?;
+                tunnel.retire_entrance_metadata(owner_id);
             }
         }
 
-        // Register with new index
         self.cave_index = new_index;
-        let new_tracker = self
-            .with_cave_system_mut(|system| self.register_in(system))?
-            .ok_or("Cave system unavailable")?;
-
-        if let Ok(mut tunnel) = new_tracker.write() {
+        let new_tracker = self.register_in(system)?;
+        {
+            let mut tunnel = new_tracker.write().map_err(|_| GameError::LockError)?;
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
                 tunnel.on_tunnel_created_id(owner_id)?;
             }
         }
-
         Ok(())
     }
 
@@ -1027,8 +1010,12 @@ impl ContainModuleInterface for CaveContain {
         Snapshotable::load_post_process(self)
     }
 
-    fn try_to_set_cave_index(&mut self, new_index: crate::common::Int) {
-        let _ = CaveContain::try_to_set_cave_index(self, new_index as i32);
+    fn try_to_set_cave_index(
+        &mut self,
+        new_index: crate::common::Int,
+        system: &mut CaveSystem,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        CaveContain::try_to_set_cave_index(self, new_index, system)
     }
 
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
