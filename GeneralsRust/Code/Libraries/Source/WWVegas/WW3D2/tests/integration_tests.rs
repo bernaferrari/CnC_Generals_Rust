@@ -13,7 +13,7 @@ use ww3d_renderer_3d::rendering::wgpu_renderer::runtime::RuntimeBuilder;
 use ww3d_renderer_3d::Renderer;
 use ww3d_renderer_3d::Scene;
 use ww3d_particles::ParticleSystemManager;
-use ww3d_animation::AnimationManager;
+use ww3d_animation::HAnimManager;
 use ww3d_physics::PhysicsWorld;
 use ww3d_collision::{CollisionWorld, CollisionShape};
 use std::sync::Arc;
@@ -155,19 +155,16 @@ fn test_material_system_integration() {
 fn test_animation_system_basics() {
     println!("🎭 Testing animation system basics...");
 
-    // Test animation manager creation
-    let animation_manager = AnimationManager::new();
-    assert!(animation_manager.is_valid(), "Animation manager should be valid");
+    use ww3d_animation::{AnimChannelKind, HAnimClass, HRawAnimClass, MotionChannelClass};
 
-    // Test basic animation structures
-    use ww3d_animation::{AnimationClip, Keyframe};
-
-    let mut clip = AnimationClip::new("test_animation".to_string());
-    clip.add_keyframe(Keyframe::new(0.0, Vec3::ZERO, glam::Quat::IDENTITY));
-    clip.add_keyframe(Keyframe::new(1.0, Vec3::new(1.0, 0.0, 0.0), glam::Quat::IDENTITY));
-
-    assert_eq!(clip.keyframes.len(), 2, "Animation clip should have 2 keyframes");
-    assert_eq!(clip.name, "test_animation");
+    let mut raw = HRawAnimClass::new("test_animation", "test_hierarchy", 2, 30);
+    raw.add_channel(MotionChannelClass::try_new(
+        1, AnimChannelKind::X, 0, 1, vec![0.0, 1.0],
+    ).unwrap());
+    let mut animation_manager = HAnimManager::new();
+    animation_manager.add_anim(Arc::new(HAnimClass::from_raw(raw)));
+    let animation = animation_manager.get_anim("test_animation").unwrap();
+    assert_eq!(animation.get_translation(1, 1.0).x, 1.0);
 
     println!("✅ Animation system basics test passed");
 }

@@ -1685,9 +1685,10 @@ impl W3DModel {
         {
             return false;
         }
-        if animation.source_is_compressed && animation.compressed_anim.as_ref()
-            .is_none_or(|compressed| compressed.get_num_pivots() > hierarchy.pivots.len()) {
-            return false;
+        if let W3dAnimationMotion::Compressed(compressed) = &animation.motion {
+            if compressed.get_num_pivots() > hierarchy.pivots.len() {
+                return false;
+            }
         }
 
         match binding {

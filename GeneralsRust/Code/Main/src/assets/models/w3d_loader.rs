@@ -1649,213 +1649,19 @@ impl W3DLoader {
         })
     }
 
-    /// Parse W3D animation chunk (0x200) — ported from standalone parser's parse_animation_chunk
+    /// Parse a W3D animation chunk (0x200) with the canonical
+    /// `HRawAnimClass::Load_W3D` owner. A malformed channel fails the whole
+    /// animation, so its draw binding stays unanimated as in C++.
     pub(super) fn parse_animation_chunk(&self, data: &[u8]) -> Result<W3dAnimation> {
-        let mut name = String::new();
-        let mut hierarchy_name = String::new();
-        let mut animation_version = None;
-        let mut num_frames: u32 = 0;
-        let mut frame_rate: u32 = 0;
-        let mut channels: Vec<W3dAnimChannel> = Vec::new();
-        let mut raw_visibility_channels: Vec<W3dRawVisibilityChannel> = Vec::new();
-        let mut unsupported_visibility_pivots: Vec<Option<u16>> = Vec::new();
-        let mut offset = 0usize;
-
-        while offset + 8 <= data.len() {
-            let chunk_type = u32::from_le_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
-            let raw_chunk_size = u32::from_le_bytes([
-                data[offset + 4],
-                data[offset + 5],
-                data[offset + 6],
-                data[offset + 7],
-            ]);
-            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
-
-            if offset + 8 + chunk_size > data.len() {
-                break;
-            }
-
-            let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
-
-            match chunk_type {
-                W3D_CHUNK_ANIMATION_HEADER => {
-                    // version(u32) + name[16] + hierarchy_name[16] + num_frames(u32) + frame_rate(u32)
-                    // = 4 + 16 + 16 + 4 + 4 = 44 bytes
-                    if chunk_data.len() < 44 {
-                        return Err(anyhow!("animation header too small: {}", chunk_data.len()));
-                    }
-                    let version = u32::from_le_bytes([
-                        chunk_data[0],
-                        chunk_data[1],
-                        chunk_data[2],
-                        chunk_data[3],
-                    ]);
-                    animation_version = Some(version);
-                    let mut n = String::new();
-                    for i in 4..4 + W3D_NAME_LEN {
-                        if chunk_data[i] == 0 {
-                            break;
-                        }
-                        n.push(chunk_data[i] as char);
-                    }
-                    name = n;
-                    let mut hn = String::new();
-                    for i in 20..20 + W3D_NAME_LEN {
-                        if i >= chunk_data.len() || chunk_data[i] == 0 {
-                            break;
-                        }
-                        hn.push(chunk_data[i] as char);
-                    }
-                    hierarchy_name = hn;
-                    num_frames = u32::from_le_bytes([
-                        chunk_data[36],
-                        chunk_data[37],
-                        chunk_data[38],
-                        chunk_data[39],
-                    ]);
-                    frame_rate = u32::from_le_bytes([
-                        chunk_data[40],
-                        chunk_data[41],
-                        chunk_data[42],
-                        chunk_data[43],
-                    ]);
-                    debug!(
-                        "Animation header: name='{}', hierarchy='{}', version=0x{:08X}, frames={}, fps={}",
-                        name, hierarchy_name, version, num_frames, frame_rate
-                    );
-                }
-                W3D_CHUNK_ANIMATION_CHANNEL => {
-                    // first_frame(u16) + last_frame(u16) + vector_len(u16) + flags(u16) + pivot(u16) + pad(u16)
-                    // = 12 bytes header, rest is f32 data
-                    if chunk_data.len() < 12 {
-                        offset += 8 + chunk_size;
-                        continue;
-                    }
-                    let first_frame = u16::from_le_bytes([chunk_data[0], chunk_data[1]]);
-                    let last_frame = u16::from_le_bytes([chunk_data[2], chunk_data[3]]);
-                    let vector_len = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
-                    let flags = u16::from_le_bytes([chunk_data[6], chunk_data[7]]);
-                    let pivot = u16::from_le_bytes([chunk_data[8], chunk_data[9]]);
-                    let remaining = chunk_size.saturating_sub(12);
-                    let count_f32 = remaining / 4;
-                    let mut chan_data = Vec::with_capacity(count_f32);
-                    for i in 0..count_f32 {
-                        let off = 12 + i * 4;
-                        if off + 4 > chunk_data.len() {
-                            break;
-                        }
-                        chan_data.push(f32::from_le_bytes([
-                            chunk_data[off],
-                            chunk_data[off + 1],
-                            chunk_data[off + 2],
-                            chunk_data[off + 3],
-                        ]));
-                    }
-                    channels.push(W3dAnimChannel {
-                        first_frame,
-                        last_frame,
-                        vector_len,
-                        flags,
-                        pivot,
-                        data: chan_data,
-                    });
-                }
-                W3D_CHUNK_BIT_CHANNEL => {
-                    // W3dBitChannelStruct has nine fixed bytes before the
-                    // packed bit stream: first/last/flags/pivot/default. C++
-                    // accepts this channel only for BIT_CHANNEL_VIS (0).
-                    if chunk_data.len() < 9 {
-                        unsupported_visibility_pivots.push(None);
-                        debug!(
-                            "Malformed raw W3D bit channel has no recoverable pivot, size: {}",
-                            chunk_size
-                        );
-                        offset += 8 + chunk_size;
-                        continue;
-                    }
-                    let first_frame = u16::from_le_bytes([chunk_data[0], chunk_data[1]]);
-                    let last_frame = u16::from_le_bytes([chunk_data[2], chunk_data[3]]);
-                    let flags = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
-                    let pivot = u16::from_le_bytes([chunk_data[6], chunk_data[7]]);
-                    if flags != 0 {
-                        // `HRawAnimClass::add_bit_channel` ignores types other
-                        // than BIT_CHANNEL_VIS, so they are not an HLOD
-                        // visibility fallback to guess at.
-                        debug!(
-                            "Ignoring non-visibility raw W3D bit channel type {} for pivot {}",
-                            flags, pivot
-                        );
-                    } else if last_frame < first_frame {
-                        unsupported_visibility_pivots.push(Some(pivot));
-                        debug!(
-                            "Malformed raw W3D visibility channel has inverted range {}..{} for pivot {}",
-                            first_frame, last_frame, pivot
-                        );
-                    } else {
-                        let bit_count = usize::from(last_frame - first_frame) + 1;
-                        let byte_count = (bit_count + 7) / 8;
-                        let expected_len = 9 + byte_count;
-                        if chunk_data.len() != expected_len {
-                            unsupported_visibility_pivots.push(Some(pivot));
-                            debug!(
-                                "Malformed raw W3D visibility channel for pivot {}: expected {} bytes, got {}",
-                                pivot,
-                                expected_len,
-                                chunk_data.len()
-                            );
-                        } else {
-                            raw_visibility_channels.push(W3dRawVisibilityChannel {
-                                first_frame,
-                                last_frame,
-                                flags,
-                                pivot,
-                                default_visible: chunk_data[8] != 0,
-                                bits: chunk_data[9..].to_vec(),
-                            });
-                        }
-                    }
-                }
-                _ => {}
-            }
-
-            offset += 8 + chunk_size;
-        }
-
-        if animation_version.is_some_and(|version| version < W3D_HTREE_ROOT_VERSION) {
-            // C++ `HRawAnimClass::{read_channel,read_bit_channel}` shifts
-            // every pre-3.0 source pivot after `HTreeClass` inserts its
-            // synthetic root.  `u16` wrapping matches the raw C++ field
-            // operation; a resulting out-of-range channel is safely ignored
-            // later by the same bounded pose sampler.
-            for channel in &mut channels {
-                channel.pivot = channel.pivot.wrapping_add(1);
-            }
-            for channel in &mut raw_visibility_channels {
-                channel.pivot = channel.pivot.wrapping_add(1);
-            }
-            for pivot in &mut unsupported_visibility_pivots {
-                if let Some(pivot) = pivot {
-                    *pivot = pivot.wrapping_add(1);
-                }
-            }
-        }
-
-        Ok(W3dAnimation {
-            name,
-            hierarchy_name,
-            num_frames,
-            frame_rate,
-            source_is_compressed: false,
-            channels,
-            raw_visibility_channels,
-            compressed_anim: None,
-            unsupported_visibility_pivots,
-        })
+        let raw = ww3d_animation::HRawAnimClass::load_w3d(data)?;
+        debug!(
+            "Animation header: name='{}', hierarchy='{}', frames={}, fps={}",
+            raw.get_name(),
+            raw.get_hierarchy_name(),
+            raw.get_num_frames(),
+            raw.get_frame_rate()
+        );
+        Ok(W3dAnimation::raw(raw))
     }
 
     /// Parse W3D compressed animation chunk (0x280) — handles both timecoded (flavor 0)
@@ -1885,17 +1691,12 @@ impl W3DLoader {
         let parsed = ww3d_animation::w3d_loader::parse_compressed_animation_chunk(
             &mut std::io::Cursor::new(data), u32::try_from(data.len())?, &|_| Some(pivots),
         )?;
-        Ok(W3dAnimation {
-            name: parsed.name,
-            hierarchy_name: parsed.hierarchy_name,
-            num_frames: parsed.num_frames,
-            frame_rate: parsed.frame_rate as u32,
-            source_is_compressed: true,
-            channels: Vec::new(),
-            raw_visibility_channels: Vec::new(),
-            compressed_anim: parsed.compressed_anim,
-            unsupported_visibility_pivots: Vec::new(),
-        })
+        let compressed = parsed
+            .compressed_anim
+            .ok_or_else(|| anyhow!("compressed animation without channels"))?;
+        // The header frame rate is a u16, so the float round-trips exactly.
+        let frame_rate = parsed.frame_rate as u32;
+        Ok(W3dAnimation::compressed(compressed, frame_rate))
     }
 
     /// Compute global bone transforms from hierarchy pivots.

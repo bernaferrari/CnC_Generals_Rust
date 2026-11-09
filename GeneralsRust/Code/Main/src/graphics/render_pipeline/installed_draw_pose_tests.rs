@@ -1,5 +1,6 @@
+use crate::assets::models::test_animation::{motion, raw_animation, visibility};
 use super::*;
-use crate::assets::{W3dAnimChannel, W3dAnimation, W3dHierarchy, W3dPivot};
+use crate::assets::{W3dAnimation, W3dHierarchy, W3dPivot};
 
 fn pivot(name: &str, parent_idx: u32, translation: [f32; 3], rotation: [f32; 4]) -> W3dPivot {
     W3dPivot {
@@ -148,24 +149,7 @@ fn missing_bone_is_full_source_identity_without_hierarchy_or_animation_advance()
 #[test]
 fn installed_hierarchy_validity_controls_lazy_sync_not_refresh_or_sync_identity() {
     let mut model = model_with_camera([0.; 3], [0., 0., 0., 1.]);
-    model.animations.push(W3dAnimation {
-        name: "MOVE".into(),
-        hierarchy_name: "TREE".into(),
-        num_frames: 4,
-        frame_rate: 1,
-        source_is_compressed: false,
-        raw_visibility_channels: Vec::new(),
-        compressed_anim: None,
-        unsupported_visibility_pivots: Vec::new(),
-        channels: vec![W3dAnimChannel {
-            first_frame: 0,
-            last_frame: 3,
-            vector_len: 1,
-            flags: 0,
-            pivot: 1,
-            data: vec![0., 10., 20., 30.],
-        }],
-    });
+    model.animations.push(raw_animation("MOVE", "TREE", 4, 1, vec![motion(1, 0, 0, 3, vec![0., 10., 20., 30.])], Vec::new()));
     let mut owner = state(model, Some(crate::assets::W3dAnimationBinding::local(0)));
     owner.animation = Some(ObjectAnimationState {
         animation_binding_key: Some(crate::assets::W3dAnimationBindingKey::Local(0)),
@@ -203,24 +187,7 @@ fn installed_hierarchy_validity_controls_lazy_sync_not_refresh_or_sync_identity(
 #[test]
 fn retained_hanim_survives_animationless_draw_and_is_saved_as_actual_motion() {
     let mut model = model_with_camera([0.; 3], [0., 0., 0., 1.]);
-    model.animations.push(W3dAnimation {
-        name: "MOVE".into(),
-        hierarchy_name: "TREE".into(),
-        num_frames: 4,
-        frame_rate: 1,
-        source_is_compressed: false,
-        raw_visibility_channels: Vec::new(),
-        compressed_anim: None,
-        unsupported_visibility_pivots: Vec::new(),
-        channels: vec![W3dAnimChannel {
-            first_frame: 0,
-            last_frame: 3,
-            vector_len: 1,
-            flags: 0,
-            pivot: 1,
-            data: vec![0., 10., 20., 30.],
-        }],
-    });
+    model.animations.push(raw_animation("MOVE", "TREE", 4, 1, vec![motion(1, 0, 0, 3, vec![0., 10., 20., 30.])], Vec::new()));
     let mut owner = state(model, Some(crate::assets::W3dAnimationBinding::local(0)));
     owner.identity = Some(FrozenVisualDrawIdentity {
         source_template_name: "CameraObject".into(),

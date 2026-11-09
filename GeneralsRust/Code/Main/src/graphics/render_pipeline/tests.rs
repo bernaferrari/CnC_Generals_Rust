@@ -1,3 +1,4 @@
+use crate::assets::models::test_animation::{motion, raw_animation, visibility};
 use super::*;
 use crate::assets::models::BlendMode;
 
@@ -12,24 +13,7 @@ fn bridge_test_pivot(name: &str, parent_idx: u32) -> crate::assets::W3dPivot {
 }
 
 fn bridge_test_animation(name: &str, x: f32) -> crate::assets::W3dAnimation {
-    crate::assets::W3dAnimation {
-        name: name.to_string(),
-        hierarchy_name: "RANGER_SKL".to_string(),
-        num_frames: 2,
-        frame_rate: 30,
-        source_is_compressed: false,
-        channels: vec![crate::assets::W3dAnimChannel {
-            first_frame: 0,
-            last_frame: 1,
-            vector_len: 1,
-            flags: 0,
-            pivot: 1,
-            data: vec![x, x],
-        }],
-        raw_visibility_channels: Vec::new(),
-        compressed_anim: None,
-        unsupported_visibility_pivots: Vec::new(),
-    }
+    raw_animation(name.to_string(), "RANGER_SKL".to_string(), 2, 30, vec![motion(1, 0, 0, 1, vec![x, x])], Vec::new())
 }
 
 #[test]
@@ -563,16 +547,10 @@ fn bridge_capture_controls_apply_to_the_same_gpu_palette_as_rigid_hlod_children(
     turret_mesh.container_name = "CAPTURE_HLOD".to_string();
     geometry.meshes.push(turret_mesh);
     geometry.animations.push(bridge_test_animation("IDLE", 0.0));
-    geometry.animations[0]
-        .channels
-        .push(crate::assets::W3dAnimChannel {
-            first_frame: 0,
-            last_frame: 1,
-            vector_len: 1,
-            flags: 0,
-            pivot: 0,
-            data: vec![0.0, 99.0],
-        });
+    let crate::assets::W3dAnimationMotion::Raw(raw) = &mut geometry.animations[0].motion else {
+        panic!("raw W3D animation");
+    };
+    raw.add_channel(motion(0, 0, 0, 1, vec![0.0, 99.0]));
 
     let material = W3DMaterial::default();
     let mut item = RenderItem::new(

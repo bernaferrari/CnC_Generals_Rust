@@ -1,3 +1,4 @@
+use crate::assets::models::test_animation::{motion, raw_animation, visibility};
 use super::*;
 use crate::assets::AuthoredDrawAnimationMode as Mode;
 fn animated_owner(
@@ -9,17 +10,7 @@ fn animated_owner(
     mult: f32,
 ) -> ObjectVisualState {
     let mut model = model_with_camera([0.; 3], [0., 0., 0., 1.]);
-    model.animations.push(W3dAnimation {
-        name: "MOVE".into(),
-        hierarchy_name: "TREE".into(),
-        num_frames: count,
-        frame_rate: 30,
-        source_is_compressed: false,
-        raw_visibility_channels: Vec::new(),
-        compressed_anim: None,
-        unsupported_visibility_pivots: Vec::new(),
-        channels: Vec::new(),
-    });
+    model.animations.push(raw_animation("MOVE", "TREE", count, 30, Vec::new(), Vec::new()));
     let mut owner = state(model, Some(crate::assets::W3dAnimationBinding::local(0)));
     owner.animation = Some(ObjectAnimationState {
         animation_binding_key: Some(crate::assets::W3dAnimationBindingKey::Local(0)),
