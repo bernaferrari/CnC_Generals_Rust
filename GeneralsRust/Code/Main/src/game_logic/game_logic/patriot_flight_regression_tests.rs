@@ -58,8 +58,8 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         ("patriot-regression.ini".into(), "Object PatriotRegressionCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nWeaponSet\nConditions = None\nWeapon = PRIMARY PatriotMissileWeapon\nEnd\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nEnd\nObject PatriotRegressionTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n".into()),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
-    let source = world.create_object_for_player("PatriotRegressionCarrier", 0, Vec3::new(100.0, 0.0, 100.0)).unwrap();
-    let target = world.create_object_for_player("PatriotRegressionTarget", 1, Vec3::new(280.0, 0.0, 100.0)).unwrap();
+    let source = world.create_object_for_player("PatriotRegressionCarrier", 0, Vec3::new(100.0, 30.0, 100.0)).unwrap();
+    let target = world.create_object_for_player("PatriotRegressionTarget", 1, Vec3::new(280.0, 30.0, 100.0)).unwrap();
     world.frame = 100;
     let target_pos = world.objects[&target].get_position();
     world.objects.get_mut(&source).unwrap().set_prev_victim_pos(Some(target_pos));
