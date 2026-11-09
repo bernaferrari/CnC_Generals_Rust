@@ -1660,7 +1660,7 @@ impl UIRenderer {
     /// `layout.bounds`: the same text drawn elsewhere must land at the new
     /// position (an absolute quad re-renders identical text at the first
     /// location it was rasterized at, i.e. jumping text).
-    fn draw_text_slot(&mut self, layout: &TextLayout, slot: text_atlas::TextSlot, z_order: f32) {
+    fn draw_text_slot(&mut self, layout: &TextLayout, slot: text_atlas::TextAtlasEntry, z_order: f32) {
         let quad = UIRect::new(
             layout.bounds.x + slot.quad.x,
             layout.bounds.y + slot.quad.y,
