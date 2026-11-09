@@ -33,7 +33,6 @@ fn rank_action_retains_science_callback_on_its_receiving_interpreter() {
         rank_two.sciences_granted.push(science);
         ranks.apply_rank_definition(rank_two).unwrap();
     }
-    gamelogic::helpers::TheGameLogic::set_rank_level_limit(1000);
 
     let mut core_player = CorePlayer::new(0);
     core_player.set_player_name_key(NameKeyGenerator::name_to_key("RankOwner"));

@@ -189,7 +189,7 @@ mod tests {
         let mut source = Player::new(0);
         source.init_from_dict_defaults();
         source.get_money_mut().set_money(7_654);
-        source.set_rank_level(4);
+        source.set_rank_level(4, crate::player::DEFAULT_RANK_LEVEL_LIMIT);
         // C++ setRankLevel clamps to the authored rank count. Verify the
         // actual saved value, rather than assuming this fixture loaded Rank.ini.
         let saved_rank = source.get_rank_level();
@@ -2546,25 +2546,56 @@ mod tests {
         );
     }
 
-    /// hq-yac16: each owned world publishes its own rank cap (C++ GameLogic.cpp
-    /// setRankLevelLimit clamps to 1); two worlds never see each other's cap.
+    /// hq-yac16: the rank cap is held once per world, with the roster that
+    /// lends its Players (C++ GameLogic.h setRankLevelLimit clamps to 1). Two
+    /// worlds with the same player index rank/award against their own cap.
     #[test]
-    fn rank_cap_publishes_to_owning_services_without_singleton_lock() {
+    fn rank_cap_is_owned_by_each_world_roster_and_caps_its_players() {
+        use crate::player::{with_listed_player_mut, Player};
         let a = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
         let b = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        for owner in [&a, &b] {
+            owner
+                .services()
+                .players()
+                .write()
+                .unwrap()
+                .add_player(Arc::new(RwLock::new(Player::new(0))));
+        }
         let mut first = GameLogic::new_with_engine_stores(Arc::clone(&a));
         let mut second = GameLogic::new_with_engine_stores(Arc::clone(&b));
-        let read = |s: &Arc<crate::system::engine_stores::EngineStores>| {
-            s.services()
-                .session_flags()
-                .rank_level_limit
-                .load(std::sync::atomic::Ordering::Relaxed)
-        };
         first.set_rank_level_limit(2);
         second.set_rank_level_limit(4);
-        assert_eq!((read(&a), read(&b)), (2, 4));
+        assert_eq!((first.get_rank_level_limit(), second.get_rank_level_limit()), (2, 4));
+
+        let rank_after_set = |owner: &Arc<crate::system::engine_stores::EngineStores>| {
+            with_listed_player_mut(owner.services().players(), 0, |player, cap| {
+                player.set_rank_level(5, cap);
+                player.get_rank_level()
+            })
+            .unwrap()
+        };
+        // Rank store may cap below 5 in fixtures; the world cap is the binding one.
+        let (rank_a, rank_b) = (rank_after_set(&a), rank_after_set(&b));
+        assert!(rank_a <= 2 && rank_b <= 4, "{rank_a} {rank_b}");
+        assert!(rank_a <= rank_b);
+
         first.set_rank_level_limit(-5);
-        assert_eq!((read(&a), read(&b)), (1, 4));
+        assert_eq!((first.get_rank_level_limit(), second.get_rank_level_limit()), (1, 4));
+        // Reset restores C++ GameLogic::reset's 1000 on the receiving world only.
+        first.set_rank_level_limit(crate::player::DEFAULT_RANK_LEVEL_LIMIT);
+        assert_eq!(second.get_rank_level_limit(), 4);
+
+        // Ownerless logic must keep its own cap, regardless of any published
+        // EngineStores and without changing either world's roster.
+        let mut standalone = GameLogic::new();
+        crate::system::engine_stores::with_active_stores(&a, || {
+            standalone.set_rank_level_limit(7);
+            assert_eq!(standalone.get_rank_level_limit(), 7);
+        });
+        assert_eq!(standalone.get_rank_level_limit(), 7);
+        assert_eq!(first.get_rank_level_limit(), 1000);
+        assert_eq!(second.get_rank_level_limit(), 4);
     }
 
     /// hq-r0o8i: C++ `TheScriptEngine` and its named-object table belong to

@@ -256,9 +256,6 @@ impl GameLogic {
             }
             warn!("Early scripting phase failed: {}", e);
         }
-        if let Some(level) = crate::system::game_logic::take_pending_rank_level_limit() {
-            self.rank_level_limit = level;
-        }
 
         // -----------------------------------------------------------------------
         // Phase 2: Time Freeze Check (C++ lines 3603-3617)
@@ -1431,9 +1428,6 @@ impl GameLogic {
             if let Some(engine) = engine_guard.as_mut() {
                 if let Err(e) = engine.update() {
                     warn!("ScriptEngine::update failed: {}", e);
-                }
-                if let Some(level) = crate::system::game_logic::take_pending_rank_level_limit() {
-                    self.rank_level_limit = level;
                 }
             }
         }

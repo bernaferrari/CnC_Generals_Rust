@@ -469,16 +469,17 @@ impl ScriptActionDispatcher<'_> {
         let points = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} skill points", player_name, points);
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.add_skill_points(points);
-                    log::info!("Player '{}' skill points added", player_name);
-                }
-            } else {
-                log::warn!("Player '{}' not found for add skill points", player_name);
+        let listed = self.context.borrowed_engine().players().read().ok().and_then(|list| {
+            list.find_player_by_name(&player_name)
+                .map(|player| (player, list.rank_level_limit()))
+        });
+        if let Some((player, cap)) = listed {
+            if let Ok(mut player) = player.write() {
+                player.add_skill_points(points, cap);
+                log::info!("Player '{}' skill points added", player_name);
             }
+        } else {
+            log::warn!("Player '{}' not found for add skill points", player_name);
         }
 
         Ok(ScriptActionResult::Success)
@@ -492,21 +493,18 @@ impl ScriptActionDispatcher<'_> {
         let levels = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} rank levels", player_name, levels);
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    let current_level = player_guard.get_rank_level();
-                    player_guard.set_rank_level(current_level + levels);
-                    log::info!(
-                        "Player '{}' rank level now {}",
-                        player_name,
-                        current_level + levels
-                    );
-                }
-            } else {
-                log::warn!("Player '{}' not found for add rank level", player_name);
+        let listed = self.context.borrowed_engine().players().read().ok().and_then(|list| {
+            list.find_player_by_name(&player_name)
+                .map(|player| (player, list.rank_level_limit()))
+        });
+        if let Some((player, cap)) = listed {
+            if let Ok(mut player) = player.write() {
+                let level = player.get_rank_level() + levels;
+                player.set_rank_level(level, cap);
+                log::info!("Player '{}' rank level now {}", player_name, level);
             }
+        } else {
+            log::warn!("Player '{}' not found for add rank level", player_name);
         }
 
         Ok(ScriptActionResult::Success)
@@ -520,16 +518,17 @@ impl ScriptActionDispatcher<'_> {
         let level = self.get_int_param(action, 1)?;
         log::info!("Player '{}' setting rank level to {}", player_name, level);
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_rank_level(level);
-                    log::info!("Player '{}' rank level set to {}", player_name, level);
-                }
-            } else {
-                log::warn!("Player '{}' not found for set rank level", player_name);
+        let listed = self.context.borrowed_engine().players().read().ok().and_then(|list| {
+            list.find_player_by_name(&player_name)
+                .map(|player| (player, list.rank_level_limit()))
+        });
+        if let Some((player, cap)) = listed {
+            if let Ok(mut player) = player.write() {
+                player.set_rank_level(level, cap);
+                log::info!("Player '{}' rank level set to {}", player_name, level);
             }
+        } else {
+            log::warn!("Player '{}' not found for set rank level", player_name);
         }
 
         Ok(ScriptActionResult::Success)
@@ -541,7 +540,12 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let limit = self.get_int_param(action, 0)?;
         log::debug!("Setting map rank level limit to {}", limit);
-        TheGameLogic::set_rank_level_limit(limit);
+        // C++ doMapSetRankLevelLimit -> TheGameLogic->setRankLevelLimit: the
+        // cap is visible to the very next rank/award operation of this world.
+        self.context.borrowed_engine().players()
+            .write()
+            .map_err(|_| ScriptError::ExecutionFailed("player roster poisoned".into()))?
+            .set_rank_level_limit(limit);
         Ok(ScriptActionResult::Success)
     }
 

@@ -323,8 +323,9 @@ fn xfer_game_logic_state_with_campaign(
     }
 
     if version >= 5 {
-        xfer.xfer_int(&mut logic.rank_level_limit)?;
-        publish_rank_cap_if_live(logic);
+        let mut rank_level_limit = logic.get_rank_level_limit();
+        xfer.xfer_int(&mut rank_level_limit)?;
+        logic.set_rank_level_limit(rank_level_limit);
     }
 
     if version >= 6 {

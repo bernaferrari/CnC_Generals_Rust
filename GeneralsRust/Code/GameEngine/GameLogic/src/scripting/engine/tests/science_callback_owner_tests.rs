@@ -246,10 +246,6 @@ fn player_rank_up_and_down_callbacks_publish_exact_reset_science_sequence() {
     let rank_one = NameKeyGenerator::name_to_key("SCIENCE_RANK_TEST_ONE") as ScienceType;
     let rank_two = NameKeyGenerator::name_to_key("SCIENCE_RANK_TEST_TWO") as ScienceType;
     let _rank_catalog = RankCatalogRestore::install(&[vec![rank_one], vec![rank_two]]);
-    assert!(
-        crate::helpers::TheGameLogic::get_rank_level_limit() >= 2,
-        "the public rank-level limit must permit authored rank 2"
-    );
 
     let mut common = CommonPlayerTemplate::new("FactionScienceRankOwnerTest".into());
     common.intrinsic_sciences = vec!["SCIENCE_RANK_TEST_INTRINSIC".into()];
@@ -267,8 +263,8 @@ fn player_rank_up_and_down_callbacks_publish_exact_reset_science_sequence() {
     impl ScriptExecutionDriver for RankDriver<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             if self.rank_up.is_none() {
-                self.rank_up = Some(self.player.set_rank_level(2));
-                self.rank_down = Some(self.player.set_rank_level(1));
+                self.rank_up = Some(self.player.set_rank_level(2, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
+                self.rank_down = Some(self.player.set_rank_level(1, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
             }
             Ok(())
         }

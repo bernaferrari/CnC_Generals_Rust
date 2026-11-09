@@ -185,21 +185,6 @@ impl TheGameLogic {
         }
     }
 
-    /// Get the global map/script rank cap.
-    pub fn get_rank_level_limit() -> Int {
-        crate::system::game_logic::rank_level_limit_now()
-    }
-
-    /// Set the global map/script rank cap.
-    pub fn set_rank_level_limit(level: Int) {
-        if crate::system::game_logic::note_rank_level_limit_during_update(level) {
-            return;
-        }
-        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            logic.set_rank_level_limit(level);
-        }
-    }
-
     /// Set a runtime buildability override for a template.
     pub fn set_buildable_status_override(template_name: &str, status: Int) {
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {

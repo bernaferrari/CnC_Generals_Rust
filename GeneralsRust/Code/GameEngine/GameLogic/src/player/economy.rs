@@ -547,18 +547,19 @@ impl Player {
         self.general_name = name;
     }
 
-    /// Set rank level, returns true if rank actually changed
+    /// Set rank level, returns true if rank actually changed.
     ///
-    /// Delegates to science_management module for full implementation
-    pub fn set_rank_level(&mut self, level: Int) -> Bool {
-        self.set_rank_level_impl(level)
+    /// `rank_level_limit` is the owning world's cap (C++
+    /// `TheGameLogic->getRankLevelLimit()`), supplied by whoever lent this
+    /// Player (see [`crate::player::with_listed_player_mut`]).
+    pub fn set_rank_level(&mut self, level: Int, rank_level_limit: Int) -> Bool {
+        self.set_rank_level_impl(level, rank_level_limit)
     }
 
-    /// Add skill points, returns true if player gained/lost levels
-    ///
-    /// Delegates to science_management module for full implementation
-    pub fn add_skill_points(&mut self, delta: Int) -> Bool {
-        self.add_skill_points_impl(delta)
+    /// Add skill points, returns true if player gained/lost levels.
+    /// `rank_level_limit` is the owning world's cap (see [`Self::set_rank_level`]).
+    pub fn add_skill_points(&mut self, delta: Int, rank_level_limit: Int) -> Bool {
+        self.add_skill_points_impl(delta, rank_level_limit)
     }
 
     /// Add skill points for killing an object
@@ -569,8 +570,14 @@ impl Player {
         killer: Option<ObjectID>,
         victim_under_construction: bool,
         victim_skill_value: Int,
+        rank_level_limit: Int,
     ) -> Bool {
-        self.add_skill_points_for_kill_impl(killer, victim_under_construction, victim_skill_value)
+        self.add_skill_points_for_kill_impl(
+            killer,
+            victim_under_construction,
+            victim_skill_value,
+            rank_level_limit,
+        )
     }
 
     /// Add science purchase points

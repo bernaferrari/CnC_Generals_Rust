@@ -1,33 +1,5 @@
 use std::sync::atomic::Ordering;
 
-pub fn rank_level_limit_now() -> i32 {
-    crate::system::engine_stores::active_services()
-        .session_flags()
-        .rank_level_limit
-        .load(Ordering::Relaxed)
-}
-
-pub fn publish_rank_level_limit(level: i32) {
-    crate::system::engine_stores::active_services()
-        .session_flags()
-        .rank_level_limit
-        .store(level, Ordering::Relaxed);
-}
-
-/// Publish the cap to the services of the EngineStores this logic was
-/// constructed with. No singleton lock is consulted, so a setter running while
-/// its own world is borrowed can no longer silently skip the publish.
-/// Logic created without an owner (`GameLogic::new`) publishes nothing.
-pub fn publish_rank_cap_if_live(logic: &GameLogic) {
-    if let Some(owner) = logic.pathfinding_owner.as_ref() {
-        owner
-            .services()
-            .session_flags()
-            .rank_level_limit
-            .store(logic.rank_level_limit, Ordering::Relaxed);
-    }
-}
-
 impl GameLogic {
     /// Create a new GameLogic instance
     pub fn new() -> Self {
@@ -103,10 +75,15 @@ impl GameLogic {
         self.is_scoring_enabled = enabled;
     }
 
-    /// Get the global map/script rank level cap.
+    /// Get the map/script rank level cap of this logic's world.
     /// C++ reference: GameLogic::getRankLevelLimit()
     pub fn get_rank_level_limit(&self) -> Int {
-        self.rank_level_limit
+        match self.pathfinding_owner.as_ref() {
+            Some(owner) => owner.services().players().read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .rank_level_limit(),
+            None => self.standalone_rank_level_limit,
+        }
     }
 
     /// Set a runtime buildability override for a template name.
@@ -127,12 +104,13 @@ impl GameLogic {
 
     /// Set the global map/script rank level cap.
     /// C++ reference: GameLogic::setRankLevelLimit()
-    pub fn set_rank_level_limit(&mut self, mut level: Int) {
-        if level < 1 {
-            level = 1;
+    pub fn set_rank_level_limit(&mut self, level: Int) {
+        match self.pathfinding_owner.as_ref() {
+            Some(owner) => owner.services().players().write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .set_rank_level_limit(level),
+            None => self.standalone_rank_level_limit = level.max(1),
         }
-        self.rank_level_limit = level;
-        publish_rank_cap_if_live(self);
     }
 
     /// Initialize the GameLogic system
@@ -207,8 +185,7 @@ impl GameLogic {
         self.show_behind_building_markers = true;
         self.draw_icon_ui = true;
         self.show_dynamic_lod = true;
-        self.rank_level_limit = 1000;
-        publish_rank_cap_if_live(self);
+        self.set_rank_level_limit(crate::player::DEFAULT_RANK_LEVEL_LIMIT);
         self.buildable_status_overrides.clear();
         self.partition_manager = PartitionManager::new();
         self.physics_world = PhysicsWorld::new();

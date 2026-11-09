@@ -310,7 +310,8 @@ pub struct GameLogic {
     show_behind_building_markers: Bool,
     draw_icon_ui: Bool,
     show_dynamic_lod: Bool,
-    rank_level_limit: Int,
+    /// Rank cap for a standalone logic without an EngineStores owner.
+    standalone_rank_level_limit: Int,
     buildable_status_overrides: HashMap<String, Int>,
     superweapon_restriction: UnsignedShort,
 
@@ -407,7 +408,7 @@ impl Default for GameLogic {
             show_behind_building_markers: true,
             draw_icon_ui: true,
             show_dynamic_lod: true,
-            rank_level_limit: 1000,
+            standalone_rank_level_limit: crate::player::DEFAULT_RANK_LEVEL_LIMIT,
             buildable_status_overrides: HashMap::new(),
             superweapon_restriction: 0,
             sleepy_updates: SleepyUpdateQueue::default(),

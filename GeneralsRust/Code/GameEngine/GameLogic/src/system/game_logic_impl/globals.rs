@@ -338,9 +338,6 @@ impl Drop for InUpdateFrameGuard {
         flags
             .in_update_frame_plus_one
             .store(0, std::sync::atomic::Ordering::Relaxed);
-        flags
-            .pending_rank_limit
-            .store(i32::MIN, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -353,38 +350,6 @@ pub(crate) fn enter_update_frame(frame: UnsignedInt) -> InUpdateFrameGuard {
         std::sync::atomic::Ordering::Relaxed,
     );
     InUpdateFrameGuard { services }
-}
-
-/// During `GameLogic::update`, record the clamped cap and publish it.
-/// Returns false outside an update so the caller locks the singleton.
-pub fn note_rank_level_limit_during_update(level: i32) -> bool {
-    let services = session_flags();
-    let flags = services.session_flags();
-    if flags
-        .in_update_frame_plus_one
-        .load(std::sync::atomic::Ordering::Relaxed)
-        == 0
-    {
-        return false;
-    }
-    let level = if level < 1 { 1 } else { level };
-    flags
-        .pending_rank_limit
-        .store(level, std::sync::atomic::Ordering::Relaxed);
-    true
-}
-
-pub fn take_pending_rank_level_limit() -> Option<i32> {
-    let services = session_flags();
-    let prev = services
-        .session_flags()
-        .pending_rank_limit
-        .swap(i32::MIN, std::sync::atomic::Ordering::Relaxed);
-    if prev == i32::MIN {
-        None
-    } else {
-        Some(prev)
-    }
 }
 
 /// Try to fetch the current simulation frame from the global GameLogic instance.

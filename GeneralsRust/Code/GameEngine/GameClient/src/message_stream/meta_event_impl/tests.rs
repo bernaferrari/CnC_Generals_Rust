@@ -869,7 +869,7 @@ mod tests {
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
             let mut local_guard = local_player.write().unwrap_or_else(|e| e.into_inner());
-            let _ = local_guard.set_rank_level(1);
+            let _ = local_guard.set_rank_level(1, gamelogic::player::DEFAULT_RANK_LEVEL_LIMIT);
         }
 
         {

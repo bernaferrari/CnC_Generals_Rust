@@ -162,8 +162,6 @@ pub struct GameLogic {
     pub(super) players: HashMap<u32, Player>,
     /// The one client-local player selected for this receiving session.
     pub(super) local_player_id: Option<u32>,
-    /// C++ GameLogic::m_rankLevelLimit; awards and scripts use this match's cap.
-    pub(super) rank_level_limit: i32,
     // C++ GameLogic::m_rankPointsToAddAtGameStart, retained for restart/Xfer.
     pub(super) rank_points_to_add_at_game_start: i32,
     pub(super) buildable_status_overrides: HashMap<String, i32>,
@@ -1479,13 +1477,24 @@ impl GameLogic {
         self.rank_points_to_add_at_game_start = points;
     }
 
+    /// C++ GameLogic::m_rankLevelLimit of this match. It is held with this
+    /// world's player roster, so Core script actions and Main awards read the
+    /// one cap of the world they run in.
     pub fn rank_level_limit(&self) -> i32 {
-        self.rank_level_limit
+        self.world_services
+            .players()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .rank_level_limit()
     }
 
     /// C++ GameLogic.h:206-209; changing the cap does not reset player ranks.
     pub fn set_rank_level_limit(&mut self, limit: i32) {
-        self.rank_level_limit = limit.max(1);
+        self.world_services
+            .players()
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_rank_level_limit(limit);
     }
 
     /// Freeze a Send-safe W3DModelDraw identity for one admitted object

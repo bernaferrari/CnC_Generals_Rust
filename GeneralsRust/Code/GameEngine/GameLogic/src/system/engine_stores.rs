@@ -44,10 +44,6 @@ pub struct SessionLogicFlags {
     pub script_group_name_id: AtomicU32,
     /// 0 = not inside GameLogic::update; else frame.saturating_add(1).
     pub in_update_frame_plus_one: AtomicU32,
-    /// Pending SetRankLevelLimit while update holds &mut self; i32::MIN = none.
-    pub pending_rank_limit: AtomicI32,
-    /// Published rank level cap (was process RANK_LEVEL_LIMIT_ATOMIC).
-    pub rank_level_limit: AtomicI32,
     pub rogue_eva_disable_warned: AtomicBool,
     pub world_epoch: AtomicU32,
     pub next_formation_id: AtomicU32,
@@ -77,8 +73,6 @@ impl Default for SessionLogicFlags {
             script_temp_group_id: AtomicU32::new(1),
             script_group_name_id: AtomicU32::new(0),
             in_update_frame_plus_one: AtomicU32::new(0),
-            pending_rank_limit: AtomicI32::new(i32::MIN),
-            rank_level_limit: AtomicI32::new(1000),
             rogue_eva_disable_warned: AtomicBool::new(false),
             world_epoch: AtomicU32::new(0),
             next_formation_id: AtomicU32::new(1),

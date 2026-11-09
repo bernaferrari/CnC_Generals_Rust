@@ -499,12 +499,13 @@ impl Player {
         &mut self,
         killer: &dyn game_engine::common::rts::player::SkillPointObject,
         victim: &dyn game_engine::common::rts::player::SkillPointObject,
+        rank_level_limit: Int,
     ) -> Bool {
         let skill_value = victim.get_skill_point_value(killer);
         if victim.is_under_construction() {
             return false;
         }
-        self.add_skill_points(skill_value)
+        self.add_skill_points(skill_value, rank_level_limit)
     }
 
     /// Retaliation mode

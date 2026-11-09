@@ -357,16 +357,16 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_GIVE_RANKLEVEL") {
-        let _ = with_local_player_mut(|player| {
-            let _ = player.set_rank_level(player.get_rank_level() + 1);
+        let _ = with_local_player_rank_capped_mut(|player, rank_level_limit| {
+            let _ = player.set_rank_level(player.get_rank_level() + 1, rank_level_limit);
         });
         ui.message("Adding a RankLevel");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TAKE_RANKLEVEL") {
-        let _ = with_local_player_mut(|player| {
-            let _ = player.set_rank_level(player.get_rank_level() - 1);
+        let _ = with_local_player_rank_capped_mut(|player, rank_level_limit| {
+            let _ = player.set_rank_level(player.get_rank_level() - 1, rank_level_limit);
         });
         ui.message("Subtracting a RankLevel");
         return Some(GameMessageDisposition::DestroyMessage);

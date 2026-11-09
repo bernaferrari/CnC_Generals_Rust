@@ -46,6 +46,10 @@ impl ScriptEngine {
     }
 
     const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
+    /// Roster associated with this interpreter at construction.
+    pub fn players(&self) -> &Arc<RwLock<crate::player::PlayerList>> {
+        &self.players
+    }
 
     pub fn new() -> GameLogicResult<Self> {
         // Prefer the published world; otherwise allocate a private owner so unit
@@ -79,6 +83,7 @@ impl ScriptEngine {
                 .session_flags()
                 .next_script_engine_instance_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            players: Arc::clone(services.players()),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),

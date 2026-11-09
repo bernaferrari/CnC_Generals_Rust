@@ -8,14 +8,33 @@ pub struct PlayerList {
     // index is constructor-only, so admission is the only time it is read.
     players: [Option<Arc<RwLock<Player>>>; MAX_PLAYER_COUNT],
     pub(super) local_player_index: PlayerIndex,
+    /// C++ `GameLogic::m_rankLevelLimit` for the world owning this roster.
+    /// Held beside the Players so every rank/skill mutation reads the cap
+    /// from the same owner that lent it the Player; never mirrored elsewhere.
+    rank_level_limit: Int,
 }
+
+/// C++ `GameLogic::reset` value for `m_rankLevelLimit`.
+pub const DEFAULT_RANK_LEVEL_LIMIT: Int = 1000;
 
 impl PlayerList {
     pub fn new() -> Self {
         Self {
             players: std::array::from_fn(|_| None),
             local_player_index: PLAYER_INDEX_INVALID,
+            rank_level_limit: DEFAULT_RANK_LEVEL_LIMIT,
         }
+    }
+
+    /// C++ `GameLogic::getRankLevelLimit`.
+    pub fn rank_level_limit(&self) -> Int {
+        self.rank_level_limit
+    }
+
+    /// C++ `GameLogic::setRankLevelLimit` (GameLogic.h:206-209): clamps to 1.
+    /// Changing the cap does not touch any Player's current rank.
+    pub fn set_rank_level_limit(&mut self, level: Int) {
+        self.rank_level_limit = level.max(1);
     }
 
     pub fn add_player(&mut self, player: Arc<RwLock<Player>>) {
@@ -194,6 +213,22 @@ pub fn with_player<R>(player: impl PlayerLookup, f: impl FnOnce(&Player) -> R) -
     let player = player.resolve_player()?;
     let guard = player.read().ok()?;
     Some(f(&guard))
+}
+
+/// Lend player `index` of an explicit roster together with that roster's rank
+/// cap. Rank and skill mutations take the cap of the world lending the Player
+/// (C++ `TheGameLogic->getRankLevelLimit()`), so no second cap is consulted.
+pub fn with_listed_player_mut<R>(
+    list: &RwLock<PlayerList>,
+    index: Int,
+    f: impl FnOnce(&mut Player, Int) -> R,
+) -> Option<R> {
+    let (player, rank_level_limit) = {
+        let list = list.read().ok()?;
+        (list.get_player(index).cloned()?, list.rank_level_limit())
+    };
+    let mut guard = player.write().ok()?;
+    Some(f(&mut guard, rank_level_limit))
 }
 
 /// Run `f` with exclusive access to the addressed player.

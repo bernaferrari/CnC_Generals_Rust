@@ -100,6 +100,17 @@ impl Object {
         crate::player::with_player_mut(self.get_controlling_player_id()? as Int, f)
     }
 
+    /// Lend the controlling Player with the rank cap of the roster it was
+    /// resolved from (C++ `TheGameLogic->getRankLevelLimit()`).
+    pub fn with_controlling_player_rank_capped_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Player, Int) -> R,
+    ) -> Option<R> {
+        let index = Int::try_from(self.get_controlling_player_id()?).ok()?;
+        let players = crate::player::try_player_list()?;
+        crate::player::with_listed_player_mut(&players, index, f)
+    }
+
     pub fn get_player_id(&self) -> Option<PlayerId> {
         self.get_controlling_player_id()
             .and_then(|raw| PlayerId::new(raw as u8))

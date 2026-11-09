@@ -153,6 +153,7 @@ impl ContainerFactory {
         container_type: &str,
         object: Arc<RwLock<Object>>,
         config: &str, // JSON or INI config
+        cave_system: &Arc<Mutex<crate::system::cave_system::CaveSystem>>,
     ) -> GameResult<Box<dyn ContainerInterface>> {
         let weak_object = Arc::downgrade(&object);
         drop(object);
@@ -183,7 +184,7 @@ impl ContainerFactory {
                 let container = CaveContain::new(
                     weak_object.clone(),
                     &data,
-                    Some(crate::system::cave_system::TheCaveSystem()),
+                    Some(Arc::clone(cave_system)),
                 )?;
                 Ok(Box::new(container))
             }

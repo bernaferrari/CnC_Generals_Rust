@@ -2600,6 +2600,8 @@ pub struct ScriptEngine {
     /// raw pointer this is never dereferenced; it only prevents a nested,
     /// different `ScriptEngine` from borrowing the outer engine's lists.
     instance_id: u64,
+    /// Roster of the world that constructed this engine, for Core rank actions.
+    players: Arc<RwLock<crate::player::PlayerList>>,
     /// Synchronous re-entry budget for this engine, independent of its peers.
     /// The guard holds only this scalar, never an inner-state borrow across dispatch.
     subroutine_call_depth: Cell<u32>,

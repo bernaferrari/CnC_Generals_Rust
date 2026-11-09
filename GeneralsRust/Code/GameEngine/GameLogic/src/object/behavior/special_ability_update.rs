@@ -1182,8 +1182,8 @@ impl SpecialAbilityUpdate {
                 self.module_data.award_xp_for_triggering
             };
             if skill_points > 0 {
-                obj_guard.with_controlling_player_mut(|p| {
-                    p.add_skill_points(skill_points);
+                obj_guard.with_controlling_player_rank_capped_mut(|p, rank_level_limit| {
+                    p.add_skill_points(skill_points, rank_level_limit);
                 });
             }
         });

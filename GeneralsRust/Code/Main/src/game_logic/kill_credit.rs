@@ -93,8 +93,9 @@ impl GameLogic {
             return;
         }
         if skill != 0 {
+            let rank_level_limit = self.rank_level_limit();
             if let Some(player) = self.players.get_mut(&owner) {
-                player.add_skill_points_limited(skill, self.rank_level_limit);
+                player.add_skill_points_limited(skill, rank_level_limit);
             }
         }
         let bounty = self

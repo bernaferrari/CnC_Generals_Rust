@@ -31,7 +31,7 @@ impl ScriptActionDispatcher<'_> {
                 if !self.context.is_generals_challenge_campaign() {
                     raw.to_string()
                 } else {
-                    player_list()
+                    self.context.borrowed_engine().players()
                         .read()
                         .ok()
                         .and_then(|list| list.get_local_player().cloned())
@@ -48,7 +48,7 @@ impl ScriptActionDispatcher<'_> {
                 .with_engine_ref(|engine| engine.get_current_player_name())
                 .flatten()
                 .unwrap_or_else(|| raw.to_string()),
-            LOCAL_PLAYER => player_list()
+            LOCAL_PLAYER => self.context.borrowed_engine().players()
                 .read()
                 .ok()
                 .and_then(|list| list.get_local_player().cloned())
