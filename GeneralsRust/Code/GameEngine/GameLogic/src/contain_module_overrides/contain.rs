@@ -617,13 +617,18 @@ pub(super) fn cave_contain_module_factory(
         Ok(owner) => owner,
         Err(error) => return failed_initialization_module("CaveContain", module_data, error),
     };
-    let cave_system = crate::object::supplied_module_cave_system(thing.as_ref())
-        .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
-    let contain = match CaveContain::new(
-        Arc::downgrade(&owner),
-        module_data.clone(),
-        Some(cave_system),
-    ) {
+    // C++ CaveContain resolves TheCaveSystem of the GameLogic that owns this
+    // entrance (CaveContain.cpp:45-312). Without the receiving world's cave
+    // system the module fails initialization instead of borrowing whichever
+    // world happens to be published.
+    let Some(cave_system) = crate::object::supplied_module_cave_system(thing.as_ref()) else {
+        return failed_initialization_module(
+            "CaveContain",
+            module_data,
+            "CaveContain requires its receiving world's CaveSystem".to_string(),
+        );
+    };
+    let contain = match CaveContain::new(Arc::downgrade(&owner), module_data.clone(), cave_system) {
         Ok(contain) => contain,
         Err(error) => return failed_initialization_module("CaveContain", module_data, error.to_string()),
     };

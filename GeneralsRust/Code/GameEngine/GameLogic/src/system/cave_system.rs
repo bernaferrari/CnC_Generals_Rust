@@ -6,7 +6,7 @@
 
 use crate::common::{GameResult, ObjectID};
 use crate::tunnel_tracker::TunnelTracker;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 /// Manages tunnel trackers keyed by "cave index".
 #[derive(Debug, Default)]
@@ -14,16 +14,10 @@ pub struct CaveSystem {
     trackers: Vec<Option<Arc<RwLock<TunnelTracker>>>>,
 }
 
-/// Active-world cave system accessor matching the legacy `TheCaveSystem` singleton.
-pub fn get_cave_system() -> Arc<Mutex<CaveSystem>> {
-    Arc::clone(
-        &crate::system::engine_stores::active_services()
-            .logic_managers()
-            .cave,
-    )
-}
-
-pub use get_cave_system as TheCaveSystem;
+// C++ `TheCaveSystem` is one subsystem per GameEngine/GameLogic. Each world
+// owns its CaveSystem in `WorldLogicManagers::cave`; callers receive it from
+// their driving GameLogic (`GameLogic::owned_cave_system`) or the Object
+// assembly handle. There is deliberately no published-world accessor.
 
 impl CaveSystem {
     /// Construct an empty cave system.

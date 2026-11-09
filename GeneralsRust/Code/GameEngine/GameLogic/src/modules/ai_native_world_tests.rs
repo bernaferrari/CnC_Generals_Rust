@@ -613,7 +613,7 @@ fn cave_admission_reads_the_driving_factory_world_not_the_retained_or_active_wor
             game_engine::common::thing::module::ModuleDataHandle::new(
                 crate::contain_module_overrides::ContainModuleDataAdapter::new(CaveContainModuleData::default()),
             ),
-            Some(Arc::clone(wrong_system)),
+            Arc::clone(wrong_system),
         ).unwrap();
         game.target.write().unwrap().set_contain(Some(Arc::new(Mutex::new(cave))));
     }

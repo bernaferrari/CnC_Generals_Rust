@@ -100,8 +100,10 @@ pub struct CaveContain {
     /// Exact owner supplied at construction; an equal ID in another world
     /// must never select a different cave entrance.
     object: Weak<RwLock<Object>>,
-    /// Reference to cave system
-    cave_system: Option<Arc<Mutex<CaveSystem>>>,
+    /// The owning world's cave system (C++ `TheCaveSystem` of the GameLogic
+    /// that built this entrance). Always present: a cave is never assembled
+    /// without its receiving world.
+    cave_system: Arc<Mutex<CaveSystem>>,
 }
 
 impl CaveContain {
@@ -109,7 +111,7 @@ impl CaveContain {
     pub fn new(
         object: Weak<RwLock<Object>>,
         module_data: ModuleDataHandle,
-        cave_system: Option<Arc<Mutex<CaveSystem>>>,
+        cave_system: Arc<Mutex<CaveSystem>>,
     ) -> GameResult<Self> {
         let data = ModuleDataView::new(module_data.clone(), |data| {
             data.downcast_ref::<ContainModuleDataAdapter<CaveContainModuleData>>()
@@ -151,46 +153,41 @@ impl CaveContain {
         system.unregister_cave(self.cave_index)
     }
 
-    /// Run `f` with the world's cave system borrowed immutably. `Ok(None)` when
-    /// this module was built without a cave system. The borrow must not be held
-    /// across tracker/object callbacks.
+    /// Run `f` with the owning world's cave system borrowed immutably. The
+    /// borrow must not be held across tracker/object callbacks.
     fn with_cave_system<R>(
         &self,
         f: impl FnOnce(&CaveSystem) -> GameResult<R>,
-    ) -> GameResult<Option<R>> {
-        let Some(handle) = &self.cave_system else {
-            return Ok(None);
-        };
-        let system = handle.lock().map_err(|_| GameError::LockError)?;
-        f(&system).map(Some)
+    ) -> GameResult<R> {
+        let system = self.cave_system.lock().map_err(|_| GameError::LockError)?;
+        f(&system)
     }
 
     /// Mutable counterpart of [`Self::with_cave_system`].
     fn with_cave_system_mut<R>(
         &self,
         f: impl FnOnce(&mut CaveSystem) -> GameResult<R>,
-    ) -> GameResult<Option<R>> {
-        let Some(handle) = &self.cave_system else {
-            return Ok(None);
-        };
-        let mut system = handle.lock().map_err(|_| GameError::LockError)?;
-        f(&mut system).map(Some)
+    ) -> GameResult<R> {
+        let mut system = self.cave_system.lock().map_err(|_| GameError::LockError)?;
+        f(&mut system)
     }
 
-    /// This cave's tracker via the bound world cave system.
-    fn tracker(&self) -> GameResult<Option<Arc<RwLock<TunnelTracker>>>> {
+    /// This cave's tracker via the owning world's cave system.
+    fn tracker(&self) -> GameResult<Arc<RwLock<TunnelTracker>>> {
         self.with_cave_system(|system| self.tracker_in(system))
     }
 
     /// Non-blocking [`Self::tracker`]: a busy cave system is a `LockError`.
-    fn try_tracker(&self) -> GameResult<Option<Arc<RwLock<TunnelTracker>>>> {
-        let Some(handle) = &self.cave_system else {
-            return Ok(None);
-        };
-        let Ok(system) = handle.try_lock() else {
+    fn try_tracker(&self) -> GameResult<Arc<RwLock<TunnelTracker>>> {
+        let Ok(system) = self.cave_system.try_lock() else {
             return Err(GameError::LockError.into());
         };
-        self.tracker_in(&system).map(Some)
+        self.tracker_in(&system)
+    }
+
+    /// True when `system` is the cave system this entrance belongs to.
+    pub fn is_owned_by(&self, system: &Arc<Mutex<CaveSystem>>) -> bool {
+        Arc::ptr_eq(&self.cave_system, system)
     }
 
     /// Get the object this module belongs to
@@ -316,9 +313,7 @@ impl CaveContain {
 
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> GameResult<bool> {
-        let Some(tracker) = self.tracker()? else {
-            return Ok(false);
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
             return tunnel.is_valid_container_for(obj, check_capacity);
@@ -331,9 +326,7 @@ impl CaveContain {
         let obj = crate::object::registry::OBJECT_REGISTRY
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
-        let Some(tracker) = self.tracker()? else {
-            return Ok(());
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(mut tunnel) = tracker.write() {
             tunnel.add_to_contain_list(obj_id)?;
@@ -408,11 +401,10 @@ impl CaveContain {
         }
         if let Err(err) = self.on_containing(obj_id, was_selected) {
             let tracker_removed = match self.try_tracker() {
-                Ok(Some(tracker)) => match tracker.try_write() {
+                Ok(tracker) => match tracker.try_write() {
                     Ok(mut tunnel) => tunnel.remove_from_contain(obj_id, false).is_ok(),
                     Err(_) => false,
                 },
-                Ok(None) => true,
                 Err(_) => false,
             };
             if !tracker_removed {
@@ -442,9 +434,7 @@ impl CaveContain {
         let obj = crate::object::registry::OBJECT_REGISTRY
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
-        let Some(tracker) = self.tracker()? else {
-            return Ok(());
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(mut tunnel) = tracker.write() {
             if !tunnel.is_in_container(obj_id) {
@@ -484,9 +474,7 @@ impl CaveContain {
     /// Remove all contained objects
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
         // Extract the full list first before calling remove_from_contain
-        let Some(tracker) = self.try_tracker()? else {
-            return Ok(());
-        };
+        let tracker = self.try_tracker()?;
         let full_list = {
             let Ok(tunnel) = tracker.try_read() else {
                 return Err(GameError::LockError.into());
@@ -512,9 +500,7 @@ impl CaveContain {
     where
         F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
     {
-        let Some(tracker) = self.tracker()? else {
-            return Ok(());
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
             tunnel.iterate_contained(func, reverse)?;
@@ -524,9 +510,7 @@ impl CaveContain {
 
     /// Get count of contained objects
     pub fn get_contain_count(&self) -> GameResult<u32> {
-        let Some(tracker) = self.tracker()? else {
-            return Ok(0);
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
             return tunnel.get_contain_count();
@@ -536,9 +520,7 @@ impl CaveContain {
 
     /// Get maximum containment capacity
     pub fn get_contain_max(&self) -> GameResult<i32> {
-        let Some(tracker) = self.tracker()? else {
-            return Ok(0);
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
             return tunnel.get_contain_max();
@@ -548,9 +530,7 @@ impl CaveContain {
 
     /// Get list of contained items
     pub fn get_contained_item_ids(&self) -> GameResult<Vec<ObjectID>> {
-        let Some(tracker) = self.tracker()? else {
-            return Ok(Vec::new());
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
             return Ok(tunnel.get_contained_item_ids().to_vec());
@@ -559,9 +539,7 @@ impl CaveContain {
     }
 
     pub fn get_contained_items_list(&self) -> GameResult<Vec<ObjectID>> {
-        let Some(tracker) = self.tracker()? else {
-            return Ok(Vec::new());
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
             return Ok(tunnel.get_contained_item_ids().to_vec());
@@ -599,13 +577,10 @@ impl CaveContain {
             return Ok(());
         }
 
-        let Some(tracker) = self.with_cave_system_mut(|system| {
+        let tracker = self.with_cave_system_mut(|system| {
             self.unregister_in(system)?;
             self.tracker_in(system)
-        })?
-        else {
-            return Ok(());
-        };
+        })?;
         if let Ok(mut tunnel) = tracker.write() {
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
@@ -633,9 +608,7 @@ impl CaveContain {
 
         self.need_to_run_on_build_complete = false;
 
-        let Some(tracker) = self.with_cave_system_mut(|system| self.register_in(system))? else {
-            return Ok(());
-        };
+        let tracker = self.with_cave_system_mut(|system| self.register_in(system))?;
 
         self.finish_tracker_creation(&tracker)
     }
@@ -823,9 +796,7 @@ impl CaveContain {
         new_team: Option<Weak<RwLock<Team>>>,
         set_original_teams: bool,
     ) -> GameResult<()> {
-        let Some(tracker) = self.tracker()? else {
-            return Ok(());
-        };
+        let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
             let all_caves = tunnel.get_container_list()?;
@@ -1371,7 +1342,7 @@ mod tests {
         data.cave_index_data = cave_index;
 
         let mut cave =
-            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())), Some(Arc::clone(&cave_system)))
+            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())), Arc::clone(&cave_system))
                 .expect("cave contain");
         cave.on_create(&data).expect("on create");
         (cave, cave_system)
@@ -1636,7 +1607,7 @@ mod tests {
             let owner = test_object_with_team("CaveColorOwner", 93008, Arc::clone(&team));
             let owner_drawable = attach_drawable(&owner, 930080);
             let data = CaveContainModuleData::default();
-            let mut cave = CaveContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())), None).expect("cave contain");
+            let (mut cave, _cave_system) = cave_with_data_registered_tracker(&owner, data.cave_index_data, data.clone());
             cave.on_create(&data).expect("on create");
 
             let player = Arc::new(RwLock::new(Player::new(0)));
@@ -1677,7 +1648,7 @@ mod tests {
             let owner = test_object("CaveIndexOwner", 93101);
             let mut data = CaveContainModuleData::default();
             data.cave_index_data = 7;
-            let cave = CaveContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), None).expect("cave");
+            let cave = CaveContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), Arc::new(Mutex::new(CaveSystem::new()))).expect("cave");
             assert_eq!(
                 cave.cave_index, 7,
                 "C++ onCreate copies INI CaveIndex; ctor must not hardcode 0"
@@ -1697,7 +1668,7 @@ mod tests {
             let mut cave = CaveContain::new(
                 Arc::downgrade(&owner),
                 ModuleDataHandle::new(ContainModuleDataAdapter::new(data)),
-                Some(Arc::clone(&cave_system)),
+                Arc::clone(&cave_system),
             )
             .expect("cave");
             ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
@@ -1733,7 +1704,7 @@ mod tests {
             let mut cave_b = CaveContain::new(
                 Arc::downgrade(&owner_b),
                 ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())),
-                Some(Arc::clone(&cave_system)),
+                Arc::clone(&cave_system),
             )
             .expect("cave b");
             cave_b.on_create(&data).expect("on create");
@@ -1778,7 +1749,7 @@ mod tests {
         data.base.allow_neutral_inside = true;
         data.cave_index_data = 0;
         let mut cave =
-            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), Some(Arc::clone(handle))).expect("cave");
+            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), Arc::clone(handle)).expect("cave");
         ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
         cave
     }
@@ -1877,7 +1848,9 @@ mod tests {
         let (_services, handle) = world_cave_handle();
         {
             let mut system = handle.lock().expect("lock");
+            // C++ XferSave rejects a NULL tracker slot, so a saved system is dense.
             system.register_new_cave(0).expect("register 0");
+            system.register_new_cave(1).expect("register 1");
             system.register_new_cave(2).expect("register 2");
             let tracker = system.get_tunnel_tracker_for_cave_index(2).expect("tracker 2");
             let mut tracker = tracker.write().expect("tracker write");
@@ -1912,6 +1885,151 @@ mod tests {
         let empty = restored.get_tunnel_tracker_for_cave_index(0).expect("tracker 0");
         assert!(empty.read().expect("read").get_container_list().expect("list").is_empty());
         // The source world is unchanged.
-        assert_eq!(handle.lock().expect("lock").registered_indices(), vec![0, 2]);
+        assert_eq!(handle.lock().expect("lock").registered_indices(), vec![0, 1, 2]);
+    }
+
+    /// Observable cave state of one world after a full entrance lifecycle.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct CaveWorldTrace {
+        after_enter: Vec<ObjectID>,
+        after_exit: Vec<ObjectID>,
+        indices_after_switch: Vec<i32>,
+        entrances_after_death: Vec<ObjectID>,
+        restored_indices: Vec<i32>,
+        restored_switched_entrances: Vec<ObjectID>,
+        indices_after_reset: Vec<i32>,
+    }
+
+    /// C++ CaveContain.cpp enter/exit (addToContain/removeFromContain via the
+    /// shared tracker), cave switch (tryToSetCaveIndex, :236-252, to a dense slot since XferSave rejects NULL trackers), death
+    /// (onDie, :200-214), CaveSystem::xfer and CaveSystem::reset, all on the
+    /// one world published on this thread. `gate` interleaves two worlds.
+    fn run_cave_world(passengers: &[ObjectID], gate: Option<&std::sync::Barrier>) -> CaveWorldTrace {
+        let wait = || {
+            if let Some(gate) = gate {
+                gate.wait();
+            }
+        };
+        let mut trace = None;
+        with_test_world(|| {
+            let (_services, handle) = world_cave_handle();
+            // Same entrance ids in every world.
+            let entrance_a = test_object("ParallelCaveA", 93401);
+            let entrance_b = test_object("ParallelCaveB", 93402);
+            let riders: Vec<_> = passengers
+                .iter()
+                .map(|&id| test_object("ParallelCaveRider", id))
+                .collect();
+            let mut cave_a = world_cave(&entrance_a, &handle);
+            let mut cave_b = world_cave(&entrance_b, &handle);
+            wait();
+
+            for &id in passengers {
+                ContainModuleInterface::contain_object(&mut cave_a, id).expect("enter");
+            }
+            wait();
+            let after_enter = ContainModuleInterface::get_contained_objects(&cave_b).into_owned();
+
+            // Exit the first rider through the other entrance of the network.
+            ContainModuleInterface::release_object(&mut cave_b, passengers[0]).expect("exit");
+            wait();
+            let after_exit = ContainModuleInterface::get_contained_objects(&cave_a).into_owned();
+
+            cave_a.remove_all_contained(false).expect("evacuate");
+            wait();
+            cave_b
+                .try_to_set_cave_index(1, &mut handle.lock().expect("switch lock"))
+                .expect("switch");
+            let indices_after_switch = handle.lock().expect("lock").registered_indices();
+            wait();
+
+            let death = DamageInfo::with_simple(1.0, 0, DamageType::Explosion, DeathType::Exploded);
+            cave_a.on_die(Some(&death)).expect("die");
+            let entrances_after_death = handle
+                .lock()
+                .expect("lock")
+                .get_tunnel_tracker_for_cave_index(0)
+                .expect("tracker 0")
+                .read()
+                .expect("read")
+                .get_container_list()
+                .expect("list");
+            wait();
+
+            use game_engine::{Xfer, XferLoad, XferSave};
+            let path = std::env::temp_dir().join(format!(
+                "parallel_cave_world_{}_{}.xfer",
+                std::process::id(),
+                passengers.len()
+            ));
+            let path_str = path.to_string_lossy().into_owned();
+            let mut save = XferSave::new();
+            save.open(path_str.clone()).expect("open save");
+            handle.lock().expect("lock").xfer_game_logic(&mut save).expect("save");
+            save.close().expect("close save");
+            let (_restored_services, restored) = world_cave_handle();
+            let mut load = XferLoad::new();
+            load.open(path_str).expect("open load");
+            restored.lock().expect("lock").xfer_game_logic(&mut load).expect("load");
+            load.close().expect("close load");
+            let _ = std::fs::remove_file(&path);
+            let restored = restored.lock().expect("restored");
+            let restored_indices = restored.registered_indices();
+            let restored_switched_entrances = restored
+                .get_tunnel_tracker_for_cave_index(1)
+                .expect("tracker 1")
+                .read()
+                .expect("read")
+                .get_container_list()
+                .expect("list");
+            wait();
+
+            handle.lock().expect("lock").reset();
+            let indices_after_reset = handle.lock().expect("lock").registered_indices();
+
+            for id in [93401, 93402].into_iter().chain(passengers.iter().copied()) {
+                OBJECT_REGISTRY.unregister_object(id);
+            }
+            drop(riders);
+            trace = Some(CaveWorldTrace {
+                after_enter,
+                after_exit,
+                indices_after_switch,
+                entrances_after_death,
+                restored_indices,
+                restored_switched_entrances,
+                indices_after_reset,
+            });
+        });
+        trace.expect("cave world trace")
+    }
+
+    #[test]
+    fn parallel_cave_worlds_match_single_instance_runs() {
+        let _lock = crate::test_sync::lock();
+        // Same entrance ids and an overlapping rider id, different contents.
+        let riders_a: &[ObjectID] = &[93410, 93411];
+        let riders_b: &[ObjectID] = &[93410, 93412, 93413];
+        let solo_a = run_cave_world(riders_a, None);
+        let solo_b = run_cave_world(riders_b, None);
+        assert_eq!(solo_a.after_enter, riders_a);
+        assert_eq!(solo_a.after_exit, &riders_a[1..]);
+        assert_eq!(solo_a.indices_after_switch, vec![0, 1]);
+        assert!(solo_a.entrances_after_death.is_empty());
+        assert_eq!(solo_a.restored_switched_entrances, vec![93402]);
+        assert!(solo_a.indices_after_reset.is_empty());
+        assert_ne!(solo_a, solo_b);
+
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let spawn = |riders: &'static [ObjectID]| {
+            let gate = Arc::clone(&gate);
+            std::thread::spawn(move || run_cave_world(riders, Some(&gate)))
+        };
+        let thread_a = spawn(&[93410, 93411]);
+        let thread_b = spawn(&[93410, 93412, 93413]);
+        let parallel_a = thread_a.join().expect("world A");
+        let parallel_b = thread_b.join().expect("world B");
+        assert_eq!(parallel_a, solo_a, "world A diverged when run beside world B");
+        assert_eq!(parallel_b, solo_b, "world B diverged when run beside world A");
     }
 }

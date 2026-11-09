@@ -166,7 +166,7 @@ fn cave_index_script_uses_the_interpreters_world_with_foreign_world_active() {
         let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
         let caves = Arc::clone(&world.services().logic_managers().cave);
         let data = ModuleDataHandle::new(ContainModuleDataAdapter::new(CaveContainModuleData::default()));
-        let mut cave = CaveContain::new(Arc::downgrade(&owner), data, Some(caves)).unwrap();
+        let mut cave = CaveContain::new(Arc::downgrade(&owner), data, caves).unwrap();
         cave.on_owner_created().unwrap();
         owner.write().unwrap().set_contain(Some(Arc::new(Mutex::new(cave))));
         world.services().object_registry().register_object(id, &owner);
@@ -278,4 +278,39 @@ fn failed_native_factory_assembly_does_not_admit_object_or_schedule() {
     assert!(scheduler.get_all_object_ids().is_empty());
     assert_eq!(scheduler.iter_all_objects().count(), 0);
     assert_eq!(scheduler.sleepy_update_count(), 0);
+}
+
+#[test]
+fn cave_factory_fails_without_a_receiving_world_instead_of_using_the_published_one() {
+    use crate::contain_module_overrides::contain::{
+        ContainModuleDataAdapter, cave_contain_module_factory,
+    };
+    use crate::object::contain::CaveContainModuleData;
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+
+    let published = Arc::new(EngineStores::new_for_world());
+    let published_cave = Arc::clone(&published.services().logic_managers().cave);
+    with_active_stores(&published, || {
+        let (_owner, thing) = supplied_owner(0xFACA_0006);
+        let mut data = CaveContainModuleData::default();
+        data.cave_index_data = 6;
+        let data = ModuleDataHandle::new(ContainModuleDataAdapter::new(data));
+        let mut catalog = ModuleFactory::new();
+        catalog.add_module_internal(
+            Some(cave_contain_module_factory),
+            None,
+            ModuleType::Behavior,
+            "CaveContain",
+            ModuleInterfaceType(ModuleInterfaceType::CONTAIN.0 | ModuleInterfaceType::CREATE.0),
+        );
+        let error = catalog
+            .new_module(thing, "CaveContain", data, ModuleType::Behavior)
+            .err()
+            .expect("a cave without its world's CaveSystem must fail construction");
+        assert!(error.contains("receiving world's CaveSystem"), "{error}");
+    });
+    assert!(
+        published_cave.lock().unwrap().registered_indices().is_empty(),
+        "C++ TheCaveSystem of another world is never borrowed"
+    );
 }

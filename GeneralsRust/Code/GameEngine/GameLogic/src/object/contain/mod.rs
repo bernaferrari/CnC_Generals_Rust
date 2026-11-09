@@ -186,7 +186,7 @@ impl ContainerFactory {
                 let container = CaveContain::new(
                     weak_object.clone(),
                     ModuleDataHandle::new(ContainModuleDataAdapter::new(data)),
-                    Some(Arc::clone(cave_system)),
+                    Arc::clone(cave_system),
                 )?;
                 Ok(Box::new(container))
             }

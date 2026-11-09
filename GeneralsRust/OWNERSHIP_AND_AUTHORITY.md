@@ -3258,11 +3258,18 @@ incomplete migrations (hq-d1xih).
 
 GameLogic transfers its receiving world's CaveSystem, even if another world is
 published. A missing cave owner or poisoned tracker fails the snapshot rather
-than silently substituting empty state. Native cave entry, capture, exit and
-death still require the full world-owned lifecycle migration (hq-ssws0).
+than silently substituting empty state. There is no published-world
+`TheCaveSystem` accessor: every Core CaveContain is built with its receiving
+world's CaveSystem (from the driving GameLogic or the Object assembly handle),
+and the factory fails construction when none is supplied. Enter, exit, cave
+switch and death therefore always run on the owning world's trackers; a
+parallel-thread probe checks two same-ID worlds against single-instance runs.
 Main host cave evacuation and death use the receiving world's shared roster;
 snapshot restore retains cave entrances, passengers and original team identity.
-Core's separate containment lifecycle still retains ambient paths.
+Core CaveContain still resolves passengers, connected entrances, the local
+player, original teams and time of day through the thread's published world
+(`OBJECT_REGISTRY`, `TheGameLogic`, `ThePlayerList`, `TheTeamFactory`,
+`TheGlobalData`), shared with OpenContain and TunnelContain.
 Core TunnelTracker insertion preserves C++ list order, duplicates and forced
 over-capacity entries; removal erases the first matching occupant.
 Saving a sparse Core CaveSystem rejects a missing tracker, matching C++
