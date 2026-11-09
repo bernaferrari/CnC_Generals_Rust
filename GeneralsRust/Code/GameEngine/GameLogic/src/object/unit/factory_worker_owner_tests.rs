@@ -7,7 +7,7 @@ use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{KindOf, ObjectStatusMaskType, ObjectStatusTypes, Relationship};
 use crate::damage::DamageType;
 use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate, SURFACE_GROUND};
-use crate::object::drawable_extensions::DrawableExt;
+use crate::object::drawable::drawable_extensions::DrawableExt;
 use crate::player::{Player, ThePlayerList};
 use crate::team::Team;
 use crate::weapon::{WeaponAntiMask, WeaponSlotType, WeaponTemplate, WeaponTemplateSet};
