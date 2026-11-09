@@ -1139,6 +1139,80 @@ mod tests {
     }
 
     #[test]
+    fn cave_snapshot_uses_receiving_world_even_when_another_world_is_active() {
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        use game_engine::Xfer;
+
+        let source = Arc::new(EngineStores::new_for_world());
+        let destination = Arc::new(EngineStores::new_for_world());
+        let foreign = Arc::new(EngineStores::new_for_world());
+        let source_logic = GameLogic::new_with_engine_stores(Arc::clone(&source));
+        let destination_logic = GameLogic::new_with_engine_stores(Arc::clone(&destination));
+        for (stores, entrances) in [(&source, [501, 502]), (&foreign, [501, 503])] {
+            let system = &stores.services().logic_managers().cave;
+            let mut system = system.lock().unwrap();
+            system.register_new_cave(0).unwrap();
+            let tracker = system.get_tunnel_tracker_for_cave_index(0).unwrap();
+            let mut tracker = tracker.write().unwrap();
+            for entrance in entrances {
+                tracker.on_tunnel_created_id(entrance).unwrap();
+            }
+        }
+
+        let path = std::env::temp_dir().join(format!(
+            "generals_owned_cave_snapshot_{}.bin", std::process::id()
+        ));
+        let path_string = path.to_string_lossy().into_owned();
+        let mut save = XferSave::new();
+        save.open(path_string.clone()).unwrap();
+        with_active_stores(&foreign, || {
+            xfer_cave_system_snapshot(&source_logic, &mut save).unwrap();
+        });
+        save.close().unwrap();
+
+        let mut load = XferLoad::new();
+        load.open(path_string).unwrap();
+        with_active_stores(&foreign, || {
+            xfer_cave_system_snapshot(&destination_logic, &mut load).unwrap();
+        });
+        load.close().unwrap();
+        fs::remove_file(path).unwrap();
+
+        for (stores, expected) in [
+            (&source, vec![501, 502]),
+            (&destination, vec![501, 502]),
+            (&foreign, vec![501, 503]),
+        ] {
+            let system = stores.services().logic_managers().cave.lock().unwrap();
+            let tracker = system.get_tunnel_tracker_for_cave_index(0).unwrap();
+            assert_eq!(tracker.read().unwrap().get_container_list().unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn cave_snapshot_rejects_a_logic_without_a_receiving_world() {
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        use game_engine::Xfer;
+
+        let foreign = Arc::new(EngineStores::new_for_world());
+        foreign.services().logic_managers().cave.lock().unwrap()
+            .register_new_cave(7).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "generals_unowned_cave_snapshot_{}.bin", std::process::id()
+        ));
+        let mut save = XferSave::new();
+        save.open(path.to_string_lossy().into_owned()).unwrap();
+        let result = with_active_stores(&foreign, || {
+            xfer_cave_system_snapshot(&GameLogic::new(), &mut save)
+        });
+        assert!(result.is_err());
+        save.close().unwrap();
+        fs::remove_file(path).unwrap();
+        assert_eq!(foreign.services().logic_managers().cave.lock().unwrap().registered_indices(), vec![7]);
+    }
+
+
+    #[test]
     fn xfer_v10_writes_toc_and_object_blocks() {
         // Full Core Object restore still resolves its compatibility TeamFactory.
         // Run this complete fixture in its own native process so replacing that
@@ -1176,7 +1250,9 @@ mod tests {
                 .create_team_on_prototype_with_id(&prototype, 91_311)
                 .unwrap()
         };
-        let mut save_logic = GameLogic::new();
+        let mut save_logic = GameLogic::new_with_engine_stores(Arc::new(
+            crate::system::engine_stores::EngineStores::new_for_world(),
+        ));
         save_logic.frame = 42;
         use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
         if get_thing_factory().unwrap().is_none() {
@@ -1232,7 +1308,9 @@ mod tests {
             xfer_game_logic_state(&mut save_logic, &mut xfer).expect("save");
             xfer.close().expect("close save");
         }
-        let mut load_logic = GameLogic::new();
+        let mut load_logic = GameLogic::new_with_engine_stores(Arc::new(
+            crate::system::engine_stores::EngineStores::new_for_world(),
+        ));
         load_logic.set_object_id_counter(77);
         {
             let mut xfer = XferLoad::new();
@@ -1294,7 +1372,9 @@ mod tests {
             );
         }
 
-        let mut save_logic = GameLogic::new();
+        let mut save_logic = GameLogic::new_with_engine_stores(Arc::new(
+            crate::system::engine_stores::EngineStores::new_for_world(),
+        ));
         save_logic.frame = 9;
         save_logic.set_superweapon_restriction(3);
         save_logic.set_rank_level_limit(8);
@@ -1310,7 +1390,9 @@ mod tests {
             xfer.close().expect("close save");
         }
         game_engine::common::system::build_assistant::init_build_assistant();
-        let mut load_logic = GameLogic::new();
+        let mut load_logic = GameLogic::new_with_engine_stores(Arc::new(
+            crate::system::engine_stores::EngineStores::new_for_world(),
+        ));
         load_logic.next_object_id = 1;
         {
             let mut xfer = XferLoad::new();

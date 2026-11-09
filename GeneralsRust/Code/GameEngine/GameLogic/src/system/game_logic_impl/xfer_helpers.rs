@@ -368,13 +368,10 @@ fn xfer_game_logic_state_with_campaign(
 fn xfer_cave_system_snapshot(logic: &GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     // C++ xferSnapshot(TheCaveSystem) — CaveSystem::xfer v1. The cave system
     // belongs to the driving GameLogic's world, not the ambient active world.
+    let cave = logic.owned_cave_system().ok_or(XferStatus::InvalidData)?;
     let current_version: XferVersion = 1;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
-    let cave = logic
-        .owning_world_services()
-        .map(|services| Arc::clone(&services.logic_managers().cave))
-        .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
     let mut guard = cave.lock().map_err(|_| XferStatus::InvalidData)?;
     guard.xfer_game_logic(xfer)
 }

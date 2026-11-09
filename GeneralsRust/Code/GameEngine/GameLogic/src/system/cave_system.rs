@@ -140,6 +140,7 @@ impl CaveSystem {
         None
     }
 
+
     /// C++ `CaveSystem::xfer` (version 1): tracker count + each TunnelTracker snapshot.
     pub fn xfer_game_logic(
         &mut self,
@@ -150,12 +151,12 @@ impl CaveSystem {
         xfer.xfer_unsigned_short(&mut count)?;
         if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
             for slot in &self.trackers {
-                let mut tracker = slot
-                    .as_ref()
-                    .and_then(|arc| arc.write().ok())
-                    .map(|g| g.clone())
-                    .unwrap_or_else(TunnelTracker::new);
-                tracker.xfer_game_logic(xfer)?;
+                if let Some(tracker) = slot {
+                    tracker.write().map_err(|_| XferStatus::InvalidData)?
+                        .xfer_game_logic(xfer)?;
+                } else {
+                    TunnelTracker::new().xfer_game_logic(xfer)?;
+                }
             }
         } else {
             if !self.trackers.is_empty() {
@@ -168,5 +169,30 @@ impl CaveSystem {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use game_engine::{Xfer, XferSave};
+
+    #[test]
+    fn snapshot_rejects_a_poisoned_tracker() {
+        let mut system = CaveSystem::new();
+        system.register_new_cave(0).unwrap();
+        let tracker = system.get_tunnel_tracker_for_cave_index(0).unwrap();
+        let _ = std::thread::spawn(move || {
+            let _guard = tracker.write().unwrap();
+            panic!("poison cave tracker");
+        }).join();
+        let path = std::env::temp_dir().join(format!(
+            "cave_tracker_poisoned_{}.xfer", std::process::id()
+        ));
+        let mut save = XferSave::new();
+        save.open(path.to_string_lossy().into_owned()).unwrap();
+        assert!(system.xfer_game_logic(&mut save).is_err());
+        save.close().unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 }
