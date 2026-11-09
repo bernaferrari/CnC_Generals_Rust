@@ -277,7 +277,7 @@ impl TextAtlasLayout {
 /// A label ready to draw: the texture to bind, its coordinates in that
 /// texture, and the quad relative to the layout bounds.
 #[derive(Clone)]
-pub(super) struct TextSlot {
+pub(super) struct TextAtlasEntry {
     pub(super) texture: Arc<TextureView>,
     pub(super) uv: Option<UIRect>,
     pub(super) quad: UIRect,
@@ -306,10 +306,10 @@ pub(super) struct TextAtlas {
 
 impl TextAtlas {
     /// The cached label for `key`, if any.
-    pub(super) fn get(&mut self, key: u64) -> Option<TextSlot> {
+    pub(super) fn get(&mut self, key: u64) -> Option<TextAtlasEntry> {
         if let Some((page, rect)) = self.layout.lookup(key) {
             let quad = *self.quads.get(&key)?;
-            return Some(TextSlot {
+            return Some(TextAtlasEntry {
                 texture: Arc::clone(&self.pages[page.slot()].view),
                 uv: Some(rect.uv()),
                 quad,
@@ -318,7 +318,7 @@ impl TextAtlas {
         let frame = self.layout.frame;
         let standalone = self.standalone.get_mut(&key)?;
         standalone.last_used_frame = frame;
-        Some(TextSlot {
+        Some(TextAtlasEntry {
             texture: Arc::clone(&standalone.texture),
             uv: None,
             quad: standalone.quad,
@@ -336,7 +336,7 @@ impl TextAtlas {
         quad: UIRect,
         pixels: &[u8],
         standalone_upload: impl FnOnce(u32, u32, &[u8]) -> Arc<TextureView>,
-    ) -> TextSlot {
+    ) -> TextAtlasEntry {
         let (width, height) = quad_extent(quad);
         let (page, rect) = match self.layout.place(key, width, height) {
             Placement::Packed { page, rect } => (page, rect),
@@ -356,7 +356,7 @@ impl TextAtlas {
         };
         self.pages[page.slot()].write(queue, rect, pixels);
         self.quads.insert(key, quad);
-        TextSlot {
+        TextAtlasEntry {
             texture: Arc::clone(&self.pages[page.slot()].view),
             uv: Some(rect.uv()),
             quad,
@@ -371,7 +371,7 @@ impl TextAtlas {
         height: u32,
         pixels: &[u8],
         upload: impl FnOnce(u32, u32, &[u8]) -> Arc<TextureView>,
-    ) -> TextSlot {
+    ) -> TextAtlasEntry {
         let frame = self.layout.frame;
         if self.standalone.len() >= MAX_STANDALONE {
             // Commands hold their own `Arc`, so dropping a texture used this
@@ -394,7 +394,7 @@ impl TextAtlas {
                 last_used_frame: frame,
             },
         );
-        TextSlot {
+        TextAtlasEntry {
             texture,
             uv: None,
             quad,
