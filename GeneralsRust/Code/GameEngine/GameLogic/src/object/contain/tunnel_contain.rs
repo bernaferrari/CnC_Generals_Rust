@@ -15,7 +15,6 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::{Coord3D, GameResult, PlayerMaskType};
 use crate::damage::{DamageInfo, DamageType, DeathType};
-use crate::helpers::TheGameLogic;
 use crate::helpers::get_game_logic_random_value_real;
 use crate::modules::{
     ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, DISABLED_HELD, UpdateSleepTime,
@@ -27,14 +26,6 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use crate::contain_module_overrides::ContainModuleDataAdapter;
-
-/// Wave 280 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
 
 /// Configuration data for TunnelContain module
 #[derive(Debug, Clone)]
@@ -141,12 +132,8 @@ impl TunnelContain {
     /// Add an object to the tunnel network contain list.
     /// Matches C++ TunnelContain::addToContainList (TunnelContain.cpp:46-50)
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY
+        let _ = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let owner = self.get_object()?;
@@ -173,12 +160,8 @@ impl TunnelContain {
 
     /// Add object to containment while keeping storage in the player tunnel tracker.
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let was_selected = obj
@@ -275,7 +258,7 @@ impl TunnelContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let _obj = crate::object::registry::OBJECT_REGISTRY
+        let _obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let player = match self.get_object() {
@@ -337,10 +320,6 @@ impl TunnelContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if let Some(controlling_player) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
@@ -352,6 +331,7 @@ impl TunnelContain {
             // Iterate from beginning after each loop to handle cascade deletions
             // (Matches C++ Patch 1.01 fix - November 6, 2003, lines 103-111)
             loop {
+                let objects = self.base.objects();
                 let next_obj = {
                     self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
                         .and_then(|player| {
@@ -362,10 +342,7 @@ impl TunnelContain {
                                         .first()
                                         .copied()
                                         .and_then(|id| {
-                                            TheGameLogic::find_object_by_id(id).or_else(|| {
-                                                crate::object::registry::OBJECT_REGISTRY
-                                                    .get_object(id)
-                                            })
+                                            objects.get_object(id)
                                         })
                                 })
                             })
@@ -392,10 +369,6 @@ impl TunnelContain {
     /// Kill all contained objects.
     /// Matches C++ TunnelContain::killAllContained (TunnelContain.cpp:126-141)
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let controlling_player =
             match self.with_owner_object(|owner_read| owner_read.get_controlling_player()) {
@@ -427,7 +400,7 @@ impl TunnelContain {
                     );
                     continue;
                 }
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
+                if let Some(obj) = self.base.objects().get_object(object_id) {
                     if let Ok(mut obj_write) = obj.try_write() {
                         obj_write.kill(None, None);
                     } else {
@@ -446,12 +419,8 @@ impl TunnelContain {
     /// Called when an object enters the tunnel.
     /// Matches C++ TunnelContain::onContaining (TunnelContain.cpp:171-186)
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -493,12 +462,8 @@ impl TunnelContain {
     /// Called when an object exits the tunnel.
     /// Matches C++ TunnelContain::onRemoving (TunnelContain.cpp:189-208)
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -605,12 +570,9 @@ impl TunnelContain {
     }
 
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         loop {
+            let objects = self.base.objects();
             let next_obj = {
                 self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
                     .and_then(|player| {
@@ -621,9 +583,7 @@ impl TunnelContain {
                                     .first()
                                     .copied()
                                     .and_then(|id| {
-                                        TheGameLogic::find_object_by_id(id).or_else(|| {
-                                            crate::object::registry::OBJECT_REGISTRY.get_object(id)
-                                        })
+                                        objects.get_object(id)
                                     })
                             })
                         })
@@ -769,10 +729,6 @@ impl TunnelContain {
     }
 
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
-        // Wave 280: empty dual-world → sleep forever (no factory walks).
-        if dual_world_registry_unavailable() {
-            return Ok(UpdateSleepTime::Forever);
-        }
 
         if let Err(err) = self.base.update() {
             log::warn!("TunnelContain::update base update failed: {}", err);
@@ -823,7 +779,7 @@ impl TunnelContain {
                     {
                         return Ok(None);
                     }
-                    let Some(attacker) = TheGameLogic::find_object_by_id(info.input.source_id)
+                    let Some(attacker) = self.base.objects().get_object(info.input.source_id)
                     else {
                         return Ok(None);
                     };
@@ -850,7 +806,7 @@ impl TunnelContain {
 
             if let Some(nemesis_id) = nemesis_id {
                 if let Some(attacker) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(nemesis_id)
+                    self.base.objects().get_object(nemesis_id)
                 {
                     if let Ok(attacker_guard) = attacker.try_read() {
                         let Ok(mut player_write) = controlling_player.try_write() else {
@@ -933,20 +889,16 @@ impl TunnelContain {
     /// Borrow the owning object for one operation via ObjectID.
     fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> GameResult<R> {
         let id = self.owner_object_id()?;
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(id, f)
             .ok_or_else(|| "TunnelContain owner object no longer exists".into())
     }
 
     /// Get the owning object (short-lived Arc; prefer `with_owner_object`).
     fn get_object(&self) -> GameResult<Arc<RwLock<Object>>> {
-        // Wave 280: empty dual-world → no owner object.
-        if dual_world_registry_unavailable() {
-            return Err("dual-world registry unavailable".into());
-        }
 
         let id = self.owner_object_id()?;
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .get_object(id)
             .ok_or_else(|| "TunnelContain owner object no longer exists".into())
     }
@@ -981,6 +933,10 @@ impl Snapshotable for TunnelContain {
 }
 
 impl ContainModuleInterface for TunnelContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn owned_tunnel_registered(&self) -> Option<bool> {
         Some(self.is_currently_registered)
     }
@@ -999,7 +955,7 @@ impl ContainModuleInterface for TunnelContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return ContainModuleInterface::is_valid_container_for(self, &*obj_guard, true);
             })
@@ -1115,7 +1071,7 @@ impl ContainModuleInterface for TunnelContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
