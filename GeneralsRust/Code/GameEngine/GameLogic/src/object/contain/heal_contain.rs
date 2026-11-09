@@ -245,7 +245,7 @@ impl HealContain {
 
     /// Get current frame from game logic singleton (C++ parity path).
     fn get_current_frame(&self) -> u32 {
-        TheGameLogic::get_frame()
+        self.base.logic_frame()
     }
 
     /// Serialize state for save/load

@@ -315,6 +315,39 @@ impl WorldServices {
     pub fn session_flags(&self) -> &SessionLogicFlags {
         &self.session_flags
     }
+    /// C++ `TheGameLogic->getFrame()` of this world: the frame of an update in
+    /// flight on it, else its own GameLogic's frame (0 before one is bound).
+    pub(crate) fn logic_frame(&self) -> u32 {
+        let plus = self
+            .session_flags
+            .in_update_frame_plus_one
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if plus != 0 {
+            return plus - 1;
+        }
+        self.object_registry
+            .owning_logic()
+            .and_then(|logic| logic.lock().ok().map(|logic| logic.get_frame()))
+            .unwrap_or(0)
+    }
+    /// C++ `TheGameLogic->destroyObject(obj)` on this world's own GameLogic.
+    pub(crate) fn destroy_logic_object(
+        &self,
+        object_id: crate::common::ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if object_id == crate::common::INVALID_ID {
+            return Ok(());
+        }
+        let logic = self
+            .object_registry
+            .owning_logic()
+            .ok_or("world has no GameLogic to destroy the object in")?;
+        logic
+            .lock()
+            .map_err(|_| "Failed to lock game logic")?
+            .destroy_object(object_id);
+        Ok(())
+    }
     pub fn common(&self) -> &Arc<CommonServices> {
         &self.common
     }

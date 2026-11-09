@@ -543,7 +543,7 @@ impl MobNexusContain {
                 if let Ok(guard) = payload_obj.try_write() {
                     let payload_id = guard.get_id();
                     drop(guard);
-                    let _ = TheGameLogic::destroy_object_by_id(payload_id);
+                    let _ = self.base.destroy_world_object(payload_id);
                 }
                 self.base.enable_load_sounds(true);
                 if added_any {
@@ -556,7 +556,7 @@ impl MobNexusContain {
             drop(guard);
             if can_add {
                 if let Err(err) = self.add_to_contain(payload_id) {
-                    let _ = TheGameLogic::destroy_object_by_id(payload_id);
+                    let _ = self.base.destroy_world_object(payload_id);
                     self.base.enable_load_sounds(true);
                     if added_any {
                         self.payload_created = true;
@@ -565,7 +565,7 @@ impl MobNexusContain {
                 }
                 added_any = true;
             } else {
-                let _ = TheGameLogic::destroy_object_by_id(payload_id);
+                let _ = self.base.destroy_world_object(payload_id);
             }
         }
         self.base.enable_load_sounds(true);

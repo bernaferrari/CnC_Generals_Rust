@@ -948,6 +948,28 @@ impl OpenContain {
         }
     }
 
+    /// C++ `TheGameLogic->getFrame()` of the owning world.
+    pub(crate) fn logic_frame(&self) -> UnsignedInt {
+        match &self.world {
+            Some(world) => world.upgrade().map_or(0, |world| world.logic_frame()),
+            None => TheGameLogic::get_frame(),
+        }
+    }
+
+    /// C++ `TheGameLogic->destroyObject` on the owning world.
+    pub(crate) fn destroy_world_object(
+        &self,
+        object_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match &self.world {
+            Some(world) => world
+                .upgrade()
+                .ok_or("OpenContain's world has retired")?
+                .destroy_logic_object(object_id),
+            None => TheGameLogic::destroy_object_by_id(object_id),
+        }
+    }
+
     /// Create a new OpenContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
@@ -1671,7 +1693,7 @@ impl OpenContain {
         let name = self.module_data.read().enter_sound
             .as_ref()
             .map(|s| s.get_event_name().to_string());
-        let now = TheGameLogic::get_frame();
+        let now = self.logic_frame();
         leftover_do_load_sound(
             name.as_deref(),
             self.get_object_id(),
@@ -1864,7 +1886,7 @@ impl OpenContain {
     pub fn on_delete(&mut self) -> GameResult<()> {
         let rider_ids = self.contained_object_ids.clone();
         for rider_id in rider_ids {
-            if let Err(err) = TheGameLogic::destroy_object_by_id(rider_id) {
+            if let Err(err) = self.destroy_world_object(rider_id) {
                 log::warn!("OpenContain::on_delete destroy {rider_id}: {err}");
             }
         }
@@ -2681,7 +2703,7 @@ impl OpenContain {
         let name = self.module_data.read().exit_sound
             .as_ref()
             .map(|s| s.get_event_name().to_string());
-        let now = TheGameLogic::get_frame();
+        let now = self.logic_frame();
         leftover_do_unload_sound(
             name.as_deref(),
             self.get_object_id(),

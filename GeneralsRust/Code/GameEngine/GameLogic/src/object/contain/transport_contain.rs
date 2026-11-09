@@ -398,6 +398,17 @@ impl TransportContain {
         self.base.objects()
     }
 
+    pub(crate) fn logic_frame(&self) -> u32 {
+        self.base.logic_frame()
+    }
+
+    pub(crate) fn destroy_world_object(
+        &self,
+        object_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.destroy_world_object(object_id)
+    }
+
     /// Create a new TransportContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
@@ -933,7 +944,7 @@ impl TransportContain {
         self.let_riders_upgrade_weapon_set()?;
 
         self.frame_exit_not_busy =
-            TheGameLogic::get_frame().saturating_add(self.module_data.read().exit_delay);
+            self.logic_frame().saturating_add(self.module_data.read().exit_delay);
 
         Ok(())
     }
@@ -1052,7 +1063,7 @@ impl TransportContain {
                 return true;
             }
         }
-        TheGameLogic::get_frame() < self.frame_exit_not_busy
+        self.logic_frame() < self.frame_exit_not_busy
     }
 
     /// Reserve door for exit
@@ -1093,7 +1104,7 @@ impl TransportContain {
             };
             if !self.is_rider_id_free_to_exit(obj_id) {
                 if self.module_data.read().destroy_riders_who_are_not_free_to_exit {
-                    let _ = TheGameLogic::destroy_object_by_id(obj_id);
+                    let _ = self.destroy_world_object(obj_id);
                 } else if let Ok(mut obj_write) = obj.try_write() {
                     obj_write.kill(None, None);
                 }
@@ -1354,7 +1365,7 @@ impl TransportContain {
                 if let Ok(guard) = payload_obj.try_write() {
                     let payload_id = guard.get_id();
                     drop(guard);
-                    let _ = TheGameLogic::destroy_object_by_id(payload_id);
+                    let _ = self.destroy_world_object(payload_id);
                 }
                 self.base.enable_load_sounds(true);
                 if added_any {
@@ -1367,7 +1378,7 @@ impl TransportContain {
             drop(guard);
             if can_add {
                 if let Err(err) = self.add_to_contain(payload_id) {
-                    let _ = TheGameLogic::destroy_object_by_id(payload_id);
+                    let _ = self.destroy_world_object(payload_id);
                     self.base.enable_load_sounds(true);
                     if added_any {
                         self.payload_created = true;
@@ -1376,7 +1387,7 @@ impl TransportContain {
                 }
                 added_any = true;
             } else {
-                let _ = TheGameLogic::destroy_object_by_id(payload_id);
+                let _ = self.destroy_world_object(payload_id);
                 log::warn!(
                     "TransportContain payload '{}' could not be inserted (container full/invalid)",
                     payload_name
@@ -2363,6 +2374,17 @@ mod tests {
             assert_eq!(contained_by(&rider_b), Some(OWNER), "world B's rider still aboard B");
             assert_eq!(ContainModuleInterface::get_contained_count(&transport_a), 0);
             assert_eq!(ContainModuleInterface::get_contained_count(&transport_b), 1);
+
+            // Exit delays and busy windows read the owning world's frame
+            // (C++ TheGameLogic->getFrame()), not the published one's.
+            use std::sync::atomic::Ordering::Relaxed;
+            world_a.services().session_flags().in_update_frame_plus_one.store(101, Relaxed);
+            world_b.services().session_flags().in_update_frame_plus_one.store(201, Relaxed);
+            with_active_stores(&world_b, || assert_eq!(transport_a.logic_frame(), 100));
+            with_active_stores(&world_a, || assert_eq!(transport_b.logic_frame(), 200));
+            for stores in [&world_a, &world_b] {
+                stores.services().session_flags().in_update_frame_plus_one.store(0, Relaxed);
+            }
 
             for stores in [&world_a, &world_b] {
                 with_active_stores(stores, || {

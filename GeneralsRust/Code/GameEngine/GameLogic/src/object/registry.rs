@@ -88,7 +88,7 @@ impl ObjectRegistry {
         let _ = self.owning_scripts.set(scripts.downgrade());
     }
 
-    fn owning_logic(&self) -> Option<&'static Mutex<crate::system::game_logic::GameLogic>> {
+    pub(crate) fn owning_logic(&self) -> Option<&'static Mutex<crate::system::game_logic::GameLogic>> {
         self.owning_logic.get().copied()
     }
 

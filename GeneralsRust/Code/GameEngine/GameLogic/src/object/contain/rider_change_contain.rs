@@ -1813,7 +1813,7 @@ impl RiderChangeContain {
             if let Ok(owner_guard) = owner.read() {
                 if owner_guard.is_effectively_dead() {
                     let rider_guard = rider.read().map_err(|_| "Rider lock poisoned")?;
-                    let _ = TheGameLogic::destroy_object(&*rider_guard);
+                    let _ = self.base.destroy_world_object(rider_guard.get_id());
                     return Ok(());
                 }
             }
@@ -1865,7 +1865,7 @@ impl RiderChangeContain {
                 self.base.objects().get_object(self.object_id)
             }) {
                 if let Ok(mut owner_guard) = owner.write() {
-                    self.scuttled_on_frame = TheGameLogic::get_frame();
+                    self.scuttled_on_frame = self.base.logic_frame();
                     owner_guard.set_status(
                         ObjectStatusMaskType::from_status(ObjectStatusTypes::Unselectable),
                         true,
@@ -1906,7 +1906,7 @@ impl RiderChangeContain {
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
 
         if self.scuttled_on_frame != 0 {
-            let now = TheGameLogic::get_frame();
+            let now = self.base.logic_frame();
             if self.scuttled_on_frame + self.module_data.read().scuttle_frames <= now {
                 if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                     None

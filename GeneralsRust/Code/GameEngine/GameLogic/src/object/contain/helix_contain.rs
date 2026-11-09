@@ -213,7 +213,7 @@ impl HelixContain {
     /// Handle deletion event
     pub fn on_delete(&mut self) -> GameResult<()> {
         if let Some(portable_id) = self.portable_structure_id() {
-            let _ = TheGameLogic::destroy_object_by_id(portable_id);
+            let _ = self.base.destroy_world_object(portable_id);
         }
         self.base.on_delete()?;
         Ok(())
@@ -414,7 +414,7 @@ impl HelixContain {
             self.portable_structure_id = Some(obj_id);
             if let Some(existing_id) = previous {
                 if existing_id != obj_id {
-                    let _ = TheGameLogic::destroy_object_by_id(existing_id);
+                    let _ = self.base.destroy_world_object(existing_id);
                 }
             }
             return Ok(());
@@ -496,7 +496,7 @@ impl HelixContain {
             self.portable_structure_id = Some(obj_id);
             if let Some(existing_id) = previous {
                 if existing_id != obj_id {
-                    let _ = TheGameLogic::destroy_object_by_id(existing_id);
+                    let _ = self.base.destroy_world_object(existing_id);
                 }
             }
             return Ok(());

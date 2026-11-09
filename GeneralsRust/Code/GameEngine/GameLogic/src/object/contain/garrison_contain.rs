@@ -523,7 +523,7 @@ impl GarrisonContain {
                 if let Some(obj) = self.base.objects().get_object(object_id) {
                     if let Ok(mut contained) = obj.try_write() {
                         contained.set_safe_occlusion_frame(
-                            TheGameLogic::get_frame()
+                            self.base.logic_frame()
                                 + crate::common::LOGICFRAMES_PER_SECOND * 1000,
                         );
                     } else {
@@ -1154,7 +1154,7 @@ impl GarrisonContain {
         }
 
         if let Ok(mut guard) = obj.try_write() {
-            let current_frame = TheGameLogic::get_frame();
+            let current_frame = self.base.logic_frame();
             let occlusion_delay = guard.get_template().get_occlusion_delay();
             guard.set_safe_occlusion_frame(current_frame + occlusion_delay);
         }
@@ -1671,7 +1671,7 @@ impl GarrisonContain {
     /// Update effects (muzzle flashes, etc.)
     fn update_effects(&mut self) -> GameResult<()> {
 
-        let current_frame = TheGameLogic::get_frame();
+        let current_frame = self.base.logic_frame();
         let contained_objects: Vec<_> = self
             .base
             .get_contained_object_ids()
@@ -1891,7 +1891,7 @@ impl GarrisonContain {
             .unwrap_or(INVALID_ID);
         self.garrison_point_data[point_index].object_id = obj_id;
         self.garrison_point_data[point_index].target_id = target_id.unwrap_or(INVALID_ID);
-        self.garrison_point_data[point_index].place_frame = TheGameLogic::get_frame();
+        self.garrison_point_data[point_index].place_frame = self.base.logic_frame();
         self.garrison_points_in_use += 1;
 
         // Create effect drawable (gun barrel)
@@ -2440,7 +2440,7 @@ impl GarrisonContain {
         let current_health = body_guard.get_health();
         drop(body_guard);
         if current_health < max_health {
-            let current_frame = TheGameLogic::get_frame();
+            let current_frame = self.base.logic_frame();
             let frames_contained = current_frame.saturating_sub(contained_by_frame);
             let frames_for_full = frames_for_full_heal.max(1.0);
             let heal_amount = if (frames_contained as f32) >= frames_for_full {
