@@ -259,11 +259,12 @@ impl GrantStealthBehavior {
             }
         }
 
-        if let Ok(obj_guard) = object.read() {
+        // The module is not installed yet. Registration later consumes this
+        // instance's initial wake; waking by class here would affect siblings.
+        if object.read().is_ok() {
             let now = crate::helpers::TheGameLogic::get_frame();
             let wake_frame = now.saturating_add(1);
             behavior.next_call_frame_and_phase = wake_frame;
-            obj_guard.reschedule_named_update("GrantStealthBehavior", wake_frame);
         }
 
         Ok(behavior)
@@ -633,6 +634,70 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn installed_grant_stealth_wakes_are_independent_between_tags_and_worlds() {
+        use crate::modules::UpdateModulePtr;
+        use crate::object::ModuleUpdateProxy;
+        use crate::system::game_logic::GameLogic;
+
+        fn install(
+            owner: &Arc<RwLock<GameObject>>,
+            scheduler: &mut GameLogic,
+            tag: NameKeyType,
+        ) -> UpdateModulePtr {
+            let data = Arc::new(GrantStealthBehaviorModuleData {
+                module_tag_name_key: tag,
+                ..Default::default()
+            });
+            let behavior = GrantStealthBehavior::new_with_data(owner.clone(), data.clone()).unwrap();
+            let module = GrantStealthBehaviorModule::new(
+                behavior,
+                &AsciiString::from("GrantStealthBehavior"),
+                data.clone(),
+            );
+            let initial_wake = module.initial_wake_frame();
+            owner.write().unwrap().install_update_module(
+                "GrantStealthBehavior",
+                Box::new(module),
+                data,
+            );
+            let (id, entry) = {
+                let object = owner.read().unwrap();
+                (object.get_id(), object.modules.last().unwrap().clone())
+            };
+            let proxy: UpdateModulePtr =
+                Arc::new(RwLock::new(ModuleUpdateProxy::new(entry.clone(), id)));
+            owner
+                .write()
+                .unwrap()
+                .attach_update_module_registration(proxy.clone(), Some(&entry))
+                .unwrap();
+            scheduler.register_sleepy_update_module(id, proxy.clone(), initial_wake);
+            proxy
+        }
+
+        let id = 91_602;
+        let owner = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+        let peer = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+        let mut world = GameLogic::new();
+        let mut other_world = GameLogic::new();
+        world.admit_scheduling_owner(id, owner.clone());
+        other_world.admit_scheduling_owner(id, peer.clone());
+        let first = install(&owner, &mut world, 1);
+        let second = install(&owner, &mut world, 2);
+        let other = install(&peer, &mut other_world, 1);
+        let second_before = world.sleepy_entry_for(&second).unwrap().1;
+        let other_before = other_world.sleepy_entry_for(&other).unwrap().1;
+
+        world
+            .awaken_update_module_with_current(&first, None, 0, 17)
+            .unwrap();
+
+        assert_eq!(world.sleepy_entry_for(&first).unwrap().1, 17);
+        assert_eq!(world.sleepy_entry_for(&second).unwrap().1, second_before);
+        assert_eq!(other_world.sleepy_entry_for(&other).unwrap().1, other_before);
+    }
+
+    #[test]
     fn test_grant_stealth_creation() {
         let data = GrantStealthBehaviorModuleData::default();
         assert_eq!(data.start_radius, 0.0);
@@ -673,7 +738,7 @@ mod tests {
         let mut saved = GrantStealthBehavior {
             object_id: crate::common::INVALID_ID,
             module_data: module_data.clone(),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: 0x1234_5679,
             radius_particle_system_id: 0x1234_5678,
             current_scan_radius: 42.25,
         };
@@ -703,6 +768,7 @@ mod tests {
             load.close().unwrap();
         }
 
+        assert_eq!(loaded.next_call_frame_and_phase, 0x1234_5679);
         assert_eq!(loaded.radius_particle_system_id, 0x1234_5678);
         assert_eq!(loaded.current_scan_radius, 42.25);
 
