@@ -39,7 +39,7 @@ fn lifecycle_world_with_tunnel_count(
     let body_info = TemplateModuleInfo {
         name: "ActiveBody".into(),
         module_tag: "ContainHealth".into(),
-        data: Arc::new(body),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(body),
         interface_mask: ModuleInterfaceType::BODY,
     };
     let mut ai = crate::object::update::AIUpdateModuleData::default();
@@ -50,19 +50,19 @@ fn lifecycle_world_with_tunnel_count(
     let ai_info = TemplateModuleInfo {
         name: "AIUpdateInterface".into(),
         module_tag: "ContainMovement".into(),
-        data: Arc::new(ai),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(ai),
         interface_mask: ModuleInterfaceType::UPDATE,
     };
     let instant = TemplateModuleInfo {
         name: "InstantDeathBehavior".into(),
         module_tag: "ContainInstantDeath".into(),
-        data: Arc::new(InstantDeathBehaviorModuleData::default()),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(InstantDeathBehaviorModuleData::default()),
         interface_mask: ModuleInterfaceType::DIE,
     };
     let physics_info = TemplateModuleInfo {
         name: "PhysicsBehavior".into(),
         module_tag: "ActualRiderPhysics".into(),
-        data: Arc::new(
+        data: game_engine::common::thing::module::ModuleDataHandle::new(
             crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default(),
         ),
         interface_mask: ModuleInterfaceType::UPDATE | ModuleInterfaceType::COLLIDE,
@@ -76,7 +76,7 @@ fn lifecycle_world_with_tunnel_count(
     let contain = TemplateModuleInfo {
         name: "TransportContain".into(),
         module_tag: "LiteralOwnedCargo".into(),
-        data: Arc::new(
+        data: game_engine::common::thing::module::ModuleDataHandle::new(
             crate::contain_module_overrides::ContainModuleDataAdapter::new(
                 crate::object::contain::transport_contain::TransportContainModuleData {
                     slot_capacity: 3,
@@ -96,7 +96,7 @@ fn lifecycle_world_with_tunnel_count(
         TemplateModuleInfo {
             name: "TunnelContain".into(),
             module_tag: "ActualTunnelNetwork".into(),
-            data: Arc::new(
+            data: game_engine::common::thing::module::ModuleDataHandle::new(
                 crate::contain_module_overrides::ContainModuleDataAdapter::new(
                     crate::object::contain::tunnel_contain::TunnelContainModuleData::default(),
                 ),

@@ -44,7 +44,7 @@ fn world(target_x: f32) -> NativeMatch {
         modules: vec![TemplateModuleInfo {
             name: "DozerAIUpdate".into(),
             module_tag: "PositionDozerAI".into(),
-            data: Arc::new(data),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(data),
             interface_mask: ModuleInterfaceType::UPDATE,
         }],
     });

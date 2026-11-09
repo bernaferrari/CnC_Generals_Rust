@@ -161,7 +161,7 @@ const STICKY_BOMB_UPDATE_FIELDS: &[FieldParse<StickyBombUpdateModuleData>] = &[
 #[derive(Debug)]
 pub struct StickyBombUpdate {
     object_id: ObjectID,
-    module_data: Arc<StickyBombUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<StickyBombUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     target_id: ObjectID,
     die_frame: UnsignedInt,
@@ -171,12 +171,12 @@ pub struct StickyBombUpdate {
 impl StickyBombUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        handle: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<StickyBombUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !handle.is::<StickyBombUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<StickyBombUpdateModuleData>().expect("StickyBombUpdate module data"));
 
         let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(obj) = object.read() {
@@ -189,7 +189,7 @@ impl StickyBombUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: forever,
             target_id: OBJECT_INVALID_ID,
             die_frame: 0,
@@ -269,7 +269,7 @@ impl StickyBombUpdate {
                             }
                         }
                     } else {
-                        pos.z += self.module_data.offset_z;
+                        pos.z += self.module_data.read().offset_z;
                     }
                     let created = obj.get_template().get_per_unit_sound("StickyBombCreated");
                     let _ = obj.set_position(&pos);
@@ -381,11 +381,8 @@ impl StickyBombUpdate {
 
         let booby_trapped = self.get_target_object();
 
-        if let Some(template) = self
-            .module_data
-            .geometry_based_damage_weapon_template
-            .as_ref()
-        {
+        let template = self.module_data.read().geometry_based_damage_weapon_template.clone();
+        if let Some(template) = template.as_ref() {
             if let (Some(target_arc), Some(object_arc)) = (
                 booby_trapped.as_ref(),
                 (if self.object_id == crate::common::INVALID_ID {
@@ -475,7 +472,7 @@ impl StickyBombUpdate {
                             let _ = victim.attempt_damage(&mut damage_info);
                         }
                     }
-                    if let Some(fx) = self.module_data.geometry_based_damage_fx.as_ref() {
+                    if let Some(fx) = self.module_data.read().geometry_based_damage_fx.as_ref() {
                         let _ = fx.do_fx_at_position_with_radius(&target_pos, secondary_range);
                     }
                 }
@@ -563,7 +560,7 @@ impl UpdateModuleInterface for StickyBombUpdate {
                                         terrain.get_ground_height(new_pos.x, new_pos.y, None);
                                 }
                             } else {
-                                new_pos.z += self.module_data.offset_z;
+                                new_pos.z += self.module_data.read().offset_z;
                             }
                             let _ = obj.set_position(&new_pos);
                         }
@@ -714,7 +711,7 @@ impl Snapshotable for StickyBombUpdate {
 pub struct StickyBombUpdateModule {
     behavior: StickyBombUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<StickyBombUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl StickyBombUpdateModule {
@@ -725,7 +722,7 @@ impl StickyBombUpdateModule {
     pub fn new(
         behavior: StickyBombUpdate,
         module_name: &AsciiString,
-        module_data: Arc<StickyBombUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -768,11 +765,11 @@ impl Module for StickyBombUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_sticky_bomb_control_interface(&mut self) -> Option<&mut dyn StickyBombControlInterface> {
@@ -840,10 +837,10 @@ mod tests {
 
     #[test]
     fn sticky_bomb_update_exposes_typed_control_interface() {
-        let data = Arc::new(StickyBombUpdateModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(StickyBombUpdateModuleData::default());
         let behavior = StickyBombUpdate {
             object_id: crate::common::INVALID_ID,
-            module_data: data.clone(),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| data.as_any().downcast_ref::<StickyBombUpdateModuleData>().unwrap()),
             next_call_frame_and_phase: 0,
             target_id: OBJECT_INVALID_ID,
             die_frame: 0,
@@ -906,7 +903,7 @@ pub struct StickyBombUpdateFactory;
 impl StickyBombUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(StickyBombUpdate::new(thing, module_data)?))
     }
@@ -928,25 +925,21 @@ pub fn sticky_bomb_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineM
 
 pub fn sticky_bomb_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<StickyBombUpdateModuleData>()
-        .expect("StickyBombUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<StickyBombUpdateModuleData>());
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(crate::common::INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("StickyBombUpdate requires object");
-    let behavior = StickyBombUpdate::new(object, module_data_arc.clone())
+    let behavior = StickyBombUpdate::new(object, module_data.clone())
         .expect("StickyBombUpdate failed to initialize");
     let module_name = AsciiString::from("StickyBombUpdate");
     Box::new(StickyBombUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }

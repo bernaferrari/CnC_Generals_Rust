@@ -6,7 +6,7 @@ use crate::modules::ContainModuleInterface;
 use crate::object::behavior::physics_update::{PhysicsBehaviorModuleData, PhysicsBehaviorUpdate};
 use crate::object::{Object, PhysicsInterfaceHandle};
 use crate::weapon::{WeaponSlotType, WeaponStatus, WeaponTemplate, WeaponTemplateSet};
-use game_engine::common::thing::module::BaseModuleData;
+use game_engine::common::thing::module::{BaseModuleData, ModuleDataHandle, ModuleDataRead};
 use std::borrow::Cow;
 use std::sync::{Mutex, RwLock};
 
@@ -67,10 +67,8 @@ impl RegisteredAircraft {
                 .unwrap();
         }
         let owner = Arc::new(RwLock::new(object));
-        let data = Arc::new(PhysicsBehaviorModuleData::default());
-        let behavior_data: Arc<dyn crate::common::ModuleData> = data.clone();
-        let module_data: Arc<dyn ModuleData> = data;
-        let behavior = PhysicsBehaviorUpdate::new(owner.clone(), behavior_data).unwrap();
+        let module_data = ModuleDataHandle::new(PhysicsBehaviorModuleData::default());
+        let behavior = PhysicsBehaviorUpdate::new(owner.clone(), module_data.clone()).unwrap();
         let module = ActiveBehaviorModule::new("PhysicsBehavior", module_data.clone(), behavior);
         let physics = {
             let mut object = owner.write().unwrap();
@@ -112,7 +110,7 @@ impl Drop for RegisteredAircraft {
 struct FiringScanProbe {
     physics: PhysicsInterfaceHandle,
     visits: Arc<Mutex<usize>>,
-    data: Arc<BaseModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl Snapshotable for FiringScanProbe {
@@ -137,8 +135,8 @@ impl Module for FiringScanProbe {
         self
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -213,7 +211,7 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
     let creations = Arc::new(Mutex::new(0));
     {
         let mut object = aircraft.owner.write().unwrap();
-        let data = Arc::new(BaseModuleData::new());
+        let data = ModuleDataHandle::new(BaseModuleData::new());
         object.install_update_module(
             "FiringScanProbe",
             Box::new(FiringScanProbe {
@@ -257,7 +255,7 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
     // temporary weapon lock/fire, then strafe FX. This test executes firing;
     // the process-wide FX manager is deliberately outside this fixture.
     let mut delivery =
-        DeliverPayloadAIUpdate::new(DeliverPayloadAIUpdateModuleData::default(), aircraft.id);
+        DeliverPayloadAIUpdate::new(ModuleDataHandle::new(DeliverPayloadAIUpdateModuleData::default()), aircraft.id);
     delivery.target_pos =
         *aircraft.owner.read().unwrap().get_position() + Coord3D::new(50.0, 0.0, 0.0);
     delivery.dive_state = DiveState::Diving;
@@ -352,7 +350,7 @@ fn delivery_head_off_map_releases_physics_before_real_death_callback() {
     // CPP DeliverPayloadAIUpdate.cpp:1182–1191: nonzero turning and an
     // opposing delivery heading kill immediately, before returning CONTINUE.
     let mut delivery =
-        DeliverPayloadAIUpdate::new(DeliverPayloadAIUpdateModuleData::default(), aircraft.id);
+        DeliverPayloadAIUpdate::new(ModuleDataHandle::new(DeliverPayloadAIUpdateModuleData::default()), aircraft.id);
     delivery.facing_direction_upon_delivery = Coord3D::new(-1.0, 0.0, 0.0);
     assert_eq!(delivery.update_head_off_map(), StateReturnType::Continue);
     assert!(aircraft.owner.read().unwrap().is_effectively_dead());

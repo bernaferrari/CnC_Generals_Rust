@@ -19,6 +19,8 @@ use crate::object::Object;
 use crate::player::Player;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 /// Wave 274 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
 /// Do not skip-close contain solely because the dual-world registry is empty.
@@ -115,7 +117,7 @@ pub struct HelixContain {
     /// Reference to the owning object
     object_id: ObjectID,
     /// Module configuration
-    module_data: HelixContainModuleData,
+    module_data: ModuleDataView<HelixContainModuleData>,
     /// Portable structure object ID
     portable_structure_id: Option<ObjectID>,
 }
@@ -124,9 +126,14 @@ impl HelixContain {
     /// Create a new HelixContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &HelixContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<HelixContainModuleData>>()
+                .expect("helix contain module data has an incompatible type").contain_data()
+        });
+        drop(data.read());
+        let base = TransportContain::new(object.clone(), module_data)?;
 
         Ok(Self {
             base,
@@ -134,7 +141,7 @@ impl HelixContain {
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: module_data.clone(),
+            module_data: data,
             portable_structure_id: None,
         })
     }
@@ -743,7 +750,7 @@ impl HelixContain {
             .ok_or("Helix object no longer exists")?;
 
         let factory = TheThingFactory::get().map_err(|e| e.to_string())?;
-        let payload_templates = self.module_data.payload_template_name_data.clone();
+        let payload_templates = self.module_data.read().payload_template_name_data.clone();
 
         self.base.base.enable_load_sounds(false);
 
@@ -928,7 +935,11 @@ impl ContainModuleInterface for HelixContain {
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
-        self.get_container_pips_to_show(&self.module_data)
+        if !self.module_data.read().draw_pips {
+            return (0, 0, false);
+        }
+        let (total, full) = self.base.get_container_pips_info();
+        (total, full, true)
     }
 
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1337,7 +1348,7 @@ mod tests {
             ..Default::default()
         };
         let contain =
-            HelixContain::new(Weak::new(), &module_data).expect("helix contain constructs");
+            HelixContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(module_data.clone()))).expect("helix contain constructs");
 
         assert_eq!(
             contain.get_container_pips_to_show(&module_data),
@@ -1350,8 +1361,25 @@ mod tests {
     }
 
     #[test]
+    fn pips_follow_the_admitted_shared_definition() {
+        let handle = ModuleDataHandle::new(ContainModuleDataAdapter::new(HelixContainModuleData::default()));
+        let contain = HelixContain::new(Weak::new(), handle.clone()).unwrap();
+        assert!(ContainModuleInterface::get_container_pips_to_show(&contain).2);
+        {
+            let mut data = handle.write();
+            let adapter = (&mut *data as &mut dyn std::any::Any)
+                .downcast_mut::<ContainModuleDataAdapter<HelixContainModuleData>>().unwrap();
+            *adapter = ContainModuleDataAdapter::new(HelixContainModuleData {
+                draw_pips: false,
+                ..Default::default()
+            });
+        }
+        assert_eq!(ContainModuleInterface::get_container_pips_to_show(&contain), (0, 0, false));
+    }
+
+    #[test]
     fn xfer_writes_portable_structure_id_before_transport_state_like_cpp() {
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut contain = HelixContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HelixContainModuleData::default())))
             .expect("helix contain constructs");
         contain.set_portable_structure_id(Some(0x0102_0304));
         contain.base.set_payload_created(true);
@@ -1370,7 +1398,7 @@ mod tests {
 
     #[test]
     fn helix_payload_created_uses_transport_state() {
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut contain = HelixContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HelixContainModuleData::default())))
             .expect("helix contain constructs");
         contain.base.set_payload_created(true);
 
@@ -1392,7 +1420,7 @@ mod tests {
             ..Default::default()
         };
         let mut contain =
-            HelixContain::new(Arc::downgrade(&owner), &data).expect("helix contain constructs");
+            HelixContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("helix contain constructs");
 
         contain
             .update()
@@ -1409,7 +1437,7 @@ mod tests {
 
     #[test]
     fn save_load_state_round_trips_invalid_portable_structure_id_like_cpp() {
-        let contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let contain = HelixContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HelixContainModuleData::default())))
             .expect("helix contain constructs");
 
         let state = contain.save_state().expect("helix saves state");
@@ -1420,7 +1448,7 @@ mod tests {
             "C++ xfers m_portableStructureID even when it is INVALID_ID"
         );
 
-        let mut loaded = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut loaded = HelixContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HelixContainModuleData::default())))
             .expect("helix contain constructs");
         loaded.set_portable_structure_id(Some(1234));
         loaded.load_state(&state).expect("helix loads state");
@@ -1448,7 +1476,7 @@ mod tests {
     fn container_interface_uses_helix_portable_structure_semantics() {
         let _lock = crate::test_sync::lock();
         let portable = object_with_kind("PortableGattling", 98001, "PORTABLE_STRUCTURE");
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut contain = HelixContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HelixContainModuleData::default())))
             .expect("helix contain constructs");
 
         assert!(ContainerInterface::can_contain(
@@ -1488,7 +1516,7 @@ mod tests {
         data.base.slot_capacity = 1;
         data.base.base.allow_neutral_inside = true;
         let mut contain =
-            HelixContain::new(Arc::downgrade(&owner), &data).expect("helix contain constructs");
+            HelixContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("helix contain constructs");
 
         let passenger_id = passenger.read().expect("passenger read").get_id();
         contain
@@ -1510,7 +1538,7 @@ mod tests {
         let _lock = crate::test_sync::lock();
         let portable = object_with_kind("PortableDamageMirror", 98004, "PORTABLE_STRUCTURE");
         attach_active_body(&portable);
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut contain = HelixContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HelixContainModuleData::default())))
             .expect("helix contain constructs");
         ContainerInterface::add_object(
             &mut contain,

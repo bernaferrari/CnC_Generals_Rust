@@ -31,7 +31,7 @@ use crate::system::disguise_manager::get_disguise_manager;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType, StealthDisguiseControlInterface,
+    Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, StealthDisguiseControlInterface,
 };
 use log::{debug, trace, warn};
 use std::f32::consts::PI;
@@ -237,7 +237,7 @@ impl Snapshotable for StealthUpdateModuleData {
 /// Matches C++ StealthUpdate class (lines 85-157)
 #[derive(Debug)]
 pub struct StealthUpdateController {
-    data: Arc<StealthUpdateModuleData>,
+    data: ModuleDataHandle,
     object_id: ObjectID,
 
     // Runtime state
@@ -267,13 +267,17 @@ pub struct StealthUpdateController {
 
 impl StealthUpdateController {
     pub fn new(
-        data: Arc<StealthUpdateModuleData>,
+        data: ModuleDataHandle,
         object_id: ObjectID,
         current_frame: UnsignedInt,
     ) -> Self {
-        // Matches C++ StealthUpdate::StealthUpdate lines 107-147
-        let stealth_allowed_frame = current_frame + data.stealth_delay;
-        let enabled = !data.team_disguised; // Bomb truck starts disabled
+        let (stealth_delay, team_disguised) = {
+            let guard = data.read();
+            let data = guard.as_any().downcast_ref::<StealthUpdateModuleData>().expect("invalid StealthUpdate data");
+            (data.stealth_delay, data.team_disguised)
+        };
+        let stealth_allowed_frame = current_frame + stealth_delay;
+        let enabled = !team_disguised;
 
         // C++ uses GameClientRandomValueReal for the visual pulse phase.
         let pulse_phase = crate::system::engine_stores::active_services().client_random_value_real(0.0, PI);
@@ -298,13 +302,19 @@ impl StealthUpdateController {
         }
     }
 
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, StealthUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.as_any().downcast_ref::<StealthUpdateModuleData>().expect("invalid StealthUpdate data")
+        })
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
 
     /// Get the stealth level bitmask from module data
     pub fn get_stealth_level(&self) -> UnsignedInt {
-        self.data.stealth_level
+        self.data().stealth_level
     }
 
     /// Receive stealth grant from special power
@@ -411,7 +421,7 @@ impl StealthUpdateController {
 
                 // Get stealth level from owner (could be self or rider)
                 let flags = if stealth_owner_id == self.object_id {
-                    self.data.stealth_level
+                    self.data().stealth_level
                 } else {
                     // Get stealth level from rider (C++ lines 244-258)
                     let mut rider_level = None;
@@ -429,7 +439,7 @@ impl StealthUpdateController {
                     {
                         rider_level = Some(level);
                     }
-                    rider_level.unwrap_or(self.data.stealth_level)
+                    rider_level.unwrap_or(self.data().stealth_level)
                 };
 
                 // Check STEALTH_NOT_WHILE_ATTACKING (line 268)
@@ -453,7 +463,7 @@ impl StealthUpdateController {
                         let has_black_market = self.check_for_black_market(&obj_guard);
 
                         // Update next check frame
-                        let check_delay = self.data.black_market_check_frames;
+                        let check_delay = self.data().black_market_check_frames;
                         if check_delay > 0 {
                             // Cast to avoid overflow on addition
                             self.next_black_market_check_frame =
@@ -493,12 +503,12 @@ impl StealthUpdateController {
                 }
 
                 // Check required status (line 315)
-                if self.data.required_status.any() && !status.contains(self.data.required_status) {
+                if self.data().required_status.any() && !status.contains(self.data().required_status) {
                     return false;
                 }
 
                 // Check forbidden status (line 319)
-                if status.intersects(self.data.forbidden_status) {
+                if status.intersects(self.data().forbidden_status) {
                     return false;
                 }
 
@@ -588,7 +598,7 @@ impl StealthUpdateController {
                     if let Some(physics) = obj_guard.get_physics() {
                         if let Ok(phys_guard) = physics.access() {
                             let vel = phys_guard.get_velocity();
-                            if vel.length() > self.data.stealth_speed {
+                            if vel.length() > self.data().stealth_speed {
                                 moving = true;
                             }
                         }
@@ -617,7 +627,7 @@ impl StealthUpdateController {
             return;
         }
 
-        let stealth_delay = self.data.stealth_delay;
+        let stealth_delay = self.data().stealth_delay;
 
         // Remove disguise if active (lines 875-878)
         if self.is_disguised() {
@@ -632,7 +642,8 @@ impl StealthUpdateController {
         }
 
         // Order idle enemies to attack if configured (lines 892-911)
-        if self.data.order_idle_enemies_to_attack_upon_reveal {
+        let order_idle_enemies = self.data().order_idle_enemies_to_attack_upon_reveal;
+        if order_idle_enemies {
             // Wake up idle enemy units in range to attack revealed unit
             let Some((self_pos, self_team_id)) = OBJECT_REGISTRY
                 .with_object(self.object_id, |obj_guard| {
@@ -711,7 +722,8 @@ impl StealthUpdateController {
 
             self.enabled = true;
             self.transitioning_to_disguise = true;
-            self.disguise_transition_frames = self.data.disguise_transition_frames;
+            let transition_frames = self.data().disguise_transition_frames;
+            self.disguise_transition_frames = transition_frames;
             self.disguise_halfpoint_reached = false;
 
             let __arc_disguise = get_disguise_manager();
@@ -719,7 +731,7 @@ impl StealthUpdateController {
                 let _ = disguise_manager.register_object(self.object_id);
                 let _ = disguise_manager.set_disguise(self.object_id, template, disguise_player);
                 let _ = disguise_manager
-                    .start_transition(self.object_id, self.data.disguise_transition_frames);
+                    .start_transition(self.object_id, self.disguise_transition_frames);
             }
 
             trace!(
@@ -731,7 +743,8 @@ impl StealthUpdateController {
             // Remove disguise (lines 942-948)
             self.disguise_as_template_name = None;
             self.disguise_as_player_index = 0;
-            self.disguise_transition_frames = self.data.disguise_reveal_transition_frames;
+            let transition_frames = self.data().disguise_reveal_transition_frames;
+            self.disguise_transition_frames = transition_frames;
             self.transitioning_to_disguise = false;
             self.disguise_halfpoint_reached = false;
 
@@ -917,9 +930,9 @@ impl StealthUpdateController {
             self.disguise_transition_frames -= 1;
 
             let total_frames = if self.transitioning_to_disguise {
-                self.data.disguise_transition_frames
+                self.data().disguise_transition_frames
             } else {
-                self.data.disguise_reveal_transition_frames
+                self.data().disguise_reveal_transition_frames
             };
 
             let factor = 1.0 - (self.disguise_transition_frames as f32 / total_frames as f32);
@@ -966,9 +979,13 @@ impl StealthUpdateController {
         }
 
         // Check reveal distance (lines 675-693)
-        if self.data.reveal_distance_from_target > 0.0 {
-            if self.is_too_close_to_current_target(self.data.reveal_distance_from_target) {
-                self.mark_as_detected(self.data.pulse_frames, current_frame);
+        let (reveal_distance, pulse_frames) = {
+            let data = self.data();
+            (data.reveal_distance_from_target, data.pulse_frames)
+        };
+        if reveal_distance > 0.0 {
+            if self.is_too_close_to_current_target(reveal_distance) {
+                self.mark_as_detected(pulse_frames, current_frame);
             }
         }
 
@@ -1017,7 +1034,7 @@ impl StealthUpdateController {
         } else {
             // Break stealth (lines 738-752) using the stealth owner's delay.
             let stealth_delay = if stealth_owner_id == self.object_id {
-                self.data.stealth_delay
+                self.data().stealth_delay
             } else {
                 OBJECT_REGISTRY
                     .with_object(stealth_owner_id, |owner| {
@@ -1026,7 +1043,7 @@ impl StealthUpdateController {
                         })
                     })
                     .flatten()
-                    .unwrap_or(self.data.stealth_delay)
+                    .unwrap_or(self.data().stealth_delay)
             };
             self.stealth_allowed_frame = current_frame.saturating_add(stealth_delay);
 
@@ -1043,8 +1060,8 @@ impl StealthUpdateController {
 
                     // Hint detectable - set subtle visibility for breaking stealth conditions (line 751)
                     let current_status = guard.get_status_bits();
-                    if self.data.hint_detectable_states.any()
-                        && current_status.intersects(self.data.hint_detectable_states)
+                    if self.data().hint_detectable_states.any()
+                        && current_status.intersects(self.data().hint_detectable_states)
                     {
                         // Set second material pass opacity for hint detection (C++ StealthUpdate.cpp:407-421)
                         // This makes the unit slightly visible when conditions are broken
@@ -1154,7 +1171,7 @@ impl StealthUpdateController {
     // Helper methods
 
     fn can_disguise(&self) -> bool {
-        self.data.team_disguised
+        self.data().team_disguised
     }
 
     fn is_disguised(&self) -> bool {
@@ -1169,7 +1186,7 @@ impl StealthUpdateController {
         }
 
         // Matches C++ StealthUpdate::calcStealthOwner lines 531-556
-        if !self.data.use_rider_stealth {
+        if !self.data().use_rider_stealth {
             return self.object_id;
         }
 
@@ -1212,7 +1229,7 @@ impl StealthUpdateController {
     }
 
     fn get_friendly_opacity(&self) -> Real {
-        self.data.friendly_opacity_min
+        self.data().friendly_opacity_min
     }
 
     fn is_too_close_to_current_target(&self, max_distance: Real) -> bool {
@@ -1282,7 +1299,7 @@ impl StealthUpdateController {
 #[allow(dead_code)]
 pub struct StealthUpdate {
     module_name_key: NameKeyType,
-    data: Arc<StealthUpdateModuleData>,
+    data: ModuleDataHandle,
     controller: Arc<Mutex<StealthUpdateController>>,
     object_id: ObjectID,
     current_frame: UnsignedInt,
@@ -1293,7 +1310,7 @@ impl StealthUpdate {
     #[allow(dead_code)]
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<StealthUpdateModuleData>,
+        data: ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         let controller = Arc::new(Mutex::new(StealthUpdateController::new(
@@ -1331,11 +1348,11 @@ impl Module for StealthUpdate {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -1344,9 +1361,14 @@ impl Module for StealthUpdate {
         if dual_world_registry_unavailable() {
             return;
         }
+        let (innate_stealth, team_disguised) = {
+            let data = self.data.read();
+            let data = data.as_any().downcast_ref::<StealthUpdateModuleData>().expect("invalid StealthUpdate data");
+            (data.innate_stealth, data.team_disguised)
+        };
 
         // Initialize stealth status if innate (C++ lines 132-136)
-        if self.data.innate_stealth {
+        if innate_stealth {
             let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
                 guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
             });
@@ -1354,7 +1376,7 @@ impl Module for StealthUpdate {
 
         debug!(
             "Stealth update initialized for object {}, innate={}, disguise={}",
-            self.object_id, self.data.innate_stealth, self.data.team_disguised
+            self.object_id, innate_stealth, team_disguised
         );
     }
 
@@ -1902,7 +1924,7 @@ mod tests {
 
     #[test]
     fn stealth_update_ticks_while_held() {
-        let data = Arc::new(StealthUpdateModuleData::default());
+        let data = ModuleDataHandle::new(StealthUpdateModuleData::default());
         let update = StealthUpdate::new(0, data, 1);
         assert_eq!(
             UpdateModuleInterface::get_disabled_types_to_process(&update),
@@ -1922,7 +1944,7 @@ mod tests {
 
     #[test]
     fn test_stealth_controller_creation() {
-        let data = Arc::new(StealthUpdateModuleData::default());
+        let data = ModuleDataHandle::new(StealthUpdateModuleData::default());
         let controller = StealthUpdateController::new(data.clone(), 1, 0);
         assert!(controller.pulse_phase >= 0.0);
         assert!(controller.pulse_phase <= PI);
@@ -2020,7 +2042,7 @@ mod tests {
         .expect("create stealthed object");
 
         let controller =
-            StealthUpdateController::new(Arc::new(StealthUpdateModuleData::default()), 93_001, 0);
+            StealthUpdateController::new(ModuleDataHandle::new(StealthUpdateModuleData::default()), 93_001, 0);
 
         assert_eq!(
             controller.calc_stealth_look_for_player(2),
@@ -2052,7 +2074,7 @@ mod tests {
             .expect("create stealthed object");
 
         let controller =
-            StealthUpdateController::new(Arc::new(StealthUpdateModuleData::default()), 93_002, 0);
+            StealthUpdateController::new(ModuleDataHandle::new(StealthUpdateModuleData::default()), 93_002, 0);
 
         assert_eq!(
             controller.calc_stealth_look_for_player(0),

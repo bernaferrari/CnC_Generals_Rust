@@ -133,7 +133,7 @@ pub struct DamDie {
 
 impl DamDie {
     /// Create a new DamDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<DamDieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -173,7 +173,7 @@ impl DieModuleInterface for DamDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }

@@ -24,7 +24,7 @@ fn template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "DozerAIUpdate".into(),
             module_tag: "OwnedDozerClockAI".into(),
-            data: Arc::new(data),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(data),
             interface_mask: ModuleInterfaceType::UPDATE,
         }],
     })

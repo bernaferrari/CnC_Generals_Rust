@@ -126,10 +126,38 @@ impl<'a> ContainModuleDataKind<'a> {
     }
 }
 
+pub(crate) fn open_contain_data_view(
+    handle: ModuleDataHandle,
+) -> game_engine::common::thing::module::ModuleDataView<OpenContainModuleData> {
+    game_engine::common::thing::module::ModuleDataView::new(handle, |data| {
+        ContainModuleDataKind::from_module_data(data)
+            .expect("OpenContain-derived module data expected")
+            .open_data()
+    })
+}
+
+pub(crate) fn transport_contain_data_view(
+    handle: ModuleDataHandle,
+) -> game_engine::common::thing::module::ModuleDataView<TransportContainModuleData> {
+    game_engine::common::thing::module::ModuleDataView::new(handle, |data| {
+        match ContainModuleDataKind::from_module_data(data)
+            .expect("TransportContain-derived module data expected")
+        {
+            ContainModuleDataKind::Transport(data) => data,
+            ContainModuleDataKind::Overlord(data) => &data.base,
+            ContainModuleDataKind::Helix(data) => &data.base,
+            ContainModuleDataKind::RailedTransport(data) => &data.base,
+            ContainModuleDataKind::RiderChange(data) => &data.base,
+            ContainModuleDataKind::InternetHack(data) => &data.base,
+            _ => panic!("TransportContain-derived module data expected"),
+        }
+    })
+}
+
 #[derive(Debug)]
 struct ContainBindingModule {
     module_name_key: NameKeyType,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     contain: Arc<Mutex<dyn ContainModuleInterface>>,
     owner_id: ObjectID,
 }
@@ -137,7 +165,7 @@ struct ContainBindingModule {
 impl ContainBindingModule {
     fn new(
         module_name_key: NameKeyType,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         contain: Arc<Mutex<dyn ContainModuleInterface>>,
         owner_id: ObjectID,
     ) -> Self {
@@ -168,11 +196,11 @@ impl Module for ContainBindingModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {
@@ -267,7 +295,7 @@ impl Snapshotable for ContainBindingModule {
 pub(super) fn build_contain_module(
     module_name: &str,
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     contain: Arc<Mutex<dyn ContainModuleInterface>>,
 ) -> Box<dyn Module> {
     let module_name_key = NameKeyGenerator::name_to_key(module_name);
@@ -296,14 +324,14 @@ pub(super) fn open_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn open_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data = contain_adapter_data::<OpenContainModuleData>("OpenContain", &module_data);
+    require_contain_data::<OpenContainModuleData>("OpenContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = OpenContain::new_for_owner(owner_id, contain_data).unwrap_or_else(|_| {
-        OpenContain::new_for_owner(owner_id, &OpenContainModuleData::default())
-            .expect("OpenContain default construction failed")
-    });
+    let contain = match OpenContain::new_for_owner(owner_id, module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("OpenContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("OpenContain", thing, module_data, contain)
 }
@@ -324,15 +352,14 @@ pub(super) fn transport_contain_module_data_factory(ini: Option<&mut INI>) -> Bo
 
 pub(super) fn transport_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<TransportContainModuleData>("TransportContain", &module_data);
+    require_contain_data::<TransportContainModuleData>("TransportContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = TransportContain::new_for_owner(owner_id, contain_data).unwrap_or_else(|_| {
-        TransportContain::new_for_owner(owner_id, &TransportContainModuleData::default())
-            .expect("TransportContain default construction failed")
-    });
+    let contain = match TransportContain::new_for_owner(owner_id, module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("TransportContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("TransportContain", thing, module_data, contain)
 }
@@ -353,15 +380,14 @@ pub(super) fn garrison_contain_module_data_factory(ini: Option<&mut INI>) -> Box
 
 pub(super) fn garrison_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<GarrisonContainModuleData>("GarrisonContain", &module_data);
+    require_contain_data::<GarrisonContainModuleData>("GarrisonContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = GarrisonContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        GarrisonContain::new(Weak::new(), &GarrisonContainModuleData::default())
-            .expect("GarrisonContain default construction failed")
-    });
+    let contain = match GarrisonContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("GarrisonContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("GarrisonContain", thing, module_data, contain)
 }
@@ -382,15 +408,14 @@ pub(super) fn tunnel_contain_module_data_factory(ini: Option<&mut INI>) -> Box<d
 
 pub(super) fn tunnel_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<TunnelContainModuleData>("TunnelContain", &module_data);
+    require_contain_data::<TunnelContainModuleData>("TunnelContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = TunnelContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        TunnelContain::new(Weak::new(), &TunnelContainModuleData::default())
-            .expect("TunnelContain default construction failed")
-    });
+    let contain = match TunnelContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("TunnelContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("TunnelContain", thing, module_data, contain)
 }
@@ -411,15 +436,14 @@ pub(super) fn overlord_contain_module_data_factory(ini: Option<&mut INI>) -> Box
 
 pub(super) fn overlord_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<OverlordContainModuleData>("OverlordContain", &module_data);
+    require_contain_data::<OverlordContainModuleData>("OverlordContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = OverlordContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
-            .expect("OverlordContain default construction failed")
-    });
+    let contain = match OverlordContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("OverlordContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("OverlordContain", thing, module_data, contain)
 }
@@ -440,14 +464,14 @@ pub(super) fn helix_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dy
 
 pub(super) fn helix_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data = contain_adapter_data::<HelixContainModuleData>("HelixContain", &module_data);
+    require_contain_data::<HelixContainModuleData>("HelixContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = HelixContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        HelixContain::new(Weak::new(), &HelixContainModuleData::default())
-            .expect("HelixContain default construction failed")
-    });
+    let contain = match HelixContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("HelixContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("HelixContain", thing, module_data, contain)
 }
@@ -470,18 +494,14 @@ pub(super) fn railed_transport_contain_module_data_factory(
 
 pub(super) fn railed_transport_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data = contain_adapter_data::<RailedTransportContainModuleData>(
-        "RailedTransportContain",
-        &module_data,
-    );
+    require_contain_data::<RailedTransportContainModuleData>("RailedTransportContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain =
-        RailedTransportContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-            RailedTransportContain::new(Weak::new(), &RailedTransportContainModuleData::default())
-                .expect("RailedTransportContain default construction failed")
-        });
+    let contain = match RailedTransportContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("RailedTransportContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("RailedTransportContain", thing, module_data, contain)
 }
@@ -504,15 +524,14 @@ pub(super) fn rider_change_contain_module_data_factory(
 
 pub(super) fn rider_change_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<RiderChangeContainModuleData>("RiderChangeContain", &module_data);
+    require_contain_data::<RiderChangeContainModuleData>("RiderChangeContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = RiderChangeContain::new_for_owner(owner_id, contain_data).unwrap_or_else(|_| {
-        RiderChangeContain::new_for_owner(owner_id, &RiderChangeContainModuleData::default())
-            .expect("RiderChangeContain default construction failed")
-    });
+    let contain = match RiderChangeContain::new_for_owner(owner_id, module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("RiderChangeContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("RiderChangeContain", thing, module_data, contain)
 }
@@ -535,16 +554,14 @@ pub(super) fn internet_hack_contain_module_data_factory(
 
 pub(super) fn internet_hack_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<InternetHackContainModuleData>("InternetHackContain", &module_data);
+    require_contain_data::<InternetHackContainModuleData>("InternetHackContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain =
-        InternetHackContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-            InternetHackContain::new(Weak::new(), &InternetHackContainModuleData::default())
-                .expect("InternetHackContain default construction failed")
-        });
+    let contain = match InternetHackContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("InternetHackContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("InternetHackContain", thing, module_data, contain)
 }
@@ -565,14 +582,14 @@ pub(super) fn heal_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn heal_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data = contain_adapter_data::<HealContainModuleData>("HealContain", &module_data);
+    require_contain_data::<HealContainModuleData>("HealContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = HealContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        HealContain::new(Weak::new(), &HealContainModuleData::default())
-            .expect("HealContain default construction failed")
-    });
+    let contain = match HealContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("HealContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("HealContain", thing, module_data, contain)
 }
@@ -593,9 +610,9 @@ pub(super) fn cave_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn cave_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data = contain_adapter_data::<CaveContainModuleData>("CaveContain", &module_data);
+    require_contain_data::<CaveContainModuleData>("CaveContain", &module_data);
     let owner = match crate::object::supplied_module_owner(thing.as_ref()) {
         Ok(owner) => owner,
         Err(error) => return failed_initialization_module("CaveContain", module_data, error),
@@ -604,7 +621,7 @@ pub(super) fn cave_contain_module_factory(
         .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
     let contain = match CaveContain::new(
         Arc::downgrade(&owner),
-        contain_data,
+        module_data.clone(),
         Some(cave_system),
     ) {
         Ok(contain) => contain,
@@ -630,15 +647,14 @@ pub(super) fn parachute_contain_module_data_factory(ini: Option<&mut INI>) -> Bo
 
 pub(super) fn parachute_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<ParachuteContainModuleData>("ParachuteContain", &module_data);
+    require_contain_data::<ParachuteContainModuleData>("ParachuteContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = ParachuteContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        ParachuteContain::new(Weak::new(), &ParachuteContainModuleData::default())
-            .expect("ParachuteContain default construction failed")
-    });
+    let contain = match ParachuteContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("ParachuteContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("ParachuteContain", thing, module_data, contain)
 }
@@ -659,29 +675,24 @@ pub(super) fn mob_nexus_contain_module_data_factory(ini: Option<&mut INI>) -> Bo
 
 pub(super) fn mob_nexus_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let contain_data =
-        contain_adapter_data::<MobNexusContainModuleData>("MobNexusContain", &module_data);
+    require_contain_data::<MobNexusContainModuleData>("MobNexusContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = MobNexusContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        MobNexusContain::new(Weak::new(), &MobNexusContainModuleData::default())
-            .expect("MobNexusContain default construction failed")
-    });
+    let contain = match MobNexusContain::new(owner_weak(owner_id), module_data.clone()) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("MobNexusContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("MobNexusContain", thing, module_data, contain)
 }
 
-pub(super) fn contain_adapter_data<'a, T>(
-    module_name: &str,
-    module_data: &'a Arc<dyn ModuleData>,
-) -> &'a T
+fn require_contain_data<T>(module_name: &str, module_data: &ModuleDataHandle)
 where
     T: Clone + Send + Sync + std::fmt::Debug + 'static,
 {
-    module_data
-        .as_ref()
-        .downcast_ref::<ContainModuleDataAdapter<T>>()
-        .unwrap_or_else(|| panic!("{module_name} module data adapter expected"))
-        .contain_data()
+    assert!(
+        module_data.is::<ContainModuleDataAdapter<T>>(),
+        "{module_name} module data adapter expected"
+    );
 }

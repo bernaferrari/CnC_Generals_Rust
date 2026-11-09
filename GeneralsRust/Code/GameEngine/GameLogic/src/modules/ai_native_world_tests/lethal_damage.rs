@@ -15,7 +15,7 @@ pub(super) fn instant_actor() -> Arc<dyn ThingTemplate> {
     modules.push(TemplateModuleInfo {
         name: "InstantDeathBehavior".into(),
         module_tag: "NativeInstantDeath".into(),
-        data: Arc::new(InstantDeathBehaviorModuleData::default()),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(InstantDeathBehaviorModuleData::default()),
         interface_mask: ModuleInterfaceType::DIE,
     });
     Arc::new(EntryTemplate { base, modules })
@@ -264,7 +264,7 @@ pub(super) fn slow_actor() -> Arc<dyn ThingTemplate> {
     modules.push(TemplateModuleInfo {
         name: "SlowDeathBehavior".into(),
         module_tag: "NativeSlowDeath".into(),
-        data: Arc::new(data),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(data),
         interface_mask: ModuleInterfaceType::DIE | ModuleInterfaceType::UPDATE,
     });
     Arc::new(EntryTemplate { base, modules })
@@ -411,7 +411,7 @@ fn instant_ai_actor() -> Arc<dyn ThingTemplate> {
         TemplateModuleInfo {
             name: "AIUpdateInterface".into(),
             module_tag: "NativeDeathAI".into(),
-            data: Arc::new(data),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(data),
             interface_mask: ModuleInterfaceType::UPDATE,
         },
     );

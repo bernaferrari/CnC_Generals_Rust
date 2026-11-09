@@ -1929,7 +1929,9 @@ mod tests {
         let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(
             GarrisonContain::new(
                 Arc::downgrade(object),
-                &GarrisonContainModuleData::default(),
+                game_engine::common::thing::module::ModuleDataHandle::new(
+                    crate::contain_module_overrides::ContainModuleDataAdapter::new(GarrisonContainModuleData::default()),
+                ),
             )
             .expect("garrison contain"),
         ));

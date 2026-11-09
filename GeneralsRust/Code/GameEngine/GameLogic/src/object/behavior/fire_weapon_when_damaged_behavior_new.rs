@@ -365,7 +365,7 @@ const FIRE_WEAPON_WHEN_DAMAGED_FIELDS: &[FieldParse<FireWeaponWhenDamagedBehavio
 /// Matches C++ FireWeaponWhenDamagedBehavior.cpp lines 35-342
 pub struct FireWeaponWhenDamagedBehavior {
     object_id: ObjectID,
-    module_data: Arc<FireWeaponWhenDamagedBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 
     // Reaction weapons (fire once on damage). Matches C++ lines 37-44
     reaction_weapon_pristine: Option<Weapon>,
@@ -385,16 +385,13 @@ pub struct FireWeaponWhenDamagedBehavior {
 
 impl FireWeaponWhenDamagedBehavior {
     /// Creates new FireWeaponWhenDamagedBehavior. Matches C++ lines 35-119
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
+        let guard = module_data.read();
+        let data = guard.downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
             .ok_or("Invalid module data for FireWeaponWhenDamagedBehavior")?;
-
-        let data = Arc::new(specific_data.clone());
         let object_id = object
             .read()
             .map(|guard| guard.get_id())
@@ -436,11 +433,16 @@ impl FireWeaponWhenDamagedBehavior {
             .as_ref()
             .map(|tmpl| Self::allocate_weapon(tmpl.clone(), object_id));
 
-        let mut upgrade_mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mut upgrade_mux = UpgradeMux::new_shared(
+            game_engine::common::thing::module::ModuleDataView::new(module_data.clone(), |data| {
+                &data.downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
+                    .expect("Invalid module data").upgrade_mux_data
+            }),
+        );
         if data.initially_active {
             if let Ok(mut obj_guard) = object.write() {
-                upgrade_mux.data.perform_upgrade_fx(&mut obj_guard);
-                upgrade_mux.data.process_upgrade_removal(&mut obj_guard);
+                data.upgrade_mux_data.perform_upgrade_fx(&mut obj_guard);
+                data.upgrade_mux_data.process_upgrade_removal(&mut obj_guard);
             }
             upgrade_mux.set_upgrade_executed(true);
         }
@@ -460,6 +462,7 @@ impl FireWeaponWhenDamagedBehavior {
         if let Ok(obj_guard) = object.read() {
             obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
         }
+        drop(guard);
 
         Ok(Self {
             object_id: object
@@ -467,7 +470,7 @@ impl FireWeaponWhenDamagedBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: data,
+            module_data,
             reaction_weapon_pristine,
             reaction_weapon_damaged,
             reaction_weapon_really_damaged,
@@ -612,7 +615,9 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
             return Ok(()); // Matches C++ lines 149-150
         }
 
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
+            .expect("Invalid module data");
 
         // Check damage type filter. Matches C++ lines 154-156
         if !get_damage_type_flag(data.damage_types, damage_info.input.damage_type) {
@@ -623,6 +628,7 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
         if damage_info.output.actual_damage_dealt < data.damage_amount {
             return Ok(());
         }
+        drop(guard);
 
         let object = match (if self.object_id == crate::common::INVALID_ID {
             None
@@ -802,53 +808,56 @@ impl Snapshotable for FireWeaponWhenDamagedBehavior {
         })
         .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
         .unwrap_or(crate::common::INVALID_ID);
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
+            .expect("Invalid module data");
 
         Self::xfer_weapon_option(
             xfer,
             &mut self.reaction_weapon_pristine,
-            &self.module_data.reaction_weapon_pristine,
+            &data.reaction_weapon_pristine,
             object_id,
         )?;
         Self::xfer_weapon_option(
             xfer,
             &mut self.reaction_weapon_damaged,
-            &self.module_data.reaction_weapon_damaged,
+            &data.reaction_weapon_damaged,
             object_id,
         )?;
         Self::xfer_weapon_option(
             xfer,
             &mut self.reaction_weapon_really_damaged,
-            &self.module_data.reaction_weapon_really_damaged,
+            &data.reaction_weapon_really_damaged,
             object_id,
         )?;
         Self::xfer_weapon_option(
             xfer,
             &mut self.reaction_weapon_rubble,
-            &self.module_data.reaction_weapon_rubble,
+            &data.reaction_weapon_rubble,
             object_id,
         )?;
         Self::xfer_weapon_option(
             xfer,
             &mut self.continuous_weapon_pristine,
-            &self.module_data.continuous_weapon_pristine,
+            &data.continuous_weapon_pristine,
             object_id,
         )?;
         Self::xfer_weapon_option(
             xfer,
             &mut self.continuous_weapon_damaged,
-            &self.module_data.continuous_weapon_damaged,
+            &data.continuous_weapon_damaged,
             object_id,
         )?;
         Self::xfer_weapon_option(
             xfer,
             &mut self.continuous_weapon_really_damaged,
-            &self.module_data.continuous_weapon_really_damaged,
+            &data.continuous_weapon_really_damaged,
             object_id,
         )?;
         Self::xfer_weapon_option(
             xfer,
             &mut self.continuous_weapon_rubble,
-            &self.module_data.continuous_weapon_rubble,
+            &data.continuous_weapon_rubble,
             object_id,
         )?;
         Ok(())
@@ -892,7 +901,7 @@ impl Snapshotable for FireWeaponWhenDamagedBehavior {
 pub struct FireWeaponWhenDamagedBehaviorModule {
     behavior: FireWeaponWhenDamagedBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<FireWeaponWhenDamagedBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl FireWeaponWhenDamagedBehaviorModule {
@@ -903,7 +912,7 @@ impl FireWeaponWhenDamagedBehaviorModule {
     pub fn new(
         behavior: FireWeaponWhenDamagedBehavior,
         module_name: &AsciiString,
-        module_data: Arc<FireWeaponWhenDamagedBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -946,12 +955,12 @@ impl Module for FireWeaponWhenDamagedBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -977,9 +986,9 @@ pub struct FireWeaponWhenDamagedBehaviorFactory;
 impl FireWeaponWhenDamagedBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FireWeaponWhenDamagedBehavior::new(
+        Ok(Box::new(FireWeaponWhenDamagedBehavior::new_with_module_data(
             thing,
             module_data,
         )?))

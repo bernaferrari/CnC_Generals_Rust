@@ -140,7 +140,8 @@ pub fn leftover_battle_bus_fx(template_name: &str) -> (Option<String>, Option<St
         {
             continue;
         }
-        if let Some(data) = entry.data.downcast_ref::<
+        let data_guard = entry.data.read();
+        if let Some(data) = data_guard.downcast_ref::<
             gamelogic::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModuleData,
         >()
         {
@@ -152,9 +153,7 @@ pub fn leftover_battle_bus_fx(template_name: &str) -> (Option<String>, Option<St
             );
         }
         let nonempty = |key: &str| {
-            entry
-                .data
-                .get_ini_field(key)
+            data_guard.get_ini_field(key)
                 .map(str::trim)
                 .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("NONE"))
                 .map(str::to_string)

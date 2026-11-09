@@ -10,7 +10,7 @@ use crate::common::{AsciiString, Coord3D, ParticleSystemTemplate};
 use crate::common::science::{SCIENCE_INVALID, ScienceType};
 use crate::common::types::SpecialPowerType as CommonSpecialPowerType;
 use crate::common::types::{
-    INVALID_ID, ModelConditionFlags, ModuleData, ObjectID, PI, Real, UnsignedInt,
+    INVALID_ID, ModelConditionFlags, ObjectID, PI, Real, UnsignedInt,
 };
 use crate::object::special_power_module::Waypoint;
 use crate::object::update::special_power_update::SpecialPowerCommandOption;
@@ -468,9 +468,7 @@ const SPECIAL_ABILITY_UPDATE_FIELDS: &[FieldParse<SpecialAbilityUpdateModuleData
 #[derive(Debug)]
 pub struct SpecialAbilityUpdate {
     base: SpecialPowerUpdateModule,
-    module_data: Arc<SpecialAbilityUpdateModuleData>,
-    #[allow(dead_code)]
-    this_module_data: Option<Arc<dyn ModuleData>>, // Keep reference to raw module data if needed
+    module_data: game_engine::common::thing::module::ModuleDataView<SpecialAbilityUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     active: bool,
     prep_frames: u32,
@@ -491,22 +489,21 @@ pub struct SpecialAbilityUpdate {
 }
 
 impl SpecialAbilityUpdate {
-    pub fn new(object_ptr: Weak<RwLock<Object>>, module_data: Arc<dyn ModuleData>) -> Self {
+    pub fn new(object_ptr: Weak<RwLock<Object>>, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         let object_id = object_ptr
             .upgrade()
             .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
             .unwrap_or(INVALID_ID);
 
-        let sa_data = module_data
-            .as_ref()
-            .downcast_ref::<SpecialAbilityUpdateModuleData>()
-            .expect("Invalid ModuleData for SpecialAbilityUpdate")
-            .clone();
+        assert!(module_data.is::<SpecialAbilityUpdateModuleData>());
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(module_data, |data| {
+            data.as_any().downcast_ref::<SpecialAbilityUpdateModuleData>()
+                .expect("Invalid ModuleData for SpecialAbilityUpdate")
+        });
 
         let behavior = Self {
             base: SpecialPowerUpdateModule::new(object_id, object_ptr.clone()),
-            module_data: Arc::new(sa_data),
-            this_module_data: Some(module_data),
+            module_data,
             next_call_frame_and_phase: UPDATE_SLEEP_FOREVER.to_u32(),
             active: false,
             prep_frames: 0,
@@ -565,7 +562,7 @@ impl SpecialAbilityUpdate {
     }
 
     fn calc_sleep_time(&self) -> UpdateSleepTime {
-        if self.active || self.module_data.always_validate_special_objects {
+        if self.active || self.module_data.read().always_validate_special_objects {
             UPDATE_SLEEP_NONE
         } else {
             UPDATE_SLEEP_FOREVER
@@ -573,8 +570,7 @@ impl SpecialAbilityUpdate {
     }
 
     pub fn get_special_power_type(&self) -> Option<CommonSpecialPowerType> {
-        self.module_data
-            .special_power_template
+        self.module_data.read().special_power_template
             .as_ref()
             .and_then(|template| {
                 CommonSpecialPowerType::from_u32(template.get_special_power_type() as u32)
@@ -586,18 +582,18 @@ impl SpecialAbilityUpdate {
     }
 
     pub fn get_special_object_max(&self) -> UnsignedInt {
-        self.module_data.max_special_objects
+        self.module_data.read().max_special_objects
     }
 
     fn get_template(&self) -> Option<Arc<SpecialPowerTemplate>> {
-        self.module_data.special_power_template.clone()
+        self.module_data.read().special_power_template.clone()
     }
 
     fn with_spm<F, R>(&self, func: F) -> Option<R>
     where
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
-        let template = self.module_data.special_power_template.as_ref()?;
+        let template = self.module_data.read().special_power_template.clone()?;
         self.with_object(|obj_guard| {
             obj_guard.with_special_power_module_mut_by_name(template.get_name(), func)
         })?
@@ -608,11 +604,11 @@ impl SpecialAbilityUpdate {
     }
 
     fn reset_preparation(&mut self) {
-        self.prep_frames = self.module_data.persistent_prep_frames;
+        self.prep_frames = self.module_data.read().persistent_prep_frames;
     }
 
     fn is_persistent_ability(&self) -> bool {
-        self.module_data.persistent_prep_frames > 0
+        self.module_data.read().persistent_prep_frames > 0
     }
 
     fn on_exit(&mut self, cleanup: bool) {
@@ -632,9 +628,11 @@ impl SpecialAbilityUpdate {
         // remove audio event...
         self.end_preparation();
 
-        if !self.module_data.special_objects_persistent
-            || (cleanup && !self.module_data.special_objects_persist_when_owner_dies)
-        {
+        let remove_objects = {
+            let data = self.module_data.read();
+            !data.special_objects_persistent || (cleanup && !data.special_objects_persist_when_owner_dies)
+        };
+        if remove_objects {
             self.kill_special_objects();
         }
 
@@ -683,9 +681,7 @@ impl SpecialAbilityUpdate {
             return false;
         }
 
-        let bone_name = self
-            .module_data
-            .special_object_attach_to_bone_name
+        let bone_name = self.module_data.read().special_object_attach_to_bone_name
             .as_str()
             .to_string();
         let owner_id = self.get_object_id();
@@ -729,8 +725,7 @@ impl SpecialAbilityUpdate {
                         target_id,
                         Some(start_pos.to_array()),
                         Some(end_pos.to_array()),
-                        self.module_data
-                            .special_object_attach_to_bone_name
+                        self.module_data.read().special_object_attach_to_bone_name
                             .as_str()
                             .to_string(),
                         0,
@@ -748,12 +743,12 @@ impl SpecialAbilityUpdate {
             return false;
         }
 
-        let mut range = self.module_data.start_ability_range;
+        let mut range = self.module_data.read().start_ability_range;
         let undersize = PATHFIND_CELL_SIZE_F * 0.25;
         range = (range - undersize).max(0.0);
         let target_id = self.target_id;
         let target_pos = self.target_pos;
-        let requires_los = self.module_data.approach_requires_los;
+        let requires_los = self.module_data.read().approach_requires_los;
 
         self.with_object(|obj_guard| {
             let mut dist_sq = 0.0;
@@ -815,13 +810,13 @@ impl SpecialAbilityUpdate {
             return false;
         }
 
-        let mut range = self.module_data.start_ability_range;
+        let mut range = self.module_data.read().start_ability_range;
         let undersize = PATHFIND_CELL_SIZE_F * 0.25;
         range = (range - undersize).max(0.0);
-        let abort_range = self.module_data.ability_abort_range;
+        let abort_range = self.module_data.read().ability_abort_range;
         let target_id = self.target_id;
         let target_pos = self.target_pos;
-        let requires_los = self.module_data.approach_requires_los;
+        let requires_los = self.module_data.read().approach_requires_los;
 
         self.with_object(|obj_guard| {
             let mut dist_sq = 0.0;
@@ -911,7 +906,7 @@ impl SpecialAbilityUpdate {
     }
 
     fn start_preparation(&mut self) {
-        self.prep_frames = self.module_data.preparation_frames;
+        self.prep_frames = self.module_data.read().preparation_frames;
 
         let template = match self.get_template() {
             Some(t) => t,
@@ -1021,7 +1016,7 @@ impl SpecialAbilityUpdate {
             obj_guard.set_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY, true);
         });
 
-        if let Some(sound) = self.module_data.prep_sound_loop.as_ref() {
+        if let Some(sound) = self.module_data.read().prep_sound_loop.as_ref() {
             if let Some(audio) = TheAudio::get() {
                 let object_id = self.get_object_id();
                 if object_id != INVALID_ID {
@@ -1036,7 +1031,7 @@ impl SpecialAbilityUpdate {
     }
 
     fn continue_preparation(&mut self) -> bool {
-        if self.module_data.ability_abort_range < SPECIAL_ABILITY_HUGE_DISTANCE {
+        if self.module_data.read().ability_abort_range < SPECIAL_ABILITY_HUGE_DISTANCE {
             if !self.is_within_ability_abort_range() {
                 return false;
             }
@@ -1084,11 +1079,11 @@ impl SpecialAbilityUpdate {
                     }
                 }
 
-                if self.module_data.do_capture_fx {
+                if self.module_data.read().do_capture_fx {
                     if let Ok(target_guard) = target.read() {
                         if let Some(drawable) = target_guard.get_drawable() {
                             let last_phase = (self.capture_flash_phase as i32) & 1;
-                            let denom = self.module_data.preparation_frames.max(1) as Real;
+                            let denom = self.module_data.read().preparation_frames.max(1) as Real;
                             let increment = 1.0 - (self.prep_frames as Real / denom);
                             self.capture_flash_phase += increment / 3.0;
                             let this_phase = (self.capture_flash_phase as i32) & 1;
@@ -1165,21 +1160,21 @@ impl SpecialAbilityUpdate {
         };
 
         let _ = self.with_object_mut(|obj_guard| {
-            if self.module_data.award_xp_for_triggering > 0 {
+            if self.module_data.read().award_xp_for_triggering > 0 {
                 // C++ SpecialAbilityUpdate.cpp:1252-1254 calls
                 // `xpTracker->addExperiencePoints(data->m_awardXPForTriggering)`
                 // with the ExperienceTracker.h:32 default `canScaleForBonus = TRUE`,
                 // and the C++ tracker fires Object::onVeterancyLevelChanged itself
                 // on promotion (ExperienceTracker.cpp:158-164).
                 obj_guard.add_experience_points_with_side_effects(
-                    self.module_data.award_xp_for_triggering,
+                    self.module_data.read().award_xp_for_triggering,
                     true,
                 );
             }
-            let skill_points = if self.module_data.skill_points_for_triggering != -1 {
-                self.module_data.skill_points_for_triggering
+            let skill_points = if self.module_data.read().skill_points_for_triggering != -1 {
+                self.module_data.read().skill_points_for_triggering
             } else {
-                self.module_data.award_xp_for_triggering
+                self.module_data.read().award_xp_for_triggering
             };
             if skill_points > 0 {
                 obj_guard.with_controlling_player_rank_capped_mut(|p, rank_level_limit| {
@@ -1188,7 +1183,7 @@ impl SpecialAbilityUpdate {
             }
         });
 
-        if let Some(sound) = self.module_data.trigger_sound.as_ref() {
+        if let Some(sound) = self.module_data.read().trigger_sound.as_ref() {
             if let Some(audio) = TheAudio::get() {
                 let object_id = self.get_object_id();
                 if object_id != INVALID_ID {
@@ -1308,7 +1303,7 @@ impl SpecialAbilityUpdate {
                 if let Ok(mut target_guard) = target.write() {
                     target_guard.set_disabled_until(
                         crate::common::DisabledType::DisabledHacked,
-                        TheGameLogic::get_frame() + self.module_data.effect_duration,
+                        TheGameLogic::get_frame() + self.module_data.read().effect_duration,
                     );
                 }
 
@@ -1323,7 +1318,7 @@ impl SpecialAbilityUpdate {
                 }
                 if self.do_disable_fx_particles {
                     if let Some(manager) = TheParticleSystemManager::get() {
-                        if let Some(tmpl) = self.module_data.disable_fx_particle_system.as_ref() {
+                        if let Some(tmpl) = self.module_data.read().disable_fx_particle_system.as_ref() {
                             if let Some(system_id) =
                                 manager.create_particle_system(Some(tmpl.name.as_str()))
                             {
@@ -1541,7 +1536,7 @@ impl SpecialAbilityUpdate {
             }
         }
 
-        if self.module_data.lose_stealth_on_trigger && ok_to_lose_stealth {
+        if self.module_data.read().lose_stealth_on_trigger && ok_to_lose_stealth {
             if let Some(stealth) = self
                 .with_object(|obj_guard| obj_guard.get_stealth())
                 .flatten()
@@ -1552,16 +1547,16 @@ impl SpecialAbilityUpdate {
     }
 
     fn create_special_object(&mut self) -> Option<ObjectID> {
-        if self.special_object_id_list.len() as UnsignedInt == self.module_data.max_special_objects
+        if self.special_object_id_list.len() as UnsignedInt == self.module_data.read().max_special_objects
         {
-            if self.module_data.special_objects_persistent {
+            if self.module_data.read().special_objects_persistent {
                 return None;
             }
             self.kill_special_objects();
         }
 
         let template =
-            TheThingFactory::find_template(self.module_data.special_object_name.as_str())?;
+            TheThingFactory::find_template(self.module_data.read().special_object_name.as_str())?;
         let factory = TheThingFactory::get().ok()?;
         let team = self.with_object(|o| o.get_team()).flatten();
 
@@ -1626,7 +1621,7 @@ impl SpecialAbilityUpdate {
         {
             return false;
         }
-        if !self.module_data.need_to_face_target {
+        if !self.module_data.read().need_to_face_target {
             return false;
         }
         !self.facing_initiated || !self.facing_complete
@@ -1677,8 +1672,8 @@ impl SpecialAbilityUpdate {
         self.anim_frames = self.anim_frames.saturating_sub(1);
         if self.anim_frames == 0 {
             let packing_state = self.packing_state;
-            let flip_after_unpack = self.module_data.flip_object_after_unpacking;
-            let flip_after_pack = self.module_data.flip_object_after_packing;
+            let flip_after_unpack = self.module_data.read().flip_object_after_unpacking;
+            let flip_after_pack = self.module_data.read().flip_object_after_packing;
             let _ = self.with_object_mut(|obj_guard| {
                 obj_guard
                     .clear_model_condition_flags(
@@ -1715,9 +1710,11 @@ impl SpecialAbilityUpdate {
             return false;
         }
 
-        if self.module_data.lose_stealth_on_trigger
-            && self.anim_frames < self.module_data.pre_trigger_unstealth_frames
-        {
+        let unstealth = {
+            let data = self.module_data.read();
+            data.lose_stealth_on_trigger && self.anim_frames < data.pre_trigger_unstealth_frames
+        };
+        if unstealth {
             if let Some(stealth) = self
                 .with_object(|obj_guard| obj_guard.get_stealth())
                 .flatten()
@@ -1735,34 +1732,32 @@ impl SpecialAbilityUpdate {
         if self.packing_state != PackingState::Unpacked {
             return false;
         }
-        if self.module_data.skip_packing_with_no_target && self.no_target_command {
+        if self.module_data.read().skip_packing_with_no_target && self.no_target_command {
             return false;
         }
-        self.module_data.pack_time > 0
+        self.module_data.read().pack_time > 0
     }
 
     fn need_to_unpack(&self) -> bool {
         if self.packing_state != PackingState::Packed {
             return false;
         }
-        if self.module_data.skip_packing_with_no_target && self.no_target_command {
+        if self.module_data.read().skip_packing_with_no_target && self.no_target_command {
             return false;
         }
-        self.module_data.unpack_time > 0
+        self.module_data.read().unpack_time > 0
     }
 
     fn start_packing(&mut self, _success: bool) {
-        let variation = if self.module_data.pack_unpack_variation_factor > 0.0 {
-            get_game_logic_random_value_real(
-                1.0 - self.module_data.pack_unpack_variation_factor,
-                1.0 + self.module_data.pack_unpack_variation_factor,
-            )
+        let factor = self.module_data.read().pack_unpack_variation_factor;
+        let variation = if factor > 0.0 {
+            get_game_logic_random_value_real(1.0 - factor, 1.0 + factor)
         } else {
             1.0
         };
 
         self.packing_state = PackingState::Packing;
-        self.anim_frames = (self.module_data.pack_time as Real * variation) as u32;
+        self.anim_frames = (self.module_data.read().pack_time as Real * variation) as u32;
 
         let owner_id = self.get_object_id();
         let _ = self.with_object_mut(|obj_guard| {
@@ -1783,7 +1778,7 @@ impl SpecialAbilityUpdate {
                 let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
             }
         });
-        if let Some(sound) = self.module_data.pack_sound.as_ref() {
+        if let Some(sound) = self.module_data.read().pack_sound.as_ref() {
             if let Some(audio) = TheAudio::get() {
                 if owner_id != INVALID_ID {
                     let mut event = sound.clone();
@@ -1796,17 +1791,15 @@ impl SpecialAbilityUpdate {
     }
 
     fn start_unpacking(&mut self) {
-        let variation = if self.module_data.pack_unpack_variation_factor > 0.0 {
-            get_game_logic_random_value_real(
-                1.0 - self.module_data.pack_unpack_variation_factor,
-                1.0 + self.module_data.pack_unpack_variation_factor,
-            )
+        let factor = self.module_data.read().pack_unpack_variation_factor;
+        let variation = if factor > 0.0 {
+            get_game_logic_random_value_real(1.0 - factor, 1.0 + factor)
         } else {
             1.0
         };
 
         self.packing_state = PackingState::Unpacking;
-        self.anim_frames = (self.module_data.unpack_time as Real * variation) as u32;
+        self.anim_frames = (self.module_data.read().unpack_time as Real * variation) as u32;
 
         let owner_id = self.get_object_id();
         let _ = self.with_object_mut(|obj_guard| {
@@ -1827,7 +1820,7 @@ impl SpecialAbilityUpdate {
                 let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
             }
         });
-        if let Some(sound) = self.module_data.unpack_sound.as_ref() {
+        if let Some(sound) = self.module_data.read().unpack_sound.as_ref() {
             if let Some(audio) = TheAudio::get() {
                 if owner_id != INVALID_ID {
                     let mut event = sound.clone();
@@ -1848,10 +1841,12 @@ impl SpecialAbilityUpdate {
             || self.target_pos.y != 0.0
             || self.target_pos.z != 0.0;
 
-        if self.module_data.flee_range_after_completion > 0.0 && valid_target {
-            let scale = self.module_data.flee_range_after_completion;
-            let flip = self.module_data.flip_object_after_unpacking
-                || self.module_data.flip_object_after_packing;
+        if self.module_data.read().flee_range_after_completion > 0.0 && valid_target {
+            let scale = self.module_data.read().flee_range_after_completion;
+            let flip = {
+                let data = self.module_data.read();
+                data.flip_object_after_unpacking || data.flip_object_after_packing
+            };
             let target_id = self.target_id;
             let _ = self.with_object(|obj_guard| {
                 let (dir_x, dir_y) = obj_guard.get_unit_direction_vector_2d();
@@ -1898,7 +1893,7 @@ impl SpecialAbilityUpdate {
             }
         }
 
-        if let Some(template) = self.module_data.special_power_template.as_ref() {
+        if let Some(template) = self.module_data.read().special_power_template.as_ref() {
             if template.get_special_power_type()
                 == crate::object::special_power_types::SpecialPowerType::MissileDefenderLaserGuidedMissiles
             {
@@ -2045,7 +2040,7 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
         }
 
         let mut spm_ready = true;
-        if self.is_persistent_ability() && self.module_data.persistence_requires_recharge {
+        if self.is_persistent_ability() && self.module_data.read().persistence_requires_recharge {
             let ready = self.with_spm(|spm| {
                 spm.is_ready() && spm.get_ready_frame() < TheGameLogic::get_frame()
             });
@@ -2060,7 +2055,7 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
                 self.trigger_ability_effect();
                 if self.is_persistent_ability() {
                     self.reset_preparation();
-                    if self.module_data.persistence_requires_recharge {
+                    if self.module_data.read().persistence_requires_recharge {
                         let _ = self.with_spm(|spm| spm.start_power_recharge());
                     }
                 } else {
@@ -2099,7 +2094,7 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
                     self.trigger_ability_effect();
 
                     if self.is_persistent_ability()
-                        && self.module_data.persistence_requires_recharge
+                        && self.module_data.read().persistence_requires_recharge
                     {
                         self.reset_preparation();
                         let _ = self.with_spm(|spm| spm.start_power_recharge());
@@ -2380,7 +2375,7 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
         _command_options: SpecialPowerCommandOptions,
     ) -> bool {
         // Verify template matches
-        if let Some(ref my_template) = self.module_data.special_power_template {
+        if let Some(ref my_template) = self.module_data.read().special_power_template {
             if my_template.get_name() != special_power_template.get_name() {
                 return false;
             }
@@ -2403,9 +2398,11 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
 
         self.no_target_command = target_obj.is_none() && target_pos.is_none();
 
-        if self.module_data.unpack_time == 0
-            || (self.no_target_command && self.module_data.skip_packing_with_no_target)
-        {
+        let unpacked = {
+            let data = self.module_data.read();
+            data.unpack_time == 0 || (self.no_target_command && data.skip_packing_with_no_target)
+        };
+        if unpacked {
             self.packing_state = PackingState::Unpacked;
         }
 
@@ -2502,7 +2499,7 @@ pub struct SpecialAbilityUpdateFactory;
 impl SpecialAbilityUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let object_ptr = Arc::downgrade(&thing);
         Ok(Box::new(SpecialAbilityUpdate::new(object_ptr, module_data)))
@@ -2512,7 +2509,7 @@ impl SpecialAbilityUpdateFactory {
 pub struct SpecialAbilityUpdateModule {
     behavior: SpecialAbilityUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SpecialAbilityUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl SpecialAbilityUpdateModule {
@@ -2523,7 +2520,7 @@ impl SpecialAbilityUpdateModule {
     pub fn new(
         behavior: SpecialAbilityUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SpecialAbilityUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -2566,11 +2563,11 @@ impl Module for SpecialAbilityUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -2597,5 +2594,31 @@ impl Module for SpecialAbilityUpdateModule {
     /// `as_any().downcast_ref::<Self>()` chain in `initial_update_wake_frame`.
     fn get_initial_wake_frame(&mut self) -> Option<u32> {
         Some(self.initial_wake_frame())
+    }
+}
+
+#[cfg(test)]
+mod shared_data_tests {
+    use super::*;
+    use game_engine::common::thing::module::ModuleDataHandle;
+
+    #[test]
+    fn installed_behavior_reads_the_supplied_definition() {
+        let data = ModuleDataHandle::new(SpecialAbilityUpdateModuleData::default());
+        let behavior = SpecialAbilityUpdate::new(Weak::new(), data.clone());
+        let mut module = SpecialAbilityUpdateModule::new(
+            behavior,
+            &AsciiString::from("SpecialAbilityUpdate"),
+            data.clone(),
+        );
+        let tag = NameKeyGenerator::name_to_key("SpecialAbilitySharedTag");
+        data.write().set_module_tag_name_key(tag);
+        assert_eq!(module.get_module_data().get_module_tag_name_key(), tag);
+        {
+            let mut data = data.write();
+            let any: &mut dyn std::any::Any = &mut *data;
+            any.downcast_mut::<SpecialAbilityUpdateModuleData>().unwrap().max_special_objects = 17;
+        }
+        assert_eq!(module.behavior_mut().get_special_object_max(), 17);
     }
 }

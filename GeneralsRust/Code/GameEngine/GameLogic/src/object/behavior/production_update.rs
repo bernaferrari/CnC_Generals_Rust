@@ -66,7 +66,7 @@ pub struct ProductionQueueEntry {
 
 pub struct ProductionUpdate {
     object_id: ObjectID,
-    module_data: Arc<ProductionUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<ProductionUpdateModuleData>,
     production_queue: VecDeque<ProductionQueueEntry>,
     current_entry: Option<ProductionQueueEntry>,
     current_production_start_frame: UnsignedInt,
@@ -110,12 +110,10 @@ impl ProductionUpdate {
 
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<ProductionUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<ProductionUpdateModuleData>() { return Err("Invalid module data".into()); }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(module_data, |data| data.as_any().downcast_ref::<ProductionUpdateModuleData>().expect("ProductionUpdate module data type"));
 
         Ok(Self {
             object_id: object
@@ -123,7 +121,7 @@ impl ProductionUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             production_queue: VecDeque::new(),
             current_entry: None,
             current_production_start_frame: 0,
@@ -136,7 +134,7 @@ impl ProductionUpdate {
     }
 
     pub fn queue_production(&mut self, entry: ProductionQueueEntry) -> Bool {
-        if self.production_queue.len() >= self.module_data.max_queue_entries as usize {
+        if self.production_queue.len() >= self.module_data.read().max_queue_entries as usize {
             return false;
         }
         self.production_queue.push_back(entry);
@@ -245,7 +243,7 @@ impl ProductionUpdateInterface for ProductionUpdate {
             return false;
         }
 
-        if self.production_queue.len() >= self.module_data.max_queue_entries as usize {
+        if self.production_queue.len() >= self.module_data.read().max_queue_entries as usize {
             return false;
         }
         let Some(template) = crate::helpers::TheThingFactory::find_template(template_name) else {
@@ -416,7 +414,7 @@ pub struct ProductionUpdateFactory;
 impl ProductionUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(ProductionUpdate::new(thing, module_data)?))
     }

@@ -31,6 +31,8 @@ use crate::object::collide::crate_collide::*;
 use crate::scripting::engine::transfer_object_name;
 use crate::weapon::{WeaponSetFlags, WeaponSetType};
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 /// Module data for convert to car bomb crate collide behavior
 #[derive(Debug, Clone)]
@@ -263,17 +265,23 @@ pub struct ConvertToCarBombCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    module_data: ConvertToCarBombCrateCollideModuleData,
+    module_data: ModuleDataView<ConvertToCarBombCrateCollideModuleData>,
 }
 
 impl ConvertToCarBombCrateCollide {
     /// Create new car bomb conversion crate collide module.
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: ConvertToCarBombCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let base = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<ConvertToCarBombCrateCollideModuleData>>().expect("ConvertToCarBombCrateCollide data").data.base
+        });
+        let module_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<ConvertToCarBombCrateCollideModuleData>>().expect("ConvertToCarBombCrateCollide data").data
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, base),
             module_data,
         }
     }
@@ -357,7 +365,8 @@ impl ConvertToCarBombCrateCollide {
         }
 
         // Play conversion FX.
-        if let Some(fx) = self.module_data.fx_list.as_ref() {
+        let fx_list = self.module_data.read().fx_list.clone();
+        if let Some(fx) = fx_list.as_ref() {
             let _ = fx.do_fx_obj(&other, None);
         }
 
@@ -550,7 +559,7 @@ mod tests {
         let object = Arc::new(RwLock::new(Object::new_test(77_100, 100.0)));
         let module = ConvertToCarBombCrateCollide::new(
             &object,
-            ConvertToCarBombCrateCollideModuleData::default(),
+            ModuleDataHandle::new(CrateCollideDataAdapter::new(ConvertToCarBombCrateCollideModuleData::default())),
         );
 
         assert!(crate::object::collide::CollideModule::is_car_bomb_crate_collide(&module));

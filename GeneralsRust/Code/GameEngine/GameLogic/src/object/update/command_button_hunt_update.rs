@@ -33,7 +33,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    CommandButtonHuntControlInterface, Module, ModuleData, NameKeyType,
+    CommandButtonHuntControlInterface, Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType,
 };
 
 /// Wave 384: host-only path has no dual-world factory objects.
@@ -137,14 +137,14 @@ const COMMAND_BUTTON_HUNT_UPDATE_FIELDS: &[FieldParse<CommandButtonHuntUpdateMod
 #[derive(Debug)]
 pub struct CommandButtonHuntUpdate {
     object_id: ObjectID,
-    module_data: Arc<CommandButtonHuntUpdateModuleData>,
+    module_data: ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     command_button_name: String,
     command_button: Option<CommandButtonId>,
 }
 
 impl CommandButtonHuntUpdate {
-    pub fn new(object_id: ObjectID, module_data: Arc<CommandButtonHuntUpdateModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: ModuleDataHandle) -> Self {
         Self {
             object_id,
             module_data,
@@ -152,6 +152,12 @@ impl CommandButtonHuntUpdate {
             command_button_name: String::new(),
             command_button: None,
         }
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, CommandButtonHuntUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.module_data.read(), |data| {
+            data.as_any().downcast_ref::<CommandButtonHuntUpdateModuleData>().expect("invalid CommandButtonHunt data")
+        })
     }
 
     fn object_arc(&self) -> Option<Arc<std::sync::RwLock<crate::object::Object>>> {
@@ -299,7 +305,7 @@ impl CommandButtonHuntUpdate {
             };
 
             if !ai.is_idle() {
-                return UpdateSleepTime::Frames(self.module_data.scan_frames);
+                return UpdateSleepTime::Frames(self.data().scan_frames);
             }
 
             let Some(button_id) = self.command_button else {
@@ -325,7 +331,7 @@ impl CommandButtonHuntUpdate {
                     return UpdateSleepTime::Forever;
                 };
                 if sp_update.is_active() {
-                    return UpdateSleepTime::Frames(self.module_data.scan_frames);
+                    return UpdateSleepTime::Frames(self.data().scan_frames);
                 }
             }
         }
@@ -350,7 +356,7 @@ impl CommandButtonHuntUpdate {
             }
         }
 
-        UpdateSleepTime::Frames(self.module_data.scan_frames)
+        UpdateSleepTime::Frames(self.data().scan_frames)
     }
 
     fn hunt_enter(&self, ai: Arc<Mutex<dyn AIUpdateInterface>>) -> UpdateSleepTime {
@@ -367,7 +373,7 @@ impl CommandButtonHuntUpdate {
         }
 
         if !ai.is_idle() {
-            return UpdateSleepTime::Frames(self.module_data.scan_frames);
+            return UpdateSleepTime::Frames(self.data().scan_frames);
         }
 
         // Periodic scanning (expensive)
@@ -390,7 +396,7 @@ impl CommandButtonHuntUpdate {
             }
         }
 
-        UpdateSleepTime::Frames(self.module_data.scan_frames)
+        UpdateSleepTime::Frames(self.data().scan_frames)
     }
 
     fn scan_closest_target(&self) -> Option<ObjectID> {
@@ -465,7 +471,7 @@ impl CommandButtonHuntUpdate {
         }
 
         let me_pos = *object.get_position();
-        let scan_range = self.module_data.scan_range;
+        let scan_range = self.data().scan_range;
         let mut best_target = None;
         let mut best_priority: i32 = 0;
         let mut best_raw_priority: i32 = 0;
@@ -766,7 +772,7 @@ impl BehaviorModuleInterface for CommandButtonHuntUpdate {
 pub struct CommandButtonHuntUpdateModule {
     behavior: CommandButtonHuntUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<CommandButtonHuntUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl CommandButtonHuntUpdateModule {
@@ -775,11 +781,12 @@ impl CommandButtonHuntUpdateModule {
     }
 
     pub fn new(
-        behavior: CommandButtonHuntUpdate,
+        mut behavior: CommandButtonHuntUpdate,
         module_name: &AsciiString,
-        module_data: Arc<CommandButtonHuntUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.module_data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -812,11 +819,11 @@ impl Module for CommandButtonHuntUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_command_button_hunt_control_interface(

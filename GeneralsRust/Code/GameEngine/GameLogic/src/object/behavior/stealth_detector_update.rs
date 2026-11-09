@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    ALL_KIND_OF, AsciiString, Bool, Coord3D, DisabledMaskType, KindOf, KindOfMaskType, ModuleData,
+    ALL_KIND_OF, AsciiString, Bool, Coord3D, DisabledMaskType, KindOf, KindOfMaskType,
     NameKeyType, ObjectShroudStatus, ObjectStatusMaskType, ObjectStatusTypes, ParticleSystemID,
     Real, UnsignedInt, XferVersion,
 };
@@ -107,7 +107,7 @@ fn emit_first_detection_feedback(
             TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthDiscovered"));
             if let Ok(stealth_guard) = stealth.lock() {
                 if let Some(name) = stealth_guard.enemy_detection_eva_event() {
-                    if let Some(event) = eva_event_from_name(name) {
+                    if let Some(event) = eva_event_from_name(&name) {
                         let _ = TheEva::set_should_play(event);
                     }
                 }
@@ -137,7 +137,7 @@ fn emit_first_detection_feedback(
             TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthNeutralized"));
             if let Ok(stealth_guard) = stealth.lock() {
                 if let Some(name) = stealth_guard.own_detection_eva_event() {
-                    if let Some(event) = eva_event_from_name(name) {
+                    if let Some(event) = eva_event_from_name(&name) {
                         let _ = TheEva::set_should_play(event);
                     }
                 }
@@ -537,7 +537,7 @@ pub fn stealth_or_detector_update_processes(any_disabled: bool, disabled_held: b
 pub struct StealthDetectorUpdate {
     object_id: ObjectID,
     owner: std::sync::Weak<RwLock<GameObject>>,
-    module_data: Arc<StealthDetectorUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<StealthDetectorUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
     grid_particle_ids: Vec<ParticleSystemID>,
@@ -547,24 +547,22 @@ pub struct StealthDetectorUpdate {
 
 impl StealthDetectorUpdate {
     /// Create a new StealthDetectorUpdate instance
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<StealthDetectorUpdateModuleData>()
-            .ok_or("Invalid module data type for StealthDetectorUpdate")?;
-
+    pub fn new(object: Arc<RwLock<GameObject>>, handle: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !handle.is::<StealthDetectorUpdateModuleData>() {
+            return Err("Invalid module data type for StealthDetectorUpdate".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<StealthDetectorUpdateModuleData>().expect("StealthDetectorUpdate module data"));
+        let (enabled, update_rate) = {
+            let data = module_data.read();
+            (!data.initially_disabled, data.update_rate.max(1))
+        };
         let object_id = object
             .read()
             .ok()
             .map(|g| g.get_id())
             .unwrap_or(crate::common::INVALID_ID);
-        let enabled = !specific_data.initially_disabled;
         // C++ StealthDetectorUpdate.cpp:67-70 — random first wake so detectors
         // do not all scan on the same frame.
-        let update_rate = specific_data.update_rate.max(1);
         let next_call_frame_and_phase = if enabled {
             let now = crate::helpers::TheGameLogic::get_frame();
             let wake = stealth_detector_ctor_wake_frames(update_rate);
@@ -576,7 +574,7 @@ impl StealthDetectorUpdate {
         Ok(Self {
             object_id,
             owner: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase,
             enabled,
             grid_particle_ids: Vec::new(),
@@ -598,7 +596,7 @@ impl StealthDetectorUpdate {
     }
 
     fn detection_sleep(&self) -> UpdateSleepTime {
-        UpdateSleepTime::from_u32(self.module_data.update_rate)
+        UpdateSleepTime::from_u32(self.module_data.read().update_rate)
     }
 
     /// An actual installed, effect-free detector scan against a supplied
@@ -617,7 +615,7 @@ impl StealthDetectorUpdate {
         if owner.get_id() != self.object_id {
             return Err("detector owner identity changed".into());
         }
-        let data = &self.module_data;
+        let data = self.module_data.read();
         if owner.get_contained_by().is_some()
             || data.ping_sound.is_some()
             || data.loud_ping_sound.is_some()
@@ -651,7 +649,7 @@ impl StealthDetectorUpdate {
         }
         // The real query found only this detector, which the C++ scan skips.
         // No configured presentation or existing particles require side effects.
-        Ok(self.detection_sleep())
+        Ok(UpdateSleepTime::from_u32(data.update_rate))
     }
 
     /// Check if detector is enabled
@@ -729,9 +727,10 @@ impl StealthDetectorUpdate {
                 let position = *obj.get_position();
                 let self_team_id = obj.get_team_id();
 
+                let data = self.module_data.read();
                 // Use detection range or vision range (C++ lines 172-176)
-                let vision_range = if self.module_data.detection_range > 0.0 {
-                    self.module_data.detection_range
+                let vision_range = if data.detection_range > 0.0 {
+                    data.detection_range
                 } else {
                     obj.get_vision_range()
                 };
@@ -772,8 +771,8 @@ impl StealthDetectorUpdate {
                             // Apply KindOf filters (C++ line 168)
                             if !self.passes_kindof_filters(
                                 target,
-                                self.module_data.extra_detect_kindof,
-                                self.module_data.extra_detect_kindof_not,
+                                data.extra_detect_kindof,
+                                data.extra_detect_kindof_not,
                             ) {
                                 return None;
                             }
@@ -814,7 +813,7 @@ impl StealthDetectorUpdate {
                                 if let Some(stealth_module) = stealth_module {
                                     if let Ok(mut stealth_guard) = stealth_module.lock() {
                                         stealth_guard.mark_as_detected_for(
-                                            self.module_data.update_rate.saturating_add(1),
+                                            data.update_rate.saturating_add(1),
                                         );
                                     }
                                 }
@@ -836,7 +835,7 @@ impl StealthDetectorUpdate {
                                 );
 
                                 if let Some(template_name) =
-                                    self.module_data.ir_grid_particle_sys.as_ref()
+                                    data.ir_grid_particle_sys.as_ref()
                                 {
                                     if let Some(ps_manager) = TheParticleSystemManager::get() {
                                         if let Some(system_id) = ps_manager
@@ -874,7 +873,7 @@ impl StealthDetectorUpdate {
                                         {
                                             if let Ok(mut stealth_guard) = stealth_module.lock() {
                                                 stealth_guard.mark_as_detected_for(
-                                                    self.module_data.update_rate.saturating_add(2),
+                                                    data.update_rate.saturating_add(2),
                                                 );
                                             }
                                         }
@@ -960,11 +959,15 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                                 .unwrap_or(false)
                         })
                         .unwrap_or(false);
-                    if garrisonable {
-                        if !self.module_data.can_detect_while_garrisoned {
-                            return self.detection_sleep();
+                    let can_detect = {
+                        let data = self.module_data.read();
+                        if garrisonable {
+                            data.can_detect_while_garrisoned
+                        } else {
+                            data.can_detect_while_transported
                         }
-                    } else if !self.module_data.can_detect_while_transported {
+                    };
+                    if !can_detect {
                         return self.detection_sleep();
                     }
                 }
@@ -997,10 +1000,11 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
 
                 if is_visible {
                     self.clear_ping_beacon_particles();
+                    let data = self.module_data.read();
                     let ping_template = if found_someone {
-                        &self.module_data.ir_bright_particle_sys
+                        &data.ir_bright_particle_sys
                     } else {
-                        &self.module_data.ir_particle_sys
+                        &data.ir_particle_sys
                     };
 
                     if let Some(template_name) = ping_template.as_ref() {
@@ -1009,12 +1013,12 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                                 ps_manager.create_particle_system(Some(template_name.as_str()))
                             {
                                 let mut ping_pos = *obj.get_position();
-                                if !self.module_data.ir_particle_sys_bone.is_empty() {
+                                if !data.ir_particle_sys_bone.is_empty() {
                                     if let Some(drawable) = obj.get_drawable() {
                                         if let Ok(drawable_guard) = drawable.read() {
                                             if let Some(bone_matrix) = drawable_guard
                                                 .get_current_worldspace_client_bone_positions(
-                                                    &self.module_data.ir_particle_sys_bone,
+                                                    &data.ir_particle_sys_bone,
                                                 )
                                             {
                                                 let translation = bone_matrix.w_axis;
@@ -1035,7 +1039,7 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                         }
                     }
 
-                    if let Some(template_name) = self.module_data.ir_beacon_particle_sys.as_ref() {
+                    if let Some(template_name) = data.ir_beacon_particle_sys.as_ref() {
                         if let Some(ps_manager) = TheParticleSystemManager::get() {
                             if let Some(system_id) =
                                 ps_manager.create_particle_system(Some(template_name.as_str()))
@@ -1050,9 +1054,9 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                     }
 
                     let ping_sound = if found_someone {
-                        &self.module_data.loud_ping_sound
+                        &data.loud_ping_sound
                     } else {
-                        &self.module_data.ping_sound
+                        &data.ping_sound
                     };
 
                     if let Some(sound_name) = ping_sound.as_ref() {
@@ -1100,7 +1104,7 @@ impl StealthDetectorControlInterface for StealthDetectorUpdate {
 pub struct StealthDetectorUpdateModule {
     behavior: StealthDetectorUpdate,
     module_name_key: EngineNameKeyType,
-    module_data: Arc<StealthDetectorUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl StealthDetectorUpdateModule {
@@ -1111,7 +1115,7 @@ impl StealthDetectorUpdateModule {
     pub fn new(
         behavior: StealthDetectorUpdate,
         module_name: &AsciiString,
-        module_data: Arc<StealthDetectorUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -1154,11 +1158,11 @@ impl Module for StealthDetectorUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> EngineNameKeyType {
-        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_stealth_detector_control_interface(
@@ -1200,7 +1204,7 @@ pub struct StealthDetectorUpdateFactory;
 impl StealthDetectorUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let behavior = StealthDetectorUpdate::new(thing, module_data)?;
         Ok(Box::new(behavior))
@@ -1224,7 +1228,7 @@ mod tests {
         let detector = StealthDetectorUpdate {
             object_id: crate::common::INVALID_ID,
             owner: std::sync::Weak::new(),
-            module_data: Arc::new(StealthDetectorUpdateModuleData::default()),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(game_engine::common::thing::module::ModuleDataHandle::new(StealthDetectorUpdateModuleData::default()), |data| data.as_any().downcast_ref::<StealthDetectorUpdateModuleData>().unwrap()),
             next_call_frame_and_phase: 0,
             enabled: true,
             grid_particle_ids: Vec::new(),

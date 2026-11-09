@@ -69,7 +69,7 @@ const SMART_BOMB_TARGET_HOMING_UPDATE_FIELDS: &[FieldParse<
 /// SmartBombTargetHomingUpdate - nudges falling objects toward targets
 pub struct SmartBombTargetHomingUpdate {
     object_id: ObjectID,
-    module_data: Arc<SmartBombTargetHomingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<SmartBombTargetHomingUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
 
     /// Whether a target has been received
@@ -79,14 +79,12 @@ pub struct SmartBombTargetHomingUpdate {
 }
 
 impl SmartBombTargetHomingUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<SmartBombTargetHomingUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, handle: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !handle.is::<SmartBombTargetHomingUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<SmartBombTargetHomingUpdateModuleData>().expect("SmartBombTargetHomingUpdate module data"));
 
         Ok(Self {
             object_id: object
@@ -94,7 +92,7 @@ impl SmartBombTargetHomingUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             target_received: false,
             target: Coord3D::default(),
@@ -152,7 +150,7 @@ impl UpdateModuleInterface for SmartBombTargetHomingUpdate {
         // Calculate interpolation coefficients
         // status_coeff = how much to keep current position
         // target_coeff = how much to move toward target
-        let status_coeff = self.module_data.course_correction_scalar.clamp(0.0, 1.0);
+        let status_coeff = self.module_data.read().course_correction_scalar.clamp(0.0, 1.0);
         let target_coeff = 1.0 - status_coeff;
 
         // Interpolate X and Y toward target, keep Z (altitude) unchanged
@@ -228,9 +226,9 @@ pub struct SmartBombTargetHomingUpdateFactory;
 impl SmartBombTargetHomingUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(SmartBombTargetHomingUpdate::new(
+        Ok(Box::new(SmartBombTargetHomingUpdate::new_with_module_data(
             thing,
             module_data,
         )?))
@@ -241,14 +239,14 @@ impl SmartBombTargetHomingUpdateFactory {
 pub struct SmartBombTargetHomingUpdateModule {
     behavior: SmartBombTargetHomingUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SmartBombTargetHomingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl SmartBombTargetHomingUpdateModule {
     pub fn new(
         behavior: SmartBombTargetHomingUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SmartBombTargetHomingUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -291,11 +289,11 @@ impl Module for SmartBombTargetHomingUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_payload_target_control_interface(
@@ -333,25 +331,21 @@ pub fn smart_bomb_target_homing_update_data_factory(
 
 pub fn smart_bomb_target_homing_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<SmartBombTargetHomingUpdateModuleData>()
-        .expect("SmartBombTargetHomingUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<SmartBombTargetHomingUpdateModuleData>());
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
     let object = TheGameLogic::find_object_by_id(owner_id)
         .expect("SmartBombTargetHomingUpdate requires object");
-    let behavior = SmartBombTargetHomingUpdate::new(object, module_data_arc.clone())
+    let behavior = SmartBombTargetHomingUpdate::new_with_module_data(object, module_data.clone())
         .expect("SmartBombTargetHomingUpdate failed to initialize");
     let module_name = AsciiString::from("SmartBombTargetHomingUpdate");
     Box::new(SmartBombTargetHomingUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }

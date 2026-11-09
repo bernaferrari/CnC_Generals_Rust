@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
+use crate::common::{ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::upgrade::upgrade_module::{
     UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
@@ -57,7 +55,7 @@ impl Snapshotable for LocomotorSetUpgradeModuleData {
 /// Upgrade module that changes locomotor (movement type) on the owning object.
 pub struct LocomotorSetUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<LocomotorSetUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     applied: bool,
 }
@@ -65,7 +63,7 @@ pub struct LocomotorSetUpgrade {
 impl LocomotorSetUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<LocomotorSetUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         Self {
@@ -91,11 +89,11 @@ impl Module for LocomotorSetUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -122,14 +120,14 @@ impl Snapshotable for LocomotorSetUpgrade {
 
 impl UpgradeModuleInterface for LocomotorSetUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+        mux_can_upgrade(&self.data.read().as_any().downcast_ref::<LocomotorSetUpgradeModuleData>().expect("LocomotorSetUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
+        { let data = self.data.read().as_any().downcast_ref::<LocomotorSetUpgradeModuleData>().expect("LocomotorSetUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
 
         // C++ LocomotorSetUpgrade::upgradeImplementation: getObject()->getAIUpdateInterface()
         // Live host objects live on TheGameLogic (registry may be empty).
@@ -155,7 +153,7 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ does not clear the locomotor flag; resetUpgrade only clears executed.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().as_any().downcast_ref::<LocomotorSetUpgradeModuleData>().expect("LocomotorSetUpgradeModuleData").upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );

@@ -130,7 +130,7 @@ const RADAR_UPDATE_FIELDS: &[FieldParse<RadarUpdateModuleData>] = &[FieldParse {
 
 #[allow(dead_code)]
 pub struct RadarUpdate {
-    module_data: RadarUpdateConfig,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     extend_done_frame: UnsignedInt,
@@ -140,25 +140,22 @@ pub struct RadarUpdate {
 
 impl RadarUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let config = module_data
-            .get_radar_update_config()
-            .ok_or("Invalid module data")?;
-
-        Ok(Self::new_with_config(object, config))
-    }
-
-    /// Construction only captures immutable authored rules; it never resolves an owner.
-    pub fn new_with_config(
         _object: Arc<RwLock<GameObject>>,
-        module_data: RadarUpdateConfig,
-    ) -> Self {
-        Self::from_config(module_data)
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<RadarUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        Ok(Self::from_handle(module_data))
     }
 
-    pub fn from_config(module_data: RadarUpdateConfig) -> Self {
+    pub fn from_config(config: RadarUpdateConfig) -> Self {
+        Self::from_handle(game_engine::common::thing::module::ModuleDataHandle::new(
+            RadarUpdateModuleData::from_config(config, 0),
+        ))
+    }
+
+    fn from_handle(module_data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             module_data,
             next_call_frame_and_phase: 0,
@@ -169,7 +166,8 @@ impl RadarUpdate {
     }
 
     pub(crate) fn extension_duration(&self) -> UnsignedInt {
-        self.module_data.radar_extend_time as UnsignedInt
+        self.module_data.read().as_any().downcast_ref::<RadarUpdateModuleData>()
+            .expect("RadarUpdate module data").radar_extend_time as UnsignedInt
     }
 
     /// Commit after the driving owner has published RADAR_EXTENDING.
@@ -245,19 +243,19 @@ impl BehaviorModuleInterface for RadarUpdate {
 pub struct RadarUpdateModule {
     behavior: RadarUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<RadarUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl RadarUpdateModule {
-    pub fn new(
-        behavior: RadarUpdate,
+
+    pub fn new_with_module_data(
         module_name: &AsciiString,
-        module_data: Arc<RadarUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
-        let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        assert!(module_data.is::<RadarUpdateModuleData>(), "RadarUpdate module data");
         Self {
-            behavior,
-            module_name_key,
+            behavior: RadarUpdate::from_handle(module_data.clone()),
+            module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
             module_data,
         }
     }
@@ -266,22 +264,6 @@ impl RadarUpdateModule {
         &mut self.behavior
     }
 
-    pub fn from_module_data(
-        object: Arc<RwLock<GameObject>>,
-        module_name: &AsciiString,
-        module_data: Arc<dyn EngineModuleData>,
-    ) -> Option<Self> {
-        let config = module_data.get_radar_update_config()?;
-        let behavior = RadarUpdate::new_with_config(object, config);
-        Some(Self::new(
-            behavior,
-            module_name,
-            Arc::new(RadarUpdateModuleData::from_config(
-                config,
-                module_data.get_module_tag_name_key(),
-            )),
-        ))
-    }
 }
 
 impl Snapshotable for RadarUpdateModule {
@@ -312,11 +294,11 @@ impl Module for RadarUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -343,7 +325,7 @@ pub struct RadarUpdateFactory;
 impl RadarUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(RadarUpdate::new(thing, module_data)?))
     }

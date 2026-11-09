@@ -194,29 +194,28 @@ const SPECTRE_GUNSHIP_DEPLOYMENT_FIELDS: &[FieldParse<SpectreGunshipDeploymentUp
 
 pub struct SpectreGunshipDeploymentUpdate {
     object_id: ObjectID,
-    module_data: Arc<SpectreGunshipDeploymentUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     initial_target_position: Coord3D,
     gunship_id: ObjectID,
 }
 
 impl SpectreGunshipDeploymentUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>()
-            .ok_or("Invalid module data")?;
 
+    pub fn new_with_module_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<SpectreGunshipDeploymentUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
         Ok(Self {
             object_id: object
                 .read()
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             initial_target_position: Coord3D::ZERO,
             gunship_id: crate::common::INVALID_ID,
@@ -235,7 +234,9 @@ impl SpectreGunshipDeploymentUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         })?;
         let obj = obj_arc.read().ok()?;
-        let template = self.module_data.special_power_template.as_ref()?;
+        let data = self.module_data.read();
+        let data = data.as_any().downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>().expect("SpectreGunshipDeploymentUpdate module data");
+        let template = data.special_power_template.as_ref()?;
         obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
             let func = func.take().expect("special power callback already used");
             func(module)
@@ -247,7 +248,9 @@ impl SpectreGunshipDeploymentUpdate {
             return source;
         };
 
-        match self.module_data.create_loc {
+        let data = self.module_data.read();
+        let data = data.as_any().downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>().expect("SpectreGunshipDeploymentUpdate module data");
+        match data.create_loc {
             GunshipCreateLocType::CreateAtEdgeNearSource => {
                 terrain.find_closest_edge_point(&source)
             }
@@ -326,7 +329,7 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
     }
 
     fn get_extra_required_science(&self) -> ScienceType {
-        self.module_data.extra_required_science
+        self.module_data.read().as_any().downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>().expect("SpectreGunshipDeploymentUpdate module data").extra_required_science
     }
 
     fn initiate_intent_to_do_special_power(
@@ -377,9 +380,14 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
             self.gunship_id = crate::common::INVALID_ID;
         }
 
+        let (gunship_template, orbit_radius) = {
+            let data = self.module_data.read();
+            let data = data.as_any().downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>().expect("SpectreGunshipDeploymentUpdate module data");
+            (TheThingFactory::find_template(data.gunship_template_name.as_str()), data.gunship_orbit_radius)
+        };
         let mut gunship_arc = None;
         if let (Some(gunship_template), Some(team)) = (
-            TheThingFactory::find_template(self.module_data.gunship_template_name.as_str()),
+            gunship_template,
             obj.get_team(),
         ) {
             if let (Ok(team_guard), Ok(factory)) = (team.read(), TheThingFactory::get()) {
@@ -397,7 +405,7 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
                 let mut delta = self.initial_target_position - creation_coord;
                 let dist = delta.length();
                 if dist > 0.0 {
-                    delta = delta.normalize() * (dist + self.module_data.gunship_orbit_radius);
+                    delta = delta.normalize() * (dist + orbit_radius);
                     creation_coord = self.initial_target_position - delta;
                 }
                 creation_coord.z = gunship
@@ -521,7 +529,9 @@ impl BehaviorModuleInterface for SpectreGunshipDeploymentUpdate {
         };
         let obj = obj_arc.read().ok();
         if let Some(obj) = obj {
-            if let Some(template) = &self.module_data.special_power_template {
+            let data = self.module_data.read();
+            let data = data.as_any().downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>().expect("SpectreGunshipDeploymentUpdate module data");
+            if let Some(template) = &data.special_power_template {
                 let _ = template;
             } else {
                 return Err(format!(
@@ -563,9 +573,9 @@ pub struct SpectreGunshipDeploymentUpdateFactory;
 impl SpectreGunshipDeploymentUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(SpectreGunshipDeploymentUpdate::new(
+        Ok(Box::new(SpectreGunshipDeploymentUpdate::new_with_module_data(
             thing,
             module_data,
         )?))
@@ -575,20 +585,17 @@ impl SpectreGunshipDeploymentUpdateFactory {
 pub struct SpectreGunshipDeploymentUpdateModule {
     behavior: SpectreGunshipDeploymentUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<SpectreGunshipDeploymentUpdateModuleData>,
 }
 
 impl SpectreGunshipDeploymentUpdateModule {
     pub fn new(
         behavior: SpectreGunshipDeploymentUpdate,
         module_name: &AsciiString,
-        module_data: Arc<SpectreGunshipDeploymentUpdateModuleData>,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
             module_name_key,
-            module_data,
         }
     }
 
@@ -625,11 +632,11 @@ impl Module for SpectreGunshipDeploymentUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.behavior.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.behavior.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

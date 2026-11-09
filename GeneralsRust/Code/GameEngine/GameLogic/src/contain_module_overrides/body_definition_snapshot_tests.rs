@@ -1,13 +1,12 @@
 //! ActiveBody.h:27-41 inherits the empty ModuleData snapshot hooks through
 //! BodyModuleData and BehaviorModuleData. Authored rules are not runtime health.
-//! Factory CRC is borrowed safely; Save/Load exercises uniquely owned typed
-//! data. Shared factory Xfer remains a separate, unresolved ownership boundary.
+//! Factory CRC is guarded; Save/Load also exercises typed definition data.
 use super::*;
 use game_engine::common::system::{xfer_crc::XferCRC, xfer_load::XferLoad, xfer_save::XferSave};
 use game_engine::common::thing::module_factory::ModuleFactory;
 use std::io::Cursor;
 
-fn authored_data(factory: &mut ModuleFactory, tag: &str) -> Arc<dyn ModuleData> {
+fn authored_data(factory: &mut ModuleFactory, tag: &str) -> ModuleDataHandle {
     let mut ini = INI::new();
     ini.with_inline_source(
         "MaxHealth = 500\nInitialHealth = 450\nSubdualDamageCap = 90\n\
@@ -48,10 +47,10 @@ fn registered_active_definition_save_has_no_configuration_payload() {
     let mut factory = ModuleFactory::new();
     register_module_overrides(&mut factory).unwrap();
     let shared = authored_data(&mut factory, "DefinitionSnapshotSave");
-    let retained = Arc::clone(&shared);
-    let tag = shared.get_module_tag_name_key();
-    assert_rules(definition(shared.as_ref()), tag);
-    let mut owned = definition(shared.as_ref()).clone();
+    let retained = shared.clone();
+    let tag = shared.read().get_module_tag_name_key();
+    assert_rules(definition(&*shared.read()), tag);
+    let mut owned = definition(&*shared.read()).clone();
     owned.default_armor_template = Some("DefinitionOnlyArmor".into());
     let mut bytes = Vec::new();
     owned
@@ -65,8 +64,8 @@ fn registered_active_definition_save_has_no_configuration_payload() {
         owned.default_armor_template.as_ref().unwrap().as_str(),
         "DefinitionOnlyArmor"
     );
-    assert!(Arc::ptr_eq(&shared, &retained));
-    assert_rules(definition(retained.as_ref()), tag);
+    assert!(ModuleDataHandle::ptr_eq(&shared, &retained));
+    assert_rules(definition(&*retained.read()), tag);
 }
 
 #[test]
@@ -74,8 +73,8 @@ fn registered_active_definition_load_consumes_no_runtime_record() {
     let mut factory = ModuleFactory::new();
     register_module_overrides(&mut factory).unwrap();
     let shared = authored_data(&mut factory, "DefinitionSnapshotLoad");
-    let tag = shared.get_module_tag_name_key();
-    let mut owned = definition(shared.as_ref()).clone();
+    let tag = shared.read().get_module_tag_name_key();
+    let mut owned = definition(&*shared.read()).clone();
     owned.default_armor_template = Some("ReceivingDefinitionArmor".into());
     // Enough bytes for the former invented data payload, so OLD reaches the
     // zero-consumption assertion rather than failing on an unrelated EOF.
@@ -99,7 +98,7 @@ fn registered_active_definition_load_consumes_no_runtime_record() {
         owned.default_armor_template.as_ref().unwrap().as_str(),
         "ReceivingDefinitionArmor"
     );
-    assert_rules(definition(shared.as_ref()), tag);
+    assert_rules(definition(&*shared.read()), tag);
 }
 
 #[test]
@@ -108,17 +107,16 @@ fn registered_active_definition_crc_keeps_shared_rules_and_empty_crc() {
     register_module_overrides(&mut factory).unwrap();
     let first = authored_data(&mut factory, "DefinitionSnapshotCRC1");
     let second = authored_data(&mut factory, "DefinitionSnapshotCRC2");
-    let retained = Arc::clone(&first);
+    let retained = first.clone();
     let mut xfer = XferCRC::new(XferSave::new(Cursor::new(Vec::new()), 1));
     let mut sentinel = 0x1234_5678;
     xfer.xfer_unsigned_int(&mut sentinel).unwrap();
     let before = xfer.get_crc();
     factory.crc(&mut xfer).unwrap();
     assert_eq!(xfer.get_crc(), before, "C++ inherited data CRC is empty");
-    assert!(Arc::ptr_eq(&first, &retained));
-    assert_rules(definition(first.as_ref()), first.get_module_tag_name_key());
-    assert_rules(
-        definition(second.as_ref()),
-        second.get_module_tag_name_key(),
-    );
+    assert!(ModuleDataHandle::ptr_eq(&first, &retained));
+    let first_data = first.read();
+    assert_rules(definition(&*first_data), first_data.get_module_tag_name_key());
+    let second_data = second.read();
+    assert_rules(definition(&*second_data), second_data.get_module_tag_name_key());
 }

@@ -17,7 +17,7 @@ use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{BoneFxControlInterface, Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{BoneFxControlInterface, Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 /// Wave 404: host-only path has no dual-world factory objects.
 #[inline]
@@ -1009,7 +1009,7 @@ const BONE_FX_UPDATE_FIELDS: &[FieldParse<BoneFXUpdateModuleData>] = &[
 #[derive(Debug, Clone)]
 pub struct BoneFXUpdate {
     object_id: ObjectID,
-    module_data: Arc<BoneFXUpdateModuleData>,
+    module_data: ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     /// Next frame to trigger FX for each damage state and bone.
     next_fx_frame: [[i32; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
@@ -1036,7 +1036,7 @@ pub struct BoneFXUpdate {
 impl BoneFXUpdate {
     /// Create new BoneFXUpdate module.
     /// Matches C++ BoneFXUpdate.cpp:53-72
-    pub fn new(object_id: ObjectID, module_data: Arc<BoneFXUpdateModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: ModuleDataHandle) -> Self {
         Self {
             object_id,
             module_data,
@@ -1052,6 +1052,12 @@ impl BoneFXUpdate {
             active: false,
             cur_body_state: BodyDamageType::Pristine,
         }
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, BoneFXUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.module_data.read(), |data| {
+            data.as_any().downcast_ref::<BoneFXUpdateModuleData>().expect("invalid BoneFXUpdate data")
+        })
     }
 
     /// Change body damage state.
@@ -1100,36 +1106,43 @@ impl BoneFXUpdate {
         let state_idx = self.cur_body_state as usize;
         for i in 0..BONE_FX_MAX_BONES {
             if self.next_fx_frame[state_idx][i] != -1 && self.next_fx_frame[state_idx][i] <= now {
-                if let Some(fx) = self.module_data.fx_list[state_idx][i].fx {
+                let fx = self.data().fx_list[state_idx][i].fx;
+                if let Some(fx) = fx {
                     self.do_fx_list_at_bone(fx, i);
                 }
-                let base_info = &self.module_data.fx_list[state_idx][i].base;
                 let mut next_frame = self.next_fx_frame[state_idx][i];
-                self.compute_next_logic_fx_time(base_info, &mut next_frame);
+                {
+                    let data = self.data();
+                    self.compute_next_logic_fx_time(&data.fx_list[state_idx][i].base, &mut next_frame);
+                }
                 self.next_fx_frame[state_idx][i] = next_frame;
             }
 
             if self.next_ocl_frame[state_idx][i] != -1 && self.next_ocl_frame[state_idx][i] <= now {
-                if let Some(ocl) = self.module_data.ocl[state_idx][i].ocl {
+                let ocl = self.data().ocl[state_idx][i].ocl;
+                if let Some(ocl) = ocl {
                     self.do_ocl_at_bone(ocl, i);
                 }
-                let base_info = &self.module_data.ocl[state_idx][i].base;
                 let mut next_frame = self.next_ocl_frame[state_idx][i];
-                self.compute_next_logic_fx_time(base_info, &mut next_frame);
+                {
+                    let data = self.data();
+                    self.compute_next_logic_fx_time(&data.ocl[state_idx][i].base, &mut next_frame);
+                }
                 self.next_ocl_frame[state_idx][i] = next_frame;
             }
 
             if self.next_particle_system_frame[state_idx][i] != -1
                 && self.next_particle_system_frame[state_idx][i] <= now
             {
-                if let Some(ps) =
-                    self.module_data.particle_system[state_idx][i].particle_sys_template
-                {
+                let ps = self.data().particle_system[state_idx][i].particle_sys_template;
+                if let Some(ps) = ps {
                     self.do_particle_system_at_bone(ps, i);
                 }
-                let base_info = &self.module_data.particle_system[state_idx][i].base;
                 let mut next_frame = self.next_particle_system_frame[state_idx][i];
-                self.compute_next_client_fx_time(base_info, &mut next_frame);
+                {
+                    let data = self.data();
+                    self.compute_next_client_fx_time(&data.particle_system[state_idx][i].base, &mut next_frame);
+                }
                 self.next_particle_system_frame[state_idx][i] = next_frame;
             }
         }
@@ -1142,50 +1155,17 @@ impl BoneFXUpdate {
     fn init_times(&mut self, now: i32) {
         let state_idx = self.cur_body_state as usize;
         for i in 0..BONE_FX_MAX_BONES {
-            if !self.module_data.fx_list[state_idx][i]
-                .base
-                .loc_info
-                .bone_name
-                .is_empty()
-            {
-                let delay = self.module_data.fx_list[state_idx][i]
-                    .base
-                    .game_logic_delay
-                    .get_value() as i32;
-                self.next_fx_frame[state_idx][i] = now + delay;
-            } else {
-                self.next_fx_frame[state_idx][i] = -1;
-            }
-
-            if !self.module_data.ocl[state_idx][i]
-                .base
-                .loc_info
-                .bone_name
-                .is_empty()
-            {
-                let delay = self.module_data.ocl[state_idx][i]
-                    .base
-                    .game_logic_delay
-                    .get_value() as i32;
-                self.next_ocl_frame[state_idx][i] = now + delay;
-            } else {
-                self.next_ocl_frame[state_idx][i] = -1;
-            }
-
-            if !self.module_data.particle_system[state_idx][i]
-                .base
-                .loc_info
-                .bone_name
-                .is_empty()
-            {
-                let delay = self.module_data.particle_system[state_idx][i]
-                    .base
-                    .game_client_delay
-                    .get_value() as i32;
-                self.next_particle_system_frame[state_idx][i] = now + delay;
-            } else {
-                self.next_particle_system_frame[state_idx][i] = -1;
-            }
+            let (fx, ocl, particle) = {
+                let data = self.data();
+                (
+                    data.fx_list[state_idx][i].base.next_frame_from_now(now, false),
+                    data.ocl[state_idx][i].base.next_frame_from_now(now, false),
+                    data.particle_system[state_idx][i].base.next_frame_from_now(now, true),
+                )
+            };
+            self.next_fx_frame[state_idx][i] = fx;
+            self.next_ocl_frame[state_idx][i] = ocl;
+            self.next_particle_system_frame[state_idx][i] = particle;
         }
     }
 
@@ -1207,52 +1187,28 @@ impl BoneFXUpdate {
         };
 
         for i in 0..BONE_FX_MAX_BONES {
-            if !self.module_data.fx_list[state_idx][i]
-                .base
-                .loc_info
-                .bone_name
-                .is_empty()
-            {
-                let bone_name = self.module_data.fx_list[state_idx][i]
-                    .base
-                    .loc_info
-                    .bone_name
-                    .as_str();
-                let positions = draw_guard.get_pristine_bone_positions(bone_name, 0, 1);
+            let (fx_bone, ocl_bone, particle_bone) = {
+                let data = self.data();
+                (
+                    data.fx_list[state_idx][i].base.loc_info.bone_name.clone(),
+                    data.ocl[state_idx][i].base.loc_info.bone_name.clone(),
+                    data.particle_system[state_idx][i].base.loc_info.bone_name.clone(),
+                )
+            };
+            if !fx_bone.is_empty() {
+                let positions = draw_guard.get_pristine_bone_positions(fx_bone.as_str(), 0, 1);
                 if let Some(pos) = positions.first() {
                     self.fx_bone_positions[state_idx][i] = *pos;
                 }
             }
-
-            if !self.module_data.ocl[state_idx][i]
-                .base
-                .loc_info
-                .bone_name
-                .is_empty()
-            {
-                let bone_name = self.module_data.ocl[state_idx][i]
-                    .base
-                    .loc_info
-                    .bone_name
-                    .as_str();
-                let positions = draw_guard.get_pristine_bone_positions(bone_name, 0, 1);
+            if !ocl_bone.is_empty() {
+                let positions = draw_guard.get_pristine_bone_positions(ocl_bone.as_str(), 0, 1);
                 if let Some(pos) = positions.first() {
                     self.ocl_bone_positions[state_idx][i] = *pos;
                 }
             }
-
-            if !self.module_data.particle_system[state_idx][i]
-                .base
-                .loc_info
-                .bone_name
-                .is_empty()
-            {
-                let bone_name = self.module_data.particle_system[state_idx][i]
-                    .base
-                    .loc_info
-                    .bone_name
-                    .as_str();
-                let positions = draw_guard.get_pristine_bone_positions(bone_name, 0, 1);
+            if !particle_bone.is_empty() {
+                let positions = draw_guard.get_pristine_bone_positions(particle_bone.as_str(), 0, 1);
                 if let Some(pos) = positions.first() {
                     self.ps_bone_positions[state_idx][i] = *pos;
                 }
@@ -1280,9 +1236,7 @@ impl BoneFXUpdate {
             .with_object(self.object_id, |object_guard| {
                 if let Some(body_module) = object_guard.get_body_module() {
                     if let Some(last_damage_info) = body_module.get_last_damage_info() {
-                        if !self
-                            .module_data
-                            .damage_fx_types
+                        if !self.data().damage_fx_types
                             .contains_damage_type(last_damage_info.input.damage_type)
                         {
                             return None;
@@ -1335,9 +1289,7 @@ impl BoneFXUpdate {
         let _ = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
             if let Some(body_module) = object_guard.get_body_module() {
                 if let Some(last_damage_info) = body_module.get_last_damage_info() {
-                    if !self
-                        .module_data
-                        .damage_ocl_types
+                    if !self.data().damage_ocl_types
                         .contains_damage_type(last_damage_info.input.damage_type)
                     {
                         return;
@@ -1396,9 +1348,7 @@ impl BoneFXUpdate {
                     .get_body_module()
                     .and_then(|body_module| body_module.get_last_damage_info())
                     .is_some_and(|last_damage_info| {
-                        !self
-                            .module_data
-                            .damage_particle_types
+                        !self.data().damage_particle_types
                             .contains_damage_type(last_damage_info.input.damage_type)
                     })
             })
@@ -1745,16 +1695,17 @@ impl Snapshotable for BoneFXUpdate {
 pub struct BoneFXUpdateModule {
     behavior: BoneFXUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<BoneFXUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl BoneFXUpdateModule {
     pub fn new(
-        behavior: BoneFXUpdate,
+        mut behavior: BoneFXUpdate,
         module_name: &AsciiString,
-        module_data: Arc<BoneFXUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.module_data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -1795,11 +1746,11 @@ impl Module for BoneFXUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_bone_fx_control_interface(&mut self) -> Option<&mut dyn BoneFxControlInterface> {
@@ -1855,7 +1806,7 @@ mod tests {
 
     #[test]
     fn bone_fx_update_exposes_typed_control_interface() {
-        let data = Arc::new(BoneFXUpdateModuleData::default());
+        let data = ModuleDataHandle::new(BoneFXUpdateModuleData::default());
         let mut module = BoneFXUpdateModule::new(
             BoneFXUpdate::new(1, data.clone()),
             &AsciiString::from("BoneFXUpdate"),

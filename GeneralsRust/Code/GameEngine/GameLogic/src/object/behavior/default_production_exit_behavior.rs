@@ -61,7 +61,7 @@ crate::impl_behavior_module_data_via_base!(DefaultProductionExitModuleData, base
 /// DefaultProductionExitUpdate behavior.
 #[derive(Debug)]
 pub struct DefaultProductionExitBehavior {
-    data: DefaultProductionExitModuleData,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_id: ObjectID,
     next_call_frame_and_phase: UnsignedInt,
     rally_point: Coord3D,
@@ -69,7 +69,7 @@ pub struct DefaultProductionExitBehavior {
 }
 
 impl DefaultProductionExitBehavior {
-    pub fn new(data: DefaultProductionExitModuleData, owner_id: ObjectID) -> Self {
+    pub fn new(data: game_engine::common::thing::module::ModuleDataHandle, owner_id: ObjectID) -> Self {
         Self {
             data,
             owner_id,
@@ -81,13 +81,13 @@ impl DefaultProductionExitBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<DefaultProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let module_object = thing
             .as_object()
             .ok_or_else(|| "DefaultProductionExitUpdate requires an owning object".to_string())?;
         Ok(Self::new(
-            module_data.as_ref().clone(),
+            module_data,
             module_object.get_object_id(),
         ))
     }
@@ -98,7 +98,7 @@ impl DefaultProductionExitBehavior {
     }
 
     pub fn use_spawn_rally_point(&self) -> bool {
-        self.data.use_spawn_rally_point
+        self.data.read().downcast_ref::<DefaultProductionExitModuleData>().expect("Invalid module data").use_spawn_rally_point
     }
 
     fn transform_point(&self, local: &Coord3D, transform: &Matrix3D) -> Coord3D {
@@ -106,7 +106,7 @@ impl DefaultProductionExitBehavior {
     }
 
     fn get_natural_rally_point(&self, transform: &Matrix3D, offset: bool) -> Coord3D {
-        let mut p = self.data.natural_rally_point;
+        let mut p = self.data.read().downcast_ref::<DefaultProductionExitModuleData>().expect("Invalid module data").natural_rally_point;
         if offset {
             let mut offset_vec = p;
             let len = (offset_vec.x * offset_vec.x
@@ -152,7 +152,8 @@ impl DefaultProductionExitBehavior {
         let layer = owner_guard.get_layer();
         drop(owner_guard);
 
-        let mut create_point = self.transform_point(&self.data.unit_create_point, &transform);
+        let create_local = self.data.read().downcast_ref::<DefaultProductionExitModuleData>().expect("Invalid module data").unit_create_point;
+        let mut create_point = self.transform_point(&create_local, &transform);
         if let Some(terrain) = TheTerrainLogic::get() {
             create_point.z = terrain.get_layer_height(create_point.x, create_point.y, layer);
         }
@@ -281,7 +282,7 @@ impl ModuleExitInterface for DefaultProductionExitBehavior {
     }
 
     fn use_spawn_rally_point(&self) -> bool {
-        self.data.use_spawn_rally_point
+        DefaultProductionExitBehavior::use_spawn_rally_point(self)
     }
 }
 
@@ -289,14 +290,14 @@ impl ModuleExitInterface for DefaultProductionExitBehavior {
 pub struct DefaultProductionExitBehaviorModule {
     behavior: DefaultProductionExitBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<DefaultProductionExitModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl DefaultProductionExitBehaviorModule {
     pub fn new(
         behavior: DefaultProductionExitBehavior,
         module_name: &AsciiString,
-        module_data: Arc<DefaultProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -331,13 +332,11 @@ impl Module for DefaultProductionExitBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -417,7 +416,7 @@ const DEFAULT_PRODUCTION_EXIT_FIELDS: &[FieldParse<DefaultProductionExitModuleDa
 
 impl Snapshotable for DefaultProductionExitBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().downcast_ref::<DefaultProductionExitModuleData>().expect("Invalid module data").crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -435,7 +434,9 @@ impl Snapshotable for DefaultProductionExitBehavior {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.data.load_post_process()
+        let mut guard = self.data.write();
+        let data = (&mut *guard as &mut dyn Any).downcast_mut::<DefaultProductionExitModuleData>().expect("Invalid module data");
+        data.load_post_process()
     }
 }
 
@@ -454,7 +455,7 @@ mod tests {
     fn natural_rally_offset_normalizes_full_3d_vector() {
         let mut data = DefaultProductionExitModuleData::default();
         data.natural_rally_point = Coord3D::new(3.0, 4.0, 12.0);
-        let exit = DefaultProductionExitBehavior::new(data, 1);
+        let exit = DefaultProductionExitBehavior::new(game_engine::common::thing::module::ModuleDataHandle::new(data), 1);
 
         let point = exit.get_natural_rally_point(&Matrix3D::IDENTITY, true);
         let offset = 2.0 * PATHFIND_CELL_SIZE_F / 13.0;

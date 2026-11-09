@@ -481,9 +481,8 @@ fn collapse_ini_from_modules(
         {
             continue;
         }
-        if let Some(data) = entry
-            .data
-            .downcast_ref::<gamelogic::object::behavior::StructureCollapseUpdateModuleData>()
+        let guard = entry.data.read();
+        if let Some(data) = guard.downcast_ref::<gamelogic::object::behavior::StructureCollapseUpdateModuleData>()
         {
             return Some(HostStructureCollapseIni {
                 min_burst_delay: data.min_burst_delay,
@@ -497,9 +496,8 @@ fn collapse_ini_from_modules(
                 fx_final: first_named_fx_slot(&data.fxs[3]),
             });
         }
-        let fxlist = entry.data.get_ini_field("FXList").unwrap_or("");
-        let body = entry
-            .data
+        let fxlist = guard.get_ini_field("FXList").unwrap_or("");
+        let body = guard
             .downcast_ref::<game_engine::common::thing::module::CapturedModuleData>()
             .map(|c| c.raw_body())
             .unwrap_or("");
@@ -509,11 +507,11 @@ fn collapse_ini_from_modules(
             format!("{fxlist}\n{body}")
         };
         let mut attrs: Vec<(&str, &str)> = vec![("FXList", combined.as_str())];
-        let min_b = entry.data.get_ini_field("MinBurstDelay").unwrap_or("");
-        let max_b = entry.data.get_ini_field("MaxBurstDelay").unwrap_or("");
-        let freq = entry.data.get_ini_field("BigBurstFrequency").unwrap_or("");
-        let damp = entry.data.get_ini_field("CollapseDamping").unwrap_or("");
-        let shud = entry.data.get_ini_field("MaxShudder").unwrap_or("");
+        let min_b = guard.get_ini_field("MinBurstDelay").unwrap_or("");
+        let max_b = guard.get_ini_field("MaxBurstDelay").unwrap_or("");
+        let freq = guard.get_ini_field("BigBurstFrequency").unwrap_or("");
+        let damp = guard.get_ini_field("CollapseDamping").unwrap_or("");
+        let shud = guard.get_ini_field("MaxShudder").unwrap_or("");
         if !min_b.is_empty() {
             attrs.push(("MinBurstDelay", min_b));
         }
@@ -594,7 +592,6 @@ mod tests {
         use game_engine::common::ascii_string::AsciiString;
         use game_engine::common::thing::thing_template::ModuleInfo;
         use gamelogic::object::behavior::StructureCollapseUpdateModuleData;
-        use std::sync::Arc;
 
         let modules = |delay| {
             let data = StructureCollapseUpdateModuleData {
@@ -605,7 +602,7 @@ mod tests {
             modules.add_module_info(
                 "StructureCollapseUpdate".to_string(),
                 "Collapse".to_string(),
-                Arc::new(data),
+                game_engine::common::thing::module::ModuleDataHandle::new(data),
                 0,
                 false,
                 false,

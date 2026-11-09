@@ -259,8 +259,8 @@ fn manager_owned_path_settings_drive_add_and_duration_queries() {
     );
 
     for (manager, root, folder, extension) in [
-        (&manager_a, &root_a, "EffectsA", extension_a),
-        (&manager_b, &root_b, "EffectsB", extension_b),
+        (&mut manager_a, &root_a, "EffectsA", extension_a),
+        (&mut manager_b, &root_b, "EffectsB", extension_b),
     ] {
         let queued = queued_event(manager);
         assert_eq!(

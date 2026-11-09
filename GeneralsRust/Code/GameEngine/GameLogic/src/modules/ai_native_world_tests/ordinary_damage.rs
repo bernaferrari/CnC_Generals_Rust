@@ -31,7 +31,7 @@ fn damage_actor_kinded(heals: bool, physics: bool, kind: KindOf) -> Arc<dyn Thin
     let mut modules = vec![TemplateModuleInfo {
         name: "ActiveBody".into(),
         module_tag: "OwnedDamageBody".into(),
-        data: Arc::new(body),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(body),
         interface_mask: ModuleInterfaceType::BODY,
     }];
     if heals {
@@ -44,7 +44,7 @@ fn damage_actor_kinded(heals: bool, physics: bool, kind: KindOf) -> Arc<dyn Thin
         modules.push(TemplateModuleInfo {
             name: "AutoHealBehavior".into(),
             module_tag: "OwnedDamageHeal".into(),
-            data: Arc::new(heal),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(heal),
             interface_mask: ModuleInterfaceType::UPDATE | ModuleInterfaceType::DAMAGE,
         });
     }
@@ -52,7 +52,7 @@ fn damage_actor_kinded(heals: bool, physics: bool, kind: KindOf) -> Arc<dyn Thin
         modules.push(TemplateModuleInfo {
             name: "PhysicsBehavior".into(),
             module_tag: "OwnedShockPhysics".into(),
-            data: Arc::new(
+            data: game_engine::common::thing::module::ModuleDataHandle::new(
                 crate::object::behavior::physics_update::PhysicsBehaviorModuleData {
                     mass: 2.0,
                     shock_resistance: 0.25,
@@ -170,7 +170,7 @@ fn undead_native_nonlethal_damage_is_owned_and_first_death_is_rejected_before_mu
             modules: vec![TemplateModuleInfo {
                 name: "UndeadBody".into(),
                 module_tag: "OwnedUndeadBody".into(),
-                data: Arc::new(data),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(data),
                 interface_mask: ModuleInterfaceType::BODY,
             }],
         });

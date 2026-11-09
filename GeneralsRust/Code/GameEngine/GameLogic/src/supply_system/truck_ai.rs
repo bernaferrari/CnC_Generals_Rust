@@ -24,12 +24,26 @@ impl Default for SupplyTruckAIUpdateData {
         }
     }
 }
+#[derive(Debug)]
+enum SupplyTruckData {
+    Standalone(SupplyTruckAIUpdateData),
+    Shared(game_engine::common::thing::module::ModuleDataHandle),
+}
+
+struct SupplyTruckDataView<'a> {
+    max_boxes: i32,
+    warehouse_scan_distance: Real,
+    warehouse_delay: u32,
+    center_delay: u32,
+    supplies_depleted_voice: &'a str,
+}
+
 
 /// Supply truck AI update module
 /// Matches C++ SupplyTruckAIUpdate
 pub struct SupplyTruckAIUpdate {
     /// Configuration data
-    data: SupplyTruckAIUpdateData,
+    data: SupplyTruckData,
     /// Current AI state
     state: SupplyTruckState,
     /// Current number of boxes carried
@@ -92,7 +106,7 @@ impl SupplyTruckAIUpdate {
         player_index: PlayerIndex,
     ) -> Self {
         Self {
-            data,
+            data: SupplyTruckData::Standalone(data),
             state: SupplyTruckState::Idle,
             number_boxes: 0,
             preferred_dock: None,
@@ -106,6 +120,50 @@ impl SupplyTruckAIUpdate {
             owner: None,
         }
     }
+    /// Construct from the admitted definition shared with the owning module.
+    pub fn new_with_module_data(
+        data: game_engine::common::thing::module::ModuleDataHandle,
+        object_id: ObjectID,
+        player_index: PlayerIndex,
+    ) -> Self {
+        let mut truck = Self::new(SupplyTruckAIUpdateData::default(), object_id, player_index);
+        truck.data = SupplyTruckData::Shared(data);
+        truck
+    }
+
+    fn with_data<R>(&self, f: impl FnOnce(SupplyTruckDataView<'_>) -> R) -> R {
+        match &self.data {
+            SupplyTruckData::Standalone(data) => f(SupplyTruckDataView {
+                max_boxes: data.max_boxes,
+                warehouse_scan_distance: data.warehouse_scan_distance,
+                warehouse_delay: data.warehouse_delay,
+                center_delay: data.center_delay,
+                supplies_depleted_voice: &data.supplies_depleted_voice,
+            }),
+            SupplyTruckData::Shared(handle) => {
+                let data = handle.read();
+                macro_rules! project {
+                    ($data:expr) => {
+                        f(SupplyTruckDataView {
+                            max_boxes: $data.max_boxes_data,
+                            warehouse_scan_distance: $data.warehouse_scan_distance,
+                            warehouse_delay: $data.warehouse_delay,
+                            center_delay: $data.center_delay,
+                            supplies_depleted_voice: $data.supplies_depleted_voice.as_str(),
+                        })
+                    };
+                }
+                if let Some(data) = data.as_any().downcast_ref::<crate::object::update::ai_update::chinook_ai_update::ChinookAIUpdateModuleData>() {
+                    project!(data)
+                } else {
+                    let data = data.as_any().downcast_ref::<crate::object::update::ai_update::supply_truck_ai_update::SupplyTruckAIUpdateModuleData>()
+                        .expect("supply truck shared data must be Chinook or SupplyTruckAIUpdateModuleData");
+                    project!(data)
+                }
+            }
+        }
+    }
+
 
     /// Bind the exact owning Object (C++ `getObject()`), so Drawable
     /// notifications never resolve a same-ID foreign Object by registry id.
@@ -136,7 +194,7 @@ impl SupplyTruckAIUpdate {
             let drawable = owner.read().ok().and_then(|guard| guard.get_drawable());
             if let Some(drawable) = drawable {
                 if let Ok(mut draw_guard) = drawable.write() {
-                    draw_guard.update_supply_status(self.data.max_boxes, self.number_boxes);
+                    draw_guard.update_supply_status(self.get_max_boxes(), self.number_boxes);
                 }
             }
             return;
@@ -156,7 +214,7 @@ impl SupplyTruckAIUpdate {
             return;
         };
         if let Ok(mut draw_guard) = drawable.write() {
-            draw_guard.update_supply_status(self.data.max_boxes, self.number_boxes);
+            draw_guard.update_supply_status(self.get_max_boxes(), self.number_boxes);
         };
     }
 
@@ -250,7 +308,7 @@ impl SupplyTruckAIUpdate {
         }
         if let Some(drawable) = drawable {
             if let Ok(mut drawable) = drawable.write() {
-                drawable.update_supply_status(self.data.max_boxes, self.number_boxes);
+                drawable.update_supply_status(self.get_max_boxes(), self.number_boxes);
             }
         }
         true
@@ -262,14 +320,14 @@ impl SupplyTruckAIUpdate {
         // Wave 298: empty dual-world only skips drawable status, not the box
         // increment or SuppliesDepletedVoice (C++ gainOneBox.cpp:132-171).
 
-        if self.number_boxes >= self.data.max_boxes {
+        if self.number_boxes >= self.get_max_boxes() {
             return false;
         }
         self.number_boxes += 1;
 
         // If we just took the last box, announce supplies depleted
         // Matches C++ SupplyTruckAIUpdate.cpp:141-161
-        if remaining_stock == 0 && !self.data.supplies_depleted_voice.is_empty() {
+        if remaining_stock == 0 && self.with_data(|data| !data.supplies_depleted_voice.is_empty()) {
             let mut play_depleted = true;
             if let Some(best_warehouse) = resource::find_best_supply_warehouse(self.object_id) {
                 if let (Some(owner), Some(warehouse)) = (
@@ -300,7 +358,7 @@ impl SupplyTruckAIUpdate {
 
             if play_depleted {
                 if let Some(audio) = &self.audio_system {
-                    audio.play_voice_event(&self.data.supplies_depleted_voice, self.object_id);
+                    self.with_data(|data| audio.play_voice_event(data.supplies_depleted_voice, self.object_id));
                 }
             }
         }
@@ -360,13 +418,15 @@ impl SupplyTruckAIUpdate {
         has_warehouse: bool,
         has_center: bool,
     ) -> u32 {
-        if has_warehouse {
-            self.data.warehouse_delay
-        } else if has_center {
-            self.data.center_delay
-        } else {
-            0
-        }
+        self.with_data(|data| {
+            if has_warehouse {
+                data.warehouse_delay
+            } else if has_center {
+                data.center_delay
+            } else {
+                0
+            }
+        })
     }
 
     /// Known supply-dock helper (warehouse vs center). Prefer
@@ -378,11 +438,13 @@ impl SupplyTruckAIUpdate {
     /// Get warehouse scan distance
     /// AI players get 2x distance
     pub fn get_warehouse_scan_distance(&self, is_ai_player: bool) -> Real {
-        if is_ai_player {
-            self.data.warehouse_scan_distance * 2.0
-        } else {
-            self.data.warehouse_scan_distance
-        }
+        self.with_data(|data| {
+            if is_ai_player {
+                data.warehouse_scan_distance * 2.0
+            } else {
+                data.warehouse_scan_distance
+            }
+        })
     }
 
     pub fn get_number_boxes(&self) -> i32 {
@@ -390,7 +452,7 @@ impl SupplyTruckAIUpdate {
     }
 
     pub fn get_max_boxes(&self) -> i32 {
-        self.data.max_boxes
+        self.with_data(|data| data.max_boxes)
     }
 
     pub fn get_state(&self) -> SupplyTruckState {

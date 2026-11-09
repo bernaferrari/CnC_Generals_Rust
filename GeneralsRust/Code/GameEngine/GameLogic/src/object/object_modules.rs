@@ -361,7 +361,7 @@ impl Object {
         &mut self,
         name: &str,
         module: Box<dyn Module>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) {
         let entry = Arc::new(ModuleEntry::new(
             AsciiString::from(name),
@@ -381,7 +381,7 @@ impl Object {
         &mut self,
         name: &str,
         module: Box<dyn Module>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         mask: ModuleInterfaceType,
     ) {
         let entry = Arc::new(ModuleEntry::new(
@@ -591,7 +591,7 @@ impl Object {
                 if entry.name.as_str().eq_ignore_ascii_case("CaveContain")
                     && matches!(
                         crate::contain_module_overrides::ContainModuleDataKind::from_module_data(
-                            module.get_module_data()
+                            &*module.get_module_data()
                         ),
                         Some(crate::contain_module_overrides::ContainModuleDataKind::Cave(_))
                     )
@@ -971,8 +971,8 @@ impl Object {
         let mut install_behavior_modules = |factory: &ModuleFactory| -> Result<(), String> {
             for entry in thing_template.get_behavior_module_info().iter() {
                 let module_name = entry.name.clone();
-                let module_data = Arc::clone(&entry.data);
-                let module_data_for_entry = Arc::clone(&module_data);
+                let module_data = entry.data.clone();
+                let module_data_for_entry = module_data.clone();
                 let interface_mask = entry.interface_flags();
 
                 match factory.new_module(
@@ -1360,7 +1360,7 @@ impl Object {
     {
         for entry in self.interface_entries(&self.contain_module_handles) {
             if let Some(ContainModuleDataKind::Garrison(data)) =
-                ContainModuleDataKind::from_module_data(entry.module_data.as_ref())
+                ContainModuleDataKind::from_module_data(&*entry.module_data.read())
             {
                 return Ok(Arc::new(data.clone()));
             }
@@ -1376,7 +1376,7 @@ impl Object {
     ) -> Result<crate::object::contain::transport_contain::TransportContainModuleData, String> {
         for entry in self.interface_entries(&self.contain_module_handles) {
             if let Some(ContainModuleDataKind::Transport(data)) =
-                ContainModuleDataKind::from_module_data(entry.module_data.as_ref())
+                ContainModuleDataKind::from_module_data(&*entry.module_data.read())
             {
                 return Ok(data.clone());
             }

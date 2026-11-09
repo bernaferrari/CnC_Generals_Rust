@@ -58,7 +58,7 @@ impl AssistedTargetingUpdateModuleData {
 pub struct AssistedTargetingUpdate {
     owner: Weak<RwLock<GameObject>>,
     object_id: ObjectID,
-    module_data: Arc<AssistedTargetingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     laser_from_assisted: Option<Arc<dyn ThingTemplate>>,
@@ -66,14 +66,13 @@ pub struct AssistedTargetingUpdate {
 }
 
 impl AssistedTargetingUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<AssistedTargetingUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<AssistedTargetingUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             owner: Arc::downgrade(&object),
@@ -82,7 +81,7 @@ impl AssistedTargetingUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             laser_from_assisted: None,
             laser_to_target: None,
@@ -90,15 +89,18 @@ impl AssistedTargetingUpdate {
     }
 
     fn refresh_laser_templates(&mut self) {
-        self.laser_from_assisted = if self.module_data.laser_from_assisted_name.is_empty() {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AssistedTargetingUpdateModuleData>()
+            .expect("Invalid module data");
+        self.laser_from_assisted = if data.laser_from_assisted_name.is_empty() {
             None
         } else {
-            TheThingFactory::find_template(self.module_data.laser_from_assisted_name.as_str())
+            TheThingFactory::find_template(data.laser_from_assisted_name.as_str())
         };
-        self.laser_to_target = if self.module_data.laser_from_assisted_name.is_empty() {
+        self.laser_to_target = if data.laser_from_assisted_name.is_empty() {
             None
         } else {
-            TheThingFactory::find_template(self.module_data.laser_from_assisted_name.as_str())
+            TheThingFactory::find_template(data.laser_from_assisted_name.as_str())
         };
     }
 
@@ -245,8 +247,11 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
         let Some(ai_arc) = me.get_ai() else {
             return;
         };
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AssistedTargetingUpdateModuleData>()
+            .expect("Invalid module data");
         me.set_weapon_lock(
-            self.module_data.weapon_slot,
+            data.weapon_slot,
             WeaponLockType::LockedTemporarily,
         );
         let me_id = me.get_id();
@@ -254,7 +259,8 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
         let mut params =
             AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromAi);
         params.obj = Some(victim_object_id);
-        params.int_value = self.module_data.clip_size;
+        params.int_value = data.clip_size;
+        drop(guard);
         let _ = ai_arc.lock().ok().map(|mut ai| ai.execute_command(&params));
 
         let laser_from_assisted = self.laser_from_assisted.clone();
@@ -292,15 +298,16 @@ impl Snapshotable for AssistedTargetingUpdate {
 pub struct AssistedTargetingUpdateModule {
     behavior: AssistedTargetingUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<AssistedTargetingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl AssistedTargetingUpdateModule {
     pub fn new(
         behavior: AssistedTargetingUpdate,
         module_name: &AsciiString,
-        module_data: Arc<AssistedTargetingUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        assert!(game_engine::common::thing::module::ModuleDataHandle::ptr_eq(&behavior.module_data, &module_data));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -342,11 +349,11 @@ impl Module for AssistedTargetingUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -364,9 +371,9 @@ pub struct AssistedTargetingUpdateFactory;
 impl AssistedTargetingUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(AssistedTargetingUpdate::new(thing, module_data)?))
+        Ok(Box::new(AssistedTargetingUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -482,11 +489,11 @@ mod tests {
             );
         }
 
-        let module_data: Arc<dyn ModuleData> = Arc::new(AssistedTargetingUpdateModuleData {
+        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(AssistedTargetingUpdateModuleData {
             weapon_slot: WeaponSlotType::Secondary,
             ..Default::default()
         });
-        let assisted = AssistedTargetingUpdate::new(Arc::clone(&object), module_data).unwrap();
+        let assisted = AssistedTargetingUpdate::new_with_module_data(Arc::clone(&object), module_data).unwrap();
 
         let peer = Arc::new(RwLock::new(Object::new_test(0xA5515701, 100.0)));
         let _peer_loan = peer.write().unwrap();

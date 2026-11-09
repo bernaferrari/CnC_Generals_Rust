@@ -5,7 +5,7 @@
 //! Every loader receives its actual local catalog; no ambient factory admission.
 use super::*;
 use crate::common::ini::INILoadType;
-use crate::common::thing::module::CapturedModuleData;
+use crate::common::thing::module::{CapturedModuleData, ModuleDataHandle};
 use crate::common::thing::thing_factory::ThingFactory;
 use crate::common::thing::thing_template::ThingTemplate;
 use std::collections::HashMap;
@@ -207,25 +207,26 @@ Behavior = {BEHAVIOR_CLASS} BehaviorTag\n Payload = behavior-value\nEnd"
             assert_eq!(entry.name.as_str(), name, "{loader:?}");
             assert_eq!(entry.module_tag.as_str(), tag, "{loader:?}");
             assert_eq!(entry.interface_mask, mask.0 as i32, "{loader:?}");
-            assert!(entry.data.as_any().is::<CapturedModuleData>());
+            let data = entry.data.read();
+            assert!(data.as_any().is::<CapturedModuleData>());
             assert_eq!(
-                entry.data.get_ini_field("ActualDataProcedure"),
+                data.get_ini_field("ActualDataProcedure"),
                 Some(marker),
                 "{loader:?}"
             );
             assert_eq!(
-                entry.data.get_ini_field("Payload"),
+                data.get_ini_field("Payload"),
                 Some(payload),
                 "{loader:?}"
             );
-            assert_eq!(entry.data.get_ini_field("ReadError"), None, "{loader:?}");
+            assert_eq!(data.get_ini_field("ReadError"), None, "{loader:?}");
             assert_eq!(
-                entry.data.get_ini_field("__declaration_order"),
+                data.get_ini_field("__declaration_order"),
                 None,
                 "{loader:?}"
             );
             assert_eq!(
-                entry.data.get_module_tag_name_key(),
+                data.get_module_tag_name_key(),
                 NameKeyGenerator::name_to_key(tag)
             );
         }
@@ -255,7 +256,7 @@ fn invalid_field_mask_precedes_copied_default_clearing_and_data_creation() {
         let previous_data = {
             let entry = template.get_behavior_module_info().iter().next().unwrap();
             assert!(entry.copied_from_default);
-            Arc::clone(entry.data)
+            entry.data.clone()
         };
         let before = data_count(&modules);
         let result = template.parse_object_fields_with_module_factory(
@@ -280,7 +281,7 @@ fn invalid_field_mask_precedes_copied_default_clearing_and_data_creation() {
         assert_eq!(entries[0].module_tag.as_str(), "DefaultTag");
         assert!(entries[0].copied_from_default);
         assert!(
-            Arc::ptr_eq(entries[0].data, &previous_data),
+            ModuleDataHandle::ptr_eq(entries[0].data, &previous_data),
             "default data identity must be unchanged"
         );
     }
@@ -317,16 +318,16 @@ fn same_name_peer_catalogs_keep_their_own_masks_data_and_counts_on_all_loaders()
         assert_eq!(body_entry.interface_mask, BODY_MASK.0 as i32);
         assert_eq!(behavior_entry.interface_mask, BEHAVIOR_MASK.0 as i32);
         assert_eq!(
-            body_entry.data.get_ini_field("ActualDataProcedure"),
+            body_entry.data.read().get_ini_field("ActualDataProcedure"),
             Some("body-procedure")
         );
         assert_eq!(
-            behavior_entry.data.get_ini_field("ActualDataProcedure"),
+            behavior_entry.data.read().get_ini_field("ActualDataProcedure"),
             Some("behavior-procedure")
         );
-        assert_eq!(body_entry.data.get_ini_field("Payload"), Some("body-owner"));
+        assert_eq!(body_entry.data.read().get_ini_field("Payload"), Some("body-owner"));
         assert_eq!(
-            behavior_entry.data.get_ini_field("Payload"),
+            behavior_entry.data.read().get_ini_field("Payload"),
             Some("behavior-owner")
         );
         assert_rejected(
@@ -365,9 +366,9 @@ ObjectReskin MaskReskinChild MaskReskinParent\n Draw = MaskValidationDraw ChildT
     let entry = child.get_draw_module_info().iter().next().unwrap();
     assert_eq!(entry.module_tag.as_str(), "ChildTag");
     assert_eq!(
-        entry.data.get_ini_field("ActualDataProcedure"),
+        entry.data.read().get_ini_field("ActualDataProcedure"),
         Some("behavior-procedure")
     );
-    assert_eq!(entry.data.get_ini_field("Payload"), Some("child"));
+    assert_eq!(entry.data.read().get_ini_field("Payload"), Some("child"));
     assert_eq!(data_count(&modules), 2);
 }

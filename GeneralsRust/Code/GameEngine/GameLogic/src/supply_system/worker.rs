@@ -36,12 +36,29 @@ impl Default for WorkerAIUpdateData {
         }
     }
 }
+#[derive(Debug)]
+enum WorkerData {
+    Standalone(WorkerAIUpdateData),
+    Shared(game_engine::common::thing::module::ModuleDataHandle),
+}
+
+struct WorkerDataView<'a> {
+    max_boxes: i32,
+    warehouse_scan_distance: Real,
+    warehouse_delay: u32,
+    center_delay: u32,
+    supplies_depleted_voice: &'a str,
+    repair_health_percent_per_second: Real,
+    bored_time: Real,
+    bored_range: Real,
+}
+
 
 /// GLA worker AI (similar to supply truck but for GLA faction)
 /// GLA workers gather supplies on foot from supply piles
 pub struct WorkerAIUpdate {
     /// Worker configuration (similar to SupplyTruckAIUpdate)
-    data: WorkerAIUpdateData,
+    data: WorkerData,
     /// Current AI state
     state: SupplyTruckState,
     /// Current number of boxes carried
@@ -182,7 +199,7 @@ impl std::fmt::Debug for WorkerAIUpdate {
 impl WorkerAIUpdate {
     pub fn new(data: WorkerAIUpdateData, object_id: ObjectID, player_index: PlayerIndex) -> Self {
         Self {
-            data,
+            data: WorkerData::Standalone(data),
             state: SupplyTruckState::Idle,
             number_boxes: 0,
             preferred_dock: None,
@@ -222,6 +239,47 @@ impl WorkerAIUpdate {
         }
     }
 
+    /// Keep the admitted definition shared with the owning WorkerAI module.
+    pub fn new_with_module_data(
+        data: game_engine::common::thing::module::ModuleDataHandle,
+        object_id: ObjectID,
+        player_index: PlayerIndex,
+    ) -> Self {
+        let mut worker = Self::new(WorkerAIUpdateData::default(), object_id, player_index);
+        worker.data = WorkerData::Shared(data);
+        worker
+    }
+
+    fn with_data<R>(&self, f: impl FnOnce(WorkerDataView<'_>) -> R) -> R {
+        match &self.data {
+            WorkerData::Standalone(data) => f(WorkerDataView {
+                max_boxes: data.max_boxes,
+                warehouse_scan_distance: data.warehouse_scan_distance,
+                warehouse_delay: data.warehouse_delay,
+                center_delay: data.center_delay,
+                supplies_depleted_voice: &data.supplies_depleted_voice,
+                repair_health_percent_per_second: data.repair_health_percent_per_second,
+                bored_time: data.bored_time,
+                bored_range: data.bored_range,
+            }),
+            WorkerData::Shared(handle) => {
+                let data = handle.read();
+                let data = data.as_any().downcast_ref::<crate::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData>()
+                    .expect("worker shared data must be WorkerAIUpdateModuleData");
+                f(WorkerDataView {
+                    max_boxes: data.max_boxes_data,
+                    warehouse_scan_distance: data.warehouse_scan_distance,
+                    warehouse_delay: data.warehouse_delay,
+                    center_delay: data.center_delay,
+                    supplies_depleted_voice: data.supplies_depleted_voice.as_str(),
+                    repair_health_percent_per_second: data.repair_health_percent_per_second,
+                    bored_time: data.bored_time,
+                    bored_range: data.bored_range,
+                })
+            }
+        }
+    }
+
     /// Bind the exact owning Object (C++ `getObject()`), so Drawable
     /// notifications never resolve a same-ID foreign Object by registry id.
     pub fn bind_owner(&mut self, owner: &Arc<RwLock<Object>>) {
@@ -241,7 +299,7 @@ impl WorkerAIUpdate {
             let drawable = owner.read().ok().and_then(|guard| guard.get_drawable());
             if let Some(drawable) = drawable {
                 if let Ok(mut draw_guard) = drawable.write() {
-                    draw_guard.update_supply_status(self.data.max_boxes, self.number_boxes);
+                    draw_guard.update_supply_status(self.with_data(|data| data.max_boxes), self.number_boxes);
                 }
             }
             return;
@@ -261,7 +319,7 @@ impl WorkerAIUpdate {
             return;
         };
         if let Ok(mut draw_guard) = drawable.write() {
-            draw_guard.update_supply_status(self.data.max_boxes, self.number_boxes);
+            draw_guard.update_supply_status(self.with_data(|data| data.max_boxes), self.number_boxes);
         };
     }
 
@@ -1183,13 +1241,13 @@ impl WorkerAIUpdate {
             return false;
         }
 
-        if self.number_boxes >= self.data.max_boxes {
+        if self.number_boxes >= self.with_data(|data| data.max_boxes) {
             return false;
         }
         self.number_boxes += 1;
 
         // Play depleted voice if took last box
-        if remaining_stock == 0 && !self.data.supplies_depleted_voice.is_empty() {
+        if remaining_stock == 0 && self.with_data(|data| !data.supplies_depleted_voice.is_empty()) {
             let mut play_depleted = true;
             if let Some(best_warehouse) = resource::find_best_supply_warehouse(self.object_id) {
                 if let (Some(owner), Some(warehouse)) = (
@@ -1220,7 +1278,7 @@ impl WorkerAIUpdate {
 
             if play_depleted {
                 if let Some(audio) = &self.audio_system {
-                    audio.play_voice_event(&self.data.supplies_depleted_voice, self.object_id);
+                    self.with_data(|data| audio.play_voice_event(data.supplies_depleted_voice, self.object_id));
                 }
             }
         }
@@ -1241,17 +1299,17 @@ impl WorkerAIUpdate {
 
     /// Repair health percent per second (matches C++ WorkerAIUpdate::getRepairHealthPerSecond).
     pub fn get_repair_health_per_second(&self) -> Real {
-        self.data.repair_health_percent_per_second
+        self.with_data(|data| data.repair_health_percent_per_second)
     }
 
     /// Worker bored time (matches C++ WorkerAIUpdate::getBoredTime).
     pub fn get_bored_time(&self) -> Real {
-        self.data.bored_time
+        self.with_data(|data| data.bored_time)
     }
 
     /// Worker bored range (matches C++ WorkerAIUpdate::getBoredRange).
     pub fn get_bored_range(&self) -> Real {
-        self.data.bored_range
+        self.with_data(|data| data.bored_range)
     }
 
     pub fn get_number_boxes(&self) -> i32 {
@@ -1308,13 +1366,15 @@ impl WorkerAIUpdate {
         has_warehouse: bool,
         has_center: bool,
     ) -> u32 {
-        if has_warehouse {
-            self.data.warehouse_delay
-        } else if has_center {
-            self.data.center_delay
-        } else {
-            0
-        }
+        self.with_data(|data| {
+            if has_warehouse {
+                data.warehouse_delay
+            } else if has_center {
+                data.center_delay
+            } else {
+                0
+            }
+        })
     }
 
     pub fn get_action_delay_for_dock(&self, is_warehouse: bool) -> u32 {
@@ -1323,11 +1383,13 @@ impl WorkerAIUpdate {
 
     /// Get warehouse scan distance (AI players get 2x distance).
     pub fn get_warehouse_scan_distance(&self, is_ai_player: bool) -> Real {
-        if is_ai_player {
-            self.data.warehouse_scan_distance * 2.0
-        } else {
-            self.data.warehouse_scan_distance
-        }
+        self.with_data(|data| {
+            if is_ai_player {
+                data.warehouse_scan_distance * 2.0
+            } else {
+                data.warehouse_scan_distance
+            }
+        })
     }
 
     pub fn get_state(&self) -> SupplyTruckState {

@@ -30,6 +30,7 @@ use crate::player::Player;
 use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 /// Object.cpp3336: query the selected locomotor using the AI loan the
 /// exit operation already owns; AirborneTarget is a targeting-height status.
@@ -376,7 +377,7 @@ pub struct TransportContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
     /// Transport configuration retained for C++ behavior hooks.
-    module_data: TransportContainModuleData,
+    module_data: ModuleDataView<TransportContainModuleData>,
     /// Reference to the owning object
     object_id: ObjectID,
     /// Whether payload has been created
@@ -395,7 +396,7 @@ impl TransportContain {
     /// Create a new TransportContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &TransportContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
         let object_id = object
             .upgrade()
@@ -406,13 +407,14 @@ impl TransportContain {
 
     pub(crate) fn new_for_owner(
         object_id: ObjectID,
-        module_data: &TransportContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = OpenContain::new_for_owner(object_id, &module_data.base)?;
+        let base = OpenContain::new_for_owner(object_id, module_data.clone())?;
+        let module_data = crate::contain_module_overrides::transport_contain_data_view(module_data);
 
         Ok(Self {
             base,
-            module_data: module_data.clone(),
+            module_data,
             object_id,
             payload_created: false,
             extra_slots_in_use: 0,
@@ -759,7 +761,7 @@ impl TransportContain {
             parent_velocity.y * mass,
             parent_velocity.z * mass,
         );
-        let pitch_rate = child.get_center_of_mass_offset() * self.module_data.exit_pitch_rate;
+        let pitch_rate = child.get_center_of_mass_offset() * self.module_data.read().exit_pitch_rate;
         child.apply_motive_force(&starting_force);
         child.set_pitch_rate(pitch_rate);
         Ok(())
@@ -787,12 +789,13 @@ impl TransportContain {
         );
         self.extra_slots_in_use -= (transport_slot_count - 1) as i32;
 
-        if !self.module_data.exit_bone.is_empty() {
+        let exit_bone = self.module_data.read().exit_bone.clone();
+        if !exit_bone.is_empty() {
             if let Some(owner_arc) = self.get_object() {
                 if let Ok(owner) = owner_arc.try_read() {
                     // C++ :321 sets the rider only when the bone is found.
                     let (found, bone_pos, _) =
-                        owner.get_single_logical_bone_position(&self.module_data.exit_bone);
+                        owner.get_single_logical_bone_position(&exit_bone);
                     drop(owner);
                     if found {
                         let _ = rider.set_position(&bone_pos);
@@ -800,7 +803,7 @@ impl TransportContain {
                 }
             }
         }
-        if self.module_data.orient_like_container_on_exit {
+        if self.module_data.read().orient_like_container_on_exit {
             if let Some(owner_arc) = self.get_object() {
                 if let Ok(owner) = owner_arc.try_read() {
                     let orient = owner.get_orientation();
@@ -841,7 +844,7 @@ impl TransportContain {
         // C++ TransportContain::onRemoving KeepContainerVelocityOnExit runs
         // before the airborne fall flag. Apply it before the rider write:
         // motive force read-locks the rider.
-        if self.module_data.keep_container_velocity_on_exit {
+        if self.module_data.read().keep_container_velocity_on_exit {
             if let Some(parent_velocity) = self.owner_exit_velocity()? {
                 self.inherit_container_velocity_on_exit(&obj, parent_velocity)?;
             }
@@ -900,7 +903,7 @@ impl TransportContain {
         if let Some((ai, dest)) = scatter_ai {
             self.base.apply_scatter_ai_followup(&ai, &dest);
         }
-        if self.module_data.go_aggressive_on_exit {
+        if self.module_data.read().go_aggressive_on_exit {
             if let Ok(rider) = obj.try_read() {
                 if let Some(ai) = rider.get_ai() {
                     drop(rider);
@@ -910,7 +913,7 @@ impl TransportContain {
                 }
             }
         }
-        if self.module_data.reset_mood_check_time_on_exit {
+        if self.module_data.read().reset_mood_check_time_on_exit {
             if let Ok(rider) = obj.try_read() {
                 if let Some(ai) = rider.get_ai() {
                     drop(rider);
@@ -925,7 +928,7 @@ impl TransportContain {
         self.let_riders_upgrade_weapon_set()?;
 
         self.frame_exit_not_busy =
-            TheGameLogic::get_frame().saturating_add(self.module_data.exit_delay);
+            TheGameLogic::get_frame().saturating_add(self.module_data.read().exit_delay);
 
         Ok(())
     }
@@ -939,7 +942,7 @@ impl TransportContain {
             }
         }
 
-        if self.module_data.health_regen != 0.0 {
+        if self.module_data.read().health_regen != 0.0 {
             let owner_id = self.get_object_id();
             for object_id in self.base.get_contained_object_ids().to_vec() {
                 if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
@@ -966,7 +969,7 @@ impl TransportContain {
                     if !needs_healing {
                         continue;
                     }
-                    let regen = max_health * self.module_data.health_regen / 100.0
+                    let regen = max_health * self.module_data.read().health_regen / 100.0
                         * SECONDS_PER_LOGICFRAME_REAL;
                     let Ok(mut object_guard) = object.try_write() else {
                         log::warn!(
@@ -1008,7 +1011,7 @@ impl TransportContain {
 
     /// Get maximum containment capacity
     pub fn get_contain_max(&self) -> i32 {
-        self.module_data.slot_capacity
+        self.module_data.read().slot_capacity
     }
 
     /// Get extra slots in use
@@ -1036,7 +1039,7 @@ impl TransportContain {
 
     /// Check if exit is currently busy
     pub fn is_exit_busy(&self) -> bool {
-        if self.module_data.is_delay_exit_in_air {
+        if self.module_data.read().is_delay_exit_in_air {
             if self
                 .with_owner_object(|owner_guard| owner_guard.is_above_terrain())
                 .unwrap_or(false)
@@ -1084,7 +1087,7 @@ impl TransportContain {
                 continue;
             };
             if !self.is_rider_id_free_to_exit(obj_id) {
-                if self.module_data.destroy_riders_who_are_not_free_to_exit {
+                if self.module_data.read().destroy_riders_who_are_not_free_to_exit {
                     let _ = TheGameLogic::destroy_object_by_id(obj_id);
                 } else if let Ok(mut obj_write) = obj.try_write() {
                     obj_write.kill(None, None);
@@ -1285,9 +1288,13 @@ impl TransportContain {
 
         let (payload_name, payload_count, owner_team) = self
             .with_owner_object(|owner_guard| {
+                let (name, count) = {
+                    let data = self.module_data.read();
+                    (data.initial_payload.name.clone(), data.initial_payload.count.max(0))
+                };
                 (
-                    self.module_data.initial_payload.name.clone(),
-                    self.module_data.initial_payload.count.max(0),
+                    name,
+                    count,
                     owner_guard
                         .get_controlling_player()
                         .and_then(|player| player.read().ok().and_then(|p| p.get_default_team())),
@@ -1380,7 +1387,7 @@ impl TransportContain {
     /// Let riders upgrade weapon set (matches C++ letRidersUpgradeWeaponSet)
     fn let_riders_upgrade_weapon_set(&mut self) -> GameResult<()> {
         // Check if this feature is enabled
-        if !self.module_data.armed_riders_upgrade_weapon_set {
+        if !self.module_data.read().armed_riders_upgrade_weapon_set {
             return Ok(());
         }
 
@@ -1690,7 +1697,7 @@ impl Snapshotable for TransportContain {
 
 impl ContainModuleInterface for TransportContain {
     fn supports_owned_numbered_exit(&self) -> bool {
-        self.module_data.base.number_of_exit_paths > 0
+        self.module_data.read().base.number_of_exit_paths > 0
     }
     fn finish_owned_numbered_exit(
         &mut self,
@@ -1699,7 +1706,7 @@ impl ContainModuleInterface for TransportContain {
         self.base.finish_numbered_exit_with_world(world)
     }
     fn supports_owned_zero_path_exit(&self) -> bool {
-        self.module_data.base.number_of_exit_paths <= 0
+        self.module_data.read().base.number_of_exit_paths <= 0
     }
     fn finish_owned_zero_path_exit(&mut self, world: &mut dyn crate::modules::ai_world::AiWorld) {
         self.base.finish_zero_path_exit_with_world(world);
@@ -1708,7 +1715,7 @@ impl ContainModuleInterface for TransportContain {
         true
     }
     fn requires_owned_weapon_refresh(&self) -> bool {
-        self.module_data.armed_riders_upgrade_weapon_set
+        self.module_data.read().armed_riders_upgrade_weapon_set
     }
     fn remove_from_contain_with_world(
         &mut self,
@@ -1832,7 +1839,7 @@ impl ContainModuleInterface for TransportContain {
         self.base.load_post_process_with_world(world)
     }
     fn exit_busy_with_observations(&self, frame: u32, above_terrain: bool) -> bool {
-        self.module_data.is_delay_exit_in_air && above_terrain || frame < self.frame_exit_not_busy
+        self.module_data.read().is_delay_exit_in_air && above_terrain || frame < self.frame_exit_not_busy
     }
     fn snapshot_load_post_process(&mut self) -> Result<(), String> {
         Snapshotable::load_post_process(self)
@@ -2019,7 +2026,7 @@ impl ContainModuleInterface for TransportContain {
     ) -> Option<crate::modules::OwnedContainDeathPolicy> {
         let mut policy =
             crate::modules::ContainModuleInterface::owned_death_policy(&self.base, owner, damage)?;
-        policy.destroy_blocked = Some(self.module_data.destroy_riders_who_are_not_free_to_exit);
+        policy.destroy_blocked = Some(self.module_data.read().destroy_riders_who_are_not_free_to_exit);
         Some(policy)
     }
     fn supports_owned_redeployment(&self) -> bool {
@@ -2266,7 +2273,7 @@ mod tests {
             slot_capacity: slots,
             ..Default::default()
         };
-        TransportContain::new(Arc::downgrade(owner), &data).expect("transport contain")
+        TransportContain::new(Arc::downgrade(owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("transport contain")
     }
 
     #[test]
@@ -2345,7 +2352,7 @@ mod tests {
             contain_max: 20,
             ..Default::default()
         };
-        let contain = OpenContain::new(Arc::downgrade(&building), &data).expect("building contain");
+        let contain = OpenContain::new(Arc::downgrade(&building), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("building contain");
         building
             .write()
             .expect("building write")
@@ -2371,7 +2378,9 @@ mod tests {
         let chute_owner = owned_object("ParachuteContainer", 95007, 0);
         let chute = super::super::ParachuteContain::new(
             Arc::downgrade(&chute_owner),
-            &super::super::ParachuteContainModuleData::default(),
+            ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(
+                super::super::ParachuteContainModuleData::default(),
+            )),
         )
         .expect("chute contain");
         let chute: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(chute));
@@ -2476,7 +2485,7 @@ mod tests {
             reset_mood_check_time_on_exit: false,
             ..Default::default()
         };
-        TransportContain::new(Arc::downgrade(owner), &data).expect("velocity transport")
+        TransportContain::new(Arc::downgrade(owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("velocity transport")
     }
 
     #[test]
@@ -2548,7 +2557,7 @@ mod tests {
             reset_mood_check_time_on_exit: false,
             ..Default::default()
         };
-        let mut contain = TransportContain::new(Arc::downgrade(&owner), &data).expect("transport");
+        let mut contain = TransportContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("transport");
 
         contain.on_removing(95142).expect("missing bone removal");
 

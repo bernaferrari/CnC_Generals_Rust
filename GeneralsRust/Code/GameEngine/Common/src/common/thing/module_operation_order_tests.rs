@@ -47,8 +47,8 @@ fn assert_interleaved(template: &ThingTemplate) {
     let info = template.get_behavior_module_info();
     for (entry, expected) in info.iter().zip(["third", "replacement", "fifth"]) {
         assert_eq!(entry.name.as_str(), "OperationFoo");
-        assert_eq!(entry.data.get_ini_field("Probe"), Some(expected));
-        assert_eq!(entry.data.get_ini_field("__declaration_order"), None);
+        assert_eq!(entry.data.read().get_ini_field("Probe"), Some(expected));
+        assert_eq!(entry.data.read().get_ini_field("__declaration_order"), None);
         assert_eq!(entry.interface_mask, ModuleInterfaceType::UPDATE.0 as i32);
     }
 }
@@ -196,6 +196,7 @@ fn module_operation_order_wrappers_parse_object_fields() {
                 .next()
                 .unwrap()
                 .data
+                .read()
                 .get_ini_field("Probe"),
             Some("kept")
         );
@@ -617,10 +618,10 @@ fn scalar_field_order_authored_dotted_field_does_not_enter_module_data() {
         "{error}"
     );
     let entry = template.get_behavior_module_info().iter().next().unwrap();
-    assert_eq!(entry.data.get_ini_field("Probe"), Some("actual_body"));
-    assert_eq!(entry.data.get_ini_field("MaxHealth"), None);
+    assert_eq!(entry.data.read().get_ini_field("Probe"), Some("actual_body"));
+    assert_eq!(entry.data.read().get_ini_field("MaxHealth"), None);
     assert_eq!(
-        entry.data.get_ini_field("MaxHealth.__declaration_order"),
+        entry.data.read().get_ini_field("MaxHealth.__declaration_order"),
         None
     );
 }

@@ -260,8 +260,8 @@ pub fn leftover_missile_launcher_module_data(
         {
             continue;
         }
-        if let Some(data) = entry
-            .data
+        let module_data = entry.data.read();
+        if let Some(data) = module_data
             .downcast_ref::<gamelogic::object::behavior::MissileLauncherBuildingUpdateModuleData>(
         ) {
             return Some(HostMissileLauncherIni {
@@ -278,15 +278,13 @@ pub fn leftover_missile_launcher_module_data(
             });
         }
         let parse_dur = |key: &str| -> Option<u32> {
-            entry
-                .data
+            module_data
                 .get_ini_field(key)
                 .and_then(|s| s.parse::<u32>().ok())
                 .map(|ms| ((ms as f32) * 30.0 / 1000.0).ceil() as u32)
         };
         return Some(HostMissileLauncherIni {
-            special_power_template_name: entry
-                .data
+            special_power_template_name: module_data
                 .get_ini_field("SpecialPowerTemplate")
                 .unwrap_or("")
                 .to_string(),
@@ -296,12 +294,12 @@ pub fn leftover_missile_launcher_module_data(
                 .unwrap_or(MISSILE_LAUNCHER_DOOR_WAIT_OPEN_TIME_FRAMES),
             door_closing_time: parse_dur("DoorCloseTime")
                 .unwrap_or(MISSILE_LAUNCHER_DOOR_CLOSE_TIME_FRAMES),
-            opening_fx: nonempty_ini(entry.data.get_ini_field("DoorOpeningFX")),
-            open_fx: nonempty_ini(entry.data.get_ini_field("DoorOpenFX")),
-            waiting_to_close_fx: nonempty_ini(entry.data.get_ini_field("DoorWaitingToCloseFX")),
-            closing_fx: nonempty_ini(entry.data.get_ini_field("DoorClosingFX")),
-            closed_fx: nonempty_ini(entry.data.get_ini_field("DoorClosedFX")),
-            open_idle_audio: nonempty_ini(entry.data.get_ini_field("DoorOpenIdleAudio")),
+            opening_fx: nonempty_ini(module_data.get_ini_field("DoorOpeningFX")),
+            open_fx: nonempty_ini(module_data.get_ini_field("DoorOpenFX")),
+            waiting_to_close_fx: nonempty_ini(module_data.get_ini_field("DoorWaitingToCloseFX")),
+            closing_fx: nonempty_ini(module_data.get_ini_field("DoorClosingFX")),
+            closed_fx: nonempty_ini(module_data.get_ini_field("DoorClosedFX")),
+            open_idle_audio: nonempty_ini(module_data.get_ini_field("DoorOpenIdleAudio")),
         });
     }
     None

@@ -135,7 +135,7 @@ pub struct FireWeaponUpdate {
     object_id: ObjectID,
 
     /// Module data
-    module_data: Arc<FireWeaponUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 
     /// The weapon instance we're firing
     weapon: Option<Weapon>,
@@ -158,16 +158,13 @@ impl FireWeaponUpdate {
     /// 2. Allocate weapon instance using WeaponStore
     /// 3. Load ammo for the weapon
     /// 4. Calculate initial delay frame: current_frame + initial_delay_frames
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<FireWeaponUpdateModuleData>()
+        let guard = module_data.read();
+        let data = guard.downcast_ref::<FireWeaponUpdateModuleData>()
             .ok_or("Invalid module data for FireWeaponUpdate")?;
-
-        let data = Arc::new(specific_data.clone());
 
         // Get weapon template from weapon store
         let weapon_template = if !data.weapon_template_name.is_empty() {
@@ -205,6 +202,7 @@ impl FireWeaponUpdate {
         // Calculate initial delay frame
         let current_frame = Self::get_current_frame();
         let initial_delay_frame = current_frame.wrapping_add(data.initial_delay_frames);
+        drop(guard);
 
         Ok(Self {
             object_id: object
@@ -212,7 +210,7 @@ impl FireWeaponUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: data,
+            module_data,
             weapon,
             next_call_frame_and_phase: 0,
             initial_delay_frame,
@@ -225,12 +223,15 @@ impl FireWeaponUpdate {
             return Ok(());
         }
 
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<FireWeaponUpdateModuleData>()
+            .expect("Invalid module data for FireWeaponUpdate");
         let template = if let Some(template) = self.weapon_template.clone() {
             Some(template)
-        } else if !self.module_data.weapon_template_name.is_empty() {
+        } else if !data.weapon_template_name.is_empty() {
             crate::weapon::with_weapon_store(|store| {
                 store
-                    .find_weapon_template(self.module_data.weapon_template_name.as_str())
+                    .find_weapon_template(data.weapon_template_name.as_str())
                     .cloned()
             })
             .ok()
@@ -286,12 +287,16 @@ impl FireWeaponUpdate {
         }
 
         // Check exclusive weapon delay
-        if self.module_data.exclusive_weapon_delay > 0 {
+        let exclusive_weapon_delay = self.module_data.read()
+            .downcast_ref::<FireWeaponUpdateModuleData>()
+            .expect("Invalid module data for FireWeaponUpdate")
+            .exclusive_weapon_delay;
+        if exclusive_weapon_delay > 0 {
             let current_frame = Self::get_current_frame();
             let last_shot_frame = obj.get_last_shot_fired_frame();
 
             let ready_frame =
-                last_shot_frame.wrapping_add(self.module_data.exclusive_weapon_delay);
+                last_shot_frame.wrapping_add(exclusive_weapon_delay);
             if current_frame < ready_frame {
                 return false;
             }
@@ -406,14 +411,14 @@ impl Snapshotable for FireWeaponUpdate {
 pub struct FireWeaponUpdateModule {
     behavior: FireWeaponUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<FireWeaponUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl FireWeaponUpdateModule {
     pub fn new(
         behavior: FireWeaponUpdate,
         module_name: &AsciiString,
-        module_data: Arc<FireWeaponUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -456,12 +461,12 @@ impl Module for FireWeaponUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -480,9 +485,9 @@ pub struct FireWeaponUpdateFactory;
 impl FireWeaponUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FireWeaponUpdate::new(thing, module_data)?))
+        Ok(Box::new(FireWeaponUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 

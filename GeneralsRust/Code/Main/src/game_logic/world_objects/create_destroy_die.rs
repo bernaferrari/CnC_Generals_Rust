@@ -80,10 +80,8 @@ fn authored_template_spawn_point_bone_name(template: &ThingTemplate) -> Option<S
                 .as_str()
                 .eq_ignore_ascii_case("SpawnPointProductionExitUpdate")
         })?;
-        let data = module
-            .data
-            .as_any()
-            .downcast_ref::<SpawnPointProductionExitModuleData>()?;
+        let guard = module.data.read();
+        let data = guard.downcast_ref::<SpawnPointProductionExitModuleData>()?;
         return Some(data.spawn_point_bone_name.as_str().to_owned());
     }
     None
@@ -481,14 +479,14 @@ impl GameLogic {
     }
 
     fn authored_spawn_behavior_data(template: &ThingTemplate)
-        -> Option<&gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData>
+        -> Option<parking_lot::MappedRwLockReadGuard<'_, gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData>>
     {
         let receiving = template.receiving_client_template.as_ref()?;
         let module = receiving
             .behavior_modules()
             .iter()
             .find(|entry| entry.name.as_str().eq_ignore_ascii_case("SpawnBehavior"))?;
-        module.data.as_any().downcast_ref()
+        module.data.read().into_downcast()
     }
 
     fn authored_spawn_behavior_template(template: &ThingTemplate) -> Option<HostSpawnBehaviorSpec> {

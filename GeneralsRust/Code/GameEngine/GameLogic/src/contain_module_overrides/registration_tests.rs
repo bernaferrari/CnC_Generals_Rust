@@ -65,7 +65,7 @@ fn real_body_registration_is_explicit_and_factory_local() {
                 )
                 .unwrap();
             assert_eq!(
-                data.as_any()
+                data.read().as_any()
                     .downcast_ref::<ActiveBodyModuleData>()
                     .unwrap()
                     .max_health,

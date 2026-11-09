@@ -16,14 +16,15 @@ fn installed_supply_draw_forwards_the_driving_drawable() {
     const ID: ObjectID = 0xA77A_10F3;
     let mut data = W3DSupplyDrawModuleData::new();
     data.base.attach_to_drawable_bone = AsciiString::from("attach");
-    let mut supply = W3DSupplyDraw::new(data.clone());
+    let data = ModuleDataHandle::new(data);
+    let mut supply = W3DSupplyDraw::new_with_module_data(data.clone());
     supply.bind_owner_id(ID);
     let mut drawable = Drawable::new(ID, ID, "SupplyRenderOwner".into(), DrawableType::Static);
     let entry = drawable.add_module(
         ModuleInterfaceType::DRAW,
         "W3DSupplyDraw".into(),
         "SupplyRenderOwner".into(),
-        Arc::new(data),
+        data,
         Box::new(supply),
     );
     let drawable = Arc::new(RwLock::new(drawable));

@@ -10,7 +10,7 @@ impl Snapshotable for ThingTemplate {
                 .map_err(|e| e.to_string())?;
             for i in 0..info.get_count() {
                 if let Some(data) = info.get_nth_data(i) {
-                    data.crc(xfer)?;
+                    data.read().crc(xfer)?;
                 }
             }
             Ok(())

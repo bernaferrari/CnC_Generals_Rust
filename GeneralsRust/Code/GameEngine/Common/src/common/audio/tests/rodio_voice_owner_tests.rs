@@ -128,11 +128,14 @@ fn cue_limits_and_interruptions_follow_each_managers_playing_list() {
         event
     }
     fn add(manager: &mut AudioManager, event: &AudioEventRts) -> AudioHandle {
-        manager.add_audio_event_with_submission_and_selection(
+        let mut audio_random = std::mem::take(&mut manager.audio_random);
+        let handle = manager.add_audio_event_with_submission_and_selection(
             event, AudioSubmission::Ambient(None),
-            &mut crate::common::audio::audio_event_rts::AmbientAudioSelection,
+            &mut crate::common::audio::audio_event_rts::AmbientAudioSelection(&mut audio_random),
             true, None,
-        )
+        );
+        manager.audio_random = audio_random;
+        handle
     }
     let (mut a, mut out_a) = manager();
     let (mut b, mut out_b) = manager();

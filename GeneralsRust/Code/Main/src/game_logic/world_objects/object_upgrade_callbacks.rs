@@ -1,28 +1,38 @@
 //! C++ ObjectCreationUpgrade / RadarUpgrade / per-object upgrade callback order.
 //! Extracted from object_queries; one receiving implementation per callback.
 use super::super::*;
+use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataView};
+
+fn upgrade_data_view<T: ModuleData + 'static>(handle: &ModuleDataHandle) -> Option<ModuleDataView<T>> {
+    if !handle.is::<T>() {
+        return None;
+    }
+    Some(ModuleDataView::new(handle.clone(), |data| {
+        data.as_any().downcast_ref::<T>().expect("upgrade module data type")
+    }))
+}
 
 struct AuthoredObjectCreationUpgrade {
     source_index: usize,
     state_index: usize,
-    data: gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
+    data: ModuleDataView<gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData>,
 }
 
 struct AuthoredStatusBitsUpgrade {
     source_index: usize,
     state_index: usize,
-    data: gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData,
+    data: ModuleDataView<gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>,
 }
 
 struct AuthoredCostModifierUpgrade {
     source_index: usize,
     state_index: usize,
-    data: gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
+    data: ModuleDataView<gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData>,
 }
 
 struct AuthoredPassengersFireUpgrade {
     source_index: usize,
-    data: gamelogic::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData,
+    data: ModuleDataView<gamelogic::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData>,
 }
 
 impl AuthoredPassengersFireUpgrade {
@@ -33,7 +43,7 @@ impl AuthoredPassengersFireUpgrade {
 
 struct AuthoredMaxHealthUpgrade {
     source_index: usize,
-    data: gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData,
+    data: ModuleDataView<gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData>,
 }
 
 impl AuthoredMaxHealthUpgrade {
@@ -51,7 +61,7 @@ enum AuthoredWeaponUpgradeKind {
 struct AuthoredWeaponUpgrade {
     source_index: usize,
     kind: AuthoredWeaponUpgradeKind,
-    mux: gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData,
+    mux: ModuleDataView<gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData>,
 }
 
 impl AuthoredWeaponUpgrade {
@@ -91,6 +101,17 @@ impl AuthoredOrderedUpgrade {
             Self::Weapon(module) => module.source_index,
         }
     }
+
+    fn with_mux<R>(&self, f: impl FnOnce(&gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData) -> R) -> R {
+        match self {
+            Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data),
+            Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data),
+            Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data),
+            Self::PassengersFire(module) => f(&module.data.read().upgrade_mux_data),
+            Self::MaxHealth(module) => f(&module.data.read().upgrade_mux_data),
+            Self::Weapon(module) => f(&module.mux.read()),
+        }
+    }
 }
 
 impl GameLogic {
@@ -124,10 +145,10 @@ impl GameLogic {
         let mut state_index = 0;
         let modules: Vec<_> = template.behavior_modules().iter().enumerate().filter_map(|(source_index, module)| {
             if !module.name.as_str().eq_ignore_ascii_case("CostModifierUpgrade") { return None; }
-            let data = module.data.as_any().downcast_ref::<gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData>()?;
+            let data = upgrade_data_view::<gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData>(&module.data)?;
             let index = state_index;
             state_index += 1;
-            Some(AuthoredCostModifierUpgrade { source_index, state_index: index, data: data.clone() })
+            Some(AuthoredCostModifierUpgrade { source_index, state_index: index, data })
         }).collect();
         if let Some(object) = self.objects.get_mut(&object_id) {
             object
@@ -166,10 +187,8 @@ impl GameLogic {
                 continue;
             }
             if let Some(player) = old_owner.and_then(|id| self.players.get_mut(&id)) {
-                player.remove_authored_kind_of_production_cost_change(
-                    module.data.kind_of(),
-                    module.data.percentage(),
-                );
+                let data = module.data.read();
+                player.remove_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
                 if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
                     object
                         .cost_modifier_upgrade_executed
@@ -179,10 +198,8 @@ impl GameLogic {
                 }
             }
             if let Some(player) = new_owner.and_then(|id| self.players.get_mut(&id)) {
-                player.add_authored_kind_of_production_cost_change(
-                    module.data.kind_of(),
-                    module.data.percentage(),
-                );
+                let data = module.data.read();
+                player.add_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
                 if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
                     object
                         .cost_modifier_upgrade_executed
@@ -215,10 +232,8 @@ impl GameLogic {
                 continue;
             }
             if let Some(player) = owner.and_then(|id| self.players.get_mut(&id)) {
-                player.remove_authored_kind_of_production_cost_change(
-                    module.data.kind_of(),
-                    module.data.percentage(),
-                );
+                let data = module.data.read();
+                player.remove_authored_kind_of_production_cost_change(data.kind_of(), data.percentage());
             }
             if let Some(executed) = self.objects.get_mut(&object_id).and_then(|object| {
                 object
@@ -638,69 +653,65 @@ impl GameLogic {
             .filter_map(|(source_index, module)| {
                 use game_engine::common::thing::module::ModuleData;
                 if module.name.as_str().eq_ignore_ascii_case("ObjectCreationUpgrade") {
-                    let data = module.data.as_any().downcast_ref::<
+                    let data = upgrade_data_view::<
                         gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
-                    >()?;
+                    >(&module.data)?;
                     let state_index = object_creation_index;
                     object_creation_index += 1;
                     return Some(AuthoredOrderedUpgrade::ObjectCreation(
-                        AuthoredObjectCreationUpgrade { source_index, state_index, data: data.clone() }
+                        AuthoredObjectCreationUpgrade { source_index, state_index, data }
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("StatusBitsUpgrade") {
-                    let data = module.data.as_any().downcast_ref::<
+                    let data = upgrade_data_view::<
                         gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData,
-                    >()?;
+                    >(&module.data)?;
                     let state_index = status_bits_index;
                     status_bits_index += 1;
                     return Some(AuthoredOrderedUpgrade::StatusBits(
-                        AuthoredStatusBitsUpgrade { source_index, state_index, data: data.clone() }
+                        AuthoredStatusBitsUpgrade { source_index, state_index, data }
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("CostModifierUpgrade") {
-                    let data = module.data.as_any().downcast_ref::<
+                    let data = upgrade_data_view::<
                         gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
-                    >()?;
+                    >(&module.data)?;
                     let state_index = cost_modifier_index;
                     cost_modifier_index += 1;
                     return Some(AuthoredOrderedUpgrade::CostModifier(
-                        AuthoredCostModifierUpgrade { source_index, state_index, data: data.clone() }
+                        AuthoredCostModifierUpgrade { source_index, state_index, data }
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("PassengersFireUpgrade") {
-                    let data = module.data.as_any().downcast_ref::<
+                    let data = upgrade_data_view::<
                         gamelogic::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData,
-                    >()?;
+                    >(&module.data)?;
                     return Some(AuthoredOrderedUpgrade::PassengersFire(
-                        AuthoredPassengersFireUpgrade { source_index, data: data.clone() }
+                        AuthoredPassengersFireUpgrade { source_index, data }
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("MaxHealthUpgrade") {
-                    let data = module.data.as_any().downcast_ref::<
+                    let data = upgrade_data_view::<
                         gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData,
-                    >()?;
+                    >(&module.data)?;
                     return Some(AuthoredOrderedUpgrade::MaxHealth(
-                        AuthoredMaxHealthUpgrade { source_index, data: data.clone() }
+                        AuthoredMaxHealthUpgrade { source_index, data }
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("WeaponSetUpgrade") {
-                    let data = module.data.as_any().downcast_ref::<
-                        gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData,
-                    >()?;
+                    if !module.data.is::<gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData>() { return None; }
                     return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
                         source_index,
                         kind: AuthoredWeaponUpgradeKind::Set,
-                        mux: data.upgrade_mux_data.clone(),
+                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_set_upgrade::WeaponSetUpgradeModuleData>().expect("weapon set data").upgrade_mux_data),
                     }));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("WeaponBonusUpgrade") {
-                    let data = module.data.as_any().downcast_ref::<
-                        gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData,
-                    >()?;
+                    if !module.data.is::<gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>() { return None; }
                     return Some(AuthoredOrderedUpgrade::Weapon(AuthoredWeaponUpgrade {
                         source_index,
                         kind: AuthoredWeaponUpgradeKind::Bonus,
-                        mux: data.upgrade_mux_data.clone(),
+                        mux: ModuleDataView::new(module.data.clone(), |data| &data.as_any().downcast_ref::<gamelogic::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>().expect("weapon bonus data").upgrade_mux_data),
                     }));
                 }
                 None
@@ -746,63 +757,30 @@ impl GameLogic {
             if !self.object_birth_matches(object_id, object_birth) {
                 return Ok(());
             }
-            let (mux, already_executed) = match &module {
-                AuthoredOrderedUpgrade::ObjectCreation(module) => (
-                    &module.data.upgrade_mux_data,
-                    self.objects
-                        .get(&object_id)
-                        .and_then(|object| {
-                            object
-                                .object_creation_upgrade_executed
-                                .get(module.state_index)
-                        })
-                        .copied()
-                        .unwrap_or(false),
-                ),
-                AuthoredOrderedUpgrade::StatusBits(module) => (
-                    &module.data.upgrade_mux_data,
-                    self.objects
-                        .get(&object_id)
-                        .and_then(|object| {
-                            object.status_bits_upgrade_executed.get(module.state_index)
-                        })
-                        .copied()
-                        .unwrap_or(false),
-                ),
-                AuthoredOrderedUpgrade::CostModifier(module) => (
-                    &module.data.upgrade_mux_data,
-                    self.objects
-                        .get(&object_id)
-                        .and_then(|object| {
-                            object
-                                .cost_modifier_upgrade_executed
-                                .get(module.state_index)
-                        })
-                        .copied()
-                        .unwrap_or(false),
-                ),
-                AuthoredOrderedUpgrade::PassengersFire(module) => (
-                    &module.data.upgrade_mux_data,
-                    self.objects.get(&object_id)
-                        .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                ),
-                AuthoredOrderedUpgrade::MaxHealth(module) => (
-                    &module.data.upgrade_mux_data,
-                    self.objects.get(&object_id)
-                        .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                ),
-                AuthoredOrderedUpgrade::Weapon(module) => (
-                    &module.mux,
-                    self.objects.get(&object_id)
-                        .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
-                ),
+            let already_executed = match &module {
+                AuthoredOrderedUpgrade::ObjectCreation(module) => self.objects.get(&object_id)
+                    .and_then(|object| object.object_creation_upgrade_executed.get(module.state_index))
+                    .copied().unwrap_or(false),
+                AuthoredOrderedUpgrade::StatusBits(module) => self.objects.get(&object_id)
+                    .and_then(|object| object.status_bits_upgrade_executed.get(module.state_index))
+                    .copied().unwrap_or(false),
+                AuthoredOrderedUpgrade::CostModifier(module) => self.objects.get(&object_id)
+                    .and_then(|object| object.cost_modifier_upgrade_executed.get(module.state_index))
+                    .copied().unwrap_or(false),
+                AuthoredOrderedUpgrade::PassengersFire(module) => self.objects.get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                AuthoredOrderedUpgrade::MaxHealth(module) => self.objects.get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                AuthoredOrderedUpgrade::Weapon(module) => self.objects.get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
             };
-            if already_executed || !self.upgrade_mux_would_run(mux, key_mask) {
+            if already_executed || !module.with_mux(|mux| self.upgrade_mux_would_run(mux, key_mask)) {
                 continue;
             }
-            if let Some(fx_list) = &mux.fx_list_upgrade {
+            let fx_list = module.with_mux(|mux| mux.fx_list_upgrade.as_ref().map(|fx| fx.name().to_owned()));
+            if let Some(fx_list) = fx_list {
                 let _ = self.dispatch_fx_list_at_host_object_with_effects(
-                    fx_list.name(),
+                    &fx_list,
                     object_id,
                     None,
                     presentation_effects,
@@ -814,7 +792,8 @@ impl GameLogic {
                     return Ok(());
                 }
             }
-            for removed in &mux.removal_upgrade_names {
+            let removal_names = module.with_mux(|mux| mux.removal_upgrade_names.clone());
+            for removed in &removal_names {
                 self.remove_object_upgrade_with_receiving_rules(object_id, removed.as_str());
             }
             let result = match &module {
@@ -825,7 +804,7 @@ impl GameLogic {
                         .iter()
                         .enumerate()
                         .filter_map(|(i, name)| {
-                            (i > 0 && module.data.status_to_set().bits() & (1u64 << i) != 0)
+                            (i > 0 && module.data.read().status_to_set().bits() & (1u64 << i) != 0)
                                 .then_some(*name)
                         })
                         .collect();
@@ -833,7 +812,7 @@ impl GameLogic {
                         .iter()
                         .enumerate()
                         .filter_map(|(i, name)| {
-                            (i > 0 && module.data.status_to_clear().bits() & (1u64 << i) != 0)
+                            (i > 0 && module.data.read().status_to_clear().bits() & (1u64 << i) != 0)
                                 .then_some(*name)
                         })
                         .collect();
@@ -857,9 +836,10 @@ impl GameLogic {
                         .and_then(|object| self.player_owner_for_host_object(object))
                     {
                         if let Some(player) = self.players.get_mut(&owner_id) {
+                            let data = module.data.read();
                             player.add_authored_kind_of_production_cost_change(
-                                module.data.kind_of(),
-                                module.data.percentage(),
+                                data.kind_of(),
+                                data.percentage(),
                             );
                             if let Some(upgrade) = pending_upgrade {
                                 self.upgrade_module_residuals.record_cost(upgrade);
@@ -880,7 +860,7 @@ impl GameLogic {
                 }
                 AuthoredOrderedUpgrade::MaxHealth(module) => {
                     if let Some(object) = self.objects.get_mut(&object_id) {
-                        object.apply_authored_max_health_upgrade(&module.data);
+                        object.apply_authored_max_health_upgrade(&module.data.read());
                         self.health_events.record_applied_heal(object_id, object.health.current);
                     }
                     Ok(())
@@ -916,17 +896,19 @@ impl GameLogic {
                     Ok(())
                 }
                 AuthoredOrderedUpgrade::ObjectCreation(module) => {
-                    let ocl_name = module
-                        .data
-                        .ocl_name
-                        .as_ref()
-                        .map(|name| name.as_str().trim())
-                        .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"));
-                    let module_drone_kind = pending_upgrade
-                        .and_then(crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name)
-                        .or_else(|| module.data.upgrade_mux_data.activation_upgrade_names.iter()
-                            .chain(&module.data.upgrade_mux_data.trigger_upgrade_names)
-                            .find_map(|name| crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(name.as_str())));
+                    let (ocl_name, module_drone_kind) = {
+                        let data = module.data.read();
+                        let ocl_name = data.ocl_name.as_ref()
+                            .map(|name| name.as_str().trim())
+                            .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"))
+                            .map(str::to_owned);
+                        let kind = pending_upgrade
+                            .and_then(crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name)
+                            .or_else(|| data.upgrade_mux_data.activation_upgrade_names.iter()
+                                .chain(&data.upgrade_mux_data.trigger_upgrade_names)
+                                .find_map(|name| crate::game_logic::host_slave_drones::SlaveDroneKind::from_upgrade_name(name.as_str())));
+                        (ocl_name, kind)
+                    };
                     if let Some(ocl_name) = ocl_name {
                         let slave_kind = module_drone_kind.filter(|kind| {
                             ocl_name.eq_ignore_ascii_case(
@@ -935,7 +917,7 @@ impl GameLogic {
                         });
                         self.apply_object_creation_upgrade_ocl_with_interpreter_and_effects(
                             object_id,
-                            ocl_name,
+                            &ocl_name,
                             slave_kind,
                             object_birth,
                             interpreter,
@@ -1077,26 +1059,7 @@ impl GameLogic {
         let modules = self.authored_ordered_upgrade_modules(object_id);
         let activation_masks: Vec<_> = modules
             .iter()
-            .map(|module| match module {
-                AuthoredOrderedUpgrade::ObjectCreation(module) => {
-                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
-                }
-                AuthoredOrderedUpgrade::StatusBits(module) => {
-                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
-                }
-                AuthoredOrderedUpgrade::CostModifier(module) => {
-                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
-                }
-                AuthoredOrderedUpgrade::PassengersFire(module) => {
-                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
-                }
-                AuthoredOrderedUpgrade::MaxHealth(module) => {
-                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
-                }
-                AuthoredOrderedUpgrade::Weapon(module) => {
-                    self.upgrade_activation_mask(&module.mux)
-                }
-            })
+            .map(|module| module.with_mux(|mux| self.upgrade_activation_mask(mux)))
             .collect();
         let mut tags_to_remove = self
             .objects

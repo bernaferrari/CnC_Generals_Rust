@@ -6,7 +6,7 @@ use crate::helpers::{
     update_scene_point_light,
 };
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone, Default)]
@@ -60,15 +60,18 @@ impl Snapshotable for W3DPoliceCarDrawModuleData {
 }
 
 pub struct W3DPoliceCarDraw {
-    data: W3DPoliceCarDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DTruckDraw,
     cur_frame: Real,
     light_id: Option<u64>,
 }
 impl W3DPoliceCarDraw {
     pub fn new(data: W3DPoliceCarDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
         Self {
-            base: W3DTruckDraw::new(data.base.clone()),
+            base: W3DTruckDraw::new_with_module_data(data.clone()),
             data,
             cur_frame: crate::system::engine_stores::active_services().client_random_value_real(0.0, 10.0),
             light_id: None,
@@ -179,8 +182,8 @@ impl Module for W3DPoliceCarDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 impl DrawModule for W3DPoliceCarDraw {

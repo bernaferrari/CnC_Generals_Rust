@@ -1,7 +1,6 @@
 use super::*;
 use crate::common::bit_flags::{ArmorSetFlags as ArmorSetBits, WeaponSetFlags as WeaponSetBits};
-use crate::common::thing::module::ModuleType;
-use std::sync::Arc;
+use crate::common::thing::module::{ModuleDataHandle, ModuleType};
 
 #[test]
 fn editor_sorting_matches_cpp_thing_sort_order() {
@@ -270,15 +269,15 @@ fn object_field_parse_reads_active_body_and_production_update_bodies() {
         .iter()
         .find(|entry| entry.name.as_str() == "ActiveBody")
         .expect("ActiveBody");
-    assert!(body.data.downcast_ref::<BaseModuleData>().is_none());
-    assert_eq!(body.data.get_ini_real("MaxHealth"), Some(4000.0));
+    assert!(body.data.read().downcast_ref::<BaseModuleData>().is_none());
+    assert_eq!(body.data.read().get_ini_real("MaxHealth"), Some(4000.0));
 
     let production = template
         .get_behavior_module_info()
         .iter()
         .find(|entry| entry.name.as_str() == "ProductionUpdate")
         .expect("ProductionUpdate");
-    assert_eq!(production.data.get_ini_int("NumDoorAnimations"), Some(1));
+    assert_eq!(production.data.read().get_ini_int("NumDoorAnimations"), Some(1));
 }
 
 #[test]
@@ -598,7 +597,7 @@ fn load_weapon_sets_from_definitions_populates_template() {
 fn module_descriptor_helpers_reflect_module_info() {
     let mut template = ThingTemplate::new();
 
-    let behavior_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+    let behavior_data = ModuleDataHandle::new(BaseModuleData::new());
     template.behavior_module_info.add_module_info(
         AsciiString::from("TestBehavior"),
         AsciiString::from("TagBehavior"),
@@ -608,7 +607,7 @@ fn module_descriptor_helpers_reflect_module_info() {
         false,
     );
 
-    let draw_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+    let draw_data = ModuleDataHandle::new(BaseModuleData::new());
     template.draw_module_info.add_module_info(
         AsciiString::from("TestDraw"),
         AsciiString::from("TagDraw"),
@@ -618,7 +617,7 @@ fn module_descriptor_helpers_reflect_module_info() {
         false,
     );
 
-    let client_update_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+    let client_update_data = ModuleDataHandle::new(BaseModuleData::new());
     template.client_update_module_info.add_module_info(
         AsciiString::from("TestClientUpdate"),
         AsciiString::from("TagClient"),
@@ -683,7 +682,7 @@ fn module_descriptors_register_with_global_factory() {
     drop(guard);
 
     let mut template = ThingTemplate::new();
-    let behavior_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+    let behavior_data = ModuleDataHandle::new(BaseModuleData::new());
     template.behavior_module_info.add_module_info(
         AsciiString::from("AutoHealBehavior"),
         AsciiString::from("TagBehavior"),
@@ -816,7 +815,7 @@ fn kindof_ini_unknown_name_errors() {
 fn gps_scrambler_masks_use_retail_kindof_bits() {
     use crate::common::system::kind_of::KindOfMask;
 
-    let data: Arc<dyn ModuleData> = Arc::new(CapturedModuleData::new(
+    let data = ModuleDataHandle::new(CapturedModuleData::new(
         "ModuleTag_Gps",
         String::new(),
         HashMap::new(),
@@ -828,7 +827,7 @@ fn gps_scrambler_masks_use_retail_kindof_bits() {
     immune_info.add_module_info(
         AsciiString::from("StealthUpdate"),
         AsciiString::from("ModuleTag_Gps"),
-        Arc::clone(&data),
+        data.clone(),
         1,
         false,
         true,

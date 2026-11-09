@@ -1,12 +1,12 @@
 use super::*;
-use crate::common::thing::module::BaseModuleData;
+use crate::common::thing::module::{BaseModuleData, ModuleDataHandle, ModuleDataRead};
 
 #[derive(Debug)]
 struct Owner;
 impl Thing for Owner {}
 
 struct MarkerModule {
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     marker: u32,
 }
 
@@ -15,8 +15,8 @@ impl Module for MarkerModule {
         self.marker
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -32,11 +32,11 @@ impl Snapshotable for MarkerModule {
     }
 }
 
-fn create_module(_: Arc<dyn Thing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+fn create_module(_: Arc<dyn Thing>, data: ModuleDataHandle) -> Box<dyn Module> {
     Box::new(MarkerModule { data, marker: 1 })
 }
 
-fn create_other_module(_: Arc<dyn Thing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+fn create_other_module(_: Arc<dyn Thing>, data: ModuleDataHandle) -> Box<dyn Module> {
     Box::new(MarkerModule { data, marker: 2 })
 }
 
@@ -83,7 +83,7 @@ fn rejected_module_admission_does_not_consume_owner_names_or_register_data() {
     ).unwrap();
     let keys = factory.runtime_name_keys.as_ref().unwrap();
     assert_eq!(keys.key_for_name(&format!("{}Accepted", ModuleType::Behavior as u8)), Some(2));
-    assert_eq!(data.get_module_tag_name_key(), 3);
+    assert_eq!(data.read().get_module_tag_name_key(), 3);
     assert_eq!(factory.module_data_list.len(), 1);
 }
 
@@ -168,17 +168,17 @@ fn moving_factory_between_name_key_namespaces_preserves_module_identity() {
                 "ModuleTag_Ownership",
             )
             .unwrap();
-        assert_eq!(data.get_module_tag_name_key(), tag_key);
+        assert_eq!(data.read().get_module_tag_name_key(), tag_key);
         let module = factory
             .new_module(
                 Arc::new(Owner),
                 "OwnershipModule",
-                Arc::clone(&data),
+                data.clone(),
                 ModuleType::Behavior,
             )
             .unwrap();
         assert!(
-            std::ptr::eq(module.get_module_data(), data.as_ref()),
+            std::ptr::eq(&*module.get_module_data(), &*data.read()),
             "factory creation must keep the supplied data instance"
         );
     })
@@ -208,7 +208,7 @@ fn created_marker(factory: &ModuleFactory) -> u32 {
         .new_module(
             Arc::new(Owner),
             "OwnedBehavior",
-            Arc::new(BaseModuleData::new()),
+            ModuleDataHandle::new(BaseModuleData::new()),
             ModuleType::Behavior,
         )
         .unwrap()
@@ -339,7 +339,7 @@ fn explicit_owner_initialization_keeps_override_precedence_and_catalog_order() {
 
 // C++ ModuleFactory.cpp:705-707 leaves registered ModuleData untouched during
 // loadPostProcess, including when the factory is the data's only owner.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PostLoadErrorData {
     tag_key: NameKeyType,
     payload: u32,
@@ -393,7 +393,7 @@ fn post_load_error_factory() -> ModuleFactory {
     factory
 }
 
-fn new_post_load_error_data(factory: &mut ModuleFactory) -> Arc<dyn ModuleData> {
+fn new_post_load_error_data(factory: &mut ModuleFactory) -> ModuleDataHandle {
     factory
         .new_module_data_from_ini(
             None,
@@ -408,23 +408,18 @@ fn new_post_load_error_data(factory: &mut ModuleFactory) -> Arc<dyn ModuleData> 
 fn factory_post_load_is_inert_when_registered_data_has_one_owner() {
     let mut factory = post_load_error_factory();
     let data = new_post_load_error_data(&mut factory);
-    let tag_key = data.get_module_tag_name_key();
+    let tag_key = data.read().get_module_tag_name_key();
     assert_ne!(tag_key, 0);
-    assert_eq!(Arc::strong_count(&data), 2);
-    // Store identity only: a retained Weak would also prevent Arc::get_mut
-    // from entering the erroneous OLD unique-owner branch.
-    let identity = Arc::as_ptr(&data);
+    let identity = std::ptr::from_ref(&*data.read());
     drop(data);
-    assert_eq!(Arc::strong_count(&factory.module_data_list[0]), 1);
-    assert_eq!(Arc::weak_count(&factory.module_data_list[0]), 0);
 
     assert_eq!(factory.load_post_process(), Ok(()));
 
     let data = &factory.module_data_list[0];
-    assert!(std::ptr::eq(identity, Arc::as_ptr(data)));
-    assert_eq!(data.get_module_tag_name_key(), tag_key);
+    assert!(std::ptr::eq(identity, &*data.read()));
+    assert_eq!(data.read().get_module_tag_name_key(), tag_key);
     assert_eq!(
-        data.as_ref()
+        data.read()
             .as_any()
             .downcast_ref::<PostLoadErrorData>()
             .unwrap()
@@ -438,19 +433,17 @@ fn factory_post_load_is_inert_when_registered_data_has_one_owner() {
 fn factory_post_load_preserves_aliased_registered_data_identity_and_payload() {
     let mut factory = post_load_error_factory();
     let data = new_post_load_error_data(&mut factory);
-    let alias = Arc::clone(&data);
-    let tag_key = data.get_module_tag_name_key();
-    assert_eq!(Arc::strong_count(&data), 3);
+    let alias = data.clone();
+    let tag_key = data.read().get_module_tag_name_key();
 
     assert_eq!(factory.load_post_process(), Ok(()));
 
-    assert_eq!(Arc::strong_count(&data), 3);
-    assert!(Arc::ptr_eq(&data, &alias));
-    assert!(Arc::ptr_eq(&alias, &factory.module_data_list[0]));
-    assert_eq!(alias.get_module_tag_name_key(), tag_key);
+    assert!(ModuleDataHandle::ptr_eq(&data, &alias));
+    assert!(ModuleDataHandle::ptr_eq(&alias, &factory.module_data_list[0]));
+    assert_eq!(alias.read().get_module_tag_name_key(), tag_key);
     assert_eq!(
         alias
-            .as_ref()
+            .read()
             .as_any()
             .downcast_ref::<PostLoadErrorData>()
             .unwrap()
@@ -459,13 +452,11 @@ fn factory_post_load_preserves_aliased_registered_data_identity_and_payload() {
     );
     drop(alias);
     drop(data);
-    assert_eq!(Arc::strong_count(&factory.module_data_list[0]), 1);
 }
 
 #[test]
 fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
     use crate::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
-    use crate::common::ascii_string::AsciiString;
     use crate::common::thing::thing_template::ThingTemplate;
     use std::io::Cursor;
 
@@ -502,8 +493,8 @@ fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
                 .new_module_data_from_ini(None, "SnapshotDraw", ModuleType::Draw, tag)
                 .unwrap();
             template.add_draw_module_info(
-                AsciiString::from("SnapshotDraw"),
-                AsciiString::from(tag),
+                "SnapshotDraw".to_owned(),
+                tag.to_owned(),
                 data,
                 ModuleInterfaceType::DRAW,
             );
@@ -514,31 +505,31 @@ fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
     let first_data = first_template.get_draw_module_info();
     let second_data = second_template.get_draw_module_info();
     let first_module = first.new_module(
-        Arc::new(Owner), "SnapshotDraw", Arc::clone(first_data.get_nth_data(0).unwrap()), ModuleType::Draw,
+        Arc::new(Owner), "SnapshotDraw", first_data.get_nth_data(0).unwrap().clone(), ModuleType::Draw,
     ).unwrap();
     let second_module = second.new_module(
-        Arc::new(Owner), "SnapshotDraw", Arc::clone(second_data.get_nth_data(0).unwrap()), ModuleType::Draw,
+        Arc::new(Owner), "SnapshotDraw", second_data.get_nth_data(0).unwrap().clone(), ModuleType::Draw,
     ).unwrap();
 
     for round in 0..3 {
         let first_values = (10 + round, 20 + round);
         let second_values = (30 + round, 40 + round);
         first.xfer(&mut XferLoad::new(Cursor::new(bytes(first_values.0, first_values.1)), 1)).unwrap();
-        assert_eq!(payload(first_module.get_module_data()), first_values.0);
-        assert_eq!(payload(first_data.get_nth_data(1).unwrap().as_ref()), first_values.1);
-        assert_eq!(payload(second_module.get_module_data()), if round == 0 { 17 } else { second_values.0 - 1 });
+        assert_eq!(payload(&*first_module.get_module_data()), first_values.0);
+        assert_eq!(payload(&*first_data.get_nth_data(1).unwrap().read()), first_values.1);
+        assert_eq!(payload(&*second_module.get_module_data()), if round == 0 { 17 } else { second_values.0 - 1 });
         second.xfer(&mut XferLoad::new(Cursor::new(bytes(second_values.0, second_values.1)), 1)).unwrap();
-        assert_eq!(payload(second_data.get_nth_data(1).unwrap().as_ref()), second_values.1);
-        assert_eq!(payload(first_module.get_module_data()), first_values.0);
+        assert_eq!(payload(&*second_data.get_nth_data(1).unwrap().read()), second_values.1);
+        assert_eq!(payload(&*first_module.get_module_data()), first_values.0);
         for (module, template, inherited, expected) in [
             (&first_module, &first_template, &first_inherited, first_values.0),
             (&second_module, &second_template, &second_inherited, second_values.0),
         ] {
             let original = template.get_draw_module_info().get_nth_data(0).unwrap();
             let shared = inherited.get_draw_module_info().get_nth_data(0).unwrap();
-            assert!(Arc::ptr_eq(original, shared));
-            assert!(std::ptr::eq(module.get_module_data(), shared.as_ref()));
-            assert_eq!(payload(shared.as_ref()), expected);
+            assert!(ModuleDataHandle::ptr_eq(original, shared));
+            assert!(std::ptr::eq(&*module.get_module_data(), &*shared.read()));
+            assert_eq!(payload(&*shared.read()), expected);
         }
 
         for (factory, expected) in [(&mut first, first_values), (&mut second, second_values)] {
@@ -547,4 +538,56 @@ fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
             assert_eq!(saved, bytes(expected.0, expected.1));
         }
     }
+}
+
+#[test]
+fn cloning_populated_factory_forks_data_and_preserves_internal_aliases() {
+    use crate::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    fn bytes(first: u32, second: u32, alias: u32) -> Vec<u8> {
+        let mut bytes = vec![1];
+        for value in [first, second, alias] {
+            bytes.extend_from_slice(&value.to_ne_bytes());
+        }
+        bytes
+    }
+
+    fn payload(data: &dyn ModuleData) -> u32 {
+        data.as_any().downcast_ref::<PostLoadErrorData>().unwrap().payload
+    }
+
+    let mut original = post_load_error_factory();
+    let first = new_post_load_error_data(&mut original);
+    let second = new_post_load_error_data(&mut original);
+    original.module_data_list.push(first.clone());
+    let mut cloned = original.clone();
+
+    assert!(ModuleDataHandle::ptr_eq(&first, &original.module_data_list[2]));
+    assert!(ModuleDataHandle::ptr_eq(&cloned.module_data_list[0], &cloned.module_data_list[2]));
+    assert!(!ModuleDataHandle::ptr_eq(&first, &cloned.module_data_list[0]));
+    assert!(!ModuleDataHandle::ptr_eq(&second, &cloned.module_data_list[1]));
+    assert!(!ModuleDataHandle::ptr_eq(&cloned.module_data_list[0], &cloned.module_data_list[1]));
+
+    let original_module = original.new_module(
+        Arc::new(Owner), "PostLoadErrorProbe", first.clone(), ModuleType::Behavior,
+    ).unwrap();
+    let cloned_module = cloned.new_module(
+        Arc::new(Owner), "PostLoadErrorProbe", cloned.module_data_list[0].clone(), ModuleType::Behavior,
+    ).unwrap();
+    cloned.xfer(&mut XferLoad::new(Cursor::new(bytes(31, 47, 31)), 1)).unwrap();
+
+    assert_eq!(payload(&*original_module.get_module_data()), 17);
+    assert_eq!(payload(&*second.read()), 17);
+    assert_eq!(payload(&*cloned_module.get_module_data()), 31);
+    assert_eq!(payload(&*cloned.module_data_list[1].read()), 47);
+    assert!(std::ptr::eq(&*original_module.get_module_data(), &*first.read()));
+    assert!(std::ptr::eq(&*cloned_module.get_module_data(), &*cloned.module_data_list[2].read()));
+
+    let mut original_bytes = Vec::new();
+    original.xfer(&mut XferSave::new(Cursor::new(&mut original_bytes), 1)).unwrap();
+    assert_eq!(original_bytes, bytes(17, 17, 17));
+    let mut cloned_bytes = Vec::new();
+    cloned.xfer(&mut XferSave::new(Cursor::new(&mut cloned_bytes), 1)).unwrap();
+    assert_eq!(cloned_bytes, bytes(31, 47, 31));
 }

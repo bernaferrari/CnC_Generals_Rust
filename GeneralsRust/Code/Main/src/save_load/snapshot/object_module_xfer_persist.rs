@@ -1340,7 +1340,6 @@ fn validate_payload_before_apply(
         let template = content
             .admitted_template(&object.template_name)
             .ok_or_else(|| corrupted("ObjectCreationUpgrade receiving template is absent"))?;
-        use game_engine::common::thing::module::ModuleData;
         let mut authored_count = 0usize;
         for module in template.behavior_modules().iter().filter(|module| {
             module
@@ -1348,7 +1347,7 @@ fn validate_payload_before_apply(
                 .as_str()
                 .eq_ignore_ascii_case("ObjectCreationUpgrade")
         }) {
-            if !module.data.as_any().is::<
+            if !module.data.read().as_any().is::<
                 gamelogic::upgrade::modules::object_creation::ObjectCreationUpgradeModuleData,
             >() {
                 return Err(corrupted(
@@ -1371,6 +1370,7 @@ fn validate_payload_before_apply(
         }) {
             if !module
                 .data
+                .read()
                 .as_any()
                 .is::<gamelogic::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>(
             ) {
@@ -1393,7 +1393,7 @@ fn validate_payload_before_apply(
                 .as_str()
                 .eq_ignore_ascii_case("CostModifierUpgrade")
         }) {
-            if !module.data.as_any().is::<
+            if !module.data.read().as_any().is::<
                 gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
             >() {
                 return Err(corrupted("CostModifierUpgrade receiving module has an incompatible data type"));

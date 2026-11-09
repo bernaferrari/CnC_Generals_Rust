@@ -16,7 +16,7 @@ use crate::helpers::{MeshUvOverrideState, TheGameClient, TheGameLogic, ThePartic
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 /// C++ `W3DTankDraw.cpp:286` ground-speed gate for TrackDebrisDirt.
@@ -241,12 +241,22 @@ impl Snapshotable for W3DTankDrawModuleData {
     }
 }
 
+fn tank_data(data: &dyn ModuleData) -> &W3DTankDrawModuleData {
+    let any = data as &dyn Any;
+    if let Some(data) = any.downcast_ref::<W3DTankDrawModuleData>() {
+        data
+    } else {
+        &any.downcast_ref::<super::w3d_overlord_tank_draw::W3DOverlordTankDrawModuleData>()
+            .expect("expected tank draw data").base
+    }
+}
+
 /// W3DTankDraw module instance
 ///
 /// Reference: W3DTankDraw in W3DTankDraw.h
 pub struct W3DTankDraw {
     /// Module data
-    data: W3DTankDrawModuleData,
+    data: ModuleDataHandle,
 
     /// Base W3DModelDraw functionality
     base: W3DModelDraw,
@@ -287,8 +297,11 @@ impl W3DTankDraw {
     }
 
     pub fn new(data: W3DTankDrawModuleData) -> Self {
-        let base_data = data.base.clone();
-        let base = W3DModelDraw::new(base_data);
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        let base = W3DModelDraw::new_with_module_data(data.clone());
 
         Self {
             data,
@@ -347,10 +360,12 @@ impl W3DTankDraw {
         let drawable_attached = owner_id.is_some_and(|id| {
             TheGameClient::get().is_some_and(|client| client.find_drawable_by_id(id).is_some())
         });
+        let guard = self.data.read();
+        let data = tank_data(&*guard);
 
-        if self.tread_debris_left.is_none() && !self.data.tread_debris_name_left.is_empty() {
+        if self.tread_debris_left.is_none() && !data.tread_debris_name_left.is_empty() {
             if let Some(id) =
-                ps_manager.create_particle_system(Some(self.data.tread_debris_name_left.as_str()))
+                ps_manager.create_particle_system(Some(data.tread_debris_name_left.as_str()))
             {
                 if drawable_attached {
                     if let Some(owner_id) = owner_id {
@@ -364,9 +379,9 @@ impl W3DTankDraw {
             }
         }
 
-        if self.tread_debris_right.is_none() && !self.data.tread_debris_name_right.is_empty() {
+        if self.tread_debris_right.is_none() && !data.tread_debris_name_right.is_empty() {
             if let Some(id) =
-                ps_manager.create_particle_system(Some(self.data.tread_debris_name_right.as_str()))
+                ps_manager.create_particle_system(Some(data.tread_debris_name_right.as_str()))
             {
                 if drawable_attached {
                     if let Some(owner_id) = owner_id {
@@ -492,7 +507,7 @@ impl W3DTankDraw {
     ///
     /// Finds tread sub-objects in the model and caches them for animation.
     fn update_tread_objects(&mut self) {
-        if self.data.tread_animation_rate == 0.0 {
+        if tank_data(&*self.data.read()).tread_animation_rate == 0.0 {
             self.treads.clear();
             return;
         }
@@ -582,7 +597,10 @@ impl W3DTankDraw {
         is_motive: bool,
         direction: &Coord3D,
     ) {
-        if self.data.tread_animation_rate == 0.0 {
+        let handle = self.data.clone();
+        let guard = handle.read();
+        let data = tank_data(&*guard);
+        if data.tread_animation_rate == 0.0 {
             self.last_direction = *direction;
             return;
         }
@@ -592,7 +610,7 @@ impl W3DTankDraw {
         } else {
             0.0
         };
-        let tread_scroll_speed = self.data.tread_animation_rate;
+        let tread_scroll_speed = data.tread_animation_rate;
 
         if self.treads.is_empty() {
             self.last_direction = *direction;
@@ -600,7 +618,7 @@ impl W3DTankDraw {
         }
 
         // C++ parity: when mostly stationary and turning, use left/right differential scrolling.
-        if turning != 0.0 && speed_fraction < self.data.tread_pivot_speed_fraction {
+        if turning != 0.0 && speed_fraction < data.tread_pivot_speed_fraction {
             let angle_to_goal =
                 direction.x * self.last_direction.x + direction.y * self.last_direction.y;
             if (1.0 - angle_to_goal).abs() > 0.00001 {
@@ -616,7 +634,7 @@ impl W3DTankDraw {
 
         // C++ parity: moving straight at speed uses uniform scroll on all treads.
         // `m_lastDirection` is updated only in the pivot branch (W3DTankDraw.cpp:362).
-        if is_motive && speed_fraction >= self.data.tread_drive_speed_fraction {
+        if is_motive && speed_fraction >= data.tread_drive_speed_fraction {
             for tread in &mut self.treads {
                 let offset = tread.uv_offset - tread_scroll_speed;
                 tread.uv_offset = wrap_uv_offset(offset);
@@ -663,11 +681,11 @@ impl Module for W3DTankDraw {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 

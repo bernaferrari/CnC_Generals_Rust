@@ -17,7 +17,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
 use game_engine::common::thing::module::{
-    BaseModuleData, Module, ModuleData, ModuleInterfaceType, ModuleType, Thing,
+    BaseModuleData, Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleInterfaceType, ModuleType, Thing,
 };
 use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
 use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
@@ -156,6 +156,14 @@ struct ProbeData {
     base: BaseModuleData,
     loan: Mutex<Option<(Arc<RwLock<Object>>, f32)>>,
 }
+impl Clone for ProbeData {
+    fn clone(&self) -> Self {
+        Self {
+            base: self.base.clone(),
+            loan: Mutex::new(self.loan.lock().unwrap().clone()),
+        }
+    }
+}
 impl std::fmt::Debug for ProbeData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProbeData").finish_non_exhaustive()
@@ -184,20 +192,20 @@ impl Snapshotable for ProbeData {
     }
 }
 struct Probe {
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     observed: bool,
 }
 impl Module for Probe {
     fn get_module_name_key(&self) -> u32 {
         NameKeyGenerator::name_to_key(PROBE)
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
     fn on_object_created(&mut self) {
         let (owner, expected) = self
             .data
-            .as_ref()
+            .read()
             .as_any()
             .downcast_ref::<ProbeData>()
             .unwrap()
@@ -229,10 +237,10 @@ impl Snapshotable for Probe {
         Ok(())
     }
 }
-fn probe_factory(_: Arc<dyn Thing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+fn probe_factory(_: Arc<dyn Thing>, data: ModuleDataHandle) -> Box<dyn Module> {
     let (owner, expected) = {
-        let loan = data
-            .as_ref()
+        let guard = data.read();
+        let loan = guard
             .as_any()
             .downcast_ref::<ProbeData>()
             .unwrap()
@@ -329,7 +337,7 @@ impl Installed {
                 .unwrap();
             *data
                 .data
-                .as_ref()
+                .read()
                 .as_any()
                 .downcast_ref::<ProbeData>()
                 .unwrap()

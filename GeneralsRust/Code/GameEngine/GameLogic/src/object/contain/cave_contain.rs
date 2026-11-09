@@ -22,6 +22,8 @@ use crate::team::{TEAM_ID_INVALID, Team, TeamID, TheTeamFactory};
 use crate::tunnel_tracker::TunnelTracker;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 /// Configuration data for CaveContain module
 #[derive(Debug, Clone)]
@@ -84,7 +86,7 @@ pub struct CaveContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
     /// INI module data so onCreate can copy CaveIndex.
-    module_data: CaveContainModuleData,
+    module_data: ModuleDataView<CaveContainModuleData>,
     /// Whether we need to run onBuildComplete
     need_to_run_on_build_complete: bool,
     /// Cave index for this container
@@ -106,16 +108,21 @@ impl CaveContain {
     /// Create a new CaveContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &CaveContainModuleData,
+        module_data: ModuleDataHandle,
         cave_system: Option<Arc<Mutex<CaveSystem>>>,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<CaveContainModuleData>>()
+                .expect("cave contain module data has an incompatible type").contain_data()
+        });
+        let cave_index = data.read().cave_index_data;
+        let base = OpenContain::new(object.clone(), module_data)?;
 
         Ok(Self {
             base,
-            module_data: module_data.clone(),
+            module_data: data,
             need_to_run_on_build_complete: true,
-            cave_index: module_data.cave_index_data,
+            cave_index,
             original_team: None,
             contained_object_ids: Vec::new(),
             object_id: object
@@ -614,7 +621,6 @@ impl CaveContain {
 
     /// Handle creation event
     pub fn on_create(&mut self, module_data: &CaveContainModuleData) -> GameResult<()> {
-        self.module_data = module_data.clone();
         self.cave_index = module_data.cave_index_data;
         Ok(())
     }
@@ -656,8 +662,7 @@ impl CaveContain {
 
     /// C++ CreateModule path: onCreate then onBuildComplete for map-placed caves.
     pub fn on_owner_created(&mut self) -> GameResult<()> {
-        let data = self.module_data.clone();
-        self.on_create(&data)?;
+        self.cave_index = self.module_data.read().cave_index_data;
         self.on_build_complete()
     }
 
@@ -1092,8 +1097,8 @@ impl ContainModuleInterface for CaveContain {
         &mut self,
         system: &mut CaveSystem,
     ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        let data = self.module_data.clone();
-        Some(self.on_create(&data).and_then(|()| self.on_build_complete_in(system)))
+        self.cave_index = self.module_data.read().cave_index_data;
+        Some(self.on_build_complete_in(system))
     }
 
     fn on_build_complete_with_cave(
@@ -1104,8 +1109,8 @@ impl ContainModuleInterface for CaveContain {
     }
 
     fn on_create(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let data = self.module_data.clone();
-        CaveContain::on_create(self, &data).map_err(|e| e.into())
+        self.cave_index = self.module_data.read().cave_index_data;
+        Ok(())
     }
 
     fn on_build_complete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1366,7 +1371,7 @@ mod tests {
         data.cave_index_data = cave_index;
 
         let mut cave =
-            CaveContain::new(Arc::downgrade(owner), &data, Some(Arc::clone(&cave_system)))
+            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())), Some(Arc::clone(&cave_system)))
                 .expect("cave contain");
         cave.on_create(&data).expect("on create");
         (cave, cave_system)
@@ -1631,7 +1636,7 @@ mod tests {
             let owner = test_object_with_team("CaveColorOwner", 93008, Arc::clone(&team));
             let owner_drawable = attach_drawable(&owner, 930080);
             let data = CaveContainModuleData::default();
-            let mut cave = CaveContain::new(Arc::downgrade(&owner), &data, None).expect("cave contain");
+            let mut cave = CaveContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())), None).expect("cave contain");
             cave.on_create(&data).expect("on create");
 
             let player = Arc::new(RwLock::new(Player::new(0)));
@@ -1672,7 +1677,7 @@ mod tests {
             let owner = test_object("CaveIndexOwner", 93101);
             let mut data = CaveContainModuleData::default();
             data.cave_index_data = 7;
-            let cave = CaveContain::new(Arc::downgrade(&owner), &data, None).expect("cave");
+            let cave = CaveContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), None).expect("cave");
             assert_eq!(
                 cave.cave_index, 7,
                 "C++ onCreate copies INI CaveIndex; ctor must not hardcode 0"
@@ -1691,7 +1696,7 @@ mod tests {
             data.cave_index_data = 3;
             let mut cave = CaveContain::new(
                 Arc::downgrade(&owner),
-                &data,
+                ModuleDataHandle::new(ContainModuleDataAdapter::new(data)),
                 Some(Arc::clone(&cave_system)),
             )
             .expect("cave");
@@ -1727,7 +1732,7 @@ mod tests {
             data.cave_index_data = 2;
             let mut cave_b = CaveContain::new(
                 Arc::downgrade(&owner_b),
-                &data,
+                ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())),
                 Some(Arc::clone(&cave_system)),
             )
             .expect("cave b");
@@ -1773,7 +1778,7 @@ mod tests {
         data.base.allow_neutral_inside = true;
         data.cave_index_data = 0;
         let mut cave =
-            CaveContain::new(Arc::downgrade(owner), &data, Some(Arc::clone(handle))).expect("cave");
+            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), Some(Arc::clone(handle))).expect("cave");
         ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
         cave
     }

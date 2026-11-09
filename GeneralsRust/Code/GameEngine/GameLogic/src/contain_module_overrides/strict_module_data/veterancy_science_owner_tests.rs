@@ -5,7 +5,7 @@ use game_engine::common::{
     name_key_generator::NameKeyNamespace,
     rts::science::{ScienceInfo, ScienceNameFacts, ScienceStore},
     thing::{
-        module::{ModuleData, ModuleType},
+        module::{ModuleDataHandle, ModuleType},
         module_factory::ModuleFactory,
     },
 };
@@ -22,7 +22,7 @@ fn catalog(rows: &[(&str, i32)]) -> ModuleFactory {
     crate::contain_module_overrides::register_native_module_overrides(&mut f).unwrap();
     f
 }
-fn parse(f: &mut ModuleFactory, ini: &mut INI, text: &str) -> Result<Arc<dyn ModuleData>, String> {
+fn parse(f: &mut ModuleFactory, ini: &mut INI, text: &str) -> Result<ModuleDataHandle, String> {
     ini.with_inline_source(text, |ini| {
         Ok(f.new_module_data_from_ini(
             Some(ini),
@@ -33,8 +33,8 @@ fn parse(f: &mut ModuleFactory, ini: &mut INI, text: &str) -> Result<Arc<dyn Mod
     })
     .unwrap()
 }
-fn science(data: &Arc<dyn ModuleData>) -> i32 {
-    data.as_any()
+fn science(data: &ModuleDataHandle) -> i32 {
+    data.read().as_any()
         .downcast_ref::<VeterancyGainCreateModuleData>()
         .expect("actual registered Veterancy data")
         .science_required

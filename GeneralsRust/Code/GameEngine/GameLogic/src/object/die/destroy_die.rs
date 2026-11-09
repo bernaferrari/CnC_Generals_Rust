@@ -22,7 +22,7 @@ pub struct DestroyDie {
 
 impl DestroyDie {
     /// Create a new DestroyDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<DieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -39,7 +39,7 @@ impl DieModuleInterface for DestroyDie {
     /// (Matches C++ DestroyDie::onDie)
     fn on_die(&mut self, object: &mut Object, damage_info: &DamageInfo) {
         // Check if this die module should activate
-        if !self.is_die_applicable(object, damage_info, &self.base.module_data.die_mux_data) {
+        if !self.is_die_applicable(object, damage_info, &self.base.module_data.read().die_mux_data) {
             return;
         }
 
@@ -56,6 +56,19 @@ mod tests {
     #[test]
     fn test_destroy_die_creation() {
         assert_eq!(DestroyDie::get_module_name(), "DestroyDie");
+    }
+
+    #[test]
+    fn retains_live_module_data_handle() {
+        let data = super::super::ModuleDataHandle::new(DieModuleData::default());
+        let owner = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
+        let module = DestroyDie::new(owner, data.clone());
+        assert!(super::super::ModuleDataHandle::ptr_eq(&data, module.base.module_data.handle()));
+        data.write().set_module_tag_name_key(37);
+        assert_eq!(
+            game_engine::common::thing::module::ModuleData::get_module_tag_name_key(&*module.base.module_data.read()),
+            37
+        );
     }
 
     #[test]

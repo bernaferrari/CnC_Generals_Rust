@@ -35,10 +35,11 @@ impl OpenContain {
     }
 
     fn accepts_kind(&self, obj: &Object) -> bool {
+        let data = self.module_data.read();
         kind_mask_admits(
             obj.get_kind_of(),
-            self.module_data.allow_inside_kind_of,
-            self.module_data.forbid_inside_kind_of,
+            data.allow_inside_kind_of,
+            data.forbid_inside_kind_of,
         )
     }
 
@@ -58,9 +59,9 @@ impl OpenContain {
 
     fn accepts_relationship_value(&self, relationship: ObjectRelationship) -> bool {
         match relationship {
-            ObjectRelationship::Ally => self.module_data.allow_allies_inside,
-            ObjectRelationship::Enemy => self.module_data.allow_enemies_inside,
-            ObjectRelationship::Neutral => self.module_data.allow_neutral_inside,
+            ObjectRelationship::Ally => self.module_data.read().allow_allies_inside,
+            ObjectRelationship::Enemy => self.module_data.read().allow_enemies_inside,
+            ObjectRelationship::Neutral => self.module_data.read().allow_neutral_inside,
             _ => false,
         }
     }

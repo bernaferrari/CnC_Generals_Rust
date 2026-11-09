@@ -40,7 +40,8 @@ fn add_model_draw(drawable: &mut Drawable, name: &str, has_bone: bool) -> Drawab
     }
     data.condition_states.push(state);
 
-    let mut model = W3DModelDraw::new(data.clone());
+    let data = ModuleDataHandle::new(data);
+    let mut model = W3DModelDraw::new_with_module_data(data.clone());
     // Use the public production owner-binding and condition-state APIs; the
     // fixture does not write private owner_id/current-state fields.
     model.bind_owner_id(OWNER_ID);
@@ -48,7 +49,7 @@ fn add_model_draw(drawable: &mut Drawable, name: &str, has_bone: bool) -> Drawab
         ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         name.into(),
-        Arc::new(data),
+        data,
         Box::new(model),
     );
     let context = ModelDrawContext {

@@ -23,7 +23,7 @@ fn bike_template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "TransportContain".into(),
             module_tag: "NativeBikeCargo".into(),
-            data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
             interface_mask: ModuleInterfaceType::CONTAIN,
         }],
     })
@@ -45,7 +45,7 @@ fn hero_salvager_template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "AIUpdateInterface".into(),
             module_tag: "NativeSalvagerAI".into(),
-            data: Arc::new(data),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(data),
             interface_mask: ModuleInterfaceType::UPDATE,
         }],
     })

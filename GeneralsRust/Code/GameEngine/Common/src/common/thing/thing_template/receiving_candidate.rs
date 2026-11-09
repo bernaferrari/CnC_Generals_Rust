@@ -126,7 +126,13 @@ impl ThingTemplate {
         if kind == ReceivingTemplateKind::Reskin {
             module_fields::validate_receiving_reskin_fields(properties)?;
         }
-        let mut template = self.detached_receiving_clone()?;
+        let source = Arc::new(self.detached_receiving_clone()?);
+        let mut templates = HashMap::new();
+        let mut data_remap = crate::common::thing::module::ModuleDataRemap::default();
+        let staged = ThingTemplate::fork_receiving_template(
+            &source, &mut templates, &mut |data| data_remap.remap(data),
+        );
+        let mut template = staged.as_ref().clone();
         template.name_string = AsciiString::from(target_name);
         // This prepares a new definition in source history, including C++
         // ThingFactory::newOverride (copies and marks inherited entries).
@@ -246,6 +252,11 @@ impl AdmittedReceivingTemplate {
         &self.template
     }
 
+    pub(crate) fn from_forked_template(template: Arc<ThingTemplate>) -> Self {
+        assert!(matches!(&template.next_override, TemplateOverrideLink::Frozen));
+        Self { template }
+    }
+
     pub(crate) fn from_parsed_template(template: ThingTemplate) -> Result<Self, String> {
         if !matches!(&template.next_override, TemplateOverrideLink::Frozen) {
             return Err("Admitted receiving template retains a compatibility override link".into());
@@ -275,14 +286,27 @@ impl ThingTemplate {
         if kind == ReceivingTemplateKind::Reskin {
             module_fields::validate_receiving_reskin_fields(properties)?;
         }
-        // The factory/namespace fork is committed only after the complete
-        // declaration succeeds. A rejected candidate cannot consume live IDs.
-        let mut admitted_factory = module_factory.clone();
-        let mut template = self.detached_receiving_clone()?;
+        // Stage inherited module data as well as the factory: parsing may mutate
+        // an inherited AI definition through a shared handle.
+        let (mut admitted_factory, mut data_remap) = module_factory.fork_for_transaction();
+        let source = Arc::new(self.detached_receiving_clone()?);
+        let mut templates = HashMap::new();
+        let staged = ThingTemplate::fork_receiving_template(
+            &source, &mut templates, &mut |data| data_remap.remap(data),
+        );
+        let mut template = staged.as_ref().clone();
         template.name_string = AsciiString::from(target_name);
         template.set_copied_from_default();
         template.parse_receiving_fields(properties, load_type, kind, &mut admitted_factory)?;
-        let admitted = AdmittedReceivingTemplate::from_parsed_template(template)?;
+        let mut reverse = templates.into_values()
+            .map(|(original, fork)| (Arc::as_ptr(&fork), (fork, original)))
+            .collect();
+        let restored = ThingTemplate::fork_receiving_template(
+            &Arc::new(template), &mut reverse, &mut |data| data_remap.restore(data),
+        );
+        let admitted = AdmittedReceivingTemplate::from_forked_template(restored);
+        admitted_factory.restore_transaction_handles(&data_remap);
+        data_remap.commit();
         *module_factory = admitted_factory;
         Ok(admitted)
     }

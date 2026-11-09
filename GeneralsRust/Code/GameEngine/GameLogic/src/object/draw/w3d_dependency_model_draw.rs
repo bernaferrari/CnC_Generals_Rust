@@ -6,7 +6,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 use std::sync::{Arc, RwLock};
 
@@ -106,14 +106,18 @@ impl Snapshotable for W3DDependencyModelDrawModuleData {
 }
 
 pub struct W3DDependencyModelDraw {
-    data: W3DDependencyModelDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DModelDraw,
     dependency_cleared: bool,
 }
 impl W3DDependencyModelDraw {
     pub fn new(data: W3DDependencyModelDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        assert!(data.is::<W3DDependencyModelDrawModuleData>());
         Self {
-            base: W3DModelDraw::new(data.base.clone()),
+            base: W3DModelDraw::new_with_module_data(data.clone()),
             data,
             dependency_cleared: false,
         }
@@ -153,10 +157,12 @@ impl W3DDependencyModelDraw {
         let Some(container_drawable) = container_guard.get_drawable() else {
             return *transform_mtx;
         };
-        if !self.data.attach_to_drawable_bone_in_container.is_empty() {
+        let data = self.data.read();
+        let data = data.as_any().downcast_ref::<W3DDependencyModelDrawModuleData>().expect("W3DDependencyModelDraw module data");
+        if !data.attach_to_drawable_bone_in_container.is_empty() {
             if let Ok(drawable_guard) = container_drawable.read() {
                 if let Some(mtx) = drawable_guard.get_current_worldspace_client_bone_positions(
-                    self.data.attach_to_drawable_bone_in_container.as_str(),
+                    data.attach_to_drawable_bone_in_container.as_str(),
                 ) {
                     return mtx;
                 }
@@ -194,8 +200,8 @@ impl Module for W3DDependencyModelDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 impl DrawModule for W3DDependencyModelDraw {

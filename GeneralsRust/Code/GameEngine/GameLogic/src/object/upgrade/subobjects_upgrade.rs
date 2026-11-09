@@ -1,10 +1,11 @@
+#[cfg(test)]
 use std::sync::Arc;
 
 use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
 use crate::upgrade::modules::upgrade_mux::UpgradeMuxData;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 /// Module data for SubObjectsUpgrade.
 #[derive(Debug, Clone)]
@@ -77,7 +78,7 @@ impl Snapshotable for SubObjectsUpgradeModuleData {
 /// Mutable execution state belongs to the installed module, not an object-ID registry.
 pub struct SubObjectsUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<SubObjectsUpgradeModuleData>,
+    data: ModuleDataView<SubObjectsUpgradeModuleData>,
     applied: bool,
 }
 
@@ -109,12 +110,12 @@ fn apply_subobject_visibility(
 impl SubObjectsUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<SubObjectsUpgradeModuleData>,
+        data: ModuleDataHandle,
         _object_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
-            data,
+            data: ModuleDataView::new(data, |data| (data as &dyn std::any::Any).downcast_ref::<SubObjectsUpgradeModuleData>().expect("expected subobjects upgrade data")),
             applied: false,
         }
     }
@@ -124,8 +125,8 @@ impl SubObjectsUpgrade {
     pub(crate) fn prepare_upgrade(
         &self,
         mask: UpgradeMaskType,
-    ) -> Option<Arc<SubObjectsUpgradeModuleData>> {
-        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    ) -> Option<ModuleDataView<SubObjectsUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| self.data.clone())
     }
 
     /// C++ giveSelfUpgrade commits execution even if implementation skips the
@@ -142,11 +143,8 @@ impl SubObjectsUpgrade {
     }
 
     fn refresh_visibility(&self, object: &mut crate::object::Object) {
-        let (_, conflicting) = self
-            .data
-            .upgrade_mux_data
-            .clone()
-            .get_upgrade_activation_masks();
+        let data = self.data.read();
+        let (_, conflicting) = data.upgrade_mux_data.clone().get_upgrade_activation_masks();
         let conflicting = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
         if object.completed_upgrades().intersects(conflicting)
             || object.with_controlling_player(|player| {
@@ -155,7 +153,7 @@ impl SubObjectsUpgrade {
         {
             return;
         }
-        apply_subobject_visibility(object, &self.data);
+        apply_subobject_visibility(object, &data);
     }
 }
 
@@ -173,11 +171,11 @@ impl Module for SubObjectsUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.handle().read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 
@@ -207,7 +205,7 @@ impl Snapshotable for SubObjectsUpgrade {
 impl SubObjectsUpgrade {
     pub(crate) fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
         crate::object::upgrade::upgrade_module::mux_can_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().upgrade_mux_data,
             self.applied,
             upgrade_mask,
         )
@@ -216,7 +214,7 @@ impl SubObjectsUpgrade {
     pub(crate) fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ resetUpgrade clears execution; it never undoes visibility.
         crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );

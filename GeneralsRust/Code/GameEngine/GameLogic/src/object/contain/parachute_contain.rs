@@ -27,6 +27,8 @@ use crate::object::contain::OpenContain;
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 const NO_START_Z: f32 = 1e10;
 const ALTITUDE_DAMP_START: f32 = 20.0;
@@ -200,7 +202,7 @@ pub struct ParachuteContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
     object_id: ObjectID,
-    module_data: ParachuteContainModuleData,
+    module_data: ModuleDataView<ParachuteContainModuleData>,
     pitch: f32,
     roll: f32,
     pitch_rate: f32,
@@ -225,9 +227,18 @@ impl ParachuteContain {
     /// Create a new ParachuteContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &ParachuteContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<ParachuteContainModuleData>>()
+                .expect("parachute contain module data has an incompatible type")
+                .contain_data()
+        });
+        let (pitch_rate_max, roll_rate_max) = {
+            let data = data.read();
+            (data.pitch_rate_max, data.roll_rate_max)
+        };
+        let base = OpenContain::new(object.clone(), module_data)?;
         let object_id = object
             .upgrade()
             .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
@@ -242,16 +253,16 @@ impl ParachuteContain {
         Ok(Self {
             base,
             object_id,
-            module_data: module_data.clone(),
+            module_data: data,
             pitch: 0.0,
             roll: 0.0,
             pitch_rate: get_game_logic_random_value_real(
-                -module_data.pitch_rate_max,
-                module_data.pitch_rate_max,
+                -pitch_rate_max,
+                pitch_rate_max,
             ),
             roll_rate: get_game_logic_random_value_real(
-                -module_data.roll_rate_max,
-                module_data.roll_rate_max,
+                -roll_rate_max,
+                roll_rate_max,
             ),
             start_z: NO_START_Z,
             is_landing_override_set: false,
@@ -589,7 +600,7 @@ impl ParachuteContain {
                 rider_pos.y,
                 Some(&mut water_z),
                 Some(&mut terrain_z),
-            ) && rider_pos.z <= water_z + self.module_data.kill_when_landing_in_water_slop
+            ) && rider_pos.z <= water_z + self.module_data.read().kill_when_landing_in_water_slop
                 && rider.get_layer() == PathfindLayerEnum::Ground
             {
                 let mut damage_info = DamageInfo::with_simple(
@@ -658,7 +669,7 @@ impl ParachuteContain {
         if airborne {
             if let Some(rider_arc) = self.resolve_rider() {
                 let _ = self.base.remove_all_contained(false);
-                if self.module_data.free_fall_damage_percent > 0.0 {
+                if self.module_data.read().free_fall_damage_percent > 0.0 {
                     // Clone the body Arc and drop the rider guard before locking it.
                     let body = rider_arc
                         .read()
@@ -677,7 +688,7 @@ impl ParachuteContain {
                         .unwrap_or(crate::common::INVALID_ID);
                     if let Ok(mut rider) = rider_arc.write() {
                         let mut extra = DamageInfo::with_simple(
-                            max_health * self.module_data.free_fall_damage_percent,
+                            max_health * self.module_data.read().free_fall_damage_percent,
                             source,
                             DamageType::Falling,
                             DeathType::Splatted,
@@ -733,8 +744,9 @@ impl ParachuteContain {
                 (pos, ground)
             }) {
                 self.start_z = pos.z;
-                if self.start_z - ground < 2.0 * self.module_data.para_open_dist {
-                    self.start_z = ground + 2.0 * self.module_data.para_open_dist;
+                let para_open_dist = self.module_data.read().para_open_dist;
+                if self.start_z - ground < 2.0 * para_open_dist {
+                    self.start_z = ground + 2.0 * para_open_dist;
                 }
             }
         }
@@ -744,7 +756,7 @@ impl ParachuteContain {
             .unwrap_or(0.0);
 
         if !self.opened {
-            if (self.start_z - pos_z).abs() >= self.module_data.para_open_dist {
+            if (self.start_z - pos_z).abs() >= self.module_data.read().para_open_dist {
                 self.opened = true;
                 self.with_owner_mut(|owner| {
                     let _ = owner.clear_and_set_model_condition_flags(
@@ -760,7 +772,7 @@ impl ParachuteContain {
                             ModelConditionFlags::PARACHUTING,
                         );
                         self.need_to_update_rider_bones = true;
-                        if let Some(sound) = &self.module_data.parachute_open_sound {
+                        if let Some(sound) = &self.module_data.read().parachute_open_sound {
                             let mut event = sound.clone();
                             event.set_object_id(rider_guard.get_id());
                             if let Some(audio) = TheAudio::get() {
@@ -834,7 +846,7 @@ impl ParachuteContain {
                     if let Some(rider) = self.resolve_rider() {
                         if let Ok(rider_guard) = rider.read() {
                             if rider_guard.get_height_above_terrain() <= ALTITUDE_DAMP_START {
-                                altitude_damping = self.module_data.low_altitude_damping;
+                                altitude_damping = self.module_data.read().low_altitude_damping;
                             }
                         }
                     }
@@ -894,7 +906,7 @@ impl ParachuteContain {
                     if !dead
                         && layer == PathfindLayerEnum::Ground
                         && terrain.is_underwater(para_pos.x, para_pos.y, Some(&mut water_z), None)
-                        && (para_pos.z - water_z) < self.module_data.kill_when_landing_in_water_slop
+                        && (para_pos.z - water_z) < self.module_data.read().kill_when_landing_in_water_slop
                     {
                         self.with_owner_mut(|owner| owner.kill(None, None));
                     }

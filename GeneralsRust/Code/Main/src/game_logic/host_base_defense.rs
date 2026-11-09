@@ -1784,15 +1784,15 @@ fn leftover_stealth_detector_range(template_name: &str) -> Option<f32> {
         {
             continue;
         }
-        if let Some(data) = entry
-            .data
+        let data_guard = entry.data.read();
+        if let Some(data) = data_guard
             .downcast_ref::<gamelogic::object::behavior::StealthDetectorUpdateModuleData>()
         {
             if data.detection_range > 0.0 {
                 return Some(data.detection_range);
             }
         }
-        if let Some(raw) = entry.data.get_ini_field("DetectionRange") {
+        if let Some(raw) = data_guard.get_ini_field("DetectionRange") {
             if let Ok(range) = raw.trim().parse::<f32>() {
                 if range > 0.0 {
                     return Some(range);

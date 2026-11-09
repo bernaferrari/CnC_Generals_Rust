@@ -11,7 +11,7 @@ use std::any::Any;
 use std::sync::{Arc, RwLock, Weak};
 
 use crate::common::{
-    AsciiString, Bool, Coord3D, ModuleData, ObjectID, ObjectStatusTypes, PlayerMaskType, Real,
+    AsciiString, Bool, Coord3D, ObjectID, ObjectStatusTypes, PlayerMaskType, Real,
     UnsignedInt, XferVersion,
 };
 use crate::effects::FXList;
@@ -222,7 +222,7 @@ pub struct BunkerBusterBehavior {
     /// Weak reference to owning object
     object_id: ObjectID,
     /// Module data
-    module_data: Arc<BunkerBusterBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     /// ID of the victim object (target building)
     victim_id: ObjectID,
@@ -231,16 +231,14 @@ pub struct BunkerBusterBehavior {
 }
 
 impl BunkerBusterBehavior {
-    /// Create new bunker buster behavior
-    /// Matches C++ BunkerBusterBehavior::BunkerBusterBehavior
-    pub fn new(
+
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<BunkerBusterBehaviorModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<BunkerBusterBehaviorModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -248,7 +246,7 @@ impl BunkerBusterBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             victim_id: OBJECT_INVALID_ID,
             upgrade_required_resolved: None,
@@ -257,7 +255,7 @@ impl BunkerBusterBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<BunkerBusterBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 334: empty dual-world → fail closed.
         if dual_world_registry_unavailable() {
@@ -284,15 +282,13 @@ impl BunkerBusterBehavior {
         })
     }
 
-    /// Get module data
-    fn get_module_data(&self) -> &BunkerBusterBehaviorModuleData {
-        &self.module_data
-    }
 
     /// On object created - resolve upgrade names to pointers
     /// Matches C++ BunkerBusterBehavior::onObjectCreated
     fn on_object_created(&mut self) {
-        if let Some(upgrade_name) = &self.module_data.upgrade_required {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BunkerBusterBehaviorModuleData>().expect("invalid bunker buster module data");
+        if let Some(upgrade_name) = &data.upgrade_required {
             let upgrade = crate::upgrade::center::get_upgrade_center();
             if let Ok(center) = upgrade.read() {
                 self.upgrade_required_resolved = center.find_upgrade(upgrade_name.as_str());
@@ -308,7 +304,8 @@ impl BunkerBusterBehavior {
             return;
         }
 
-        let data = self.get_module_data();
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BunkerBusterBehaviorModuleData>().expect("invalid bunker buster module data");
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -504,8 +501,11 @@ impl UpdateModuleInterface for BunkerBusterBehavior {
             return UPDATE_SLEEP_NONE;
         }
 
-        let crash_frequency = self.module_data.crash_through_bunker_fx_frequency;
-        let crash_fx = self.module_data.crash_through_bunker_fx.clone();
+        let (crash_frequency, crash_fx) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<BunkerBusterBehaviorModuleData>().expect("invalid bunker buster module data");
+            (data.crash_through_bunker_fx_frequency, data.crash_through_bunker_fx.clone())
+        };
 
         // Check if this is a SMART bomb (has AI)
         // AIUpdateInterface *ai = getObject()->getAI();
@@ -597,9 +597,9 @@ pub struct BunkerBusterBehaviorFactory;
 impl BunkerBusterBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(BunkerBusterBehavior::new(thing, module_data)?))
+        Ok(Box::new(BunkerBusterBehavior::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -607,14 +607,14 @@ impl BunkerBusterBehaviorFactory {
 pub struct BunkerBusterBehaviorModule {
     behavior: BunkerBusterBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<BunkerBusterBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BunkerBusterBehaviorModule {
     pub fn new(
         behavior: BunkerBusterBehavior,
         module_name: &AsciiString,
-        module_data: Arc<BunkerBusterBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -655,12 +655,12 @@ impl EngineModule for BunkerBusterBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ThingModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     fn on_object_created(&mut self) {
         self.behavior.on_object_created();

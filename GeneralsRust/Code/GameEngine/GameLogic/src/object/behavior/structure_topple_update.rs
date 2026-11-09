@@ -526,7 +526,7 @@ const STRUCTURE_TOPPLE_UPDATE_FIELDS: &[FieldParse<StructureToppleUpdateModuleDa
 
 pub struct StructureToppleUpdate {
     object_id: ObjectID,
-    module_data: Arc<StructureToppleUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<StructureToppleUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     topple_frame: UnsignedInt,
     topple_direction: Coord2D,
@@ -543,8 +543,12 @@ pub struct StructureToppleUpdate {
 impl StructureToppleUpdate {
     pub fn new_with_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<StructureToppleUpdateModuleData>,
+        handle: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !handle.is::<StructureToppleUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<StructureToppleUpdateModuleData>().expect("StructureToppleUpdate module data"));
         let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(building) = object.read() {
             building.reschedule_named_update("StructureToppleUpdate", forever);
@@ -576,17 +580,6 @@ impl StructureToppleUpdate {
         })
     }
 
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<StructureToppleUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
-        Self::new_with_data(object, Arc::new(data.clone()))
-    }
 
     fn build_non_dup_indices(range: usize, count: usize) -> Vec<usize> {
         let mut indices = Vec::with_capacity(count);
@@ -605,12 +598,13 @@ impl StructureToppleUpdate {
             return;
         }
 
+        let data = self.module_data.read();
         let phase_idx = phase.idx();
-        let list_size = self.module_data.ocls[phase_idx].len();
+        let list_size = data.ocls[phase_idx].len();
         if list_size == 0 {
             return;
         }
-        let count = self.module_data.ocl_count[phase_idx] as usize;
+        let count = data.ocl_count[phase_idx] as usize;
         debug_assert!(
             count <= list_size && count <= MAX_IDX,
             "StructureToppleUpdate OCL count exceeds list size or MAX_IDX"
@@ -630,7 +624,7 @@ impl StructureToppleUpdate {
         let primary = *target;
         let secondary = *target;
         for idx in Self::build_non_dup_indices(list_size, count) {
-            if let Some(Some(ocl)) = self.module_data.ocls[phase_idx].get(idx) {
+            if let Some(Some(ocl)) = data.ocls[phase_idx].get(idx) {
                 let _ = ocl.create_with_angle(
                     &ctx,
                     Some(&*owner_guard),
@@ -659,10 +653,10 @@ impl StructureToppleUpdate {
         }
 
         let now = TheGameLogic::get_frame();
-        let delay = GameLogicRandomValue(
-            self.module_data.min_topple_delay as i32,
-            self.module_data.max_topple_delay as i32,
-        ) as UnsignedInt;
+        let delay = {
+            let data = self.module_data.read();
+            GameLogicRandomValue(data.min_topple_delay as i32, data.max_topple_delay as i32) as UnsignedInt
+        };
         self.topple_frame = now.wrapping_add(delay);
 
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
@@ -728,10 +722,10 @@ impl StructureToppleUpdate {
             .unwrap_or(0.0);
 
         self.do_topple_start_fx(&building);
-        let burst_delay = crate::system::engine_stores::active_services().client_random_value(
-            self.module_data.min_topple_burst_delay as i32,
-            self.module_data.max_topple_burst_delay as i32,
-        );
+        let burst_delay = {
+            let data = self.module_data.read();
+            crate::system::engine_stores::active_services().client_random_value(data.min_topple_burst_delay as i32, data.max_topple_burst_delay as i32)
+        };
         self.next_burst_frame = (now as i32).wrapping_add(burst_delay);
         self.topple_state = StructureToppleStateType::WaitingForToppleStart;
         self.next_call_frame_and_phase = now.saturating_add(1);
@@ -745,11 +739,13 @@ impl StructureToppleUpdate {
                 .and_then(|b| b.get_last_damage_info().map(|info| info.damage_type))
         });
 
-        if Self::should_play_damage_fx(last_damage_type, self.module_data.damage_fx_types) {
-            if let Some(fx) = &self.module_data.topple_start_fx_list {
+        let data = self.module_data.read();
+        if Self::should_play_damage_fx(last_damage_type, data.damage_fx_types) {
+            if let Some(fx) = &data.topple_start_fx_list {
                 let _ = fx.do_fx_at_position(building.get_position());
             }
         }
+        drop(data);
         self.do_phase_stuff(StructureTopplePhaseType::Initial, building.get_position());
     }
 
@@ -776,16 +772,17 @@ impl StructureToppleUpdate {
                 .and_then(|b| b.get_last_damage_info().map(|info| info.damage_type))
         });
 
-        if Self::should_play_damage_fx(last_damage_type, self.module_data.damage_fx_types) {
-            if let Some(fx) = &self.module_data.topple_delay_fx_list {
+        let data = self.module_data.read();
+        if Self::should_play_damage_fx(last_damage_type, data.damage_fx_types) {
+            if let Some(fx) = &data.topple_delay_fx_list {
                 let _ = fx.do_fx_at_position(&self.delay_burst_location);
             }
         }
 
-        if Self::should_play_damage_fx(last_damage_type, self.module_data.damage_fx_types) {
+        if Self::should_play_damage_fx(last_damage_type, data.damage_fx_types) {
             if let Some(drawable) = building.get_drawable() {
                 if let Some(ps_manager) = crate::helpers::TheParticleSystemManager::get() {
-                    for bone in &self.module_data.fx_bones {
+                    for bone in &data.fx_bones {
                         let Some(system_id) = ps_manager.create_particle_system(
                             bone.particle_system_template.as_ref().map(|s| s.as_str()),
                         ) else {
@@ -825,6 +822,7 @@ impl StructureToppleUpdate {
                 }
             }
         }
+        drop(data);
 
         self.do_phase_stuff(StructureTopplePhaseType::Delay, &self.delay_burst_location);
     }
@@ -900,9 +898,10 @@ impl StructureToppleUpdate {
                 .and_then(|b| b.get_last_damage_info().map(|info| info.damage_type))
         });
 
-        for info in &self.module_data.angle_fx {
+        let data = self.module_data.read();
+        for info in &data.angle_fx {
             if info.angle > cur_angle && info.angle <= new_angle {
-                if Self::should_play_damage_fx(last_damage_type, self.module_data.damage_fx_types) {
+                if Self::should_play_damage_fx(last_damage_type, data.damage_fx_types) {
                     if let Some(fx) = &info.fx_list {
                         let _ = fx.do_fx_obj(&object_arc, None);
                     }
@@ -945,7 +944,7 @@ impl StructureToppleUpdate {
 
         let weapon_template = with_weapon_store(|store| {
             store
-                .find_weapon_template(self.module_data.crushing_weapon_name.as_str())
+                .find_weapon_template(self.module_data.read().crushing_weapon_name.as_str())
                 .cloned()
         })
         .ok()
@@ -992,6 +991,7 @@ impl StructureToppleUpdate {
 
         let source_id = building.get_id();
 
+        let data = self.module_data.read();
         for (ox, oy) in leftover_do_damage_line_offsets(facing_width, topple_angle) {
             let mut target = Coord3D::new(
                 building.get_position().x + jcos + ox,
@@ -1004,12 +1004,13 @@ impl StructureToppleUpdate {
                 let _ = store.create_and_fire_temp_weapon_at_pos(weapon, source_id, &target);
             }
 
-            if Self::should_play_damage_fx(last_damage_type, self.module_data.damage_fx_types) {
-                if let Some(fx) = &self.module_data.crushing_fx_list {
+            if Self::should_play_damage_fx(last_damage_type, data.damage_fx_types) {
+                if let Some(fx) = &data.crushing_fx_list {
                     let _ = fx.do_fx_at_position(&target);
                 }
             }
         }
+        drop(data);
 
         let mut debris_target = Coord3D::new(
             building.get_position().x + jcos,
@@ -1056,15 +1057,15 @@ impl UpdateModuleInterface for StructureToppleUpdate {
         ) {
             if now as i32 >= self.next_burst_frame {
                 self.do_topple_delay_burst_fx();
-                let burst_delay = crate::system::engine_stores::active_services().client_random_value(
-                    self.module_data.min_topple_burst_delay as i32,
-                    self.module_data.max_topple_burst_delay as i32,
-                );
+                let burst_delay = {
+                    let data = self.module_data.read();
+                    crate::system::engine_stores::active_services().client_random_value(data.min_topple_burst_delay as i32, data.max_topple_burst_delay as i32)
+                };
                 self.next_burst_frame = (now as i32).wrapping_add(burst_delay);
             }
             if now >= self.topple_frame {
                 self.topple_state = StructureToppleStateType::Toppling;
-                self.structural_integrity = self.module_data.structural_integrity;
+                self.structural_integrity = self.module_data.read().structural_integrity;
             }
         }
 
@@ -1074,7 +1075,7 @@ impl UpdateModuleInterface for StructureToppleUpdate {
             self.topple_velocity += topple_accel;
 
             if self.structural_integrity > 0.0 {
-                self.structural_integrity *= self.module_data.structural_decay;
+                self.structural_integrity *= self.module_data.read().structural_decay;
                 if self.structural_integrity < 0.0 {
                     self.structural_integrity = 0.0;
                 }
@@ -1100,20 +1101,22 @@ impl UpdateModuleInterface for StructureToppleUpdate {
                     .unwrap_or(Coord3D::ZERO);
                 self.do_phase_stuff(StructureTopplePhaseType::Final, &pos);
 
-                if Self::should_play_damage_fx(last_damage_type, self.module_data.damage_fx_types) {
-                    if let Some(fx) = &self.module_data.topple_done_fx_list {
+                let data = self.module_data.read();
+                if Self::should_play_damage_fx(last_damage_type, data.damage_fx_types) {
+                    if let Some(fx) = &data.topple_done_fx_list {
                         let _ = fx.do_fx_obj(&object_arc, None);
                     }
                 }
+                drop(data);
                 self.topple_frame = now;
             }
 
             if now as i32 >= self.next_burst_frame {
                 self.do_topple_delay_burst_fx();
-                let burst_delay = crate::system::engine_stores::active_services().client_random_value(
-                    self.module_data.min_topple_burst_delay as i32,
-                    self.module_data.max_topple_burst_delay as i32,
-                );
+                let burst_delay = {
+                    let data = self.module_data.read();
+                    crate::system::engine_stores::active_services().client_random_value(data.min_topple_burst_delay as i32, data.max_topple_burst_delay as i32)
+                };
                 self.next_burst_frame = (now as i32).wrapping_add(burst_delay);
             }
 
@@ -1177,10 +1180,7 @@ impl DieModuleInterface for StructureToppleUpdate {
             return Ok(());
         };
 
-        if !self
-            .module_data
-            .die_mux_data
-            .is_die_applicable(&*obj_read, damage_info)
+        if !self.module_data.read().die_mux_data.is_die_applicable(&*obj_read, damage_info)
         {
             return Ok(());
         }
@@ -1268,7 +1268,7 @@ impl Snapshotable for StructureToppleUpdate {
 pub struct StructureToppleUpdateModule {
     behavior: StructureToppleUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<StructureToppleUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl StructureToppleUpdateModule {
@@ -1279,7 +1279,7 @@ impl StructureToppleUpdateModule {
     pub fn new(
         behavior: StructureToppleUpdate,
         module_name: &AsciiString,
-        module_data: Arc<StructureToppleUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -1322,11 +1322,11 @@ impl Module for StructureToppleUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -1351,8 +1351,8 @@ pub struct StructureToppleUpdateFactory;
 impl StructureToppleUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(StructureToppleUpdate::new(thing, module_data)?))
+        Ok(Box::new(StructureToppleUpdate::new_with_data(thing, module_data)?))
     }
 }

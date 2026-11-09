@@ -163,7 +163,8 @@ impl ReceivingClientTemplate {
     /// each authored turret, including an alternate on a non-selected AI.
     pub(crate) fn validate_turret_slots(&self) -> Result<(), String> {
         for entry in self.0.behavior_modules().iter() {
-            let Some(ai) = crate::game_logic::object::receiving_ai_base_data(entry.data.as_ref())
+            let data = entry.data.read();
+            let Some(ai) = crate::game_logic::object::receiving_ai_base_data(&*data)
             else {
                 continue;
             };
@@ -186,18 +187,15 @@ impl ReceivingClientTemplate {
         &self,
     ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()>
     {
-        let Some(data) = self.0.behavior_modules().iter().find_map(|entry| {
-            entry.data.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()
-        }) else {
-            return Ok(None);
-        };
-        Ok(Some(
-            crate::game_logic::special_power_strikes::ParticleManualDriveSettings {
+        Ok(self.0.behavior_modules().iter().find_map(|entry| {
+            let guard = entry.data.read();
+            let data = guard.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()?;
+            Some(crate::game_logic::special_power_strikes::ParticleManualDriveSettings {
                 manual_driving_speed: data.manual_driving_speed,
                 manual_fast_driving_speed: data.manual_fast_driving_speed,
                 double_click_to_fast_drive_delay: data.double_click_to_fast_drive_delay,
-            },
-        ))
+            })
+        }))
     }
 
     /// C++ ParticleUplinkCannonUpdate.cpp:112-113 SwathOfDeathDistance/Amplitude
@@ -205,17 +203,14 @@ impl ReceivingClientTemplate {
     pub(crate) fn particle_swath_settings(
         &self,
     ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
-        let Some(data) = self.0.behavior_modules().iter().find_map(|entry| {
-            entry.data.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()
-        }) else {
-            return Ok(None);
-        };
-        Ok(Some(
-            crate::game_logic::special_power_strikes::ParticleSwathSettings {
+        Ok(self.0.behavior_modules().iter().find_map(|entry| {
+            let guard = entry.data.read();
+            let data = guard.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()?;
+            Some(crate::game_logic::special_power_strikes::ParticleSwathSettings {
                 swath_of_death_distance: data.swath_of_death_distance,
                 swath_of_death_amplitude: data.swath_of_death_amplitude,
-            },
-        ))
+            })
+        }))
     }
 
     pub(crate) fn has_behavior_module(&self, name: &str) -> bool {
@@ -239,9 +234,9 @@ impl ReceivingClientTemplate {
 
     pub(crate) fn receiving_jet_lockon_data(
         &self,
-    ) -> Option<&gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData> {
-        self.0.behavior_modules().iter().nth(self.receiving_ai_source_index()?)?
-            .data.as_any().downcast_ref::<gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>()
+    ) -> Option<parking_lot::MappedRwLockReadGuard<'_, gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>> {
+        let entry = self.0.behavior_modules().iter().nth(self.receiving_ai_source_index()?)?;
+        entry.data.read().into_downcast::<gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>()
     }
 
     // Object.cpp caches the first non-null getAIUpdateInterface in authored order.
@@ -251,7 +246,7 @@ impl ReceivingClientTemplate {
             game_engine::common::thing::module_factory::builtin_behavior_has_ai_update_interface(
                 entry.name.as_str(),
             ) == Some(true)
-                || entry.data.is_ai_module_data()
+                || entry.data.read().is_ai_module_data()
         })
     }
 
@@ -264,20 +259,21 @@ impl ReceivingClientTemplate {
             .behavior_modules()
             .iter()
             .nth(self.receiving_ai_source_index()?)?;
-        Some(crate::game_logic::object::receiving_ai_policy_data(
-            entry.data.as_ref(),
-        ))
+        Some(crate::game_logic::object::receiving_ai_policy_data(&*entry.data.read()))
     }
 
     pub(crate) fn receiving_ai_base_data(
         &self,
-    ) -> Option<&gamelogic::object::update::ai_update_interface::AIUpdateModuleData> {
+    ) -> Option<impl std::ops::Deref<Target = gamelogic::object::update::ai_update_interface::AIUpdateModuleData> + '_> {
         let entry = self
             .0
             .behavior_modules()
             .iter()
             .nth(self.receiving_ai_source_index()?)?;
-        crate::game_logic::object::receiving_ai_base_data(entry.data.as_ref())
+        game_engine::common::thing::module::ModuleDataGuard::try_map(
+            entry.data.read(),
+            crate::game_logic::object::receiving_ai_base_data,
+        )
     }
 
     pub(crate) fn receiving_ai_identity(&self) -> Option<(u32, String, String)> {
@@ -307,6 +303,7 @@ impl ReceivingClientTemplate {
             .is_some_and(|entry| {
                 entry
                     .data
+                    .read()
                     .as_any()
                     .is::<gamelogic::object::update::ai_update::JetAIUpdateModuleData>()
             })
@@ -318,7 +315,8 @@ impl ReceivingClientTemplate {
             .behavior_modules()
             .iter()
             .nth(self.receiving_ai_source_index()?)?;
-        let data = entry.data.as_any();
+        let guard = entry.data.read();
+        let data = guard.as_any();
         if data
             .is::<gamelogic::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData>(
             )
@@ -372,24 +370,19 @@ impl ReceivingClientTemplate {
         &self,
         enter: bool,
     ) -> Option<game_engine::common::audio::AudioEventRts> {
-        let base = self
-            .0
-            .behavior_modules()
-            .iter()
-            .find_map(|entry| {
-                gamelogic::contain_module_overrides::ContainModuleDataKind::from_module_data(
-                    entry.data.as_ref(),
-                )
-            })?
-            .open_data();
-        let event = if enter {
-            base.enter_sound.as_ref()
-        } else {
-            base.exit_sound.as_ref()
-        }?;
-        Some(game_engine::common::audio::AudioEventRts::with_event_name(
-            event.get_event_name(),
-        ))
+        for entry in self.0.behavior_modules().iter() {
+            let guard = entry.data.read();
+            if let Some(kind) = gamelogic::contain_module_overrides::ContainModuleDataKind::from_module_data(&*guard) {
+                let base = kind.open_data();
+                let event = if enter {
+                    base.enter_sound.as_ref()
+                } else {
+                    base.exit_sound.as_ref()
+                }?;
+                return Some(game_engine::common::audio::AudioEventRts::with_event_name(event.get_event_name()));
+            }
+        }
+        None
     }
 
     fn threat_value(&self) -> u16 {

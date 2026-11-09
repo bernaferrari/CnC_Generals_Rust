@@ -409,7 +409,7 @@ impl Snapshotable for BridgeBehaviorModuleData {
 
 /// BridgeBehavior - Main implementation of bridge behavior
 pub struct BridgeBehavior {
-    pub module_data: Arc<BridgeBehaviorModuleData>,
+    pub module_data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     next_call_frame_and_phase: UnsignedInt,
 
@@ -444,11 +444,14 @@ enum ModuleEffectSpawn {
 impl BridgeBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
-        module_data: Arc<BridgeBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         _initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
-        let fx_count = module_data.fx.len();
-        let ocl_count = module_data.ocl.len();
+        let (fx_count, ocl_count) = {
+            let data = module_data.read();
+            let data = data.downcast_ref::<BridgeBehaviorModuleData>().expect("invalid bridge module data");
+            (data.fx.len(), data.ocl.len())
+        };
 
         let damage_to_ocl: [[Option<Arc<ObjectCreationList>>; MAX_BRIDGE_BODY_FX];
             BODYDAMAGETYPE_COUNT] = array::from_fn(|_| array::from_fn(|_| None));
@@ -485,7 +488,7 @@ impl BridgeBehavior {
 
     pub fn new_from_object_handle(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<BridgeBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = object
             .read()
@@ -497,7 +500,7 @@ impl BridgeBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<BridgeBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 301: empty dual-world → missing object.
         if dual_world_registry_unavailable() {
@@ -951,16 +954,16 @@ impl BridgeBehavior {
 
     /// Resolve FX/OCL handles defined on the module data
     fn resolve_module_resources(&mut self) {
-        if self.module_fx_handles.len() < self.module_data.fx.len() {
-            self.module_fx_handles
-                .resize(self.module_data.fx.len(), None);
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BridgeBehaviorModuleData>().expect("invalid bridge module data");
+        if self.module_fx_handles.len() < data.fx.len() {
+            self.module_fx_handles.resize(data.fx.len(), None);
         }
-        if self.module_ocl_handles.len() < self.module_data.ocl.len() {
-            self.module_ocl_handles
-                .resize(self.module_data.ocl.len(), None);
+        if self.module_ocl_handles.len() < data.ocl.len() {
+            self.module_ocl_handles.resize(data.ocl.len(), None);
         }
 
-        for (index, fx_info) in self.module_data.fx.iter().enumerate() {
+        for (index, fx_info) in data.fx.iter().enumerate() {
             if self.module_fx_handles[index].is_some() {
                 continue;
             }
@@ -977,7 +980,7 @@ impl BridgeBehavior {
             }
         }
 
-        for (index, ocl_info) in self.module_data.ocl.iter().enumerate() {
+        for (index, ocl_info) in data.ocl.iter().enumerate() {
             if self.module_ocl_handles[index].is_some() {
                 continue;
             }
@@ -1165,8 +1168,11 @@ impl BridgeBehavior {
         } else {
             1.0
         };
-        let lateral_speed = self.module_data.lateral_scaffold_speed * ratio;
-        let vertical_speed = self.module_data.vertical_scaffold_speed;
+        let (lateral_speed, vertical_speed) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<BridgeBehaviorModuleData>().expect("invalid bridge module data");
+            (data.lateral_scaffold_speed * ratio, data.vertical_scaffold_speed)
+        };
 
         let applied = self.with_scaffold_interface(&obj, |scaffold_behavior| {
             scaffold_behavior.set_positions(&sunken_pos, rise_to_pos, build_pos);
@@ -1911,7 +1917,9 @@ impl UpdateModuleInterface for BridgeBehavior {
 
             let bridge_ref = bridge.as_ref();
             let template_ref = bridge_template.as_ref();
-            for (index, fx_info) in self.module_data.fx.iter().enumerate() {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<BridgeBehaviorModuleData>().expect("invalid bridge module data");
+            for (index, fx_info) in data.fx.iter().enumerate() {
                 let delay = fx_info.time_and_location_info.delay;
                 if delay != death_time {
                     continue;
@@ -1939,7 +1947,7 @@ impl UpdateModuleInterface for BridgeBehavior {
                 }
             }
 
-            for (index, ocl_info) in self.module_data.ocl.iter().enumerate() {
+            for (index, ocl_info) in data.ocl.iter().enumerate() {
                 let delay = ocl_info.time_and_location_info.delay;
                 if delay != death_time {
                     continue;
@@ -2032,14 +2040,14 @@ impl crate::modules::BehaviorModuleInterface for BridgeBehavior {
 pub struct BridgeBehaviorModule {
     behavior: BridgeBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<BridgeBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BridgeBehaviorModule {
     pub fn new(
         behavior: BridgeBehavior,
         module_name: &AsciiString,
-        module_data: Arc<BridgeBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -2080,12 +2088,12 @@ impl EngineModule for BridgeBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ThingModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     fn get_bridge_control_interface(&mut self) -> Option<&mut dyn BridgeControlInterface> {
         Some(&mut self.behavior)
@@ -2243,7 +2251,7 @@ mod tests {
 
     #[test]
     fn destroy_remaining_towers_clears_tower_ids() {
-        let data = Arc::new(BridgeBehaviorModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BridgeBehaviorModuleData::default());
         let mut behavior = BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data, None);
         behavior.tower_id = [7, 8, 9, 10];
         behavior.destroy_remaining_towers();
@@ -2252,7 +2260,7 @@ mod tests {
 
     #[test]
     fn module_on_delete_clears_scaffolds_and_towers() {
-        let data = Arc::new(BridgeBehaviorModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BridgeBehaviorModuleData::default());
         let mut behavior =
             BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data.clone(), None);
         behavior.tower_id = [1, 2, 3, 4];

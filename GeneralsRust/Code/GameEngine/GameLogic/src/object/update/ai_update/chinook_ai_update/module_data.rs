@@ -1,10 +1,9 @@
-//! Authored Chinook definitions, defaults, INI parsing and runtime data conversion.
+//! Authored Chinook definitions, defaults, and INI parsing.
 
 use super::AUTO_ACQUIRE_ENEMIES_NAMES;
 use crate::common::{AsciiString, Bool, Int, LOGICFRAMES_PER_SECOND, Real, UnsignedInt};
 use crate::object::draw::draw_module::RGBColor;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use crate::supply_system::SupplyTruckAIUpdateData;
 use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -493,62 +492,3 @@ pub(super) const CHINOOK_AI_UPDATE_FIELDS: &[FieldParse<ChinookAIUpdateModuleDat
         },
     },
 ];
-
-/// Runtime data for Chinook AI.
-#[derive(Debug, Clone)]
-pub struct ChinookAIUpdateData {
-    pub supply: SupplyTruckAIUpdateData,
-    pub rope_name: AsciiString,
-    pub rotor_wash_particle_system: AsciiString,
-    pub rappel_speed: Real,
-    pub rope_drop_speed: Real,
-    pub rope_width: Real,
-    pub rope_final_height: Real,
-    pub rope_wobble_len: Real,
-    pub rope_wobble_amp: Real,
-    pub rope_wobble_rate: Real,
-    pub rope_color: RGBColor,
-    pub num_ropes: UnsignedInt,
-    pub per_rope_delay_min: UnsignedInt,
-    pub per_rope_delay_max: UnsignedInt,
-    pub min_drop_height: Real,
-    pub wait_for_ropes_to_drop: Bool,
-    pub upgraded_supply_boost: Int,
-}
-
-impl Default for ChinookAIUpdateData {
-    fn default() -> Self {
-        let module = ChinookAIUpdateModuleData::default();
-        Self::from_module(&module)
-    }
-}
-
-impl ChinookAIUpdateData {
-    pub fn from_module(data: &ChinookAIUpdateModuleData) -> Self {
-        Self {
-            supply: SupplyTruckAIUpdateData {
-                max_boxes: data.max_boxes_data,
-                warehouse_scan_distance: data.warehouse_scan_distance,
-                warehouse_delay: data.warehouse_delay,
-                center_delay: data.center_delay,
-                supplies_depleted_voice: data.supplies_depleted_voice.to_string(),
-            },
-            rope_name: data.rope_name.clone(),
-            rotor_wash_particle_system: data.rotor_wash_particle_system.clone(),
-            rappel_speed: data.rappel_speed,
-            rope_drop_speed: data.rope_drop_speed,
-            rope_width: data.rope_width,
-            rope_final_height: data.rope_final_height,
-            rope_wobble_len: data.rope_wobble_len,
-            rope_wobble_amp: data.rope_wobble_amp,
-            rope_wobble_rate: data.rope_wobble_rate,
-            rope_color: data.rope_color,
-            num_ropes: data.num_ropes,
-            per_rope_delay_min: data.per_rope_delay_min,
-            per_rope_delay_max: data.per_rope_delay_max,
-            min_drop_height: data.min_drop_height,
-            wait_for_ropes_to_drop: data.wait_for_ropes_to_drop,
-            upgraded_supply_boost: data.upgraded_supply_boost,
-        }
-    }
-}

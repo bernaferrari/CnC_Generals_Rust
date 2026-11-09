@@ -289,25 +289,23 @@ fn leftover_truck_draw_module_data(template_name: &str) -> Option<W3DTruckDrawMo
     let factory = guard.as_ref()?;
     let template = factory.find_template(template_name, false)?;
     for entry in template.get_draw_module_info().iter() {
-        if let Some(data) = entry.data.as_any().downcast_ref::<W3DTruckDrawModuleData>() {
+        let data = entry.data.read();
+        if let Some(data) = data.as_any().downcast_ref::<W3DTruckDrawModuleData>() {
             return Some(data.clone());
         }
-        if let Some(data) = entry
-            .data
+        if let Some(data) = data
             .as_any()
             .downcast_ref::<W3DOverlordTruckDrawModuleData>()
         {
             return Some(data.base.clone());
         }
-        if let Some(data) = entry
-            .data
+        if let Some(data) = data
             .as_any()
             .downcast_ref::<W3DTankTruckDrawModuleData>()
         {
             return Some(data.base.clone());
         }
-        if let Some(data) = entry
-            .data
+        if let Some(data) = data
             .as_any()
             .downcast_ref::<W3DPoliceCarDrawModuleData>()
         {

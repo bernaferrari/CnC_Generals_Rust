@@ -4,6 +4,8 @@
 //! Author: Kris Morness, June 2003 (original C++), converted to Rust
 
 use crate::common::ObjectID;
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
@@ -260,17 +262,23 @@ pub struct SabotagePowerPlantCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    module_data: SabotagePowerPlantCrateCollideModuleData,
+    module_data: ModuleDataView<SabotagePowerPlantCrateCollideModuleData>,
 }
 
 impl SabotagePowerPlantCrateCollide {
     /// Create new sabotage power plant crate collide module
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: SabotagePowerPlantCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let module_data = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>>().expect("sabotage crate data").data
+        });
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>>().expect("sabotage crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, base_data),
             module_data,
         }
     }
@@ -340,8 +348,7 @@ impl SabotagePowerPlantCrateCollide {
 
         drop(object_lock);
 
-        let module_data = &self.module_data;
-        let sabotage_frame = TheGameLogic::get_frame() + module_data.power_sabotage_frames;
+        let sabotage_frame = TheGameLogic::get_frame() + self.module_data.read().power_sabotage_frames;
 
         let player = other
             .read()

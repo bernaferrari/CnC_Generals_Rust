@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, Real, UpgradeMaskType};
@@ -6,7 +7,7 @@ use crate::object::body::body_module::MaxHealthChangeType;
 use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 /// Module data describing the max health increase to apply.
 #[derive(Debug, Clone)]
@@ -82,7 +83,7 @@ impl Snapshotable for MaxHealthUpgradeModuleData {
 /// Installed mutable state belongs only to this module; definitions remain immutable.
 pub struct MaxHealthUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<MaxHealthUpgradeModuleData>,
+    data: ModuleDataView<MaxHealthUpgradeModuleData>,
     applied: bool,
 }
 
@@ -98,27 +99,27 @@ impl MaxHealthUpgradeModuleData {
 impl MaxHealthUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<MaxHealthUpgradeModuleData>,
+        data: ModuleDataHandle,
         _object_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
-            data,
+            data: ModuleDataView::new(data, |data| (data as &dyn std::any::Any).downcast_ref::<MaxHealthUpgradeModuleData>().expect("expected max health upgrade data")),
             applied: false,
         }
     }
     pub(crate) fn can_upgrade(&self, mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
+        mux_can_upgrade(&self.data.read().upgrade_mux_data, self.applied, mask)
     }
     pub(crate) fn prepare_upgrade(
         &self,
         mask: UpgradeMaskType,
-    ) -> Option<Arc<MaxHealthUpgradeModuleData>> {
-        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    ) -> Option<ModuleDataView<MaxHealthUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| self.data.clone())
     }
     pub(crate) fn remove_upgrade(&mut self, mask: UpgradeMaskType) {
         // C++ resetUpgrade only resets execution; the health addition is not undone.
-        mux_reset_upgrade(&self.data.upgrade_mux_data, &mut self.applied, mask);
+        mux_reset_upgrade(&self.data.read().upgrade_mux_data, &mut self.applied, mask);
     }
     pub(crate) fn finish_upgrade(&mut self) {
         // C++ commits execution even when the object has no BodyModule.
@@ -137,10 +138,10 @@ impl Module for MaxHealthUpgrade {
         self.module_name_key
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.handle().read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 

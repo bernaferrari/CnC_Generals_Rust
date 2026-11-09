@@ -20,6 +20,8 @@ use crate::upgrade::modules::model_condition::parse_model_condition_flag as pars
 use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 /// Wave 277 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
 /// Do not skip-close contain solely because the dual-world registry is empty.
@@ -409,7 +411,8 @@ mod tests {
         );
         let mut data = RiderChangeContainModuleData::default();
         data.riders[0].template_name = "BorrowedBikeRider".into();
-        let mut contain = RiderChangeContain::new(Weak::new(), &data).unwrap();
+        let handle = ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone()));
+        let mut contain = RiderChangeContain::new(Weak::new(), handle.clone()).unwrap();
         assert!(ContainModuleInterface::is_valid_container_for_with_owner(
             &contain, &rider, &owner, true
         ));
@@ -419,7 +422,12 @@ mod tests {
         ));
         contain.scuttled_on_frame = 0;
         data.riders[0].template_name = "DifferentRider".into();
-        contain.module_data = data;
+        {
+            let mut guard = handle.write();
+            let any: &mut dyn std::any::Any = &mut *guard;
+            *any.downcast_mut::<ContainModuleDataAdapter<RiderChangeContainModuleData>>().unwrap() =
+                ContainModuleDataAdapter::new(data);
+        }
         assert!(!ContainModuleInterface::is_valid_container_for_with_owner(
             &contain, &rider, &owner, false
         ));
@@ -690,7 +698,7 @@ mod tests {
             locomotor_set: LocomotorSetType::Normal,
         };
         configure(&mut data);
-        RiderChangeContain::new(Arc::downgrade(owner), &data).expect("rider change contain")
+        RiderChangeContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("rider change contain")
     }
 
     fn rider_change_for(owner: &Arc<RwLock<Object>>) -> RiderChangeContain {
@@ -1374,7 +1382,7 @@ pub struct RiderChangeContain {
     /// Reference to the owning object
     object_id: ObjectID,
     /// Module configuration
-    module_data: RiderChangeContainModuleData,
+    module_data: ModuleDataView<RiderChangeContainModuleData>,
     /// Frame when scuttling started
     scuttled_on_frame: u32,
     /// RiderChange shadows TransportContain's extra-slot field in C++ and xfers it separately.
@@ -1389,7 +1397,7 @@ impl RiderChangeContain {
     /// Create a new RiderChangeContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &RiderChangeContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
         let object_id = object
             .upgrade()
@@ -1401,14 +1409,20 @@ impl RiderChangeContain {
     /// hq-2qedt.58: owner identity without the ambient object registry.
     pub(crate) fn new_for_owner(
         object_id: ObjectID,
-        module_data: &RiderChangeContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = TransportContain::new_for_owner(object_id, &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<RiderChangeContainModuleData>>()
+                .expect("rider change contain module data has an incompatible type")
+                .contain_data()
+        });
+        drop(data.read());
+        let base = TransportContain::new_for_owner(object_id, module_data)?;
 
         Ok(Self {
             base,
             object_id,
-            module_data: module_data.clone(),
+            module_data: data,
             scuttled_on_frame: 0,
             extra_slots_in_use: 0,
             frame_exit_not_busy: 0,
@@ -1444,13 +1458,17 @@ impl RiderChangeContain {
         }
 
         let rider_template = rider.get_template();
-        for rider_info in &self.module_data.riders {
-            if rider_info_matches_template(rider_info, rider_template.as_ref()) {
-                return true;
+        self.matching_rider_info(rider_template.as_ref()).is_some()
+    }
+
+    fn matching_rider_info(&self, template: &dyn crate::common::ThingTemplate) -> Option<RiderInfo> {
+        for index in 0..8 {
+            let info = self.module_data.read().riders[index].clone();
+            if rider_info_matches_template(&info, template) {
+                return Some(info);
             }
         }
-
-        false
+        None
     }
 
     pub fn add_to_contain(&mut self, rider_id: ObjectID, was_selected: bool) -> GameResult<()> {
@@ -1630,29 +1648,25 @@ impl RiderChangeContain {
 
         if let Some(owner) = owner_arc.as_ref() {
             if let Ok(mut owner_guard) = owner.write() {
-                for rider_info in &self.module_data.riders {
-                    if rider_info_matches_template(rider_info, rider_template.as_ref()) {
-                        owner_guard.set_model_condition_state(rider_info.model_condition_flag);
-                        owner_guard.set_weapon_set_flag(rider_info.weapon_set_flag);
-                        owner_guard.set_status(rider_info.object_status, true);
-                        owner_guard.set_command_set_string_override(&rider_info.command_set);
+                if let Some(rider_info) = self.matching_rider_info(rider_template.as_ref()) {
+                    owner_guard.set_model_condition_state(rider_info.model_condition_flag);
+                    owner_guard.set_weapon_set_flag(rider_info.weapon_set_flag);
+                    owner_guard.set_status(rider_info.object_status, true);
+                    owner_guard.set_command_set_string_override(&rider_info.command_set);
 
-                        if let Some(ai) = owner_guard.get_ai() {
-                            let _ = ai
-                                .lock()
-                                .map_err(|_| "AI lock poisoned")?
-                                .choose_locomotor_set(rider_info.locomotor_set);
-                        }
+                    if let Some(ai) = owner_guard.get_ai() {
+                        let _ = ai
+                            .lock()
+                            .map_err(|_| "AI lock poisoned")?
+                            .choose_locomotor_set(rider_info.locomotor_set);
+                    }
 
-                        if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
-                            if let Some(stealth) = owner_guard.get_stealth() {
-                                if let Ok(mut stealth_guard) = stealth.lock() {
-                                    stealth_guard.mark_as_detected();
-                                }
+                    if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
+                        if let Some(stealth) = owner_guard.get_stealth() {
+                            if let Ok(mut stealth_guard) = stealth.lock() {
+                                stealth_guard.mark_as_detected();
                             }
                         }
-
-                        break;
                     }
                 }
             }
@@ -1875,17 +1889,13 @@ impl RiderChangeContain {
             crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) {
             if let Ok(mut owner_guard) = owner.write() {
-                for rider_info in &self.module_data.riders {
-                    if rider_info_matches_template(rider_info, rider_template.as_ref()) {
-                        let _ = owner_guard.clear_model_condition_flags(
-                            rider_info.model_condition_flag | ModelConditionFlags::DOOR_1_CLOSING,
-                        );
-                        owner_guard.clear_weapon_set_flag(rider_info.weapon_set_flag);
-                        owner_guard.set_status(rider_info.object_status, false);
-                        transfer_to_rider = true;
-
-                        break;
-                    }
+                if let Some(rider_info) = self.matching_rider_info(rider_template.as_ref()) {
+                    let _ = owner_guard.clear_model_condition_flags(
+                        rider_info.model_condition_flag | ModelConditionFlags::DOOR_1_CLOSING,
+                    );
+                    owner_guard.clear_weapon_set_flag(rider_info.weapon_set_flag);
+                    owner_guard.set_status(rider_info.object_status, false);
+                    transfer_to_rider = true;
                 }
             }
         }
@@ -1903,7 +1913,8 @@ impl RiderChangeContain {
                         ObjectStatusMaskType::from_status(ObjectStatusTypes::Unselectable),
                         true,
                     );
-                    owner_guard.set_model_condition_state(self.module_data.scuttle_state);
+                    let scuttle_state = self.module_data.read().scuttle_state;
+                    owner_guard.set_model_condition_state(scuttle_state);
 
                     if let Some(ai) = owner_guard.get_ai() {
                         if let Ok(ai_guard) = ai.lock() {
@@ -1943,7 +1954,7 @@ impl RiderChangeContain {
 
         if self.scuttled_on_frame != 0 {
             let now = TheGameLogic::get_frame();
-            if self.scuttled_on_frame + self.module_data.scuttle_frames <= now {
+            if self.scuttled_on_frame + self.module_data.read().scuttle_frames <= now {
                 if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                     None
                 } else {
@@ -2267,12 +2278,7 @@ impl ContainModuleInterface for RiderChangeContain {
         let template = rider.read().map_err(|_| "rider lock poisoned")?.get_template().clone();
         self.base.remove_with_world(id, expose, world)?;
         let mut transfer = false;
-        if let Some(info) = self
-            .module_data
-            .riders
-            .iter()
-            .find(|info| rider_info_matches_template(info, template.as_ref()))
-        {
+        if let Some(info) = self.matching_rider_info(template.as_ref()) {
             let mut owner = owner.write().map_err(|_| "owner lock poisoned")?;
             let _ = owner.clear_model_condition_flags(
                 info.model_condition_flag | ModelConditionFlags::DOOR_1_CLOSING,
@@ -2320,12 +2326,7 @@ impl ContainModuleInterface for RiderChangeContain {
         };
         self.base.base.attach_enter_with_world(&prepared, world);
         self.containing = true;
-        if let Some(info) = self
-            .module_data
-            .riders
-            .iter()
-            .find(|info| rider_info_matches_template(info, template.as_ref()))
-        {
+        if let Some(info) = self.matching_rider_info(template.as_ref()) {
             let mut owner = prepared.owner.write().map_err(|_| "owner lock poisoned")?;
             owner.set_model_condition_state(info.model_condition_flag);
             owner.set_weapon_set_flag(info.weapon_set_flag);

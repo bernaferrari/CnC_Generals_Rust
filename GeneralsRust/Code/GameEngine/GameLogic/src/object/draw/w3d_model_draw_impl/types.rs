@@ -456,8 +456,19 @@ impl ModelConditionInfo {
         if self.barrels_are_valid() {
             return;
         }
-        // C++ still walks authored weapon-bone names after a failed model load.
+        let validated_barrels = self.build_weapon_barrel_info(&mut |name| {
+            self.find_pristine_bone_by_name_with_keys(name, name_to_key)
+                .map(|(_, bone)| bone.clone())
+        });
+        self.weapon_barrels = validated_barrels;
+        self.valid_stuff |= MODEL_CONDITION_BARRELS_VALID;
+    }
 
+    fn build_weapon_barrel_info(
+        &self,
+        lookup_bone: &mut dyn FnMut(&str) -> Option<PristineBoneInfo>,
+    ) -> Vec<Vec<WeaponBarrelInfo>> {
+        // C++ still walks authored weapon-bone names after a failed model load.
         let mut validated_barrels = vec![Vec::new(); WEAPONSLOT_COUNT];
 
         for (slot, barrels) in validated_barrels.iter_mut().enumerate() {
@@ -480,19 +491,17 @@ impl ModelConditionInfo {
 
                 if !recoil_bone_name.is_empty() {
                     let name = format!("{recoil_bone_name}{index:02}");
-                    info.recoil_bone =
-                        self.pristine_bone_index_by_name_with_keys(&name, name_to_key);
+                    info.recoil_bone = lookup_bone(&name).map(|bone| bone.bone_index).unwrap_or(0);
                 }
 
                 if !muzzle_flash_name.is_empty() {
                     let name = format!("{muzzle_flash_name}{index:02}");
-                    info.muzzle_flash_bone =
-                        self.pristine_bone_index_by_name_with_keys(&name, name_to_key);
+                    info.muzzle_flash_bone = lookup_bone(&name).map(|bone| bone.bone_index).unwrap_or(0);
                 }
 
                 if !fx_bone_name.is_empty() {
                     let name = format!("{fx_bone_name}{index:02}");
-                    info.fx_bone = self.pristine_bone_index_by_name_with_keys(&name, name_to_key);
+                    info.fx_bone = lookup_bone(&name).map(|bone| bone.bone_index).unwrap_or(0);
                     if info.fx_bone == 0 && info.muzzle_flash_bone != 0 {
                         info.fx_bone = prev_fx_bone;
                     }
@@ -501,9 +510,7 @@ impl ModelConditionInfo {
                 let mut projectile_launch_bone = 0;
                 if !projectile_launch_name.is_empty() {
                     let name = format!("{projectile_launch_name}{index:02}");
-                    if let Some((_, bone)) =
-                        self.find_pristine_bone_by_name_with_keys(&name, name_to_key)
-                    {
+                    if let Some(bone) = lookup_bone(&name) {
                         projectile_launch_bone = bone.bone_index;
                         info.projectile_offset_mtx = bone.transform;
                     }
@@ -525,26 +532,21 @@ impl ModelConditionInfo {
                 let mut info = WeaponBarrelInfo::new();
 
                 if !recoil_bone_name.is_empty() {
-                    info.recoil_bone =
-                        self.pristine_bone_index_by_name_with_keys(recoil_bone_name, name_to_key);
+                    info.recoil_bone = lookup_bone(recoil_bone_name).map(|bone| bone.bone_index).unwrap_or(0);
                 }
 
                 if !muzzle_flash_name.is_empty() {
-                    info.muzzle_flash_bone =
-                        self.pristine_bone_index_by_name_with_keys(muzzle_flash_name, name_to_key);
+                    info.muzzle_flash_bone = lookup_bone(muzzle_flash_name).map(|bone| bone.bone_index).unwrap_or(0);
                 }
 
                 if !projectile_launch_name.is_empty() {
-                    if let Some((_, bone)) = self
-                        .find_pristine_bone_by_name_with_keys(projectile_launch_name, name_to_key)
-                    {
+                    if let Some(bone) = lookup_bone(projectile_launch_name) {
                         info.projectile_offset_mtx = bone.transform;
                     }
                 }
 
                 if !fx_bone_name.is_empty() {
-                    info.fx_bone =
-                        self.pristine_bone_index_by_name_with_keys(fx_bone_name, name_to_key);
+                    info.fx_bone = lookup_bone(fx_bone_name).map(|bone| bone.bone_index).unwrap_or(0);
                 }
 
                 if info.fx_bone != 0
@@ -557,8 +559,7 @@ impl ModelConditionInfo {
             }
         }
 
-        self.weapon_barrels = validated_barrels;
-        self.valid_stuff |= MODEL_CONDITION_BARRELS_VALID;
+        validated_barrels
     }
 
     pub(crate) fn barrels_are_valid(&self) -> bool {
@@ -593,21 +594,14 @@ impl ModelConditionInfo {
         self.validate_turret_info();
         self.validate_weapon_barrel_info();
     }
-
-    fn validate_runtime_caches_with_receiver(
-        &mut self,
-        extra_public_bones: &[AsciiString],
-        scale: Real,
-        receiver: &mut dyn ClientParticleStateRuntime,
-    ) {
-        self.validate_public_bones(extra_public_bones);
-        let standard = receiver.standard_public_bones();
-        self.validate_cached_bones_with_keys(scale, &standard, &mut |model, scale, frame, name| {
-            let (index, transform) = receiver.pristine_bone(model, scale, frame, name)?;
-            Some((receiver.name_to_key(name), index, transform))
-        });
-        self.validate_turret_info();
-        self.validate_weapon_barrel_info_with_keys(&mut |name| receiver.name_to_key(name));
+    // Capture authored names before invoking receiver callbacks.
+    fn barrel_inputs_snapshot(&self) -> Self {
+        let mut snapshot = Self::new();
+        snapshot.weapon_fire_fx_bone = self.weapon_fire_fx_bone.clone();
+        snapshot.weapon_recoil_bone = self.weapon_recoil_bone.clone();
+        snapshot.weapon_muzzle_flash = self.weapon_muzzle_flash.clone();
+        snapshot.weapon_projectile_launch_bone = self.weapon_projectile_launch_bone.clone();
+        snapshot
     }
 
     fn refresh_projectile_valid_bit(&mut self) {

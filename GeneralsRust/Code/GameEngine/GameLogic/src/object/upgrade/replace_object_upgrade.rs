@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use crate::ai::the_ai;
-use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
+use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::OBJECT_REGISTRY;
 use crate::object::upgrade::upgrade_module::{
@@ -71,7 +69,7 @@ impl Snapshotable for ReplaceObjectUpgradeModuleData {
 /// Upgrade module that replaces the object with a different type (transformation).
 pub struct ReplaceObjectUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<ReplaceObjectUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     applied: bool,
 }
@@ -79,7 +77,7 @@ pub struct ReplaceObjectUpgrade {
 impl ReplaceObjectUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<ReplaceObjectUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         Self {
@@ -105,11 +103,11 @@ impl Module for ReplaceObjectUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -136,7 +134,7 @@ impl Snapshotable for ReplaceObjectUpgrade {
 
 impl UpgradeModuleInterface for ReplaceObjectUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+        mux_can_upgrade(&self.data.read().as_any().downcast_ref::<ReplaceObjectUpgradeModuleData>().expect("ReplaceObjectUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -148,8 +146,8 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
         if self.applied {
             return false;
         }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        let replace_name = self.data.replace_object_name();
+        { let data = self.data.read().as_any().downcast_ref::<ReplaceObjectUpgradeModuleData>().expect("ReplaceObjectUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
+        let replace_name = self.data.read().as_any().downcast_ref::<ReplaceObjectUpgradeModuleData>().expect("ReplaceObjectUpgradeModuleData").replace_object_name().clone();
         if replace_name.is_empty() {
             log::warn!(
                 "ReplaceObjectUpgrade: Missing ReplaceObject name for object {}",
@@ -299,7 +297,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ does not revert this upgrade; resetUpgrade only clears executed.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().as_any().downcast_ref::<ReplaceObjectUpgradeModuleData>().expect("ReplaceObjectUpgradeModuleData").upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );

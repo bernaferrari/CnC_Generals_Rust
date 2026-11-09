@@ -50,7 +50,7 @@ use bitflags::bitflags;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData};
+use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, ModuleDataHandle, ModuleDataView};
 use std::any::Any;
 use std::sync::{Arc, RwLock};
 
@@ -488,13 +488,13 @@ pub fn xfer_die_module_with_derived_version(xfer: &mut dyn Xfer) -> Result<(), S
 /// Base struct for die modules with common functionality
 #[derive(Debug)]
 pub struct DieModule<T: EngineModuleData> {
-    pub module_data: Arc<T>,
+    pub module_data: ModuleDataView<T>,
     pub object_id: ObjectID,
 }
 
 impl<T: EngineModuleData> DieModule<T> {
     /// Create a new die module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<T>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: ModuleDataHandle) -> Self {
         let object_id = object
             .read()
             .ok()
@@ -502,15 +502,15 @@ impl<T: EngineModuleData> DieModule<T> {
             .unwrap_or(crate::common::INVALID_ID);
         Self::new_for_object_id(object_id, module_data)
     }
-    pub(crate) fn new_for_object_id(object_id: ObjectID, module_data: Arc<T>) -> Self {
+    pub(crate) fn new_for_object_id(object_id: ObjectID, module_data: ModuleDataHandle) -> Self {
         Self {
-            module_data,
+            module_data: ModuleDataView::new(module_data, |data| data.as_any().downcast_ref::<T>().expect("incorrect die module data")),
             object_id,
         }
     }
 
-    /// Get the module data
-    pub fn get_module_data(&self) -> &T {
+    /// Get the shared module data.
+    pub fn get_module_data(&self) -> &ModuleDataView<T> {
         &self.module_data
     }
 
@@ -564,8 +564,7 @@ impl<T: EngineModuleData> DieModule<T> {
 #[derive(Debug)]
 pub struct DieModuleWrapper {
     module_name_key: NameKeyType,
-    module_tag_name_key: NameKeyType,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     die_module: Box<dyn DieModuleInterface>,
 }
@@ -573,7 +572,7 @@ pub struct DieModuleWrapper {
 impl DieModuleWrapper {
     pub fn new(
         module_name: &AsciiString,
-        module_data: Arc<dyn EngineModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         object: Arc<RwLock<Object>>,
         die_module: Box<dyn DieModuleInterface>,
     ) -> Self {
@@ -586,13 +585,12 @@ impl DieModuleWrapper {
     }
     pub(crate) fn new_for_object_id(
         module_name: &AsciiString,
-        module_data: Arc<dyn EngineModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
         die_module: Box<dyn DieModuleInterface>,
     ) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
-            module_tag_name_key: module_data.get_module_tag_name_key(),
             module_data,
             object_id,
             die_module,
@@ -668,11 +666,11 @@ impl Module for DieModuleWrapper {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_tag_name_key
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 }
 

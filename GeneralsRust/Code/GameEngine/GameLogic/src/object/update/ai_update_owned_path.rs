@@ -143,7 +143,7 @@ mod queue_deadline_tests {
     use super::*;
     #[test]
     fn supplied_queue_delay_wraps_and_zero_clears_like_cpp() {
-        let mut ai = AIUpdateInterface::new(Arc::new(AIUpdateModuleData::default()));
+        let mut ai = AIUpdateInterface::new(ModuleDataHandle::new(AIUpdateModuleData::default()));
         ai.set_queue_for_path_time_at(u32::MAX - 5, 30);
         assert_eq!(ai.get_queue_for_path_frame(), 24);
         ai.set_queue_for_path_time_at(u32::MAX, 1);

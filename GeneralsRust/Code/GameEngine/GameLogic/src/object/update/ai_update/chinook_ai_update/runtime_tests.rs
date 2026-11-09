@@ -1,7 +1,7 @@
 //! Actual factory admission and synchronous callback regressions. These drive
 //! cached UnitAI directly; normal sleepy-scheduler integration is a separate contract.
 
-use super::{ChinookAIUpdate, ChinookAIUpdateData, ChinookAIUpdateModuleData, ChinookFlightStatus};
+use super::{ChinookAIUpdate, ChinookAIUpdateModuleData, ChinookFlightStatus};
 use crate::common::{Coord3D, DisabledType, ModelConditionFlags};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
@@ -55,7 +55,7 @@ impl Fixture {
                 .find(|module| module.name.as_str() == "ChinookAIUpdate")
                 .unwrap()
                 .data
-                .as_ref()
+                .read()
                 .downcast_ref::<ChinookAIUpdateModuleData>()
                 .is_some(),
             "typed Chinook data"
@@ -239,13 +239,8 @@ fn combat_drop_missing_bones_discards_supplies_before_failure() {
         .iter()
         .find(|entry| entry.name.as_str() == "ChinookAIUpdate")
         .unwrap();
-    let data = module
-        .data
-        .as_ref()
-        .downcast_ref::<ChinookAIUpdateModuleData>()
-        .unwrap();
     let mut chinook = ChinookAIUpdate::new(
-        ChinookAIUpdateData::from_module(data),
+        module.data.clone(),
         fixture.owner.read().unwrap().get_id(),
         0,
     );

@@ -11,7 +11,7 @@ use crate::modules::AIUpdateInterface;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 #[derive(Debug, Clone)]
 pub struct WanderAIUpdateModuleData {
@@ -78,11 +78,11 @@ impl Snapshotable for WanderAIUpdateModuleData {
 #[derive(Debug)]
 pub struct WanderAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<WanderAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl WanderAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<WanderAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -96,11 +96,11 @@ impl Module for WanderAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 

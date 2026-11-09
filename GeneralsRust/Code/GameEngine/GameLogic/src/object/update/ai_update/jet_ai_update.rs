@@ -31,7 +31,7 @@ use crate::waypoint::Waypoint;
 use crate::weapon::{WeaponReloadType, WeaponSlotType, WeaponStatus};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 /// Wave 309: host-only path has no dual-world factory objects.
 #[inline]
@@ -754,7 +754,7 @@ impl JetStateMachine {
                         let mut info = PPInfo::default();
                         if !pp.reserve_space(
                             jet_ai.object_id,
-                            jet_ai.data.parking_offset,
+                            jet_ai.data().parking_offset,
                             &mut info,
                         ) {
                             return true;
@@ -1018,7 +1018,7 @@ impl JetStateMachine {
                 let mut take_taxi_path: Option<Vec<Coord3D>> = None;
                 let Some(result) = jet_ai.with_producer_parking_place(|pp| {
                     let mut info = PPInfo::default();
-                    if !pp.reserve_space(jet_ai.object_id, jet_ai.data.parking_offset, &mut info) {
+                    if !pp.reserve_space(jet_ai.object_id, jet_ai.data().parking_offset, &mut info) {
                         return StateReturnType::Failure;
                     }
                     if pp.reserve_runway(jet_ai.object_id, landing) {
@@ -1113,7 +1113,7 @@ impl JetStateMachine {
                 }
                 let now = TheGameLogic::get_frame();
                 if !self.reset_timer {
-                    self.pause_until = now.saturating_add(jet_ai.data.takeoff_pause.max(1));
+                    self.pause_until = now.saturating_add(jet_ai.data().takeoff_pause.max(1));
                     if self.waited_for_taxi_id == INVALID_ID {
                         self.waited_for_taxi_id = jet_ai.object_id;
                         self.pause_transfer = now.saturating_add(1);
@@ -1223,7 +1223,7 @@ impl JetStateMachine {
                 }
                 let Some(result) = jet_ai.with_producer_parking_place(|pp| {
                     let mut info = PPInfo::default();
-                    if !pp.reserve_space(jet_ai.object_id, jet_ai.data.parking_offset, &mut info) {
+                    if !pp.reserve_space(jet_ai.object_id, jet_ai.data().parking_offset, &mut info) {
                         return StateReturnType::Failure;
                     }
                     if let Ok(mut guard) = obj.write() {
@@ -1298,7 +1298,7 @@ impl JetStateMachine {
                                 let mut info = PPInfo::default();
                                 if !pp.reserve_space(
                                     jet_ai.object_id,
-                                    jet_ai.data.parking_offset,
+                                    jet_ai.data().parking_offset,
                                     &mut info,
                                 ) {
                                     return StateReturnType::Failure;
@@ -1371,7 +1371,7 @@ impl JetStateMachine {
                     }
                 }
                 ai.set_locomotor_goal_none();
-                let damage_rate = jet_ai.data.out_of_ammo_damage_per_second;
+                let damage_rate = jet_ai.data().out_of_ammo_damage_per_second;
                 if damage_rate > 0.0 {
                     if let Ok(mut guard) = obj.write() {
                         if let Some(body) = guard.get_body_module() {
@@ -1421,7 +1421,7 @@ impl JetStateMachine {
         };
         let Some(result) = jet_ai.with_producer_parking_place(|pp| {
             let mut info = PPInfo::default();
-            if !pp.reserve_space(jet_ai.object_id, jet_ai.data.parking_offset, &mut info) {
+            if !pp.reserve_space(jet_ai.object_id, jet_ai.data().parking_offset, &mut info) {
                 return false;
             }
             let (start, is_deck, reassign) = jet_ai
@@ -1535,7 +1535,7 @@ impl JetStateMachine {
     ) {
         let Some(ok) = jet_ai.with_producer_parking_place(|pp| {
             let mut info = PPInfo::default();
-            if !pp.reserve_space(jet_ai.object_id, jet_ai.data.parking_offset, &mut info) {
+            if !pp.reserve_space(jet_ai.object_id, jet_ai.data().parking_offset, &mut info) {
                 return false;
             }
             if landing && !pp.reserve_runway(jet_ai.object_id, true) {
@@ -1610,7 +1610,7 @@ impl JetStateMachine {
                     pp.get_approach_height() + pp.get_landing_deck_height_offset();
             } else {
                 let mut info = PPInfo::default();
-                if !pp.reserve_space(jet_ai.object_id, jet_ai.data.parking_offset, &mut info) {
+                if !pp.reserve_space(jet_ai.object_id, jet_ai.data().parking_offset, &mut info) {
                     return false;
                 }
                 self.heli_parking_loc = info.parking_space;
@@ -1661,7 +1661,7 @@ impl JetStateMachine {
 /// JetAIUpdate runtime state (port of C++ JetAIUpdate fields).
 pub struct JetAIUpdate {
     object_id: ObjectID,
-    data: JetAIUpdateModuleData,
+    data: ModuleDataHandle,
     producer_location: Coord3D,
     most_recent_command: AICommandParmsStorage,
     afterburner_sound: AudioEventRts,
@@ -1680,8 +1680,8 @@ pub struct JetAIUpdate {
 }
 
 impl JetAIUpdate {
-    pub fn new(data: JetAIUpdateModuleData, object_id: ObjectID) -> Self {
-        let needs_runway = data.needs_runway;
+    pub fn new(data: ModuleDataHandle, object_id: ObjectID) -> Self {
+        let needs_runway = data.read().downcast_ref::<JetAIUpdateModuleData>().expect("JetAIUpdate data type").needs_runway;
         Self {
             object_id,
             data,
@@ -1701,6 +1701,12 @@ impl JetAIUpdate {
             suppress_command_store: false,
             state_machine: JetStateMachine::new(needs_runway),
         }
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, JetAIUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.downcast_ref::<JetAIUpdateModuleData>().expect("JetAIUpdate data type")
+        })
     }
 
     fn default_command_storage() -> AICommandParmsStorage {
@@ -1928,11 +1934,11 @@ impl JetAIUpdate {
                         machine.set_state(JetAIStateType::ReturningForLanding, ai, driver, jet)
                     });
                 } else if self.return_to_base_frame == 0
-                    && self.data.return_to_base_idle_time > 0
+                    && self.data().return_to_base_idle_time > 0
                     && allow_air_loco
                 {
-                    self.return_to_base_frame =
-                        now.saturating_add(self.data.return_to_base_idle_time);
+                    let idle_time = self.data().return_to_base_idle_time;
+                    self.return_to_base_frame = now.saturating_add(idle_time);
                 }
             } else {
                 let _ = self.with_producer_parking_place(|pp| {
@@ -2179,7 +2185,7 @@ impl JetAIUpdate {
             let is_helipad = air_guard.is_kind_of(KindOf::ProducedAtHelipad);
             let _ = self.with_airfield_parking_place(airfield_id, |pp| {
                 let mut info = PPInfo::default();
-                if pp.reserve_space(self.object_id, self.data.parking_offset, &mut info)
+                if pp.reserve_space(self.object_id, self.data().parking_offset, &mut info)
                     || is_helipad
                 {
                     reserved = true;
@@ -2403,15 +2409,15 @@ impl JetAIUpdate {
     }
 
     pub fn parking_offset(&self) -> Real {
-        self.data.parking_offset
+        self.data().parking_offset
     }
 
     pub fn needs_runway(&self) -> Bool {
-        self.data.needs_runway
+        self.data().needs_runway
     }
 
     pub fn keeps_parking_space_when_airborne(&self) -> Bool {
-        self.data.keeps_parking_space_when_airborne
+        self.data().keeps_parking_space_when_airborne
     }
 
     pub fn should_block_idle(&self, pending_command: Option<AiCommandType>) -> bool {
@@ -2455,8 +2461,8 @@ impl JetAIUpdate {
         else {
             return false;
         };
-        offset.x = dir_x * self.data.sneaky_offset_when_attacking;
-        offset.y = dir_y * self.data.sneaky_offset_when_attacking;
+        offset.x = dir_x * self.data().sneaky_offset_when_attacking;
+        offset.y = dir_y * self.data().sneaky_offset_when_attacking;
         offset.z = 0.0;
         true
     }
@@ -2491,7 +2497,7 @@ impl JetAIUpdate {
 
         let now = TheGameLogic::get_frame();
         let remaining = self.untargetable_expire_frame.saturating_sub(now);
-        let lockon_time = self.data.lockon_time.max(1);
+        let lockon_time = self.data().lockon_time.max(1);
         let elapsed = lockon_time.saturating_sub(remaining);
 
         let Some((owner_pos, final_dist)) = self.with_object(|guard| {
@@ -2503,8 +2509,8 @@ impl JetAIUpdate {
             return;
         };
         let frac = remaining as Real / lockon_time as Real;
-        let dist = final_dist + (self.data.lockon_initial_dist - final_dist) * frac;
-        let angle = self.data.lockon_angle_spin * frac;
+        let dist = final_dist + (self.data().lockon_initial_dist - final_dist) * frac;
+        let angle = self.data().lockon_angle_spin * frac;
 
         let mut pos = owner_pos;
         pos.x += angle.cos() * dist;
@@ -2522,7 +2528,7 @@ impl JetAIUpdate {
         let elapsed_prev = elapsed.saturating_sub(1);
         let elapsed_time_sum_prev = 0.5 * (elapsed_prev as Real) * (elapsed as Real);
         let elapsed_time_sum_curr = elapsed_time_sum_prev + elapsed as Real;
-        let factor = self.data.lockon_freq / lockon_time as Real;
+        let factor = self.data().lockon_freq / lockon_time as Real;
         let last_phase = ((factor * elapsed_time_sum_prev) as i32 & 1) != 0;
         let this_phase = ((factor * elapsed_time_sum_curr) as i32 & 1) != 0;
 
@@ -2537,12 +2543,12 @@ impl JetAIUpdate {
                     audio.add_audio_event(&lockon_sound);
                 }
             }
-            if self.data.lockon_blinky {
+            if self.data().lockon_blinky {
                 if let Some(client) = TheGameClient::get() {
                     client.set_drawable_hidden(drawable_id, false);
                 }
             }
-        } else if self.data.lockon_blinky {
+        } else if self.data().lockon_blinky {
             if let Some(client) = TheGameClient::get() {
                 client.set_drawable_hidden(drawable_id, true);
             }
@@ -2553,11 +2559,12 @@ impl JetAIUpdate {
         if self.untargetable_expire_frame == 0 {
             return;
         }
-        if self.data.lockon_cursor.is_empty() || self.lockon_drawable.is_some() {
+        let cursor = self.data().lockon_cursor.clone();
+        if cursor.is_empty() || self.lockon_drawable.is_some() {
             self.position_lockon();
             return;
         }
-        let Some(template) = TheThingFactory::find_template(self.data.lockon_cursor.as_str())
+        let Some(template) = TheThingFactory::find_template(cursor.as_str())
         else {
             return;
         };
@@ -2568,7 +2575,7 @@ impl JetAIUpdate {
     }
 
     pub fn add_targeter(&mut self, id: ObjectID, add: bool) {
-        let lockon_time = self.data.lockon_time;
+        let lockon_time = self.data().lockon_time;
         if lockon_time == 0 {
             return;
         }
@@ -2616,7 +2623,7 @@ impl JetAIUpdate {
     }
 
     pub fn notify_victim_is_dead(&mut self) {
-        if self.data.needs_runway {
+        if self.data().needs_runway {
             self.return_to_base_frame = TheGameLogic::get_frame();
         }
     }
@@ -2650,12 +2657,13 @@ impl JetAIUpdate {
             })
             .unwrap_or(false)
         {
-            self.attack_loco_expire_frame = now.saturating_add(self.data.attack_loco_persist_time);
-            self.attackers_miss_expire_frame =
-                now.saturating_add(self.data.attackers_miss_persist_time);
+            let attack_loco_persist_time = self.data().attack_loco_persist_time;
+            let attackers_miss_persist_time = self.data().attackers_miss_persist_time;
+            self.attack_loco_expire_frame = now.saturating_add(attack_loco_persist_time);
+            self.attackers_miss_expire_frame = now.saturating_add(attackers_miss_persist_time);
         }
 
-        let mut min_height = self.data.min_height;
+        let mut min_height = self.data().min_height;
         if let Some(producer_id) = self.with_object(|guard| guard.get_producer_id()) {
             if producer_id != INVALID_ID {
                 let _ = OBJECT_REGISTRY.with_object(producer_id, |air_guard| {
@@ -2829,10 +2837,10 @@ impl JetAIUpdate {
             return Some(LocomotorSetType::Taxiing);
         }
         if self.attack_loco_expire_frame != 0 {
-            return Some(self.data.attacking_loco);
+            return Some(self.data().attacking_loco);
         }
         if self.get_flag(JetFlag::UseSpecialReturnLoco) {
-            return Some(self.data.returning_loco);
+            return Some(self.data().returning_loco);
         }
         None
     }
@@ -2925,7 +2933,7 @@ impl Snapshotable for JetAIUpdate {
         xfer_io(xfer.xfer_unsigned_int(&mut self.untargetable_expire_frame))?;
 
         let mut draw_name = if self.lockon_drawable.is_some() {
-            self.data.lockon_cursor.as_str().to_string()
+            self.data().lockon_cursor.as_str().to_string()
         } else {
             String::new()
         };
@@ -3038,11 +3046,11 @@ impl Snapshotable for JetAIUpdate {
 #[derive(Debug)]
 pub struct JetAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<JetAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl JetAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<JetAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -3056,21 +3064,21 @@ impl Module for JetAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for JetAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -3202,7 +3210,7 @@ mod tests {
         params.damage.output.no_effect = true;
         params.damage.sync_from_input();
 
-        let mut jet = JetAIUpdate::new(JetAIUpdateModuleData::default(), 0xC114);
+        let mut jet = JetAIUpdate::new(ModuleDataHandle::new(JetAIUpdateModuleData::default()), 0xC114);
         jet.store_most_recent_command(&params);
         let in_memory_replay = jet.reconstitute_command_params();
         assert_eq!(in_memory_replay.cmd, AiCommandType::AttackObject);
@@ -3221,7 +3229,7 @@ mod tests {
             let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
             jet.xfer(&mut save).unwrap();
         }
-        let mut restored_jet = JetAIUpdate::new(JetAIUpdateModuleData::default(), 0xC114);
+        let mut restored_jet = JetAIUpdate::new(ModuleDataHandle::new(JetAIUpdateModuleData::default()), 0xC114);
         {
             let mut load = XferLoad::new(Cursor::new(bytes), 1);
             restored_jet.xfer(&mut load).unwrap();
@@ -3364,7 +3372,7 @@ mod tests {
 
     #[test]
     fn jet_runtime_xfer_restores_producer_queue_and_flags() {
-        let mut original = JetAIUpdate::new(JetAIUpdateModuleData::default(), 7);
+        let mut original = JetAIUpdate::new(ModuleDataHandle::new(JetAIUpdateModuleData::default()), 7);
         original.producer_location = Coord3D::new(11.0, 22.0, 33.0);
         original.return_to_base_frame = 99;
         original.flags = 1 << JetFlag::TaxiInProgress as u32;
@@ -3381,7 +3389,7 @@ mod tests {
             original.xfer(&mut save).unwrap();
         }
 
-        let mut restored = JetAIUpdate::new(JetAIUpdateModuleData::default(), 7);
+        let mut restored = JetAIUpdate::new(ModuleDataHandle::new(JetAIUpdateModuleData::default()), 7);
         {
             let cursor = Cursor::new(bytes);
             let mut load = XferLoad::new(cursor, 1);
@@ -3404,7 +3412,7 @@ mod tests {
 
     #[test]
     fn exit_production_does_not_leave_pending_replay() {
-        let jet = JetAIUpdate::new(JetAIUpdateModuleData::default(), 1);
+        let jet = JetAIUpdate::new(ModuleDataHandle::new(JetAIUpdateModuleData::default()), 1);
         assert!(!jet.has_pending_command());
     }
 }

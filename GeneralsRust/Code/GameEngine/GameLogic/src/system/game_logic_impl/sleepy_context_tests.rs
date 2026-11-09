@@ -300,13 +300,13 @@ use game_engine::common::system::{Snapshotable, Xfer as ModuleXfer};
 use game_engine::common::thing::module::{BaseModuleData, Module, ModuleData};
 
 struct ScheduledOnlyModule {
-    data: Arc<BaseModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     calls: Arc<AtomicU32>,
     observed_frame: Arc<AtomicU32>,
 }
 
 struct SimpleOnlyModule {
-    data: Arc<BaseModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     calls: Arc<AtomicU32>,
 }
 
@@ -329,8 +329,8 @@ macro_rules! impl_test_update_module {
             fn get_module_name_key(&self) -> game_engine::common::thing::module::NameKeyType {
                 0x5052_4f58
             }
-            fn get_module_data(&self) -> &dyn ModuleData {
-                self.data.as_ref()
+            fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+                game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
             }
             fn get_update_module_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
                 Some(self)
@@ -370,11 +370,11 @@ fn installed_scheduled_only_module(
     object_id: ObjectID,
     wake: u32,
 ) -> (UpdateModulePtr, Arc<AtomicU32>, Arc<AtomicU32>) {
-    let data = Arc::new(BaseModuleData::new());
+    let data = game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new());
     let calls = Arc::new(AtomicU32::new(0));
     let observed_frame = Arc::new(AtomicU32::new(u32::MAX));
     let behavior = ScheduledOnlyModule {
-        data: Arc::clone(&data),
+        data: data.clone(),
         calls: Arc::clone(&calls),
         observed_frame: Arc::clone(&observed_frame),
     };
@@ -427,10 +427,10 @@ fn installed_module_proxy_forwards_scheduled_only_hook_to_driving_world() {
 #[test]
 fn installed_module_proxy_preserves_simple_only_callback_and_sleep() {
     let mut world = GameLogic::new();
-    let data = Arc::new(BaseModuleData::new());
+    let data = game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new());
     let calls = Arc::new(AtomicU32::new(0));
     let behavior = SimpleOnlyModule {
-        data: Arc::clone(&data),
+        data: data.clone(),
         calls: Arc::clone(&calls),
     };
     let (object, proxy) = Object::installed_update_proxy_for_test(

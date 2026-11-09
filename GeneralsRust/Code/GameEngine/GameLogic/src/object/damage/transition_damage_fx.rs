@@ -3,10 +3,10 @@
 
 use crate::common::ObjectID;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 use crate::common::{
-    AsciiString, Bool, Coord3D, DamageTypeFlags, ModuleData, NameKeyType, Real, TheFXListStore,
+    AsciiString, Bool, Coord3D, DamageTypeFlags, NameKeyType, Real, TheFXListStore,
     TheObjectCreationListStore, XferExt, game_logic_random_value,
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType, get_damage_type_flag};
@@ -22,7 +22,8 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData as EngineModuleData, NameKeyType as EngineNameKeyType, Thing as ModuleThing,
+    Module, ModuleDataHandle, ModuleDataView,
+    NameKeyType as EngineNameKeyType, Thing as ModuleThing,
 };
 
 /// Wave 416: host-only path has no dual-world factory objects.
@@ -1012,7 +1013,7 @@ const TRANSITION_DAMAGE_FX_FIELDS: &[FieldParse<TransitionDamageFXModuleData>] =
 #[derive(Debug)]
 pub struct TransitionDamageFX {
     object_id: ObjectID,
-    module_data: Arc<TransitionDamageFXModuleData>,
+    module_data: ModuleDataView<TransitionDamageFXModuleData>,
     particle_system_ids:
         [[crate::common::ParticleSystemID; DAMAGE_MODULE_MAX_FX]; BODY_DAMAGE_TYPE_COUNT],
 }
@@ -1020,7 +1021,7 @@ pub struct TransitionDamageFX {
 impl TransitionDamageFX {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<TransitionDamageFXModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         Self {
             object_id: object
@@ -1028,7 +1029,10 @@ impl TransitionDamageFX {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data,
+            module_data: ModuleDataView::new(module_data, |data| {
+                data.as_any().downcast_ref::<TransitionDamageFXModuleData>()
+                    .expect("TransitionDamageFX module data expected")
+            }),
             particle_system_ids: [[INVALID_PARTICLE_SYSTEM_ID; DAMAGE_MODULE_MAX_FX];
                 BODY_DAMAGE_TYPE_COUNT],
         }
@@ -1036,7 +1040,7 @@ impl TransitionDamageFX {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<TransitionDamageFXModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let module_object = thing
             .as_object()
@@ -1118,15 +1122,16 @@ impl TransitionDamageFX {
         last_damage: Option<DamageInfo>,
         new_state: BodyDamageType,
     ) {
+        let module_data = self.module_data.read();
         let state_index = new_state as usize;
         for i in 0..DAMAGE_MODULE_MAX_FX {
-            if let Some(fx) = &self.module_data.fx_list[state_index][i].fx {
+            if let Some(fx) = &module_data.fx_list[state_index][i].fx {
                 if Self::should_play_for_damage_type(
-                    self.module_data.damage_fx_types,
+                    module_data.damage_fx_types,
                     last_damage.clone(),
                 ) {
                     let mut pos = Self::get_local_effect_pos(
-                        &self.module_data.fx_list[state_index][i].loc_info,
+                        &module_data.fx_list[state_index][i].loc_info,
                         drawable,
                     );
                     let world = object.convert_bone_pos_to_world_pos(Some(&pos), None);
@@ -1136,13 +1141,13 @@ impl TransitionDamageFX {
                 }
             }
 
-            if let Some(ocl) = &self.module_data.ocl[state_index][i].ocl {
+            if let Some(ocl) = &module_data.ocl[state_index][i].ocl {
                 if Self::should_play_for_damage_type(
-                    self.module_data.damage_ocl_types,
+                    module_data.damage_ocl_types,
                     last_damage.clone(),
                 ) {
                     let mut pos = Self::get_local_effect_pos(
-                        &self.module_data.ocl[state_index][i].loc_info,
+                        &module_data.ocl[state_index][i].loc_info,
                         drawable,
                     );
                     let world = object.convert_bone_pos_to_world_pos(Some(&pos), None);
@@ -1162,10 +1167,10 @@ impl TransitionDamageFX {
             }
 
             if let Some(template_name) =
-                &self.module_data.particle_system[state_index][i].particle_system_name
+                &module_data.particle_system[state_index][i].particle_system_name
             {
                 if Self::should_play_for_damage_type(
-                    self.module_data.damage_particle_types,
+                    module_data.damage_particle_types,
                     last_damage.clone(),
                 ) {
                     if let Some(ps_manager) = TheParticleSystemManager::get() {
@@ -1173,7 +1178,7 @@ impl TransitionDamageFX {
                             ps_manager.create_particle_system(Some(template_name.as_str()))
                         {
                             let pos = Self::get_local_effect_pos(
-                                &self.module_data.particle_system[state_index][i].loc_info,
+                                &module_data.particle_system[state_index][i].loc_info,
                                 drawable,
                             );
                             ps_manager.set_particle_system_position(system_id, &pos);
@@ -1318,15 +1323,19 @@ impl BehaviorModuleInterface for TransitionDamageFX {
 pub struct TransitionDamageFXModule {
     behavior: TransitionDamageFX,
     module_name_key: NameKeyType,
-    module_data: Arc<TransitionDamageFXModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl TransitionDamageFXModule {
     pub fn new(
         behavior: TransitionDamageFX,
         module_name: &AsciiString,
-        module_data: Arc<TransitionDamageFXModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
+        assert!(
+            ModuleDataHandle::ptr_eq(behavior.module_data.handle(), &module_data),
+            "TransitionDamageFX behavior and module must share module data"
+        );
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -1368,11 +1377,11 @@ impl Module for TransitionDamageFXModule {
     }
 
     fn get_module_tag_name_key(&self) -> EngineNameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {

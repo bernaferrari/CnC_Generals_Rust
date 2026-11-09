@@ -11,7 +11,7 @@ use crate::object::{ModuleEntry, Object};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, xfer_load::XferLoad, xfer_save::XferSave};
 use game_engine::common::thing::module::{
-    BaseModuleData, Module, ModuleData, ModuleInterfaceType, ModuleType, Thing,
+    BaseModuleData, Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleInterfaceType, ModuleType, Thing,
 };
 use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
 use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
@@ -55,6 +55,14 @@ struct CacheProbeData {
     base: BaseModuleData,
     owner: Mutex<Option<Arc<RwLock<Object>>>>,
 }
+impl Clone for CacheProbeData {
+    fn clone(&self) -> Self {
+        Self {
+            base: self.base.clone(),
+            owner: Mutex::new(self.owner.lock().unwrap().clone()),
+        }
+    }
+}
 
 impl std::fmt::Debug for CacheProbeData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -87,7 +95,7 @@ impl Snapshotable for CacheProbeData {
 }
 
 struct CacheProbe {
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     created_with: (usize, f32, bool),
     observed: Option<(usize, f32)>,
 }
@@ -96,11 +104,12 @@ impl Module for CacheProbe {
     fn get_module_name_key(&self) -> u32 {
         NameKeyGenerator::name_to_key(PROBE)
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
     fn on_object_created(&mut self) {
-        let data = self.data.as_any().downcast_ref::<CacheProbeData>().unwrap();
+        let guard = self.data.read();
+        let data = guard.as_any().downcast_ref::<CacheProbeData>().unwrap();
         let owner = data
             .owner
             .lock()
@@ -146,11 +155,11 @@ impl Snapshotable for CacheProbe {
     }
 }
 
-fn probe_factory(_: Arc<dyn Thing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+fn probe_factory(_: Arc<dyn Thing>, data: ModuleDataHandle) -> Box<dyn Module> {
     // This is the actual next authored factory constructor. C++ caches the
     // body's interface before calling us, not only before onObjectCreated.
-    let owner = data
-        .as_ref()
+    let guard = data.read();
+    let owner = guard
         .as_any()
         .downcast_ref::<CacheProbeData>()
         .unwrap()
@@ -160,6 +169,7 @@ fn probe_factory(_: Arc<dyn Thing>, data: Arc<dyn ModuleData>) -> Box<dyn Module
         .as_ref()
         .unwrap()
         .clone();
+    drop(guard);
     let owner = owner
         .try_read()
         .expect("body installation released exact owner");
@@ -258,6 +268,7 @@ impl Installed {
             .unwrap();
         *data
             .data
+            .read()
             .as_any()
             .downcast_ref::<CacheProbeData>()
             .unwrap()

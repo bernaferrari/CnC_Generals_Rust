@@ -28,7 +28,7 @@ use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Coord3D, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, LocomotorSetType,
     MODELCONDITION_FREEFALL, MODELCONDITION_SPLATTED, MODELCONDITION_STUNNED,
-    MODELCONDITION_STUNNED_FLAILING, ModuleData, ObjectID, ObjectStatusTypes, Real,
+    MODELCONDITION_STUNNED_FLAILING, ObjectID, ObjectStatusTypes, Real,
     SECONDS_PER_LOGICFRAME_REAL, UnsignedInt, XferVersion,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
@@ -43,6 +43,7 @@ use crate::object::behavior::behavior_module::BehaviorModuleData;
 use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use glam::{Mat4, Quat, Vec3};
 use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -237,16 +238,18 @@ struct PhysicsBehaviorHandle {
     /// Exact construction owner, matching C++ BehaviorModule::getObject.
     /// A retired owner must never rebind through a reused ObjectID.
     owner: Weak<RwLock<GameObject>>,
-    module_data: Arc<PhysicsBehaviorModuleData>,
+    module_data: ModuleDataView<PhysicsBehaviorModuleData>,
     bounce_sound: Option<AudioEventRts>,
 }
 
 impl PhysicsBehaviorHandle {
-    fn new(object: Weak<RwLock<GameObject>>, module_data: Arc<PhysicsBehaviorModuleData>) -> Self {
-        let mut state = PhysicsBehaviorState::new(module_data.mass);
-        state.original_allow_bounce = module_data.allow_bouncing;
-        state.set_flag(FLAG_ALLOW_BOUNCE, module_data.allow_bouncing);
-        state.set_flag(FLAG_ALLOW_COLLIDE_FORCE, module_data.allow_collide_force);
+    fn new(object: Weak<RwLock<GameObject>>, module_data: ModuleDataView<PhysicsBehaviorModuleData>) -> Self {
+        let data = module_data.read();
+        let mut state = PhysicsBehaviorState::new(data.mass);
+        state.original_allow_bounce = data.allow_bouncing;
+        state.set_flag(FLAG_ALLOW_BOUNCE, data.allow_bouncing);
+        state.set_flag(FLAG_ALLOW_COLLIDE_FORCE, data.allow_collide_force);
+        drop(data);
         Self {
             state,
             owner: object,
@@ -301,7 +304,7 @@ impl PhysicsBehaviorHandle {
     }
 
     pub fn get_center_of_mass_offset(&self) -> Real {
-        self.module_data.center_of_mass_offset
+        self.module_data.read().center_of_mass_offset
     }
 
     fn forward_dir_from_angles(&self) -> (Real, Real, Real) {
@@ -510,7 +513,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
         // C++ applies angular rates via Rotate_X/Y/Z with pitchRollYawFactor scaling.
         // angular_velocity.x = roll rate, .y = pitch rate, .z = yaw rate (per frame).
-        let factor = self.module_data.pitch_roll_yaw_factor;
+        let factor = self.module_data.read().pitch_roll_yaw_factor;
         self.state.roll_angle += angular_velocity.x * factor;
         self.state.pitch_angle += angular_velocity.y * factor;
         self.state.yaw_angle += angular_velocity.z * factor;
@@ -578,7 +581,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_shock(&mut self, force: &Coord3D) {
-        let resistance = self.module_data.shock_resistance.clamp(0.0, 1.0);
+        let resistance = self.module_data.read().shock_resistance.clamp(0.0, 1.0);
         let resisted = *force * (1.0 - resistance);
         self.apply_force(&resisted);
     }
@@ -593,9 +596,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         let random_pitch = crate::helpers::get_game_logic_random_value_real(-1.0, 1.0);
         let random_roll = crate::helpers::get_game_logic_random_value_real(-1.0, 1.0);
 
-        self.state.yaw_rate += self.module_data.shock_max_yaw * random_yaw;
-        self.state.pitch_rate += self.module_data.shock_max_pitch * random_pitch;
-        self.state.roll_rate += self.module_data.shock_max_roll * random_roll;
+        let data = self.module_data.read();
+        self.state.yaw_rate += data.shock_max_yaw * random_yaw;
+        self.state.pitch_rate += data.shock_max_pitch * random_pitch;
+        self.state.roll_rate += data.shock_max_roll * random_roll;
+        drop(data);
         self.update_pitch_roll_yaw_flag();
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
@@ -696,7 +701,7 @@ const MOTIVE_FRAMES: UnsignedInt = (LOGICFRAMES_PER_SECOND / 3) as UnsignedInt;
 
 pub struct PhysicsBehaviorUpdate {
     object_id: ObjectID,
-    module_data: Arc<PhysicsBehaviorModuleData>,
+    module_data: ModuleDataView<PhysicsBehaviorModuleData>,
     physics_handle: PhysicsBehaviorHandle,
 }
 
@@ -736,7 +741,7 @@ impl PhysicsBehaviorUpdate {
 
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let object_id = object
             .read()
@@ -753,13 +758,15 @@ impl PhysicsBehaviorUpdate {
     /// installation, before its interface is exposed or callbacks run.
     pub(crate) fn new_for_owner_id(
         object_id: ObjectID,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<PhysicsBehaviorModuleData>()
-            .ok_or("Invalid module data for PhysicsBehavior")?;
-        let module_data = Arc::new(data.clone());
+        if module_data.read().downcast_ref::<PhysicsBehaviorModuleData>().is_none() {
+            return Err("Invalid module data for PhysicsBehavior".into());
+        }
+        let module_data = ModuleDataView::new(module_data, |data| {
+            data.downcast_ref::<PhysicsBehaviorModuleData>()
+                .expect("validated PhysicsBehavior module data")
+        });
         Ok(Self {
             object_id,
             module_data: module_data.clone(),
@@ -983,7 +990,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         let Ok(mut obj) = obj_arc.write() else {
             return UpdateSleepTime::None;
         };
-        let module_data = Arc::clone(&self.module_data);
+        let module_data = self.module_data.read();
         let object_id = self.object_id;
         let handle = &mut self.physics_handle;
         let state = &mut handle.state;
@@ -1241,15 +1248,17 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.physics_handle.state.mass = self.module_data.mass;
-        self.physics_handle.state.original_allow_bounce = self.module_data.allow_bouncing;
+        let data = self.module_data.read();
+        self.physics_handle.state.mass = data.mass;
+        self.physics_handle.state.original_allow_bounce = data.allow_bouncing;
         self.physics_handle
             .state
-            .set_flag(FLAG_ALLOW_BOUNCE, self.module_data.allow_bouncing);
+            .set_flag(FLAG_ALLOW_BOUNCE, data.allow_bouncing);
         self.physics_handle.state.set_flag(
             FLAG_ALLOW_COLLIDE_FORCE,
-            self.module_data.allow_collide_force,
+            data.allow_collide_force,
         );
+        drop(data);
 
         let Some(obj_arc) = self.physics_handle.object_arc() else {
             return Ok(());
@@ -1278,7 +1287,7 @@ impl CollideModuleInterface for PhysicsBehaviorUpdate {
             &mut self.physics_handle,
             self.object_id,
             other_id,
-            &self.module_data,
+            &self.module_data.read(),
         );
     }
 }
@@ -1386,7 +1395,7 @@ pub struct PhysicsBehaviorFactory;
 impl PhysicsBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(PhysicsBehaviorUpdate::new(thing, module_data)?))
     }
@@ -1574,7 +1583,7 @@ mod tests {
     }
 
     fn module_for_owner(owner: &Arc<RwLock<GameObject>>, mass: Real) -> PhysicsBehaviorUpdate {
-        let data: Arc<dyn ModuleData> = Arc::new(PhysicsBehaviorModuleData {
+        let data = ModuleDataHandle::new(PhysicsBehaviorModuleData {
             mass,
             ..PhysicsBehaviorModuleData::default()
         });
@@ -1671,7 +1680,7 @@ mod tests {
 
     #[test]
     fn set_allow_to_fall_is_readable() {
-        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let data = ModuleDataView::new(ModuleDataHandle::new(PhysicsBehaviorModuleData::default()), |data| data.downcast_ref::<PhysicsBehaviorModuleData>().unwrap());
         let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
         assert!(
             !handle.allow_to_fall(),
@@ -1705,7 +1714,7 @@ mod tests {
 
     #[test]
     fn set_is_in_freefall_is_readable() {
-        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let data = ModuleDataView::new(ModuleDataHandle::new(PhysicsBehaviorModuleData::default()), |data| data.downcast_ref::<PhysicsBehaviorModuleData>().unwrap());
         let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
         assert!(!handle.get_is_in_freefall());
         assert!(handle.is_on_ground());
@@ -1722,7 +1731,7 @@ mod tests {
 
     #[test]
     fn set_stick_to_ground_sets_flag() {
-        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let data = ModuleDataView::new(ModuleDataHandle::new(PhysicsBehaviorModuleData::default()), |data| data.downcast_ref::<PhysicsBehaviorModuleData>().unwrap());
         let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
         assert!(!PhysicsBehaviorTrait::get_stick_to_ground(&handle));
         PhysicsBehaviorTrait::set_stick_to_ground(&mut handle, true);
@@ -1734,7 +1743,7 @@ mod tests {
 
     #[test]
     fn get_forward_speed_2d_is_signed() {
-        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let data = ModuleDataView::new(ModuleDataHandle::new(PhysicsBehaviorModuleData::default()), |data| data.downcast_ref::<PhysicsBehaviorModuleData>().unwrap());
         let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
         handle.set_velocity(&Coord3D::new(-6.0, 0.0, 0.0));
         // No object: default facing +X, so backward vel is negative.
@@ -1745,7 +1754,7 @@ mod tests {
 
     #[test]
     fn scrub_velocity_2d_negative_desired_zeros_xy() {
-        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let data = ModuleDataView::new(ModuleDataHandle::new(PhysicsBehaviorModuleData::default()), |data| data.downcast_ref::<PhysicsBehaviorModuleData>().unwrap());
         let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
         handle.set_velocity(&Coord3D::new(5.0, -3.0, 2.0));
         PhysicsBehaviorTrait::scrub_velocity_2d(&mut handle, -1.0);

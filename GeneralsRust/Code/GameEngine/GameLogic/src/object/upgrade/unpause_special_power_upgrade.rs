@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
+use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::special_power_interface_cast::module_special_power_interface;
 use crate::object::special_power_template::find_or_create_special_power_template;
@@ -74,7 +74,7 @@ impl Snapshotable for UnpauseSpecialPowerUpgradeModuleData {
 /// Upgrade module that enables/unpauses a special power on the owning object.
 pub struct UnpauseSpecialPowerUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<UnpauseSpecialPowerUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     applied: bool,
 }
@@ -82,7 +82,7 @@ pub struct UnpauseSpecialPowerUpgrade {
 impl UnpauseSpecialPowerUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<UnpauseSpecialPowerUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         Self {
@@ -108,11 +108,11 @@ impl Module for UnpauseSpecialPowerUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -139,7 +139,7 @@ impl Snapshotable for UnpauseSpecialPowerUpgrade {
 
 impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+        mux_can_upgrade(&self.data.read().as_any().downcast_ref::<UnpauseSpecialPowerUpgradeModuleData>().expect("UnpauseSpecialPowerUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -151,17 +151,20 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
         if self.applied {
             return false;
         }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        let Some(template) = self.data.special_power_template() else {
-            log::warn!(
-                "UnpauseSpecialPowerUpgrade: Missing SpecialPowerTemplate on object {}",
-                self.object_id
-            );
-            self.applied = true;
-            return true;
+        { let data = self.data.read().as_any().downcast_ref::<UnpauseSpecialPowerUpgradeModuleData>().expect("UnpauseSpecialPowerUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
+        let template_name = {
+            let data = self.data.read();
+            let data = data.as_any().downcast_ref::<UnpauseSpecialPowerUpgradeModuleData>().expect("UnpauseSpecialPowerUpgradeModuleData");
+            let Some(template) = data.special_power_template() else {
+                log::warn!(
+                    "UnpauseSpecialPowerUpgrade: Missing SpecialPowerTemplate on object {}",
+                    self.object_id
+                );
+                self.applied = true;
+                return true;
+            };
+            template.get_name().to_string()
         };
-
-        let template_name = template.get_name().to_string();
         let object_id = self.object_id;
         let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
             let mut paused = false;
@@ -214,7 +217,7 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ does not revert this upgrade; resetUpgrade only clears executed.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().as_any().downcast_ref::<UnpauseSpecialPowerUpgradeModuleData>().expect("UnpauseSpecialPowerUpgradeModuleData").upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );

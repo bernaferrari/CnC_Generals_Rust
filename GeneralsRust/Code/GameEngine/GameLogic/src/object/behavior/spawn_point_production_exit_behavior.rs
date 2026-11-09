@@ -61,7 +61,7 @@ crate::impl_behavior_module_data_via_base!(SpawnPointProductionExitModuleData, b
 /// SpawnPointProductionExitUpdate behavior.
 #[derive(Debug)]
 pub struct SpawnPointProductionExitBehavior {
-    data: SpawnPointProductionExitModuleData,
+    data: game_engine::common::thing::module::ModuleDataView<SpawnPointProductionExitModuleData>,
     owner_id: ObjectID,
     next_call_frame_and_phase: UnsignedInt,
     bones_initialized: bool,
@@ -73,6 +73,12 @@ pub struct SpawnPointProductionExitBehavior {
 
 impl SpawnPointProductionExitBehavior {
     pub fn new(data: SpawnPointProductionExitModuleData, owner_id: ObjectID) -> Self {
+        Self::with_handle(game_engine::common::thing::module::ModuleDataHandle::new(data), owner_id)
+    }
+
+    fn with_handle(data: game_engine::common::thing::module::ModuleDataHandle, owner_id: ObjectID) -> Self {
+        assert!(data.is::<SpawnPointProductionExitModuleData>());
+        let data = game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<SpawnPointProductionExitModuleData>().expect("SpawnPointProductionExit module data"));
         Self {
             data,
             owner_id,
@@ -87,15 +93,12 @@ impl SpawnPointProductionExitBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<SpawnPointProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let module_object = thing.as_object().ok_or_else(|| {
             "SpawnPointProductionExitUpdate requires an owning object".to_string()
         })?;
-        Ok(Self::new(
-            module_data.as_ref().clone(),
-            module_object.get_object_id(),
-        ))
+        Ok(Self::with_handle(module_data, module_object.get_object_id()))
     }
 
     fn initialize_bone_positions(&mut self) {
@@ -117,7 +120,8 @@ impl SpawnPointProductionExitBehavior {
             return;
         };
 
-        let bone_name = self.data.spawn_point_bone_name.as_str();
+        let data = self.data.read();
+        let bone_name = data.spawn_point_bone_name.as_str();
         let transforms =
             drawable_guard.get_pristine_bone_transforms(bone_name, 1, MAX_SPAWN_POINTS);
         if transforms.is_empty() {
@@ -310,14 +314,14 @@ impl ModuleExitInterface for SpawnPointProductionExitBehavior {
 pub struct SpawnPointProductionExitBehaviorModule {
     behavior: SpawnPointProductionExitBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<SpawnPointProductionExitModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl SpawnPointProductionExitBehaviorModule {
     pub fn new(
         behavior: SpawnPointProductionExitBehavior,
         module_name: &AsciiString,
-        module_data: Arc<SpawnPointProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -352,13 +356,11 @@ impl Module for SpawnPointProductionExitBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -403,7 +405,7 @@ const SPAWN_POINT_PRODUCTION_EXIT_FIELDS: &[FieldParse<SpawnPointProductionExitM
 
 impl Snapshotable for SpawnPointProductionExitBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -422,7 +424,7 @@ impl Snapshotable for SpawnPointProductionExitBehavior {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.data.load_post_process()
+        self.data.handle().write().load_post_process()
     }
 }
 

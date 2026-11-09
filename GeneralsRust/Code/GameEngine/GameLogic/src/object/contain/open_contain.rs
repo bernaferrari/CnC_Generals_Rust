@@ -32,6 +32,7 @@ use crate::object::die::{
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 #[path = "open_admission.rs"]
 mod admission;
@@ -193,7 +194,9 @@ fn leftover_contain_module_sound_name(template_name: &str, enter: bool) -> Optio
         {
             continue;
         }
-        if let Some(data) = entry.data.downcast_ref::<OpenContainModuleData>() {
+        let module_data = entry.data.read();
+        if let Some(kind) = crate::contain_module_overrides::ContainModuleDataKind::from_module_data(&*module_data) {
+            let data = kind.open_data();
             let event = if enter {
                 data.enter_sound.as_ref()
             } else {
@@ -206,7 +209,7 @@ fn leftover_contain_module_sound_name(template_name: &str, enter: bool) -> Optio
                 return Some(name.to_string());
             }
         }
-        if let Some(raw) = entry.data.get_ini_field(key) {
+        if let Some(raw) = module_data.get_ini_field(key) {
             let name = raw.trim();
             if leftover_contain_sound_name_is_playable(name) {
                 return Some(name.to_string());
@@ -452,10 +455,11 @@ fn leftover_contain_module_door_open_time(template_name: &str) -> Option<u32> {
         {
             continue;
         }
-        if let Some(data) = entry.data.downcast_ref::<OpenContainModuleData>() {
-            return Some(data.door_open_time);
+        let module_data = entry.data.read();
+        if let Some(kind) = crate::contain_module_overrides::ContainModuleDataKind::from_module_data(&*module_data) {
+            return Some(kind.open_data().door_open_time);
         }
-        if let Some(raw) = entry.data.get_ini_field("DoorOpenTime") {
+        if let Some(raw) = module_data.get_ini_field("DoorOpenTime") {
             if let Ok(frames) = INI::parse_duration_unsigned_int(raw.trim()) {
                 return Some(frames);
             }
@@ -912,14 +916,15 @@ pub struct OpenContain {
     rally_point: Coord3D,
     rally_point_exists: bool,
     /// Module configuration data
-    module_data: OpenContainModuleData,
+    module_data: ModuleDataView<OpenContainModuleData>,
+    passengers_allowed_to_fire: bool,
 }
 
 impl OpenContain {
     /// Create a new OpenContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &OpenContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
         let object_id = object
             .upgrade()
@@ -933,8 +938,28 @@ impl OpenContain {
     /// an active world or publish this container.
     pub(crate) fn new_for_owner(
         object_id: ObjectID,
-        module_data: &OpenContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
+        let module_data = crate::contain_module_overrides::open_contain_data_view(module_data);
+        Self::new_for_owner_with_data_view(object_id, module_data)
+    }
+
+    pub(crate) fn new_with_data_view(
+        object: Weak<RwLock<Object>>,
+        module_data: ModuleDataView<OpenContainModuleData>,
+    ) -> GameResult<Self> {
+        let object_id = object
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
+        Self::new_for_owner_with_data_view(object_id, module_data)
+    }
+
+    pub(crate) fn new_for_owner_with_data_view(
+        object_id: ObjectID,
+        module_data: ModuleDataView<OpenContainModuleData>,
+    ) -> GameResult<Self> {
+        let passengers_allowed_to_fire = module_data.read().passengers_allowed_to_fire;
         Ok(Self {
             object_id,
             next_call_frame_and_phase: 0,
@@ -956,7 +981,8 @@ impl OpenContain {
             no_fire_points_in_art: false,
             rally_point: Coord3D::new(0.0, 0.0, 0.0),
             rally_point_exists: false,
-            module_data: module_data.clone(),
+            module_data,
+            passengers_allowed_to_fire,
         })
     }
 
@@ -969,8 +995,7 @@ impl OpenContain {
     }
 
     pub(crate) fn is_die_applicable(&self, obj: &Object, damage_info: &DamageInfo) -> bool {
-        self.module_data
-            .die_mux_data
+        self.module_data.read().die_mux_data
             .is_die_applicable(obj, damage_info)
     }
 
@@ -1615,9 +1640,7 @@ impl OpenContain {
 
     /// Play a load sound (once per frame when enabled).
     pub fn do_load_sound(&mut self) {
-        let name = self
-            .module_data
-            .enter_sound
+        let name = self.module_data.read().enter_sound
             .as_ref()
             .map(|s| s.get_event_name().to_string());
         let now = TheGameLogic::get_frame();
@@ -1636,7 +1659,7 @@ impl OpenContain {
     /// flame-proof `kill()` follow-up.
     pub fn process_damage_to_contained(&mut self, percent_damage: f32) -> GameResult<()> {
         let owner_id = self.get_object_id();
-        let death_type = if self.module_data.is_burned_death_to_units {
+        let death_type = if self.module_data.read().is_burned_death_to_units {
             DeathType::Burned
         } else {
             DeathType::Normal
@@ -1678,7 +1701,7 @@ impl OpenContain {
 
     /// C++ OpenContain::getDamagePercentageToUnits.
     pub fn get_damage_percentage_to_units(&self) -> f32 {
-        self.module_data.damage_percentage_to_units
+        self.module_data.read().damage_percentage_to_units
     }
 
     /// C++ OpenContain::scatterToNearbyPosition.
@@ -1759,10 +1782,9 @@ impl OpenContain {
             }
         }
 
-        if self.module_data.damage_percentage_to_units > 0.0 {
-            if let Err(err) =
-                self.process_damage_to_contained(self.module_data.damage_percentage_to_units)
-            {
+        let damage_percentage = self.module_data.read().damage_percentage_to_units;
+        if damage_percentage > 0.0 {
+            if let Err(err) = self.process_damage_to_contained(damage_percentage) {
                 log::warn!("OpenContain::on_die damage to contained failed: {}", err);
             }
         }
@@ -1857,7 +1879,7 @@ impl OpenContain {
 
     /// Get maximum containment capacity
     pub fn get_contain_max(&self) -> i32 {
-        self.module_data.contain_max
+        self.module_data.read().contain_max
     }
 
     /// Get list of contained items
@@ -1873,7 +1895,7 @@ impl OpenContain {
     pub fn is_passenger_allowed_to_fire(&self, _id: Option<ObjectId>) -> bool {
         // C++ OpenContain::isPassengerAllowedToFire: instance flag first,
         // then the parent container has veto if we ourselves are contained.
-        if !self.module_data.passengers_allowed_to_fire {
+        if !self.passengers_allowed_to_fire {
             return false;
         }
         self.with_object(|owner| {
@@ -1901,12 +1923,12 @@ impl OpenContain {
 
     /// Whether passengers inherit the container's weapon bonus flags.
     pub fn passes_weapon_bonus_to_passengers(&self) -> bool {
-        self.module_data.weapon_bonus_passed_to_passengers
+        self.module_data.read().weapon_bonus_passed_to_passengers
     }
 
     /// Toggle whether passengers may fire from this container.
     pub fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
-        self.module_data.passengers_allowed_to_fire = allowed;
+        self.passengers_allowed_to_fire = allowed;
     }
 
     pub fn get_stealth_units_contained(&self) -> UnsignedInt {
@@ -1928,7 +1950,7 @@ impl OpenContain {
             return None;
         }
         crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
-            let number_exits = self.module_data.number_of_exit_paths;
+            let number_exits = self.module_data.read().number_of_exit_paths;
             if number_exits > 0 {
                 let end_bone = if number_exits > 1 {
                     "ExitEnd01"
@@ -1965,7 +1987,7 @@ impl OpenContain {
     }
 
     fn exit_bone_names_for_next_path(&mut self) -> (&'static str, String, String) {
-        let number_exits = self.module_data.number_of_exit_paths;
+        let number_exits = self.module_data.read().number_of_exit_paths;
         if number_exits > 1 {
             let suffix = format!("{:02}", self.which_exit_path);
             self.which_exit_path = (self.which_exit_path % number_exits) + 1;
@@ -1980,7 +2002,7 @@ impl OpenContain {
     }
 
     fn next_exit_positions(&mut self, owner: &Object) -> (Coord3D, Coord3D) {
-        if self.module_data.number_of_exit_paths <= 0 {
+        if self.module_data.read().number_of_exit_paths <= 0 {
             let pos = *owner.get_position();
             return (pos, pos);
         }
@@ -1994,7 +2016,7 @@ impl OpenContain {
     fn next_exit_snapshot(
         &mut self,
     ) -> Option<(Coord3D, Coord3D, f32, PathfindLayerEnum, ObjectID)> {
-        if self.module_data.number_of_exit_paths <= 0 {
+        if self.module_data.read().number_of_exit_paths <= 0 {
             return None;
         }
         let (_, start_bone, end_bone) = self.exit_bone_names_for_next_path();
@@ -2077,7 +2099,7 @@ impl OpenContain {
             return Ok(None);
         }
 
-        let pulse = leftover_open_contain_start_exit_door(self.module_data.door_open_time);
+        let pulse = leftover_open_contain_start_exit_door(self.module_data.read().door_open_time);
         self.door_close_countdown = pulse.countdown;
         if pulse.set_opening {
             let _ =
@@ -2088,7 +2110,7 @@ impl OpenContain {
                     );
                 });
         }
-        if self.module_data.number_of_exit_paths <= 0 {
+        if self.module_data.read().number_of_exit_paths <= 0 {
             if let Ok(rider) = obj.try_read() {
                 Self::add_to_pathfind_map(obj_id, *rider.get_position());
             }
@@ -2267,11 +2289,8 @@ impl OpenContain {
 
     /// Get container pips info for UI
     pub fn get_container_pips_info(&self) -> (i32, i32) {
-        let total = if self.module_data.contain_max == CONTAIN_MAX_UNKNOWN {
-            10
-        } else {
-            self.module_data.contain_max
-        };
+        let capacity = self.module_data.read().contain_max;
+        let total = if capacity == CONTAIN_MAX_UNKNOWN { 10 } else { capacity };
         let full = self.contained_object_ids.len() as i32;
         (total, full)
     }
@@ -2401,7 +2420,7 @@ impl OpenContain {
             crate::object::registry::OBJECT_REGISTRY
                 .with_object(owner_id, |owner_guard| *owner_guard.get_position())
                 .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
-        } else if self.module_data.passengers_in_turret {
+        } else if self.module_data.read().passengers_in_turret {
             let firepoint = format!("FIREPOINT{:02}", self.fire_point_next + 1);
             if let Some((pos, matrix)) =
                 crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
@@ -2627,9 +2646,7 @@ impl OpenContain {
     /// Play unload sound.
     /// Matches C++ OpenContain::doUnloadSound via leftover TheAudio.
     pub fn do_unload_sound(&mut self) {
-        let name = self
-            .module_data
-            .exit_sound
+        let name = self.module_data.read().exit_sound
             .as_ref()
             .map(|s| s.get_event_name().to_string());
         let now = TheGameLogic::get_frame();
@@ -2655,7 +2672,7 @@ impl OpenContain {
 
 impl ContainModuleInterface for OpenContain {
     fn supports_owned_numbered_exit(&self) -> bool {
-        self.module_data.number_of_exit_paths > 0
+        self.module_data.read().number_of_exit_paths > 0
     }
     fn finish_owned_numbered_exit(
         &mut self,
@@ -2664,7 +2681,7 @@ impl ContainModuleInterface for OpenContain {
         self.finish_numbered_exit_with_world(world)
     }
     fn supports_owned_zero_path_exit(&self) -> bool {
-        self.module_data.number_of_exit_paths <= 0
+        self.module_data.read().number_of_exit_paths <= 0
     }
     fn finish_owned_zero_path_exit(&mut self, world: &mut dyn crate::modules::ai_world::AiWorld) {
         self.finish_zero_path_exit_with_world(world);
@@ -2744,10 +2761,11 @@ impl ContainModuleInterface for OpenContain {
     }
 
     fn get_max_capacity(&self) -> usize {
-        if self.module_data.contain_max < 0 {
+        let capacity = self.module_data.read().contain_max;
+        if capacity < 0 {
             usize::MAX
         } else {
-            self.module_data.contain_max as usize
+            capacity as usize
         }
     }
 
@@ -2970,10 +2988,11 @@ impl ContainModuleInterface for OpenContain {
         owner: &Object,
         damage: &DamageInfo,
     ) -> Option<crate::modules::OwnedContainDeathPolicy> {
+        let data = self.module_data.read();
         Some(crate::modules::OwnedContainDeathPolicy {
-            applicable: self.is_die_applicable(owner, damage),
-            damage_percent: self.module_data.damage_percentage_to_units,
-            burned: self.module_data.is_burned_death_to_units,
+            applicable: data.die_mux_data.is_die_applicable(owner, damage),
+            damage_percent: data.damage_percentage_to_units,
+            burned: data.is_burned_death_to_units,
             destroy_blocked: None,
         })
     }
@@ -2997,7 +3016,7 @@ impl ContainModuleInterface for OpenContain {
     }
 
     fn passengers_in_turret(&self) -> bool {
-        self.module_data.passengers_in_turret
+        self.module_data.read().passengers_in_turret
     }
 
     fn mark_all_passengers_detected(&mut self) {
@@ -3148,7 +3167,7 @@ impl Snapshotable for OpenContain {
             .map_err(|e| e.to_string())?;
 
         if version >= 2 {
-            xfer.xfer_bool(&mut self.module_data.passengers_allowed_to_fire)
+            xfer.xfer_bool(&mut self.passengers_allowed_to_fire)
                 .map_err(|e| e.to_string())?;
         }
 
@@ -3282,7 +3301,7 @@ mod tests {
     #[test]
     fn xfer_preserves_cpp_open_contain_runtime_fields() {
         let mut saved =
-            OpenContain::new(Weak::new(), &OpenContainModuleData::default()).expect("contain");
+            OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain");
         saved.next_call_frame_and_phase = 0x5511;
         saved.contained_object_ids = vec![101, 202];
         saved.player_who_entered = PlayerMaskType::PLAYER_1 | PlayerMaskType::PLAYER_3;
@@ -3305,7 +3324,7 @@ mod tests {
         saved
             .object_enter_exit_info
             .insert(404, ContainWant::WantsToExit);
-        saved.module_data.passengers_allowed_to_fire = true;
+        saved.passengers_allowed_to_fire = true;
 
         let mut bytes = Cursor::new(Vec::new());
         {
@@ -3315,7 +3334,7 @@ mod tests {
 
         bytes.set_position(0);
         let mut loaded =
-            OpenContain::new(Weak::new(), &OpenContainModuleData::default()).expect("contain");
+            OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain");
         loaded.last_unload_sound_frame = 1;
         loaded.last_load_sound_frame = 2;
         {
@@ -3354,7 +3373,7 @@ mod tests {
             loaded.object_enter_exit_info.get(&404),
             Some(&ContainWant::WantsToExit)
         );
-        assert!(loaded.module_data.passengers_allowed_to_fire);
+        assert!(loaded.passengers_allowed_to_fire);
         let ids: Vec<ObjectID> = loaded.object_enter_exit_info.keys().copied().collect();
         assert_eq!(
             ids,
@@ -3373,13 +3392,10 @@ mod tests {
             "contained_objects".to_string(),
             92002_u32.to_le_bytes().to_vec(),
         );
-        let mut contain = OpenContain::new(
-            Arc::downgrade(&owner),
-            &OpenContainModuleData {
-                contain_max: 1,
-                ..Default::default()
-            },
-        )
+        let mut contain = OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData {
+            contain_max: 1,
+            ..Default::default()
+        })))
         .expect("contain");
 
         contain.load_state(&state).expect("load state");
@@ -3403,7 +3419,7 @@ mod tests {
     #[test]
     fn contain_interface_routes_rally_point_to_open_contain() {
         let mut contain =
-            OpenContain::new(Weak::new(), &OpenContainModuleData::default()).expect("contain");
+            OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain");
         let rally = Coord3D::new(11.0, 22.0, 33.0);
 
         ContainModuleInterface::set_rally_point(&mut contain, rally);
@@ -3420,7 +3436,7 @@ mod tests {
             number_of_exit_paths: 3,
             ..OpenContainModuleData::default()
         };
-        let mut contain = OpenContain::new(Weak::new(), &data).expect("contain");
+        let mut contain = OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("contain");
 
         let (_, start_1, end_1) = contain.exit_bone_names_for_next_path();
         let (_, start_2, end_2) = contain.exit_bone_names_for_next_path();
@@ -3468,7 +3484,7 @@ mod tests {
         let rider = test_object("AirborneRider", 92006);
 
         let mut contain =
-            OpenContain::new(Arc::downgrade(&owner), &OpenContainModuleData::default())
+            OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())))
                 .expect("airborne contain");
         ContainModuleInterface::contain_object(&mut contain, 92006).expect("contain rider");
 
@@ -3608,18 +3624,17 @@ mod tests {
         let rally = Coord3D::new(80.0, 90.0, 140.0);
         // Install the owned physics module to detect a retained ModuleEntry
         // borrow. The AI is deliberately only a callback-order witness.
-        let data =
-            Arc::new(crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default());
-        let behavior_data: Arc<dyn crate::common::ModuleData> = data.clone();
-        let data: Arc<dyn game_engine::common::thing::module::ModuleData> = data;
+        let data = ModuleDataHandle::new(
+            crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default(),
+        );
         let update = crate::object::behavior::physics_update::PhysicsBehaviorUpdate::new(
             Arc::clone(&rider),
-            behavior_data,
+            data.clone(),
         )
         .expect("physics update");
         let module = crate::contain_module_overrides::ActiveBehaviorModule::new(
             "PhysicsBehavior",
-            Arc::clone(&data),
+            data.clone(),
             update,
         );
         let physics = {
@@ -3651,7 +3666,7 @@ mod tests {
         }
 
         let mut contain =
-            OpenContain::new(Arc::downgrade(&owner), &OpenContainModuleData::default())
+            OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())))
                 .expect("door contain");
         contain.set_rally_point(rally);
         ContainModuleInterface::contain_object(&mut contain, rider_id).expect("contain rider");

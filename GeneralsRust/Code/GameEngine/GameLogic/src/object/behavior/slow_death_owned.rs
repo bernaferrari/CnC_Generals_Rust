@@ -22,7 +22,7 @@ impl SlowDeathBehaviorModuleData {
 }
 impl SlowDeathBehavior {
     pub(crate) fn validate_owned_die(&self, owner: &Object, scale: f32) -> Result<(), String> {
-        let data = &self.module_data;
+        let data = self.module_data.read();
         if self.object_id != owner.get_id() {
             return Err("SlowDeath owner mismatch".into());
         }
@@ -38,7 +38,7 @@ impl SlowDeathBehavior {
     /// This native family has no airborne/sink callbacks. Saved clocks remain
     /// raw wrapping frame values; their numerical order is not a load invariant.
     pub(crate) fn validate_owned_saved_state(&self) -> Result<(), String> {
-        self.module_data.validate_owned_effects()?;
+        self.module_data.read().validate_owned_effects()?;
         let admitted = (1 << Self::SLOW_DEATH_ACTIVATED) | (1 << Self::MIDPOINT_EXECUTED);
         if self.flags & !admitted != 0 {
             return Err("saved SlowDeath flags require unsupported airborne callbacks".into());
@@ -53,7 +53,7 @@ impl SlowDeathBehavior {
         Ok(())
     }
     pub(crate) fn is_applicable_owned(&self, owner: &Object, damage: &DamageInfo) -> bool {
-        self.module_data
+        self.module_data.read()
             .die_mux_data
             .is_die_applicable(owner, damage)
     }
@@ -61,9 +61,10 @@ impl SlowDeathBehavior {
         // CPP SlowDeathBehavior.cpp158-167 truncates to Int before division.
         let overkill =
             (damage.output.actual_damage_dealt - damage.output.actual_damage_clipped) as Int;
+        let data = self.module_data.read();
         let bonus = ((overkill as Real / max_health)
-            * self.module_data.modifier_bonus_per_overkill_percent) as Int;
-        self.module_data
+            * data.modifier_bonus_per_overkill_percent) as Int;
+        data
             .probability_modifier
             .wrapping_add(bonus)
             .max(1)
@@ -78,10 +79,10 @@ impl SlowDeathBehavior {
             return OwnedSlowBegin::AlreadyActive;
         }
         self.accelerated_time_scale = 1.0;
-        if scale == 0.0 && !self.module_data.has_non_lod_effects() {
+        if scale == 0.0 && !self.module_data.read().has_non_lod_effects() {
             return OwnedSlowBegin::Destroy;
         }
-        let data = &self.module_data;
+        let data = self.module_data.read();
         let sink = (scale
             * (data.sink_delay as Int).wrapping_add(draw(
                 random,
@@ -114,7 +115,7 @@ impl SlowDeathBehavior {
         debug_assert!(self.is_slow_death_activated());
         if scale != 1.0
             && self.accelerated_time_scale == 1.0
-            && !self.module_data.has_non_lod_effects()
+            && !self.module_data.read().has_non_lod_effects()
         {
             if scale == 0.0 {
                 return true;

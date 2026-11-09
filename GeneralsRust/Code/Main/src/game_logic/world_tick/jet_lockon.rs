@@ -128,9 +128,8 @@ impl GameLogic {
             let cursor = jet
                 .jet_ai
                 .lockon_drawable_template
-                .as_deref()
-                .or_else(|| jet.jet_lockon_cursor_name())
-                .map(str::to_owned);
+                .clone()
+                .or_else(|| jet.jet_lockon_cursor_name().map(|name| name.to_string()));
             let position = jet.jet_ai.lockon_pos;
             let owner = jet.get_position();
             let hidden = jet.jet_ai.lockon_hidden;

@@ -32,6 +32,7 @@ use crate::weapon::{WeaponSlotType, WeaponTemplate};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::ModuleDataHandle;
 
 use std::sync::{Arc, Weak};
 
@@ -387,7 +388,7 @@ impl MissileAIUpdateModuleData {
 #[derive(Debug)]
 pub struct MissileAIUpdate {
     /// Module configuration data
-    data: Arc<MissileAIUpdateModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
 
     /// Owning projectile object id (for detonation effects)
     object_id: ObjectID,
@@ -456,9 +457,13 @@ pub struct MissileAIUpdate {
 impl MissileAIUpdate {
     /// Create a new missile AI update module
     /// Matches C++ MissileAIUpdate::MissileAIUpdate from MissileAIUpdate.cpp lines 97-120
-    pub fn new(data: Arc<MissileAIUpdateModuleData>, current_frame: UnsignedInt) -> Self {
+    pub fn new(data: ModuleDataHandle, current_frame: UnsignedInt) -> Self {
+        let initial_distance = {
+            let guard = data.read();
+            guard.as_any().downcast_ref::<MissileAIUpdateModuleData>().expect("invalid MissileAI data").initial_distance
+        };
         Self {
-            data: data.clone(),
+            data,
             object_id: INVALID_ID,
             state: MissileState::PreLaunch,
             state_timestamp: current_frame,
@@ -467,7 +472,7 @@ impl MissileAIUpdate {
             victim_id: INVALID_ID,
             is_armed: false,
             fuel_expiration_date: 0,
-            no_turn_dist_left: data.initial_distance,
+            no_turn_dist_left: initial_distance,
             prev_pos: Coord3D::new(0.0, 0.0, 0.0),
             last_known_pos: None,
             max_accel: BIGNUM,
@@ -481,6 +486,12 @@ impl MissileAIUpdate {
             no_damage: false,
             is_jammed: false,
         }
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, MissileAIUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
+            data.as_any().downcast_ref::<MissileAIUpdateModuleData>().expect("invalid MissileAI data")
+        })
     }
 
     /// Switch to a new state
@@ -571,8 +582,11 @@ impl MissileAIUpdate {
         self.exhaust_sys_tmpl = exhaust_sys_override;
 
         // Determine initial velocity (C++ uses detWeap->getWeaponSpeed when enabled).
-        let mut initial_vel_to_use = self.data.initial_velocity;
-        if self.data.use_weapon_speed {
+        let (mut initial_vel_to_use, use_weapon_speed) = {
+            let data = self.data();
+            (data.initial_velocity, data.use_weapon_speed)
+        };
+        if use_weapon_speed {
             if let Some(weapon) = self
                 .detonation_weapon_tmpl
                 .as_ref()
@@ -604,7 +618,7 @@ impl MissileAIUpdate {
 
         // Set up target tracking
         if let Some(victim_id) = victim {
-            if self.data.try_to_follow_target {
+            if self.data().try_to_follow_target {
                 self.original_target_pos = *victim_pos;
                 self.is_tracking_target = true;
                 self.victim_id = victim_id;
@@ -667,7 +681,7 @@ impl MissileAIUpdate {
             return false;
         }
 
-        if self.data.garrison_hit_kill_count == 0 {
+        if self.data().garrison_hit_kill_count == 0 {
             return false;
         }
 
@@ -700,7 +714,7 @@ impl MissileAIUpdate {
 
         let mut num_killed = 0;
         for contained_id in contained_ids {
-            if num_killed >= self.data.garrison_hit_kill_count {
+            if num_killed >= self.data().garrison_hit_kill_count {
                 break;
             }
             let Some(contained_arc) = TheGameLogic::find_object_by_id(contained_id) else {
@@ -711,8 +725,8 @@ impl MissileAIUpdate {
             };
             if contained_guard.is_effectively_dead()
                 || !contained_guard.is_kind_of_multi(
-                    self.data.garrison_hit_kill_kindof,
-                    self.data.garrison_hit_kill_kindof_not,
+                    self.data().garrison_hit_kill_kindof,
+                    self.data().garrison_hit_kill_kindof_not,
                 )
             {
                 continue;
@@ -734,7 +748,8 @@ impl MissileAIUpdate {
             return false;
         }
 
-        if let Some(fx) = &self.data.garrison_hit_kill_fx {
+        let fx = self.data().garrison_hit_kill_fx.clone();
+        if let Some(fx) = fx {
             let _ = fx.do_fx_obj(&other_arc, None);
         }
         let _ = TheGameLogic::destroy_object_by_id(self.object_id);
@@ -984,7 +999,7 @@ impl MissileAIUpdate {
     fn do_launch_state(&mut self, current_frame: UnsignedInt) {
         self.set_locomotor_acceleration_and_turn(0.0, 0.0);
 
-        let delay = self.data.ignition_delay;
+        let delay = self.data().ignition_delay;
         if frame_timing::ignition_ready(current_frame, self.state_timestamp, delay) {
             self.switch_to_state(MissileState::Ignition, current_frame);
         }
@@ -995,7 +1010,8 @@ impl MissileAIUpdate {
     fn do_ignition_state(&mut self, current_frame: UnsignedInt) {
         self.set_locomotor_acceleration_and_turn(self.max_accel, 0.0);
 
-        if let Some(fx) = &self.data.ignition_fx {
+        let ignition_fx = self.data().ignition_fx.clone();
+        if let Some(fx) = ignition_fx {
             if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
                 let _ = fx.do_fx_obj(&object_arc, None);
             } else {
@@ -1009,8 +1025,8 @@ impl MissileAIUpdate {
         // C++ arms the warhead even if FX / exhaust / locomotor walks fail.
         self.is_armed = true;
 
-        self.fuel_expiration_date =
-            frame_timing::fuel_expiration(current_frame, self.data.fuel_lifetime);
+        let fuel_lifetime = self.data().fuel_lifetime;
+        self.fuel_expiration_date = frame_timing::fuel_expiration(current_frame, fuel_lifetime);
 
         self.switch_to_state(MissileState::AttackNoTurn, current_frame);
     }
@@ -1020,7 +1036,8 @@ impl MissileAIUpdate {
     fn do_attack_state(&mut self, turn_ok: bool, current_frame: UnsignedInt) {
         // Check fuel expiration
         if current_frame >= self.fuel_expiration_date {
-            if self.data.detonate_on_no_fuel {
+            let detonate_on_no_fuel = self.data().detonate_on_no_fuel;
+            if detonate_on_no_fuel {
                 self.detonate();
                 return;
             }
@@ -1053,7 +1070,7 @@ impl MissileAIUpdate {
     }
 
     fn handle_lock_distance(&mut self, current_frame: UnsignedInt) -> bool {
-        let mut lock_distance = self.data.lock_distance;
+        let mut lock_distance = self.data().lock_distance;
         if lock_distance <= 0.0 {
             return false;
         }
@@ -1080,7 +1097,8 @@ impl MissileAIUpdate {
     }
 
     fn handle_dive_distance(&self) {
-        if self.data.dive_distance <= 0.0 {
+        let dive_distance = self.data().dive_distance;
+        if dive_distance <= 0.0 {
             return;
         }
         let Some(ai) = self.current_ai_interface() else {
@@ -1096,7 +1114,7 @@ impl MissileAIUpdate {
         };
         ai.with_cur_locomotor_mut(&mut |loco| {
             if loco.preferred_height > 0.0
-                && distance_to_target_sq < self.data.dive_distance * self.data.dive_distance
+                && distance_to_target_sq < dive_distance * dive_distance
             {
                 loco.set_precise_z_pos(true);
             }
@@ -1229,7 +1247,8 @@ impl MissileAIUpdate {
 
         // Check fuel
         if current_frame >= self.fuel_expiration_date {
-            if self.data.detonate_on_no_fuel {
+            let detonate_on_no_fuel = self.data().detonate_on_no_fuel;
+            if detonate_on_no_fuel {
                 self.detonate();
                 return;
             }
@@ -1332,13 +1351,13 @@ impl MissileAIUpdate {
         if frame_timing::hold_for_contrail(
             current_frame,
             self.state_timestamp,
-            self.data.kill_self_delay,
+            self.data().kill_self_delay,
         ) {
             return;
         }
 
         if self.detonation_weapon_tmpl.is_some() {
-            if self.data.detonate_calls_kill {
+            if self.data().detonate_calls_kill {
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                     self.object_id,
                     |obj_guard| {
@@ -1394,7 +1413,7 @@ impl MissileAIUpdate {
             guard.set_model_condition_state(MODELCONDITION_JAMMED);
         });
 
-        let scatter = self.data.distance_scatter_when_jammed;
+        let scatter = self.data().distance_scatter_when_jammed;
         let mut target_position = if self.is_tracking_target {
             self.current_goal_object()
                 .and_then(|goal| goal.read().ok().map(|guard| *guard.get_position()))
@@ -1436,28 +1455,24 @@ impl MissileAIUpdate {
 /// Behavior module wrapper so MissileAIUpdate participates in the update scheduler.
 pub struct MissileAIUpdateBehavior {
     object: Weak<std::sync::RwLock<Object>>,
-    module_data: Arc<MissileAIUpdateModuleData>,
     pub(crate) update: MissileAIUpdate,
 }
 
 impl MissileAIUpdateBehavior {
     pub fn new(
         object: Arc<std::sync::RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<MissileAIUpdateModuleData>()
-            .ok_or("Invalid MissileAIUpdate module data")?;
-        let module_data = Arc::new(data.clone());
+        if !module_data.is::<MissileAIUpdateModuleData>() {
+            return Err("Invalid MissileAIUpdate module data".into());
+        }
         let current_frame = TheGameLogic::get_frame();
-        let mut update = MissileAIUpdate::new(module_data.clone(), current_frame);
+        let mut update = MissileAIUpdate::new(module_data, current_frame);
         if let Ok(guard) = object.read() {
             update.object_id = guard.get_id();
         }
         Ok(Self {
             object: Arc::downgrade(&object),
-            module_data,
             update,
         })
     }
@@ -1500,12 +1515,12 @@ impl MissileAIUpdateBehavior {
             if let Ok(obj_guard) = projectile_arc.read() {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
                     if let Some(victim_id) = victim {
-                        if self.module_data.try_to_follow_target {
+                        if self.update.data().try_to_follow_target {
                             ai.ai_move_to_object(victim_id, CMD_FROM_AI);
                         }
                     } else {
                         let mut initial_pos = *victim_pos;
-                        if self.module_data.lock_distance > 0.0 {
+                        if self.update.data().lock_distance > 0.0 {
                             initial_pos.z += APPROACH_HEIGHT;
                         }
                         ai.ai_move_to_position(&initial_pos, false, CMD_FROM_AI);
@@ -1514,8 +1529,11 @@ impl MissileAIUpdateBehavior {
             }
 
             if let Ok(mut obj_guard) = projectile_arc.write() {
-                let mut initial_vel = self.module_data.initial_velocity;
-                if self.module_data.use_weapon_speed {
+                let (mut initial_vel, use_weapon_speed) = {
+                    let data = self.update.data();
+                    (data.initial_velocity, data.use_weapon_speed)
+                };
+                if use_weapon_speed {
                     if let Some(weapon) = detonation_weapon.as_ref().and_then(|weak| weak.upgrade())
                     {
                         initial_vel = weapon.get_projectile_speed();
@@ -1650,7 +1668,7 @@ pub struct MissileAIUpdateFactory;
 impl MissileAIUpdateFactory {
     pub fn create_behavior(
         thing: Arc<std::sync::RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MissileAIUpdateBehavior::new(thing, module_data)?))
     }
@@ -1844,10 +1862,8 @@ mod tests {
 
     #[test]
     fn test_missile_state_machine() {
-        let data = Arc::new(MissileAIUpdateModuleData {
-            ignition_delay: 1,
-            ..Default::default()
-        });
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData { ignition_delay: 1,
+        ..Default::default() });
         let mut missile = MissileAIUpdate::new(data, 0);
 
         assert_eq!(missile.state, MissileState::PreLaunch);
@@ -1870,7 +1886,7 @@ mod tests {
 
     #[test]
     fn test_missile_collision() {
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
 
         // Unarmed missile doesn't respond to collision
@@ -1896,7 +1912,7 @@ mod tests {
             .set_position(&Coord3D::new(45.0, 0.0, 20.0))
             .unwrap();
 
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
         missile.object_id = object_id;
         missile.is_armed = true;
@@ -1927,7 +1943,7 @@ mod tests {
             .set_position(&Coord3D::new(0.0, 0.0, 0.0))
             .unwrap();
 
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
         missile.object_id = object_id;
         missile.is_armed = true;
@@ -1953,7 +1969,7 @@ mod tests {
         let projectile = register_test_object(1012);
         register_test_object(1013);
         let (_weapon, weak_weapon) = test_weapon_template();
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
         missile.object_id = 1012;
         missile.is_armed = true;
@@ -1980,7 +1996,7 @@ mod tests {
         let projectile = register_test_object(1014);
         register_test_object(1015);
         let (_weapon, weak_weapon) = test_weapon_template();
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
         missile.object_id = 1014;
         missile.victim_id = 1015;
@@ -2032,7 +2048,7 @@ mod tests {
                 Arc::new(template)
             });
             let mut missile =
-                MissileAIUpdate::new(Arc::new(MissileAIUpdateModuleData::default()), 0);
+                MissileAIUpdate::new(ModuleDataHandle::new(MissileAIUpdateModuleData::default()), 0);
             missile.object_id = object_id;
             missile.no_damage = no_damage;
             missile.detonation_weapon_tmpl = template.as_ref().map(Arc::downgrade);
@@ -2052,7 +2068,7 @@ mod tests {
 
     #[test]
     fn test_countermeasure_diversion() {
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
 
         missile.set_frames_till_countermeasure_diversion_occurs(10, 0);
@@ -2103,10 +2119,8 @@ mod tests {
             .set_drawable(Some(Arc::clone(&drawable)));
 
         let seed = [0x1234, 0x5678, 0x9abc, 0xdef0, 0x1357, 0x2468];
-        let data = Arc::new(MissileAIUpdateModuleData {
-            distance_scatter_when_jammed: 100.0,
-            ..Default::default()
-        });
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData { distance_scatter_when_jammed: 100.0,
+        ..Default::default() });
         let mut missile = MissileAIUpdate::new(data, 0);
         missile.object_id = 1026;
         missile.victim_id = 77;
@@ -2217,10 +2231,8 @@ mod tests {
         let _guard = game_logic_test_guard();
         reset_game_logic_objects();
         let object = register_test_object(1001);
-        let data = Arc::new(MissileAIUpdateModuleData {
-            kill_self_delay: 3,
-            ..Default::default()
-        });
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData { kill_self_delay: 3,
+        ..Default::default() });
         let mut missile = MissileAIUpdate::new(data, 10);
         missile.object_id = 1001;
         missile.switch_to_state(MissileState::KillSelf, 10);
@@ -2244,11 +2256,9 @@ mod tests {
         reset_game_logic_objects();
         register_test_object(1002);
         let (_weapon, weak_weapon) = test_weapon_template();
-        let data = Arc::new(MissileAIUpdateModuleData {
-            kill_self_delay: 2,
-            detonate_calls_kill: false,
-            ..Default::default()
-        });
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData { kill_self_delay: 2,
+        detonate_calls_kill: false,
+        ..Default::default() });
         let mut missile = MissileAIUpdate::new(data, 20);
         missile.object_id = 1002;
         missile.detonation_weapon_tmpl = Some(weak_weapon);
@@ -2279,11 +2289,9 @@ mod tests {
         reset_game_logic_objects();
         let object = register_test_object(1003);
         let (_weapon, weak_weapon) = test_weapon_template();
-        let data = Arc::new(MissileAIUpdateModuleData {
-            kill_self_delay: 0,
-            detonate_calls_kill: true,
-            ..Default::default()
-        });
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData { kill_self_delay: 0,
+        detonate_calls_kill: true,
+        ..Default::default() });
         let mut missile = MissileAIUpdate::new(data, 30);
         missile.object_id = 1003;
         missile.detonation_weapon_tmpl = Some(weak_weapon);
@@ -2307,7 +2315,7 @@ mod tests {
         let _guard = game_logic_test_guard();
         reset_game_logic_objects();
         register_test_object(1004);
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
         missile.object_id = 1004;
 
@@ -2324,7 +2332,7 @@ mod tests {
 
     #[test]
     fn xfer_preserves_extra_bonus_flags() {
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut saved = MissileAIUpdate::new(data.clone(), 7);
         saved.extra_bonus_flags = crate::common::types::WeaponBonusConditionFlags::GARRISONED
             | crate::common::types::WeaponBonusConditionFlags::FRENZY_TWO;
@@ -2360,7 +2368,7 @@ mod tests {
 
     #[test]
     fn toss_exhaust_invalidates_id_without_manager() {
-        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let data = ModuleDataHandle::new(MissileAIUpdateModuleData::default());
         let mut missile = MissileAIUpdate::new(data, 0);
         missile.exhaust_id = 44;
 

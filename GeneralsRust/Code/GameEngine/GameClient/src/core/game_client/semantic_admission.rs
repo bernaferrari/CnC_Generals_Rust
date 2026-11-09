@@ -1320,12 +1320,12 @@ impl GameClient {
             .authored_template()
             .is_some_and(|template| {
                 template.draw_modules().iter().any(|entry| {
+                    let data = entry.data.read();
                     !policy.is_some_and(|policy| {
                         policy.use_draw_module_lod
-                            && (entry.data.get_minimum_required_game_lod() as i32)
+                            && (data.get_minimum_required_game_lod() as i32)
                                 > (policy.static_game_lod as i32)
-                    }) && entry
-                        .data
+                    }) && data
                         .as_any()
                         .downcast_ref::<W3DScienceModelDrawModuleData>()
                         .is_some_and(|data| {

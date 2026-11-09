@@ -42,27 +42,27 @@ impl EnemyNearUpdateModuleData {
 
 pub struct EnemyNearUpdate {
     object_id: ObjectID,
-    module_data: Arc<EnemyNearUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     enemy_near: Bool,
     enemy_scan_delay: UnsignedInt,
 }
 
 impl EnemyNearUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<EnemyNearUpdateModuleData>()
-            .ok_or("Invalid module data for EnemyNearUpdate")?;
-
-        let mut enemy_scan_delay = 0;
-        if data.enemy_scan_delay_time > 0 {
-            enemy_scan_delay +=
-                get_game_logic_random_value(0, data.enemy_scan_delay_time as i32) as u32;
-        }
+        let enemy_scan_delay = {
+            let guard = module_data.read();
+            let data = guard.downcast_ref::<EnemyNearUpdateModuleData>()
+                .ok_or("Invalid module data for EnemyNearUpdate")?;
+            if data.enemy_scan_delay_time > 0 {
+                get_game_logic_random_value(0, data.enemy_scan_delay_time as i32) as u32
+            } else {
+                0
+            }
+        };
 
         Ok(Self {
             object_id: object
@@ -70,7 +70,7 @@ impl EnemyNearUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             enemy_near: false,
             enemy_scan_delay,
@@ -79,7 +79,10 @@ impl EnemyNearUpdate {
 
     fn check_for_enemies(&mut self) {
         if self.enemy_scan_delay == 0 {
-            self.enemy_scan_delay = self.module_data.enemy_scan_delay_time;
+            self.enemy_scan_delay = self.module_data.read()
+                .downcast_ref::<EnemyNearUpdateModuleData>()
+                .expect("Invalid module data for EnemyNearUpdate")
+                .enemy_scan_delay_time;
             let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
@@ -180,14 +183,14 @@ impl Snapshotable for EnemyNearUpdate {
 pub struct EnemyNearUpdateModule {
     behavior: EnemyNearUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<EnemyNearUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl EnemyNearUpdateModule {
     pub fn new(
         behavior: EnemyNearUpdate,
         module_name: &AsciiString,
-        module_data: Arc<EnemyNearUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -230,12 +233,12 @@ impl Module for EnemyNearUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -253,9 +256,9 @@ pub struct EnemyNearUpdateFactory;
 impl EnemyNearUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(EnemyNearUpdate::new(thing, module_data)?))
+        Ok(Box::new(EnemyNearUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 

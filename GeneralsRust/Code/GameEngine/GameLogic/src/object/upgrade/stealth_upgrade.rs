@@ -6,15 +6,12 @@
 //! Simple upgrade that grants OBJECT_STATUS_CAN_STEALTH status to enable stealth capability.
 //! Used for upgrades like "Black Market" that grant stealth to units.
 
-use std::sync::Arc;
-
 use crate::common::{
     AsciiString, KindOf, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType,
 };
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::upgrade::UpgradeMask;
-use crate::upgrade::modules::upgrade_mux::{UpgradeMux, UpgradeMuxData};
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxData;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -97,8 +94,7 @@ impl Snapshotable for StealthUpgradeModuleData {
 /// Matches C++ StealthUpgrade class lines 20-35
 pub struct StealthUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<StealthUpgradeModuleData>,
-    mux: UpgradeMux,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     applied: bool,
 }
@@ -106,14 +102,12 @@ pub struct StealthUpgrade {
 impl StealthUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<StealthUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
         Self {
             module_name_key,
             data,
-            mux,
             object_id,
             applied: false,
         }
@@ -123,7 +117,7 @@ impl StealthUpgrade {
     /// Matches C++ upgradeImplementation lines 27-42
     pub fn upgrade_implementation(&mut self) -> Result<(), String> {
         // C++ UpgradeMux::wouldUpgrade refuses if m_upgradeExecuted.
-        if self.applied || self.mux.is_already_upgraded() {
+        if self.applied {
             return Ok(());
         }
 
@@ -148,7 +142,6 @@ impl StealthUpgrade {
         };
 
         self.applied = true;
-        self.mux.set_upgrade_executed(true);
         debug!("Stealth upgrade applied to object {}", self.object_id);
 
         Ok(())
@@ -173,11 +166,11 @@ impl Module for StealthUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        ModuleData::get_module_tag_name_key(&*self.data)
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -187,11 +180,9 @@ impl Module for StealthUpgrade {
 
 impl UpgradeModuleInterface for StealthUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        if self.applied || self.mux.is_already_upgraded() {
-            return false;
-        }
-        let mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
-        self.mux.would_upgrade(mask)
+        let data = self.data.read();
+        let data = data.as_any().downcast_ref::<StealthUpgradeModuleData>().expect("StealthUpgradeModuleData");
+        crate::object::upgrade::upgrade_module::mux_can_upgrade(&data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
@@ -204,10 +195,9 @@ impl UpgradeModuleInterface for StealthUpgrade {
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
         // Does not remove stealth status once applied.
-        let mask = crate::upgrade::UpgradeMask::from_bits_retain(upgrade_mask.bits());
-        if self.mux.reset_upgrade(mask) {
-            self.applied = false;
-        }
+        let data = self.data.read();
+        let data = data.as_any().downcast_ref::<StealthUpgradeModuleData>().expect("StealthUpgradeModuleData");
+        crate::object::upgrade::upgrade_module::mux_reset_upgrade(&data.upgrade_mux_data, &mut self.applied, upgrade_mask);
     }
 }
 
@@ -226,7 +216,6 @@ impl Snapshotable for StealthUpgrade {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.mux.set_upgrade_executed(self.applied);
         Ok(())
     }
 }
@@ -315,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_stealth_upgrade_creation() {
-        let data = Arc::new(StealthUpgradeModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(StealthUpgradeModuleData::default());
         let upgrade = StealthUpgrade::new(1, data, 100);
         assert!(!upgrade.is_applied());
     }
@@ -332,15 +321,13 @@ mod tests {
         data.upgrade_mux_data
             .activation_upgrade_names
             .push(AsciiString::from("Upgrade_GLACamouflage"));
-        let mut upgrade = StealthUpgrade::new(1, Arc::new(data), 100);
+        let mut upgrade = StealthUpgrade::new(1, game_engine::common::thing::module::ModuleDataHandle::new(data), 100);
         upgrade.applied = true;
-        upgrade.mux.set_upgrade_executed(true);
         let mask = crate::common::UpgradeMaskType::from_bits_retain(
             crate::upgrade::test_upgrade_mask("Upgrade_GLACamouflage").to_bits(),
         );
         upgrade.remove_upgrade(mask);
         assert!(!upgrade.is_applied());
-        assert!(!upgrade.mux.is_already_upgraded());
         assert!(upgrade.can_upgrade(mask));
     }
 }

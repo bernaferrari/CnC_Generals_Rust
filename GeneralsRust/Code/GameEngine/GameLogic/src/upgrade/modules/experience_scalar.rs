@@ -14,7 +14,6 @@ use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-use std::sync::Arc;
 
 /// Module data for ExperienceScalarUpgrade
 /// Matches C++ ExperienceScalarUpgradeModuleData
@@ -163,7 +162,7 @@ const EXPERIENCE_SCALAR_UPGRADE_FIELDS: &[FieldParse<ExperienceScalarUpgradeModu
 /// Matches C++ ExperienceScalarUpgrade class
 pub struct ExperienceScalarUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<ExperienceScalarUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataView<ExperienceScalarUpgradeModuleData>,
     object_id: ObjectID,
     mux: UpgradeMux,
 }
@@ -173,36 +172,32 @@ impl ExperienceScalarUpgrade {
     /// Matches C++ ExperienceScalarUpgrade::ExperienceScalarUpgrade
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<ExperienceScalarUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mux = UpgradeMux::new_shared(game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| &data.as_any().downcast_ref::<ExperienceScalarUpgradeModuleData>().expect("ExperienceScalarUpgradeModuleData").upgrade_mux_data));
         Self {
             module_name_key,
-            data,
+            data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<ExperienceScalarUpgradeModuleData>().expect("ExperienceScalarUpgradeModuleData")),
             object_id,
             mux,
         }
     }
 
-    /// Get the module data
-    fn get_experience_scalar_upgrade_module_data(&self) -> &ExperienceScalarUpgradeModuleData {
-        &self.data
-    }
 
     /// Apply the experience scalar upgrade to the object
     /// Matches C++ ExperienceScalarUpgrade::upgradeImplementation
     fn upgrade_implementation(&mut self, object: &mut Object) {
-        let data = self.get_experience_scalar_upgrade_module_data();
+        let scalar = self.data.read().add_xp_scalar;
 
         // Get the experience tracker from the object and add the scalar
         let applied = object.with_experience_tracker_mut(|guard| {
             let current_scalar = guard.get_experience_scalar();
-            let new_scalar = current_scalar + data.add_xp_scalar;
+            let new_scalar = current_scalar + scalar;
             guard.set_experience_scalar(new_scalar);
             log::info!(
                 "ExperienceScalarUpgrade: Added XP scalar {} (now {}) for object {}",
-                data.add_xp_scalar,
+                scalar,
                 new_scalar,
                 self.object_id
             );
@@ -223,7 +218,7 @@ impl UpgradeModuleInterface for ExperienceScalarUpgrade {
 
     fn attempt_upgrade(&mut self, key_mask: UpgradeMask, object: &mut Object) -> bool {
         if self.mux.would_upgrade(key_mask) {
-            self.mux.data.perform_upgrade_fx(object);
+            self.mux.data_snapshot().perform_upgrade_fx(object);
             self.upgrade_implementation(object);
             self.mux.set_upgrade_executed(true);
             true
@@ -260,10 +255,10 @@ impl Module for ExperienceScalarUpgrade {
         self.module_name_key
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.handle().read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 

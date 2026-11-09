@@ -60,7 +60,7 @@ impl Fixture {
                 .iter()
                 .any(|entry| {
                     entry.name.as_str() == "AIUpdateInterface"
-                && entry.data.as_ref().downcast_ref::<
+                && entry.data.read().downcast_ref::<
                     crate::object::update::ai_update_interface::AIUpdateModuleData,
                 >().is_some()
                 })

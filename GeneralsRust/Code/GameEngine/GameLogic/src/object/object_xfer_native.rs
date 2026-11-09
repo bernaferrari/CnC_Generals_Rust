@@ -152,10 +152,9 @@ impl<'a> ObjectXferDefinitions<'a> {
             );
         }
         for entry in template.get_behavior_module_info() {
+            let module_data = entry.data.read();
             if entry.name.as_str() == "ActiveBody" {
-                let data = entry
-                    .data
-                    .as_ref()
+                let data = module_data
                     .downcast_ref::<crate::object::body::active_body::ActiveBodyModuleData>()
                     .ok_or("native ActiveBody module data has the wrong family")?;
                 if !data.initial_health.is_finite()
@@ -166,11 +165,11 @@ impl<'a> ObjectXferDefinitions<'a> {
                 }
             }
             match entry.name.as_str() {
-                "InstantDeathBehavior" => entry.data.as_ref()
+                "InstantDeathBehavior" => module_data
                     .downcast_ref::<crate::object::behavior::instant_death_behavior::InstantDeathBehaviorModuleData>()
                     .ok_or("native InstantDeath definition has the wrong family")?.validate_owned_effects()?,
                 "DozerAIUpdate" => {
-                    entry.data.as_ref().downcast_ref::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData>()
+                    module_data.downcast_ref::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData>()
                         .ok_or("native Dozer definition has the wrong family")?;
                     if !template.is_kind_of(KindOf::Dozer) {
                         return Err("native Dozer construction requires its authored Dozer family".into());
@@ -180,7 +179,7 @@ impl<'a> ObjectXferDefinitions<'a> {
                 }
                 "SlowDeathBehavior" => {
                     if template.is_kind_of(KindOf::Hulk) { return Err("native SlowDeath hulk construction not admitted".into()); }
-                    entry.data.as_ref().downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehaviorModuleData>()
+                    module_data.downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehaviorModuleData>()
                         .ok_or("native SlowDeath definition has the wrong family")?.validate_owned_effects()?;
                 }
                 _ => {},

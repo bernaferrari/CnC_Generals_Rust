@@ -75,7 +75,7 @@ impl AutoDepositUpdateModuleData {
 /// Matches C++ AutoDepositUpdate.cpp lines 81-268
 pub struct AutoDepositUpdate {
     object_id: ObjectID,
-    module_data: Arc<AutoDepositUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     /// Frame when next deposit occurs. Matches C++ line 83
@@ -88,14 +88,15 @@ pub struct AutoDepositUpdate {
 
 impl AutoDepositUpdate {
     /// Creates a new AutoDepositUpdate. Matches C++ lines 81-86
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<AutoDepositUpdateModuleData>()
-            .ok_or("Invalid module data for AutoDepositUpdate")?;
+        let deposit_frame = {
+            let guard = module_data.read();
+            guard.downcast_ref::<AutoDepositUpdateModuleData>()
+                .ok_or("Invalid module data for AutoDepositUpdate")?.deposit_frame
+        };
 
         // Get current frame from game logic
         // Matches C++ TheGameLogic->getFrame() (line 99)
@@ -107,10 +108,10 @@ impl AutoDepositUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             // Matches C++ line 83
-            deposit_on_frame: current_frame + specific_data.deposit_frame,
+            deposit_on_frame: current_frame + deposit_frame,
             // Matches C++ line 84
             award_initial_capture_bonus: false,
             // Matches C++ line 85
@@ -127,15 +128,18 @@ impl AutoDepositUpdate {
         if dual_world_registry_unavailable() {
             return;
         }
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoDepositUpdateModuleData>()
+            .expect("Invalid module data for AutoDepositUpdate");
 
         // Reset deposit frame. Matches C++ line 98
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        self.deposit_on_frame = current_frame + self.module_data.deposit_frame;
+        self.deposit_on_frame = current_frame + data.deposit_frame;
 
         let Some(player_arc) = player else {
             return;
         };
-        if !self.award_initial_capture_bonus || self.module_data.initial_capture_bonus <= 0 {
+        if !self.award_initial_capture_bonus || data.initial_capture_bonus <= 0 {
             return;
         }
 
@@ -144,12 +148,12 @@ impl AutoDepositUpdate {
         };
         let _ = player_guard
             .get_money_mut()
-            .deposit(self.module_data.initial_capture_bonus as u32);
+            .deposit(data.initial_capture_bonus as u32);
         player_guard
             .get_score_keeper_mut()
-            .add_money_earned(self.module_data.initial_capture_bonus as u32);
+            .add_money_earned(data.initial_capture_bonus as u32);
 
-        let text = format_add_cash(self.module_data.initial_capture_bonus);
+        let text = format_add_cash(data.initial_capture_bonus);
         let mut pos = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -174,6 +178,9 @@ impl AutoDepositUpdate {
         if dual_world_registry_unavailable() {
             return 0;
         }
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoDepositUpdateModuleData>()
+            .expect("Invalid module data for AutoDepositUpdate");
 
         // Get controlling player
         let object = match (if self.object_id == crate::common::INVALID_ID {
@@ -200,7 +207,7 @@ impl AutoDepositUpdate {
 
             // C++ caches the first findUpgrade in a function-local static, so later pairs
             // never resolve their own template. Only the first pair can grant a boost.
-            if let Some(upgrade_pair) = self.module_data.upgrade_boost.first() {
+            if let Some(upgrade_pair) = data.upgrade_boost.first() {
                 if let Some(template) =
                     center_guard.find_upgrade(upgrade_pair.upgrade_type.as_str())
                 {
@@ -232,6 +239,12 @@ impl UpdateModuleInterface for AutoDepositUpdate {
 
         // Check if it's time to deposit. Matches C++ line 126
         if current_frame >= self.deposit_on_frame {
+            let (deposit_frame, deposit_amount, is_actual_money) = {
+                let guard = self.module_data.read();
+                let data = guard.downcast_ref::<AutoDepositUpdateModuleData>()
+                    .expect("Invalid module data for AutoDepositUpdate");
+                (data.deposit_frame, data.deposit_amount, data.is_actual_money)
+            };
             // Initialize on first update. Matches C++ lines 128-133
             if !self.initialized {
                 self.award_initial_capture_bonus = true;
@@ -239,7 +252,7 @@ impl UpdateModuleInterface for AutoDepositUpdate {
             }
 
             // Schedule next deposit. Matches C++ line 134
-            self.deposit_on_frame = current_frame + self.module_data.deposit_frame;
+            self.deposit_on_frame = current_frame + deposit_frame;
 
             let object = match (if self.object_id == crate::common::INVALID_ID {
                 None
@@ -257,7 +270,7 @@ impl UpdateModuleInterface for AutoDepositUpdate {
             };
 
             // Don't deposit if neutral or amount <= 0. Matches C++ lines 136-137
-            if obj_read.is_neutral_controlled() || self.module_data.deposit_amount <= 0 {
+            if obj_read.is_neutral_controlled() || deposit_amount <= 0 {
                 return UpdateSleepTime::None; // UPDATE_SLEEP_NONE
             }
 
@@ -267,10 +280,10 @@ impl UpdateModuleInterface for AutoDepositUpdate {
             }
 
             // Calculate money amount with upgrades. Matches C++ line 143
-            let money_amount = self.module_data.deposit_amount + self.get_upgraded_supply_boost();
+            let money_amount = deposit_amount + self.get_upgraded_supply_boost();
 
             // Deposit actual money if configured. Matches C++ lines 145-149
-            if self.module_data.is_actual_money {
+            if is_actual_money {
                 obj_read.with_controlling_player_mut(|player_guard| {
                     if money_amount > 0 {
                         let _ = player_guard.get_money_mut().deposit(money_amount as u32);
@@ -279,10 +292,10 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                             .get_money_mut()
                             .withdraw((-money_amount) as u32);
                     }
-                    if self.module_data.deposit_amount > 0 {
+                    if deposit_amount > 0 {
                         player_guard
                             .get_score_keeper_mut()
-                            .add_money_earned(self.module_data.deposit_amount as u32);
+                            .add_money_earned(deposit_amount as u32);
                     }
                 });
             }
@@ -338,9 +351,9 @@ pub struct AutoDepositUpdateFactory;
 impl AutoDepositUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(AutoDepositUpdate::new(thing, module_data)?))
+        Ok(Box::new(AutoDepositUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -384,15 +397,16 @@ impl Snapshotable for AutoDepositUpdate {
 pub struct AutoDepositUpdateModule {
     behavior: AutoDepositUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<AutoDepositUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl AutoDepositUpdateModule {
     pub fn new(
         behavior: AutoDepositUpdate,
         module_name: &AsciiString,
-        module_data: Arc<AutoDepositUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        assert!(game_engine::common::thing::module::ModuleDataHandle::ptr_eq(&behavior.module_data, &module_data));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -434,11 +448,11 @@ impl Module for AutoDepositUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

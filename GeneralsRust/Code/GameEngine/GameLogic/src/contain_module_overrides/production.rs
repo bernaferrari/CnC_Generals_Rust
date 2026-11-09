@@ -22,18 +22,14 @@ pub(super) fn default_production_exit_update_data_factory(
 
 pub(super) fn default_production_exit_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<DefaultProductionExitModuleData>(
-        "DefaultProductionExitUpdate",
-        &module_data,
-    );
-    let behavior = DefaultProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+    let behavior = DefaultProductionExitBehavior::from_module_thing(thing, module_data.clone())
         .expect("DefaultProductionExitUpdate requires an owning object");
     Box::new(DefaultProductionExitBehaviorModule::new(
         behavior,
         &AsciiString::from("DefaultProductionExitUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -55,18 +51,14 @@ pub(super) fn queue_production_exit_update_data_factory(
 
 pub(super) fn queue_production_exit_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<QueueProductionExitModuleData>(
-        "QueueProductionExitUpdate",
-        &module_data,
-    );
-    let behavior = QueueProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+    let behavior = QueueProductionExitBehavior::from_module_thing(thing, module_data.clone())
         .expect("QueueProductionExitUpdate requires an owning object");
     Box::new(QueueProductionExitBehaviorModule::new(
         behavior,
         &AsciiString::from("QueueProductionExitUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -88,18 +80,14 @@ pub(super) fn spawn_point_production_exit_update_data_factory(
 
 pub(super) fn spawn_point_production_exit_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<SpawnPointProductionExitModuleData>(
-        "SpawnPointProductionExitUpdate",
-        &module_data,
-    );
-    let behavior = SpawnPointProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+    let behavior = SpawnPointProductionExitBehavior::from_module_thing(thing, module_data.clone())
         .expect("SpawnPointProductionExitUpdate requires an owning object");
     Box::new(SpawnPointProductionExitBehaviorModule::new(
         behavior,
         &AsciiString::from("SpawnPointProductionExitUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -121,18 +109,14 @@ pub(super) fn supply_center_production_exit_update_data_factory(
 
 pub(super) fn supply_center_production_exit_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<SupplyCenterProductionExitModuleData>(
-        "SupplyCenterProductionExitUpdate",
-        &module_data,
-    );
-    let behavior = SupplyCenterProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+    let behavior = SupplyCenterProductionExitBehavior::from_module_thing(thing, module_data.clone())
         .expect("SupplyCenterProductionExitUpdate requires an owning object");
     Box::new(SupplyCenterProductionExitBehaviorModule::new(
         behavior,
         &AsciiString::from("SupplyCenterProductionExitUpdate"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -152,16 +136,14 @@ pub(super) fn flight_deck_behavior_data_factory(ini: Option<&mut INI>) -> Box<dy
 
 pub(super) fn flight_deck_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<FlightDeckBehaviorModuleData>("FlightDeckBehavior", &module_data);
-    let behavior = FlightDeckBehavior::from_module_thing(thing, data_arc.clone())
+    let behavior = FlightDeckBehavior::from_module_thing(thing, module_data.clone())
         .expect("FlightDeckBehavior requires an owning object");
     Box::new(FlightDeckBehaviorModule::new(
         behavior,
         &AsciiString::from("FlightDeckBehavior"),
-        data_arc,
+        module_data,
     ))
 }
 
@@ -181,15 +163,14 @@ pub(super) fn production_update_data_factory(ini: Option<&mut INI>) -> Box<dyn M
 
 pub(super) fn production_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<ProductionUpdateModuleData>("ProductionUpdate", &module_data);
+    assert!(module_data.read().as_any().is::<ProductionUpdateModuleData>(), "ProductionUpdate module data type expected");
     let module_name = AsciiString::from("ProductionUpdate");
     let owner_id = resolve_owner_id(&thing);
     Box::new(ProductionUpdateCompleteModule::new(
         &module_name,
-        data_arc,
+        module_data,
         owner_id,
     ))
 }
@@ -210,16 +191,15 @@ pub(super) fn repair_dock_update_data_factory(ini: Option<&mut INI>) -> Box<dyn 
 
 pub(super) fn repair_dock_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<RepairDockUpdateData>("RepairDockUpdate", &module_data);
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = RepairDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let behavior = RepairDockUpdate::from_shared(module_data.clone(), owner_id, &owner_pos);
     let module_name = AsciiString::from("RepairDockUpdate");
     Box::new(RepairDockUpdateModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -241,19 +221,15 @@ pub(super) fn railed_transport_dock_update_data_factory(
 
 pub(super) fn railed_transport_dock_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<RailedTransportDockUpdateData>(
-        "RailedTransportDockUpdate",
-        &module_data,
-    );
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = RailedTransportDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let behavior = RailedTransportDockUpdate::from_shared(module_data.clone(), owner_id, &owner_pos);
     let module_name = AsciiString::from("RailedTransportDockUpdate");
     Box::new(RailedTransportDockUpdateModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -273,17 +249,15 @@ pub(super) fn supply_center_dock_update_data_factory(ini: Option<&mut INI>) -> B
 
 pub(super) fn supply_center_dock_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<SupplyCenterDockUpdateData>("SupplyCenterDockUpdate", &module_data);
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = SupplyCenterDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let behavior = SupplyCenterDockUpdate::from_shared(module_data.clone(), owner_id, &owner_pos);
     let module_name = AsciiString::from("SupplyCenterDockUpdate");
     Box::new(SupplyCenterDockUpdateModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 
@@ -305,19 +279,15 @@ pub(super) fn supply_warehouse_dock_update_data_factory(
 
 pub(super) fn supply_warehouse_dock_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<SupplyWarehouseDockUpdateData>(
-        "SupplyWarehouseDockUpdate",
-        &module_data,
-    );
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = SupplyWarehouseDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let behavior = SupplyWarehouseDockUpdate::from_shared(module_data.clone(), owner_id, &owner_pos);
     let module_name = AsciiString::from("SupplyWarehouseDockUpdate");
     Box::new(SupplyWarehouseDockUpdateModule::new(
         behavior,
         &module_name,
-        data_arc,
+        module_data,
     ))
 }
 

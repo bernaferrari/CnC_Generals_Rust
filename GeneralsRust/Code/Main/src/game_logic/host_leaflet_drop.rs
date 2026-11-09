@@ -106,8 +106,8 @@ pub(crate) fn leaflet_fx_particle_name(
             .as_str()
             .eq_ignore_ascii_case("LeafletDropBehavior")
     })?;
-    if let Some(data) = entry
-        .data
+    let module_data = entry.data.read();
+    if let Some(data) = module_data
         .downcast_ref::<gamelogic::object::behavior::LeafletDropBehaviorModuleData>()
     {
         return data
@@ -117,8 +117,7 @@ pub(crate) fn leaflet_fx_particle_name(
             .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))
             .map(str::to_owned);
     }
-    entry
-        .data
+    module_data
         .get_ini_field("LeafletFXParticleSystem")
         .map(str::trim)
         .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))

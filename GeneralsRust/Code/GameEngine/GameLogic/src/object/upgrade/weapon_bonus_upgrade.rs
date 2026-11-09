@@ -1,10 +1,11 @@
+#[cfg(test)]
 use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType, WeaponBonusConditionType};
 use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 /// Module data describing the weapon bonus upgrade.
 #[derive(Debug, Clone)]
@@ -53,19 +54,19 @@ impl Snapshotable for WeaponBonusUpgradeModuleData {
 /// Upgrade module that increases weapon damage on the owning object.
 pub struct WeaponBonusUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<WeaponBonusUpgradeModuleData>,
+    data: ModuleDataView<WeaponBonusUpgradeModuleData>,
     applied: bool,
 }
 
 impl WeaponBonusUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<WeaponBonusUpgradeModuleData>,
+        data: ModuleDataHandle,
         _object_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
-            data,
+            data: ModuleDataView::new(data, |data| (data as &dyn std::any::Any).downcast_ref::<WeaponBonusUpgradeModuleData>().expect("expected weapon bonus upgrade data")),
             applied: false,
         }
     }
@@ -85,11 +86,11 @@ impl Module for WeaponBonusUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.handle().read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 
@@ -113,20 +114,20 @@ impl Snapshotable for WeaponBonusUpgrade {
 
 impl WeaponBonusUpgrade {
     pub(crate) fn can_upgrade(&self, mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
+        mux_can_upgrade(&self.data.read().upgrade_mux_data, self.applied, mask)
     }
 
     /// Retain immutable rules while releasing the installed module before callbacks.
     pub(crate) fn prepare_upgrade(
         &self,
         mask: UpgradeMaskType,
-    ) -> Option<Arc<WeaponBonusUpgradeModuleData>> {
-        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    ) -> Option<ModuleDataView<WeaponBonusUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| self.data.clone())
     }
 
     pub(crate) fn remove_upgrade(&mut self, mask: UpgradeMaskType) {
         // C++ resetUpgrade clears execution without undoing the owner bonus flag.
-        mux_reset_upgrade(&self.data.upgrade_mux_data, &mut self.applied, mask);
+        mux_reset_upgrade(&self.data.read().upgrade_mux_data, &mut self.applied, mask);
     }
 
     pub(crate) fn finish_upgrade(&mut self) {

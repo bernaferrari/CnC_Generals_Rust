@@ -206,7 +206,7 @@ pub struct CrushDie {
 
 impl CrushDie {
     /// Create a new CrushDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<CrushDieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -309,7 +309,8 @@ impl CrushDie {
     /// (Matches C++ CrushDie.cpp lines 155-165)
     fn play_crush_sound(&self, crush_type: CrushEnum, _object: &Object) {
         let crush_idx = crush_type as usize;
-        let sound_name = match &self.base.module_data.crush_sounds[crush_idx] {
+        let module_data = self.base.module_data.read();
+        let sound_name = match &module_data.crush_sounds[crush_idx] {
             Some(name) => name,
             None => return,
         };
@@ -317,7 +318,7 @@ impl CrushDie {
         // Check random percentage
         // C++ uses: GameLogicRandomValue(0, 99) < crushSoundPercent
         // This generates a value from 0-99, so 0==never, 100==always
-        let sound_percent = self.base.module_data.crush_sound_percent[crush_idx];
+        let sound_percent = module_data.crush_sound_percent[crush_idx];
 
         let random_value = crate::GameLogicRandomValue!(0, 99) as i32;
 
@@ -389,7 +390,7 @@ impl DieModuleInterface for CrushDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }

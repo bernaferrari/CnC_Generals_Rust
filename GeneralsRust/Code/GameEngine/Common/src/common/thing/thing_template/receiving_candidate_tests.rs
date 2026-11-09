@@ -341,6 +341,7 @@ fn strict_candidate_new_override_marks_copied_entries_without_allocating_tag_ide
         .get_client_update_module_info()
         .get_nth_data(0)
         .unwrap()
+        .read()
         .get_module_tag_name_key();
     assert_eq!(key, crate::common::name_key_generator::NAMEKEY_INVALID);
     // Unkeyed validation data remains private to the capability. Exact tag
@@ -361,6 +362,7 @@ fn strict_candidate_new_override_marks_copied_entries_without_allocating_tag_ide
             .get_client_update_module_info()
             .get_nth_data(0)
             .unwrap()
+            .read()
             .get_module_tag_name_key()
     );
     assert_eq!(base.get_client_update_module_info().get_count(), 0);
@@ -393,7 +395,7 @@ fn strict_candidate_tag_validation_does_not_advance_ambient_name_key_sequence() 
     assert_eq!(after, before.wrapping_add(1));
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct AiData(BaseModuleData);
 impl Snapshotable for AiData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

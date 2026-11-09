@@ -86,7 +86,7 @@ impl Snapshotable for CashBountyPowerModuleData {
 /// required science).
 pub struct CashBountyPower {
     module_name_key: NameKeyType,
-    data: Arc<CashBountyPowerModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -95,12 +95,13 @@ impl CashBountyPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<CashBountyPowerModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        let base_module = super::interface::make_shared_base_module!(owner_object_id, data, CashBountyPowerModuleData);
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module,
             data,
         }
     }
@@ -109,7 +110,8 @@ impl CashBountyPower {
     /// In C++ this checks upgrade pairs, but that feature is #ifdef NOT_IN_USE.
     /// Matches C++ CashBountyPower::findBounty().
     fn find_bounty(&self) -> Real {
-        self.data.default_bounty
+        self.data.read().as_any().downcast_ref::<CashBountyPowerModuleData>()
+            .expect("CashBountyPower data type").default_bounty
     }
 
     /// Apply bounty with no science gate (C++ onSpecialPowerCreation).
@@ -138,9 +140,9 @@ impl CashBountyPower {
             return;
         };
         let has_required_science = owner_guard.with_controlling_player(|player_guard| {
-            let required_science = self
-                .data
-                .base
+            let data = self.data.read();
+            let required_science = data.downcast_ref::<CashBountyPowerModuleData>()
+                .expect("CashBountyPower data type").base
                 .special_power_template
                 .as_ref()
                 .map(|t| t.get_required_science())
@@ -202,11 +204,11 @@ impl Module for CashBountyPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -288,8 +290,15 @@ mod tests {
     fn test_find_bounty() {
         let mut data = CashBountyPowerModuleData::default();
         data.default_bounty = 0.2;
-        let arc_data = Arc::new(data);
-        let power = CashBountyPower::new(0, 0, arc_data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
+        let power = CashBountyPower::new(0, 0, arc_data.clone());
         assert!((power.find_bounty() - 0.2).abs() < f32::EPSILON);
+        {
+            let mut data = arc_data.write();
+            let data = (&mut *data as &mut dyn std::any::Any)
+                .downcast_mut::<CashBountyPowerModuleData>().unwrap();
+            data.default_bounty = 0.4;
+        }
+        assert!((power.find_bounty() - 0.4).abs() < f32::EPSILON);
     }
 }

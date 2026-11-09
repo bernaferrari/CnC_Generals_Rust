@@ -11,9 +11,8 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    FireSpreadControlInterface, Module, ModuleData, NameKeyType,
+    FireSpreadControlInterface, Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType,
 };
-use std::sync::Arc;
 
 /// Module data for FireSpreadUpdate
 /// Matches C++ FireSpreadUpdate.cpp
@@ -151,7 +150,7 @@ const FIRE_SPREAD_UPDATE_FIELDS: &[FieldParse<FireSpreadUpdateModuleData>] = &[
 #[derive(Debug, Clone)]
 pub struct FireSpreadUpdate {
     thing: ThingId,
-    module_data: FireSpreadUpdateModuleData,
+    module_data: ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
 }
 
@@ -169,6 +168,10 @@ impl FireSpreadUpdate {
     /// Create new FireSpreadUpdate module
     /// Matches C++ FireSpreadUpdate.cpp:80-83
     pub fn new(thing: ThingId, module_data: FireSpreadUpdateModuleData) -> Self {
+        Self::with_module_data(thing, ModuleDataHandle::new(module_data))
+    }
+
+    pub fn with_module_data(thing: ThingId, module_data: ModuleDataHandle) -> Self {
         Self {
             thing,
             module_data,
@@ -187,9 +190,14 @@ impl FireSpreadUpdate {
         if !me.get_status_bits().test(ObjectStatus::Aflame) {
             return UpdateSleepTime::Forever;
         }
+        let (ocl_embers, spread_try_range) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<FireSpreadUpdateModuleData>().expect("invalid FireSpread data");
+            (data.ocl_embers, data.spread_try_range)
+        };
 
         // Create ember effects if configured (C++ line 101)
-        if let Some(ocl) = self.module_data.ocl_embers {
+        if let Some(ocl) = ocl_embers {
             if let Some(ocl_mgr) = ctx.object_creation_list_manager.as_mut() {
                 ocl_mgr.create(
                     ocl,
@@ -202,13 +210,13 @@ impl FireSpreadUpdate {
         }
 
         // Spread fire explicitly if range is set (C++ line 103-131)
-        if self.module_data.spread_try_range != 0.0 {
+        if spread_try_range != 0.0 {
             // Find closest flammable object (C++ line 106-123)
             let filters = vec![PartitionFilter::Flammable];
 
             if let Some(object_to_light) = ctx.partition_manager.get_closest_object(
                 me,
-                self.module_data.spread_try_range,
+                spread_try_range,
                 PartitionDistanceType::Center3D,
                 &filters,
             ) {
@@ -229,6 +237,11 @@ impl FireSpreadUpdate {
         if self.thing == crate::common::INVALID_ID {
             return UpdateSleepTime::Forever;
         }
+        let (ocl_embers, spread_try_range) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<FireSpreadUpdateModuleData>().expect("invalid FireSpread data");
+            (data.ocl_embers, data.spread_try_range)
+        };
 
         let object_to_light = {
             let Some((aflame, pos, orientation)) =
@@ -247,7 +260,7 @@ impl FireSpreadUpdate {
                 return UpdateSleepTime::Forever;
             }
 
-            if let Some(ocl_key) = self.module_data.ocl_embers {
+            if let Some(ocl_key) = ocl_embers {
                 if let Some(ocl_name) = NameKeyGenerator::key_to_name(ocl_key as NameKeyType) {
                     if let Some(ocl) =
                         crate::helpers::TheObjectCreationListStore::find_object_creation_list(
@@ -262,12 +275,12 @@ impl FireSpreadUpdate {
                 }
             }
 
-            if self.module_data.spread_try_range != 0.0 {
+            if spread_try_range != 0.0 {
                 crate::object::OBJECT_REGISTRY
                     .with_object(self.thing, |me| {
                         crate::helpers::ThePartitionManagerBridge.get_closest_object_id(
                             me,
-                            self.module_data.spread_try_range,
+                            spread_try_range,
                             PartitionDistanceType::Center3D,
                             &[PartitionFilter::Flammable],
                         )
@@ -318,11 +331,12 @@ impl FireSpreadUpdate {
     }
 
     fn calc_next_spread_delay_with(&self, mut draw: impl FnMut(u32, u32) -> u32) -> u32 {
-        draw(
-            self.module_data.min_spread_try_delay,
-            self.module_data.max_spread_try_delay,
-        )
-        .max(1)
+        let (min, max) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<FireSpreadUpdateModuleData>().expect("invalid FireSpread data");
+            (data.min_spread_try_delay, data.max_spread_try_delay)
+        };
+        draw(min, max).max(1)
     }
 
     fn wake_delay_if_aflame_with_random(
@@ -389,16 +403,17 @@ impl Snapshotable for FireSpreadUpdate {
 pub struct FireSpreadUpdateModule {
     behavior: FireSpreadUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<FireSpreadUpdateModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl FireSpreadUpdateModule {
     pub fn new(
-        behavior: FireSpreadUpdate,
+        mut behavior: FireSpreadUpdate,
         module_name: &AsciiString,
-        module_data: Arc<FireSpreadUpdateModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        behavior.module_data = module_data.clone();
         Self {
             behavior,
             module_name_key,
@@ -439,11 +454,11 @@ impl Module for FireSpreadUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_fire_spread_control_interface(&mut self) -> Option<&mut dyn FireSpreadControlInterface> {
@@ -504,9 +519,11 @@ mod tests {
         };
 
         let update = FireSpreadUpdate::new(1, data);
-        assert_eq!(update.module_data.min_spread_try_delay, 30);
-        assert_eq!(update.module_data.max_spread_try_delay, 60);
-        assert_eq!(update.module_data.spread_try_range, 50.0);
+        let guard = update.module_data.read();
+        let data = guard.as_any().downcast_ref::<FireSpreadUpdateModuleData>().unwrap();
+        assert_eq!(data.min_spread_try_delay, 30);
+        assert_eq!(data.max_spread_try_delay, 60);
+        assert_eq!(data.spread_try_range, 50.0);
     }
 
     #[test]

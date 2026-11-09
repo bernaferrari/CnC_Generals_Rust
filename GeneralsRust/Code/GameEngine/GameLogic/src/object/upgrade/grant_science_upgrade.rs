@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
+use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::upgrade::upgrade_module::{
@@ -70,7 +68,7 @@ impl Snapshotable for GrantScienceUpgradeModuleData {
 /// Upgrade module that grants a science to the owning player.
 pub struct GrantScienceUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<GrantScienceUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     science_type: ScienceType,
     applied: bool,
@@ -79,7 +77,7 @@ pub struct GrantScienceUpgrade {
 impl GrantScienceUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<GrantScienceUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         Self {
@@ -92,19 +90,16 @@ impl GrantScienceUpgrade {
     }
 
     fn resolve_science_type(&mut self) {
-        if self.science_type != SCIENCE_INVALID {
-            return;
-        }
         let Some(store) = get_science_store() else {
             log::warn!("GrantScienceUpgrade: Science store not initialized");
             return;
         };
         self.science_type =
-            store.get_science_from_internal_name(self.data.grant_science_name().as_str());
+            store.get_science_from_internal_name(self.data.read().as_any().downcast_ref::<GrantScienceUpgradeModuleData>().expect("GrantScienceUpgradeModuleData").grant_science_name().as_str());
         if self.science_type == SCIENCE_INVALID {
             log::warn!(
                 "GrantScienceUpgrade: Unknown science '{}'",
-                self.data.grant_science_name()
+                self.data.read().as_any().downcast_ref::<GrantScienceUpgradeModuleData>().expect("GrantScienceUpgradeModuleData").grant_science_name()
             );
         }
     }
@@ -124,11 +119,11 @@ impl Module for GrantScienceUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -155,7 +150,7 @@ impl Snapshotable for GrantScienceUpgrade {
 
 impl UpgradeModuleInterface for GrantScienceUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+        mux_can_upgrade(&self.data.read().as_any().downcast_ref::<GrantScienceUpgradeModuleData>().expect("GrantScienceUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -167,7 +162,7 @@ impl UpgradeModuleInterface for GrantScienceUpgrade {
         if self.applied {
             return false;
         }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
+        { let data = self.data.read().as_any().downcast_ref::<GrantScienceUpgradeModuleData>().expect("GrantScienceUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
         self.resolve_science_type();
         if self.science_type == SCIENCE_INVALID {
             // C++ still considers the upgrade executed even if the science name is invalid.
@@ -197,7 +192,7 @@ impl UpgradeModuleInterface for GrantScienceUpgrade {
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ does not remove granted science; resetUpgrade only clears executed.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().as_any().downcast_ref::<GrantScienceUpgradeModuleData>().expect("GrantScienceUpgradeModuleData").upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );

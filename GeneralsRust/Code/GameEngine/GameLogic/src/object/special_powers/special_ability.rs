@@ -63,7 +63,7 @@ impl Snapshotable for SpecialAbilityModuleData {
 
 pub struct SpecialAbility {
     module_name_key: NameKeyType,
-    data: Arc<SpecialAbilityModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -72,12 +72,13 @@ impl SpecialAbility {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<SpecialAbilityModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        let base_module = super::interface::make_shared_base_module!(owner_object_id, data, SpecialAbilityModuleData);
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module,
             data,
         }
     }
@@ -181,11 +182,11 @@ impl Module for SpecialAbility {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {

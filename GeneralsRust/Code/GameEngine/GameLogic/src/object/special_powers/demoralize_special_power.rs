@@ -109,7 +109,7 @@ impl Snapshotable for DemoralizeSpecialPowerModuleData {
 /// Scans area around target location and demoralizes enemy infantry.
 pub struct DemoralizeSpecialPower {
     module_name_key: NameKeyType,
-    data: Arc<DemoralizeSpecialPowerModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -118,12 +118,12 @@ impl DemoralizeSpecialPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<DemoralizeSpecialPowerModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module: super::interface::make_shared_base_module!(owner_object_id, data, DemoralizeSpecialPowerModuleData),
             data,
         }
     }
@@ -131,13 +131,18 @@ impl DemoralizeSpecialPower {
     /// Compute effective range and duration based on captured unit count.
     /// Matches C++ DemoralizeSpecialPower::doSpecialPowerAtLocation() lines 99-118.
     fn compute_effect_parameters(&self) -> (Real, UnsignedInt) {
+        let (mut range, mut duration, bonus_duration, max_duration, bonus_range, max_range) = {
+            let guard = self.data.read();
+            let data = guard.as_any().downcast_ref::<DemoralizeSpecialPowerModuleData>()
+                .expect("DemoralizeSpecialPower data type");
+            (data.base_range, data.base_duration_in_frames,
+             data.bonus_duration_per_captured_in_frames, data.max_duration_in_frames,
+             data.bonus_range_per_captured, data.max_range)
+        };
         // Wave 387: empty dual-world → base effect params.
         if dual_world_registry_unavailable() {
-            return (self.data.base_range, self.data.base_duration_in_frames);
+            return (range, duration);
         }
-
-        let mut duration = self.data.base_duration_in_frames;
-        let mut range = self.data.base_range;
 
         // Check contained units for bonuses
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
@@ -149,18 +154,16 @@ impl DemoralizeSpecialPower {
 
                         // Bonus duration per captured unit, capped at max
                         duration = duration.saturating_add(
-                            self.data
-                                .bonus_duration_per_captured_in_frames
-                                .saturating_mul(contain_count),
+                            bonus_duration.saturating_mul(contain_count),
                         );
-                        if duration > self.data.max_duration_in_frames {
-                            duration = self.data.max_duration_in_frames;
+                        if duration > max_duration {
+                            duration = max_duration;
                         }
 
                         // Bonus range per captured unit, capped at max
-                        range += self.data.bonus_range_per_captured * contain_count as Real;
-                        if range > self.data.max_range {
-                            range = self.data.max_range;
+                        range += bonus_range * contain_count as Real;
+                        if range > max_range {
+                            range = max_range;
                         }
                     }
                 }
@@ -262,9 +265,14 @@ impl DemoralizeSpecialPower {
         }
 
         // Play FX at destination (C++: FXList::doFXPos(m_fxList, loc))
-        if !self.data.fx_list_name.is_empty() {
+        let fx_list_name = {
+            let guard = self.data.read();
+            guard.as_any().downcast_ref::<DemoralizeSpecialPowerModuleData>()
+                .expect("DemoralizeSpecialPower data type").fx_list_name.clone()
+        };
+        if !fx_list_name.is_empty() {
             if let Some(fx_list) =
-                crate::helpers::TheFXListStore::find_fx_list(&self.data.fx_list_name)
+                crate::helpers::TheFXListStore::find_fx_list(&fx_list_name)
             {
                 let _ = fx_list.do_fx_at_position(loc);
             }
@@ -357,11 +365,11 @@ impl Module for DemoralizeSpecialPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -550,7 +558,7 @@ mod tests {
     #[test]
     fn test_demoralize_module_name() {
         let data = DemoralizeSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = DemoralizeSpecialPower::new(0, 0, arc_data);
         assert_eq!(power.get_module_name(), "DemoralizeSpecialPower");
     }
@@ -560,7 +568,7 @@ mod tests {
         let mut data = DemoralizeSpecialPowerModuleData::default();
         data.base_range = 100.0;
         data.base_duration_in_frames = 300;
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = DemoralizeSpecialPower::new(0, 0, arc_data);
         let (range, duration) = power.compute_effect_parameters();
         assert_eq!(range, 100.0);
@@ -570,7 +578,7 @@ mod tests {
     #[test]
     fn test_do_special_power_at_location_no_owner() {
         let data = DemoralizeSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = DemoralizeSpecialPower::new(0, 0, arc_data);
         // Should return Ok without panicking
         assert!(
@@ -583,7 +591,7 @@ mod tests {
     #[test]
     fn test_do_special_power_at_object_no_owner() {
         let data = DemoralizeSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = DemoralizeSpecialPower::new(0, 0, arc_data);
         assert!(power.do_special_power_at_object(999).is_ok());
     }

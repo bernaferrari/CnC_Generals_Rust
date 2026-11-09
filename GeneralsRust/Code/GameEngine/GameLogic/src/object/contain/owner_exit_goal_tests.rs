@@ -3,6 +3,8 @@
 //! witness that borrow boundary; they are not actual UnitAI or retail evidence.
 
 use super::{OpenContain, OpenContainModuleData};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
+use game_engine::common::thing::module::ModuleDataHandle;
 use crate::common::{
     Coord3D, DefaultThingTemplate, ObjectID, ObjectStatusMaskType, PathfindLayerEnum,
 };
@@ -135,7 +137,7 @@ fn owner_exit_goal_releases_object_borrow_and_preserves_cpp_gates() {
                 rider.write().unwrap().set_ai_update_interface(Some(ai));
             }
             let mut contain =
-                OpenContain::new(Arc::downgrade(&owner), &OpenContainModuleData::default())
+                OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(OpenContainModuleData::default())))
                     .unwrap();
             ContainModuleInterface::contain_object(&mut contain, rider_id).unwrap();
             if hurry {
@@ -243,7 +245,7 @@ fn death_scatter_releases_object_write_before_ai_move() {
             ));
             let contain = OpenContain::new(
                 Arc::downgrade(&owner),
-                &OpenContainModuleData::default(),
+                ModuleDataHandle::new(ContainModuleDataAdapter::new(OpenContainModuleData::default())),
             )
             .unwrap();
             let followup = {

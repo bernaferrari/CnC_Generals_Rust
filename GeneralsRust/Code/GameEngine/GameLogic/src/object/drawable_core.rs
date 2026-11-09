@@ -189,7 +189,7 @@ impl Drawable {
         interface_mask: ModuleInterfaceType,
         name: AsciiString,
         tag: AsciiString,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         mut module: Box<dyn Module>,
     ) -> DrawableModuleHandle {
         // C++ constructs draw modules before `friend_bindToObject`.  Do not
@@ -309,13 +309,13 @@ impl Drawable {
 
     /// Attach a `W3DDebrisDraw` module so OCL/tests can set model/anim names.
     pub fn attach_w3d_debris_draw(&mut self) -> DrawableModuleHandle {
-        let data = W3DDebrisDrawModuleData::new();
+        let data = ModuleDataHandle::new(W3DDebrisDrawModuleData::new());
         self.add_module(
             ModuleInterfaceType::DRAW,
             AsciiString::from("W3DDebrisDraw"),
             AsciiString::from("W3DDebrisDraw"),
-            Arc::new(W3DDebrisDrawModuleData::new()),
-            Box::new(W3DDebrisDraw::new(data)),
+            data.clone(),
+            Box::new(W3DDebrisDraw::new_with_module_data(data)),
         )
     }
 

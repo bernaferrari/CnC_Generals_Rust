@@ -855,9 +855,10 @@ impl Object {
     /// (StealthDetectorUpdate.cpp:53-54, :168) from this template's authored
     /// module; an object without the module keeps its explicit filters.
     pub fn apply_leftover_extra_detect_kindof(&mut self) {
-        if let Some((required, forbidden)) = self.authored_stealth_detector().map(|data| {
+        let filters = self.authored_stealth_detector().map(|data| {
             (data.extra_detect_kindof, data.extra_detect_kindof_not)
-        }) {
+        });
+        if let Some((required, forbidden)) = filters {
             self.extra_detect_kindof = required;
             self.extra_detect_kindof_not = forbidden;
         }
@@ -866,7 +867,7 @@ impl Object {
     /// The authored `StealthDetectorUpdate` module data, if this template declares one.
     pub(crate) fn authored_stealth_detector(
         &self,
-    ) -> Option<&gamelogic::object::behavior::StealthDetectorUpdateModuleData> {
+    ) -> Option<impl std::ops::Deref<Target = gamelogic::object::behavior::StealthDetectorUpdateModuleData> + '_> {
         self.thing()
             .template
             .authored_module_data::<gamelogic::object::behavior::StealthDetectorUpdateModuleData>(
@@ -911,9 +912,9 @@ impl Object {
         }
         if self.detection_rate_frames == 0 {
             // StealthDetectorUpdateModuleData ctor: m_updateRate = 1 unless authored.
-            self.detection_rate_frames = self
-                .authored_stealth_detector()
+            let rate = self.authored_stealth_detector()
                 .map_or(1, |data| data.update_rate.max(1));
+            self.detection_rate_frames = rate;
         }
         self.apply_leftover_extra_detect_kindof();
         self.next_detection_scan_frame =

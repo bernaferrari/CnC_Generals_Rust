@@ -88,7 +88,7 @@ impl Snapshotable for CleanupAreaPowerModuleData {
 /// Sets cleanup area parameters on the owning object's CleanupHazardUpdate module.
 pub struct CleanupAreaPower {
     module_name_key: NameKeyType,
-    data: Arc<CleanupAreaPowerModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -97,12 +97,12 @@ impl CleanupAreaPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<CleanupAreaPowerModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module: super::interface::make_shared_base_module!(owner_object_id, data, CleanupAreaPowerModuleData),
             data,
         }
     }
@@ -123,7 +123,8 @@ impl CleanupAreaPower {
             }
         }
 
-        let move_range = self.data.cleanup_move_range;
+        let move_range = self.data.read().as_any().downcast_ref::<CleanupAreaPowerModuleData>()
+            .expect("CleanupAreaPower data type").cleanup_move_range;
 
         // Find the CleanupHazardUpdate module on the owner
         // C++: obj->findUpdateModule("CleanupHazardUpdate")
@@ -197,11 +198,11 @@ impl Module for CleanupAreaPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -280,7 +281,7 @@ mod tests {
     #[test]
     fn test_cleanup_area_module_name() {
         let data = CleanupAreaPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = CleanupAreaPower::new(0, 0, arc_data);
         assert_eq!(power.get_module_name(), "CleanupAreaPower");
     }
@@ -288,7 +289,7 @@ mod tests {
     #[test]
     fn test_do_special_power_at_location_no_owner() {
         let data = CleanupAreaPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = CleanupAreaPower::new(0, 0, arc_data);
         // Should return Ok without panicking when owner doesn't exist
         assert!(

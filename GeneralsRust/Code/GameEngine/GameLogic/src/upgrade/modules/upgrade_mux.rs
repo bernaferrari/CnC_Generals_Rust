@@ -27,6 +27,7 @@ fn resolve_named_upgrade_mask(name: &str) -> UpgradeMask {
 use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::ModuleDataView;
 
 /// Interface for upgrade modules
 /// Matches C++ UpgradeModuleInterface from UpgradeModule.h
@@ -74,13 +75,8 @@ pub struct UpgradeMuxData {
 }
 
 impl UpgradeMuxData {
-    /// Get activation and conflicting masks (lazy compute)
-    /// Matches C++ UpgradeMuxData::getUpgradeActivationMasks (Module.cpp:264-310).
-    pub fn get_upgrade_activation_masks(&mut self) -> (UpgradeMask, UpgradeMask) {
-        // C++ recomputes while name vectors are still populated, then clears them.
-        if self.activation_upgrade_names.is_empty()
-            && self.conflicting_upgrade_names.is_empty()
-        {
+    fn activation_masks(&self) -> (UpgradeMask, UpgradeMask) {
+        if self.activation_upgrade_names.is_empty() && self.conflicting_upgrade_names.is_empty() {
             return (
                 self.activation_mask.unwrap_or_else(UpgradeMask::none),
                 self.conflicting_mask.unwrap_or_else(UpgradeMask::none),
@@ -94,6 +90,16 @@ impl UpgradeMuxData {
         let mut conflicting = UpgradeMask::none();
         for name in &self.conflicting_upgrade_names {
             conflicting |= resolve_named_upgrade_mask(name.as_str());
+        }
+        (activation, conflicting)
+    }
+
+    /// Get activation and conflicting masks (lazy compute)
+    /// Matches C++ UpgradeMuxData::getUpgradeActivationMasks (Module.cpp:264-310).
+    pub fn get_upgrade_activation_masks(&mut self) -> (UpgradeMask, UpgradeMask) {
+        let (activation, conflicting) = self.activation_masks();
+        if self.activation_upgrade_names.is_empty() && self.conflicting_upgrade_names.is_empty() {
+            return (activation, conflicting);
         }
         // C++ copies activation names into trigger list, then clears both vectors.
         self.trigger_upgrade_names = self.activation_upgrade_names.clone();
@@ -224,12 +230,30 @@ impl UpgradeMuxData {
     }
 }
 
+enum UpgradeMuxDataRead<'a> {
+    Borrowed(&'a UpgradeMuxData),
+    Shared(parking_lot::MappedRwLockReadGuard<'a, UpgradeMuxData>),
+}
+
+impl std::ops::Deref for UpgradeMuxDataRead<'_> {
+    type Target = UpgradeMuxData;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(data) => data,
+            Self::Shared(data) => data,
+        }
+    }
+}
+
 /// Upgrade mux state and behavior
 /// Matches C++ UpgradeMux from UpgradeModule.h/.cpp
 #[derive(Debug)]
 pub struct UpgradeMux {
     /// Configuration data
     pub data: UpgradeMuxData,
+    /// Live configuration for muxes embedded in admitted module data.
+    shared_data: Option<ModuleDataView<UpgradeMuxData>>,
     /// Whether upgrade has been executed
     upgrade_executed: bool,
 }
@@ -240,8 +264,41 @@ impl UpgradeMux {
     pub fn new(data: UpgradeMuxData) -> Self {
         Self {
             data,
+            shared_data: None,
             upgrade_executed: false,
         }
+    }
+
+    /// Create a mux backed by a live projection of its owning module data.
+    pub fn new_shared(data: ModuleDataView<UpgradeMuxData>) -> Self {
+        Self {
+            data: UpgradeMuxData::default(),
+            shared_data: Some(data),
+            upgrade_executed: false,
+        }
+    }
+
+    /// Capture the current configuration without holding its lock during effects.
+    pub fn data_snapshot(&self) -> UpgradeMuxData {
+        match &self.shared_data {
+            Some(data) => data.read().clone(),
+            None => self.data.clone(),
+        }
+    }
+
+    fn current_data(&self) -> UpgradeMuxDataRead<'_> {
+        match &self.shared_data {
+            Some(data) => UpgradeMuxDataRead::Shared(data.read()),
+            None => UpgradeMuxDataRead::Borrowed(&self.data),
+        }
+    }
+
+    pub(crate) fn is_triggered_by(&self, upgrade: &str) -> bool {
+        self.current_data().is_triggered_by(upgrade)
+    }
+
+    pub(crate) fn activation_masks(&self) -> (UpgradeMask, UpgradeMask) {
+        self.current_data().activation_masks()
     }
 
     /// Check if already upgraded
@@ -269,7 +326,8 @@ impl UpgradeMux {
     /// Check if would upgrade
     /// Matches C++ UpgradeMux::wouldUpgrade
     pub fn would_upgrade(&self, key_mask: UpgradeMask) -> bool {
-        let (activation, conflicting) = self.data.clone().get_upgrade_activation_masks();
+        let data = self.current_data();
+        let (activation, conflicting) = data.activation_masks();
 
         // Must have activation conditions and not be executed yet
         if !activation.any() || !key_mask.any() || self.upgrade_executed {
@@ -282,7 +340,7 @@ impl UpgradeMux {
         }
 
         // Check activation conditions
-        if self.data.requires_all_triggers {
+        if data.requires_all_triggers {
             // ALL triggers must be met
             key_mask.test_for_all(activation)
         } else {
@@ -294,8 +352,9 @@ impl UpgradeMux {
     /// Give self upgrade
     /// Matches C++ UpgradeMux::giveSelfUpgrade
     fn give_self_upgrade(&mut self, object: &mut Object) {
-        self.data.perform_upgrade_fx(object);
-        self.data.process_upgrade_removal(object);
+        let data = self.data_snapshot();
+        data.perform_upgrade_fx(object);
+        data.process_upgrade_removal(object);
         // Actual upgrade implementation is handled by subclass
         self.set_upgrade_executed(true);
     }
@@ -303,7 +362,8 @@ impl UpgradeMux {
     /// Test upgrade conditions
     /// Matches C++ UpgradeMux::testUpgradeConditions
     pub fn test_upgrade_conditions(&self, key_mask: UpgradeMask) -> bool {
-        let (activation, conflicting) = self.data.clone().get_upgrade_activation_masks();
+        let data = self.current_data();
+        let (activation, conflicting) = data.activation_masks();
 
         // Check for conflicts
         if key_mask.any() && key_mask.test_for_any(conflicting) {
@@ -316,7 +376,7 @@ impl UpgradeMux {
         }
 
         // Check activation conditions
-        if self.data.requires_all_triggers {
+        if data.requires_all_triggers {
             key_mask.test_for_all(activation)
         } else {
             key_mask.test_for_any(activation)
@@ -326,7 +386,7 @@ impl UpgradeMux {
     /// Reset upgrade
     /// Matches C++ UpgradeMux::resetUpgrade
     pub fn reset_upgrade(&mut self, key_mask: UpgradeMask) -> bool {
-        let (activation, _) = self.data.clone().get_upgrade_activation_masks();
+        let (activation, _) = self.current_data().activation_masks();
 
         if key_mask.test_for_any(activation) && self.upgrade_executed {
             self.upgrade_executed = false;

@@ -173,7 +173,7 @@ pub struct EjectPilotDie {
 
 impl EjectPilotDie {
     /// Create a new EjectPilotDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<EjectPilotDieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -262,15 +262,16 @@ impl DieModuleInterface for EjectPilotDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }
 
+        let module_data = self.base.module_data.read();
         let ocl = if self.is_significantly_above_terrain(object) {
-            &self.base.module_data.ocl_in_air
+            &module_data.ocl_in_air
         } else {
-            &self.base.module_data.ocl_on_ground
+            &module_data.ocl_on_ground
         };
 
         if damage_info.input.source_id == object.get_id() {

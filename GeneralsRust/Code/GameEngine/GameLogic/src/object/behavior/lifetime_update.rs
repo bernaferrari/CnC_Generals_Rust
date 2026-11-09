@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, INVALID_ID, Int, KindOf, ModuleData, ObjectID, TheGameLogic, UnsignedInt,
+    AsciiString, Bool, INVALID_ID, Int, KindOf, ObjectID, TheGameLogic, UnsignedInt,
     XferVersion,
 };
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
@@ -178,10 +178,10 @@ mod tests {
 
     #[test]
     fn lifetime_update_module_exposes_typed_control_interface() {
-        let data = Arc::new(LifetimeUpdateModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
             object_id: crate::common::INVALID_ID,
-            module_data: data.clone(),
+            shared_data: None,
             next_call_frame_and_phase: 0,
             die_frame: 123,
             update_proxy: None,
@@ -197,12 +197,28 @@ mod tests {
     }
 
     #[test]
+    fn lifetime_module_reads_shared_definition() {
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
+        let behavior = LifetimeUpdate {
+            object_id: crate::common::INVALID_ID,
+            shared_data: None,
+            next_call_frame_and_phase: 0,
+            die_frame: 0,
+            update_proxy: None,
+        };
+        let module = LifetimeUpdateModule::new(behavior, &AsciiString::from("LifetimeUpdate"), data.clone());
+        data.write().as_any_mut().downcast_mut::<LifetimeUpdateModuleData>().unwrap().min_frames = 42;
+        let guard = module.get_module_data();
+        assert_eq!(guard.as_any().downcast_ref::<LifetimeUpdateModuleData>().unwrap().min_frames, 42);
+    }
+
+    #[test]
     fn lifetime_update_constructor_schedules_initial_wake_for_die_frame() {
         let _guard = crate::test_sync::lock();
         let _frame = FrameRestore::at(100);
 
         let object = Arc::new(RwLock::new(Object::new_test(4242, 100.0)));
-        let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
+        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData {
             min_frames: 30,
             max_frames: 30,
             ..LifetimeUpdateModuleData::default()
@@ -220,7 +236,7 @@ mod tests {
         let _frame = FrameRestore::at(100);
 
         let object = Arc::new(RwLock::new(Object::new_test(4243, 100.0)));
-        let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
+        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData {
             min_frames: 30,
             max_frames: 30,
             ..LifetimeUpdateModuleData::default()
@@ -241,7 +257,7 @@ mod tests {
         let object = Arc::new(RwLock::new(Object::new_test(4244, 100.0)));
         // Constructors retain only the stable identity; admit this exact owner.
         let owner = LifetimeOwner::admit(&object);
-        let data = Arc::new(LifetimeUpdateModuleData {
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData {
             min_frames: 30,
             max_frames: 30,
             ..LifetimeUpdateModuleData::default()
@@ -279,7 +295,7 @@ mod tests {
 pub struct LifetimeUpdate {
     object_id: ObjectID,
     #[allow(dead_code)]
-    module_data: Arc<LifetimeUpdateModuleData>,
+    shared_data: Option<game_engine::common::thing::module::ModuleDataHandle>,
     next_call_frame_and_phase: UnsignedInt,
     die_frame: UnsignedInt,
     update_proxy: Option<crate::object::UpdateModulePtr>,
@@ -288,12 +304,19 @@ pub struct LifetimeUpdate {
 impl LifetimeUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<LifetimeUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        let mut behavior = {
+            let data = module_data.read();
+            let specific_data = data.as_any().downcast_ref::<LifetimeUpdateModuleData>()
+                .ok_or("Invalid module data")?;
+            Self::from_data(object, specific_data)
+        };
+        behavior.shared_data = Some(module_data);
+        Ok(behavior)
+    }
+
+    fn from_data(object: Arc<RwLock<GameObject>>, specific_data: &LifetimeUpdateModuleData) -> Self {
 
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         let is_hulk = object
@@ -313,13 +336,13 @@ impl LifetimeUpdate {
             .map(|g| g.get_id())
             .unwrap_or(crate::common::INVALID_ID);
 
-        Ok(Self {
+        Self {
             object_id,
-            module_data: Arc::new(specific_data.clone()),
+            shared_data: None,
             next_call_frame_and_phase: die_frame,
             die_frame,
             update_proxy: None,
-        })
+        }
     }
 
     pub fn set_lifetime_range(&mut self, min_frames: UnsignedInt, max_frames: UnsignedInt) {
@@ -444,14 +467,14 @@ impl Snapshotable for LifetimeUpdate {
 pub struct LifetimeUpdateModule {
     behavior: LifetimeUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<LifetimeUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl LifetimeUpdateModule {
     pub fn new(
         behavior: LifetimeUpdate,
         module_name: &AsciiString,
-        module_data: Arc<LifetimeUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -498,11 +521,11 @@ impl Module for LifetimeUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_lifetime_control_interface(&mut self) -> Option<&mut dyn LifetimeControlInterface> {
@@ -546,7 +569,7 @@ pub struct LifetimeUpdateFactory;
 impl LifetimeUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(LifetimeUpdate::new(thing, module_data)?))
     }
@@ -568,25 +591,20 @@ pub fn lifetime_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModu
 
 pub fn lifetime_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<LifetimeUpdateModuleData>()
-        .expect("LifetimeUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("LifetimeUpdate requires a valid object");
-    let behavior = LifetimeUpdate::new(object, module_data_arc.clone())
-        .expect("Failed to create LifetimeUpdate");
+    let behavior = LifetimeUpdate::new(object, module_data.clone())
+        .expect("LifetimeUpdateModuleData expected");
     let module_name = AsciiString::from("LifetimeUpdate");
     Box::new(LifetimeUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }

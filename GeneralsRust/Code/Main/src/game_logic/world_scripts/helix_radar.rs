@@ -334,7 +334,6 @@ impl GameLogic {
     }
 
     fn booby_trap_template_has_sticky_bomb_update(&self, template_name: &str) -> bool {
-        use game_engine::common::thing::module::ModuleData;
 
         self.receiving_module_content
             .as_ref()
@@ -345,10 +344,7 @@ impl GameLogic {
                         .name
                         .as_str()
                         .eq_ignore_ascii_case("StickyBombUpdate")
-                        && module
-                            .data
-                            .as_any()
-                            .is::<gamelogic::object::behavior::StickyBombUpdateModuleData>()
+                        && module.data.is::<gamelogic::object::behavior::StickyBombUpdateModuleData>()
                 })
             })
     }
@@ -361,7 +357,6 @@ impl GameLogic {
         Option<String>,
         Option<gamelogic::effects::FXList>,
     )> {
-        use game_engine::common::thing::module::ModuleData;
 
         self.receiving_module_content
             .as_ref()?
@@ -376,11 +371,8 @@ impl GameLogic {
                 {
                     return None;
                 }
-                let data = module
-                    .data
-                    .as_any()
-                    .downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>(
-                )?;
+                let guard = module.data.read();
+                let data = guard.downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>()?;
                 Some((
                     data.geometry_based_damage_weapon_template.clone(),
                     data.geometry_based_damage_weapon_name.clone(),
@@ -601,7 +593,6 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         use crate::game_logic::KindOf;
         use crate::game_logic::host_booby_trap::BOOBY_TRAP_OBJECT;
-        use game_engine::common::thing::module::ModuleData;
 
         // C++ SpecialAbilityUpdate refuses to plant when the charge template
         // lacks its required StickyBombUpdate module.
@@ -616,13 +607,9 @@ impl GameLogic {
                         .as_str()
                         .eq_ignore_ascii_case("StickyBombUpdate"))
                     .then(|| {
-                        module
-                                .data
-                                .as_any()
-                                .downcast_ref::<
-                                    gamelogic::object::behavior::StickyBombUpdateModuleData,
-                                >()
-                                .map(|data| data.offset_z)
+                        module.data.read()
+                            .downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>()
+                            .map(|data| data.offset_z)
                     })
                     .flatten()
                 })

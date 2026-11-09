@@ -69,13 +69,13 @@ impl Snapshotable for VeterancyGainCreateModuleData {
 #[derive(Debug)]
 pub struct VeterancyGainCreate {
     base: CreateModule,
-    module_data: Arc<VeterancyGainCreateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl VeterancyGainCreate {
     pub fn new(
         thing: Arc<dyn ThingTrait>,
-        module_data: Arc<VeterancyGainCreateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             base: CreateModule::new(thing),
@@ -99,12 +99,17 @@ impl CreateInterface for VeterancyGainCreate {
             return;
         };
 
+        let (science_required, starting_level) = {
+            let data = self.module_data.read();
+            let data = data.as_any().downcast_ref::<VeterancyGainCreateModuleData>()
+                .expect("VeterancyGainCreate data type");
+            (data.science_required, data.starting_level)
+        };
         let promotion = {
             let Ok(mut object_guard) = object_arc.write() else {
                 return;
             };
 
-            let science_required = self.module_data.science_required;
             let science_ok = object_guard.with_controlling_player(|player_guard| {
                 science_required == SCIENCE_INVALID || player_guard.has_science(science_required)
             });
@@ -116,7 +121,7 @@ impl CreateInterface for VeterancyGainCreate {
                 if tracker_guard.is_trainable() {
                     tracker_guard
                         .set_min_veterancy_level(
-                            self.module_data.starting_level,
+                            starting_level,
                             &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
                         )
                         .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))

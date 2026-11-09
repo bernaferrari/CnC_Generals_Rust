@@ -31,10 +31,9 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
+    Module as EngineModule, ModuleData as EngineModuleData, ModuleDataHandle, ModuleDataView, NameKeyType,
 };
-use log::warn;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug)]
 pub struct HelicopterSlowDeathBehaviorModuleData {
@@ -588,7 +587,7 @@ const HELICOPTER_SLOW_DEATH_FIELDS: &[FieldParse<HelicopterSlowDeathBehaviorModu
 
 pub struct HelicopterSlowDeathBehavior {
     object_id: ObjectID,
-    module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
+    module_data: ModuleDataView<HelicopterSlowDeathBehaviorModuleData>,
     orbit_direction: Int,
     forward_angle: Real,
     forward_speed: Real,
@@ -606,16 +605,23 @@ impl HelicopterSlowDeathBehavior {
     /// Matches C++ HelicopterSlowDeathBehavior constructor at line 136
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
+        let module_data = ModuleDataView::new(module_data, |data| {
+            data.as_any().downcast_ref::<HelicopterSlowDeathBehaviorModuleData>()
+                .expect("HelicopterSlowDeathBehavior module data")
+        });
         // Get current frame from game logic (matches C++ line 145-146)
         let current_frame = TheGameLogic::get_frame();
 
         // Calculate random blade fly off delay (matches C++ lines 185-186)
-        let blade_delay = crate::helpers::get_game_logic_random_value_real(
-            module_data.min_blade_fly_off_delay,
-            module_data.max_blade_fly_off_delay,
-        );
+        let blade_delay = {
+            let data = module_data.read();
+            crate::helpers::get_game_logic_random_value_real(
+                data.min_blade_fly_off_delay,
+                data.max_blade_fly_off_delay,
+            )
+        };
 
         Self {
             object_id: object
@@ -668,10 +674,10 @@ impl HelicopterSlowDeathBehavior {
         log::trace!("HelicopterSlowDeathBehavior: Would set forward angle from object orientation");
 
         // Set forward speed (C++ line 198)
-        self.forward_speed = self.module_data.spiral_orbit_forward_speed;
+        self.forward_speed = self.module_data.read().spiral_orbit_forward_speed;
 
         // Start self spin at minimum (C++ line 201)
-        self.self_spin = self.module_data.min_self_spin;
+        self.self_spin = self.module_data.read().min_self_spin;
 
         // We will start changing spin towards max (C++ line 204)
         self.self_spin_towards_max = true;
@@ -685,7 +691,7 @@ impl HelicopterSlowDeathBehavior {
         // C++ lines 216-250: attach the crash particle system during
         // beginSlowDeath. The die dispatch holds this object's write lock, so
         // the attach runs on the next lock-free update tick instead.
-        if self.module_data.attach_particle_system.is_some() {
+        if self.module_data.read().attach_particle_system.is_some() {
             self.pending_particle_attach = true;
         }
     }
@@ -694,7 +700,11 @@ impl HelicopterSlowDeathBehavior {
     /// system, offset it at the pristine AttachParticleBone (model space) or
     /// the AttachParticleLoc offset, then attach it to the dying object.
     fn attach_death_particle_system(&self) {
-        let Some(template_name) = self.module_data.attach_particle_system.as_deref() else {
+        let (template_name, bone, location) = {
+            let data = self.module_data.read();
+            (data.attach_particle_system.clone(), data.attach_particle_bone.clone(), data.attach_particle_loc)
+        };
+        let Some(template_name) = template_name.as_deref() else {
             return;
         };
         let Some(manager) = TheParticleSystemManager::get() else {
@@ -706,15 +716,15 @@ impl HelicopterSlowDeathBehavior {
         };
 
         // C++ lines 222-243: where do the offsets attach to
-        if !self.module_data.attach_particle_bone.is_empty() {
+        if !bone.is_empty() {
             // C++ lines 225-234: pristine bone offset from the object center;
             // a missing bone/drawable leaves the system at the object center.
-            if let Some(pos) = self.pristine_bone_position(&self.module_data.attach_particle_bone) {
+            if let Some(pos) = self.pristine_bone_position(&bone) {
                 manager.set_particle_system_position(system_id, &pos);
             }
         } else {
             // C++ line 241: given location coord (zero = center of obj anyway)
-            manager.set_particle_system_position(system_id, &self.module_data.attach_particle_loc);
+            manager.set_particle_system_position(system_id, &location);
         }
 
         // C++ line 246: attach the particle system to the object
@@ -767,6 +777,7 @@ impl UpdateModuleInterface for HelicopterSlowDeathBehavior {
 
         // Update self spin and orbit if we haven't hit ground yet (C++ lines 278-396)
         if self.hit_ground_frame == 0 {
+            let data = self.module_data.read();
             // In C++ lines 285-290: Rotate object based on self spin
             // Matrix3D xfrm = *copter->getTransformMatrix();
             // xfrm.In_Place_Pre_Rotate_Z(m_selfSpin * m_orbitDirection);
@@ -774,25 +785,25 @@ impl UpdateModuleInterface for HelicopterSlowDeathBehavior {
             log::trace!("Would rotate helicopter by self spin");
 
             // Update self spin rate over time (C++ lines 296-333)
-            if self.module_data.self_spin_update_delay > 0.0
+            if data.self_spin_update_delay > 0.0
                 && current_frame
                     >= self.last_self_spin_update_frame
-                        + self.module_data.self_spin_update_delay as UnsignedInt
+                        + data.self_spin_update_delay as UnsignedInt
             {
                 if self.self_spin_towards_max {
                     // Going towards max (C++ lines 301-312)
                     self.self_spin +=
-                        self.module_data.self_spin_update_amount / LOGICFRAMES_PER_SECOND as Real;
-                    if self.self_spin >= self.module_data.max_self_spin {
-                        self.self_spin = self.module_data.max_self_spin;
+                        data.self_spin_update_amount / LOGICFRAMES_PER_SECOND as Real;
+                    if self.self_spin >= data.max_self_spin {
+                        self.self_spin = data.max_self_spin;
                         self.self_spin_towards_max = false;
                     }
                 } else {
                     // Going towards min (C++ lines 315-326)
                     self.self_spin -=
-                        self.module_data.self_spin_update_amount / LOGICFRAMES_PER_SECOND as Real;
-                    if self.self_spin <= self.module_data.min_self_spin {
-                        self.self_spin = self.module_data.min_self_spin;
+                        data.self_spin_update_amount / LOGICFRAMES_PER_SECOND as Real;
+                    if self.self_spin <= data.min_self_spin {
+                        self.self_spin = data.min_self_spin;
                         self.self_spin_towards_max = true;
                     }
                 }
@@ -810,10 +821,10 @@ impl UpdateModuleInterface for HelicopterSlowDeathBehavior {
 
             // Update forward angle (C++ line 352)
             self.forward_angle +=
-                self.module_data.spiral_orbit_turn_rate * self.orbit_direction as Real;
+                data.spiral_orbit_turn_rate * self.orbit_direction as Real;
 
             // Apply damping to forward speed (C++ line 355)
-            self.forward_speed *= self.module_data.spiral_orbit_forward_speed_damping;
+            self.forward_speed *= data.spiral_orbit_forward_speed_damping;
 
             // Check if it's time for blade to fly off (C++ lines 358-393)
             if self.blade_fly_off_frame > 0 {
@@ -868,7 +879,7 @@ impl UpdateModuleInterface for HelicopterSlowDeathBehavior {
         // Check if time for final explosion (C++ lines 453-474)
         if self.hit_ground_frame > 0
             && current_frame - self.hit_ground_frame
-                > self.module_data.delay_from_ground_to_final_death as UnsignedInt
+                > self.module_data.read().delay_from_ground_to_final_death as UnsignedInt
         {
             // In C++:
             // FXList::doFXObj(modData->m_fxFinalBlowUp, copter);
@@ -989,14 +1000,14 @@ impl Snapshotable for HelicopterSlowDeathBehavior {
 pub struct HelicopterSlowDeathBehaviorModule {
     behavior: HelicopterSlowDeathBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl HelicopterSlowDeathBehaviorModule {
     pub fn new(
         behavior: HelicopterSlowDeathBehavior,
         module_name: &AsciiString,
-        module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         Self {
             behavior,
@@ -1026,11 +1037,11 @@ impl EngineModule for HelicopterSlowDeathBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 }
 
@@ -1055,6 +1066,23 @@ impl BehaviorModuleInterface for HelicopterSlowDeathBehaviorModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slow_death_reads_live_admitted_data() {
+        let handle = ModuleDataHandle::new(HelicopterSlowDeathBehaviorModuleData::default());
+        let object = Arc::new(RwLock::new(GameObject::new_test(501, 100.0)));
+        let mut behavior = HelicopterSlowDeathBehavior::new(object, handle.clone());
+        {
+            let mut data = handle.write();
+            let any: &mut dyn std::any::Any = &mut *data;
+            let data = any.downcast_mut::<HelicopterSlowDeathBehaviorModuleData>().unwrap();
+            data.spiral_orbit_forward_speed = 4.0;
+            data.min_self_spin = 2.0;
+        }
+        behavior.begin_slow_death();
+        assert_eq!(behavior.forward_speed, 4.0);
+        assert_eq!(behavior.self_spin, 2.0);
+    }
 
     #[test]
     fn helicopter_slow_death_defaults_match_cpp_constructor() {
@@ -1163,19 +1191,8 @@ pub struct HelicopterSlowDeathBehaviorFactory;
 impl HelicopterSlowDeathBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        let typed = module_data
-            .as_ref()
-            .downcast_ref::<HelicopterSlowDeathBehaviorModuleData>()
-            .cloned()
-            .unwrap_or_else(|| {
-                warn!("HelicopterSlowDeathBehavior legacy factory data expected; using defaults");
-                HelicopterSlowDeathBehaviorModuleData::default()
-            });
-        Ok(Box::new(HelicopterSlowDeathBehavior::new(
-            thing,
-            Arc::new(typed),
-        )))
+        Ok(Box::new(HelicopterSlowDeathBehavior::new(thing, module_data)))
     }
 }

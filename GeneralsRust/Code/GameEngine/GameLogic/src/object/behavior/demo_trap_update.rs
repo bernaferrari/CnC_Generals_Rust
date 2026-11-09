@@ -229,7 +229,7 @@ const DEMO_TRAP_UPDATE_FIELDS: &[FieldParse<DemoTrapUpdateModuleData>] = &[
 
 pub struct DemoTrapUpdate {
     object_id: ObjectID,
-    module_data: Arc<DemoTrapUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     next_scan_frames: i32,
@@ -247,12 +247,11 @@ enum TrapScanDecision {
 impl DemoTrapUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<DemoTrapUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<DemoTrapUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -260,7 +259,7 @@ impl DemoTrapUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             next_scan_frames: 0,
             detonated: false,
@@ -277,25 +276,27 @@ impl DemoTrapUpdate {
         {
             return TrapScanDecision::Stop;
         }
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<DemoTrapUpdateModuleData>().expect("Invalid module data");
         if me.is_effectively_dead() {
-            return if self.module_data.detonate_when_killed {
+            return if data.detonate_when_killed {
                 TrapScanDecision::Detonate
             } else {
                 TrapScanDecision::Stop
             };
         }
         let slot = me.get_current_weapon().map(|(_, slot)| slot);
-        if slot == Some(self.module_data.detonation_weapon_slot) {
+        if slot == Some(data.detonation_weapon_slot) {
             return TrapScanDecision::Detonate;
         }
         if self.next_scan_frames > 0 {
             self.next_scan_frames -= 1;
             return TrapScanDecision::Stop;
         }
-        if slot == Some(self.module_data.manual_mode_weapon_slot) {
+        if slot == Some(data.manual_mode_weapon_slot) {
             return TrapScanDecision::Stop;
         }
-        self.next_scan_frames = self.module_data.scan_frames as i32;
+        self.next_scan_frames = data.scan_frames as i32;
         TrapScanDecision::Scan
     }
 
@@ -325,7 +326,7 @@ impl DemoTrapUpdate {
         };
 
         if !under_construction && !sold {
-            let weapon_name = self.module_data.detonation_weapon_name.clone();
+            let weapon_name = self.module_data.read().downcast_ref::<DemoTrapUpdateModuleData>().expect("Invalid module data").detonation_weapon_name.clone();
             let template =
                 with_weapon_store(|store| store.find_weapon_template(&weapon_name).cloned())
                     .ok()
@@ -380,7 +381,7 @@ impl UpdateModuleInterface for DemoTrapUpdate {
 
         // Scan for a valid enemy in proximity range.
         let me_pos = *me.get_position();
-        let range = self.module_data.trigger_detonation_range;
+        let range = self.module_data.read().downcast_ref::<DemoTrapUpdateModuleData>().expect("Invalid module data").trigger_detonation_range;
 
         let candidates = if let Some(pm) = ThePartitionManager::get() {
             pm.get_objects_in_range(&me_pos, range)
@@ -391,8 +392,11 @@ impl UpdateModuleInterface for DemoTrapUpdate {
         let mut shall_detonate = false;
 
         for other_id in candidates {
-            let ignore_kind = self.module_data.ignore_kind_of;
-            let friendly = self.module_data.friendly_detonation;
+            let (ignore_kind, friendly) = {
+                let guard = self.module_data.read();
+                let data = guard.downcast_ref::<DemoTrapUpdateModuleData>().expect("Invalid module data");
+                (data.ignore_kind_of, data.friendly_detonation)
+            };
             enum DemoAct {
                 Continue,
                 Return,
@@ -500,14 +504,14 @@ impl Snapshotable for DemoTrapUpdate {
 pub struct DemoTrapUpdateModule {
     behavior: DemoTrapUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<DemoTrapUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl DemoTrapUpdateModule {
     pub fn new(
         behavior: DemoTrapUpdate,
         module_name: &AsciiString,
-        module_data: Arc<DemoTrapUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -550,11 +554,11 @@ impl Module for DemoTrapUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ DemoTrapUpdate::onObjectCreated runs after all owner modules exist.
@@ -601,15 +605,17 @@ impl BehaviorModuleInterface for DemoTrapUpdate {
         let mut me = me_arc.write().unwrap();
 
         me.set_weapon_set_flag(WeaponSetType::Veteran);
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<DemoTrapUpdateModuleData>().expect("Invalid module data");
 
-        if self.module_data.defaults_to_proximity_mode {
+        if data.defaults_to_proximity_mode {
             me.set_weapon_lock(
-                self.module_data.proximity_mode_weapon_slot,
+                data.proximity_mode_weapon_slot,
                 WeaponLockType::LockedTemporarily,
             );
         } else {
             me.set_weapon_lock(
-                self.module_data.manual_mode_weapon_slot,
+                data.manual_mode_weapon_slot,
                 WeaponLockType::LockedTemporarily,
             );
         }
@@ -621,7 +627,7 @@ pub struct DemoTrapUpdateFactory;
 impl DemoTrapUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(DemoTrapUpdate::new(thing, module_data)?))
     }
@@ -643,25 +649,21 @@ pub fn demo_trap_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineMod
 
 pub fn demo_trap_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<DemoTrapUpdateModuleData>()
-        .expect("DemoTrapUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<DemoTrapUpdateModuleData>());
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
     let object = TheGameLogic::find_object_by_id(owner_id).expect("DemoTrapUpdate requires object");
-    let behavior = DemoTrapUpdate::new(object, module_data_arc.clone())
+    let behavior = DemoTrapUpdate::new(object, module_data.clone())
         .expect("DemoTrapUpdate failed to initialize");
     let module_name = AsciiString::from("DemoTrapUpdate");
     Box::new(DemoTrapUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }
 
@@ -730,8 +732,8 @@ mod tests {
         }
     }
 
-    fn data(proximity: bool) -> Arc<DemoTrapUpdateModuleData> {
-        Arc::new(DemoTrapUpdateModuleData {
+    fn data(proximity: bool) -> game_engine::common::thing::module::ModuleDataHandle {
+        game_engine::common::thing::module::ModuleDataHandle::new(DemoTrapUpdateModuleData {
             detonation_weapon_slot: WeaponSlotType::Secondary,
             manual_mode_weapon_slot: WeaponSlotType::Primary,
             proximity_mode_weapon_slot: WeaponSlotType::Tertiary,
@@ -834,7 +836,7 @@ mod tests {
         assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Scan);
         assert_eq!(
             update.next_scan_frames,
-            update.module_data.scan_frames as i32
+            update.module_data.read().downcast_ref::<DemoTrapUpdateModuleData>().unwrap().scan_frames as i32
         );
     }
 

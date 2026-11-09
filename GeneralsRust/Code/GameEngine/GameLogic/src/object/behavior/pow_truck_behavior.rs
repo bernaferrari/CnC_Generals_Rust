@@ -11,7 +11,7 @@ use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 use crate::common::{GameError, INVALID_ID, LegacyModuleData, ObjectID};
 use crate::helpers::TheGameLogic;
@@ -91,9 +91,13 @@ pub struct POWTruckBehavior {
 impl POWTruckBehavior {
     pub fn new(
         object: Arc<RwLock<Object>>,
-        module_data: Arc<POWTruckBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let contain = OpenContain::new(Arc::downgrade(&object), &module_data.base)?;
+        let view = ModuleDataView::new(module_data, |data| {
+            &data.downcast_ref::<POWTruckBehaviorModuleData>()
+                .expect("incorrect POWTruckBehavior module data").base
+        });
+        let contain = OpenContain::new_with_data_view(Arc::downgrade(&object), view)?;
         Ok(Self {
             object_id: object
                 .read()
@@ -428,7 +432,7 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
 pub struct POWTruckBehaviorModule {
     behavior: Arc<Mutex<POWTruckBehavior>>,
     module_name_key: NameKeyType,
-    module_data: Arc<POWTruckBehaviorModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -436,7 +440,7 @@ impl POWTruckBehaviorModule {
     pub fn new(
         behavior: POWTruckBehavior,
         module_name: &AsciiString,
-        module_data: Arc<POWTruckBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let behavior_arc = Arc::new(Mutex::new(behavior));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
@@ -552,11 +556,11 @@ impl Module for POWTruckBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {
@@ -621,9 +625,13 @@ mod tests {
     fn contain_handle_exposes_open_contain_riders() {
         // C++ POWTruckAIUpdate.cpp:766 iterateContained(putPrisonersInPrison)
         // walks the truck OpenContain list, not an empty stub.
-        let contain = OpenContain::new(
+        let data = ModuleDataHandle::new(POWTruckBehaviorModuleData::default());
+        let view = ModuleDataView::new(data.clone(), |data| {
+            &data.downcast_ref::<POWTruckBehaviorModuleData>().unwrap().base
+        });
+        let contain = OpenContain::new_with_data_view(
             std::sync::Weak::<RwLock<Object>>::new(),
-            &OpenContainModuleData::default(),
+            view,
         )
         .expect("open contain");
         let behavior = POWTruckBehavior {
@@ -633,7 +641,7 @@ mod tests {
         let module = POWTruckBehaviorModule::new(
             behavior,
             &AsciiString::from("POWTruckBehavior"),
-            Arc::new(POWTruckBehaviorModuleData::default()),
+            data,
         );
         let handle = module.contain_handle();
         let guard = handle.lock().expect("contain handle");

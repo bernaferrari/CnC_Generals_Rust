@@ -5,7 +5,7 @@ use crate::object::ObjectDeletionServices;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, DisabledType, KindOf, KindOfMask, ModelConditionFlag,
-    ModuleData, ObjectID, SpecialPowerTemplateId, TurretType, UnsignedInt, kindof_from_name,
+    ObjectID, SpecialPowerTemplateId, TurretType, UnsignedInt, kindof_from_name,
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheGameText, TheInGameUI, TheRadar};
 use crate::modules::{
@@ -404,7 +404,7 @@ const BATTLE_PLAN_UPDATE_FIELDS: &[FieldParse<BattlePlanUpdateModuleData>] = &[
 
 pub struct BattlePlanUpdate {
     object_id: ObjectID,
-    module_data: Arc<BattlePlanUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     status: TransitionStatus,
     current_plan: BattlePlanStatus,
@@ -429,14 +429,13 @@ pub struct BattlePlanUpdate {
 }
 
 impl BattlePlanUpdate {
-    pub fn new(
+
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<BattlePlanUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        let guard = module_data.read();
+        let specific_data = guard.downcast_ref::<BattlePlanUpdateModuleData>().ok_or("Invalid module data")?;
 
         let bonuses = BattlePlanBonuses {
             armor_scalar: 1.0,
@@ -454,7 +453,7 @@ impl BattlePlanUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data: module_data.clone(),
             next_call_frame_and_phase: 0,
             status: TransitionStatus::Idle,
             current_plan: BattlePlanStatus::None,
@@ -577,7 +576,9 @@ impl BattlePlanUpdate {
         match new_status {
             TransitionStatus::Idle => {
                 self.current_plan = BattlePlanStatus::None;
-                self.next_ready_frame = now + self.module_data.transition_idle_frames;
+                let guard = self.module_data.read();
+                let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
+                self.next_ready_frame = now + data.transition_idle_frames;
             }
             TransitionStatus::Unpacking => {
                 self.apply_unpacking_states(now);
@@ -661,24 +662,27 @@ impl BattlePlanUpdate {
     }
 
     fn apply_unpacking_states(&mut self, now: u32) {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
         let (door, frames, message_label) = match self.current_plan {
             BattlePlanStatus::Bombardment => (
                 Some(ModelConditionFlag::Door1Opening),
-                self.module_data.bombardment_plan_animation_frames,
-                self.module_data.bombardment_message_label.clone(),
+                data.bombardment_plan_animation_frames,
+                data.bombardment_message_label.clone(),
             ),
             BattlePlanStatus::HoldTheLine => (
                 Some(ModelConditionFlag::Door2Opening),
-                self.module_data.hold_the_line_plan_animation_frames,
-                self.module_data.hold_the_line_message_label.clone(),
+                data.hold_the_line_plan_animation_frames,
+                data.hold_the_line_message_label.clone(),
             ),
             BattlePlanStatus::SearchAndDestroy => (
                 Some(ModelConditionFlag::Door3Opening),
-                self.module_data.search_and_destroy_plan_animation_frames,
-                self.module_data.search_and_destroy_message_label.clone(),
+                data.search_and_destroy_plan_animation_frames,
+                data.search_and_destroy_message_label.clone(),
             ),
             BattlePlanStatus::None => (None, 0, String::new()),
         };
+        drop(guard);
 
         let mut object_id = self.object_id;
         let mut position = None;
@@ -739,21 +743,24 @@ impl BattlePlanUpdate {
     }
 
     fn apply_packing_states(&mut self, now: u32) {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
         let (door, frames) = match self.current_plan {
             BattlePlanStatus::Bombardment => (
                 Some(ModelConditionFlag::Door1Closing),
-                self.module_data.bombardment_plan_animation_frames,
+                data.bombardment_plan_animation_frames,
             ),
             BattlePlanStatus::HoldTheLine => (
                 Some(ModelConditionFlag::Door2Closing),
-                self.module_data.hold_the_line_plan_animation_frames,
+                data.hold_the_line_plan_animation_frames,
             ),
             BattlePlanStatus::SearchAndDestroy => (
                 Some(ModelConditionFlag::Door3Closing),
-                self.module_data.search_and_destroy_plan_animation_frames,
+                data.search_and_destroy_plan_animation_frames,
             ),
             BattlePlanStatus::None => (None, 0),
         };
+        drop(guard);
 
         let mut object_id = self.object_id;
         self.with_object_mut(|object| {
@@ -859,6 +866,8 @@ impl BattlePlanUpdate {
 
         match plan {
             BattlePlanStatus::None => {
+                let guard = self.module_data.read();
+                let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
                 let now = context.frame();
                 let _ = player.iterate_object_ids(|obj_id| {
                     let obj = match crate::helpers::TheGameLogic::find_object_by_id(obj_id)
@@ -869,12 +878,12 @@ impl BattlePlanUpdate {
                     };
                     if let Ok(mut guard) = obj.write() {
                         let kind_of = guard.get_kind_of();
-                        if (kind_of & self.module_data.valid_member_kind_of) != 0
-                            && (kind_of & self.module_data.invalid_member_kind_of) == 0
+                        if (kind_of & data.valid_member_kind_of) != 0
+                            && (kind_of & data.invalid_member_kind_of) == 0
                         {
                             guard.set_disabled_until(
                                 DisabledType::Paralyzed,
-                                now + self.module_data.battle_plan_paralyze_frames,
+                                now + data.battle_plan_paralyze_frames,
                             );
                         }
                     }
@@ -887,15 +896,20 @@ impl BattlePlanUpdate {
             }
             BattlePlanStatus::HoldTheLine => {
                 self.apply_hold_the_line_bonuses();
-                self.bonuses.armor_scalar = self.module_data.hold_the_line_armor_damage_scalar;
+                let guard = self.module_data.read();
+                let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
+                self.bonuses.armor_scalar = data.hold_the_line_armor_damage_scalar;
+                drop(guard);
                 self.bonuses.hold_the_line = 1;
                 player.change_battle_plan(BattlePlanType::HoldTheLine, 1, &self.bonuses);
             }
             BattlePlanStatus::SearchAndDestroy => {
                 self.apply_search_and_destroy_bonuses(context);
                 self.bonuses.search_and_destroy = 1;
-                self.bonuses.sight_range_scalar =
-                    self.module_data.search_and_destroy_sight_range_scalar;
+                let guard = self.module_data.read();
+                let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
+                self.bonuses.sight_range_scalar = data.search_and_destroy_sight_range_scalar;
+                drop(guard);
                 player.change_battle_plan(BattlePlanType::SearchAndDestroy, 1, &self.bonuses);
             }
         }
@@ -904,11 +918,9 @@ impl BattlePlanUpdate {
     }
 
     fn apply_hold_the_line_bonuses(&self) {
-        if self
-            .module_data
-            .strategy_center_hold_the_line_max_health_scalar
-            == 1.0
-        {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
+        if data.strategy_center_hold_the_line_max_health_scalar == 1.0 {
             return;
         }
 
@@ -917,13 +929,10 @@ impl BattlePlanUpdate {
                 if let Ok(mut body_guard) = body.lock() {
                     let current_max = body_guard.get_max_health();
                     let new_max = current_max
-                        * self
-                            .module_data
-                            .strategy_center_hold_the_line_max_health_scalar;
+                        * data.strategy_center_hold_the_line_max_health_scalar;
                     if let Err(_err) = body_guard.set_max_health(
                         new_max,
-                        self.module_data
-                            .strategy_center_hold_the_line_max_health_change_type,
+                        data.strategy_center_hold_the_line_max_health_change_type,
                     ) {
                         // Keep C++ flow (best-effort bonus application) even if body update fails.
                     }
@@ -933,25 +942,18 @@ impl BattlePlanUpdate {
     }
 
     fn apply_search_and_destroy_bonuses(&self, context: &mut dyn UpdateScheduleContext) {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
         let frame = context.frame();
         let mut detector_wake = None;
         self.with_object_mut(|object| {
-            if self
-                .module_data
-                .strategy_center_search_and_destroy_sight_range_scalar
-                != 1.0
-            {
-                let scalar = self
-                    .module_data
-                    .strategy_center_search_and_destroy_sight_range_scalar;
+            if data.strategy_center_search_and_destroy_sight_range_scalar != 1.0 {
+                let scalar = data.strategy_center_search_and_destroy_sight_range_scalar;
                 object.set_vision_range(object.get_vision_range() * scalar);
                 object.set_shroud_clearing_range(object.get_shroud_clearing_range() * scalar);
             }
 
-            if self
-                .module_data
-                .strategy_center_search_and_destroy_detects_stealth
-            {
+            if data.strategy_center_search_and_destroy_detects_stealth {
                 detector_wake = object.set_stealth_detector_enabled(true, frame);
             }
         });
@@ -965,26 +967,21 @@ impl BattlePlanUpdate {
     }
 
     fn remove_building_bonuses(&self, context: &mut dyn UpdateScheduleContext) {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
         let frame = context.frame();
         let mut detector_wake = None;
         self.with_object_mut(|object| match self.plan_affecting_army {
             BattlePlanStatus::HoldTheLine => {
-                if self
-                    .module_data
-                    .strategy_center_hold_the_line_max_health_scalar
-                    != 1.0
-                {
+                if data.strategy_center_hold_the_line_max_health_scalar != 1.0 {
                     if let Some(body) = object.get_body_module() {
                         if let Ok(mut body_guard) = body.lock() {
                             let current_max = body_guard.get_max_health();
                             let new_max = current_max
-                                / self
-                                    .module_data
-                                    .strategy_center_hold_the_line_max_health_scalar;
+                                / data.strategy_center_hold_the_line_max_health_scalar;
                             if let Err(_err) = body_guard.set_max_health(
                                 new_max,
-                                self.module_data
-                                    .strategy_center_hold_the_line_max_health_change_type,
+                                data.strategy_center_hold_the_line_max_health_change_type,
                             ) {
                                 // Keep C++ flow (best-effort bonus removal) even if body update fails.
                             }
@@ -993,22 +990,13 @@ impl BattlePlanUpdate {
                 }
             }
             BattlePlanStatus::SearchAndDestroy => {
-                if self
-                    .module_data
-                    .strategy_center_search_and_destroy_sight_range_scalar
-                    != 1.0
-                {
-                    let scalar = self
-                        .module_data
-                        .strategy_center_search_and_destroy_sight_range_scalar;
+                if data.strategy_center_search_and_destroy_sight_range_scalar != 1.0 {
+                    let scalar = data.strategy_center_search_and_destroy_sight_range_scalar;
                     object.set_vision_range(object.get_vision_range() / scalar);
                     object.set_shroud_clearing_range(object.get_shroud_clearing_range() / scalar);
                 }
 
-                if self
-                    .module_data
-                    .strategy_center_search_and_destroy_detects_stealth
-                {
+                if data.strategy_center_search_and_destroy_detects_stealth {
                     detector_wake = object.set_stealth_detector_enabled(false, frame);
                 }
             }
@@ -1122,9 +1110,12 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
         _waypoint: Option<&Waypoint>,
         command_options: SpecialPowerCommandOptions,
     ) -> bool {
-        let Some(expected_template) = self.module_data.special_power_template else {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
+        let Some(expected_template) = data.special_power_template else {
             return false;
         };
+        drop(guard);
         if special_power_template.get_id() != expected_template {
             return false;
         }
@@ -1200,38 +1191,40 @@ impl BehaviorModuleInterface for BattlePlanUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.module_data.special_power_template.is_none() {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<BattlePlanUpdateModuleData>().expect("invalid battle plan module data");
+        if data.special_power_template.is_none() {
             self.invalid_settings = true;
             return Ok(());
         }
 
         self.bombardment_unpack
-            .set_event_name(self.module_data.bombardment_unpack_name.clone());
+            .set_event_name(data.bombardment_unpack_name.clone());
         self.bombardment_pack
-            .set_event_name(self.module_data.bombardment_pack_name.clone());
+            .set_event_name(data.bombardment_pack_name.clone());
         self.bombardment_announcement
-            .set_event_name(self.module_data.bombardment_announcement_name.clone());
+            .set_event_name(data.bombardment_announcement_name.clone());
         self.search_and_destroy_unpack
-            .set_event_name(self.module_data.search_and_destroy_unpack_name.clone());
+            .set_event_name(data.search_and_destroy_unpack_name.clone());
         self.search_and_destroy_idle
-            .set_event_name(self.module_data.search_and_destroy_idle_name.clone());
+            .set_event_name(data.search_and_destroy_idle_name.clone());
         self.search_and_destroy_pack
-            .set_event_name(self.module_data.search_and_destroy_pack_name.clone());
+            .set_event_name(data.search_and_destroy_pack_name.clone());
         self.search_and_destroy_announcement.set_event_name(
-            self.module_data
-                .search_and_destroy_announcement_name
-                .clone(),
+            data.search_and_destroy_announcement_name.clone(),
         );
         self.hold_the_line_unpack
-            .set_event_name(self.module_data.hold_the_line_unpack_name.clone());
+            .set_event_name(data.hold_the_line_unpack_name.clone());
         self.hold_the_line_pack
-            .set_event_name(self.module_data.hold_the_line_pack_name.clone());
+            .set_event_name(data.hold_the_line_pack_name.clone());
         self.hold_the_line_announcement
-            .set_event_name(self.module_data.hold_the_line_announcement_name.clone());
+            .set_event_name(data.hold_the_line_announcement_name.clone());
+        let template_id = data.special_power_template;
+        drop(guard);
 
         let mut special_power_module = None;
         self.with_object_mut(|object| {
-            if let Some(template_id) = self.module_data.special_power_template {
+            if let Some(template_id) = template_id {
                 special_power_module = object.get_special_power_module(template_id);
             }
 
@@ -1258,23 +1251,23 @@ pub struct BattlePlanUpdateFactory;
 impl BattlePlanUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(BattlePlanUpdate::new(thing, module_data)?))
+        Ok(Box::new(BattlePlanUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
 pub struct BattlePlanUpdateModule {
     behavior: BattlePlanUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<BattlePlanUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BattlePlanUpdateModule {
     pub fn new(
         behavior: BattlePlanUpdate,
         module_name: &AsciiString,
-        module_data: Arc<BattlePlanUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -1473,12 +1466,12 @@ impl Module for BattlePlanUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     fn on_object_created(&mut self) {
         // C++ BattlePlanUpdate::onObjectCreated (BattlePlanUpdate.cpp:196-240)
@@ -1525,9 +1518,8 @@ mod tests {
     ) -> BattlePlanUpdateModule {
         let mut data = BattlePlanUpdateModuleData::default();
         data.special_power_template = special_power_template;
-        let data = Arc::new(data);
-        let engine_data: Arc<dyn ModuleData> = data.clone();
-        let behavior = BattlePlanUpdate::new(object, engine_data).expect("BattlePlanUpdate");
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
+        let behavior = BattlePlanUpdate::new_with_module_data(object, data.clone()).expect("BattlePlanUpdate");
         BattlePlanUpdateModule::new(behavior, &AsciiString::from("BattlePlanUpdate"), data)
     }
 

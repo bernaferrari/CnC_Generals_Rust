@@ -16,7 +16,7 @@ use crate::object::Object;
 use crate::object::unit::UnitAiStateRuntime;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 
 /// Wave 354: host-only path has no dual-world factory objects.
 #[inline]
@@ -209,12 +209,12 @@ mod tests {
 #[derive(Debug)]
 pub struct POWTruckAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<POWTruckAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 #[cfg(feature = "allow_surrender")]
 impl POWTruckAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<POWTruckAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         Self {
             module_name_key,
             data,
@@ -229,11 +229,11 @@ impl Module for POWTruckAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -278,7 +278,7 @@ pub enum POWTruckAIMode {
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug, Clone)]
 pub struct POWTruckAIUpdate {
-    data: POWTruckAIUpdateData,
+    data: ModuleDataView<POWTruckAIUpdateData>,
     owner_id: ObjectID,
     ai_mode: POWTruckAIMode,
     current_task: POWTruckTask,
@@ -335,7 +335,12 @@ impl Snapshotable for POWTruckAIUpdate {
 
 #[cfg(feature = "allow_surrender")]
 impl POWTruckAIUpdate {
-    pub fn new(data: POWTruckAIUpdateData, owner_id: ObjectID) -> Self {
+    pub fn new(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
+        let data = ModuleDataView::new(data, |data| {
+            &data.downcast_ref::<POWTruckAIUpdateModuleData>()
+                .expect("POWTruckAIUpdate requires POWTruckAIUpdateModuleData")
+                .base
+        });
         Self {
             data,
             owner_id,
@@ -648,7 +653,7 @@ impl POWTruckAIUpdate {
         }
 
         if TheGameLogic::get_frame().saturating_sub(self.entered_waiting_frame)
-            > self.data.bored_time_in_frames
+            > self.data.read().bored_time_in_frames
         {
             self.set_task(POWTruckTask::FindTarget, None);
         }
@@ -856,7 +861,7 @@ impl POWTruckAIUpdate {
             }
         };
 
-        let hang_dist = self.data.hang_around_prison_distance;
+        let hang_dist = self.data.read().hang_around_prison_distance;
         if dist_sq <= hang_dist * hang_dist {
             return Ok(());
         }

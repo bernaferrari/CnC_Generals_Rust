@@ -321,18 +321,26 @@ pub(crate) fn xfer_dynamic_geometry_info_update_logic(
 /// DynamicGeometryInfoUpdate - smoothly transitions object geometry over time
 pub struct DynamicGeometryInfoUpdate {
     object_id: ObjectID,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     pub logic: DynamicGeometryInfoUpdateLogic,
 }
 
 impl DynamicGeometryInfoUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<DynamicGeometryInfoUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        Self::new_with_module_data(object, module_data)
+    }
+
+    pub(crate) fn new_with_module_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let guard = module_data.read();
+        let data = guard.downcast_ref::<DynamicGeometryInfoUpdateModuleData>().ok_or("Invalid module data")?;
+        let logic = DynamicGeometryInfoUpdateLogic::new(data);
+        drop(guard);
 
         Ok(Self {
             object_id: object
@@ -340,7 +348,8 @@ impl DynamicGeometryInfoUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            logic: DynamicGeometryInfoUpdateLogic::new(data),
+            module_data,
+            logic,
         })
     }
 }
@@ -353,8 +362,21 @@ impl UpdateModuleInterface for DynamicGeometryInfoUpdate {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<DynamicGeometryInfoUpdateModuleData>().expect("Invalid module data");
+            let transition_time = data.transition_time.max(1);
+            let endpoints = (data.initial_height, data.initial_major_radius, data.initial_minor_radius,
+                data.final_height, data.final_major_radius, data.final_minor_radius);
+            drop(guard);
             if let Ok(mut obj) = obj_arc.write() {
-                return self.logic.update_step(&mut obj);
+                self.logic.transition_time = transition_time;
+                let switched = self.logic.switched_directions;
+                let result = self.logic.update_step(&mut obj);
+                if !switched && self.logic.switched_directions {
+                    (self.logic.final_height, self.logic.final_major_radius, self.logic.final_minor_radius,
+                        self.logic.initial_height, self.logic.initial_major_radius, self.logic.initial_minor_radius) = endpoints;
+                }
+                return result;
             }
         }
         UPDATE_SLEEP_NONE
@@ -390,7 +412,7 @@ pub struct DynamicGeometryInfoUpdateFactory;
 impl DynamicGeometryInfoUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(DynamicGeometryInfoUpdate::new(
             thing,

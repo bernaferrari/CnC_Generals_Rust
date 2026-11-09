@@ -666,6 +666,7 @@ impl TheGameClient {
                     if entry.name.as_str().eq_ignore_ascii_case("W3DLaserDraw") {
                         entry
                             .data
+                            .read()
                             .as_any()
                             .downcast_ref::<W3DLaserDrawModuleData>()
                             .map(|data| data.outer_beam_width * 0.5)
@@ -690,7 +691,7 @@ impl TheGameClient {
             ModuleInterfaceType,
             AsciiString,
             AsciiString,
-            Arc<dyn ModuleData>,
+            game_engine::common::thing::module::ModuleDataHandle,
             Box<dyn Module>,
         )> = Vec::new();
 
@@ -698,8 +699,8 @@ impl TheGameClient {
             if let Some(factory) = factory_guard.as_ref() {
                 for entry in template.get_draw_module_info().iter() {
                     let module_name = entry.name.clone();
-                    let module_data = Arc::clone(&entry.data);
-                    let module_data_for_entry = Arc::clone(&module_data);
+                    let module_data = entry.data.clone();
+                    let module_data_for_entry = module_data.clone();
                     let interface_mask = entry.interface_flags();
 
                     if factory.find_module_interface_mask(&module_name, ModuleType::Draw)
@@ -726,8 +727,8 @@ impl TheGameClient {
 
                 for entry in template.get_client_update_module_info().iter() {
                     let module_name = entry.name.clone();
-                    let module_data = Arc::clone(&entry.data);
-                    let module_data_for_entry = Arc::clone(&module_data);
+                    let module_data = entry.data.clone();
+                    let module_data_for_entry = module_data.clone();
                     let interface_mask = entry.interface_flags();
 
                     if factory.find_module_interface_mask(&module_name, ModuleType::ClientUpdate)
@@ -805,10 +806,8 @@ fn laser_visuals_from_thing_template(
                 if !entry.name.as_str().eq_ignore_ascii_case("W3DLaserDraw") {
                     return None;
                 }
-                let data = entry
-                    .data
-                    .as_any()
-                    .downcast_ref::<W3DLaserDrawModuleData>()?;
+                let guard = entry.data.read();
+                let data = guard.as_any().downcast_ref::<W3DLaserDrawModuleData>()?;
                 let a = if data.outer_color.a == 0 {
                     1.0
                 } else {

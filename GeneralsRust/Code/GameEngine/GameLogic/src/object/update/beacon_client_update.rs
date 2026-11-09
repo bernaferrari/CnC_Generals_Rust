@@ -10,7 +10,7 @@ use game_engine::common::system::radar::{
 };
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    BeaconClientUpdateConfig, ClientUpdateInterface, Module, ModuleData, NameKeyType,
+    BeaconClientUpdateConfig, ClientUpdateInterface, Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType,
 };
 use std::any::Any;
 use std::sync::Arc;
@@ -35,14 +35,6 @@ impl Default for BeaconClientUpdateModuleData {
 impl BeaconClientUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, BEACON_CLIENT_UPDATE_FIELDS)
-    }
-
-    fn from_config(config: BeaconClientUpdateConfig) -> Self {
-        Self {
-            module_tag_name_key: 0,
-            frames_between_radar_pulses: config.frames_between_radar_pulses,
-            radar_pulse_duration: config.radar_pulse_duration,
-        }
     }
 }
 
@@ -144,7 +136,7 @@ const BEACON_CLIENT_UPDATE_FIELDS: &[FieldParse<BeaconClientUpdateModuleData>] =
 
 pub struct BeaconClientUpdateModule {
     module_name_key: NameKeyType,
-    module_data: Arc<BeaconClientUpdateModuleData>,
+    module_data: ModuleDataHandle,
     owner_id: ObjectID,
     particle_system_id: Option<u32>,
     last_radar_pulse: UnsignedInt,
@@ -156,12 +148,12 @@ impl BeaconClientUpdateModule {
         self.owner_id = owner_id;
     }
 
-    pub fn new(
+    pub fn new_with_module_data(
         module_name_key: NameKeyType,
-        module_data: Arc<BeaconClientUpdateModuleData>,
+        module_data: ModuleDataHandle,
         owner_id: ObjectID,
     ) -> Self {
-        Self::new_at(
+        Self::new_at_with_module_data(
             module_name_key,
             module_data,
             owner_id,
@@ -169,9 +161,9 @@ impl BeaconClientUpdateModule {
         )
     }
 
-    pub fn new_at(
+    pub fn new_at_with_module_data(
         module_name_key: NameKeyType,
-        module_data: Arc<BeaconClientUpdateModuleData>,
+        module_data: ModuleDataHandle,
         owner_id: ObjectID,
         logic_frame: u32,
     ) -> Self {
@@ -184,16 +176,6 @@ impl BeaconClientUpdateModule {
         }
     }
 
-    pub fn from_module_data(
-        module_name_key: NameKeyType,
-        module_data: Arc<dyn ModuleData>,
-        owner_id: ObjectID,
-    ) -> Option<Self> {
-        module_data
-            .get_beacon_client_update_config()
-            .map(BeaconClientUpdateModuleData::from_config)
-            .map(|data| Self::new(module_name_key, Arc::new(data), owner_id))
-    }
 
     pub fn hide_beacon(&mut self) {
         let Some(object) = TheGameLogic::find_object_by_id(self.owner_id) else {
@@ -242,7 +224,9 @@ impl BeaconClientUpdateModule {
         }
 
         let now = TheGameLogic::get_frame();
-        if now > self.last_radar_pulse + self.module_data.frames_between_radar_pulses {
+        let config = self.module_data.read().get_beacon_client_update_config()
+            .expect("BeaconClientUpdate requires beacon configuration");
+        if now > self.last_radar_pulse + config.frames_between_radar_pulses {
             if let Ok(mut radar) = get_radar_system().write() {
                 let pos = drawable
                     .read()
@@ -250,7 +234,7 @@ impl BeaconClientUpdateModule {
                     .map(|guard| guard.get_position())
                     .unwrap_or(Coord3D::ZERO);
                 let duration =
-                    self.module_data.radar_pulse_duration as Real / LOGICFRAMES_PER_SECOND as Real;
+                    config.radar_pulse_duration as Real / LOGICFRAMES_PER_SECOND as Real;
                 let radar_pos = RadarCoord3D {
                     x: pos.x,
                     y: pos.y,
@@ -322,11 +306,11 @@ impl Module for BeaconClientUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
@@ -439,14 +423,14 @@ mod tests {
 
     #[test]
     fn beacon_constructor_observes_receiving_frame_and_load_restores_saved_pulse() {
-        let data = Arc::new(BeaconClientUpdateModuleData::default());
-        let mut first = BeaconClientUpdateModule::new_at(11, Arc::clone(&data), 22, u32::MAX);
-        let peer = BeaconClientUpdateModule::new_at(11, Arc::clone(&data), 22, 37);
+        let data = ModuleDataHandle::new(BeaconClientUpdateModuleData::default());
+        let mut first = BeaconClientUpdateModule::new_at_with_module_data(11, data.clone(), 22, u32::MAX);
+        let peer = BeaconClientUpdateModule::new_at_with_module_data(11, data.clone(), 22, 37);
         assert_eq!(first.last_radar_pulse, u32::MAX);
         assert_eq!(peer.last_radar_pulse, 37);
         assert_eq!(first.get_module_name_key(), 11);
         assert_eq!(peer.get_module_name_key(), 11);
-        assert!(Arc::ptr_eq(&first.module_data, &peer.module_data));
+        assert!(ModuleDataHandle::ptr_eq(&first.module_data, &peer.module_data));
         let mut bytes = Vec::new();
         {
             let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
@@ -454,7 +438,7 @@ mod tests {
             first.xfer(&mut save).unwrap();
             save.close().unwrap();
         }
-        let mut restored = BeaconClientUpdateModule::new_at(11, data, 22, 4);
+        let mut restored = BeaconClientUpdateModule::new_at_with_module_data(11, data, 22, 4);
         {
             let mut load = XferLoad::new(Cursor::new(bytes), 1);
             load.open("beacon_receiving_constructor").unwrap();
@@ -468,8 +452,8 @@ mod tests {
 
     #[test]
     fn beacon_client_update_xfer_preserves_cpp_runtime_fields() {
-        let module_data = Arc::new(BeaconClientUpdateModuleData::default());
-        let mut saved = BeaconClientUpdateModule::new(11, module_data.clone(), 22);
+        let module_data = ModuleDataHandle::new(BeaconClientUpdateModuleData::default());
+        let mut saved = BeaconClientUpdateModule::new_with_module_data(11, module_data.clone(), 22);
         saved.particle_system_id = Some(0x1234_5678);
         saved.last_radar_pulse = 9876;
 
@@ -482,7 +466,7 @@ mod tests {
             save.close().unwrap();
         }
 
-        let mut loaded = BeaconClientUpdateModule::new(11, module_data, 22);
+        let mut loaded = BeaconClientUpdateModule::new_with_module_data(11, module_data, 22);
         {
             let mut load = XferLoad::new(Cursor::new(bytes), 1);
             load.open("beacon_client_update").unwrap();
@@ -496,8 +480,8 @@ mod tests {
 
     #[test]
     fn beacon_client_update_exposes_typed_client_update_interface() {
-        let module_data = Arc::new(BeaconClientUpdateModuleData::default());
-        let mut module = BeaconClientUpdateModule::new(11, module_data, 22);
+        let module_data = ModuleDataHandle::new(BeaconClientUpdateModuleData::default());
+        let mut module = BeaconClientUpdateModule::new_with_module_data(11, module_data, 22);
 
         assert!(module.get_client_update_interface().is_some());
     }
@@ -507,10 +491,11 @@ mod tests {
         let mut data = BeaconClientUpdateModuleData::default();
         data.frames_between_radar_pulses = 90;
         data.radar_pulse_duration = 12;
-        let module =
-            BeaconClientUpdateModule::from_module_data(11, Arc::new(data), 22).expect("module");
-
-        assert_eq!(module.module_data.frames_between_radar_pulses, 90);
-        assert_eq!(module.module_data.radar_pulse_duration, 12);
+        let handle = ModuleDataHandle::new(data);
+        let module = BeaconClientUpdateModule::new_with_module_data(11, handle.clone(), 22);
+        assert!(ModuleDataHandle::ptr_eq(&module.module_data, &handle));
+        let config = module.module_data.read().get_beacon_client_update_config().unwrap();
+        assert_eq!(config.frames_between_radar_pulses, 90);
+        assert_eq!(config.radar_pulse_duration, 12);
     }
 }

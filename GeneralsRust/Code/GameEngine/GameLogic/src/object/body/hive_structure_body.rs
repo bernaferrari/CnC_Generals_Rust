@@ -15,7 +15,7 @@ use crate::helpers::TheGameLogic;
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::Module;
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
@@ -175,9 +175,29 @@ pub struct HiveStructureBody {
     structure_body: StructureBody,
     /// Hive-specific configuration
     module_data: HiveStructureBodyModuleData,
+    shared_module_data: Option<ModuleDataView<HiveStructureBodyModuleData>>,
 }
 
 impl HiveStructureBody {
+    /// Bind the original admitted definition for this body and its base.
+    pub fn bind_module_data(&mut self, data: ModuleDataHandle) {
+        fn project(data: &dyn ModuleData) -> &HiveStructureBodyModuleData {
+            data.downcast_ref::<HiveStructureBodyModuleData>()
+                .expect("hive body module data has an incompatible type")
+        }
+        let view = ModuleDataView::new(data.clone(), project);
+        drop(view.read());
+        self.structure_body.active_body_mut().bind_module_data(data);
+        self.shared_module_data = Some(view);
+    }
+
+    fn with_module_data<R>(&self, f: impl FnOnce(&HiveStructureBodyModuleData) -> R) -> R {
+        match &self.shared_module_data {
+            Some(data) => f(&data.read()),
+            None => f(&self.module_data),
+        }
+    }
+
     /// Create a new hive structure body
     pub fn new(module_data: HiveStructureBodyModuleData, owner_id: ObjectId) -> Self {
         let structure_body = StructureBody::new(module_data.base.clone(), owner_id);
@@ -185,6 +205,7 @@ impl HiveStructureBody {
         Self {
             structure_body,
             module_data,
+            shared_module_data: None,
         }
     }
 
@@ -200,16 +221,14 @@ impl HiveStructureBody {
 
     /// Check if damage type should be propagated to slaves
     fn should_propagate_to_slaves(&self, damage_info: &DamageInfo) -> bool {
-        self.module_data
-            .damage_types_to_propagate_to_slaves
-            .test_damage_type(damage_info.input.damage_type)
+        self.with_module_data(|data| data.damage_types_to_propagate_to_slaves
+            .test_damage_type(damage_info.input.damage_type))
     }
 
     /// Check if damage type should be swallowed when no slaves exist
     fn should_swallow_if_no_slaves(&self, damage_info: &DamageInfo) -> bool {
-        self.module_data
-            .damage_types_to_swallow
-            .test_damage_type(damage_info.input.damage_type)
+        self.with_module_data(|data| data.damage_types_to_swallow
+            .test_damage_type(damage_info.input.damage_type))
     }
 
     /// Attempt to find and damage a slave.
@@ -341,12 +360,10 @@ impl HiveStructureBody {
 
 impl BodyModuleInterface for HiveStructureBody {
     fn hive_redirect_flags(&self, damage_type: crate::damage::DamageType) -> Option<(bool, bool)> {
-        Some((
-            self.module_data
-                .damage_types_to_propagate_to_slaves
-                .test_damage_type(damage_type),
-            self.module_data.damage_types_to_swallow.test_damage_type(damage_type),
-        ))
+        Some(self.with_module_data(|data| (
+            data.damage_types_to_propagate_to_slaves.test_damage_type(damage_type),
+            data.damage_types_to_swallow.test_damage_type(damage_type),
+        )))
     }
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
         self.attempt_damage_with_context_inner(damage_info, None)
@@ -562,6 +579,22 @@ mod tests {
     use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::{Arc, Mutex, RwLock};
 
+    #[test]
+    fn admitted_hive_definition_updates_redirect_flags() {
+        let definition = HiveStructureBodyModuleData::default();
+        let handle = ModuleDataHandle::new(definition.clone());
+        let mut body = HiveStructureBody::new(definition, INVALID_ID);
+        body.bind_module_data(handle.clone());
+        assert_eq!(body.hive_redirect_flags(DamageType::Sniper), Some((false, false)));
+        {
+            let mut data = handle.write();
+            let data = (&mut *data as &mut dyn std::any::Any)
+                .downcast_mut::<HiveStructureBodyModuleData>().unwrap();
+            data.damage_types_to_swallow = DamageTypeFlags::all_flags();
+        }
+        assert_eq!(body.hive_redirect_flags(DamageType::Sniper), Some((false, true)));
+    }
+
     fn make_damage_info(damage_type: DamageType, amount: f32) -> DamageInfo {
         let mut info = DamageInfo::new();
         info.input.damage_type = damage_type;
@@ -592,7 +625,7 @@ mod tests {
         let owner = register_test_object(id);
         let contain = OpenContain::new(
             Arc::downgrade(&owner.object),
-            &OpenContainModuleData::default(),
+            ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())),
         )
         .expect("empty hive contain");
         owner

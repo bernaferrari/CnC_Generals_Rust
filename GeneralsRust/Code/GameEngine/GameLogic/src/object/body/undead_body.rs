@@ -18,7 +18,7 @@ use crate::object::behavior::neutron_missile_slow_death_update::NeutronMissileSl
 use crate::object::behavior::slow_death_behavior::SlowDeathBehavior;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::Module;
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView};
 
 /// Configuration data specific to undead bodies
 #[derive(Debug, Clone)]
@@ -122,17 +122,31 @@ pub struct UndeadBody {
     active_body: ActiveBody,
     /// Undead-specific configuration
     module_data: UndeadBodyModuleData,
+    shared_module_data: Option<ModuleDataView<UndeadBodyModuleData>>,
     /// Whether the first death has started this body's second life.
     is_second_life: bool,
 }
 
 impl UndeadBody {
+    /// Bind the original admitted definition for this body and its base.
+    pub fn bind_module_data(&mut self, data: ModuleDataHandle) {
+        fn project(data: &dyn ModuleData) -> &UndeadBodyModuleData {
+            data.downcast_ref::<UndeadBodyModuleData>()
+                .expect("undead body module data has an incompatible type")
+        }
+        let view = ModuleDataView::new(data.clone(), project);
+        drop(view.read());
+        self.active_body.bind_module_data(data);
+        self.shared_module_data = Some(view);
+    }
+
     /// Create a new undead body
     pub fn new(module_data: UndeadBodyModuleData, owner_id: ObjectId) -> Self {
         let active_body = ActiveBody::new_with_owner(module_data.base.clone(), owner_id);
         Self {
             active_body,
             module_data,
+            shared_module_data: None,
             is_second_life: false,
         }
     }
@@ -147,9 +161,13 @@ impl UndeadBody {
         // Mark as second life
         self.is_second_life = true;
 
+        let second_life_max_health = match &self.shared_module_data {
+            Some(data) => data.read().second_life_max_health,
+            None => self.module_data.second_life_max_health,
+        };
         // Set max health to second life value and fully heal
         self.active_body.set_max_health(
-            self.module_data.second_life_max_health,
+            second_life_max_health,
             MaxHealthChangeType::FullyHeal,
         )?;
 

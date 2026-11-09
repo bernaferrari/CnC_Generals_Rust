@@ -12,29 +12,117 @@ impl W3DModelDraw {
         self.set_model_state_with_receiver(state_index, drawable, None);
     }
 
+    fn validate_state_with_receiver(
+        &self,
+        state_ref: ActiveModelState,
+        extra_public_bones: &[AsciiString],
+        scale: Real,
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) {
+        {
+            let Some(mut state) = self.resolve_state_mut(state_ref) else {
+                return;
+            };
+            state.validate_public_bones(extra_public_bones);
+        }
+        let standard = receiver.standard_public_bones();
+        let lookup_inputs = {
+            let Some(mut state) = self.resolve_state_mut(state_ref) else {
+                return;
+            };
+            if state.valid_stuff & MODEL_CONDITION_PRISTINE_BONES_VALID != 0 {
+                None
+            } else {
+                state.valid_stuff |= MODEL_CONDITION_PRISTINE_BONES_VALID;
+                if !state.pristine_bones.is_empty() || state.model_name.is_empty() || state.model_name.is_none() {
+                    None
+                } else {
+                    let frame = if test_flag_bit(state.flags, ACBIT_PRISTINE_BONE_POS_IN_FINAL_FRAME) {
+                        PRISTINE_BONE_LAST_FRAME
+                    } else {
+                        0
+                    };
+                    Some((state.model_name.as_str().to_string(), frame, state.public_bones.clone()))
+                }
+            }
+        };
+        if let Some((model, frame, public_bones)) = lookup_inputs {
+            for bone in standard.iter().map(String::as_str).chain(public_bones.iter().map(|bone| bone.as_str())) {
+                if bone.is_empty() || bone.eq_ignore_ascii_case("none") {
+                    continue;
+                }
+                let bone = bone.to_ascii_lowercase();
+                let mut lookup = |name: &str| {
+                    let Some((bone_index, transform)) = receiver.pristine_bone(&model, scale, frame, name) else {
+                        return false;
+                    };
+                    let key = receiver.name_to_key(name);
+                    if let Some(mut state) = self.resolve_state_mut(state_ref) {
+                        state.pristine_bones.insert(key, PristineBoneInfo { transform, bone_index });
+                    }
+                    true
+                };
+                lookup(&bone);
+                for index in 1..=99 {
+                    if !lookup(&format!("{bone}{index:02}")) {
+                        break;
+                    }
+                }
+            }
+        }
+        let snapshot = {
+            let Some(mut state) = self.resolve_state_mut(state_ref) else {
+                return;
+            };
+            state.validate_turret_info();
+            if state.barrels_are_valid() {
+                return;
+            }
+            state.barrel_inputs_snapshot()
+        };
+        let barrels = snapshot.build_weapon_barrel_info(&mut |name| {
+            let key = receiver.name_to_key(name);
+            if key == NAMEKEY_INVALID {
+                return None;
+            }
+            self.resolve_state(state_ref)
+                .and_then(|state| state.pristine_bones.get(&key).cloned())
+        });
+        if let Some(mut state) = self.resolve_state_mut(state_ref) {
+            if !state.barrels_are_valid() {
+                state.weapon_barrels = barrels;
+                state.valid_stuff |= MODEL_CONDITION_BARRELS_VALID;
+            }
+        }
+    }
+
     fn set_model_state_with_receiver(
         &mut self,
         state_index: usize,
         drawable: Option<&ModelDrawContext>,
         mut receiver: Option<&mut dyn ClientParticleStateRuntime>,
     ) {
-        if state_index >= self.data.condition_states.len() {
-            return;
-        }
-        let extra_public_bones = self.data.extra_public_bones.clone();
+        let extra_public_bones = {
+            let data = self.model_data();
+            if state_index >= data.condition_states.len() {
+                return;
+            }
+            data.extra_public_bones.clone()
+        };
         let scale = drawable
             .map(|facts| facts.instance_scale)
             .or_else(|| self.with_owner_drawable(|drawable| drawable.get_instance_scale()))
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
         if let Some(runtime) = receiver.as_mut() {
-            self.data.condition_states[state_index].validate_runtime_caches_with_receiver(
+            self.validate_state_with_receiver(
+                ActiveModelState::Condition(state_index),
                 &extra_public_bones,
                 scale,
                 *runtime,
             );
         } else {
-            self.data.condition_states[state_index]
+            self.model_data_mut().condition_states[state_index]
                 .validate_runtime_caches_scaled(&extra_public_bones, scale);
         }
 
@@ -52,11 +140,15 @@ impl W3DModelDraw {
                 .resolve_state(cur_state_ref)
                 .map(|state| state.transition_key)
                 .unwrap_or(NAMEKEY_INVALID);
-            let requested_state = &self.data.condition_states[state_index];
+            let (allow_to_finish_key, transition_key) = {
+                let data = self.model_data();
+                let requested_state = &data.condition_states[state_index];
+                (requested_state.allow_to_finish_key, requested_state.transition_key)
+            };
 
             if new_state_ref != cur_state_ref
-                && requested_state.allow_to_finish_key != NAMEKEY_INVALID
-                && requested_state.allow_to_finish_key == cur_transition_key
+                && allow_to_finish_key != NAMEKEY_INVALID
+                && allow_to_finish_key == cur_transition_key
                 && !self.current_animation_complete()
             {
                 self.next_state = Some(state_index);
@@ -66,10 +158,10 @@ impl W3DModelDraw {
 
             if new_state_ref != cur_state_ref
                 && cur_transition_key != NAMEKEY_INVALID
-                && requested_state.transition_key != NAMEKEY_INVALID
+                && transition_key != NAMEKEY_INVALID
             {
                 if let Some(transition_index) = self
-                    .find_transition_state_index(cur_transition_key, requested_state.transition_key)
+                    .find_transition_state_index(cur_transition_key, transition_key)
                 {
                     new_state_ref = ActiveModelState::Transition(transition_index);
                     pending_next_state = Some(state_index);
@@ -77,12 +169,10 @@ impl W3DModelDraw {
             }
         }
 
-        if let Some(state) = self.resolve_state_mut(new_state_ref) {
-            if let Some(runtime) = receiver.as_mut() {
-                state.validate_runtime_caches_with_receiver(&extra_public_bones, scale, *runtime);
-            } else {
-                state.validate_runtime_caches_scaled(&extra_public_bones, scale);
-            }
+        if let Some(runtime) = receiver.as_mut() {
+            self.validate_state_with_receiver(new_state_ref, &extra_public_bones, scale, *runtime);
+        } else if let Some(mut state) = self.resolve_state_mut(new_state_ref) {
+            state.validate_runtime_caches_scaled(&extra_public_bones, scale);
         }
 
         let prev_state = self.cur_state;
@@ -121,8 +211,13 @@ impl W3DModelDraw {
         let replace_render = match prev_state {
             None => true,
             Some(prev) => {
-                let prev_info = self.resolve_state(prev);
-                let next_info = self.resolve_state(new_state_ref);
+                let data = self.model_data();
+                let resolve = |state| match state {
+                    ActiveModelState::Condition(index) => data.condition_states.get(index),
+                    ActiveModelState::Transition(index) => data.transition_states.get(index),
+                };
+                let prev_info = resolve(prev);
+                let next_info = resolve(new_state_ref);
                 let model_changed = prev_info.map(|state| state.model_name.as_str())
                     != next_info.map(|state| state.model_name.as_str());
                 let turrets_differ = match (prev_info, next_info) {
@@ -192,13 +287,12 @@ impl W3DModelDraw {
             self.current_anim_complete = true;
             return;
         };
-        let Some(cur_state) = self.resolve_state(cur_state_ref) else {
+        let num_anims = self.resolve_state(cur_state_ref).map(|state| state.animations.len());
+        let Some(num_anims) = num_anims else {
             self.which_anim_in_cur_state = -1;
             self.current_anim_complete = true;
             return;
         };
-
-        let num_anims = cur_state.animations.len();
         if num_anims == 0 {
             self.which_anim_in_cur_state = -1;
             self.current_anim_frame = 0;
@@ -227,37 +321,43 @@ impl W3DModelDraw {
             );
         }
 
-        let Some(cur_state) = self.resolve_state(cur_state_ref).cloned() else {
+        let animation_info = self.resolve_state(cur_state_ref).map(|state| (
+            self.animation_total_frames(&state).max(1),
+            state.anim_mode,
+            state.flags,
+            !state.model_name.as_str().is_empty(),
+            state.anim_min_speed_factor,
+            state.anim_max_speed_factor,
+        ));
+        let Some((total_frames, anim_mode, flags, has_model, min_speed, max_speed)) = animation_info else {
             self.which_anim_in_cur_state = -1;
             self.current_anim_complete = true;
             return;
         };
-
-        let total_frames = self.animation_total_frames(&cur_state).max(1);
-        let mut start_frame = if cur_state.anim_mode == AnimMode::OnceBackwards
-            || cur_state.anim_mode == AnimMode::LoopBackwards
+        let mut start_frame = if anim_mode == AnimMode::OnceBackwards
+            || anim_mode == AnimMode::LoopBackwards
         {
             total_frames - 1
         } else {
             0
         };
 
-        if test_flag_bit(cur_state.flags, ACBIT_RANDOMSTART)
-            && !cur_state.model_name.as_str().is_empty()
+        if test_flag_bit(flags, ACBIT_RANDOMSTART)
+            && has_model
         {
             start_frame = crate::system::engine_stores::active_services().client_random_value(0, total_frames - 1);
-        } else if test_flag_bit(cur_state.flags, ACBIT_START_FRAME_FIRST) {
+        } else if test_flag_bit(flags, ACBIT_START_FRAME_FIRST) {
             start_frame = 0;
-        } else if test_flag_bit(cur_state.flags, ACBIT_START_FRAME_LAST) {
+        } else if test_flag_bit(flags, ACBIT_START_FRAME_LAST) {
             start_frame = total_frames - 1;
-        } else if is_any_maintain_frame_flag_set(cur_state.flags)
+        } else if is_any_maintain_frame_flag_set(flags)
             && prev_state.is_some()
             && prev_state != Some(cur_state_ref)
             && prev_state
                 .and_then(|state_ref| self.resolve_state(state_ref))
                 .map(|state| {
                     is_any_maintain_frame_flag_set(state.flags)
-                        && is_common_maintain_frame_flag_set(cur_state.flags, state.flags)
+                        && is_common_maintain_frame_flag_set(flags, state.flags)
                 })
                 .unwrap_or(false)
             && prev_anim_fraction >= 0.0
@@ -269,11 +369,11 @@ impl W3DModelDraw {
 
         self.current_anim_num_frames = total_frames.max(1);
         self.current_anim_frame = start_frame.clamp(0, self.current_anim_num_frames - 1);
-        if !cur_state.model_name.as_str().is_empty() {
+        if has_model {
             // C++ always calls GameClientRandomValueReal, including when min > max.
             self.current_anim_speed_factor = crate::system::engine_stores::active_services().client_random_value_real(
-                cur_state.anim_min_speed_factor,
-                cur_state.anim_max_speed_factor,
+                min_speed,
+                max_speed,
             );
         }
         self.anim_frame_accumulator = 0.0;
@@ -290,16 +390,20 @@ impl W3DModelDraw {
     /// Updates turret bone rotations based on object's current turret angles.
     /// Reference: C++ W3DModelDraw.cpp:2391-2442
     fn handle_client_turret_positioning(&mut self) {
-        let Some(state) = self.current_state() else {
-            return;
+        let turret_count = match self.current_state() {
+            Some(state) if state.turrets_are_valid() => state.turrets.len(),
+            _ => return,
         };
-        if !state.turrets_are_valid() {
-            return;
-        }
 
         // Process each turret slot (up to MAX_TURRETS)
-        for (index, turret) in state.turrets.iter().enumerate() {
-            if turret.turret_angle_bone == 0 && turret.turret_pitch_bone == 0 {
+        for index in 0..turret_count {
+            let turret = {
+                let Some(state) = self.current_state() else { return; };
+                let Some(turret) = state.turrets.get(index) else { return; };
+                (turret.turret_angle_bone, turret.turret_pitch_bone,
+                 turret.turret_art_angle, turret.turret_art_pitch)
+            };
+            if turret.0 == 0 && turret.1 == 0 {
                 continue;
             }
 
@@ -327,9 +431,9 @@ impl W3DModelDraw {
             }
 
             // Apply turret angle bone rotation
-            if turret.turret_angle_bone != 0 {
+            if turret.0 != 0 {
                 // Add art-defined offset to turret angle
-                turret_angle += turret.turret_art_angle;
+                turret_angle += turret.2;
 
                 // Create rotation matrix around Z axis
                 // Reference: W3DModelDraw.cpp:2416-2421
@@ -345,9 +449,9 @@ impl W3DModelDraw {
             }
 
             // Apply turret pitch bone rotation
-            if turret.turret_pitch_bone != 0 {
+            if turret.1 != 0 {
                 // Add art-defined offset to turret pitch
-                turret_pitch += turret.turret_art_pitch;
+                turret_pitch += turret.3;
 
                 // Create rotation matrix around Y axis
                 // Reference: W3DModelDraw.cpp:2427-2432
@@ -363,30 +467,36 @@ impl W3DModelDraw {
     }
     fn handle_client_recoil(&mut self) {
         const TINY_RECOIL: Real = 0.01;
-        let Some(state) = self.current_state() else {
-            self.muzzle_flash_hides.clear();
-            return;
-        };
-        if !state.barrels_are_valid() {
+        let barrels_valid = self.current_state().map(|state| state.barrels_are_valid()).unwrap_or(false);
+        if !barrels_valid {
             self.muzzle_flash_hides.clear();
             return;
         }
-        let state = state.clone();
         self.muzzle_flash_hides.clear();
+        let (recoil_damping, max_recoil, recoil_settle) = {
+            let data = self.model_data();
+            (data.recoil_damping, data.max_recoil, data.recoil_settle)
+        };
 
         for wslot in 0..WEAPONSLOT_COUNT {
-            let barrels = &state.weapon_barrels[wslot];
+            let Some(barrel_count) = self.current_state().map(|state| state.weapon_barrels[wslot].len()) else {
+                return;
+            };
             let recoil_len = self
                 .weapon_recoil_info
                 .get(wslot)
                 .map(|recoils| recoils.len())
                 .unwrap_or(0);
-            let count = barrels.len().min(recoil_len);
+            let count = barrel_count.min(recoil_len);
             for i in 0..count {
+                let bones = self.current_state().and_then(|state| {
+                    state.weapon_barrels[wslot].get(i).map(|barrel| (barrel.muzzle_flash_bone, barrel.recoil_bone))
+                });
+                let Some((muzzle_flash_bone, recoil_bone)) = bones else { return; };
                 // C++ hides muzzle unless RECOIL_START. That state is never
                 // rewritten to RECOIL — flash stays visible for the whole
                 // recoil-back until SETTLE (W3DModelDraw.cpp:2505-2518).
-                if barrels[i].muzzle_flash_bone != 0 {
+                if muzzle_flash_bone != 0 {
                     let hidden = !matches!(
                         self.weapon_recoil_info[wslot][i].state,
                         RecoilState::RecoilStart,
@@ -399,7 +509,7 @@ impl W3DModelDraw {
                 };
                 // C++ W3DModelDraw.cpp:2541-2544. No recoil bone forces IDLE,
                 // so a flash-only barrel hides on the next frame.
-                if barrels[i].recoil_bone == 0 {
+                if recoil_bone == 0 {
                     recoils[i].state = RecoilState::Idle;
                     continue;
                 }
@@ -408,9 +518,9 @@ impl W3DModelDraw {
                     RecoilState::Idle => {}
                     RecoilState::RecoilStart | RecoilState::Recoil => {
                         recoils[i].shift += recoils[i].recoil_rate;
-                        recoils[i].recoil_rate *= self.data.recoil_damping;
-                        if recoils[i].shift >= self.data.max_recoil {
-                            recoils[i].shift = self.data.max_recoil;
+                        recoils[i].recoil_rate *= recoil_damping;
+                        if recoils[i].shift >= max_recoil {
+                            recoils[i].shift = max_recoil;
                             recoils[i].state = RecoilState::Settle;
                         } else if recoils[i].recoil_rate.abs() < TINY_RECOIL {
                             recoils[i].state = RecoilState::Settle;
@@ -418,7 +528,7 @@ impl W3DModelDraw {
                         // C++ never assigns RECOIL; stay RECOIL_START until SETTLE.
                     }
                     RecoilState::Settle => {
-                        recoils[i].shift -= self.data.recoil_settle;
+                        recoils[i].shift -= recoil_settle;
                         if recoils[i].shift <= 0.0 {
                             recoils[i].shift = 0.0;
                             recoils[i].state = RecoilState::Idle;
@@ -484,17 +594,15 @@ impl W3DModelDraw {
             };
             self.ensure_animation_duration_loaded(ActiveModelState::Condition(next_state_index), 0);
 
-            let Some(cur_state) = self.current_state() else {
-                self.set_animation_loop_duration(num_frames);
-                return;
+            let t1 = self.current_state()
+                .and_then(|state| state.animations.first().map(|anim| anim.natural_duration_ms.max(1.0)));
+            let t2 = {
+                let data = self.model_data();
+                data.condition_states.get(next_state_index)
+                    .and_then(|state| state.animations.first())
+                    .map(|anim| anim.natural_duration_ms.max(1.0))
             };
-            let Some(next_state) = self.data.condition_states.get(next_state_index) else {
-                self.set_animation_loop_duration(num_frames);
-                return;
-            };
-            if !cur_state.animations.is_empty() && !next_state.animations.is_empty() {
-                let t1 = cur_state.animations[0].natural_duration_ms.max(1.0);
-                let t2 = next_state.animations[0].natural_duration_ms.max(1.0);
+            if let (Some(t1), Some(t2)) = (t1, t2) {
                 let numerator = num_frames as Real * t1;
                 let trans_time = (numerator / (t1 + t2)).floor() as u32;
                 self.set_animation_loop_duration(trans_time);

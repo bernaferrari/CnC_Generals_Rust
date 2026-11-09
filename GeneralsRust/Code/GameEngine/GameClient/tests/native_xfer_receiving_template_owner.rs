@@ -59,8 +59,8 @@ fn restored_tank_module_key(
     let module = basic.get_draw_modules_mut().first_mut().unwrap();
     assert_eq!(module.snapshot_module_identifier(), Some("TankTag"));
     let module = module.logic_module_mut().unwrap();
-    let data = module
-        .get_module_data()
+    let guard = module.get_module_data();
+    let data = guard
         .as_any()
         .downcast_ref::<gamelogic::object::draw::W3DTankDrawModuleData>()
         .unwrap();

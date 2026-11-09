@@ -11,7 +11,7 @@ use crate::common::*;
 use crate::helpers::TheGameClient;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead};
 use std::any::Any;
 
 #[derive(Debug, Clone)]
@@ -386,13 +386,17 @@ impl Snapshotable for W3DTreeDrawModuleData {
 }
 
 pub struct W3DTreeDraw {
-    data: W3DTreeDrawModuleData,
+    data: ModuleDataHandle,
     drawable_id: u32,
     tree_added: bool,
 }
 
 impl W3DTreeDraw {
     pub fn new(data: W3DTreeDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        assert!(data.is::<W3DTreeDrawModuleData>());
         Self {
             data,
             drawable_id: 0,
@@ -435,7 +439,9 @@ impl W3DTreeDraw {
         };
         // C++ sets `m_treeAdded` before `addTree`.
         self.tree_added = true;
-        client.add_tree(self.drawable_id, &location, scale, angle, 0.0, &self.data);
+        let data = self.data.read();
+        let data = data.as_any().downcast_ref::<W3DTreeDrawModuleData>().expect("W3DTreeDraw module data");
+        client.add_tree(self.drawable_id, &location, scale, angle, 0.0, data);
     }
 
     fn register_from_current_drawable(&mut self) {
@@ -469,10 +475,10 @@ impl Module for W3DTreeDraw {
         keys.name_to_key("W3DTreeDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.module_tag_name_key
+        self.data.read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 

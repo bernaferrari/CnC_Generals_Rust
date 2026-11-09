@@ -392,7 +392,7 @@ pub fn leftover_wave_guide_splash_roll(frequency: i32) -> bool {
     GameLogicRandomValue(1, 100) > frequency
 }
 
-fn leftover_wave_guide_module_data(template_name: &str) -> Option<WaveGuideUpdateModuleData> {
+fn leftover_wave_guide_module_data(template_name: &str) -> Option<game_engine::common::thing::module::ModuleDataHandle> {
     if template_name.is_empty() {
         return None;
     }
@@ -403,8 +403,8 @@ fn leftover_wave_guide_module_data(template_name: &str) -> Option<WaveGuideUpdat
         if !entry.name.as_str().eq_ignore_ascii_case("WaveGuideUpdate") {
             continue;
         }
-        if let Some(data) = entry.data.downcast_ref::<WaveGuideUpdateModuleData>() {
-            return Some(data.clone());
+        if entry.data.is::<WaveGuideUpdateModuleData>() {
+            return Some((*entry.data).clone());
         }
     }
     None
@@ -412,9 +412,12 @@ fn leftover_wave_guide_module_data(template_name: &str) -> Option<WaveGuideUpdat
 
 /// Leftover ThingFactory WaveGuideUpdate audio, else retail Object WaveGuide.
 pub fn leftover_wave_guide_audio_from_template(template_name: &str) -> LeftoverWaveGuideAudio {
-    let Some(data) = leftover_wave_guide_module_data(template_name) else {
+    let Some(handle) = leftover_wave_guide_module_data(template_name) else {
         return LeftoverWaveGuideAudio::default();
     };
+    let guard = handle.read();
+    let data = guard.as_any().downcast_ref::<WaveGuideUpdateModuleData>()
+        .expect("WaveGuideUpdate module data");
     let looping = data.looping_sound.get_event_name();
     let splash = data.random_splash_sound.get_event_name();
     LeftoverWaveGuideAudio {
@@ -438,7 +441,7 @@ pub fn leftover_wave_guide_audio_from_template(template_name: &str) -> LeftoverW
 
 pub struct WaveGuideUpdate {
     object_id: ObjectID,
-    module_data: Arc<WaveGuideUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<WaveGuideUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     active_frame: UnsignedInt,
     need_disable: bool,
@@ -452,22 +455,19 @@ pub struct WaveGuideUpdate {
 }
 
 impl WaveGuideUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<WaveGuideUpdateModuleData>()
-            .ok_or("Invalid module data")?;
 
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, handle: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !handle.is::<WaveGuideUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<WaveGuideUpdateModuleData>().expect("WaveGuideUpdate module data"));
         Ok(Self {
             object_id: object
                 .read()
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             active_frame: 0,
             need_disable: true,
@@ -501,7 +501,7 @@ impl WaveGuideUpdate {
         };
 
         let _ = leftover_play_wave_guide_audio_event(
-            self.module_data.looping_sound.clone(),
+            self.module_data.read().looping_sound.clone(),
             waveguide.get_id(),
         );
 
@@ -611,17 +611,18 @@ impl WaveGuideUpdate {
 
     fn compute_wave_shape_points(&mut self) {
         self.shape_point_count = 0;
-        let step = self.module_data.linear_wave_spacing as i32;
+        let data = self.module_data.read();
+        let step = data.linear_wave_spacing as i32;
         if step == 0 {
             return;
         }
 
-        let half_y = (self.module_data.y_size / 2.0) as i32;
+        let half_y = (data.y_size / 2.0) as i32;
         let mut y = -half_y;
         while y < half_y && self.shape_point_count < MAX_WAVEGUIDE_SHAPE_POINTS {
             let y_f = y as Real;
-            let x = if self.module_data.wave_bend_magnitude != 0.0 {
-                -(y_f * y_f) / self.module_data.wave_bend_magnitude
+            let x = if data.wave_bend_magnitude != 0.0 {
+                -(y_f * y_f) / data.wave_bend_magnitude
             } else {
                 0.0
             };
@@ -665,7 +666,7 @@ impl WaveGuideUpdate {
         if let Some(ps_manager) = crate::helpers::TheParticleSystemManager::get() {
             for i in 0..self.shape_point_count {
                 let world = self.transformed_shape_points[i];
-                if world.z >= self.module_data.preferred_height {
+                if world.z >= self.module_data.read().preferred_height {
                     continue;
                 }
                 for effect_id in self.shape_effects[i] {
@@ -685,13 +686,14 @@ impl WaveGuideUpdate {
         let Some(terrain_visual) = TheTerrainVisual::get() else {
             return;
         };
+        let data = self.module_data.read();
         for i in 0..self.shape_point_count {
             let point = self.transformed_shape_points[i];
             terrain_visual.add_water_velocity(
                 point.x,
                 point.y,
-                self.module_data.water_velocity,
-                self.module_data.preferred_height,
+                data.water_velocity,
+                data.preferred_height,
             );
         }
     }
@@ -718,10 +720,11 @@ impl WaveGuideUpdate {
             return;
         };
 
+        let data = self.module_data.read();
         let mut effect_points = [Coord3D::ZERO; MAX_WAVEGUIDE_SHAPE_POINTS];
         for i in 0..self.shape_point_count {
             let mut pt = self.shape_points[i];
-            pt.x -= self.module_data.shoreline_effect_distance;
+            pt.x -= data.shoreline_effect_distance;
             let transformed = waveguide.get_transform_matrix().transform_point3(pt);
             effect_points[i] = Coord3D::new(transformed.x, transformed.y, transformed.z);
         }
@@ -732,7 +735,7 @@ impl WaveGuideUpdate {
             let terrain_z = TheTerrainLogic::get()
                 .map(|terrain| terrain.get_ground_height(point.x, point.y, None))
                 .unwrap_or(0.0);
-            if terrain_z > self.module_data.preferred_height {
+            if terrain_z > data.preferred_height {
                 if under_water && i != 0 {
                     if let Some(ps_manager) = crate::helpers::TheParticleSystemManager::get() {
                         if let Some(id) =
@@ -780,10 +783,11 @@ impl WaveGuideUpdate {
             return;
         };
 
+        let data = self.module_data.read();
         for i in 0..self.shape_point_count {
             let center = self.transformed_shape_points[i];
             let local_point = self.shape_points[i];
-            for id in partition.get_objects_in_range(&center, self.module_data.damage_radius) {
+            for id in partition.get_objects_in_range(&center, data.damage_radius) {
                 if id == waveguide.get_id() {
                     continue;
                 }
@@ -801,7 +805,7 @@ impl WaveGuideUpdate {
                     continue;
                 }
 
-                if obj_pos.z > self.module_data.preferred_height
+                if obj_pos.z > data.preferred_height
                     && !obj.is_kind_of(crate::common::KindOf::Bridge)
                 {
                     continue;
@@ -833,14 +837,14 @@ impl WaveGuideUpdate {
                     let topple_vec = Coord3D::new(obj_pos.x - center.x, obj_pos.y - center.y, 0.0);
                     obj.topple(
                         &topple_vec,
-                        self.module_data.topple_force,
+                        data.topple_force,
                         crate::object::behavior::topple_update::TOPPLE_OPTIONS_NO_BOUNCE
                             | crate::object::behavior::topple_update::TOPPLE_OPTIONS_NO_FX,
                     );
 
                     let mut damage = DamageInfo::new();
                     damage.input = DamageInfoInput {
-                        amount: self.module_data.damage_amount,
+                        amount: data.damage_amount,
                         source_id: waveguide.get_id(),
                         damage_type: DamageType::Water,
                         death_type: DeathType::Flooded,
@@ -881,7 +885,7 @@ impl WaveGuideUpdate {
                                         let _ = new_bridge.set_orientation(angle);
 
                                         if let Some(bridge_fx) =
-                                            self.module_data.bridge_particle.as_ref()
+                                            data.bridge_particle.as_ref()
                                         {
                                             if let Some(ps_manager) =
                                                 crate::helpers::TheParticleSystemManager::get()
@@ -889,9 +893,7 @@ impl WaveGuideUpdate {
                                                 if let Some(id) = ps_manager.create_particle_system(
                                                     Some(bridge_fx.as_str()),
                                                 ) {
-                                                    let fudge = self
-                                                        .module_data
-                                                        .bridge_particle_angle_fudge;
+                                                    let fudge = data.bridge_particle_angle_fudge;
                                                     let u = Coord3D::new(
                                                         (angle + fudge).cos(),
                                                         (angle + fudge).sin(),
@@ -965,7 +967,7 @@ impl UpdateModuleInterface for WaveGuideUpdate {
         }
 
         let frames_since_active = TheGameLogic::get_frame().saturating_sub(self.active_frame);
-        if (frames_since_active as f32) < self.module_data.wave_delay {
+        if (frames_since_active as f32) < self.module_data.read().wave_delay {
             return UpdateSleepTime::None;
         }
 
@@ -978,10 +980,10 @@ impl UpdateModuleInterface for WaveGuideUpdate {
         }
 
         if leftover_wave_guide_splash_due(TheGameLogic::get_frame(), &mut self.splash_sound_frame)
-            && leftover_wave_guide_splash_roll(self.module_data.random_splash_sound_frequency)
+            && leftover_wave_guide_splash_roll(self.module_data.read().random_splash_sound_frequency)
         {
             let _ = leftover_play_wave_guide_audio_event(
-                self.module_data.random_splash_sound.clone(),
+                self.module_data.read().random_splash_sound.clone(),
                 waveguide.get_id(),
             );
         }
@@ -1083,9 +1085,9 @@ pub struct WaveGuideUpdateFactory;
 impl WaveGuideUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(WaveGuideUpdate::new(thing, module_data)?))
+        Ok(Box::new(WaveGuideUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 

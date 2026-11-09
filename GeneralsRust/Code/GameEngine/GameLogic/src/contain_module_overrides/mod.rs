@@ -9,7 +9,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     BaseModuleData, CreateInterface, DeletionLifetimeInterface, Drawable as ModuleDrawableTrait,
-    Module, ModuleData, ModuleType, NameKeyType, Object as ModuleObjectTrait, Thing as ModuleThing,
+    Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleType, NameKeyType, Object as ModuleObjectTrait, Thing as ModuleThing,
 };
 #[cfg(test)]
 use game_engine::common::thing::module_factory::register_module_override;
@@ -399,7 +399,7 @@ use crate::stealth_update::{
 mod helpers;
 mod behavior;
 mod body;
-mod collide_crates;
+pub(crate) mod collide_crates;
 mod contain;
 mod death;
 mod draw_client;
@@ -426,6 +426,7 @@ pub(crate) use body::{install_body_for_module_with_definitions, register_inert_a
 #[cfg(test)]
 pub(crate) use body::{with_active, with_active_mut};
 pub(crate) use contain::contain_handle_for_module;
+pub(crate) use contain::{open_contain_data_view, transport_contain_data_view};
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
 pub(crate) use helpers::ActiveBehaviorModule;
 pub use install::{

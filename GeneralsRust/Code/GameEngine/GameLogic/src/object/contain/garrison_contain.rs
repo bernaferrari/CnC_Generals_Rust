@@ -35,6 +35,8 @@ use crate::team::Team;
 use crate::weapon::{DamageType as WeaponDamageType, Weapon};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use crate::contain_module_overrides::ContainModuleDataAdapter;
 
 /// Maximum number of garrison points
 const MAX_GARRISON_POINTS: usize = 40;
@@ -401,6 +403,7 @@ pub fn named_evac_disposition(name: &str) -> Option<u32> {
 pub struct GarrisonContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
+    module_data: ModuleDataView<GarrisonContainModuleData>,
     /// Original team before garrison
     original_team: Option<Weak<RwLock<Team>>>,
     /// Garrison point data array
@@ -444,12 +447,18 @@ impl GarrisonContain {
     /// Create a new GarrisonContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
-        module_data: &GarrisonContainModuleData,
+        module_data: ModuleDataHandle,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let data = ModuleDataView::new(module_data.clone(), |data| {
+            data.downcast_ref::<ContainModuleDataAdapter<GarrisonContainModuleData>>()
+                .expect("garrison contain module data has an incompatible type").contain_data()
+        });
+        drop(data.read());
+        let base = OpenContain::new(object.clone(), module_data)?;
 
         Ok(Self {
             base,
+            module_data: data,
             original_team: None,
             garrison_point_data: std::array::from_fn(|_| GarrisonPointData::default()),
             garrison_points_in_use: 0,
@@ -552,30 +561,19 @@ impl GarrisonContain {
         }
 
         // C++ line 185-195: Heal objects if configured to do so
-        if let Some(module_data) = self
-            .with_owner_object(|owner| {
-                owner
-                    .get_garrison_contain_module_data()
-                    .ok()
-                    .filter(|m| m.do_heal_objects)
-            })
-            .flatten()
-        {
-            if let Err(err) = self.heal_objects(&module_data) {
+        let (do_heal, heal_frames) = {
+            let data = self.module_data.read();
+            (data.do_heal_objects, data.frames_for_full_heal)
+        };
+        if do_heal {
+            if let Err(err) = self.heal_objects(heal_frames) {
                 log::warn!("GarrisonContain::update heal failed: {}", err);
             }
         }
 
         // Move objects with this container if mobile garrison
-        if self
-            .with_owner_object(|owner| {
-                owner
-                    .get_garrison_contain_module_data()
-                    .ok()
-                    .map(|m| m.mobile_garrison && owner.is_mobile())
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false)
+        let mobile_garrison = self.module_data.read().mobile_garrison;
+        if mobile_garrison && self.with_owner_object(|owner| owner.is_mobile()).unwrap_or(false)
         {
             if let Err(err) = self.move_objects_with_me() {
                 log::warn!("GarrisonContain::update move failed: {}", err);
@@ -598,18 +596,7 @@ impl GarrisonContain {
     /// Check if immune to clear building attacks (toxins, fire, etc.)
     /// Matches C++ GarrisonContain::isImmuneToClearBuildingAttacks
     pub fn is_immune_to_clear_building_attacks(&self) -> bool {
-        if let Some(flag) = self
-            .with_owner_object(|owner| {
-                owner
-                    .get_garrison_contain_module_data()
-                    .ok()
-                    .map(|m| m.immune_to_clear_building_attacks)
-            })
-            .flatten()
-        {
-            return flag;
-        }
-        false
+        self.module_data.read().immune_to_clear_building_attacks
     }
 
     /// Check if this is a heal container (not a transport)
@@ -644,18 +631,7 @@ impl GarrisonContain {
     }
 
     fn is_enclosing_container_for_internal(&self, _obj: Option<&Object>) -> bool {
-        if let Some(flag) = self
-            .with_owner_object(|owner| {
-                owner
-                    .get_garrison_contain_module_data()
-                    .ok()
-                    .map(|m| m.is_enclosing_container)
-            })
-            .flatten()
-        {
-            return flag;
-        }
-        true
+        self.module_data.read().is_enclosing_container
     }
 
     /// Check if this is a special overlord style container
@@ -1078,14 +1054,10 @@ impl GarrisonContain {
         }
         drop(contained);
 
+        let enclosing = self.module_data.read().is_enclosing_container;
         let owner_pos = self.with_owner_object_mut(|owner| {
             owner.set_status(ObjectStatusMaskType::CAN_ATTACK, true);
-            match owner.get_garrison_contain_module_data() {
-                Ok(module_data) if module_data.is_enclosing_container => {
-                    Some(*owner.get_position())
-                }
-                _ => None,
-            }
+            enclosing.then(|| *owner.get_position())
         });
         if let Some(Some(pos)) = owner_pos {
             if let Ok(mut contained) = obj.try_write() {
@@ -1520,16 +1492,13 @@ impl GarrisonContain {
         self.load_garrison_points()?;
         self.load_station_garrison_points()?;
 
+        let roster = self.module_data.read().initial_roster.clone();
+        if roster.count <= 0 || roster.template_name.is_empty() {
+            return Ok(());
+        }
         let Some((roster, owner_name, controller, contain)) = self
             .with_owner_object(|owner_guard| {
-                let module_data = match owner_guard.get_garrison_contain_module_data() {
-                    Ok(data) => data,
-                    Err(_) => return None,
-                };
-                let roster = module_data.initial_roster.clone();
-                if roster.count <= 0 || roster.template_name.is_empty() {
-                    return None;
-                }
+                let roster = roster.clone();
                 let owner_name = owner_guard.get_name().to_string();
                 let contain = owner_guard.get_contain()?;
                 let controller = owner_guard.get_controlling_player()?;
@@ -2347,6 +2316,7 @@ impl GarrisonContain {
             return Ok(());
         }
 
+        let contain_max = self.module_data.read().base.contain_max;
         let Some(positions) = self.with_owner_object_mut(|owner| {
             let Some(drawable) = owner.get_drawable() else {
                 return None;
@@ -2363,10 +2333,6 @@ impl GarrisonContain {
             set_flags.set(ModelConditionFlags::GARRISONED, true);
             let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_flags);
 
-            let contain_max = owner
-                .get_garrison_contain_module_data()
-                .map(|d| d.base.contain_max)
-                .unwrap_or(MAX_GARRISON_POINTS as i32);
             let max_points = if contain_max <= 0 {
                 MAX_GARRISON_POINTS
             } else {
@@ -2503,20 +2469,17 @@ impl GarrisonContain {
     }
 
     /// Heal all contained objects
-    fn heal_objects(&mut self, module_data: &GarrisonContainModuleData) -> GameResult<()> {
+    fn heal_objects(&mut self, frames_for_full_heal: f32) -> GameResult<()> {
         // Wave 260: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
 
-        if !module_data.do_heal_objects {
-            return Ok(());
-        }
 
         let contained_ids = self.base.get_contained_object_ids().to_vec();
         for object_id in contained_ids {
             if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
-                if let Err(err) = self.heal_single_object(obj, module_data.frames_for_full_heal) {
+                if let Err(err) = self.heal_single_object(obj, frames_for_full_heal) {
                     log::warn!(
                         "GarrisonContain::heal_objects skipped {}: {}",
                         object_id,
@@ -3535,7 +3498,7 @@ mod tests {
 
     #[test]
     fn trait_snapshot_xfer_writes_garrison_version_and_open_contain_state_like_cpp() {
-        let mut contain = GarrisonContain::new(Weak::new(), &GarrisonContainModuleData::default())
+        let mut contain = GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(GarrisonContainModuleData::default())))
             .expect("garrison contain");
         contain.hide_garrisoned_state_from_non_allies = true;
         contain.garrison_points_in_use = 2;
@@ -3590,7 +3553,7 @@ mod tests {
     #[test]
     fn garrison_defaults_to_cpp_burst_evac_disposition() {
         let data = GarrisonContainModuleData::default();
-        let contain = GarrisonContain::new(Weak::new(), &data).expect("garrison constructs");
+        let contain = GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs");
 
         assert!(matches!(
             contain.evac_disposition,
@@ -3601,7 +3564,7 @@ mod tests {
     #[test]
     fn garrison_save_state_omits_station_garrison_state_like_cpp() {
         let data = GarrisonContainModuleData::default();
-        let contain = GarrisonContain::new(Weak::new(), &data).expect("garrison constructs");
+        let contain = GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs");
         let state = contain.save_state().expect("garrison saves");
 
         assert!(!state.contains_key("station_garrison_points_initialized"));
@@ -3628,7 +3591,7 @@ mod tests {
             ..Default::default()
         };
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), &data).expect("garrison constructs");
+            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs");
 
         contain
             .load_station_garrison_points()
@@ -3777,7 +3740,7 @@ mod tests {
         let owner = owned_object("GarrisonOwner", 96001, 0);
         let passenger = infantry("GarrisonPassenger", 96002, 0);
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), &authored_capacity_one(false))
+            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false))))
                 .expect("garrison contain");
 
         ContainModuleInterface::contain_object(&mut contain, 96002).expect("contain passenger");
@@ -3822,7 +3785,7 @@ mod tests {
         let owner = owned_object("GarrisonReleaseOwner", 96003, 0);
         let passenger = infantry("GarrisonReleasePassenger", 96004, 0);
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), &authored_capacity_one(false))
+            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false))))
                 .expect("garrison contain");
 
         ContainModuleInterface::contain_object(&mut contain, 96004).expect("contain passenger");
@@ -3871,7 +3834,7 @@ mod tests {
         let passenger = infantry("MobileGarrisonPassenger", 96006, 0);
         let data = authored_capacity_one(true);
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), &data).expect("mobile garrison contain");
+            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("mobile garrison contain");
 
         ContainModuleInterface::contain_object(&mut contain, 96006).expect("contain passenger");
         let new_pos = Coord3D::new(123.0, 456.0, 7.0);

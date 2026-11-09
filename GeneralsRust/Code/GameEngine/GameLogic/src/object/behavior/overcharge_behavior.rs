@@ -148,13 +148,13 @@ const OVERCHARGE_BEHAVIOR_FIELDS: &[FieldParse<OverchargeBehaviorModuleData>] = 
 /// OverchargeBehavior - Handles power plant overcharge functionality
 pub struct OverchargeBehavior {
     object_id: ObjectID,
-    module_data: Arc<OverchargeBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     overcharge_active: Bool,
 }
 
 impl OverchargeBehavior {
-    pub fn new(object_id: ObjectID, module_data: Arc<OverchargeBehaviorModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             object_id,
             module_data,
@@ -165,7 +165,7 @@ impl OverchargeBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<OverchargeBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = thing
             .as_object()
@@ -299,8 +299,13 @@ impl UpdateModuleInterface for OverchargeBehavior {
             return Ok(UPDATE_SLEEP_NONE);
         };
         let max_health = body_guard.get_max_health();
-        let drain_amount = (max_health * self.module_data.health_percent_to_drain_per_second)
-            / LOGICFRAMES_PER_SECOND as Real;
+        let (drain_rate, min_health_percent) = {
+            let guard = self.module_data.read();
+            let data = guard.as_any().downcast_ref::<OverchargeBehaviorModuleData>()
+                .expect("OverchargeBehavior module data type");
+            (data.health_percent_to_drain_per_second, data.not_allowed_when_health_below_percent)
+        };
+        let drain_amount = (max_health * drain_rate) / LOGICFRAMES_PER_SECOND as Real;
         let mut damage_info = DamageInfo::with_simple(
             drain_amount,
             self.object_id,
@@ -312,8 +317,7 @@ impl UpdateModuleInterface for OverchargeBehavior {
         let current_health = body_guard.get_health();
         drop(body_guard);
 
-        let min_health_threshold =
-            max_health * self.module_data.not_allowed_when_health_below_percent;
+        let min_health_threshold = max_health * min_health_percent;
         if current_health < min_health_threshold {
             self.enable(false)?;
 
@@ -457,7 +461,7 @@ impl Snapshotable for OverchargeBehavior {
 pub struct OverchargeBehaviorModule {
     behavior: OverchargeBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<OverchargeBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl OverchargeBehaviorModule {
@@ -468,7 +472,7 @@ impl OverchargeBehaviorModule {
     pub fn new(
         behavior: OverchargeBehavior,
         module_name: &AsciiString,
-        module_data: Arc<OverchargeBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -508,11 +512,11 @@ impl Module for OverchargeBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {}

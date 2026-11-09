@@ -16,7 +16,7 @@ use crate::object_creation_list::live_creation_context;
 use crate::object_creation_list::store::{ObjectCreationList, get_object_creation_list_store};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType};
 use std::sync::Arc;
 
 /// Wave 452: host-only path has no dual-world factory objects.
@@ -103,7 +103,7 @@ impl Snapshotable for ObjectCreationUpgradeModuleData {
 /// Matches C++ ObjectCreationUpgrade from ObjectCreationUpgrade.cpp
 pub struct ObjectCreationUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<ObjectCreationUpgradeModuleData>,
+    data: ModuleDataView<ObjectCreationUpgradeModuleData>,
     object_id: ObjectID,
     mux: UpgradeMux,
 }
@@ -111,10 +111,17 @@ pub struct ObjectCreationUpgrade {
 impl ObjectCreationUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<ObjectCreationUpgradeModuleData>,
+        data: ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mux = UpgradeMux::new_shared(ModuleDataView::new(data.clone(), |data| {
+            &data.as_any().downcast_ref::<ObjectCreationUpgradeModuleData>()
+                .expect("ObjectCreationUpgrade module data").upgrade_mux_data
+        }));
+        let data = ModuleDataView::new(data, |data| {
+            data.as_any().downcast_ref::<ObjectCreationUpgradeModuleData>()
+                .expect("ObjectCreationUpgrade module data")
+        });
 
         Self {
             module_name_key,
@@ -135,7 +142,8 @@ impl ObjectCreationUpgrade {
     fn upgrade_implementation(&mut self, object: &mut Object) {
         // Spawn everything in the OCL
         // Matches C++ ObjectCreationUpgrade.cpp lines 68-75
-        if let Some(ocl) = self.data.ocl.as_ref() {
+        let ocl = self.data.read().ocl.clone();
+        if let Some(ocl) = ocl.as_ref() {
             let ctx = live_creation_context();
             let _ = ocl.create_with_objects(&ctx, object, None, 0);
         }
@@ -149,8 +157,9 @@ impl UpgradeModuleInterface for ObjectCreationUpgrade {
 
     fn attempt_upgrade(&mut self, key_mask: UpgradeMask, object: &mut Object) -> bool {
         if self.mux.would_upgrade(key_mask) {
-            self.mux.data.perform_upgrade_fx(object);
-            self.mux.data.process_upgrade_removal(object);
+            let mux_data = self.data.read().upgrade_mux_data.clone();
+            mux_data.perform_upgrade_fx(object);
+            mux_data.process_upgrade_removal(object);
             self.upgrade_implementation(object);
             self.mux.set_upgrade_executed(true);
             true
@@ -198,8 +207,10 @@ impl RuntimeUpgradeModuleInterface for ObjectCreationUpgrade {
             return false;
         }
 
-        let mux_data = self.mux.data.clone();
-        let ocl = self.data.ocl.clone();
+        let data = self.data.read();
+        let mux_data = data.upgrade_mux_data.clone();
+        let ocl = data.ocl.clone();
+        drop(data);
         let applied = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
             mux_data.perform_upgrade_fx(object_guard);
             mux_data.process_upgrade_removal(object_guard);
@@ -219,7 +230,7 @@ impl RuntimeUpgradeModuleInterface for ObjectCreationUpgrade {
         // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
         // Does not revert spawned OCL objects.
         let mask = crate::upgrade::UpgradeMask::from_bits_retain(upgrade_mask.bits());
-        let _ = self.mux.reset_upgrade(mask);
+        let _ = self.reset_upgrade(mask);
     }
 }
 
@@ -237,11 +248,11 @@ impl Module for ObjectCreationUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 
@@ -370,11 +381,28 @@ mod tests {
         let mut data = ObjectCreationUpgradeModuleData::default();
         data.ocl_name = Some(AsciiString::from("OCL_SpawnTank"));
 
-        let data = Arc::new(data);
+        let data = ModuleDataHandle::new(data);
         let upgrade = ObjectCreationUpgrade::new(1, data.clone(), 100);
 
-        assert_eq!(data.ocl_name.as_ref().unwrap().as_str(), "OCL_SpawnTank");
+        assert_eq!(upgrade.data.read().ocl_name.as_ref().unwrap().as_str(), "OCL_SpawnTank");
         assert!(!upgrade.is_already_upgraded());
+    }
+
+    #[test]
+    fn upgrade_uses_live_admitted_mux_data() {
+        let handle = ModuleDataHandle::new(ObjectCreationUpgradeModuleData::default());
+        let upgrade = ObjectCreationUpgrade::new(1, handle.clone(), 100);
+        let mask = crate::upgrade::test_upgrade_mask("Upgrade_Tank");
+        assert!(!upgrade.would_upgrade(mask));
+        {
+            let mut data = handle.write();
+            let any: &mut dyn std::any::Any = &mut *data;
+            let data = any.downcast_mut::<ObjectCreationUpgradeModuleData>().unwrap();
+            data.upgrade_mux_data.activation_upgrade_names.push(AsciiString::from("Upgrade_Tank"));
+            data.set_module_tag_name_key(42);
+        }
+        assert!(upgrade.would_upgrade(mask));
+        assert_eq!(upgrade.get_module_tag_name_key(), 42);
     }
 
     #[test]
@@ -388,7 +416,7 @@ mod tests {
             .push(AsciiString::from("Upgrade_Tank"));
         data.upgrade_mux_data = mask_data;
 
-        let data = Arc::new(data);
+        let data = ModuleDataHandle::new(data);
         let mut upgrade = ObjectCreationUpgrade::new(1, data, 100);
 
         let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Tank");

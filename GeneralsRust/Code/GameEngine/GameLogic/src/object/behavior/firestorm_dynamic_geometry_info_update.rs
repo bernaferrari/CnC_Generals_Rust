@@ -205,7 +205,7 @@ fn parse_particle_system(
 /// FirestormDynamicGeometryInfoUpdate - firestorm effects during geometry transition
 pub struct FirestormDynamicGeometryInfoUpdate {
     object_id: ObjectID,
-    module_data: Arc<FirestormDynamicGeometryInfoUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     pub logic: DynamicGeometryInfoUpdateLogic,
 
     particle_system_ids: [u32; MAX_FIRESTORM_SYSTEMS],
@@ -215,14 +215,16 @@ pub struct FirestormDynamicGeometryInfoUpdate {
 }
 
 impl FirestormDynamicGeometryInfoUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        let logic = {
+            let guard = module_data.read();
+            let data = guard.downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
+                .ok_or("Invalid module data")?;
+            DynamicGeometryInfoUpdateLogic::new(&data.base)
+        };
 
         Ok(Self {
             object_id: object
@@ -230,8 +232,8 @@ impl FirestormDynamicGeometryInfoUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            logic: DynamicGeometryInfoUpdateLogic::new(&data.base),
-            module_data: Arc::new(data.clone()),
+            logic,
+            module_data,
             particle_system_ids: [INVALID_PARTICLE_SYSTEM_ID; MAX_FIRESTORM_SYSTEMS],
             effects_fired: false,
             scorch_placed: false,
@@ -334,10 +336,16 @@ impl FirestormDynamicGeometryInfoUpdate {
         if radius <= 0.0 {
             return;
         }
+        let (damage_amount, max_height_for_damage) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
+                .expect("Invalid module data");
+            (data.damage_amount, data.max_height_for_damage)
+        };
 
         let damage_info = DamageInfo {
             input: DamageInfoInput {
-                amount: self.module_data.damage_amount,
+                amount: damage_amount,
                 damage_type: DamageType::Flame,
                 death_type: DeathType::Burned,
                 source_id: object.get_id(),
@@ -355,7 +363,7 @@ impl FirestormDynamicGeometryInfoUpdate {
                     continue;
                 };
 
-                if target.get_position().z > pos.z + self.module_data.max_height_for_damage {
+                if target.get_position().z > pos.z + max_height_for_damage {
                     continue;
                 }
 
@@ -395,8 +403,12 @@ impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
         // Fired effects for the first time + emission-volume follow.
         let pos = *obj.get_position();
         let major_radius = obj.get_geometry_info().get_major_radius();
+        let handle = self.module_data.clone();
+        let guard = handle.read();
+        let data = guard.downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
+            .expect("Invalid module data");
         Self::leftover_tick_particle_fx(
-            &self.module_data,
+            data,
             &pos,
             &mut self.particle_system_ids,
             &mut self.effects_fired,
@@ -406,7 +418,7 @@ impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
         // Place scorch mark when reversed
         if self.logic.switched_directions && !self.scorch_placed {
             if let Some(client) = TheGameClient::get() {
-                client.add_scorch(obj.get_position(), self.module_data.scorch_size, 0);
+                client.add_scorch(obj.get_position(), data.scorch_size, 0);
                 // 0 = default scorch type
             }
             self.scorch_placed = true;
@@ -414,9 +426,9 @@ impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
 
         // Periodic damage scan
         let current_frame = TheGameLogic::get_frame();
-        if self
-            .module_data
-            .damage_due_since(current_frame, self.last_damage_frame)
+        let damage_due = data.damage_due_since(current_frame, self.last_damage_frame);
+        drop(guard);
+        if damage_due
         {
             self.do_damage_scan(&obj);
             self.last_damage_frame = current_frame;
@@ -499,9 +511,9 @@ pub struct FirestormDynamicGeometryInfoUpdateFactory;
 impl FirestormDynamicGeometryInfoUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FirestormDynamicGeometryInfoUpdate::new(
+        Ok(Box::new(FirestormDynamicGeometryInfoUpdate::new_with_module_data(
             thing,
             module_data,
         )?))

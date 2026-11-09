@@ -104,13 +104,13 @@ pub(super) fn authored_template() -> ThingTemplate {
     template.add_draw_module_info(
         "W3DModelDraw".into(),
         "NativeDraw".into(),
-        Arc::new(data),
+        game_engine::common::thing::module::ModuleDataHandle::new(data),
         ModuleInterfaceType::DRAW,
     );
     template.add_client_update_module_info(
         "AnimatedParticleSysBoneClientUpdate".into(),
         "NativeCU".into(),
-        Arc::new(BaseModuleData::new()),
+        game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     template
@@ -609,7 +609,7 @@ fn receiving_native_real_factory_failure_stops_before_later_authored_rows() {
     template.add_draw_module_info(
         "W3DModelDraw".into(),
         "ErrorDraw".into(),
-        Arc::new(data),
+        game_engine::common::thing::module::ModuleDataHandle::new(data),
         ModuleInterfaceType::DRAW,
     );
     let mut client = GameClient::new().unwrap();
@@ -720,7 +720,7 @@ fn receiving_native_factory_prefix_failure_cannot_duplicate_on_next_draw() {
     template.add_draw_module_info(
         "W3DModelDraw".into(),
         "PrefixDraw".into(),
-        Arc::new(data),
+        game_engine::common::thing::module::ModuleDataHandle::new(data),
         ModuleInterfaceType::DRAW,
     );
     let mut client = GameClient::new().unwrap();

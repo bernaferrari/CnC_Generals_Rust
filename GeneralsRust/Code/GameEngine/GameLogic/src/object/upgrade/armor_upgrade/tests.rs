@@ -515,25 +515,25 @@ fn chemical_suits_real_w3d_callback_releases_guards_and_precedes_description() {
             glam::Quat::from_rotation_z(0.5),
             glam::Vec3::new(11.0, 22.0, 33.0),
         ));
-    let data = crate::object::draw::W3DModelDrawModuleData::new();
-    let mut model = crate::object::draw::W3DModelDraw::new(data.clone());
+    let data = ModuleDataHandle::new(crate::object::draw::W3DModelDrawModuleData::new());
+    let mut model = crate::object::draw::W3DModelDraw::new_with_module_data(data.clone());
     model.bind_owner_id(ID);
     crate::object::draw::draw_module::DrawModule::set_shadows_enabled(&mut model, true);
     let first = owner.drawable.write().unwrap().add_module(
         game_engine::common::thing::module::ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         "PrimaryChemSuitDraw".into(),
-        Arc::new(data),
+        data,
         Box::new(model),
     );
-    let data = crate::object::draw::W3DModelDrawModuleData::new();
-    let mut second = crate::object::draw::W3DModelDraw::new(data.clone());
+    let data = ModuleDataHandle::new(crate::object::draw::W3DModelDrawModuleData::new());
+    let mut second = crate::object::draw::W3DModelDraw::new_with_module_data(data.clone());
     second.bind_owner_id(ID);
     let second = owner.drawable.write().unwrap().add_module(
         game_engine::common::thing::module::ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         "SecondaryMustNotStack".into(),
-        Arc::new(data),
+        data,
         Box::new(second),
     );
     let (events_tx, events_rx) = std::sync::mpsc::channel();

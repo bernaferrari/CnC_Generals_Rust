@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod create_module_tests {
     use game_engine::common::thing::module::Thing as ThingTrait;
+    use game_engine::common::thing::module::ModuleDataHandle;
     use gamelogic::object::create::*;
     use std::sync::Arc;
 
@@ -34,20 +35,20 @@ mod create_module_tests {
 
     #[test]
     fn test_veterancy_gain_create_module_exists() {
-        let data = Arc::new(VeterancyGainCreateData::default());
+        let data = VeterancyGainCreateData::default();
         assert_eq!(
             data.starting_level,
             gamelogic::common::VeterancyLevel::Regular
         );
-        let module = VeterancyGainCreate::new(test_thing(), data);
+        let module = VeterancyGainCreate::new(test_thing(), ModuleDataHandle::new(data));
         module.on_create();
     }
 
     #[test]
     fn test_grant_upgrade_create_module_exists() {
-        let data = Arc::new(GrantUpgradeCreateData::default());
+        let data = GrantUpgradeCreateData::default();
         assert!(data.upgrade_name.is_empty());
-        let module = GrantUpgradeCreate::new(test_thing(), data);
+        let module = GrantUpgradeCreate::new(test_thing(), ModuleDataHandle::new(data));
         assert!(module.should_do_on_build_complete());
         module.on_create();
     }
@@ -68,12 +69,12 @@ mod create_module_tests {
 
     #[test]
     fn test_lock_weapon_create_module_exists() {
-        let data = Arc::new(LockWeaponCreateData::default());
+        let data = LockWeaponCreateData::default();
         assert_eq!(
             data.slot_to_lock,
             gamelogic::weapon::WeaponSlotType::Primary
         );
-        let module = LockWeaponCreate::new(test_thing(), data);
+        let module = LockWeaponCreate::new(test_thing(), ModuleDataHandle::new(data));
         assert!(module.should_do_on_build_complete());
         module.on_create();
     }
@@ -102,11 +103,11 @@ mod create_module_tests {
 
         let preorder = PreorderCreate::new(test_thing());
         let special = SpecialPowerCreate::new(test_thing());
-        let veterancy = VeterancyGainCreate::new(test_thing(), Arc::new(data_vet));
-        let grant = GrantUpgradeCreate::new(test_thing(), Arc::new(data_grant));
+        let veterancy = VeterancyGainCreate::new(test_thing(), ModuleDataHandle::new(data_vet));
+        let grant = GrantUpgradeCreate::new(test_thing(), ModuleDataHandle::new(data_grant));
         let warehouse = SupplyWarehouseCreate::new(test_thing());
         let center = SupplyCenterCreate::new(test_thing());
-        let lock = LockWeaponCreate::new(test_thing(), Arc::new(data_lock));
+        let lock = LockWeaponCreate::new(test_thing(), ModuleDataHandle::new(data_lock));
         let eva = EvaAnnounceClientCreate::new(test_thing(), Arc::new(data_eva));
 
         assert!(preorder.should_do_on_build_complete());

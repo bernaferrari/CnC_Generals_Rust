@@ -97,7 +97,7 @@ pub struct UpgradeDie {
 
 impl UpgradeDie {
     /// Create a new UpgradeDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<UpgradeDieModuleData>) -> Self {
+    pub fn new(object: Arc<RwLock<Object>>, module_data: super::ModuleDataHandle) -> Self {
         Self {
             base: DieModule::new(object, module_data),
         }
@@ -110,7 +110,8 @@ impl UpgradeDie {
 
     /// Remove the upgrade from the producer
     fn remove_upgrade(&self, object: &Object) {
-        let upgrade_name = &self.base.module_data.upgrade_name;
+        let module_data = self.base.module_data.read();
+        let upgrade_name = &module_data.upgrade_name;
 
         if upgrade_name.is_empty() {
             return;
@@ -155,7 +156,7 @@ impl DieModuleInterface for UpgradeDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }

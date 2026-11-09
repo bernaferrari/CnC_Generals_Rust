@@ -22,11 +22,11 @@ impl GameLogic {
             {
                 continue;
             }
-            let typed_name = entry
-                .data
+            let data = entry.data.read();
+            let typed_name = data
                 .downcast_ref::<gamelogic::object::behavior::GenerateMinefieldBehaviorModuleData>()
                 .and_then(|data| data.generation_fx.as_deref());
-            let authored_name = typed_name.or_else(|| entry.data.get_ini_field("GenerationFX"));
+            let authored_name = typed_name.or_else(|| data.get_ini_field("GenerationFX"));
             return authored_name
                 .map(str::trim)
                 .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("none"))
@@ -54,13 +54,13 @@ impl GameLogic {
             {
                 continue;
             }
-            let typed_name = entry
-                .data
+            let data = entry.data.read();
+            let typed_name = data
                 .downcast_ref::<gamelogic::object::behavior::GenerateMinefieldBehaviorModuleData>()
                 .map(|data| data.mine_name.as_str())
                 .filter(|name| !name.trim().is_empty());
             return typed_name
-                .or_else(|| entry.data.get_ini_field("MineName"))
+                .or_else(|| data.get_ini_field("MineName"))
                 .map(str::trim)
                 .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("none"))
                 .map(ToOwned::to_owned);

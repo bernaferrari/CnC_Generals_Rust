@@ -114,7 +114,7 @@ fn color_from_packed_i32(value: i32) -> Color {
 const MIN_FINAL_FRAMES: u32 = 3;
 
 pub struct W3DDebrisDraw {
-    _data: W3DDebrisDrawModuleData,
+    _data: game_engine::common::thing::module::ModuleDataHandle,
     model_name: AsciiString,
     model_color: Color,
     model_created: bool,
@@ -133,6 +133,10 @@ pub struct W3DDebrisDraw {
 
 impl W3DDebrisDraw {
     pub fn new(data: W3DDebrisDrawModuleData) -> Self {
+        Self::new_with_module_data(game_engine::common::thing::module::ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             _data: data,
             model_name: AsciiString::new(),
@@ -318,10 +322,10 @@ impl Module for W3DDebrisDraw {
         keys.name_to_key("W3DDebrisDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self._data.module_tag_name_key
+        self._data.read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self._data
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self._data)
     }
 }
 

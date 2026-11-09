@@ -17,7 +17,7 @@ fn boarded_with_modules(target_ai: bool, physics: bool) -> NativeMatch {
         modules.push(TemplateModuleInfo {
             name: "AIUpdateInterface".into(),
             module_tag: "NativeExitTransportAI".into(),
-            data: Arc::new(crate::object::update::AIUpdateModuleData::default()),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(crate::object::update::AIUpdateModuleData::default()),
             interface_mask: ModuleInterfaceType::UPDATE,
         });
         Arc::new(EntryTemplate { base, modules }) as Arc<dyn ThingTemplate>
@@ -30,7 +30,7 @@ fn boarded_with_modules(target_ai: bool, physics: bool) -> NativeMatch {
         modules.push(TemplateModuleInfo {
             name: "PhysicsBehavior".into(),
             module_tag: "OwnedCargoPhysics".into(),
-            data: Arc::new(
+            data: game_engine::common::thing::module::ModuleDataHandle::new(
                 crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default(),
             ),
             interface_mask: ModuleInterfaceType::UPDATE,
@@ -312,7 +312,7 @@ fn numbered_exit_control(instant: bool, hurry: bool, vehicle: bool) {
     let mut target_modules = vec![TemplateModuleInfo {
         name: "TransportContain".into(),
         module_tag: "NumberedCargo".into(),
-        data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
         interface_mask: ModuleInterfaceType::CONTAIN,
     }];
     if vehicle {
@@ -330,13 +330,13 @@ fn numbered_exit_control(instant: bool, hurry: bool, vehicle: bool) {
     modules.push(TemplateModuleInfo {
         name: "ActiveBody".into(),
         module_tag: "ExitBody".into(),
-        data: Arc::new(body),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(body),
         interface_mask: ModuleInterfaceType::BODY,
     });
     modules.push(TemplateModuleInfo {
         name: "PhysicsBehavior".into(),
         module_tag: "ExitPhysics".into(),
-        data: Arc::new(
+        data: game_engine::common::thing::module::ModuleDataHandle::new(
             crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default(),
         ),
         interface_mask: ModuleInterfaceType::UPDATE,
@@ -367,6 +367,7 @@ fn numbered_exit_control(instant: bool, hurry: bool, vehicle: bool) {
         );
     }
     draw_data.condition_states.push(state);
+    let draw_data = game_engine::common::thing::module::ModuleDataHandle::new(draw_data);
     let mut drawable = Drawable::new(
         owner_id,
         owner_id,
@@ -377,8 +378,8 @@ fn numbered_exit_control(instant: bool, hurry: bool, vehicle: bool) {
         ModuleInterfaceType::DRAW,
         "W3DModelDraw".into(),
         "ExitBones".into(),
-        Arc::new(draw_data.clone()),
-        Box::new(W3DModelDraw::new(draw_data)),
+        draw_data.clone(),
+        Box::new(W3DModelDraw::new_with_module_data(draw_data)),
     );
     game.target
         .write()
@@ -579,7 +580,7 @@ fn nested_transport_boards_redeploys_and_removes_with_actual_owned_children() {
     modules.push(TemplateModuleInfo {
         name: "TransportContain".into(),
         module_tag: "NestedActualCargo".into(),
-        data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
         interface_mask: ModuleInterfaceType::CONTAIN,
     });
     let mut base = DefaultThingTemplate::new("NestedInfantryTransport".into());

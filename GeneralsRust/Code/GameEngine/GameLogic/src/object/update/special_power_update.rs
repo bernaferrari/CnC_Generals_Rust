@@ -4,7 +4,7 @@
 // Desc: Special power update module interface
 
 use crate::common::science::{SCIENCE_INVALID, ScienceType};
-use crate::common::types::ModuleData;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataRead};
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
 use crate::common::{NameKeyGenerator, UnsignedInt};
 use crate::object::Object as GameObject;
@@ -50,7 +50,7 @@ bitflags! {
 #[derive(Debug, Clone)]
 pub struct SpecialPowerUpdateModule {
     owner_object_id: u32,
-    module_data: SpecialPowerUpdateModuleData,
+    module_data: ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
 }
 
@@ -62,7 +62,7 @@ impl SpecialPowerUpdateModule {
     ) -> Self {
         Self {
             owner_object_id,
-            module_data: SpecialPowerUpdateModuleData::default(),
+            module_data: ModuleDataHandle::new(SpecialPowerUpdateModuleData::default()),
             next_call_frame_and_phase: 0,
         }
     }
@@ -106,15 +106,20 @@ impl SpecialPowerUpdateModule {
 
     /// C++ default: SCIENCE_INVALID (override in derived modules).
     pub fn get_extra_required_science(&self) -> ScienceType {
-        self.module_data.extra_required_science
+        let data = self.module_data.read();
+        data.as_any().downcast_ref::<SpecialPowerUpdateModuleData>().expect("invalid SpecialPowerUpdate data").extra_required_science
     }
 
     pub fn set_extra_required_science(&mut self, science: ScienceType) {
-        self.module_data.extra_required_science = science;
+        let mut data = self.module_data.write();
+        let any: &mut dyn std::any::Any = &mut *data;
+        any.downcast_mut::<SpecialPowerUpdateModuleData>().expect("invalid SpecialPowerUpdate data").extra_required_science = science;
     }
 
     pub fn set_module_data(&mut self, data: SpecialPowerUpdateModuleData) {
-        self.module_data = data;
+        let mut guard = self.module_data.write();
+        let any: &mut dyn std::any::Any = &mut *guard;
+        *any.downcast_mut::<SpecialPowerUpdateModuleData>().expect("invalid SpecialPowerUpdate data") = data;
     }
 
     /// Match C++ SpecialPowerUpdateModule::crc (no additional state).
@@ -229,24 +234,19 @@ impl SpecialPowerUpdateModuleFactory {
     pub fn create_module(
         &self,
         object: std::sync::Weak<std::sync::RwLock<GameObject>>,
-        module_data: std::sync::Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Box<dyn crate::modules::BehaviorModuleInterface> {
         let object_id = object
             .upgrade()
             .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
             .unwrap_or(crate::common::types::INVALID_ID);
 
-        let mut module = SpecialPowerUpdateModule::new(object_id, object.clone());
-
-        // Init from data
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<SpecialPowerUpdateModuleData>()
-        {
-            module.set_module_data(data.clone());
-        }
-
-        Box::new(module)
+        assert!(module_data.is::<SpecialPowerUpdateModuleData>(), "invalid SpecialPowerUpdate data");
+        Box::new(SpecialPowerUpdateModule {
+            owner_object_id: object_id,
+            module_data,
+            next_call_frame_and_phase: 0,
+        })
     }
 }
 
@@ -309,11 +309,11 @@ impl game_engine::common::thing::module::Module for SpecialPowerUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> game_engine::common::thing::module::NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(&self.module_data)
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn game_engine::common::thing::module::ModuleData {
-        &self.module_data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

@@ -1,14 +1,15 @@
 use super::*;
 use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
+use game_engine::common::thing::module::ModuleData;
 use std::io::Cursor;
 
-type NativeCase = (&'static str, Arc<dyn ModuleData>, fn(&dyn Module) -> bool);
+type NativeCase = (&'static str, ModuleDataHandle, fn(&dyn Module) -> bool);
 
 fn draw_cases() -> Vec<NativeCase> {
     macro_rules! cases {
         ($(($module:ident, $data:ident)),+ $(,)?) => {
-            vec![$((stringify!($module), Arc::new($data::new()) as Arc<dyn ModuleData>,
+            vec![$((stringify!($module), ModuleDataHandle::new($data::new()),
                 (|module: &dyn Module| module.as_any().is::<$module>()) as fn(&dyn Module) -> bool)),+]
         };
     }
@@ -39,22 +40,22 @@ fn client_cases() -> Vec<NativeCase> {
     vec![
         (
             "LaserUpdate",
-            Arc::new(LaserUpdateModuleData::default()),
+            ModuleDataHandle::new(LaserUpdateModuleData::default()),
             |module| module.as_any().is::<LaserUpdateModule>(),
         ),
         (
             "BeaconClientUpdate",
-            Arc::new(BeaconClientUpdateModuleData::default()),
+            ModuleDataHandle::new(BeaconClientUpdateModuleData::default()),
             |module| module.as_any().is::<BeaconClientUpdateModule>(),
         ),
         (
             "SwayClientUpdate",
-            Arc::new(BaseModuleData::new()),
+            ModuleDataHandle::new(BaseModuleData::new()),
             |module| module.as_any().is::<SwayClientUpdateModule>(),
         ),
         (
             "AnimatedParticleSysBoneClientUpdate",
-            Arc::new(BaseModuleData::new()),
+            ModuleDataHandle::new(BaseModuleData::new()),
             |module| {
                 module
                     .as_any()
@@ -151,23 +152,22 @@ fn real_factory_constructs_all_nineteen_draw_and_four_client_update_classes_in_o
                 "{name} must query the supplied owner namespace"
             );
         }
-        if index >= 20 {
-            let admitted = template
-                .get_client_update_module_info()
-                .get_nth_data(index - 19)
-                .unwrap();
-            let original = Arc::as_ptr(admitted) as *const ();
-            assert_eq!(
-                a_logic.get_module_data() as *const dyn ModuleData as *const (),
-                original,
-                "{name} must share admitted immutable data"
-            );
-            assert_eq!(
-                b_logic.get_module_data() as *const dyn ModuleData as *const (),
-                original,
-                "peer {name} must share the same admitted immutable data"
-            );
-        }
+        let admitted = if index < 19 {
+            template.get_draw_module_info().get_nth_data(index).unwrap()
+        } else {
+            template.get_client_update_module_info().get_nth_data(index - 19).unwrap()
+        };
+        let original = admitted.read();
+        let a_data = a_logic.get_module_data();
+        let b_data = b_logic.get_module_data();
+        assert!(std::ptr::eq(&*a_data, &*original), "{name} must share admitted data");
+        assert!(std::ptr::eq(&*b_data, &*original), "peer {name} must share admitted data");
+        drop((a_data, b_data, original));
+        let original_tag = admitted.read().get_module_tag_name_key();
+        admitted.write().set_module_tag_name_key(original_tag.wrapping_add(1));
+        assert_eq!(a_logic.get_module_data().get_module_tag_name_key(), original_tag.wrapping_add(1), "{name}");
+        assert_eq!(b_logic.get_module_data().get_module_tag_name_key(), original_tag.wrapping_add(1), "peer {name}");
+        admitted.write().set_module_tag_name_key(original_tag);
         assert_ne!(
             a_logic as *const dyn Module as *const (), b_logic as *const dyn Module as *const (),
             "{name} must have separate receiving allocations"
@@ -271,7 +271,7 @@ fn baseline_template() -> ThingTemplate {
     template.add_draw_module_info(
         "W3DModelDraw".into(),
         "Baseline".into(),
-        Arc::new(W3DModelDrawModuleData::new()),
+        ModuleDataHandle::new(W3DModelDrawModuleData::new()),
         ModuleInterfaceType::DRAW,
     );
     template
@@ -305,14 +305,14 @@ fn every_mistyped_class_is_rejected_without_receiver_identity_or_binding_changes
             malformed.add_draw_module_info(
                 name.into(),
                 "Invalid".into(),
-                Arc::new(BaseModuleData::new()),
+                ModuleDataHandle::new(BaseModuleData::new()),
                 ModuleInterfaceType::DRAW,
             );
         } else {
             malformed.add_client_update_module_info(
                 name.into(),
                 "Invalid".into(),
-                Arc::new(W3DDefaultDrawModuleData::new()),
+                ModuleDataHandle::new(W3DDefaultDrawModuleData::new()),
                 ModuleInterfaceType::CLIENT_UPDATE,
             );
         }
@@ -362,7 +362,7 @@ fn unknown_missing_duplicate_and_wrong_bucket_declarations_fail_before_construct
         template.add_draw_module_info(
             name.into(),
             tag.into(),
-            Arc::new(W3DDefaultDrawModuleData::new()),
+            ModuleDataHandle::new(W3DDefaultDrawModuleData::new()),
             mask,
         );
         assert!(
@@ -376,13 +376,13 @@ fn unknown_missing_duplicate_and_wrong_bucket_declarations_fail_before_construct
     template.add_client_update_module_info(
         "BeaconClientUpdate".into(),
         "Beacon".into(),
-        Arc::new(BeaconClientUpdateModuleData::default()),
+        ModuleDataHandle::new(BeaconClientUpdateModuleData::default()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     template.add_client_update_module_info(
         "NoSuchClientUpdate".into(),
         "UnknownClient".into(),
-        Arc::new(BaseModuleData::new()),
+        ModuleDataHandle::new(BaseModuleData::new()),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
     let before = NameKeyGenerator::name_to_key("NativeFactoryPreflightBefore");
@@ -396,7 +396,7 @@ fn unknown_missing_duplicate_and_wrong_bucket_declarations_fail_before_construct
     assert_eq!(receiver.drawables.next_drawable_id, next);
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct BeaconDataView(BeaconClientUpdateModuleData);
 
 impl ModuleData for BeaconDataView {
@@ -438,19 +438,18 @@ fn wrapped_beacon_view_is_rejected_during_preflight_before_any_receiving_mutatio
     peer.bind_drawable_to_object(peer_resident, 42).unwrap();
     let next = receiver.drawables.next_drawable_id;
     let peer_next = peer.drawables.next_drawable_id;
-    let wrapped: Arc<dyn ModuleData> = Arc::new(BeaconDataView::default());
+    let wrapped = ModuleDataHandle::new(BeaconDataView::default());
     assert!(
-        wrapped.as_any().is::<BeaconClientUpdateModuleData>(),
+        wrapped.read().as_any().is::<BeaconClientUpdateModuleData>(),
         "fixture deliberately exposes a valid inner view"
     );
     let mut malformed = baseline_template();
     malformed.add_client_update_module_info(
         "BeaconClientUpdate".into(),
         "WrappedBeacon".into(),
-        Arc::clone(&wrapped),
+        wrapped.clone(),
         ModuleInterfaceType::CLIENT_UPDATE,
     );
-    let count = Arc::strong_count(&wrapped);
     let before = NameKeyGenerator::name_to_key("WrappedBeaconPreflightBefore");
     let error = receiver
         .create_drawable_from_template(&malformed)
@@ -466,11 +465,6 @@ fn wrapped_beacon_view_is_rejected_during_preflight_before_any_receiving_mutatio
         after,
         before + 1,
         "class-key allocation occurred before rejecting data ownership"
-    );
-    assert_eq!(
-        Arc::strong_count(&wrapped),
-        count,
-        "failed preflight retained the data Arc"
     );
     assert_eq!(receiver.drawables.next_drawable_id, next);
     assert_eq!(peer.drawables.next_drawable_id, peer_next);

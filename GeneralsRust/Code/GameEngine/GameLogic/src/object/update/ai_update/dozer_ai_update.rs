@@ -26,7 +26,7 @@ use crate::player::player_list;
 use crate::state_machine::StateReturnType;
 use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 /// Wave 351: host-only path has no dual-world factory objects.
 #[inline]
@@ -447,27 +447,9 @@ struct DozerActionTask {
     started_construction: bool,
 }
 
-/// Runtime data for dozer AI.
-#[derive(Debug, Clone)]
-pub struct DozerAIUpdateData {
-    pub repair_health_percent_per_second: Real,
-    pub bored_time: Real,
-    pub bored_range: Real,
-}
-
-impl Default for DozerAIUpdateData {
-    fn default() -> Self {
-        Self {
-            repair_health_percent_per_second: 0.0,
-            bored_time: 0.0,
-            bored_range: 0.0,
-        }
-    }
-}
-
 /// Dozer AI Update module (matches C++ DozerAIUpdate).
 pub struct DozerAIUpdate {
-    data: DozerAIUpdateData,
+    data: ModuleDataHandle,
     object_id: ObjectID,
     dozer_task: Option<DozerActionTask>,
     action_state: DozerActionState,
@@ -491,7 +473,7 @@ impl std::fmt::Debug for DozerAIUpdate {
 }
 
 impl DozerAIUpdate {
-    pub fn new(data: DozerAIUpdateData, object_id: ObjectID) -> Self {
+    pub fn new(data: ModuleDataHandle, object_id: ObjectID) -> Self {
         Self {
             data,
             object_id,
@@ -504,20 +486,20 @@ impl DozerAIUpdate {
     }
 
     pub fn get_repair_health_per_second(&self) -> Real {
-        self.data.repair_health_percent_per_second
+        self.data.read().downcast_ref::<DozerAIUpdateModuleData>().expect("DozerAIUpdate data type").repair_health_percent_per_second
     }
 
     pub fn get_bored_time(&self) -> Real {
-        self.data.bored_time
+        self.data.read().downcast_ref::<DozerAIUpdateModuleData>().expect("DozerAIUpdate data type").bored_time
     }
 
     pub fn get_bored_range(&self) -> Real {
         // Wave 351: empty dual-world → base bored range.
         if dual_world_registry_unavailable() {
-            return self.data.bored_range;
+            return self.data.read().downcast_ref::<DozerAIUpdateModuleData>().expect("DozerAIUpdate data type").bored_range;
         }
 
-        let mut range = self.data.bored_range;
+        let mut range = self.data.read().downcast_ref::<DozerAIUpdateModuleData>().expect("DozerAIUpdate data type").bored_range;
         let player_id = TheGameLogic::find_object_by_id(self.object_id).and_then(|obj| {
             let guard = obj.read().ok()?;
             guard.get_controlling_player_id()
@@ -1679,15 +1661,15 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
 #[derive(Debug)]
 pub struct DozerAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<DozerAIUpdateModuleData>,
+    data: ModuleDataHandle,
     inherited: crate::object::update::AIUpdateInterfaceModule,
 }
 
 impl DozerAIUpdateModule {
-    pub fn new(module_name_key: NameKeyType, data: Arc<DozerAIUpdateModuleData>) -> Self {
+    pub fn new(module_name_key: NameKeyType, data: ModuleDataHandle) -> Self {
         let inherited = crate::object::update::AIUpdateInterfaceModule::new(
             module_name_key,
-            Arc::new(data.base.clone()),
+            data.clone(),
         );
         Self {
             module_name_key,
@@ -1764,11 +1746,11 @@ impl Module for DozerAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 

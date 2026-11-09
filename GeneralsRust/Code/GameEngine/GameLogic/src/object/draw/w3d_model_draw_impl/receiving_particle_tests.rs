@@ -49,6 +49,46 @@ fn model() -> W3DModelDraw {
     draw
 }
 #[test]
+fn bone_receiver_callbacks_can_write_shared_model_data() {
+    struct Reentrant {
+        data: game_engine::common::thing::module::ModuleDataHandle,
+        calls: usize,
+    }
+    impl Reentrant {
+        fn write_data(&mut self) {
+            let data = self.data.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _guard = data.write();
+                let _ = tx.send(());
+            });
+            rx.recv_timeout(std::time::Duration::from_secs(2))
+                .expect("particle callback must not hold the model-data read lock");
+            self.calls += 1;
+        }
+    }
+    impl ClientParticleBoneRuntime for Reentrant {
+        fn particle_system_exists(&mut self, _id: u32) -> bool {
+            self.write_data();
+            true
+        }
+        fn bone_transform(&mut self, model: &str, _index: i32, _name: &str) -> Option<Matrix3D> {
+            self.write_data();
+            assert_eq!(model, "ReceivingModel");
+            Some(Matrix3D::IDENTITY)
+        }
+        fn set_particle_bone_transform(&mut self, _id: u32, _pos: &Coord3D, _angle: f32, _transform: &Matrix3D) {
+            self.write_data();
+        }
+    }
+    let mut draw = model();
+    let mut receiver = Reentrant { data: draw.data.clone(), calls: 0 };
+    assert!(draw.update_particle_bones_with_receiver(&mut receiver));
+    assert!(receiver.calls >= 3);
+    draw.particle_systems.clear();
+}
+
+#[test]
 fn receiving_particle_trackers_preserve_lookup_query_write_order_and_peer_identity() {
     let mut draw = model();
     let matrix =

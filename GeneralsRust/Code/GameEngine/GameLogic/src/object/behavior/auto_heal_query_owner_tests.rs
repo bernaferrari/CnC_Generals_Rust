@@ -101,9 +101,11 @@ impl Installed {
                 .as_any_mut()
                 .downcast_mut::<AutoHealBehaviorModule>()
                 .expect("registered concrete AutoHeal factory");
-            assert_eq!(module.behavior().module_data.healing_amount, 7);
-            assert_eq!(module.behavior().module_data.healing_delay, 30);
-            assert_eq!(module.behavior().module_data.initially_active, false);
+            let guard = module.behavior().module_data.read();
+            let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().unwrap();
+            assert_eq!(data.healing_amount, 7);
+            assert_eq!(data.healing_delay, 30);
+            assert_eq!(data.initially_active, false);
             assert_eq!(
                 module.behavior().upgrade_mask_cache_for_test(),
                 ("unresolved", None)

@@ -83,7 +83,7 @@ fn infantry_template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "AIUpdateInterface".into(),
             module_tag: "NativeEnterAI".into(),
-            data: Arc::new(data),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(data),
             interface_mask: ModuleInterfaceType::UPDATE,
         }],
     })
@@ -110,7 +110,7 @@ fn container_template_with_admission(
     let mut modules = vec![TemplateModuleInfo {
         name: "OpenContain".into(),
         module_tag: "NativeEnterCargo".into(),
-        data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
         interface_mask: ModuleInterfaceType::CONTAIN,
     }];
     if with_body {
@@ -120,7 +120,7 @@ fn container_template_with_admission(
         modules.push(TemplateModuleInfo {
             name: "ActiveBody".into(),
             module_tag: "NativeEnterTargetBody".into(),
-            data: Arc::new(body),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(body),
             interface_mask: ModuleInterfaceType::BODY,
         });
     }
@@ -144,7 +144,7 @@ fn transport_template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "TransportContain".into(),
             module_tag: "NativeEnterTransportCargo".into(),
-            data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
             interface_mask: ModuleInterfaceType::CONTAIN,
         }],
     })
@@ -169,13 +169,13 @@ fn garrison_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: "NativeEnterGarrisonBody".into(),
-                data: Arc::new(body),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(body),
                 interface_mask: ModuleInterfaceType::BODY,
             },
             TemplateModuleInfo {
                 name: "GarrisonContain".into(),
                 module_tag: "NativeEnterGarrisonContain".into(),
-                data: Arc::new(
+                data: game_engine::common::thing::module::ModuleDataHandle::new(
                     crate::contain_module_overrides::ContainModuleDataAdapter::new(garrison),
                 ),
                 interface_mask: ModuleInterfaceType::CONTAIN,
@@ -610,7 +610,9 @@ fn cave_admission_reads_the_driving_factory_world_not_the_retained_or_active_wor
     for (game, wrong_system) in [(&mut first, &peer_system), (&mut peer, &first_system)] {
         let cave = CaveContain::new(
             Arc::downgrade(&game.target),
-            &CaveContainModuleData::default(),
+            game_engine::common::thing::module::ModuleDataHandle::new(
+                crate::contain_module_overrides::ContainModuleDataAdapter::new(CaveContainModuleData::default()),
+            ),
             Some(Arc::clone(wrong_system)),
         ).unwrap();
         game.target.write().unwrap().set_contain(Some(Arc::new(Mutex::new(cave))));

@@ -29,7 +29,7 @@ use crate::object::Object;
 #[cfg(feature = "allow_surrender")]
 use game_engine::common::system::XferVersion;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData};
+use game_engine::common::thing::module::{Module, ModuleDataHandle, ModuleDataRead};
 use std::sync::{Arc, RwLock};
 
 /// Prison dock configuration data (no extra fields beyond DockUpdate)
@@ -282,16 +282,18 @@ impl PrisonDockUpdate {
 pub struct PrisonDockUpdateModule {
     behavior: PrisonDockUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<PrisonDockUpdateData>,
+    module_data: ModuleDataHandle,
 }
 
 impl PrisonDockUpdateModule {
     pub fn new(
-        behavior: PrisonDockUpdate,
+        mut behavior: PrisonDockUpdate,
         module_name: &AsciiString,
-        module_data: Arc<PrisonDockUpdateData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        #[cfg(feature = "allow_surrender")]
+        { behavior.base.data = module_data.clone(); }
         Self {
             behavior,
             module_name_key,
@@ -316,7 +318,7 @@ impl Snapshotable for PrisonDockUpdateModule {
         }
         #[cfg(not(feature = "allow_surrender"))]
         {
-            self.module_data.crc(xfer)
+            self.module_data.read().crc(xfer)
         }
     }
 
@@ -330,7 +332,7 @@ impl Snapshotable for PrisonDockUpdateModule {
         }
         #[cfg(not(feature = "allow_surrender"))]
         {
-            Arc::make_mut(&mut self.module_data).xfer(xfer)
+            self.module_data.write().xfer(xfer)
         }
     }
 
@@ -341,7 +343,7 @@ impl Snapshotable for PrisonDockUpdateModule {
         }
         #[cfg(not(feature = "allow_surrender"))]
         {
-            Arc::make_mut(&mut self.module_data).load_post_process()
+            self.module_data.write().load_post_process()
         }
     }
 }
@@ -360,13 +362,11 @@ impl Module for PrisonDockUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 }
 

@@ -55,7 +55,7 @@ impl AutoFindHealingUpdateModuleData {
 
 pub struct AutoFindHealingUpdate {
     object_id: ObjectID,
-    module_data: Arc<AutoFindHealingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     next_scan_frames: i32,
 }
@@ -63,7 +63,7 @@ pub struct AutoFindHealingUpdate {
 impl AutoFindHealingUpdate {
     pub fn new_typed(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<AutoFindHealingUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             object_id: object
@@ -77,16 +77,14 @@ impl AutoFindHealingUpdate {
         }
     }
 
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<AutoFindHealingUpdateModuleData>()
-            .ok_or("Invalid AutoFindHealingUpdate module data")?;
-
-        Ok(Self::new_typed(object, Arc::new(specific_data.clone())))
+        if !module_data.is::<AutoFindHealingUpdateModuleData>() {
+            return Err("Invalid AutoFindHealingUpdate module data".into());
+        }
+        Ok(Self::new_typed(object, module_data))
     }
 }
 
@@ -117,7 +115,10 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
             self.next_scan_frames -= 1;
             return UpdateSleepTime::None;
         }
-        self.next_scan_frames = self.module_data.scan_frames as i32;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoFindHealingUpdateModuleData>()
+            .expect("Invalid AutoFindHealingUpdate module data");
+        self.next_scan_frames = data.scan_frames as i32;
 
         let Some(ai) = obj.get_ai_update_interface() else {
             return UpdateSleepTime::None;
@@ -137,9 +138,10 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
             return UpdateSleepTime::None;
         };
 
-        if body_guard.get_health() > body_guard.get_max_health() * self.module_data.never_heal {
+        if body_guard.get_health() > body_guard.get_max_health() * data.never_heal {
             return UpdateSleepTime::None;
         }
+        drop(guard);
 
         let target = self.scan_closest_target(&*obj);
         drop(obj);
@@ -159,12 +161,15 @@ impl AutoFindHealingUpdate {
         if dual_world_registry_unavailable() {
             return None;
         }
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoFindHealingUpdateModuleData>()
+            .expect("Invalid AutoFindHealingUpdate module data");
 
         let Some(partition) = ThePartitionManager::get() else {
             return None;
         };
         let candidates =
-            partition.get_objects_in_range(me.get_position(), self.module_data.scan_range);
+            partition.get_objects_in_range(me.get_position(), data.scan_range);
         let mut best_target = None;
         let mut closest_dist = 0.0;
 
@@ -207,9 +212,9 @@ pub struct AutoFindHealingUpdateFactory;
 impl AutoFindHealingUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(AutoFindHealingUpdate::new(thing, module_data)?))
+        Ok(Box::new(AutoFindHealingUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -245,15 +250,16 @@ impl Snapshotable for AutoFindHealingUpdate {
 pub struct AutoFindHealingUpdateModule {
     behavior: AutoFindHealingUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<AutoFindHealingUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl AutoFindHealingUpdateModule {
     pub fn new(
         behavior: AutoFindHealingUpdate,
         module_name: &AsciiString,
-        module_data: Arc<AutoFindHealingUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        assert!(game_engine::common::thing::module::ModuleDataHandle::ptr_eq(&behavior.module_data, &module_data));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -295,11 +301,11 @@ impl Module for AutoFindHealingUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

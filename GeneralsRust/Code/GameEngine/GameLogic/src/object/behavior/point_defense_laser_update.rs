@@ -59,7 +59,7 @@ impl PointDefenseLaserUpdateModuleData {
 
 pub struct PointDefenseLaserUpdate {
     object_id: ObjectID,
-    module_data: Arc<PointDefenseLaserUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<PointDefenseLaserUpdateModuleData>,
     enabled: Bool,
     next_call_frame_and_phase: UnsignedInt,
     best_target_id: crate::common::ObjectID,
@@ -162,12 +162,10 @@ const POINT_DEFENSE_LASER_UPDATE_FIELDS: &[FieldParse<PointDefenseLaserUpdateMod
 impl PointDefenseLaserUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<PointDefenseLaserUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<PointDefenseLaserUpdateModuleData>() { return Err("Invalid module data".into()); }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(module_data, |data| data.as_any().downcast_ref::<PointDefenseLaserUpdateModuleData>().expect("PointDefenseLaserUpdate module data type"));
 
         Ok(Self {
             object_id: object
@@ -175,7 +173,7 @@ impl PointDefenseLaserUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             enabled: true,
             next_call_frame_and_phase: 0,
             best_target_id: crate::common::INVALID_ID,
@@ -202,7 +200,7 @@ impl PointDefenseLaserUpdate {
 
         let object_ids = ThePartitionManager::get()
             .map(|mgr| {
-                mgr.get_objects_in_range(owner_guard.get_position(), self.module_data.scan_range)
+                mgr.get_objects_in_range(owner_guard.get_position(), self.module_data.read().scan_range)
             })
             .unwrap_or_default();
 
@@ -213,7 +211,7 @@ impl PointDefenseLaserUpdate {
 
         let template = crate::weapon::with_weapon_store(|store| {
             store
-                .find_weapon_template(self.module_data.weapon_template.as_str())
+                .find_weapon_template(self.module_data.read().weapon_template.as_str())
                 .cloned()
         })
         .ok()
@@ -240,12 +238,12 @@ impl PointDefenseLaserUpdate {
 
             let index = if Self::matches_kind_of_mask(
                 &obj_guard,
-                self.module_data.primary_target_kind_of,
+                self.module_data.read().primary_target_kind_of,
             ) {
                 0
             } else if Self::matches_kind_of_mask(
                 &obj_guard,
-                self.module_data.secondary_target_kind_of,
+                self.module_data.read().secondary_target_kind_of,
             ) {
                 1
             } else {
@@ -310,7 +308,7 @@ impl PointDefenseLaserUpdate {
 
         let template = crate::weapon::with_weapon_store(|store| {
             store
-                .find_weapon_template(self.module_data.weapon_template.as_str())
+                .find_weapon_template(self.module_data.read().weapon_template.as_str())
                 .cloned()
         })
         .ok()
@@ -340,7 +338,7 @@ impl PointDefenseLaserUpdate {
                 if let Some(target_id) = self.scan_closest_target(owner_guard) {
                     self.best_target_id = target_id;
                 }
-                self.next_scan_frames = self.module_data.scan_rate as i32;
+                self.next_scan_frames = self.module_data.read().scan_rate as i32;
             }
             self.tick_shot_delay();
             return;
@@ -374,7 +372,7 @@ impl PointDefenseLaserUpdate {
                 if let Some(target_id) = self.scan_closest_target(owner_guard) {
                     self.best_target_id = target_id;
                 }
-                self.next_scan_frames = self.module_data.scan_rate as i32;
+                self.next_scan_frames = self.module_data.read().scan_rate as i32;
             }
         }
     }
@@ -413,7 +411,7 @@ impl UpdateModuleInterface for PointDefenseLaserUpdate {
             return UpdateSleepTime::Frames(1);
         }
 
-        self.next_scan_frames = self.module_data.scan_rate as i32;
+        self.next_scan_frames = self.module_data.read().scan_rate as i32;
         if let Some(target_id) = self.scan_closest_target(&owner_guard) {
             self.best_target_id = target_id;
             self.fire_when_ready(&owner_guard);
@@ -436,14 +434,14 @@ impl BehaviorModuleInterface for PointDefenseLaserUpdate {
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let Some(template) = crate::weapon::with_weapon_store(|store| {
             store
-                .find_weapon_template(self.module_data.weapon_template.as_str())
+                .find_weapon_template(self.module_data.read().weapon_template.as_str())
                 .cloned()
         })
         .ok()
         .flatten() else {
             log::warn!(
                 "PointDefenseLaserUpdate missing weapon template '{}'",
-                self.module_data.weapon_template
+                self.module_data.read().weapon_template
             );
             return Ok(());
         };
@@ -451,10 +449,10 @@ impl BehaviorModuleInterface for PointDefenseLaserUpdate {
         let mut bonus = WeaponBonus::new();
         bonus.clear();
         let attack_range = template.get_attack_range(&bonus);
-        if self.module_data.scan_range <= attack_range {
+        if self.module_data.read().scan_range <= attack_range {
             log::warn!(
                 "PointDefenseLaserUpdate scan range {} should exceed attack range {}",
-                self.module_data.scan_range,
+                self.module_data.read().scan_range,
                 attack_range
             );
         }
@@ -494,14 +492,14 @@ impl Snapshotable for PointDefenseLaserUpdate {
 pub struct PointDefenseLaserUpdateModule {
     behavior: PointDefenseLaserUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<PointDefenseLaserUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl PointDefenseLaserUpdateModule {
     pub fn new(
         behavior: PointDefenseLaserUpdate,
         module_name: &AsciiString,
-        module_data: Arc<PointDefenseLaserUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -544,11 +542,11 @@ impl Module for PointDefenseLaserUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -566,7 +564,7 @@ pub struct PointDefenseLaserUpdateFactory;
 impl PointDefenseLaserUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(PointDefenseLaserUpdate::new(thing, module_data)?))
     }
@@ -588,26 +586,22 @@ pub fn point_defense_laser_update_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub fn point_defense_laser_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<PointDefenseLaserUpdateModuleData>()
-        .expect("PointDefenseLaserUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<PointDefenseLaserUpdateModuleData>(), "PointDefenseLaserUpdateModuleData expected");
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(crate::common::INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("PointDefenseLaserUpdate requires object");
-    let behavior = PointDefenseLaserUpdate::new(object, module_data_arc.clone())
+    let behavior = PointDefenseLaserUpdate::new(object, module_data.clone())
         .expect("PointDefenseLaserUpdate failed to initialize");
     let module_name = AsciiString::from("PointDefenseLaserUpdate");
     Box::new(PointDefenseLaserUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }
 

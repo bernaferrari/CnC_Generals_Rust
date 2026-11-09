@@ -101,32 +101,22 @@ const PILOT_FIND_VEHICLE_UPDATE_FIELDS: &[FieldParse<PilotFindVehicleUpdateModul
 
 pub struct PilotFindVehicleUpdate {
     object_id: ObjectID,
-    module_data: Arc<PilotFindVehicleUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<PilotFindVehicleUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     did_move_to_base: bool,
 }
 
 impl PilotFindVehicleUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<PilotFindVehicleUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !data.is::<PilotFindVehicleUpdateModuleData>() { return Err("Invalid module data".into()); }
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<PilotFindVehicleUpdateModuleData>().expect("PilotFindVehicleUpdate module data type")),
             next_call_frame_and_phase: 0,
             did_move_to_base: false,
         })
     }
+
 
     fn owner_base_center(owner: &GameObject) -> Option<Coord3D> {
         let player_id = owner.get_controlling_player_id()? as u32;
@@ -171,7 +161,7 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
         };
         if let Ok(ai_guard) = ai.lock() {
             if !ai_guard.is_idle() {
-                return UpdateSleepTime::from_u32(self.module_data.scan_rate);
+                return UpdateSleepTime::from_u32(self.module_data.read().scan_rate);
             }
         }
 
@@ -179,7 +169,7 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
         let owner_pos = *owner_guard.get_position();
 
         let object_ids = ThePartitionManager::get()
-            .map(|mgr| mgr.get_objects_in_range(&owner_pos, self.module_data.scan_range))
+            .map(|mgr| mgr.get_objects_in_range(&owner_pos, self.module_data.read().scan_range))
             .unwrap_or_default();
 
         let mut best_target = None;
@@ -211,7 +201,7 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
             let Ok(body_guard) = body.lock() else {
                 continue;
             };
-            if body_guard.get_health() < body_guard.get_max_health() * self.module_data.min_health {
+            if body_guard.get_health() < body_guard.get_max_health() * self.module_data.read().min_health {
                 continue;
             }
             drop(body_guard);
@@ -246,7 +236,7 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
             }
         }
 
-        UpdateSleepTime::from_u32(self.module_data.scan_rate)
+        UpdateSleepTime::from_u32(self.module_data.read().scan_rate)
     }
 }
 
@@ -286,9 +276,9 @@ pub struct PilotFindVehicleUpdateFactory;
 impl PilotFindVehicleUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(PilotFindVehicleUpdate::new(thing, module_data)?))
+        Ok(Box::new(PilotFindVehicleUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 

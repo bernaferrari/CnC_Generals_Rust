@@ -397,8 +397,8 @@ impl Module for StealthUpgrade {
         self.data.get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::borrowed(self.data.as_ref())
     }
 
     fn on_object_created(&mut self) {

@@ -4,6 +4,8 @@
 //! Author: Kris Morness, June 2003 (original C++), converted to Rust
 
 use crate::common::ObjectID;
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
@@ -260,17 +262,23 @@ pub struct SabotageMilitaryFactoryCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    module_data: SabotageMilitaryFactoryCrateCollideModuleData,
+    module_data: ModuleDataView<SabotageMilitaryFactoryCrateCollideModuleData>,
 }
 
 impl SabotageMilitaryFactoryCrateCollide {
     /// Create new sabotage military factory crate collide module
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: SabotageMilitaryFactoryCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let module_data = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageMilitaryFactoryCrateCollideModuleData>>().expect("sabotage crate data").data
+        });
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageMilitaryFactoryCrateCollideModuleData>>().expect("sabotage crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
+            base: LegacyCrateCollide::from_object_handle(&object, base_data),
             module_data,
         }
     }
@@ -342,8 +350,7 @@ impl SabotageMilitaryFactoryCrateCollide {
         }
         drop(object_lock);
 
-        let module_data = &self.module_data;
-        let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
+        let disable_frame = TheGameLogic::get_frame() + self.module_data.read().sabotage_frames;
 
         // C++ feedback calls are void side effects; sabotage still completes if they fail.
         let _ = TheRadar::try_infiltration_event(other.clone());

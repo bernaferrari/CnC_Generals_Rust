@@ -132,7 +132,7 @@ macro_rules! impl_special_power_subclass {
 
             fn get_initiate_sound(
                 &self,
-            ) -> &$crate::object::special_power_template::AudioEventRts {
+            ) -> $crate::object::special_power_template::AudioEventRts {
                 $crate::object::special_power_module::SpecialPowerModuleInterface::get_initiate_sound(
                     &self.base_module,
                 )
@@ -314,13 +314,18 @@ pub(crate) fn no_reference_thing_template() -> Option<String> {
     None
 }
 
-/// Shared constructor helper for the inherited SpecialPowerModule state.
-pub(crate) fn make_base_module(
-    owner_object_id: ObjectID,
-    data: &crate::object::special_power_module::SpecialPowerModuleData,
-) -> SpecialPowerModule {
-    SpecialPowerModule::new(owner_object_id, data.clone())
+macro_rules! make_shared_base_module {
+    ($owner:expr, $data:expr, $ty:ty) => {
+        $crate::object::special_power_module::SpecialPowerModule::from_shared(
+            $owner,
+            $data.clone(),
+            |data| &data.as_any().downcast_ref::<$ty>().expect("special power data type").base,
+            |data| &mut (data as &mut dyn std::any::Any)
+                .downcast_mut::<$ty>().expect("special power data type").base,
+        )
+    };
 }
+pub(crate) use make_shared_base_module;
 
 /// C++ subclass `xfer`: version then `SpecialPowerModule::xfer`.
 pub(crate) fn xfer_special_power_subclass(

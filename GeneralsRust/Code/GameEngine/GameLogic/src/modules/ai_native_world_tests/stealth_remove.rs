@@ -10,7 +10,7 @@ fn stealth_rider_template() -> Arc<dyn ThingTemplate> {
     modules.push(TemplateModuleInfo {
         name: "StealthUpdate".into(),
         module_tag: "NativeStealth".into(),
-        data: Arc::new(
+        data: game_engine::common::thing::module::ModuleDataHandle::new(
             crate::stealth_update::StealthUpdateModuleData::from_owned_test_fields(&[
                 ("StealthDelay", &["1000"]),
                 ("OrderIdleEnemiesToAttackMeUponReveal", &["Yes"]),

@@ -35,7 +35,7 @@ fn actor(
         TemplateModuleInfo {
             name: "ActiveBody".into(),
             module_tag: "LandingBody".into(),
-            data: Arc::new(ActiveBodyModuleData {
+            data: game_engine::common::thing::module::ModuleDataHandle::new(ActiveBodyModuleData {
                 max_health: 100.0,
                 initial_health: 100.0,
                 ..Default::default()
@@ -45,7 +45,7 @@ fn actor(
         TemplateModuleInfo {
             name: "PhysicsBehavior".into(),
             module_tag: "LandingPhysics".into(),
-            data: Arc::new(PhysicsBehaviorModuleData {
+            data: game_engine::common::thing::module::ModuleDataHandle::new(PhysicsBehaviorModuleData {
                 mass,
                 kill_when_resting_on_ground: resting,
                 forward_friction: 0.01,
@@ -62,7 +62,7 @@ fn actor(
         modules.push(TemplateModuleInfo {
             name: "AutoHealBehavior".into(),
             module_tag: "LandingHeal".into(),
-            data: Arc::new(AutoHealBehaviorModuleData {
+            data: game_engine::common::thing::module::ModuleDataHandle::new(AutoHealBehaviorModuleData {
                 initially_active: true,
                 start_healing_delay: 11,
                 healing_delay: 60,
@@ -75,7 +75,7 @@ fn actor(
         modules.push(TemplateModuleInfo {
             name: "InstantDeathBehavior".into(),
             module_tag: "LandingDeath".into(),
-            data: Arc::new(InstantDeathBehaviorModuleData::default()),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(InstantDeathBehaviorModuleData::default()),
             interface_mask: ModuleInterfaceType::DIE,
         });
     }

@@ -23,7 +23,7 @@ fn armed_transport_template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "TransportContain".into(),
             module_tag: "NativeArmedCargo".into(),
-            data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
+            data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data)),
             interface_mask: ModuleInterfaceType::CONTAIN,
         }],
     })

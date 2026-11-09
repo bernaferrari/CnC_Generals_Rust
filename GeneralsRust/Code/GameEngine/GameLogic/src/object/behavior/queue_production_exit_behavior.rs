@@ -96,7 +96,7 @@ crate::impl_behavior_module_data_via_base!(QueueProductionExitModuleData, base);
 #[derive(Debug)]
 pub struct QueueProductionExitBehavior {
     /// Module configuration
-    data: QueueProductionExitModuleData,
+    data: game_engine::common::thing::module::ModuleDataView<QueueProductionExitModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class
     next_call_frame_and_phase: UnsignedInt,
     /// Current delay counter (frames until next unit can exit)
@@ -122,8 +122,15 @@ impl QueueProductionExitBehavior {
     /// Create new queue production exit behavior
     /// Matches C++ QueueProductionExitUpdate constructor (lines 21-39)
     pub fn new(data: QueueProductionExitModuleData, owner_id: ObjectID) -> Self {
+        Self::with_handle(game_engine::common::thing::module::ModuleDataHandle::new(data), owner_id)
+    }
+
+    fn with_handle(handle: game_engine::common::thing::module::ModuleDataHandle, owner_id: ObjectID) -> Self {
+        assert!(handle.is::<QueueProductionExitModuleData>());
+        let data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<QueueProductionExitModuleData>().expect("QueueProductionExit module data"));
+        let initial_burst = data.read().initial_burst;
         Self {
-            current_burst_count: data.initial_burst,
+            current_burst_count: initial_burst,
             data,
             next_call_frame_and_phase: 0,
             current_delay: 0,
@@ -136,15 +143,12 @@ impl QueueProductionExitBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<QueueProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let module_object = thing
             .as_object()
             .ok_or_else(|| "QueueProductionExitUpdate requires an owning object".to_string())?;
-        Ok(Self::new(
-            module_data.as_ref().clone(),
-            module_object.get_object_id(),
-        ))
+        Ok(Self::with_handle(module_data, module_object.get_object_id()))
     }
 
     /// Exit a unit via door
@@ -169,11 +173,11 @@ impl QueueProductionExitBehavior {
 
         // Calculate exit position
         // Matches C++ lines 56-82
-        let mut exit_pos = self.transform_point(&self.data.unit_create_point, building_transform);
+        let mut exit_pos = self.transform_point(&self.data.read().unit_create_point, building_transform);
 
         let ground_z = terrain_height_fn(exit_pos.x, exit_pos.y);
         let creation_in_air = exit_pos.z != ground_z;
-        if creation_in_air && !self.data.allow_airborne_creation {
+        if creation_in_air && !self.data.read().allow_airborne_creation {
             exit_pos.z = ground_z;
         }
 
@@ -190,7 +194,7 @@ impl QueueProductionExitBehavior {
 
         // Set exit delay for next unit
         // Matches C++ line 136
-        self.current_delay = self.data.exit_delay;
+        self.current_delay = self.data.read().exit_delay;
 
         // Decrement burst count
         // Matches C++ lines 138-139
@@ -234,7 +238,7 @@ impl QueueProductionExitBehavior {
 
         // Set delay
         // Matches C++ line 237
-        self.current_delay = self.data.exit_delay;
+        self.current_delay = self.data.read().exit_delay;
 
         // Decrement burst
         // Matches C++ lines 239-240
@@ -253,7 +257,7 @@ impl QueueProductionExitBehavior {
     /// Get exit position
     /// Matches C++ getExitPosition (lines 146-166)
     pub fn get_exit_position(&self, building_transform: &Matrix3D) -> Coord3D {
-        self.transform_point(&self.data.unit_create_point, building_transform)
+        self.transform_point(&self.data.read().unit_create_point, building_transform)
     }
 
     /// Reserve door for exit
@@ -288,7 +292,7 @@ impl QueueProductionExitBehavior {
     /// Get natural rally point (in world space)
     /// Matches C++ getNaturalRallyPoint (lines 248-274)
     pub fn get_natural_rally_point(&self, building_transform: &Matrix3D, offset: bool) -> Coord3D {
-        let mut point = self.data.natural_rally_point;
+        let mut point = self.data.read().natural_rally_point;
 
         // Apply offset if requested
         // Matches C++ lines 261-267
@@ -629,7 +633,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
 
 impl Snapshotable for QueueProductionExitBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -659,7 +663,7 @@ impl Snapshotable for QueueProductionExitBehavior {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.data.load_post_process()
+        self.data.handle().write().load_post_process()
     }
 }
 
@@ -667,14 +671,14 @@ impl Snapshotable for QueueProductionExitBehavior {
 pub struct QueueProductionExitBehaviorModule {
     behavior: QueueProductionExitBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<QueueProductionExitModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl QueueProductionExitBehaviorModule {
     pub fn new(
         behavior: QueueProductionExitBehavior,
         module_name: &AsciiString,
-        module_data: Arc<QueueProductionExitModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -709,13 +713,11 @@ impl Module for QueueProductionExitBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(
-            self.module_data.as_ref(),
-        )
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

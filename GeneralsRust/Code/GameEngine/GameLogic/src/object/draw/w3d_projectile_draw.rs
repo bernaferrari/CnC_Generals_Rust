@@ -9,7 +9,7 @@ use crate::common::*;
 use crate::helpers::TheParticleSystemManager;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 
 use std::any::Any;
 
@@ -155,7 +155,7 @@ impl Snapshotable for W3DProjectileDrawModuleData {
 }
 
 pub struct W3DProjectileDraw {
-    data: W3DProjectileDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DModelDraw,
     current_velocity: Coord3D,
     trail_spawn_counter: u32,
@@ -163,8 +163,12 @@ pub struct W3DProjectileDraw {
 
 impl W3DProjectileDraw {
     pub fn new(data: W3DProjectileDrawModuleData) -> Self {
-        let base_data = data.base.clone();
-        let base = W3DModelDraw::new(base_data);
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        assert!(data.is::<W3DProjectileDrawModuleData>());
+        let base = W3DModelDraw::new_with_module_data(data.clone());
 
         Self {
             data,
@@ -179,7 +183,7 @@ impl W3DProjectileDraw {
     }
 
     fn update_orientation(&mut self, transform: &mut Matrix3D) {
-        if !self.data.orient_to_flight_path {
+        if !self.data.read().as_any().downcast_ref::<W3DProjectileDrawModuleData>().expect("W3DProjectileDraw module data").orient_to_flight_path {
             return;
         }
 
@@ -193,7 +197,9 @@ impl W3DProjectileDraw {
     }
 
     fn spawn_trail_particle(&mut self, transform: &Matrix3D) {
-        if self.data.trail_particle_system.is_empty() {
+        let data = self.data.read();
+        let data = data.as_any().downcast_ref::<W3DProjectileDrawModuleData>().expect("W3DProjectileDraw module data");
+        if data.trail_particle_system.is_empty() {
             return;
         }
 
@@ -202,7 +208,7 @@ impl W3DProjectileDraw {
         };
 
         let Some(system_id) =
-            ps_manager.create_particle_system(Some(self.data.trail_particle_system.as_str()))
+            ps_manager.create_particle_system(Some(data.trail_particle_system.as_str()))
         else {
             return;
         };
@@ -238,8 +244,8 @@ impl Module for W3DProjectileDraw {
         self.base.get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -276,7 +282,10 @@ impl DrawModule for W3DProjectileDraw {
 
         // Spawn trail particles periodically
         self.trail_spawn_counter += 1;
-        if self.trail_spawn_counter >= self.data.trail_interval_frames {
+        let trail_interval_frames = self.data.read().as_any()
+            .downcast_ref::<W3DProjectileDrawModuleData>()
+            .expect("W3DProjectileDraw module data").trail_interval_frames;
+        if self.trail_spawn_counter >= trail_interval_frames {
             self.trail_spawn_counter = 0;
             self.spawn_trail_particle(&adjusted_transform);
         }

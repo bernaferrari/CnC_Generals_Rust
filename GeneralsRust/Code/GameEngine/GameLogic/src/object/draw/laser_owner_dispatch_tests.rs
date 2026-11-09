@@ -9,7 +9,7 @@ use crate::object::update::laser_update::{LaserUpdateModule, LaserUpdateModuleDa
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
-use game_engine::common::thing::module::ModuleInterfaceType;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleInterfaceType};
 use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 
@@ -21,9 +21,9 @@ fn add_update(
     end: Coord3D,
     dirty: bool,
 ) -> DrawableModuleHandle {
-    let data = Arc::new(LaserUpdateModuleData::default());
+    let data = ModuleDataHandle::new(LaserUpdateModuleData::default());
     let mut update =
-        LaserUpdateModule::new(NameKeyGenerator::name_to_key(name), data.clone(), None);
+        LaserUpdateModule::new_with_module_data(NameKeyGenerator::name_to_key(name), data.clone(), None);
     update.update_mut().set_loaded_segment(start, end, dirty);
     drawable.add_module(mask, name.into(), name.into(), data, Box::new(update))
 }
@@ -32,12 +32,13 @@ fn add_draw(drawable: &mut Drawable, tag: &str) -> DrawableModuleHandle {
     let mut data = W3DLaserDrawModuleData::new();
     data.module_tag_name_key = NameKeyGenerator::name_to_key(tag);
     data.inner_beam_width = 4.0;
-    let module = W3DLaserDraw::new(data.clone());
+    let data = ModuleDataHandle::new(data);
+    let module = W3DLaserDraw::new_with_module_data(data.clone());
     drawable.add_module(
         ModuleInterfaceType::DRAW,
         "W3DLaserDraw".into(),
         tag.into(),
-        Arc::new(data),
+        data,
         Box::new(module),
     )
 }
@@ -213,8 +214,8 @@ fn laser_lookup_uses_named_client_update_bucket() {
     );
     // Descriptor names are diagnostic metadata. CPP lookup compares the
     // canonical module's getModuleNameKey rather than the descriptor label.
-    let data = Arc::new(LaserUpdateModuleData::default());
-    let mut module = LaserUpdateModule::new(
+    let data = ModuleDataHandle::new(LaserUpdateModuleData::default());
+    let mut module = LaserUpdateModule::new_with_module_data(
         NameKeyGenerator::name_to_key("LaserUpdate"),
         data.clone(),
         None,

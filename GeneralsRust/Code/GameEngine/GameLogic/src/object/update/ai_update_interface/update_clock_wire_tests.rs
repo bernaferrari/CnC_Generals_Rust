@@ -5,7 +5,7 @@ use game_engine::common::thing::update_module::SleepyUpdatePhase;
 use std::io::Cursor;
 #[test]
 fn ai_module_saves_original_base_versions_and_encoded_clock() {
-    let mut module = AIUpdateInterfaceModule::new(0, Arc::new(AIUpdateModuleData::default()));
+    let mut module = AIUpdateInterfaceModule::new(0, ModuleDataHandle::new(AIUpdateModuleData::default()));
     module.record_scheduled_wake(217, SleepyUpdatePhase::Initial);
     let mut bytes = Cursor::new(Vec::new());
     module.xfer(&mut XferSave::new(&mut bytes, 1)).unwrap();
@@ -15,7 +15,7 @@ fn ai_module_saves_original_base_versions_and_encoded_clock() {
 }
 #[test]
 fn ai_module_load_normalizes_legacy_phase_and_preserves_saved_frame() {
-    let mut module = AIUpdateInterfaceModule::new(0, Arc::new(AIUpdateModuleData::default()));
+    let mut module = AIUpdateInterfaceModule::new(0, ModuleDataHandle::new(AIUpdateModuleData::default()));
     let mut bytes = vec![4, 1, 1, 1, 1];
     bytes.extend_from_slice(&((223u32 << 2) | 3).to_le_bytes());
     module

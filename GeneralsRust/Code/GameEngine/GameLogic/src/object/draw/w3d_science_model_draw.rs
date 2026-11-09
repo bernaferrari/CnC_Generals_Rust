@@ -5,7 +5,7 @@ use crate::player::ThePlayerList;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 /// The full local player's science membership frozen by the receiving world.
@@ -141,15 +141,19 @@ impl Snapshotable for W3DScienceModelDrawModuleData {
 }
 
 pub struct W3DScienceModelDraw {
-    data: W3DScienceModelDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DModelDraw,
     // Runtime receiving observation, rebound before the actual draw; not Xfer state.
     receiving_hidden: Option<bool>,
 }
 impl W3DScienceModelDraw {
     pub fn new(data: W3DScienceModelDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        assert!(data.is::<W3DScienceModelDrawModuleData>());
         Self {
-            base: W3DModelDraw::new(data.base.clone()),
+            base: W3DModelDraw::new_with_module_data(data.clone()),
             data,
             receiving_hidden: None,
         }
@@ -163,12 +167,13 @@ impl W3DScienceModelDraw {
         player: Option<&ReceivingSciencePlayer>,
     ) -> Result<(), &'static str> {
         // C++ rejects invalid data before it queries any local player.
-        let hidden = if self.data.required_science == SCIENCE_INVALID {
+        let required_science = self.data.read().as_any().downcast_ref::<W3DScienceModelDrawModuleData>().expect("W3DScienceModelDraw module data").required_science;
+        let hidden = if required_science == SCIENCE_INVALID {
             true
         } else {
             player
                 .ok_or("valid authored science requires its receiving local player")?
-                .should_hide(self.data.required_science)
+                .should_hide(required_science)
         };
         self.receiving_hidden = Some(hidden);
         Ok(())
@@ -205,8 +210,8 @@ impl Module for W3DScienceModelDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 impl DrawModule for W3DScienceModelDraw {
@@ -235,9 +240,15 @@ impl DrawModule for W3DScienceModelDraw {
         driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
         time: &crate::helpers::DrawTimeObservation,
     ) {
-        let hidden = self
-            .receiving_hidden
-            .unwrap_or_else(|| leftover_science_model_should_hide(self.data.required_science));
+        let hidden = match self.receiving_hidden {
+            Some(hidden) => hidden,
+            None => {
+                let required_science = self.data.read().as_any()
+                    .downcast_ref::<W3DScienceModelDrawModuleData>()
+                    .expect("W3DScienceModelDraw module data").required_science;
+                leftover_science_model_should_hide(required_science)
+            }
+        };
         if hidden {
             DrawModule::set_hidden(self, true);
             return;
@@ -320,7 +331,7 @@ pub fn leftover_science_model_should_hide(science: ScienceType) -> bool {
 }
 
 /// Leftover INI `RequiredScience` for a live presentation template.
-pub fn leftover_science_model_data(template_name: &str) -> Option<W3DScienceModelDrawModuleData> {
+pub fn leftover_science_model_data(template_name: &str) -> Option<ModuleDataHandle> {
     if template_name.is_empty() {
         return None;
     }
@@ -330,12 +341,8 @@ pub fn leftover_science_model_data(template_name: &str) -> Option<W3DScienceMode
     let factory = guard.as_ref()?;
     let template = factory.find_template(template_name, false)?;
     for entry in template.get_draw_module_info().iter() {
-        if let Some(data) = entry
-            .data
-            .as_any()
-            .downcast_ref::<W3DScienceModelDrawModuleData>()
-        {
-            return Some(data.clone());
+        if entry.data.is::<W3DScienceModelDrawModuleData>() {
+            return Some(entry.data.clone());
         }
     }
     None
@@ -344,14 +351,15 @@ pub fn leftover_science_model_data(template_name: &str) -> Option<W3DScienceMode
 /// Leftover-tick `W3DScienceModelDraw::doDrawModule` hide residual for live host.
 pub fn tick_live_host_science_model_hide(
     template_name: &str,
-    data: Option<&W3DScienceModelDrawModuleData>,
+    data: Option<&ModuleDataHandle>,
 ) -> bool {
     let module_data = data
         .cloned()
         .or_else(|| leftover_science_model_data(template_name))
-        .unwrap_or_else(W3DScienceModelDrawModuleData::new);
-    let hide = leftover_science_model_should_hide(module_data.required_science);
-    let mut draw = W3DScienceModelDraw::new(module_data);
+        .unwrap_or_else(|| ModuleDataHandle::new(W3DScienceModelDrawModuleData::new()));
+    let required_science = module_data.read().as_any().downcast_ref::<W3DScienceModelDrawModuleData>().expect("W3DScienceModelDraw module data").required_science;
+    let hide = leftover_science_model_should_hide(required_science);
+    let mut draw = W3DScienceModelDraw::new_with_module_data(module_data);
     // This unbound hide probe has no receiving View. Science/model draws do
     // not consume camera freeze; vehicle draw entrypoints require real facts.
     draw.do_draw_module(

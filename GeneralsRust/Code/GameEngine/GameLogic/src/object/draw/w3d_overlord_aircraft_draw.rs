@@ -6,7 +6,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::drawable::TintStatus;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone, Default)]
@@ -57,14 +57,17 @@ impl Snapshotable for W3DOverlordAircraftDrawModuleData {
 }
 
 pub struct W3DOverlordAircraftDraw {
-    data: W3DOverlordAircraftDrawModuleData,
+    data: ModuleDataHandle,
     base: W3DModelDraw,
     owner_id: Option<ObjectID>,
 }
 impl W3DOverlordAircraftDraw {
     pub fn new(data: W3DOverlordAircraftDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
         Self {
-            base: W3DModelDraw::new(data.base.clone()),
+            base: W3DModelDraw::new_with_module_data(data.clone()),
             data,
             owner_id: None,
         }
@@ -106,8 +109,8 @@ impl Module for W3DOverlordAircraftDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 impl DrawModule for W3DOverlordAircraftDraw {

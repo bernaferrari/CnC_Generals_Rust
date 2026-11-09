@@ -122,7 +122,7 @@ impl Snapshotable for FireWeaponPowerModuleData {
 /// Reloads ammo and fires weapons at a target position or object.
 pub struct FireWeaponPower {
     module_name_key: NameKeyType,
-    data: Arc<FireWeaponPowerModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -131,18 +131,20 @@ impl FireWeaponPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<FireWeaponPowerModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module: super::interface::make_shared_base_module!(owner_object_id, data, FireWeaponPowerModuleData),
             data,
         }
     }
 
     /// Reload all ammo and issue AI attack commands.
     fn fire_weapon_at_location(&self, loc: &Coord3D) {
+        let max_shots = self.data.read().as_any().downcast_ref::<FireWeaponPowerModuleData>()
+            .expect("FireWeaponPower data type").max_shots_to_fire as i32;
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return;
         };
@@ -156,7 +158,7 @@ impl FireWeaponPower {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 ai.ai_attack_position(
                     loc,
-                    self.data.max_shots_to_fire as i32,
+                    max_shots,
                     CommandSourceType::FromAi,
                 );
                 aim_turrets_at_position(&ai, loc);
@@ -184,6 +186,8 @@ impl FireWeaponPower {
     /// Execute fire weapon at an object.
     /// Matches C++ FireWeaponPower::doSpecialPowerAtObject().
     pub fn do_special_power_at_object(&self, obj_id: ObjectID) -> Result<(), String> {
+        let max_shots = self.data.read().as_any().downcast_ref::<FireWeaponPowerModuleData>()
+            .expect("FireWeaponPower data type").max_shots_to_fire as i32;
         // Check disabled
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return Ok(());
@@ -205,7 +209,7 @@ impl FireWeaponPower {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 ai.ai_attack_object_id(
                     obj_id,
-                    self.data.max_shots_to_fire as i32,
+                    max_shots,
                     CommandSourceType::FromAi,
                 );
                 aim_turrets_at_object(&ai, obj_id);
@@ -289,11 +293,11 @@ impl Module for FireWeaponPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -372,7 +376,7 @@ mod tests {
     #[test]
     fn test_fire_weapon_power_module_name() {
         let data = FireWeaponPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = FireWeaponPower::new(0, 0, arc_data);
         assert_eq!(power.get_module_name(), "FireWeaponPower");
     }
@@ -380,7 +384,7 @@ mod tests {
     #[test]
     fn test_do_special_power_no_owner() {
         let data = FireWeaponPowerModuleData::default();
-        let arc_data = Arc::new(data);
+        let arc_data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let power = FireWeaponPower::new(0, 0, arc_data);
         // Should return Ok without panicking when owner doesn't exist
         assert!(power.do_special_power().is_ok());

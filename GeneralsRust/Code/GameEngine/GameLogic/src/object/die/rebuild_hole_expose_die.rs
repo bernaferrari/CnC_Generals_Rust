@@ -214,7 +214,7 @@ impl RebuildHoleExposeDie {
     /// Create a new RebuildHoleExposeDie module
     pub fn new(
         object: Arc<RwLock<Object>>,
-        module_data: Arc<RebuildHoleExposeDieModuleData>,
+        module_data: super::ModuleDataHandle,
     ) -> Self {
         Self {
             base: DieModule::new(object, module_data),
@@ -228,7 +228,8 @@ impl RebuildHoleExposeDie {
 
     /// Create the rebuild hole object
     fn create_hole(&self, dying_object: &Object) -> Option<Arc<RwLock<Object>>> {
-        let hole_name = &self.base.module_data.hole_name;
+        let module_data = self.base.module_data.read();
+        let hole_name = &module_data.hole_name;
 
         let position = dying_object.get_position();
         let geometry = dying_object.get_geometry_info().clone();
@@ -270,7 +271,7 @@ impl RebuildHoleExposeDie {
             if let Some(body) = hole_guard.get_body_module() {
                 if let Ok(mut body_guard) = body.lock() {
                     if let Err(_err) = body_guard.set_max_health(
-                        self.base.module_data.hole_max_health,
+                        module_data.hole_max_health,
                         // C++ RebuildHoleExposeDie.cpp:141 one-arg setMaxHealth
                         // defaults to SAME_CURRENTHEALTH (BodyModule.h:152).
                         MaxHealthChangeType::SameCurrentHealth,
@@ -295,7 +296,7 @@ impl RebuildHoleExposeDie {
             return;
         }
 
-        if !self.base.module_data.transfer_attackers {
+        if !self.base.module_data.read().transfer_attackers {
             return;
         }
 
@@ -323,7 +324,7 @@ impl DieModuleInterface for RebuildHoleExposeDie {
         if !self.is_die_applicable(
             object,
             damage_info,
-            &self.base.module_data.base.die_mux_data,
+            &self.base.module_data.read().base.die_mux_data,
         ) {
             return;
         }

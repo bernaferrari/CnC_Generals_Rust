@@ -2542,7 +2542,8 @@ impl GameLogic {
         let entry = admitted.behavior_modules().iter()
             .find(|entry| entry.name.as_str() == "StealthUpdate");
         if let Some(entry) = entry {
-            let data = entry.data.as_any()
+            let guard = entry.data.read();
+            let data = guard.as_any()
                 .downcast_ref::<gamelogic::stealth_update::StealthUpdateModuleData>()
                 .ok_or_else(|| format!("Invalid receiving StealthUpdate data on '{name}'"))?;
             template.stealth_update = Some(crate::game_logic::object::StealthUpdateData::from_admitted_module(data));

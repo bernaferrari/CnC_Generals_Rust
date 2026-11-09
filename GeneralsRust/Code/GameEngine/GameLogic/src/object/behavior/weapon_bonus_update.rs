@@ -77,21 +77,20 @@ crate::impl_legacy_module_data_via_base!(WeaponBonusUpdateModuleData, base);
 #[derive(Debug)]
 pub struct WeaponBonusUpdate {
     object_id: ObjectID,
-    module_data: Arc<WeaponBonusUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
 }
 
 impl WeaponBonusUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<WeaponBonusUpdateModuleData>()
-            .ok_or("Invalid module data")?;
 
+    pub fn new_with_module_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<WeaponBonusUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
         let next_call_frame_and_phase = crate::helpers::TheGameLogic::get_frame().saturating_add(1);
 
         Ok(Self {
@@ -100,7 +99,7 @@ impl WeaponBonusUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase,
         })
     }
@@ -116,20 +115,23 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
         if self.object_id == crate::common::INVALID_ID {
             return Ok(UpdateSleepTime::Forever);
         }
+        let guard = self.module_data.read();
+        let data = guard.as_any().downcast_ref::<WeaponBonusUpdateModuleData>()
+            .expect("WeaponBonusUpdate module data");
         let sleep = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.object_id, |obj| {
                 let Some(partition) = ThePartitionManager::get() else {
-                    return UpdateSleepTime::from_u32(self.module_data.bonus_delay);
+                    return UpdateSleepTime::from_u32(data.bonus_delay);
                 };
 
                 let candidates = partition
-                    .get_objects_in_range(obj.get_position(), self.module_data.bonus_range);
+                    .get_objects_in_range(obj.get_position(), data.bonus_range);
                 let same_map_status = obj.is_off_map();
                 for id in candidates {
-                    let required = self.module_data.required_affect_kind_of;
-                    let forbidden = self.module_data.forbidden_affect_kind_of;
-                    let condition = self.module_data.bonus_condition_type;
-                    let duration = self.module_data.bonus_duration;
+                    let required = data.required_affect_kind_of;
+                    let forbidden = data.forbidden_affect_kind_of;
+                    let condition = data.bonus_condition_type;
+                    let duration = data.bonus_duration;
                     let _ = OBJECT_REGISTRY.with_object_mut(id, |target| {
                         if target.is_effectively_dead() {
                             return;
@@ -163,7 +165,7 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
                     });
                 }
 
-                UpdateSleepTime::from_u32(self.module_data.bonus_delay)
+                UpdateSleepTime::from_u32(data.bonus_delay)
             })
             .unwrap_or(UpdateSleepTime::Forever);
         Ok(sleep)
@@ -204,20 +206,17 @@ impl Snapshotable for WeaponBonusUpdate {
 pub struct WeaponBonusUpdateModule {
     behavior: WeaponBonusUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<WeaponBonusUpdateModuleData>,
 }
 
 impl WeaponBonusUpdateModule {
     pub fn new(
         behavior: WeaponBonusUpdate,
         module_name: &AsciiString,
-        module_data: Arc<WeaponBonusUpdateModuleData>,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
             module_name_key,
-            module_data,
         }
     }
 
@@ -254,11 +253,11 @@ impl Module for WeaponBonusUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.behavior.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.behavior.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -276,9 +275,9 @@ pub struct WeaponBonusUpdateFactory;
 impl WeaponBonusUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(WeaponBonusUpdate::new(thing, module_data)?))
+        Ok(Box::new(WeaponBonusUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 

@@ -9,7 +9,7 @@ use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode};
 use game_engine::common::thing::module::{
-    BaseModuleData, Module, ModuleData, ModuleInterfaceType, ModuleType, Thing as ModuleThing,
+    BaseModuleData, Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleInterfaceType, ModuleType, Thing as ModuleThing,
 };
 use game_engine::common::thing::module_factory::{
     get_module_factory, init_module_factory, register_module_override,
@@ -54,7 +54,7 @@ struct SentinelProbe {
     loaded: AtomicUsize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SentinelData {
     base: BaseModuleData,
     probe: Arc<SentinelProbe>,
@@ -94,7 +94,7 @@ impl Snapshotable for SentinelData {
 }
 
 struct SentinelModule {
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     value: u32,
     loads: usize,
     probe: Arc<SentinelProbe>,
@@ -104,8 +104,8 @@ impl Module for SentinelModule {
     fn get_module_name_key(&self) -> u32 {
         NameKeyGenerator::name_to_key(SENTINEL_NAME)
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -129,8 +129,8 @@ impl Snapshotable for SentinelModule {
     }
 }
 
-fn sentinel_factory(_: Arc<dyn ModuleThing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
-    let probe = data
+fn sentinel_factory(_: Arc<dyn ModuleThing>, data: ModuleDataHandle) -> Box<dyn Module> {
+    let probe = data.read()
         .as_any()
         .downcast_ref::<SentinelData>()
         .unwrap()
@@ -246,19 +246,19 @@ fn authored_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: BODY_TAG.into(),
-                data: Arc::new(body),
+                data: ModuleDataHandle::new(body),
                 interface_mask: ModuleInterfaceType::BODY,
             },
             TemplateModuleInfo {
                 name: "AIUpdateInterface".into(),
                 module_tag: AI_TAG.into(),
-                data: Arc::new(ai),
+                data: ModuleDataHandle::new(ai),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
             TemplateModuleInfo {
                 name: SENTINEL_NAME.into(),
                 module_tag: SENTINEL_TAG.into(),
-                data: Arc::new(sentinel),
+                data: ModuleDataHandle::new(sentinel),
                 interface_mask: ModuleInterfaceType::NONE,
             },
         ],
@@ -303,7 +303,7 @@ fn assert_catalog(template: &dyn ThingTemplate) {
         assert_eq!(entry.name.as_str(), name);
         assert_eq!(entry.module_tag.as_str(), tag);
         assert_eq!(
-            NameKeyGenerator::key_to_name(entry.data.get_module_tag_name_key()).as_deref(),
+            NameKeyGenerator::key_to_name(entry.data.read().get_module_tag_name_key()).as_deref(),
             Some(tag)
         );
     }

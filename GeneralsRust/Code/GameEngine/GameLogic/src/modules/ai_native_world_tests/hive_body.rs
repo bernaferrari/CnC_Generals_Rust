@@ -24,7 +24,7 @@ fn active_body(tag: &str) -> TemplateModuleInfo {
     TemplateModuleInfo {
         name: "ActiveBody".into(),
         module_tag: tag.into(),
-        data: Arc::new(body),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(body),
         interface_mask: ModuleInterfaceType::BODY,
     }
 }
@@ -40,7 +40,7 @@ fn ai_module(tag: &str, loco: &str) -> TemplateModuleInfo {
     TemplateModuleInfo {
         name: "AIUpdateInterface".into(),
         module_tag: tag.into(),
-        data: Arc::new(data),
+        data: game_engine::common::thing::module::ModuleDataHandle::new(data),
         interface_mask: ModuleInterfaceType::UPDATE,
     }
 }
@@ -83,7 +83,7 @@ fn hive_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "TransportContain".into(),
                 module_tag: "NativeHiveCargo".into(),
-                data: Arc::new(
+                data: game_engine::common::thing::module::ModuleDataHandle::new(
                     crate::contain_module_overrides::ContainModuleDataAdapter::new(contain),
                 ),
                 interface_mask: ModuleInterfaceType::CONTAIN,
@@ -91,7 +91,7 @@ fn hive_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "HiveStructureBody".into(),
                 module_tag: "NativeHiveBody".into(),
-                data: Arc::new(hive),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(hive),
                 interface_mask: ModuleInterfaceType::BODY,
             },
         ],
@@ -187,13 +187,13 @@ fn spawn_hive_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "SpawnBehavior".into(),
                 module_tag: "NativeSpawnHiveSpawn".into(),
-                data: Arc::new(spawn),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(spawn),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
             TemplateModuleInfo {
                 name: "HiveStructureBody".into(),
                 module_tag: "NativeSpawnHiveBody".into(),
-                data: Arc::new(hive),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(hive),
                 interface_mask: ModuleInterfaceType::BODY,
             },
         ],

@@ -15,6 +15,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::{PlayerIndex, PlayerType, player_list};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::get_anim2d_collection;
+use game_engine::common::thing::module::ModuleDataView;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
@@ -146,7 +147,7 @@ pub struct CrateCollide {
     /// Base collision module
     base_module: CollideModule,
     /// Crate-specific configuration
-    module_data: CrateCollideModuleData,
+    module_data: ModuleDataView<CrateCollideModuleData>,
     /// State owned by this crate collision module.
     state: CrateCollideState,
     // Identity is object_id only; resolve via registry/TheGameLogic on demand.
@@ -161,9 +162,10 @@ impl fmt::Debug for CrateCollide {
 }
 
 impl CrateCollide {
-    pub fn new(object_id: ObjectId, module_data: CrateCollideModuleData) -> Self {
+    pub fn new(object_id: ObjectId, module_data: ModuleDataView<CrateCollideModuleData>) -> Self {
+        let base_module = CollideModule::new(object_id, module_data.read().base.clone());
         Self {
-            base_module: CollideModule::new(object_id, module_data.base.clone()),
+            base_module,
             module_data,
             state: CrateCollideState {
                 is_collected: false,
@@ -176,7 +178,7 @@ impl CrateCollide {
     /// where crate modules were handed the Thing pointer directly.
     pub fn from_object_handle(
         thing: &Arc<RwLock<Object>>,
-        module_data: CrateCollideModuleData,
+        module_data: ModuleDataView<CrateCollideModuleData>,
     ) -> Self {
         let object_id = thing
             .read()
@@ -185,8 +187,9 @@ impl CrateCollide {
         if object_id != crate::common::INVALID_ID {
             OBJECT_REGISTRY.register_object(object_id, thing);
         }
+        let base_module = CollideModule::new(object_id, module_data.read().base.clone());
         Self {
-            base_module: CollideModule::new(object_id, module_data.base.clone()),
+            base_module,
             module_data,
             state: CrateCollideState {
                 is_collected: false,
@@ -195,8 +198,8 @@ impl CrateCollide {
         }
     }
 
-    pub fn get_module_data(&self) -> &CrateCollideModuleData {
-        &self.module_data
+    pub fn get_module_data(&self) -> impl std::ops::Deref<Target = CrateCollideModuleData> + '_ {
+        self.module_data.read()
     }
 
     pub fn get_object(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
@@ -232,6 +235,7 @@ impl CrateCollide {
 
     /// Check if the given object is valid to execute this crate
     pub fn is_valid_to_execute(&self, other: &dyn GameObject) -> bool {
+        let module_data = self.module_data.read();
         // Ground never picks up a crate (handled by None check in caller)
 
         // Nothing Neutral can pick up any type of crate
@@ -240,7 +244,7 @@ impl CrateCollide {
         }
 
         let is_building = self.is_kind_of(other, KINDOF_STRUCTURE);
-        let valid_building_attempt = self.module_data.is_building_pickup && is_building;
+        let valid_building_attempt = module_data.is_building_pickup && is_building;
 
         // Must be a "Unit" type thing with AI, or a valid building
         if !self.has_ai_update_interface(other) && !valid_building_attempt {
@@ -250,8 +254,8 @@ impl CrateCollide {
         // Must match our kindof flags (if any)
         if !self.is_kind_of_multi(
             other,
-            self.module_data.required_kind_of,
-            self.module_data.forbidden_kind_of,
+            module_data.required_kind_of,
+            module_data.forbidden_kind_of,
         ) {
             return false;
         }
@@ -266,7 +270,7 @@ impl CrateCollide {
         }
 
         // Check owner player restriction
-        if self.module_data.is_forbid_owner_player {
+        if module_data.is_forbid_owner_player {
             let crate_owner = self
                 .get_controlling_player_for_object(self.base_module.get_object_id())
                 .unwrap_or(PlayerId::NEUTRAL);
@@ -276,17 +280,17 @@ impl CrateCollide {
         }
 
         // Human only restriction
-        if self.module_data.is_human_only_pickup {
+        if module_data.is_human_only_pickup {
             if !self.is_human_player(other.get_controlling_player()) {
                 return false;
             }
         }
 
         // Science requirement
-        if self.module_data.pickup_science != SCIENCE_INVALID {
+        if module_data.pickup_science != SCIENCE_INVALID {
             if !self.player_has_science(
                 other.get_controlling_player(),
-                self.module_data.pickup_science,
+                module_data.pickup_science,
             ) {
                 return false;
             }
@@ -376,7 +380,7 @@ impl CrateCollide {
     pub fn finalize_collection(&mut self, other: &dyn GameObject) -> Result<(), CollisionError> {
         let crate_position = self.get_object_position()?;
 
-        if let Some(ref fx_name) = self.module_data.execute_fx {
+        if let Some(fx_name) = &self.module_data.read().execute_fx {
             self.play_fx_at_object(fx_name, other)?;
         }
 
@@ -395,12 +399,13 @@ impl CrateCollide {
         if !crate::helpers::TheGameLogic::get_draw_icon_ui() {
             return Ok(());
         }
-        if !self.module_data.execution_animation_template.is_empty() {
+        let module_data = self.module_data.read();
+        if !module_data.execution_animation_template.is_empty() {
             self.play_world_animation(
-                &self.module_data.execution_animation_template,
+                &module_data.execution_animation_template,
                 position,
-                self.module_data.execute_animation_display_time_seconds,
-                self.module_data.execute_animation_z_rise_per_second,
+                module_data.execute_animation_display_time_seconds,
+                module_data.execute_animation_z_rise_per_second,
                 true,
             )?;
         }
@@ -680,13 +685,38 @@ mod tests {
         collection.write().new_template(AsciiString::from(name));
     }
 
+    fn crate_data_view(data: CrateCollideModuleData) -> ModuleDataView<CrateCollideModuleData> {
+        use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+        use game_engine::common::thing::module::ModuleDataHandle;
+        ModuleDataView::new(ModuleDataHandle::new(CrateCollideDataAdapter::new(data)), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<CrateCollideModuleData>>().expect("crate data").data
+        })
+    }
+
+    #[test]
+    fn crate_collide_reads_mutated_shared_definition() {
+        use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+
+        let view = crate_data_view(CrateCollideModuleData::default());
+        let handle = view.handle().clone();
+        let collide = CrateCollide::new(7, view);
+        {
+            let mut guard = handle.write();
+            let any: &mut dyn std::any::Any = &mut *guard;
+            let adapter = any.downcast_mut::<CrateCollideDataAdapter<CrateCollideModuleData>>()
+                .expect("crate data");
+            adapter.data.required_kind_of = 123;
+        }
+        assert_eq!(collide.get_module_data().required_kind_of, 123);
+    }
+
     #[test]
     fn crate_collide_records_current_logic_frame_on_create() {
         let _guard = crate_collide_test_guard();
         set_logic_frame(321);
         let _frame_reset = LogicFrameReset;
 
-        let collide = CrateCollide::new(7, CrateCollideModuleData::default());
+        let collide = CrateCollide::new(7, crate_data_view(CrateCollideModuleData::default()));
 
         assert_eq!(collide.get_creation_time().expect("creation time"), 321);
     }
@@ -695,7 +725,7 @@ mod tests {
     fn crate_collide_collection_state_updates_on_its_owned_instance() {
         let _guard = crate_collide_test_guard();
         let _frame_reset = LogicFrameReset;
-        let mut collide = CrateCollide::new(9, CrateCollideModuleData::default());
+        let mut collide = CrateCollide::new(9, crate_data_view(CrateCollideModuleData::default()));
 
         assert!(!collide.is_collected().expect("initial collection state"));
         collide.set_collected(true).expect("mark collected");
@@ -715,7 +745,7 @@ mod tests {
         let object = Object::new_with_id(template, 8, ObjectStatusMaskType::none(), None)
             .expect("crate object");
 
-        let collide = CrateCollide::from_object_handle(&object, CrateCollideModuleData::default());
+        let collide = CrateCollide::from_object_handle(&object, crate_data_view(CrateCollideModuleData::default()));
 
         assert_eq!(collide.get_creation_time().expect("creation time"), 654);
         OBJECT_REGISTRY.unregister_object(8);
@@ -744,7 +774,7 @@ mod tests {
         data.execute_animation_display_time_seconds = 2.5;
         data.execute_animation_z_rise_per_second = 4.0;
         data.execute_animation_fades = true;
-        let collide = CrateCollide::from_object_handle(&object, data);
+        let collide = CrateCollide::from_object_handle(&object, crate_data_view(data));
 
         collide
             .play_execution_animation()
@@ -781,7 +811,7 @@ mod tests {
         let mut data = CrateCollideModuleData::default();
         data.execution_animation_template = "CratePickupZeroDurationAnimTest".to_string();
         data.execute_animation_display_time_seconds = 0.0;
-        let collide = CrateCollide::from_object_handle(&object, data);
+        let collide = CrateCollide::from_object_handle(&object, crate_data_view(data));
 
         collide
             .play_execution_animation()
@@ -814,7 +844,7 @@ mod tests {
         let mut data = CrateCollideModuleData::default();
         data.execution_animation_template = "CratePickupDrawIconDisabledTest".to_string();
         data.execute_animation_display_time_seconds = 1.0;
-        let collide = CrateCollide::from_object_handle(&object, data);
+        let collide = CrateCollide::from_object_handle(&object, crate_data_view(data));
 
         collide
             .play_execution_animation()

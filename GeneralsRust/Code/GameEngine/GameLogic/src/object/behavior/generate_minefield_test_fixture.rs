@@ -416,7 +416,11 @@ fn owned_place_mines_plays_generation_fx_once_after_placement() {
             assert!(crate::helpers::register_fx_list_manager(recorder.clone()));
             let mut fixture = MinefieldFixture::new(98_106);
             let mut behavior = fixture.behavior(false);
-            behavior.config.generation_fx = Some("AuthoredMineFX".into());
+            let mut data = behavior.config.handle().write();
+            (&mut *data as &mut dyn std::any::Any)
+                .downcast_mut::<GenerateMinefieldBehaviorModuleData>().unwrap()
+                .generation_fx = Some("AuthoredMineFX".into());
+            drop(data);
             let before = fixture.scheduler.get_all_object_ids().len();
             behavior.place_mines_owned(&mut fixture).expect("owned place with genFX");
             assert!(fixture.scheduler.get_all_object_ids().len() > before, "mines placed");
@@ -461,7 +465,11 @@ fn emp_upgrade_destroys_old_mines_immediately_then_places_upgraded() {
 fn emp_upgrade_body() {
     let mut fixture = MinefieldFixture::new(98_133);
     let mut behavior = fixture.behavior(false);
-    behavior.config.mine_name_upgraded = Some(fixture.template.clone());
+    let mut data = behavior.config.handle().write();
+    (&mut *data as &mut dyn std::any::Any)
+        .downcast_mut::<GenerateMinefieldBehaviorModuleData>().unwrap()
+        .mine_name_upgraded = Some(fixture.template.clone());
+    drop(data);
     behavior.place_mines_owned(&mut fixture).unwrap();
     let old = fixture.assert_real_mines(&behavior);
     assert_eq!(
@@ -565,7 +573,11 @@ fn legacy_gen_fx_body() {
     let recorder = Arc::new(GenFxRecorder::default());
     assert!(crate::helpers::register_fx_list_manager(recorder.clone()));
     let mut behavior = fixture.behavior(false);
-    behavior.config.generation_fx = Some("LegacyMineGenFX".into());
+    let mut data = behavior.config.handle().write();
+    (&mut *data as &mut dyn std::any::Any)
+        .downcast_mut::<GenerateMinefieldBehaviorModuleData>().unwrap()
+        .generation_fx = Some("LegacyMineGenFX".into());
+    drop(data);
     behavior.place_mines().expect("legacy place_mines");
     let mines = behavior.get_mine_list();
     assert!(!mines.is_empty(), "legacy path creates real mines");

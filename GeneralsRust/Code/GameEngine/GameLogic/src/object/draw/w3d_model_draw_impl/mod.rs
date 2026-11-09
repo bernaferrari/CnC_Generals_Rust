@@ -39,7 +39,7 @@ use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{
-    Module, ModuleData, ModuleInterfaceType, ModuleType, TimeOfDay,
+    Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleInterfaceType, ModuleType, TimeOfDay,
 };
 use log::warn;
 use std::any::Any;

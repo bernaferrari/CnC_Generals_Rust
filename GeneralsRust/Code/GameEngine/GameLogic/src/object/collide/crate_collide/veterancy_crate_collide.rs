@@ -15,6 +15,8 @@ use crate::object::collide::*;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use std::sync::{Arc, Mutex};
 
 /// Wave 368: host-only path has no dual-world factory objects.
@@ -283,7 +285,7 @@ const VETERANCY_CRATE_COLLIDE_FIELDS: &[IniFieldParse<VeterancyCrateCollideModul
 /// It can affect a single unit or all units within a specified range.
 pub struct VeterancyCrateCollide {
     base: LegacyCrateCollide,
-    module_data: VeterancyCrateCollideModuleData,
+    module_data: ModuleDataView<VeterancyCrateCollideModuleData>,
     owner_object_id: ObjectId,
     version: u32,
 }
@@ -294,9 +296,15 @@ impl VeterancyCrateCollide {
     /// # Arguments
     /// * `object_id` - The ID of the object this module belongs to
     /// * `module_data` - Configuration data for the veterancy crate collision behavior
-    pub fn new(object_id: ObjectId, module_data: VeterancyCrateCollideModuleData) -> Self {
+    pub fn new(object_id: ObjectId, handle: ModuleDataHandle) -> Self {
+        let module_data = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<VeterancyCrateCollideModuleData>>().expect("veterancy crate data").data
+        });
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<VeterancyCrateCollideModuleData>>().expect("veterancy crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::new(object_id, module_data.base.clone()),
+            base: LegacyCrateCollide::new(object_id, base_data),
             module_data,
             owner_object_id: object_id,
             version: 1,
@@ -304,8 +312,8 @@ impl VeterancyCrateCollide {
     }
 
     /// Get the veterancy crate collision module data
-    pub fn get_veterancy_crate_collide_module_data(&self) -> &VeterancyCrateCollideModuleData {
-        &self.module_data
+    pub fn get_veterancy_crate_collide_module_data(&self) -> parking_lot::MappedRwLockReadGuard<'_, VeterancyCrateCollideModuleData> {
+        self.module_data.read()
     }
 
     /// Get the number of levels this crate will grant
@@ -315,7 +323,7 @@ impl VeterancyCrateCollide {
             return 0;
         }
 
-        if !self.module_data.adds_owner_veterancy {
+        if !self.module_data.read().adds_owner_veterancy {
             return 1;
         }
 
@@ -432,7 +440,7 @@ impl VeterancyCrateCollide {
         }
 
         // Pilot-specific checks
-        if self.module_data.is_pilot {
+        if self.module_data.read().is_pilot {
             if self.owner_player_id() != Some(other.get_controlling_player()) {
                 return false;
             }
@@ -500,7 +508,10 @@ impl VeterancyCrateCollide {
         }
 
         let levels_to_gain = self.get_levels_to_gain();
-        let range = self.module_data.range_of_effect as f32;
+        let (range, is_pilot) = {
+            let data = self.module_data.read();
+            (data.range_of_effect as f32, data.is_pilot)
+        };
 
         let mut affected_objects = Vec::new();
 
@@ -518,11 +529,11 @@ impl VeterancyCrateCollide {
                 continue;
             };
             obj_guard
-                .gain_exp_for_level_with_side_effects(levels_to_gain, !self.module_data.is_pilot);
+                .gain_exp_for_level_with_side_effects(levels_to_gain, !is_pilot);
         }
 
         // Transfer object name for pilots (for script control)
-        if self.module_data.is_pilot {
+        if is_pilot {
             if let Some(owner_name) = TheGameLogic::find_object_by_id(self.owner_object_id)
                 .and_then(|obj| obj.read().ok().map(|obj| obj.get_name().clone()))
             {
@@ -708,7 +719,7 @@ mod tests {
             ..Default::default()
         };
 
-        let veterancy_crate = VeterancyCrateCollide::new(1, module_data);
+        let veterancy_crate = VeterancyCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
 
         assert_eq!(veterancy_crate.get_version(), 1);
         assert_eq!(
@@ -733,7 +744,7 @@ mod tests {
             ..Default::default()
         };
 
-        let veterancy_crate = VeterancyCrateCollide::new(1, module_data);
+        let veterancy_crate = VeterancyCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
 
         // No owner object exists in this unit test setup.
         assert_eq!(veterancy_crate.get_levels_to_gain(), 0);
@@ -743,7 +754,7 @@ mod tests {
             ..Default::default()
         };
 
-        let veterancy_crate_no_owner = VeterancyCrateCollide::new(1, module_data_no_owner);
+        let veterancy_crate_no_owner = VeterancyCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data_no_owner)));
         assert_eq!(veterancy_crate_no_owner.get_levels_to_gain(), 1);
     }
 
@@ -774,7 +785,7 @@ mod tests {
         assert!(off_map_nearby.read().expect("off map read").is_off_map());
 
         let veterancy_crate =
-            VeterancyCrateCollide::new(71_100, VeterancyCrateCollideModuleData::default());
+            VeterancyCrateCollide::new(71_100, ModuleDataHandle::new(CrateCollideDataAdapter::new(VeterancyCrateCollideModuleData::default())));
         let affected = veterancy_crate.collect_area_effect_object_ids(&other, 50.0);
 
         assert!(affected.contains(&71_000));
@@ -796,7 +807,7 @@ mod tests {
             ..Default::default()
         };
 
-        let veterancy_crate = VeterancyCrateCollide::new(1, module_data);
+        let veterancy_crate = VeterancyCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
 
         let result = veterancy_crate.execute_crate_behavior_internal(&other);
         assert!(result.is_ok());
@@ -817,7 +828,7 @@ mod tests {
             ..Default::default()
         };
 
-        let veterancy_crate = VeterancyCrateCollide::new(1, module_data);
+        let veterancy_crate = VeterancyCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
 
         let result = veterancy_crate.execute_crate_behavior_internal(&other);
         assert!(result.is_ok());

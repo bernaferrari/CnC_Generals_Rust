@@ -70,7 +70,7 @@ crate::impl_behavior_module_data_via_base!(BridgeScaffoldBehaviorModuleData, bas
 
 /// BridgeScaffoldBehavior - controls scaffold motion during bridge construction
 pub struct BridgeScaffoldBehavior {
-    pub module_data: Arc<BridgeScaffoldBehaviorModuleData>,
+    pub module_data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     next_call_frame_and_phase: UnsignedInt,
 
@@ -91,7 +91,7 @@ pub struct BridgeScaffoldBehavior {
 impl BridgeScaffoldBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
-        module_data: Arc<BridgeScaffoldBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         initial_object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
         let initial_pos = match initial_object {
@@ -104,6 +104,11 @@ impl BridgeScaffoldBehavior {
                 }
             }
         };
+        let (lateral_speed, vertical_speed) = {
+            let data = module_data.read();
+            let data = data.downcast_ref::<BridgeScaffoldBehaviorModuleData>().expect("invalid scaffold module data");
+            (data.default_lateral_speed, data.default_vertical_speed)
+        };
 
         let mut behavior = Self {
             module_data,
@@ -114,12 +119,10 @@ impl BridgeScaffoldBehavior {
             rise_to_pos: Coord3D::new(0.0, 0.0, 0.0),
             build_pos: Coord3D::new(0.0, 0.0, 0.0),
             target_pos: Coord3D::new(0.0, 0.0, 0.0),
-            lateral_speed: 1.0,
-            vertical_speed: 1.0,
+            lateral_speed,
+            vertical_speed,
         };
 
-        behavior.lateral_speed = behavior.module_data.default_lateral_speed;
-        behavior.vertical_speed = behavior.module_data.default_vertical_speed;
 
         if let Some(pos) = initial_pos {
             behavior.create_pos = pos;
@@ -133,7 +136,7 @@ impl BridgeScaffoldBehavior {
 
     pub fn new_from_object_handle(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<BridgeScaffoldBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = object
             .read()
@@ -145,7 +148,7 @@ impl BridgeScaffoldBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<BridgeScaffoldBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 335: empty dual-world → fail closed.
         if dual_world_registry_unavailable() {
@@ -420,14 +423,14 @@ impl BehaviorModuleInterface for BridgeScaffoldBehavior {
 pub struct BridgeScaffoldBehaviorModule {
     behavior: BridgeScaffoldBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<BridgeScaffoldBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BridgeScaffoldBehaviorModule {
     pub fn new(
         behavior: BridgeScaffoldBehavior,
         module_name: &AsciiString,
-        module_data: Arc<BridgeScaffoldBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -468,12 +471,12 @@ impl EngineModule for BridgeScaffoldBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     fn on_object_created(&mut self) {
         self.behavior.update_target_position();
@@ -566,14 +569,13 @@ impl BridgeScaffoldBehavior {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     #[test]
     fn bridge_scaffold_behavior_defaults_to_still_motion() {
-        let data = Arc::new(BridgeScaffoldBehaviorModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(BridgeScaffoldBehaviorModuleData::default());
         let behavior = BridgeScaffoldBehavior::construct_with_object_id(
             super::OBJECT_INVALID_ID,
-            Arc::clone(&data),
+            data,
             None,
         );
         assert_eq!(behavior.target_motion, ScaffoldTargetMotion::Still);

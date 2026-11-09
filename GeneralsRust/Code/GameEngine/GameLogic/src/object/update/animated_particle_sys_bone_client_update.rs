@@ -5,20 +5,19 @@ use crate::common::ObjectID;
 use crate::helpers::TheGameLogic;
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
-use std::sync::Arc;
+use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 pub struct AnimatedParticleSysBoneClientUpdateModule {
     module_name_key: NameKeyType,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     owner_id: ObjectID,
     life: u32,
 }
 
 impl AnimatedParticleSysBoneClientUpdateModule {
-    pub fn new(
+    pub fn new_with_module_data(
         module_name_key: NameKeyType,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         owner_id: ObjectID,
     ) -> Self {
         Self {
@@ -75,11 +74,11 @@ impl Module for AnimatedParticleSysBoneClientUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
@@ -182,6 +181,7 @@ pub fn leftover_template_uses_animated_particle_sys_bones(template_name: &str) -
     template.get_draw_module_info().iter().any(|entry| {
         entry
             .data
+            .read()
             .as_any()
             .downcast_ref::<crate::object::draw::W3DModelDrawModuleData>()
             .is_some_and(|data| data.particles_attached_to_animated_bones)
@@ -198,8 +198,8 @@ mod tests {
 
     #[test]
     fn animated_particle_sys_bone_xfer_writes_cpp_version_only_block() {
-        let module_data = Arc::new(BaseModuleData::new());
-        let mut saved = AnimatedParticleSysBoneClientUpdateModule::new(11, module_data.clone(), 22);
+        let module_data = ModuleDataHandle::new(BaseModuleData::new());
+        let mut saved = AnimatedParticleSysBoneClientUpdateModule::new_with_module_data(11, module_data.clone(), 22);
         saved.life = 1234;
 
         let mut bytes = Vec::new();
@@ -211,7 +211,7 @@ mod tests {
             save.close().unwrap();
         }
 
-        let mut loaded = AnimatedParticleSysBoneClientUpdateModule::new(11, module_data, 22);
+        let mut loaded = AnimatedParticleSysBoneClientUpdateModule::new_with_module_data(11, module_data, 22);
         loaded.life = 77;
         {
             let mut load = XferLoad::new(Cursor::new(bytes), 1);
@@ -225,8 +225,8 @@ mod tests {
 
     #[test]
     fn animated_particle_sys_bone_exposes_typed_client_update_interface() {
-        let module_data = Arc::new(BaseModuleData::new());
-        let mut module = AnimatedParticleSysBoneClientUpdateModule::new(11, module_data, 22);
+        let module_data = ModuleDataHandle::new(BaseModuleData::new());
+        let mut module = AnimatedParticleSysBoneClientUpdateModule::new_with_module_data(11, module_data, 22);
 
         assert!(module.get_client_update_interface().is_some());
     }
@@ -239,9 +239,9 @@ mod receiving_update_tests {
 
     #[test]
     fn receiving_animated_update_advances_once_and_keeps_peer_independent() {
-        let data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
-        let mut a = AnimatedParticleSysBoneClientUpdateModule::new(1, Arc::clone(&data), 91);
-        let mut b = AnimatedParticleSysBoneClientUpdateModule::new(1, data, 91);
+        let data = ModuleDataHandle::new(BaseModuleData::new());
+        let mut a = AnimatedParticleSysBoneClientUpdateModule::new_with_module_data(1, data.clone(), 91);
+        let mut b = AnimatedParticleSysBoneClientUpdateModule::new_with_module_data(1, data, 91);
         let mut callbacks = 0;
         a.client_update_with(|| callbacks += 1);
         assert_eq!(a.life(), 1);

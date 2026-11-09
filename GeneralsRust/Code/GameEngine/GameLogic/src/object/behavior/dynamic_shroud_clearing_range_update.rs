@@ -409,7 +409,7 @@ const DYNAMIC_SHROUD_UPDATE_FIELDS: &[FieldParse<DynamicShroudClearingRangeUpdat
 /// DynamicShroudClearingRangeUpdate - manages shroud clearing range over time
 pub struct DynamicShroudClearingRangeUpdate {
     object_id: ObjectID,
-    module_data: Arc<DynamicShroudClearingRangeUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
 
     /// Current state machine state
@@ -443,29 +443,25 @@ pub struct DynamicShroudClearingRangeUpdate {
 impl DynamicShroudClearingRangeUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let config = module_data
-            .get_dynamic_shroud_clearing_range_update_config()
-            .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
-        Self::new_with_data(
-            object,
-            Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
-                config, 0,
-            )),
-        )
+        Self::new_with_module_data(object, module_data)
     }
 
-    pub(crate) fn new_with_data(
+    pub(crate) fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<DynamicShroudClearingRangeUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let guard = module_data.read();
+        let data = guard.downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
+            .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
         // Calculate state timeline (see C++ diagram comment)
-        let state_countdown = (module_data.shrink_delay + module_data.shrink_time) as i32;
+        let state_countdown = (data.shrink_delay + data.shrink_time) as i32;
         let total_frames = state_countdown.max(1);
-        let shrink_start_deadline = state_countdown as u32 - module_data.shrink_delay;
-        let grow_start_deadline = state_countdown as u32 - module_data.grow_delay;
-        let sustain_deadline = grow_start_deadline - module_data.grow_time;
+        let shrink_start_deadline = state_countdown as u32 - data.shrink_delay;
+        let grow_start_deadline = state_countdown as u32 - data.grow_delay;
+        let sustain_deadline = grow_start_deadline - data.grow_time;
+        drop(guard);
 
         debug_assert!(
             sustain_deadline >= shrink_start_deadline,
@@ -517,21 +513,6 @@ impl DynamicShroudClearingRangeUpdate {
         })
     }
 
-    pub fn from_module_data(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn EngineModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let config = module_data
-            .get_dynamic_shroud_clearing_range_update_config()
-            .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
-        Self::new_with_data(
-            object,
-            Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
-                config,
-                module_data.get_module_tag_name_key(),
-            )),
-        )
-    }
 
     /// Create grid decals for visual effect
     fn create_grid_decals(&mut self, template: &RadiusDecalTemplate, radius: Real, pos: &Coord3D) {
@@ -655,8 +636,9 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
             }) {
                 if let Ok(obj) = obj_arc.read() {
                     let pos = *obj.get_position();
+                    let template = self.module_data.read().downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>().expect("Invalid module data").grid_decal_template.clone();
                     self.create_grid_decals(
-                        &self.module_data.grid_decal_template.clone(),
+                        &template,
                         100.0,
                         &pos,
                     );
@@ -683,7 +665,7 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
             }
             DSCRUState::Growing => {
                 self.animate_grid_decals();
-                let grow_time = self.module_data.grow_time.max(1) as f32;
+                let grow_time = self.module_data.read().downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>().expect("Invalid module data").grow_time.max(1) as f32;
                 self.current_clearing_range += self.native_clearing_range / grow_time;
                 if self.current_clearing_range >= self.native_clearing_range {
                     self.state = DSCRUState::Sustaining;
@@ -694,13 +676,15 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
                 self.kill_grid_decals();
             }
             DSCRUState::Shrinking => {
-                let shrink_time = self.module_data.shrink_time.max(1) as f32;
-                let range_diff = self.native_clearing_range - self.module_data.final_vision;
+                let guard = self.module_data.read();
+                let data = guard.downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>().expect("Invalid module data");
+                let shrink_time = data.shrink_time.max(1) as f32;
+                let range_diff = self.native_clearing_range - data.final_vision;
                 self.current_clearing_range -= range_diff / shrink_time;
             }
             DSCRUState::DoneForever => {
                 self.kill_grid_decals();
-                self.current_clearing_range = self.module_data.final_vision;
+                self.current_clearing_range = self.module_data.read().downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>().expect("Invalid module data").final_vision;
             }
             DSCRUState::Sleeping => {}
         }
@@ -714,11 +698,14 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
         if self.change_interval_countdown > 0 {
             self.change_interval_countdown -= 1;
         } else {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>().expect("Invalid module data");
             let interval = if self.state == DSCRUState::Growing {
-                self.module_data.grow_interval
+                data.grow_interval
             } else {
-                self.module_data.change_interval
+                data.change_interval
             };
+            drop(guard);
             self.change_interval_countdown = interval;
 
             // Apply range to object
@@ -807,14 +794,14 @@ impl Snapshotable for DynamicShroudClearingRangeUpdate {
 pub struct DynamicShroudClearingRangeUpdateModule {
     behavior: DynamicShroudClearingRangeUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<DynamicShroudClearingRangeUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl DynamicShroudClearingRangeUpdateModule {
     pub fn new(
         behavior: DynamicShroudClearingRangeUpdate,
         module_name: &AsciiString,
-        module_data: Arc<DynamicShroudClearingRangeUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -857,11 +844,11 @@ impl Module for DynamicShroudClearingRangeUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -879,17 +866,11 @@ pub struct DynamicShroudClearingRangeUpdateFactory;
 impl DynamicShroudClearingRangeUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        let config = module_data
-            .get_dynamic_shroud_clearing_range_update_config()
-            .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
-        let module_data_arc = Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
-            config, 0,
-        ));
-        Ok(Box::new(DynamicShroudClearingRangeUpdate::new_with_data(
+        Ok(Box::new(DynamicShroudClearingRangeUpdate::new_with_module_data(
             thing,
-            module_data_arc,
+            module_data,
         )?))
     }
 }

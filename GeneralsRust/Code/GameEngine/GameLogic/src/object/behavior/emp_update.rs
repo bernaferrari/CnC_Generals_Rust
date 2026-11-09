@@ -331,7 +331,7 @@ const EMP_UPDATE_FIELDS: &[FieldParse<EMPUpdateModuleData>] = &[
 
 pub struct EMPUpdate {
     object_id: ObjectID,
-    module_data: Arc<EMPUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     die_frame: UnsignedInt,
     #[allow(dead_code)]
     tint_env_fade_frames: UnsignedInt,
@@ -343,32 +343,30 @@ pub struct EMPUpdate {
 impl EMPUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<EMPUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
-        Self::new_with_data(object, Arc::new(specific_data.clone()))
+        Self::new_with_data(object, module_data)
     }
 
     pub fn new_with_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<EMPUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let guard = module_data.read();
+        let data = guard.downcast_ref::<EMPUpdateModuleData>().ok_or("Invalid module data")?;
         let now = TheGameLogic::get_frame();
-        let die_frame = now.saturating_add(module_data.life_frames);
-        let tint_env_play_frame = now.saturating_add(module_data.start_fade_frame);
+        let die_frame = now.saturating_add(data.life_frames);
+        let tint_env_play_frame = now.saturating_add(data.start_fade_frame);
         let tint_env_fade_frames = die_frame.saturating_sub(tint_env_play_frame);
         let target_scale =
-            GameLogicRandomValueReal(module_data.target_scale_min, module_data.target_scale_max);
+            GameLogicRandomValueReal(data.target_scale_min, data.target_scale_max);
 
         if let Ok(mut guard) = object.write() {
             let _ = guard.set_orientation(GameLogicRandomValueReal(-PI, PI));
         }
 
-        let current_scale = module_data.start_scale;
+        let current_scale = data.start_scale;
+        drop(guard);
         Ok(Self {
             object_id: object
                 .read()
@@ -390,7 +388,8 @@ impl EMPUpdate {
             return;
         }
 
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<EMPUpdateModuleData>().expect("Invalid module data");
         let source_guard = match source.read() {
             Ok(guard) => guard,
             Err(_) => return,
@@ -587,11 +586,11 @@ impl UpdateModuleInterface for EMPUpdate {
                 if let Ok(mut dr) = drawable.write() {
                     dr.set_instance_scale(self.current_scale);
                     if now < self.tint_env_play_frame {
-                        dr.color_tint(Some(saturate_rgb(self.module_data.start_color, 2.0)));
+                        dr.color_tint(Some(saturate_rgb(self.module_data.read().downcast_ref::<EMPUpdateModuleData>().expect("Invalid module data").start_color, 2.0)));
                     }
                     if now == self.tint_env_play_frame {
                         dr.color_flash(
-                            Some(saturate_rgb(self.module_data.end_color, 5.0)),
+                            Some(saturate_rgb(self.module_data.read().downcast_ref::<EMPUpdateModuleData>().expect("Invalid module data").end_color, 5.0)),
                             9999,
                             self.tint_env_fade_frames,
                             true,
@@ -646,14 +645,14 @@ impl Snapshotable for EMPUpdate {
 pub struct EMPUpdateModule {
     behavior: EMPUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<EMPUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl EMPUpdateModule {
     pub fn new(
         behavior: EMPUpdate,
         module_name: &AsciiString,
-        module_data: Arc<EMPUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -696,12 +695,12 @@ impl Module for EMPUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
+        }
 
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
@@ -718,7 +717,7 @@ pub struct EMPUpdateFactory;
 impl EMPUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(EMPUpdate::new(thing, module_data)?))
     }

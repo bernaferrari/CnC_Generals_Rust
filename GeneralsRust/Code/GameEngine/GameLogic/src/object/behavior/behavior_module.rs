@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    Bool, Coord2D, Coord3D, CoordOrigin, Int, ModuleData, ObjectID, Real, UnsignedInt, Xfer,
+    Bool, Coord2D, Coord3D, CoordOrigin, Int, ObjectID, Real, UnsignedInt, Xfer,
     XferVersion,
 };
 use crate::object::Object;
@@ -259,11 +259,11 @@ impl Snapshotable for BehaviorModuleData {
 /// BehaviorModule - Base implementation for all behavior modules
 pub struct BehaviorModule {
     pub object_id: ObjectID,
-    pub module_data: Arc<dyn ModuleData>,
+    pub module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl BehaviorModule {
-    pub fn new(thing: Arc<RwLock<Object>>, module_data: Arc<dyn ModuleData>) -> Self {
+    pub fn new(thing: Arc<RwLock<Object>>, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         let object_id = thing
             .read()
             .ok()

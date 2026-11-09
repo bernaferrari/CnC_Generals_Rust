@@ -76,7 +76,7 @@ fn rate(world: &GameLogic, name: &str) -> f32 {
         .next()
         .unwrap()
         .data
-        .as_any()
+        .read().as_any()
         .downcast_ref::<gamelogic::object::draw::W3DTankDrawModuleData>()
         .unwrap()
         .tread_animation_rate

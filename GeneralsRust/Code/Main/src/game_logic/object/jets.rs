@@ -706,16 +706,19 @@ impl Object {
 
     fn jet_lockon_data(
         &self,
-    ) -> Option<&gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData> {
+    ) -> Option<parking_lot::MappedRwLockReadGuard<'_, gamelogic::object::update::ai_update::jet_ai_update::JetAIUpdateModuleData>> {
         self.thing()
             .template
             .receiving_client_template
             .as_ref()?
             .receiving_jet_lockon_data()
     }
-    pub(crate) fn jet_lockon_cursor_name(&self) -> Option<&str> {
+    pub(crate) fn jet_lockon_cursor_name(&self) -> Option<parking_lot::MappedRwLockReadGuard<'_, str>> {
         let data = self.jet_lockon_data()?;
-        (!data.lockon_cursor.is_empty()).then(|| data.lockon_cursor.as_str())
+        if data.lockon_cursor.is_empty() {
+            return None;
+        }
+        Some(parking_lot::MappedRwLockReadGuard::map(data, |data| data.lockon_cursor.as_str()))
     }
     pub(crate) fn refresh_jet_lockon_position(&mut self, now: u32) {
         self.position_jet_lockon(now);

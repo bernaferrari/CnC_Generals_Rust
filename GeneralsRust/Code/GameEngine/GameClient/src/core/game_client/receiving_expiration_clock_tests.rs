@@ -15,7 +15,7 @@ fn expiration_template() -> ThingTemplate {
         template.add_client_update_module_info(
             "AnimatedParticleSysBoneClientUpdate".into(),
             tag.into(),
-            Arc::new(BaseModuleData::new()),
+            game_engine::common::thing::module::ModuleDataHandle::new(BaseModuleData::new()),
             ModuleInterfaceType::CLIENT_UPDATE,
         );
     }

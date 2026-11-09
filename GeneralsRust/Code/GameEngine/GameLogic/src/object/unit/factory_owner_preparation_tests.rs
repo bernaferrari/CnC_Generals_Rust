@@ -5,7 +5,7 @@ use crate::common::Coord3D;
 use crate::common::{DefaultThingTemplate, TemplateModuleInfo};
 use crate::modules::AIAttitudeType;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use game_engine::common::thing::module::ModuleInterfaceType;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleInterfaceType};
 use std::sync::{Arc, RwLock};
 
 struct PreparedTemplate {
@@ -45,7 +45,7 @@ fn template() -> PreparedTemplate {
         modules: vec![TemplateModuleInfo {
             name: "AIUpdateInterface".into(),
             module_tag: "PreparedAi".into(),
-            data: Arc::new(data),
+            data: ModuleDataHandle::new(data),
             interface_mask: ModuleInterfaceType::UPDATE,
         }],
     }
@@ -234,7 +234,7 @@ fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
     let mut module = AIUpdateModuleData::default();
     module.set_locomotor_set_entries(crate::common::LocomotorSetType::Normal, vec![name.into()]);
     let mut authored = template();
-    authored.modules[0].data = Arc::new(module);
+    authored.modules[0].data = ModuleDataHandle::new(module);
     let ai = crate::object::object_factory::factory_ai::prepare_unit_ai(&owner, &authored, id);
     let mut ai = ai.lock().unwrap();
     let UnitAIUpdate {

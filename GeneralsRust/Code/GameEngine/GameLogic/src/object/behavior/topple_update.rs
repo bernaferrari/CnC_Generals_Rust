@@ -247,7 +247,7 @@ enum ToppleState {
 
 pub struct ToppleUpdate {
     object_id: ObjectID,
-    module_data: Arc<ToppleUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<ToppleUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     angular_velocity: Real,
     angular_acceleration: Real,
@@ -264,12 +264,12 @@ pub struct ToppleUpdate {
 impl ToppleUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        handle: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<ToppleUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !handle.is::<ToppleUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<ToppleUpdateModuleData>().expect("ToppleUpdate module data"));
 
         Ok(Self {
             object_id: object
@@ -277,7 +277,7 @@ impl ToppleUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             angular_velocity: 0.0,
             angular_acceleration: 0.0,
@@ -294,8 +294,10 @@ impl ToppleUpdate {
 
     pub fn new_from_object_handle(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<ToppleUpdateModuleData>,
+        handle: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        assert!(handle.is::<ToppleUpdateModuleData>());
+        let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<ToppleUpdateModuleData>().expect("ToppleUpdate module data"));
         Self {
             object_id: object
                 .read()
@@ -423,11 +425,13 @@ impl ToppleUpdate {
             return;
         }
 
+        let view = self.module_data.clone();
+        let data = view.read();
         let now = crate::helpers::TheGameLogic::get_frame();
         self.next_call_frame_and_phase = now.saturating_add(1);
         obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
 
-        if self.module_data.kill_when_start_toppled {
+        if data.kill_when_start_toppled {
             self.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
             obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
             obj.kill(None, None);
@@ -445,8 +449,8 @@ impl ToppleUpdate {
             }
         }
 
-        self.angular_velocity = topple_speed * self.module_data.initial_velocity_percent;
-        self.angular_acceleration = topple_speed * self.module_data.initial_accel_percent;
+        self.angular_velocity = topple_speed * data.initial_velocity_percent;
+        self.angular_acceleration = topple_speed * data.initial_accel_percent;
         self.topple_state = ToppleState::Falling;
         self.options = options;
 
@@ -458,7 +462,7 @@ impl ToppleUpdate {
         let mut topple_angle =
             Self::normalize_angle(self.topple_direction.y.atan2(self.topple_direction.x));
 
-        if self.module_data.topple_left_or_right_only {
+        if data.topple_left_or_right_only {
             topple_angle = Self::angle_closest_to(
                 cur_angle_x + std::f32::consts::PI / 2.0,
                 cur_angle_x - std::f32::consts::PI / 2.0,
@@ -489,14 +493,14 @@ impl ToppleUpdate {
         self.angle_delta_x = (desired_angle_x - cur_angle_x) / self.num_angle_delta_x as Real;
 
         obj.set_model_condition_state(crate::common::ModelConditionFlags::TOPPLED);
-        if let Some(fx) = &self.module_data.topple_fx {
+        if let Some(fx) = &data.topple_fx {
             let _ = fx.do_fx_obj(object_arc, None);
         }
 
-        if !self.module_data.stump_name.is_empty() {
+        if !data.stump_name.is_empty() {
             if let Ok(factory) = TheThingFactory::get() {
                 if let Some(template) =
-                    TheThingFactory::find_template(self.module_data.stump_name.as_str())
+                    TheThingFactory::find_template(data.stump_name.as_str())
                 {
                     if let Ok(stump_arc) = factory.new_object_optional_team(template, None) {
                         if let Ok(mut stump) = stump_arc.write() {
@@ -547,6 +551,8 @@ impl UpdateModuleInterface for ToppleUpdate {
         let Ok(mut obj) = object_arc.write() else {
             return UpdateSleepTime::None;
         };
+        let view = self.module_data.clone();
+        let data = view.read();
 
         if self.num_angle_delta_x > 0 {
             let mut xfrm = obj.get_transform_matrix();
@@ -569,16 +575,16 @@ impl UpdateModuleInterface for ToppleUpdate {
 
         self.angular_accumulation += cur_vel_to_use;
         if self.angular_accumulation >= ANGULAR_LIMIT && self.angular_velocity > 0.0 {
-            self.angular_velocity *= -self.module_data.bounce_velocity_percent;
+            self.angular_velocity *= -data.bounce_velocity_percent;
 
             let no_bounce = (self.options & TOPPLE_OPTIONS_NO_BOUNCE) != 0;
             if no_bounce || self.angular_velocity.abs() < VELOCITY_BOUNCE_LIMIT {
                 self.angular_velocity = 0.0;
                 self.topple_state = ToppleState::Down;
 
-                if self.module_data.kill_when_toppled {
+                if data.kill_when_toppled {
                     Self::death_by_toppling(&mut obj);
-                    if self.module_data.reorient_toppled_rubble {
+                    if data.reorient_toppled_rubble {
                         let mut pos = Coord3D::new(
                             0.0,
                             0.0,
@@ -593,7 +599,7 @@ impl UpdateModuleInterface for ToppleUpdate {
                     }
                 }
 
-                if self.module_data.kill_stump_when_toppled {
+                if data.kill_stump_when_toppled {
                     let stump_id = self.stump_id;
                     drop(obj);
                     if let Some(stump_arc) = TheGameLogic::find_object_by_id(stump_id) {
@@ -612,7 +618,7 @@ impl UpdateModuleInterface for ToppleUpdate {
             } else if self.angular_velocity.abs() >= VELOCITY_BOUNCE_SOUND_LIMIT {
                 let no_fx = (self.options & TOPPLE_OPTIONS_NO_FX) != 0;
                 if !no_fx {
-                    if let Some(fx) = &self.module_data.bounce_fx {
+                    if let Some(fx) = &data.bounce_fx {
                         let _ = fx.do_fx_obj(&object_arc, None);
                     }
                 }
@@ -735,7 +741,7 @@ impl ToppleControlInterface for ToppleUpdate {
 pub struct ToppleUpdateModule {
     behavior: ToppleUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<ToppleUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl ToppleUpdateModule {
@@ -746,7 +752,7 @@ impl ToppleUpdateModule {
     pub fn new(
         behavior: ToppleUpdate,
         module_name: &AsciiString,
-        module_data: Arc<ToppleUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -789,11 +795,11 @@ impl Module for ToppleUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_topple_control_interface(
@@ -855,27 +861,22 @@ pub fn topple_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModule
 
 pub fn topple_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<ToppleUpdateModuleData>()
-        .expect("ToppleUpdateModuleData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<ToppleUpdateModuleData>());
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("ToppleUpdate requires a valid object");
-    let behavior = ToppleUpdate::new_from_object_handle(object, Arc::clone(&module_data_arc));
+    let behavior = ToppleUpdate::new_from_object_handle(object, module_data.clone());
 
     let module_name = AsciiString::from("ToppleUpdate");
     Box::new(ToppleUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }
 
@@ -1002,7 +1003,7 @@ pub struct ToppleUpdateFactory;
 impl ToppleUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(ToppleUpdate::new(thing, module_data)?))
     }

@@ -23,14 +23,15 @@ impl TransportContain {
             .read()
             .map_err(|_| "remove rider poisoned")?;
         let orientation = owner.get_orientation();
-        let exit_position = if !self.module_data.exit_bone.is_empty() {
+        let exit_bone = self.module_data.read().exit_bone.clone();
+        let exit_position = if !exit_bone.is_empty() {
             match owner.get_drawable() {
                 Some(drawable) => {
                     let drawable = drawable
                         .read()
                         .map_err(|_| "remove bone drawable poisoned")?;
                     let positions = drawable.get_pristine_bone_positions(
-                        self.module_data.exit_bone.as_str(),
+                        exit_bone.as_str(),
                         0,
                         1,
                     );
@@ -44,7 +45,7 @@ impl TransportContain {
         } else {
             None
         };
-        let parent_velocity = if self.module_data.keep_container_velocity_on_exit {
+        let parent_velocity = if self.module_data.read().keep_container_velocity_on_exit {
             owner
                 .get_physics()
                 .map(|physics| {
@@ -99,7 +100,7 @@ impl TransportContain {
                 .set_object_position_handle(&prepared.passenger, &position)
                 .expect("admitted exit bone position");
         }
-        if self.module_data.orient_like_container_on_exit {
+        if self.module_data.read().orient_like_container_on_exit {
             world
                 .set_object_orientation_handle(&prepared.passenger, orientation)
                 .expect("admitted exit orientation");
@@ -121,7 +122,7 @@ impl TransportContain {
             if let (Some(velocity), Some(physics)) = (parent_velocity, &rider_physics) {
                 let mut physics = physics.access().expect("admitted rider physics poisoned");
                 let force = velocity * rider_mass.expect("observed cargo Physics mass");
-                let pitch = physics.get_center_of_mass_offset() * self.module_data.exit_pitch_rate;
+                let pitch = physics.get_center_of_mass_offset() * self.module_data.read().exit_pitch_rate;
                 let wake = physics.apply_motive_force_with_object_at(&force, &rider, world.frame());
                 physics.set_pitch_rate(pitch);
                 drop(physics);
@@ -148,7 +149,7 @@ impl TransportContain {
         }
         // C++ callback point: no passenger Object loan survives AI operations.
         if let Some(ai) = &ai {
-            if self.module_data.go_aggressive_on_exit {
+            if self.module_data.read().go_aggressive_on_exit {
                 ai.lock()
                     .expect("admitted removal AI poisoned")
                     .set_attitude(AIAttitudeType::Aggressive)
@@ -159,14 +160,14 @@ impl TransportContain {
             world.scatter_removed(&prepared.passenger, &prepared.owner);
         }
         if let Some(ai) = ai {
-            if self.module_data.reset_mood_check_time_on_exit {
+            if self.module_data.read().reset_mood_check_time_on_exit {
                 ai.lock()
                     .expect("admitted removal AI poisoned")
                     .wake_up_and_attempt_to_target_at(world.frame())
                     .expect("admitted removal wake");
             }
         }
-        self.frame_exit_not_busy = world.frame().wrapping_add(self.module_data.exit_delay);
+        self.frame_exit_not_busy = world.frame().wrapping_add(self.module_data.read().exit_delay);
         self.refresh_armed_riders_with_world(&prepared.owner, &prepared.members, world);
         {
             let mut owner = prepared

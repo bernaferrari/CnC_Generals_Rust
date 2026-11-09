@@ -4,6 +4,8 @@
 //! special powers on the target command center. Mirrors the C++ behavior where
 //! infiltrating an enemy command center forces its powers back to recharge.
 //! Author: Kris Morness, June 2003 (original C++), converted to Rust
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
@@ -237,19 +239,19 @@ const SABOTAGE_COMMAND_CENTER_CRATE_COLLIDE_FIELDS: &[IniFieldParse<
 pub struct SabotageCommandCenterCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
-    /// Module-specific data
-    module_data: SabotageCommandCenterCrateCollideModuleData,
 }
 
 impl SabotageCommandCenterCrateCollide {
     /// Create new sabotage command center crate collide module
     pub fn new(
         object: &Arc<RwLock<Object>>,
-        module_data: SabotageCommandCenterCrateCollideModuleData,
+        handle: ModuleDataHandle,
     ) -> Self {
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SabotageCommandCenterCrateCollideModuleData>>().expect("sabotage crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data,
+            base: LegacyCrateCollide::from_object_handle(&object, base_data),
         }
     }
 

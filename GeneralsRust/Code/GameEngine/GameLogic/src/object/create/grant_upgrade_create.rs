@@ -70,11 +70,11 @@ impl Snapshotable for GrantUpgradeCreateModuleData {
 #[derive(Debug)]
 pub struct GrantUpgradeCreate {
     base: CreateModule,
-    module_data: Arc<GrantUpgradeCreateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl GrantUpgradeCreate {
-    pub fn new(thing: Arc<dyn ThingTrait>, module_data: Arc<GrantUpgradeCreateModuleData>) -> Self {
+    pub fn new(thing: Arc<dyn ThingTrait>, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Self {
         Self {
             base: CreateModule::new(thing),
             module_data,
@@ -87,14 +87,19 @@ impl GrantUpgradeCreate {
             return;
         }
 
+        let upgrade_name = {
+            let data = self.module_data.read();
+            data.as_any().downcast_ref::<GrantUpgradeCreateModuleData>()
+                .expect("GrantUpgradeCreate data type").upgrade_name.clone()
+        };
         let upgrade = with_upgrade_center(|center| {
-            center.find_upgrade(self.module_data.upgrade_name.as_str())
+            center.find_upgrade(upgrade_name.as_str())
         });
         let Some(upgrade) = upgrade else {
             log::warn!(
                 "GrantUpgradeCreate for object {} can't find upgrade template {}",
                 object_id,
-                self.module_data.upgrade_name
+                upgrade_name
             );
             return;
         };
@@ -135,7 +140,9 @@ impl CreateInterface for GrantUpgradeCreate {
     fn on_create(&self) {}
 
     fn on_create_with_owner(&self, owner: &mut dyn std::any::Any) {
-        let exempt_status = self.module_data.exempt_status;
+        let exempt_status = self.module_data.read().as_any()
+            .downcast_ref::<GrantUpgradeCreateModuleData>()
+            .expect("GrantUpgradeCreate data type").exempt_status;
         if !exempt_status.test(ObjectStatusTypes::UnderConstruction) {
             return;
         }

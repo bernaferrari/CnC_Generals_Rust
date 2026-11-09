@@ -303,7 +303,7 @@ pub struct ParkingPlaceBehavior {
     /// Weak reference to owning object
     object_id: ObjectID,
     /// Module data
-    module_data: Arc<ParkingPlaceBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<ParkingPlaceBehaviorModuleData>,
     /// Whether parking info has been built
     got_info: Bool,
     /// Inherited UpdateModule scheduler state.
@@ -323,29 +323,13 @@ pub struct ParkingPlaceBehavior {
 }
 
 impl ParkingPlaceBehavior {
-    /// Create new parking place behavior
-    /// Matches C++ ParkingPlaceBehavior::ParkingPlaceBehavior (line 32)
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<ParkingPlaceBehaviorModuleData>()
-            .ok_or("Invalid module data")?;
-
-        let now = crate::helpers::TheGameLogic::get_frame();
-        let wake_frame = now.saturating_add(1);
-
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !data.is::<ParkingPlaceBehaviorModuleData>() { return Err("Invalid module data".into()); }
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            module_data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<ParkingPlaceBehaviorModuleData>().expect("ParkingPlaceBehavior module data type")),
             got_info: false,
-            next_call_frame_and_phase: wake_frame,
+            next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
             spaces: Vec::new(),
             runways: Vec::new(),
             healing: VecDeque::new(),
@@ -355,9 +339,10 @@ impl ParkingPlaceBehavior {
         })
     }
 
+
     /// Get module data
-    fn get_module_data(&self) -> &ParkingPlaceBehaviorModuleData {
-        &self.module_data
+    fn get_module_data(&self) -> impl std::ops::Deref<Target = ParkingPlaceBehaviorModuleData> + '_ {
+        self.module_data.read()
     }
 
     fn set_hold_door_open(&self, door: u32, open: Bool) {
@@ -419,9 +404,9 @@ impl ParkingPlaceBehavior {
             return;
         }
 
-        let num_rows = self.module_data.num_rows;
-        let num_cols = self.module_data.num_cols;
-        let has_runways = self.module_data.has_runways;
+        let num_rows = self.module_data.read().num_rows;
+        let num_cols = self.module_data.read().num_cols;
+        let has_runways = self.module_data.read().has_runways;
 
         self.spaces.reserve((num_rows * num_cols) as usize);
 
@@ -671,7 +656,7 @@ impl ParkingPlaceBehavior {
         self.spaces[idx].object_in_space = id;
         self.spaces[idx].reserved_for_exit = false;
 
-        if self.module_data.landing_deck_height_offset != 0.0 {
+        if self.module_data.read().landing_deck_height_offset != 0.0 {
             if let Some(obj) = TheGameLogic::find_object_by_id(id) {
                 if let Ok(mut guard) = obj.write() {
                     guard.set_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET, true);
@@ -1245,7 +1230,7 @@ impl Snapshotable for ParkingPlaceBehavior {
 pub struct ParkingPlaceBehaviorModule {
     behavior: ParkingPlaceBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<ParkingPlaceBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl ParkingPlaceBehaviorModule {
@@ -1256,7 +1241,7 @@ impl ParkingPlaceBehaviorModule {
     pub fn new(
         behavior: ParkingPlaceBehavior,
         module_name: &AsciiString,
-        module_data: Arc<ParkingPlaceBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -1299,11 +1284,11 @@ impl Module for ParkingPlaceBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -1736,11 +1721,11 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
     }
 
     fn get_approach_height(&self) -> Real {
-        self.module_data.approach_height
+        self.module_data.read().approach_height
     }
 
     fn get_landing_deck_height_offset(&self) -> Real {
-        self.module_data.landing_deck_height_offset
+        self.module_data.read().landing_deck_height_offset
     }
 
     fn set_healee(&mut self, healee: Option<ObjectID>, add: Bool) {
@@ -1863,9 +1848,9 @@ pub struct ParkingPlaceBehaviorFactory;
 impl ParkingPlaceBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(ParkingPlaceBehavior::new(thing, module_data)?))
+        Ok(Box::new(ParkingPlaceBehavior::new_with_module_data(thing, module_data)?))
     }
 }
 

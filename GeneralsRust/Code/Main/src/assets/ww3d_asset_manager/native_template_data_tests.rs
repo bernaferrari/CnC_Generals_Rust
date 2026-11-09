@@ -37,6 +37,7 @@ fn actual_source_parser_admits_typed_default_draw_before_native_client_assembly(
             assert!(
                 entries[0]
                     .data
+                    .read()
                     .as_any()
                     .is::<gamelogic::object::draw::W3DDefaultDrawModuleData>()
             );
@@ -50,6 +51,7 @@ fn actual_source_parser_admits_typed_default_draw_before_native_client_assembly(
                     .next()
                     .unwrap()
                     .data
+                    .read()
                     .as_any()
                     .is::<gamelogic::object::draw::W3DDefaultDrawModuleData>(),
                 "same-name peer must not be repaired or mutated"

@@ -40,7 +40,7 @@ fn source_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: "FortifyDozerBody".into(),
-                data: Arc::new(ActiveBodyModuleData {
+                data: game_engine::common::thing::module::ModuleDataHandle::new(ActiveBodyModuleData {
                     max_health: 100.0,
                     initial_health: 100.0,
                     ..Default::default()
@@ -50,13 +50,13 @@ fn source_template() -> Arc<dyn ThingTemplate> {
             TemplateModuleInfo {
                 name: "DozerAIUpdate".into(),
                 module_tag: "FortifyDozerAI".into(),
-                data: Arc::new(data),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(data),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
             TemplateModuleInfo {
                 name: "PhysicsBehavior".into(),
                 module_tag: "FortifyDozerPhysics".into(),
-                data: Arc::new(PhysicsBehaviorModuleData::default()),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(PhysicsBehaviorModuleData::default()),
                 interface_mask: ModuleInterfaceType::UPDATE | ModuleInterfaceType::COLLIDE,
             },
         ],
@@ -70,7 +70,7 @@ fn target_template() -> Arc<dyn ThingTemplate> {
         modules: vec![TemplateModuleInfo {
             name: "ActiveBody".into(),
             module_tag: "FortifyTargetBody".into(),
-            data: Arc::new(ActiveBodyModuleData {
+            data: game_engine::common::thing::module::ModuleDataHandle::new(ActiveBodyModuleData {
                 max_health: 100.0,
                 initial_health: 100.0,
                 ..Default::default()

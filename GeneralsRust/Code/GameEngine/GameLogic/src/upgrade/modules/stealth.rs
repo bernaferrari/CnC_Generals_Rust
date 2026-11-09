@@ -12,7 +12,6 @@ use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-use std::sync::Arc;
 
 /// Module data for stealth upgrade
 /// Matches C++ StealthUpgrade (no specific module data, uses base UpgradeModuleData)
@@ -144,7 +143,7 @@ const STEALTH_UPGRADE_FIELDS: &[FieldParse<StealthUpgradeModuleData>] = &[
 /// Matches C++ StealthUpgrade from StealthUpgrade.cpp
 pub struct StealthUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<StealthUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataView<StealthUpgradeModuleData>,
     object_id: ObjectID,
     mux: UpgradeMux,
 }
@@ -152,14 +151,14 @@ pub struct StealthUpgrade {
 impl StealthUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<StealthUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mux = UpgradeMux::new_shared(game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| &data.as_any().downcast_ref::<StealthUpgradeModuleData>().expect("StealthUpgradeModuleData").upgrade_mux_data));
 
         Self {
             module_name_key,
-            data,
+            data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<StealthUpgradeModuleData>().expect("StealthUpgradeModuleData")),
             object_id,
             mux,
         }
@@ -194,8 +193,9 @@ impl UpgradeModuleInterface for StealthUpgrade {
 
     fn attempt_upgrade(&mut self, key_mask: UpgradeMask, object: &mut Object) -> bool {
         if self.mux.would_upgrade(key_mask) {
-            self.mux.data.perform_upgrade_fx(object);
-            self.mux.data.process_upgrade_removal(object);
+            let data = self.mux.data_snapshot();
+            data.perform_upgrade_fx(object);
+            data.process_upgrade_removal(object);
             self.upgrade_implementation(object);
             self.mux.set_upgrade_executed(true);
             true
@@ -237,11 +237,11 @@ impl Module for StealthUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.handle().read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_stealth_upgrade_basic() {
-        let data = Arc::new(StealthUpgradeModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(StealthUpgradeModuleData::default());
         let upgrade = StealthUpgrade::new(1, data, 100);
 
         assert!(!upgrade.is_already_upgraded());
@@ -295,7 +295,7 @@ mod tests {
             .push(AsciiString::from("Upgrade_Stealth"));
         data.upgrade_mux_data = mask_data;
 
-        let data = Arc::new(data);
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let mut upgrade = StealthUpgrade::new(1, data, 100);
 
         let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Stealth");
@@ -317,7 +317,7 @@ mod tests {
             .push(AsciiString::from("Upgrade_Stealth"));
         data.upgrade_mux_data = mask_data;
 
-        let data = Arc::new(data);
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let mut upgrade = StealthUpgrade::new(1, data, 100);
 
         let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Stealth");
@@ -342,7 +342,7 @@ mod tests {
             .push(AsciiString::from("Upgrade_Stealth"));
         data.upgrade_mux_data = mask_data;
 
-        let data = Arc::new(data);
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(data);
         let mut upgrade = StealthUpgrade::new(1, data, 100);
 
         let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Stealth");

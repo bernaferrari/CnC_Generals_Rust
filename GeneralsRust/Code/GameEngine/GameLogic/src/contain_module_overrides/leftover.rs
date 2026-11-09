@@ -20,11 +20,10 @@ pub(super) fn ai_update_interface_data_factory(ini: Option<&mut INI>) -> Box<dyn
 
 pub(super) fn ai_update_interface_module_factory(
     _thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc = cloned_module_data::<AIUpdateModuleData>("AIUpdateInterface", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("AIUpdateInterface");
-    Box::new(AIUpdateInterfaceModule::new(module_name_key, data_arc))
+    Box::new(AIUpdateInterfaceModule::new(module_name_key, module_data))
 }
 
 macro_rules! ai_update_factories {
@@ -46,11 +45,10 @@ macro_rules! ai_update_factories {
 
         pub(super) fn $module_factory(
             _thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
             let module_name_key = NameKeyGenerator::name_to_key($module_name);
-            Box::new(<$module_ty>::new(module_name_key, data_arc))
+            Box::new(<$module_ty>::new(module_name_key, module_data))
         }
     };
 }
@@ -159,12 +157,11 @@ macro_rules! upgrade_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
             let module_name_key = NameKeyGenerator::name_to_key($module_name);
             let owner_id = resolve_owner_id(&thing);
-            Box::new(<$module_ty>::new(module_name_key, data_arc, owner_id))
+            Box::new(<$module_ty>::new(module_name_key, module_data, owner_id))
         }
     };
 }
@@ -177,12 +174,11 @@ macro_rules! empty_upgrade_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
             let module_name_key = NameKeyGenerator::name_to_key($module_name);
             let owner_id = resolve_owner_id(&thing);
-            Box::new(<$module_ty>::new(module_name_key, data_arc, owner_id))
+            Box::new(<$module_ty>::new(module_name_key, module_data, owner_id))
         }
     };
 }
@@ -357,13 +353,12 @@ macro_rules! special_power_factories {
 
         pub(super) fn $module_factory(
             thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
+            module_data: ModuleDataHandle,
         ) -> Box<dyn Module> {
-            let typed_data = cloned_module_data_or_default::<$data_ty>($module_name, &module_data);
             Box::new(<$module_ty>::new(
                 NameKeyGenerator::name_to_key($module_name),
                 resolve_owner_id(&thing),
-                typed_data,
+                module_data,
             ))
         }
     };
@@ -387,14 +382,12 @@ pub(super) fn baikonur_launch_power_module_data_factory(
 
 pub(super) fn baikonur_launch_power_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let data_arc =
-        cloned_module_data::<BaikonurLaunchPowerModuleData>("BaikonurLaunchPower", &module_data);
     Box::new(BaikonurLaunchPower::new(
         NameKeyGenerator::name_to_key("BaikonurLaunchPower"),
         resolve_owner_id(&thing),
-        data_arc,
+        module_data,
     ))
 }
 

@@ -7,12 +7,10 @@
 //! The duration can be extended by capturing units (contained count bonus).
 //! Delegates to SpyVisionUpdate for the actual shroud/vision manipulation.
 
-use std::sync::Arc;
-
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, NameKeyType};
 
 use crate::common::{ObjectID, UnsignedInt};
 use crate::helpers::TheGameLogic;
@@ -92,7 +90,7 @@ impl Snapshotable for SpyVisionSpecialPowerModuleData {
 /// delegates to the SpyVisionUpdate module on the same object.
 pub struct SpyVisionSpecialPower {
     module_name_key: NameKeyType,
-    data: Arc<SpyVisionSpecialPowerModuleData>,
+    data: ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -101,12 +99,13 @@ impl SpyVisionSpecialPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<SpyVisionSpecialPowerModuleData>,
+        data: ModuleDataHandle,
     ) -> Self {
+        let base_module = super::interface::make_shared_base_module!(owner_object_id, data, SpyVisionSpecialPowerModuleData);
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module,
             data,
         }
     }
@@ -126,7 +125,12 @@ impl SpyVisionSpecialPower {
 
         // Calculate duration from module data
         // Matches C++ SpyVisionSpecialPower::doSpecialPower() duration calculation
-        let mut duration = self.data.base_duration_in_frames;
+        let (mut duration, bonus_duration, max_duration) = {
+            let guard = self.data.read();
+            let data = guard.as_any().downcast_ref::<SpyVisionSpecialPowerModuleData>()
+                .expect("spy vision special power data type");
+            (data.base_duration_in_frames, data.bonus_duration_per_captured_in_frames, data.max_duration_in_frames)
+        };
 
         // Check if the owner object has a contain module for bonus duration
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
@@ -141,12 +145,12 @@ impl SpyVisionSpecialPower {
                     let contain_count = contain_guard.get_contain_count();
                     duration = duration.saturating_add(
                         contain_count
-                            .saturating_mul(self.data.bonus_duration_per_captured_in_frames),
+                            .saturating_mul(bonus_duration),
                     );
 
                     // C++ always caps when contain exists, including MaxDuration==0.
-                    if duration > self.data.max_duration_in_frames {
-                        duration = self.data.max_duration_in_frames;
+                    if duration > max_duration {
+                        duration = max_duration;
                     }
                 }
             }
@@ -244,11 +248,11 @@ impl Module for SpyVisionSpecialPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {

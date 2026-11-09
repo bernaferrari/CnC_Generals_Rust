@@ -16,6 +16,8 @@ use crate::player::Player;
 use crate::weapon::WeaponSetType;
 use crate::{GameLogicRandomValue, GameLogicRandomValueReal};
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Wave 390: host-only path has no dual-world factory objects.
@@ -328,13 +330,19 @@ const SALVAGE_CRATE_COLLIDE_FIELDS: &[IniFieldParse<SalvageCrateCollideModuleDat
 /// Concrete implementation of the Salvage crate behaviour.
 pub struct SalvageCrateCollide {
     base: BaseCrateCollide,
-    module_data: SalvageCrateCollideModuleData,
+    module_data: ModuleDataView<SalvageCrateCollideModuleData>,
 }
 
 impl SalvageCrateCollide {
-    pub fn new(object_id: ObjectId, module_data: SalvageCrateCollideModuleData) -> Self {
+    pub fn new(object_id: ObjectId, handle: ModuleDataHandle) -> Self {
+        let module_data = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SalvageCrateCollideModuleData>>().expect("salvage crate data").data
+        });
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<SalvageCrateCollideModuleData>>().expect("salvage crate data").data.base
+        });
         Self {
-            base: BaseCrateCollide::new(object_id, module_data.base.clone()),
+            base: BaseCrateCollide::new(object_id, base_data),
             module_data,
         }
     }
@@ -425,17 +433,19 @@ impl SalvageCrateCollide {
     }
 
     fn test_weapon_chance(&self) -> bool {
-        if self.module_data.weapon_chance == 1.0 {
+        let chance = self.module_data.read().weapon_chance;
+        if chance == 1.0 {
             return true;
         }
-        GameLogicRandomValueReal(0.0, 1.0) < self.module_data.weapon_chance
+        GameLogicRandomValueReal(0.0, 1.0) < chance
     }
 
     fn test_level_chance(&self) -> bool {
-        if self.module_data.level_chance == 1.0 {
+        let chance = self.module_data.read().level_chance;
+        if chance == 1.0 {
             return true;
         }
-        GameLogicRandomValueReal(0.0, 1.0) < self.module_data.level_chance
+        GameLogicRandomValueReal(0.0, 1.0) < chance
     }
 
     fn do_weapon_set(&self, other_id: ObjectID) -> Result<(), CollisionError> {
@@ -497,13 +507,14 @@ impl SalvageCrateCollide {
             return Ok(());
         };
 
-        let payout = if self.module_data.minimum_money != self.module_data.maximum_money {
-            GameLogicRandomValue(
-                self.module_data.minimum_money,
-                self.module_data.maximum_money,
-            )
+        let (minimum_money, maximum_money) = {
+            let data = self.module_data.read();
+            (data.minimum_money, data.maximum_money)
+        };
+        let payout = if minimum_money != maximum_money {
+            GameLogicRandomValue(minimum_money, maximum_money)
         } else {
-            self.module_data.minimum_money
+            minimum_money
         };
 
         if payout <= 0 {
@@ -840,7 +851,7 @@ mod tests {
             .expect("collector position");
         services.register(&collector);
 
-        let module = SalvageCrateCollide::new(1003, SalvageCrateCollideModuleData::default());
+        let module = SalvageCrateCollide::new(1003, ModuleDataHandle::new(CrateCollideDataAdapter::new(SalvageCrateCollideModuleData::default())));
         let collector_id = collector.read().expect("collector read").get_id();
         let position = module
             .money_floating_text_position(collector_id)
@@ -887,7 +898,7 @@ mod tests {
             maximum_money: 0,
             ..Default::default()
         };
-        let mut module = SalvageCrateCollide::new(1001, data);
+        let mut module = SalvageCrateCollide::new(1001, ModuleDataHandle::new(CrateCollideDataAdapter::new(data)));
 
         assert!(
             module
@@ -945,7 +956,7 @@ mod tests {
             maximum_money: 50,
             ..Default::default()
         };
-        let mut module = SalvageCrateCollide::new(1002, data);
+        let mut module = SalvageCrateCollide::new(1002, ModuleDataHandle::new(CrateCollideDataAdapter::new(data)));
         let origin = CollisionCoord3D::new(0.0, 0.0, 0.0);
 
         module

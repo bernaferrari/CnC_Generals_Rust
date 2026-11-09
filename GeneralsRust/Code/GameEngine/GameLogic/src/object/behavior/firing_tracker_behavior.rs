@@ -187,9 +187,9 @@ impl Module for FiringTrackerBehaviorModule {
         self.module_data.get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
-    }
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+            game_engine::common::thing::module::ModuleDataRead::borrowed(self.module_data.as_ref())
+        }
 
     fn on_object_created(&mut self) {
         self.behavior.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();

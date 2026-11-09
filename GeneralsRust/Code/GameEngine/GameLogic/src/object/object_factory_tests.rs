@@ -3,7 +3,7 @@ use crate::object::body::active_body::ActiveBodyModuleData;
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::BaseModuleData;
+use game_engine::common::thing::module::{BaseModuleData, ModuleDataHandle, ModuleDataRead};
 use game_engine::common::thing::module_factory::register_module_override;
 use game_engine::system::xfer_load::XferLoad;
 use game_engine::system::xfer_save::XferSave;
@@ -16,7 +16,7 @@ const PROBE_NAME: &str = "FactoryCreationBorrowProbe";
 /// its owner's write lock. A failure is immediate rather than a hung test.
 struct CreationProbe {
     owner_id: ObjectID,
-    data: Arc<dyn ModuleData>,
+    data: ModuleDataHandle,
     created: bool,
     delete_calls: u32,
     delete_status: Vec<bool>,
@@ -27,8 +27,8 @@ impl Module for CreationProbe {
         NameKeyGenerator::name_to_key(PROBE_NAME)
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -74,7 +74,7 @@ impl Snapshotable for CreationProbe {
     }
 }
 
-fn probe_factory(thing: Arc<dyn ModuleThing>, data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+fn probe_factory(thing: Arc<dyn ModuleThing>, data: ModuleDataHandle) -> Box<dyn Module> {
     Box::new(CreationProbe {
         owner_id: thing.as_object().expect("object module").get_object_id(),
         data,
@@ -110,7 +110,7 @@ impl AuthoredBodyTemplate {
             modules.push(crate::common::TemplateModuleInfo {
                 name: PROBE_NAME.into(),
                 module_tag: "ModuleTag_CreationProbe".into(),
-                data: Arc::new(data),
+                data: ModuleDataHandle::new(data),
                 interface_mask: ModuleInterfaceType::NONE,
             });
         }
@@ -124,7 +124,7 @@ impl AuthoredBodyTemplate {
         modules.push(crate::common::TemplateModuleInfo {
             name: "ActiveBody".into(),
             module_tag: "ModuleTag_AuthoredBody".into(),
-            data: Arc::new(data),
+            data: ModuleDataHandle::new(data),
             interface_mask: ModuleInterfaceType::BODY,
         });
         Self {

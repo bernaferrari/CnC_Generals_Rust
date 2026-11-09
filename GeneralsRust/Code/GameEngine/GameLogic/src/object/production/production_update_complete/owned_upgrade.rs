@@ -85,10 +85,14 @@ impl ProductionUpdateComplete {
 
     fn update_upgrade_animations_owned(&mut self, context: &mut dyn UpdateScheduleContext) {
         let frame = context.frame();
-        for index in 0..self.data.num_door_animations.min(DOOR_COUNT_MAX as i32) as usize {
+        let (count, opening, waiting, closing, complete) = self.with_data(|data| (
+            data.num_door_animations, data.door_opening_time, data.door_wait_open_time,
+            data.door_closing_time, data.construction_complete_duration,
+        ));
+        for index in 0..count.min(DOOR_COUNT_MAX as i32) as usize {
             let door = &mut self.doors[index];
             let transition = if door.door_opened_frame > 0 {
-                if frame - door.door_opened_frame > self.data.door_opening_time {
+                if frame - door.door_opened_frame > opening {
                     door.door_opened_frame = 0;
                     door.door_wait_open_frame = frame;
                     Some((OPENING_FLAGS[index], WAITING_OPEN_FLAGS[index]))
@@ -96,7 +100,7 @@ impl ProductionUpdateComplete {
                     None
                 }
             } else if door.door_wait_open_frame > 0 && !door.hold_open {
-                if frame - door.door_wait_open_frame > self.data.door_wait_open_time {
+                if frame - door.door_wait_open_frame > waiting {
                     door.door_wait_open_frame = 0;
                     door.door_closed_frame = frame;
                     Some((WAITING_OPEN_FLAGS[index], CLOSING_FLAGS[index]))
@@ -104,7 +108,7 @@ impl ProductionUpdateComplete {
                     None
                 }
             } else if door.door_closed_frame > 0 && !door.hold_open {
-                if frame - door.door_closed_frame > self.data.door_closing_time {
+                if frame - door.door_closed_frame > closing {
                     door.door_closed_frame = 0;
                     Some((CLOSING_FLAGS[index], ModelConditionFlags::empty()))
                 } else {
@@ -118,7 +122,7 @@ impl ProductionUpdateComplete {
             }
         }
         if self.construction_complete_frame > 0
-            && frame - self.construction_complete_frame > self.data.construction_complete_duration
+            && frame - self.construction_complete_frame > complete
         {
             self.construction_complete_frame = 0;
             context.change_owner_model_conditions(

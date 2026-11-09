@@ -121,7 +121,7 @@ impl ChinookAIUpdate {
                 })
                 .unwrap_or(false);
             if player_has {
-                return self.data.upgraded_supply_boost.max(0) as u32;
+                return self.data().upgraded_supply_boost.max(0) as u32;
             }
         }
         0

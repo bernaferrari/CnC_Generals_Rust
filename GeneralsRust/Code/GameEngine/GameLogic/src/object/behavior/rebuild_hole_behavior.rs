@@ -29,7 +29,10 @@ use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing as ModuleThing};
+use game_engine::common::thing::module::{
+    Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleDataView, NameKeyType,
+    Thing as ModuleThing,
+};
 
 /// Wave 331: host-only path has no dual-world factory objects.
 #[inline]
@@ -125,7 +128,7 @@ const REBUILD_HOLE_FIELDS: &[FieldParse<RebuildHoleBehaviorModuleData>] = &[
 #[derive(Debug)]
 pub struct RebuildHoleBehavior {
     object_id: ObjectID,
-    module_data: Arc<RebuildHoleBehaviorModuleData>,
+    module_data: ModuleDataView<RebuildHoleBehaviorModuleData>,
     worker_id: ObjectID,
     reconstructing_id: ObjectID,
     spawner_object_id: ObjectID,
@@ -136,10 +139,13 @@ pub struct RebuildHoleBehavior {
 }
 
 impl RebuildHoleBehavior {
-    pub fn new(object_id: ObjectID, module_data: Arc<RebuildHoleBehaviorModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: ModuleDataHandle) -> Self {
         Self {
             object_id,
-            module_data,
+            module_data: ModuleDataView::new(module_data, |data| {
+                data.as_any().downcast_ref::<RebuildHoleBehaviorModuleData>()
+                    .expect("RebuildHoleBehavior requires RebuildHoleBehaviorModuleData")
+            }),
             worker_id: INVALID_ID,
             reconstructing_id: INVALID_ID,
             spawner_object_id: INVALID_ID,
@@ -152,7 +158,7 @@ impl RebuildHoleBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<RebuildHoleBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
         let object_id = thing
             .as_object()
@@ -192,9 +198,12 @@ impl RebuildHoleBehavior {
     }
 
     fn resolve_worker_template(&mut self) -> Option<Arc<dyn crate::common::ThingTemplate>> {
-        if self.worker_template.is_none() && !self.module_data.worker_template_name.is_empty() {
-            self.worker_template =
-                TheThingFactory::find_template(self.module_data.worker_template_name.as_str());
+        if self.worker_template.is_none() {
+            let data = self.module_data.read();
+            if !data.worker_template_name.is_empty() {
+                self.worker_template =
+                    TheThingFactory::find_template(data.worker_template_name.as_str());
+            }
         }
         self.worker_template.clone()
     }
@@ -210,7 +219,7 @@ impl RebuildHoleBehavior {
         }
 
         self.worker_id = INVALID_ID;
-        self.worker_wait_counter = self.module_data.worker_respawn_delay;
+        self.worker_wait_counter = self.module_data.read().worker_respawn_delay;
 
         let _ = self.with_object_mut(|hole_guard| {
             hole_guard.mask_object(false);
@@ -459,6 +468,7 @@ impl RebuildHoleBehavior {
     }
 
     fn handle_healing(&self) {
+        let regen = self.module_data.read().hole_health_regen_percent_per_second;
         let hole_id = self.get_object_id();
         let _ = self.with_object(|hole| {
             let Some(body) = hole.get_body_module() else {
@@ -470,8 +480,7 @@ impl RebuildHoleBehavior {
                 return;
             }
 
-            let amount = (self.module_data.hole_health_regen_percent_per_second
-                / LOGICFRAMES_PER_SECOND as f32)
+            let amount = (regen / LOGICFRAMES_PER_SECOND as f32)
                 * max_health;
             if amount <= 0.0 {
                 return;
@@ -755,15 +764,16 @@ impl Snapshotable for RebuildHoleBehavior {
 pub struct RebuildHoleBehaviorModule {
     behavior: RebuildHoleBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<RebuildHoleBehaviorModuleData>,
+    module_data: ModuleDataHandle,
 }
 
 impl RebuildHoleBehaviorModule {
     pub fn new(
         behavior: RebuildHoleBehavior,
         module_name: &AsciiString,
-        module_data: Arc<RebuildHoleBehaviorModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Self {
+        assert!(ModuleDataHandle::ptr_eq(behavior.module_data.handle(), &module_data));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -801,11 +811,11 @@ impl Module for RebuildHoleBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {}
@@ -854,7 +864,7 @@ mod destructor_phase_tests {
     use super::*;
     use crate::object::ModuleEntry;
     use crate::object::registry::test_isolation_lock;
-    use game_engine::common::thing::module::{ModuleData as EngineModuleData, ModuleInterfaceType};
+    use game_engine::common::thing::module::ModuleInterfaceType;
 
     fn world_with_hole(
         hole_id: ObjectID,
@@ -867,7 +877,7 @@ mod destructor_phase_tests {
         let mut logic = crate::GameLogic::new();
         let hole = Arc::new(RwLock::new(Object::new_test(hole_id, 100.0)));
         let worker = Arc::new(RwLock::new(Object::new_test(worker_id, 100.0)));
-        let data = Arc::new(RebuildHoleBehaviorModuleData::default());
+        let data = ModuleDataHandle::new(RebuildHoleBehaviorModuleData::default());
         let mut behavior = RebuildHoleBehavior::new(hole_id, data.clone());
         behavior.worker_id = worker_id;
         let module = RebuildHoleBehaviorModule::new(
@@ -875,7 +885,7 @@ mod destructor_phase_tests {
             &AsciiString::from("RebuildHoleBehavior"),
             data.clone(),
         );
-        let engine_data: Arc<dyn EngineModuleData> = data;
+        let engine_data = data;
         hole.write().unwrap().modules.push(Arc::new(ModuleEntry::new(
             "RebuildHoleBehavior".into(),
             "ModuleTag_Rebuild".into(),

@@ -28,7 +28,7 @@ fn unsupported_template(name: &str, animation: bool, tracks: bool) -> ThingTempl
     template.add_draw_module_info(
         "W3DModelDraw".into(),
         "UnsupportedNativeDraw".into(),
-        Arc::new(data),
+        game_engine::common::thing::module::ModuleDataHandle::new(data),
         ModuleInterfaceType::DRAW,
     );
     template

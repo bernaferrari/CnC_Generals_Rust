@@ -11,6 +11,8 @@ use crate::object::collide::crate_collide::crate_collide::CrateCollide as Legacy
 use crate::object::collide::*;
 use crate::player::player_list;
 use game_engine::common::ini::{FieldParse, INI, INIError};
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 /// Module data specific to unit crate collision
 #[derive(Debug, Clone)]
@@ -44,7 +46,7 @@ impl UnitCrateCollideModuleData {
 /// of a specified type for the player who picks it up.
 pub struct UnitCrateCollide {
     base: LegacyCrateCollide,
-    module_data: UnitCrateCollideModuleData,
+    module_data: ModuleDataView<UnitCrateCollideModuleData>,
     version: u32,
 }
 
@@ -54,17 +56,23 @@ impl UnitCrateCollide {
     /// # Arguments
     /// * `object_id` - The ID of the object this module belongs to
     /// * `module_data` - Configuration data for the unit crate collision behavior
-    pub fn new(object_id: ObjectId, module_data: UnitCrateCollideModuleData) -> Self {
+    pub fn new(object_id: ObjectId, handle: ModuleDataHandle) -> Self {
+        let module_data = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<UnitCrateCollideModuleData>>().expect("unit crate data").data
+        });
+        let base_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<UnitCrateCollideModuleData>>().expect("unit crate data").data.base
+        });
         Self {
-            base: LegacyCrateCollide::new(object_id, module_data.base.clone()),
+            base: LegacyCrateCollide::new(object_id, base_data),
             module_data,
             version: 1,
         }
     }
 
     /// Get the unit crate collision module data
-    pub fn get_unit_crate_collide_module_data(&self) -> &UnitCrateCollideModuleData {
-        &self.module_data
+    pub fn get_unit_crate_collide_module_data(&self) -> parking_lot::MappedRwLockReadGuard<'_, UnitCrateCollideModuleData> {
+        self.module_data.read()
     }
 
     /// Get the current version of this module for serialization
@@ -113,13 +121,16 @@ impl UnitCrateCollide {
         &self,
         other: &dyn GameObject,
     ) -> Result<bool, CollisionError> {
-        let unit_count = self.module_data.unit_count;
+        let (unit_count, unit_type) = {
+            let data = self.module_data.read();
+            (data.unit_count, data.unit_type.clone())
+        };
 
         let thing_factory = TheThingFactory::get().map_err(|e| {
             CollisionError::InvalidObject(format!("Failed to acquire thing factory: {}", e))
         })?;
 
-        let Some(unit_template) = TheThingFactory::find_template(&self.module_data.unit_type)
+        let Some(unit_template) = TheThingFactory::find_template(&unit_type)
         else {
             return Ok(false);
         };
@@ -527,7 +538,7 @@ mod tests {
             ..Default::default()
         };
 
-        let unit_crate = UnitCrateCollide::new(1, module_data);
+        let unit_crate = UnitCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
 
         assert_eq!(unit_crate.get_version(), 1);
         assert_eq!(
@@ -643,7 +654,7 @@ mod tests {
             unit_type: UnitCrateFixture::TEMPLATE.to_string(),
             ..Default::default()
         };
-        let unit_crate = UnitCrateCollide::new(1, module_data);
+        let unit_crate = UnitCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
         let result = unit_crate.execute_crate_behavior_internal(&game_obj);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
@@ -696,11 +707,11 @@ mod tests {
             let picker = fixture.create_picker();
             let unit_crate = UnitCrateCollide::new(
                 1,
-                UnitCrateCollideModuleData {
+                ModuleDataHandle::new(CrateCollideDataAdapter::new(UnitCrateCollideModuleData {
                     unit_count: 2,
                     unit_type: UnitCrateFixture::TEMPLATE.to_string(),
                     ..Default::default()
-                },
+                })),
             );
             assert!(unit_crate.execute_crate_behavior_internal(&picker).unwrap());
             assert_eq!(fixture.created().unwrap().len(), 3);
@@ -755,7 +766,7 @@ mod tests {
             ..Default::default()
         };
 
-        let unit_crate = UnitCrateCollide::new(1, module_data);
+        let unit_crate = UnitCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
         let game_obj = create_object_for_player("Infantry", 0, Coord3D::new(10.0, 20.0, 0.0));
 
         let result = unit_crate.execute_crate_behavior_internal(&game_obj);
@@ -770,7 +781,7 @@ mod tests {
         setup_player_with_team(1, "Player1Team");
 
         let module_data = UnitCrateCollideModuleData::default();
-        let mut unit_crate = UnitCrateCollide::new(1, module_data);
+        let mut unit_crate = UnitCrateCollide::new(1, ModuleDataHandle::new(CrateCollideDataAdapter::new(module_data)));
 
         let game_obj = create_object_for_player("Infantry", 1, Coord3D::new(5.0, 5.0, 0.0));
 

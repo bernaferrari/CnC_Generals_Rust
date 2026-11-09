@@ -316,6 +316,7 @@ fn authored_full_heal_change_type_is_accepted_and_preserved() {
                 .downcast_ref::<MaxHealthUpgrade>()
                 .unwrap()
                 .data
+                .read()
                 .change_type(),
             MaxHealthChangeType::FullyHeal
         )

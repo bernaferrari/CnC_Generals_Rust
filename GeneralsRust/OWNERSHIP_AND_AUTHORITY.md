@@ -426,12 +426,13 @@ original C++ save contract. No factory chunk is added to ordinary saves.
 
 Empty definition snapshots are not a blanket rule for all module data.
 `W3DModelDrawModuleData` snapshots mutable validation and bone/weapon caches.
-Those caches require an explicit owner shared by their actual consumers. The
-current factory Xfer still creates an aliased mutable reference from a shared
-Arc; empty callees do not make that reference sound. Its ownership contract
-remains open under hq-x1j4u.1.47 and hq-ha04t. Tests of definitions use borrowed
-factory CRC and uniquely owned typed Save/Load, without invoking that unsafe
-factory boundary (hq-2p19x).
+The factory retains an ordered list of shared module-data handles; migrated
+template and module readers borrow the same definition through read guards, and
+transfer obtains an exclusive write guard for each entry. Session forks remap
+the definitions while preserving aliases within each session. Admission stages
+changes and publishes only modified definitions after successful parsing.
+The factory's C++ version and entry order are unchanged. Original-executable
+save interoperability and the complete native runtime remain unverified.
 
 Installed object modules still retain the proxy and interface handles required
 by their existing scheduler and callback lifetimes. Installation borrows the
@@ -2996,9 +2997,8 @@ An ECM vehicle disabler fires through its authored targeted weapon, not an
 ambient proximity aura. Its separately authored missile jammer observes the
 weapon-slot shot deadline and remains owned by the firing world.
 
-Failed strict module-data parsing rolls back keys allocated by that admission;
-existing keys and registered module data remain unchanged. Shared module-data
-snapshot transfer still has an unsound mutable alias and needs an owner cutover.
+Failed strict module-data parsing rolls back name keys and staged definition
+changes; a successful admission retains existing module-data identities.
 
 The save-description dialog disables its owning menu's actions while open.
 Closing or reinitializing the cached popup restores its list and action frame

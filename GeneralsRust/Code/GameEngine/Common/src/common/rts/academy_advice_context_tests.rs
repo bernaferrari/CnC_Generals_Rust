@@ -34,37 +34,41 @@ fn experienced_stats() -> AcademyStats {
 fn advice32_uses_receiving_neutral_and_recovered_counts() {
     let mut s = experienced_stats();
     let mut info = AcademyAdviceInfo::default();
+    let mut client_random = crate::common::random_value::RandomState::default();
     let context = AcademyAdviceContext {
         frame: 100,
         use_alternate_mouse: true,
         neutral_vehicles_sniped: 1,
         ..Default::default()
     };
-    assert!(s.calculate_academy_advice_with_context(&mut info, context));
+    assert!(s.calculate_academy_advice_with_context(&mut info, &mut client_random, context));
     assert_eq!(info.advice[0], "ACADEMY:UnmannedVehicles");
     assert!(!s.calculate_academy_advice_with_context(
         &mut info,
+        &mut client_random,
         AcademyAdviceContext {
             neutral_vehicles_sniped: 0,
             ..context
         }
     ));
     s.vehicles_recovered = 1;
-    assert!(!s.calculate_academy_advice_with_context(&mut info, context));
+    assert!(!s.calculate_academy_advice_with_context(&mut info, &mut client_random, context));
 }
 
 #[test]
 fn advice31_and_income_deadline_use_the_receiving_context() {
     let s = experienced_stats();
     let mut info = AcademyAdviceInfo::default();
+    let mut client_random = crate::common::random_value::RandomState::default();
     let context = AcademyAdviceContext {
         frame: 100,
         use_alternate_mouse: true,
         ..Default::default()
     };
-    assert!(!s.calculate_academy_advice_with_context(&mut info, context));
+    assert!(!s.calculate_academy_advice_with_context(&mut info, &mut client_random, context));
     assert!(s.calculate_academy_advice_with_context(
         &mut info,
+        &mut client_random,
         AcademyAdviceContext {
             local_player_mines: 1,
             ..context
@@ -73,11 +77,12 @@ fn advice31_and_income_deadline_use_the_receiving_context() {
     assert_eq!(info.advice[0], "ACADEMY:NoIncome");
     assert!(s.calculate_academy_advice_with_context(
         &mut info,
+        &mut client_random,
         AcademyAdviceContext {
             frame: 3701,
             ..context
         }
     ));
     assert_eq!(info.advice[0], "ACADEMY:NoIncome");
-    assert!(!s.calculate_academy_advice_with_context(&mut info, context));
+    assert!(!s.calculate_academy_advice_with_context(&mut info, &mut client_random, context));
 }

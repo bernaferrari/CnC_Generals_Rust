@@ -56,7 +56,7 @@ use game_engine::common::audio::game_audio::{
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::thing::module::{
-    Drawable as ModuleDrawableTrait, Module, ModuleData, ModuleInterfaceType,
+    Drawable as ModuleDrawableTrait, Module, ModuleData, ModuleDataHandle, ModuleInterfaceType,
     Object as ModuleObjectTrait, Thing as ModuleThing,
 };
 use glam::{EulerRot, Quat};
@@ -229,7 +229,7 @@ struct DrawModuleEntry {
     name: AsciiString,
     tag: AsciiString,
     interface_mask: ModuleInterfaceType,
-    module_data: Arc<dyn ModuleData>,
+    module_data: ModuleDataHandle,
     module: Mutex<Box<dyn Module>>,
 }
 
@@ -248,7 +248,7 @@ impl DrawModuleEntry {
         name: AsciiString,
         tag: AsciiString,
         interface_mask: ModuleInterfaceType,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         module: Box<dyn Module>,
     ) -> Self {
         Self {
@@ -272,7 +272,7 @@ impl DrawModuleEntry {
         self.interface_mask
     }
 
-    fn data(&self) -> &Arc<dyn ModuleData> {
+    fn data(&self) -> &ModuleDataHandle {
         &self.module_data
     }
 
@@ -917,7 +917,7 @@ impl DrawableModuleHandle {
     where
         F: FnOnce(&dyn ModuleData) -> R,
     {
-        func(self.entry.data().as_ref())
+        func(&*self.entry.data().read())
     }
 
     pub fn with_object_draw_interface<F, R>(&self, func: F) -> Option<R>
@@ -962,8 +962,8 @@ impl DrawableModuleHandle {
             .with_module(|module| module.get_module_tag_name_key())
     }
 
-    pub fn module_data_arc(&self) -> Arc<dyn ModuleData> {
-        Arc::clone(self.entry.data())
+    pub fn module_data_arc(&self) -> ModuleDataHandle {
+        self.entry.data().clone()
     }
 
     pub fn with_module_downcast<T: 'static, F, R>(&self, func: F) -> Option<R>

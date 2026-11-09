@@ -93,7 +93,7 @@ const HIJACKER_UPDATE_FIELDS: &[FieldParse<HijackerUpdateModuleData>] = &[
 pub struct HijackerUpdate {
     object_id: ObjectID,
     #[allow(dead_code)]
-    module_data: Arc<HijackerUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     target_id: ObjectID,
@@ -104,14 +104,13 @@ pub struct HijackerUpdate {
 }
 
 impl HijackerUpdate {
-    pub fn new(
+    pub fn new_with_module_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<HijackerUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<HijackerUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         Ok(Self {
             object_id: object
@@ -119,7 +118,7 @@ impl HijackerUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             target_id: OBJECT_INVALID_ID,
             eject_pos: Coord3D {
@@ -337,9 +336,9 @@ pub struct HijackerUpdateFactory;
 impl HijackerUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(HijackerUpdate::new(thing, module_data)?))
+        Ok(Box::new(HijackerUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -352,14 +351,14 @@ mod tests {
     use std::sync::Mutex;
     use crate::weapon::WeaponSetType;
 
-    fn module_data() -> Arc<dyn ModuleData> {
-        Arc::new(HijackerUpdateModuleData::default())
+    fn module_data() -> game_engine::common::thing::module::ModuleDataHandle {
+        game_engine::common::thing::module::ModuleDataHandle::new(HijackerUpdateModuleData::default())
     }
 
     #[test]
     fn inactive_hijacker_update_runs_again_next_frame_like_cpp() {
         let hijacker = Arc::new(RwLock::new(GameObject::new_test(9301, 100.0)));
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new_with_module_data(Arc::clone(&hijacker), module_data()).unwrap();
 
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
     }
@@ -377,7 +376,7 @@ mod tests {
         OBJECT_REGISTRY.register_object(9302, &hijacker);
         OBJECT_REGISTRY.register_object(9303, &target);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new_with_module_data(Arc::clone(&hijacker), module_data()).unwrap();
         update.configure_hijacked_vehicle(9303);
 
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
@@ -410,7 +409,7 @@ mod tests {
         OBJECT_REGISTRY.register_object(9304, &hijacker);
         OBJECT_REGISTRY.register_object(9305, &target);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new_with_module_data(Arc::clone(&hijacker), module_data()).unwrap();
         update.configure_hijacked_vehicle(9305);
 
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
@@ -461,7 +460,7 @@ mod tests {
         OBJECT_REGISTRY.register_object(9309, &hijacker);
         OBJECT_REGISTRY.register_object(9310, &target);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new_with_module_data(Arc::clone(&hijacker), module_data()).unwrap();
         update.configure_hijacked_vehicle(9310);
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
         assert_eq!(
@@ -515,7 +514,7 @@ mod tests {
         }
         OBJECT_REGISTRY.register_object(9306, &hijacker);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new_with_module_data(Arc::clone(&hijacker), module_data()).unwrap();
         update.configure_hijacked_vehicle(99_999);
         update.eject_pos = eject_pos;
         update.was_target_airborne = true;

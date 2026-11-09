@@ -38,19 +38,19 @@ fn new_game_with(name: &str, rider_change_bike: bool) -> NativeMatch {
             TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: "WaypointBody".into(),
-                data: Arc::new(body),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(body),
                 interface_mask: ModuleInterfaceType::BODY,
             },
             TemplateModuleInfo {
                 name: "AIUpdateInterface".into(),
                 module_tag: "WaypointAI".into(),
-                data: Arc::new(ai_data),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(ai_data),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
             TemplateModuleInfo {
                 name: "PhysicsBehavior".into(),
                 module_tag: "WaypointPhysics".into(),
-                data: Arc::new(PhysicsBehaviorModuleData::default()),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(PhysicsBehaviorModuleData::default()),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
         ];
@@ -58,7 +58,7 @@ fn new_game_with(name: &str, rider_change_bike: bool) -> NativeMatch {
         modules.push(TemplateModuleInfo {
             name: "RiderChangeContain".into(),
             module_tag: "WaypointBikeContain".into(),
-            data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(
+            data: game_engine::common::thing::module::ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(
                 crate::object::contain::rider_change_contain::RiderChangeContainModuleData::default(),
             )),
             interface_mask: ModuleInterfaceType::CONTAIN,

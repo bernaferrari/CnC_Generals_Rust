@@ -3,7 +3,7 @@ use crate::common::*;
 use crate::helpers::{TheGameLogic, TheTerrainVisual};
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone, Default)]
@@ -198,13 +198,17 @@ mod tests {
 }
 
 pub struct W3DPropDraw {
-    data: W3DPropDrawModuleData,
+    data: ModuleDataHandle,
     owner_id: Option<ObjectID>,
     prop_added: bool,
     pending_prop_add: Option<TerrainPropAddRequest>,
 }
 impl W3DPropDraw {
     pub fn new(data: W3DPropDrawModuleData) -> Self {
+        Self::new_with_module_data(ModuleDataHandle::new(data))
+    }
+    pub fn new_with_module_data(data: ModuleDataHandle) -> Self {
+        assert!(data.is::<W3DPropDrawModuleData>());
         Self {
             data,
             owner_id: None,
@@ -253,7 +257,7 @@ impl W3DPropDraw {
                 position,
                 orientation,
                 scale,
-                self.data.model_name.as_str(),
+                self.data.read().as_any().downcast_ref::<W3DPropDrawModuleData>().expect("W3DPropDraw module data").model_name.as_str(),
             );
         }
     }
@@ -271,7 +275,9 @@ impl W3DPropDraw {
             return None;
         }
         self.prop_added = true;
-        if self.data.model_name.is_empty() {
+        let data = self.data.read();
+        let data = data.as_any().downcast_ref::<W3DPropDrawModuleData>().expect("W3DPropDraw module data");
+        if data.model_name.is_empty() {
             return None;
         }
         Some(TerrainPropAddRequest {
@@ -279,7 +285,7 @@ impl W3DPropDraw {
             location: position,
             orientation,
             scale,
-            model_name: self.data.model_name.clone(),
+            model_name: data.model_name.clone(),
         })
     }
 
@@ -307,10 +313,10 @@ impl Module for W3DPropDraw {
         keys.name_to_key("W3DPropDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 impl DrawModule for W3DPropDraw {

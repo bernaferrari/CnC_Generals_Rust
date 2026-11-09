@@ -12,7 +12,7 @@ use crate::common::{
     system::{Snapshotable, Xfer},
     thing::module::{
         BaseDrawableModule, BaseModuleData, Drawable, DrawableModule as BaseDrawableModuleTrait,
-        Module, ModuleData, NameKeyType,
+        Module, ModuleDataHandle, ModuleDataRead, NameKeyType,
     },
 };
 use std::sync::Arc;
@@ -306,11 +306,11 @@ pub struct DrawModule {
 
 impl DrawModule {
     pub fn new() -> Self {
-        Self::new_with_base(Arc::new(BaseModuleData::new()), 0, None)
+        Self::new_with_base(ModuleDataHandle::new(BaseModuleData::new()), 0, None)
     }
 
     pub fn new_with_base(
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         module_name_key: NameKeyType,
         drawable: Option<Arc<dyn Drawable>>,
     ) -> Self {
@@ -358,7 +358,7 @@ impl Module for DrawModule {
         self.base.get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
         self.base.get_module_data()
     }
 }

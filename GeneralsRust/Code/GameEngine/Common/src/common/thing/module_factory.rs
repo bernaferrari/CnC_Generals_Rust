@@ -18,7 +18,7 @@ use crate::common::{
     ini::INI,
     rts::{AsciiString, NameKeyType},
     system::{SubsystemInterface, Xfer},
-    thing::module::{Module, ModuleData, ModuleInterfaceType, ModuleType, Thing},
+    thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, ModuleInterfaceType, ModuleType, Thing},
 };
 use std::{
     any::Any,
@@ -351,7 +351,6 @@ fn module_maps<T>() -> ModuleMap<T> {
     std::array::from_fn(|_| HashMap::new())
 }
 
-#[derive(Clone)]
 pub struct ModuleFactory {
     // Present only for an explicitly admitted receiving content owner.
     // This plain value moves with the loader; it is never installed globally.
@@ -360,15 +359,38 @@ pub struct ModuleFactory {
     receiving_sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
     module_template_map: ModuleMap<ModuleTemplate>,
     module_overrides: ModuleMap<ModuleOverride>,
-    module_data_list: Vec<Arc<dyn ModuleData>>,
+    module_data_list: Vec<ModuleDataHandle>,
     fallible_data_constructors: ModuleMap<FallibleModuleDataProc>,
     descriptor_catalog: ModuleMap<TemplateModuleDescriptor>,
     descriptor_order: [Vec<String>; ModuleType::NUM_MODULE_TYPES],
 }
 
+impl Clone for ModuleFactory {
+    fn clone(&self) -> Self {
+        self.fork_for_session().0
+    }
+}
+
+impl ModuleFactory {
+    /// Copy registrations without retaining any session's definitions.
+    fn clone_catalog(&self) -> Self {
+        Self {
+            runtime_name_keys: self.runtime_name_keys.clone(),
+            receiving_special_powers: self.receiving_special_powers.clone(),
+            receiving_sciences: self.receiving_sciences.clone(),
+            module_template_map: self.module_template_map.clone(),
+            module_overrides: self.module_overrides.clone(),
+            module_data_list: Vec::new(),
+            fallible_data_constructors: self.fallible_data_constructors.clone(),
+            descriptor_catalog: self.descriptor_catalog.clone(),
+            descriptor_order: self.descriptor_order.clone(),
+        }
+    }
+}
+
 /// Function pointer type for creating new modules
 pub type NewModuleProc =
-    fn(thing: Arc<dyn Thing>, module_data: Arc<dyn ModuleData>) -> Box<dyn Module>;
+    fn(thing: Arc<dyn Thing>, module_data: ModuleDataHandle) -> Box<dyn Module>;
 
 /// Function pointer type for creating new module data
 pub type NewModuleDataProc = fn(ini: Option<&mut INI>) -> Box<dyn ModuleData>;
@@ -407,7 +429,7 @@ impl ModuleTemplate {
     fn create_module(
         &self,
         thing: Arc<dyn Thing>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
     ) -> Box<dyn Module> {
         if let Some(proc) = self.create_proc {
             proc(thing, module_data)
@@ -631,7 +653,7 @@ impl ModuleFactory {
         &self,
         thing: Arc<dyn Thing>,
         name: &str,
-        module_data: Arc<dyn ModuleData>,
+        module_data: ModuleDataHandle,
         module_type: ModuleType,
     ) -> Result<Box<dyn Module>, String> {
         if name.is_empty() {
@@ -661,10 +683,43 @@ impl ModuleFactory {
         &self,
         namespace: crate::common::name_key_generator::NameKeyNamespace,
     ) -> Self {
-        let mut catalog = self.clone();
-        catalog.module_data_list.clear();
+        let mut catalog = self.clone_catalog();
         catalog.runtime_name_keys = Some(namespace);
         catalog
+    }
+
+    /// Fork retained definitions once per identity for a separate session.
+    /// The returned remap must also be used for every template in that session.
+    pub(crate) fn fork_for_session(
+        &self,
+    ) -> (Self, crate::common::thing::module::ModuleDataRemap) {
+        self.fork_with_remap(crate::common::thing::module::ModuleDataRemap::default())
+    }
+
+    pub(crate) fn fork_for_transaction(
+        &self,
+    ) -> (Self, crate::common::thing::module::ModuleDataRemap) {
+        self.fork_with_remap(crate::common::thing::module::ModuleDataRemap::transaction_fork())
+    }
+
+    fn fork_with_remap(
+        &self,
+        mut remap: crate::common::thing::module::ModuleDataRemap,
+    ) -> (Self, crate::common::thing::module::ModuleDataRemap) {
+        let mut factory = self.clone_catalog();
+        factory.module_data_list = self.module_data_list.iter()
+            .map(|data| remap.remap(data))
+            .collect();
+        (factory, remap)
+    }
+
+    pub(crate) fn restore_transaction_handles(
+        &mut self,
+        remap: &crate::common::thing::module::ModuleDataRemap,
+    ) {
+        for data in &mut self.module_data_list {
+            *data = remap.restore(data);
+        }
     }
 
     pub fn receiving_name_keys_mut(
@@ -674,9 +729,8 @@ impl ModuleFactory {
     }
 
     pub(crate) fn validation_catalog(&self) -> Self {
-        let mut catalog = self.clone();
+        let mut catalog = self.clone_catalog();
         catalog.runtime_name_keys = None;
-        catalog.module_data_list.clear();
         catalog
     }
 
@@ -699,7 +753,7 @@ impl ModuleFactory {
         name: &str,
         module_type: ModuleType,
         module_tag: &str,
-    ) -> Result<Arc<dyn ModuleData>, String> {
+    ) -> Result<ModuleDataHandle, String> {
         let constructor = self.fallible_data_constructors[module_type as usize]
             .get(name)
             .copied()
@@ -751,7 +805,7 @@ impl ModuleFactory {
                 keys.name_to_key(module_tag)
             });
         data.set_module_tag_name_key(tag_key);
-        let data: Arc<dyn ModuleData> = Arc::from(data);
+        let data = ModuleDataHandle::from_box(data);
         self.module_data_list.push(data.clone());
         Ok(data)
     }
@@ -763,7 +817,7 @@ impl ModuleFactory {
         name: &str,
         module_type: ModuleType,
         module_tag: &str,
-    ) -> Result<Arc<dyn ModuleData>, String> {
+    ) -> Result<ModuleDataHandle, String> {
         if self.runtime_name_keys.is_some() {
             return self.new_module_data_from_ini_strict(ini, name, module_type, module_tag);
         }
@@ -787,7 +841,7 @@ impl ModuleFactory {
         let module_tag_key = self.string_to_name_key(module_tag);
         module_data.set_module_tag_name_key(module_tag_key);
 
-        let arc_data: Arc<dyn ModuleData> = Arc::from(module_data);
+        let arc_data = ModuleDataHandle::from_box(module_data);
         self.module_data_list.push(arc_data.clone());
 
         Ok(arc_data)
@@ -808,7 +862,7 @@ impl ModuleFactory {
         name: &str,
         module_type: ModuleType,
         module_tag: &str,
-    ) -> Option<Arc<dyn ModuleData>> {
+    ) -> Option<ModuleDataHandle> {
         if !self.has_module_data_proc(name, module_type) {
             return None;
         }
@@ -1046,7 +1100,7 @@ impl Snapshotable for ModuleFactory {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // C++ ModuleFactory.cpp:681-687 — every registered ModuleData, not a unique-Arc subset.
         for module_data in &self.module_data_list {
-            module_data.crc(xfer)?;
+            module_data.read().crc(xfer)?;
         }
         Ok(())
     }
@@ -1058,18 +1112,10 @@ impl Snapshotable for ModuleFactory {
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("ModuleFactory::xfer version failed: {}", e))?;
 
-        // Module data is shared with templates via Arc. C++ still xfers every
-        // entry; save/load is single-threaded, so exclusive mutation is valid.
+        // C++ visits every registered definition in insertion order. The
+        // exclusive guard also excludes readers through templates and modules.
         for module_data in &self.module_data_list {
-            // TODO(unsafe-review): `Arc::as_ptr` + `&mut` aliases module data
-            // that live modules and templates also own via `Arc` clones; the
-            // exclusivity of this `&mut` comes only from the single-threaded
-            // save/load convention, not from anything the type system can
-            // check (under stacked borrows, later reads through another
-            // `Arc` clone would be UB). Prefer `Arc::make_mut` or a `&dyn`
-            // read-only xfer path.
-            let data = unsafe { &mut *(Arc::as_ptr(module_data) as *mut dyn ModuleData) };
-            data.xfer(xfer)?;
+            module_data.write().xfer(xfer)?;
         }
         Ok(())
     }
@@ -1255,7 +1301,7 @@ mod tests {
         // Uses default `Thing` methods.
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct StubModuleData;
 
     impl ModuleData for StubModuleData {
@@ -1330,14 +1376,14 @@ mod tests {
             0
         }
 
-        fn get_module_data(&self) -> &dyn ModuleData {
-            &TEST_STUB_MODULE_DATA
+        fn get_module_data(&self) -> ModuleDataRead<'_> {
+            ModuleDataRead::borrowed(&TEST_STUB_MODULE_DATA)
         }
     }
 
     fn test_new_module(
         _thing: Arc<dyn Thing>,
-        _module_data: Arc<dyn ModuleData>,
+        _module_data: ModuleDataHandle,
     ) -> Box<dyn Module> {
         Box::new(TestStubModule)
     }
@@ -1348,7 +1394,7 @@ mod tests {
 
     fn override_new_module(
         _thing: Arc<dyn Thing>,
-        _module_data: Arc<dyn ModuleData>,
+        _module_data: ModuleDataHandle,
     ) -> Box<dyn Module> {
         Box::new(TestStubModule)
     }

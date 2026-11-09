@@ -55,14 +55,14 @@ fn assert_cpp_source_order(template: &ThingTemplate) {
         ),
     ] {
         for (entry, expected) in info.iter().zip(expected) {
-            assert_eq!(entry.data.get_ini_field("Probe"), Some(expected));
+            let data = entry.data.read();
+            assert_eq!(data.get_ini_field("Probe"), Some(expected));
             assert_eq!(
-                entry.data.get_ini_field("__declaration_order"),
+                data.get_ini_field("__declaration_order"),
                 None,
                 "parser metadata must not become module configuration"
             );
-            let captured = entry
-                .data
+            let captured = data
                 .downcast_ref::<CapturedModuleData>()
                 .expect("unknown fixture module preserves authored fields");
             assert!(!captured.raw_body().contains("__declaration_order"));
@@ -174,8 +174,9 @@ fn assert_manual_fallback(properties: HashMap<String, String>) {
         first.get_client_update_module_info(),
     ] {
         for entry in info.iter() {
-            assert_eq!(entry.data.get_ini_field("__declaration_order"), None);
-            let captured = entry.data.downcast_ref::<CapturedModuleData>().unwrap();
+            let data = entry.data.read();
+            assert_eq!(data.get_ini_field("__declaration_order"), None);
+            let captured = data.downcast_ref::<CapturedModuleData>().unwrap();
             assert!(!captured.raw_body().contains("__declaration_order"));
         }
     }

@@ -702,8 +702,8 @@ fn peel_leftover_factory_bone_fx(template_name: &str) -> Option<HostBoneFxAuthor
         if !entry.name.as_str().eq_ignore_ascii_case("BoneFXUpdate") {
             continue;
         }
-        if let Some(data) = entry
-            .data
+        let data_guard = entry.data.read();
+        if let Some(data) = data_guard
             .downcast_ref::<gamelogic::object::update::bone_fx_update::BoneFXUpdateModuleData>(
         ) {
             if let Some(authored) = authored_from_leftover_module_data(data) {
@@ -711,19 +711,19 @@ fn peel_leftover_factory_bone_fx(template_name: &str) -> Option<HostBoneFxAuthor
             }
         }
         let mut authored = HostBoneFxAuthored::default();
-        if let Some(raw) = entry.data.get_ini_field("DamageFXTypes") {
+        if let Some(raw) = data_guard.get_ini_field("DamageFXTypes") {
             authored.damage_fx_types = parse_damage_type_flags_attr(raw).bits();
         }
-        if let Some(raw) = entry.data.get_ini_field("DamageOCLTypes") {
+        if let Some(raw) = data_guard.get_ini_field("DamageOCLTypes") {
             authored.damage_ocl_types = parse_damage_type_flags_attr(raw).bits();
         }
-        if let Some(raw) = entry.data.get_ini_field("DamageParticleTypes") {
+        if let Some(raw) = data_guard.get_ini_field("DamageParticleTypes") {
             authored.damage_particle_types = parse_damage_type_flags_attr(raw).bits();
         }
         let mut any = false;
         for slot in 1..=BONE_FX_MAX_BONES {
             for (prefix, state) in FX_PREFIX {
-                if let Some(raw) = entry.data.get_ini_field(&format!("{prefix}{slot}")) {
+                if let Some(raw) = data_guard.get_ini_field(&format!("{prefix}{slot}")) {
                     if let Ok(info) = parse_fx_list_attr(raw) {
                         if let Some(s) = slot_from_leftover_fx(info) {
                             authored.fx[state][slot - 1] = Some(s);
@@ -733,7 +733,7 @@ fn peel_leftover_factory_bone_fx(template_name: &str) -> Option<HostBoneFxAuthor
                 }
             }
             for (prefix, state) in OCL_PREFIX {
-                if let Some(raw) = entry.data.get_ini_field(&format!("{prefix}{slot}")) {
+                if let Some(raw) = data_guard.get_ini_field(&format!("{prefix}{slot}")) {
                     if let Ok(info) = parse_ocl_attr(raw) {
                         if let Some(s) = slot_from_leftover_ocl(info) {
                             authored.ocl[state][slot - 1] = Some(s);
@@ -743,7 +743,7 @@ fn peel_leftover_factory_bone_fx(template_name: &str) -> Option<HostBoneFxAuthor
                 }
             }
             for (prefix, state) in PSYS_PREFIX {
-                if let Some(raw) = entry.data.get_ini_field(&format!("{prefix}{slot}")) {
+                if let Some(raw) = data_guard.get_ini_field(&format!("{prefix}{slot}")) {
                     if let Ok(info) = parse_particle_attr(raw) {
                         if let Some(s) = slot_from_leftover_psys(info) {
                             authored.psys[state][slot - 1] = Some(s);

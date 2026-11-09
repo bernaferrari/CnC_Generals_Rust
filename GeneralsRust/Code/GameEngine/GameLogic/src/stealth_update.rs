@@ -21,7 +21,7 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType, StealthDisguiseControlInterface, Thing,
+    Module, ModuleData, ModuleDataHandle, ModuleDataView, NameKeyType, StealthDisguiseControlInterface, Thing,
 };
 use log::{trace, warn};
 use std::f32::consts::PI;
@@ -325,7 +325,7 @@ impl Snapshotable for StealthUpdateModuleData {
 pub struct StealthController {
     owner: Option<Weak<RwLock<Object>>>,
     native_ready: bool,
-    data: Arc<StealthUpdateModuleData>,
+    data: ModuleDataView<StealthUpdateModuleData>,
     object_id: ObjectID,
     is_stealthed: bool,
     stealth_allowed_frame: UnsignedInt,
@@ -373,7 +373,7 @@ impl std::fmt::Debug for StealthController {
 }
 
 impl StealthController {
-    fn new(data: Arc<StealthUpdateModuleData>, object_id: ObjectID) -> Self {
+    fn new(data: ModuleDataHandle, object_id: ObjectID) -> Self {
         Self::new_at(
             data,
             object_id,
@@ -383,14 +383,19 @@ impl StealthController {
         )
     }
     fn new_at(
-        data: Arc<StealthUpdateModuleData>,
+        data: ModuleDataHandle,
         object_id: ObjectID,
         now: u32,
         pulse: f32,
         native_ready: bool,
     ) -> Self {
-        let stealth_delay = data.stealth_delay_frames;
-        let starts_enabled = !data.team_disguised;
+        let data = ModuleDataView::new(data, |data| {
+            data.as_any().downcast_ref::<StealthUpdateModuleData>().expect("incorrect StealthUpdate module data")
+        });
+        let (stealth_delay, starts_enabled) = {
+            let data = data.read();
+            (data.stealth_delay_frames, !data.team_disguised)
+        };
         Self {
             owner: None,
             native_ready,
@@ -455,8 +460,9 @@ impl StealthController {
 
     fn enforce_required_status(&self) -> Result<bool, StealthUpdateError> {
         let status = self.current_status()?;
-        let has_required = status.contains(self.data.required_status());
-        let forbidden_hit = status.intersects(self.data.forbidden_status());
+        let data = self.data.read();
+        let has_required = status.contains(data.required_status());
+        let forbidden_hit = status.intersects(data.forbidden_status());
         Ok(has_required && !forbidden_hit)
     }
 
@@ -599,6 +605,7 @@ impl StealthController {
         let _ = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
             if !self
                 .data
+                .read()
                 .hint_detectable_states
                 .intersects(obj.get_status_bits())
             {
@@ -629,9 +636,9 @@ impl StealthController {
         if self.disguise_transition_frames > 0 {
             self.disguise_transition_frames -= 1;
             let total_frames = if self.transitioning_to_disguise {
-                self.data.disguise_transition_frames
+                self.data.read().disguise_transition_frames
             } else {
-                self.data.disguise_reveal_transition_frames
+                self.data.read().disguise_reveal_transition_frames
             };
             let factor = if total_frames == 0 {
                 1.0
@@ -825,7 +832,7 @@ impl StealthController {
 
         if applying {
             play_per_unit_sound(self.object_id, "DisguiseStarted");
-            if let Some(fx_name) = self.data.disguise_fx.as_ref() {
+            if let Some(fx_name) = self.data.read().disguise_fx.as_ref() {
                 play_fx_at_object(self.object_id, fx_name);
             }
             self.disguised = true;
@@ -853,7 +860,7 @@ impl StealthController {
                     "DisguiseRevealedFailure"
                 },
             );
-            if let Some(fx_name) = self.data.disguise_reveal_fx.as_ref() {
+            if let Some(fx_name) = self.data.read().disguise_reveal_fx.as_ref() {
                 play_fx_at_object(self.object_id, fx_name);
             }
             self.disguised = false;
@@ -877,7 +884,7 @@ impl StealthController {
     }
 
     pub fn get_friendly_opacity(&self) -> Real {
-        self.data.friendly_opacity_min
+        self.data.read().friendly_opacity_min
     }
 
     pub fn is_temporary_grant(&self) -> bool {
@@ -898,7 +905,7 @@ impl StealthController {
                 .unwrap_or(0);
             self.enabled = true;
             self.transitioning_to_disguise = true;
-            self.disguise_transition_frames = self.data.disguise_transition_frames;
+            self.disguise_transition_frames = self.data.read().disguise_transition_frames;
             self.disguise_halfpoint_reached = false;
             let now = TheGameLogic::get_frame();
             if let Some(object) = TheGameLogic::find_object_by_id(self.object_id)
@@ -911,7 +918,7 @@ impl StealthController {
         } else if self.disguised || self.disguise_as_template_name.is_some() {
             self.disguise_as_template_name = None;
             self.disguise_as_player_index = 0;
-            self.disguise_transition_frames = self.data.disguise_reveal_transition_frames;
+            self.disguise_transition_frames = self.data.read().disguise_reveal_transition_frames;
             self.transitioning_to_disguise = false;
             self.disguise_halfpoint_reached = false;
             self.disguised = false;
@@ -920,27 +927,27 @@ impl StealthController {
 
     /// Get the stealth level mask (StealthForbiddenConditions bitmask)
     pub fn get_stealth_level(&self) -> UnsignedInt {
-        self.data.stealth_level_mask
+        self.data.read().stealth_level_mask
     }
 
     pub fn get_stealth_delay(&self) -> UnsignedInt {
-        self.data.stealth_delay_frames
+        self.data.read().stealth_delay_frames
     }
 
     pub fn is_granted_by_special_power(&self) -> bool {
-        self.data.granted_by_special_power
+        self.data.read().granted_by_special_power
     }
 
     pub fn get_order_idle_enemies_to_attack_me_upon_reveal(&self) -> bool {
-        self.data.order_idle_enemies_to_attack
+        self.data.read().order_idle_enemies_to_attack
     }
 
-    pub fn enemy_detection_eva_event(&self) -> Option<&str> {
-        self.data.enemy_detection_eva_event.as_deref()
+    pub fn enemy_detection_eva_event(&self) -> Option<String> {
+        self.data.read().enemy_detection_eva_event.clone()
     }
 
-    pub fn own_detection_eva_event(&self) -> Option<&str> {
-        self.data.own_detection_eva_event.as_deref()
+    pub fn own_detection_eva_event(&self) -> Option<String> {
+        self.data.read().own_detection_eva_event.clone()
     }
 
     pub fn begin_stealth(&mut self) -> Result<(), StealthUpdateError> {
@@ -958,7 +965,7 @@ impl StealthController {
         trace!(
             "Object {} entered stealth (delay {} frames)",
             self.object_id,
-            self.data.stealth_delay_frames()
+            self.data.read().stealth_delay_frames()
         );
         Ok(())
     }
@@ -1014,7 +1021,7 @@ impl StealthController {
 
     fn calc_stealth_owner(&self) -> ObjectID {
         // C++ StealthUpdate.cpp:531-556 — first contained rider when UseRiderStealth.
-        if dual_world_registry_unavailable() || !self.data.use_rider_stealth {
+        if dual_world_registry_unavailable() || !self.data.read().use_rider_stealth {
             return self.object_id;
         }
         OBJECT_REGISTRY
@@ -1034,31 +1041,28 @@ impl StealthController {
     }
 
     fn stealth_rules_for(&self, owner_id: ObjectID) -> (UnsignedInt, u32, bool) {
+        let own_rules = || {
+            let data = self.data.read();
+            (data.stealth_delay_frames, data.stealth_level_mask, data.order_idle_enemies_to_attack)
+        };
         if owner_id == self.object_id {
-            return (
-                self.data.stealth_delay_frames,
-                self.data.stealth_level_mask,
-                self.data.order_idle_enemies_to_attack,
-            );
+            return own_rules();
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
                 owner.get_stealth().and_then(|handle| {
                     handle.lock().ok().map(|guard| {
+                        let data = guard.data.read();
                         (
-                            guard.data.stealth_delay_frames,
-                            guard.data.stealth_level_mask,
-                            guard.data.order_idle_enemies_to_attack,
+                            data.stealth_delay_frames,
+                            data.stealth_level_mask,
+                            data.order_idle_enemies_to_attack,
                         )
                     })
                 })
             })
             .flatten()
-            .unwrap_or((
-                self.data.stealth_delay_frames,
-                self.data.stealth_level_mask,
-                self.data.order_idle_enemies_to_attack,
-            ))
+            .unwrap_or_else(own_rules)
     }
 
     fn order_idle_enemies_to_attack(&self) {
@@ -1113,7 +1117,7 @@ impl StealthController {
             return Ok(());
         }
 
-        if self.data.team_disguised {
+        if self.data.read().team_disguised {
             return Ok(());
         }
 
@@ -1173,8 +1177,9 @@ impl StealthController {
 
     pub fn allowed_to_stealth(&self, object: &Object) -> bool {
         let status = object.get_status_bits();
-        status.contains(self.data.required_status())
-            && !status.intersects(self.data.forbidden_status())
+        let data = self.data.read();
+        status.contains(data.required_status())
+            && !status.intersects(data.forbidden_status())
     }
 
     fn allowed_to_stealth_runtime(
@@ -1222,7 +1227,7 @@ impl StealthController {
             && self.next_black_market_check_frame < current_frame
         {
             self.next_black_market_check_frame = current_frame
-                .saturating_add(self.data.black_market_check_frames)
+                .saturating_add(self.data.read().black_market_check_frames)
                 .saturating_add(game_logic_random_value(0, 10));
 
             if !self.check_black_market_available(object) {
@@ -1264,12 +1269,14 @@ impl StealthController {
             }
         }
 
-        if self.data.required_status.any() && !status.contains(self.data.required_status()) {
-            return false;
-        }
-
-        if status.intersects(self.data.forbidden_status()) {
-            return false;
+        {
+            let data = self.data.read();
+            if data.required_status.any() && !status.contains(data.required_status()) {
+                return false;
+            }
+            if status.intersects(data.forbidden_status()) {
+                return false;
+            }
         }
 
         if (flags & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0
@@ -1355,7 +1362,7 @@ impl StealthController {
                 if let Ok(physics_guard) = physics.access() {
                     if leftover_not_while_moving_destalths(
                         physics_guard.get_velocity().length(),
-                        self.data.stealth_speed,
+                        self.data.read().stealth_speed,
                     ) {
                         return false;
                     }
@@ -1376,13 +1383,13 @@ impl StealthController {
             return false;
         }
 
-        if self.data.reveal_distance_from_target <= 0.0 {
+        if self.data.read().reveal_distance_from_target <= 0.0 {
             return false;
         }
         let Some(victim_id) = object.get_current_victim_id() else {
             return false;
         };
-        let reveal_dist = self.data.reveal_distance_from_target;
+        let reveal_dist = self.data.read().reveal_distance_from_target;
         let Some(dist_sq) =
             crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
                 ThePartitionManager::get_distance_squared(object, victim_guard, FROM_CENTER_2D)
@@ -1473,7 +1480,7 @@ impl StealthUpdateTrait for StealthController {
 /// Module wrapper that binds the controller to the object module system.
 pub struct StealthUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<StealthUpdateModuleData>,
+    data: ModuleDataView<StealthUpdateModuleData>,
     controller: StealthUpdateHandle,
     object_id: ObjectID,
     next_call_frame_and_phase: UnsignedInt,
@@ -1482,12 +1489,15 @@ pub struct StealthUpdateModule {
 impl StealthUpdateModule {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<StealthUpdateModuleData>,
+        data: ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         let controller = Arc::new(Mutex::new(StealthController::new(data.clone(), object_id)));
         let now = TheGameLogic::get_frame();
-        let wake = if data.granted_by_special_power {
+        let data = ModuleDataView::new(data, |data| {
+            data.as_any().downcast_ref::<StealthUpdateModuleData>().expect("incorrect StealthUpdate module data")
+        });
+        let wake = if data.read().granted_by_special_power {
             crate::modules::UpdateSleepTime::Forever.to_u32()
         } else {
             now.saturating_add(1)
@@ -1530,16 +1540,16 @@ impl Module for StealthUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        ModuleData::get_module_tag_name_key(&*self.data.read())
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 
     fn on_object_created(&mut self) {
         self.register_with_object();
-        if self.data.innate_stealth() {
+        if self.data.read().innate_stealth() {
             if let Ok(guard) = self.controller.lock() {
                 let _ = guard.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, true);
             }
@@ -2208,7 +2218,7 @@ mod tests {
         let mut data = StealthUpdateModuleData::default();
         data.set_required_status_from_tokens(&["CAN_STEALTH"])
             .unwrap();
-        let data = Arc::new(data);
+        let data = ModuleDataHandle::new(data);
         let controller = Arc::new(Mutex::new(StealthController::new(data.clone(), object_id)));
 
         {
@@ -2248,7 +2258,7 @@ mod tests {
             let object_id: ObjectID = 4251;
             let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
             OBJECT_REGISTRY.register_object(object_id, &object);
-            let data = Arc::new(StealthUpdateModuleData::default());
+            let data = ModuleDataHandle::new(StealthUpdateModuleData::default());
             let mut controller = StealthController::new(data, object_id);
             controller.receive_grant(true, 30, 1).expect("grant on");
             object.write().unwrap().set_status(ObjectStatusMaskType::DETECTED, true);
@@ -2275,7 +2285,7 @@ mod tests {
 
         let mut data = StealthUpdateModuleData::default();
         data.stealth_delay_frames = 3;
-        let data = Arc::new(data);
+        let data = ModuleDataHandle::new(data);
         let mut controller = StealthController::new(data, object_id);
         let now = TheGameLogic::get_frame();
 
@@ -2292,8 +2302,20 @@ mod tests {
     }
 
     #[test]
+    fn staged_module_and_controller_share_definition() {
+        let data = ModuleDataHandle::new(StealthUpdateModuleData::default());
+        let module = StealthUpdateModule::new_staged(7, data.clone(), 4244);
+        assert!(ModuleDataHandle::ptr_eq(&data, module.data.handle()));
+        let controller = module.controller.lock().unwrap();
+        assert!(ModuleDataHandle::ptr_eq(&data, controller.data.handle()));
+        data.write().set_module_tag_name_key(73);
+        assert_eq!(module.get_module_tag_name_key(), 73);
+        assert_eq!(ModuleData::get_module_tag_name_key(&*controller.data.read()), 73);
+    }
+
+    #[test]
     fn stealth_update_module_xfer_round_trips_disguise_state() {
-        let data = Arc::new(StealthUpdateModuleData::default());
+        let data = ModuleDataHandle::new(StealthUpdateModuleData::default());
         let mut saved = StealthUpdateModule::new(7, data.clone(), 4244);
         saved.next_call_frame_and_phase = 0x5511;
 
@@ -2350,7 +2372,7 @@ mod tests {
         let mut data = StealthUpdateModuleData::default();
         data.disguise_transition_frames = 12;
         data.disguise_reveal_transition_frames = 7;
-        let data = Arc::new(data);
+        let data = ModuleDataHandle::new(data);
         let mut module = StealthUpdateModule::new(9, data, 4245);
 
         module
@@ -2398,7 +2420,7 @@ mod tests {
         let mut data = StealthUpdateModuleData::default();
         data.order_idle_enemies_to_attack = true;
         data.use_rider_stealth = true;
-        let mut controller = StealthController::new(Arc::new(data), object_id);
+        let mut controller = StealthController::new(ModuleDataHandle::new(data), object_id);
         controller.disguise_as_template(Some("GLAVehicleBombTruck".to_string()), 0);
         assert!(controller.is_disguised());
 
@@ -2429,7 +2451,7 @@ mod tests {
 
     #[test]
     fn stealth_module_ticks_while_held() {
-        let data = Arc::new(StealthUpdateModuleData::default());
+        let data = ModuleDataHandle::new(StealthUpdateModuleData::default());
         let module = StealthUpdateModule::new(1, data, 99);
         assert_eq!(
             UpdateModuleInterface::get_disabled_types_to_process(&module),

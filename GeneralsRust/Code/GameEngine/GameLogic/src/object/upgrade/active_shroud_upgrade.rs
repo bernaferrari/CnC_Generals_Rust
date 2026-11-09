@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::common::{LegacyModuleData, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::INVALID_ID;
@@ -52,13 +50,6 @@ impl ActiveShroudUpgradeModuleData {
         }
     }
 
-    fn from_config(config: ActiveShroudUpgradeConfig, module_tag_name_key: NameKeyType) -> Self {
-        Self {
-            module_tag_name_key,
-            upgrade_mux_data: UpgradeMuxData::default(),
-            new_shroud_range: config.new_shroud_range,
-        }
-    }
 }
 
 impl LegacyModuleData for ActiveShroudUpgradeModuleData {
@@ -122,7 +113,7 @@ impl Snapshotable for ActiveShroudUpgradeModuleData {
 /// Upgrade module that enables or increases shroud clearing capability.
 pub struct ActiveShroudUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<ActiveShroudUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     applied: bool,
 }
@@ -130,7 +121,7 @@ pub struct ActiveShroudUpgrade {
 impl ActiveShroudUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<ActiveShroudUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
         Self {
@@ -141,21 +132,6 @@ impl ActiveShroudUpgrade {
         }
     }
 
-    pub fn from_module_data(
-        module_name_key: NameKeyType,
-        module_data: Arc<dyn ModuleData>,
-        object_id: ObjectID,
-    ) -> Option<Self> {
-        let config = module_data.get_active_shroud_upgrade_config()?;
-        Some(Self::new(
-            module_name_key,
-            Arc::new(ActiveShroudUpgradeModuleData::from_config(
-                config,
-                module_data.get_module_tag_name_key(),
-            )),
-            object_id,
-        ))
-    }
 
     fn apply_shroud_upgrade(&mut self) -> Result<(), String> {
         // Wave 448: empty dual-world → Ok(()).
@@ -163,7 +139,7 @@ impl ActiveShroudUpgrade {
             return Ok(());
         }
 
-        let range = self.data.new_shroud_range();
+        let range = self.data.read().as_any().downcast_ref::<ActiveShroudUpgradeModuleData>().expect("ActiveShroudUpgradeModuleData").new_shroud_range();
         let object_id = self.object_id;
         match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| {
             object.set_shroud_range(range);
@@ -192,11 +168,11 @@ impl Module for ActiveShroudUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -223,14 +199,14 @@ impl Snapshotable for ActiveShroudUpgrade {
 
 impl UpgradeModuleInterface for ActiveShroudUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+        mux_can_upgrade(&self.data.read().as_any().downcast_ref::<ActiveShroudUpgradeModuleData>().expect("ActiveShroudUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
+        { let data = self.data.read().as_any().downcast_ref::<ActiveShroudUpgradeModuleData>().expect("ActiveShroudUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
         if self.apply_shroud_upgrade().is_ok() {
             self.applied = true;
             true
@@ -243,7 +219,7 @@ impl UpgradeModuleInterface for ActiveShroudUpgrade {
         // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
         // Does not revert shroud range.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
+            &self.data.read().as_any().downcast_ref::<ActiveShroudUpgradeModuleData>().expect("ActiveShroudUpgradeModuleData").upgrade_mux_data,
             &mut self.applied,
             upgrade_mask,
         );
@@ -292,12 +268,11 @@ mod tests {
         LegacyModuleData::set_module_tag_name_key(&mut data, 0xCAFE);
         data.new_shroud_range = 300.0;
 
-        let module = ActiveShroudUpgrade::from_module_data(0xBEEF, Arc::new(data), 42)
-            .expect("active shroud config");
+        let module = ActiveShroudUpgrade::new(0xBEEF, game_engine::common::thing::module::ModuleDataHandle::new(data), 42);
 
         assert_eq!(module.module_name_key, 0xBEEF);
         assert_eq!(module.object_id, 42);
-        assert_eq!(module.data.new_shroud_range(), 300.0);
+        assert_eq!(module.data.read().as_any().downcast_ref::<ActiveShroudUpgradeModuleData>().expect("ActiveShroudUpgradeModuleData").new_shroud_range(), 300.0);
         assert_eq!(module.get_module_tag_name_key(), 0xCAFE);
     }
 }

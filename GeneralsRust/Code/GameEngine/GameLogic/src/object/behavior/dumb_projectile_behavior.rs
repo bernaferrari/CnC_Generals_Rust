@@ -476,9 +476,8 @@ impl Snapshotable for DumbProjectileBehaviorModuleData {
 // Behavior implementation
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Default)]
 pub struct DumbProjectileBehavior {
-    module_data: Arc<DumbProjectileBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     object_id: ObjectID,
     owner: Weak<RwLock<GameObject>>,
     next_call_frame_and_phase: UnsignedInt,
@@ -538,7 +537,7 @@ pub fn calc_dumb_projectile_bezier_points(
 impl DumbProjectileBehavior {
     fn construct_with_object(
         object_id: ObjectID,
-        module_data: Arc<DumbProjectileBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
         object: Option<Arc<RwLock<GameObject>>>,
     ) -> Self {
         Self {
@@ -564,7 +563,7 @@ impl DumbProjectileBehavior {
 
     pub fn new_from_object(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<DumbProjectileBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = object
             .read()
@@ -575,7 +574,7 @@ impl DumbProjectileBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<DumbProjectileBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let object = crate::object::object_thing::supplied_module_owner(thing.as_ref())?;
         Ok(Self::new_from_object(object, module_data))
@@ -648,13 +647,15 @@ impl DumbProjectileBehavior {
         }
         let highest_terrain = highest_intervening.max(start.z).max(target.z);
 
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<DumbProjectileBehaviorModuleData>().expect("Invalid module data");
         let (points, segs) = calc_dumb_projectile_bezier_points(
             start,
             target,
-            self.module_data.first_height,
-            self.module_data.second_height,
-            self.module_data.first_percent_indent,
-            self.module_data.second_percent_indent,
+            data.first_height,
+            data.second_height,
+            data.first_percent_indent,
+            data.second_percent_indent,
             highest_terrain,
             self.flight_path_speed,
             if recalc_num_segments {
@@ -663,6 +664,7 @@ impl DumbProjectileBehavior {
                 self.flight_path_segments
             },
         );
+        drop(guard);
         self.flight_path_segments = segs;
         self.flight_path = points;
         if reset_step {
@@ -686,7 +688,11 @@ impl DumbProjectileBehavior {
         }
 
         let step = self.flight_path[self.current_step as usize];
-        let orient = self.module_data.orient_to_flight_path && !self.module_data.tumble_randomly;
+        let orient = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<DumbProjectileBehaviorModuleData>().expect("Invalid module data");
+            data.orient_to_flight_path && !data.tumble_randomly
+        };
         let current_step = self.current_step as usize;
         let flight_path = self.flight_path.clone();
         let should_detonate = self.with_object_mut(|obj_guard| {
@@ -790,7 +796,9 @@ impl DumbProjectileBehavior {
     }
 
     fn handle_garrison_hit_kill(&self, other_id: ObjectID) -> bool {
-        if self.module_data.garrison_hit_kill_count <= 0 {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<DumbProjectileBehaviorModuleData>().expect("Invalid module data");
+        if data.garrison_hit_kill_count <= 0 {
             return false;
         }
 
@@ -828,11 +836,11 @@ impl DumbProjectileBehavior {
 
         let mut num_killed = 0;
         for contained_id in contained_ids {
-            if num_killed >= self.module_data.garrison_hit_kill_count {
+            if num_killed >= data.garrison_hit_kill_count {
                 break;
             }
-            let kindof = self.module_data.garrison_hit_kill_kindof;
-            let kindof_not = self.module_data.garrison_hit_kill_kindof_not;
+            let kindof = data.garrison_hit_kill_kindof;
+            let kindof_not = data.garrison_hit_kill_kindof_not;
             let launcher_id = self.launcher_id;
             let Some(killed) = OBJECT_REGISTRY.with_object_mut(contained_id, |contained_guard| {
                 if contained_guard.is_effectively_dead() {
@@ -860,7 +868,7 @@ impl DumbProjectileBehavior {
             return false;
         }
 
-        if let Some(fx) = &self.module_data.garrison_hit_kill_fx {
+        if let Some(fx) = &data.garrison_hit_kill_fx {
             let _ = fx.do_fx_obj_ids(other_id, None, None);
         }
         let _ = OBJECT_REGISTRY.with_object(self.object_id, |projectile_guard| {
@@ -897,7 +905,7 @@ impl DumbProjectileBehavior {
             )
             .map_err(|error| std::io::Error::other(error.to_string()))?;
 
-            if self.module_data.detonate_calls_kill {
+            if self.module_data.read().downcast_ref::<DumbProjectileBehaviorModuleData>().expect("Invalid module data").detonate_calls_kill {
                 let max_health = self.with_object(|obj| obj.get_max_health())?;
                 let mut damage_info = crate::damage::DamageInfo::with_simple(
                     max_health,
@@ -979,7 +987,7 @@ impl DumbProjectileBehavior {
         } else {
             WeaponBonusConditionFlags::none()
         };
-        self.lifespan_frame = self.get_current_frame() + self.module_data.max_lifespan;
+        self.lifespan_frame = self.get_current_frame() + self.module_data.read().downcast_ref::<DumbProjectileBehaviorModuleData>().expect("Invalid module data").max_lifespan;
 
         if let Ok(projectile_arc) = self.get_object() {
             let _ = WeaponTemplate::position_projectile_for_launch(
@@ -1002,7 +1010,7 @@ impl DumbProjectileBehavior {
         if let Ok(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
             self.flight_path_start = pos;
         }
-        if self.module_data.tumble_randomly {
+        if self.module_data.read().downcast_ref::<DumbProjectileBehaviorModuleData>().expect("Invalid module data").tumble_randomly {
             let _ = self.with_object(|obj_guard| {
                 if let Some(physics) = obj_guard.get_physics() {
                     if let Ok(mut phys_guard) = physics.access() {
@@ -1097,9 +1105,8 @@ impl UpdateModuleInterface for DumbProjectileBehavior {
             return Ok(crate::modules::UPDATE_SLEEP_NONE);
         }
 
-        if self.victim_id != OBJECT_INVALID_ID
-            && self.module_data.flight_path_adjust_dist_per_frame > 0.0
-        {
+        let adjust_dist = self.module_data.read().downcast_ref::<DumbProjectileBehaviorModuleData>().expect("Invalid module data").flight_path_adjust_dist_per_frame;
+        if self.victim_id != OBJECT_INVALID_ID && adjust_dist > 0.0 {
             if let Some((dist_sqr, delta)) =
                 OBJECT_REGISTRY.with_object(self.victim_id, |victim_guard| {
                     let new_victim_pos = victim_guard
@@ -1116,8 +1123,8 @@ impl UpdateModuleInterface for DumbProjectileBehavior {
             {
                 if dist_sqr > 0.1 {
                     let mut dist = dist_sqr.sqrt();
-                    if dist > self.module_data.flight_path_adjust_dist_per_frame {
-                        dist = self.module_data.flight_path_adjust_dist_per_frame;
+                    if dist > adjust_dist {
+                        dist = adjust_dist;
                     }
                     if dist > 0.0 {
                         let inv = 1.0 / dist_sqr.sqrt();
@@ -1235,14 +1242,14 @@ pub(crate) fn dispatch_dumb_projectile_handle_collision(
 pub struct DumbProjectileBehaviorModule {
     behavior: DumbProjectileBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<DumbProjectileBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl DumbProjectileBehaviorModule {
     pub fn new(
         behavior: DumbProjectileBehavior,
         module_name: &AsciiString,
-        module_data: Arc<DumbProjectileBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -1387,11 +1394,11 @@ impl EngineModule for DumbProjectileBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ThingModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {}
@@ -1442,23 +1449,18 @@ pub fn dumb_projectile_behavior_module_data_factory(
 
 pub fn dumb_projectile_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ThingModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn EngineModule> {
-    let typed = module_data
-        .as_any()
-        .downcast_ref::<DumbProjectileBehaviorModuleData>()
-        .expect("DumbProjectileBehaviorModuleData expected");
-
-    let shared = Arc::new(typed.clone());
+    assert!(module_data.is::<DumbProjectileBehaviorModuleData>());
     let behavior =
-        DumbProjectileBehavior::from_module_thing(Arc::clone(&thing), Arc::clone(&shared))
+        DumbProjectileBehavior::from_module_thing(Arc::clone(&thing), module_data.clone())
             .expect("DumbProjectileBehavior requires an owning object");
 
     let module_name = AsciiString::from("DumbProjectileBehavior");
     Box::new(DumbProjectileBehaviorModule::new(
         behavior,
         &module_name,
-        shared,
+        module_data,
     ))
 }
 
@@ -1508,15 +1510,14 @@ mod tests {
                 "ModuleTag_Projectile",
             )
             .unwrap();
-        let typed = data
-            .as_ref()
-            .as_any()
-            .downcast_ref::<DumbProjectileBehaviorModuleData>()
+        let guard = data.read();
+        let typed = guard.downcast_ref::<DumbProjectileBehaviorModuleData>()
             .expect("real factory retains DumbProjectileBehavior data");
         assert_eq!(
             typed.max_lifespan,
             (10 * LOGICFRAMES_PER_SECOND) as UnsignedInt
         );
+        drop(guard);
         let owner = Arc::new(RwLock::new(GameObject::new_test(0xD00B_0001, 100.0)));
         let thing: Arc<dyn ModuleThing> =
             Arc::new(crate::object::object_thing::ObjectThingHandle::new(&owner));
@@ -1563,7 +1564,7 @@ mod tests {
         drop(supplied);
         let behavior = DumbProjectileBehavior::from_module_thing(
             thing.clone(),
-            Arc::new(DumbProjectileBehaviorModuleData::default()),
+            game_engine::common::thing::module::ModuleDataHandle::new(DumbProjectileBehaviorModuleData::default()),
         )
         .unwrap();
         behavior
@@ -1586,7 +1587,7 @@ mod tests {
         assert!(
             DumbProjectileBehavior::from_module_thing(
                 thing,
-                Arc::new(DumbProjectileBehaviorModuleData::default())
+                game_engine::common::thing::module::ModuleDataHandle::new(DumbProjectileBehaviorModuleData::default())
             )
             .is_err()
         );
@@ -1599,7 +1600,7 @@ mod tests {
         use std::io::Cursor;
         let first = Arc::new(RwLock::new(GameObject::new_test(0xD00B_0002, 100.0)));
         let second = Arc::new(RwLock::new(GameObject::new_test(0xD00B_0002, 250.0)));
-        let data = Arc::new(DumbProjectileBehaviorModuleData::default());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(DumbProjectileBehaviorModuleData::default());
         let mut saved = DumbProjectileBehaviorModule::new(
             DumbProjectileBehavior::new_from_object(first.clone(), data.clone()),
             &AsciiString::from("DumbProjectileBehavior"),

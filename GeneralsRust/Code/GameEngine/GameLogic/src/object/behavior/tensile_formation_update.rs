@@ -121,7 +121,7 @@ impl Default for TensileFormationLink {
 pub struct TensileFormationUpdate {
     object_id: ObjectID,
     #[allow(dead_code)]
-    module_data: Arc<TensileFormationUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
     crack_sound: AudioEventRts,
@@ -135,17 +135,18 @@ pub struct TensileFormationUpdate {
 }
 
 impl TensileFormationUpdate {
-    pub fn new(
-        object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<TensileFormationUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+
+    pub fn new_with_module_data(object: Arc<RwLock<GameObject>>, module_data: game_engine::common::thing::module::ModuleDataHandle) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<TensileFormationUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
+        let (enabled, mut crack_sound) = {
+            let data = module_data.read();
+            let data = data.as_any().downcast_ref::<TensileFormationUpdateModuleData>().expect("TensileFormationUpdate module data");
+            (data.enabled, data.crack_sound.clone())
+        };
 
         let owner_id = object.read().map(|obj| obj.get_id()).unwrap_or(0);
-        let mut crack_sound = specific_data.crack_sound.clone();
         crack_sound.set_object_id(owner_id);
 
         let instance = Self {
@@ -154,9 +155,9 @@ impl TensileFormationUpdate {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
-            enabled: specific_data.enabled,
+            enabled,
             crack_sound,
             crack_sound_handle: None,
             inertia: Coord3D::ZERO,
@@ -584,14 +585,14 @@ impl Snapshotable for TensileFormationUpdate {
 pub struct TensileFormationUpdateModule {
     behavior: TensileFormationUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<TensileFormationUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl TensileFormationUpdateModule {
     pub fn new(
         behavior: TensileFormationUpdate,
         module_name: &AsciiString,
-        module_data: Arc<TensileFormationUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -634,11 +635,11 @@ impl Module for TensileFormationUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query
@@ -656,9 +657,9 @@ pub struct TensileFormationUpdateFactory;
 impl TensileFormationUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(TensileFormationUpdate::new(thing, module_data)?))
+        Ok(Box::new(TensileFormationUpdate::new_with_module_data(thing, module_data)?))
     }
 }
 
@@ -678,26 +679,22 @@ pub fn tensile_formation_update_data_factory(ini: Option<&mut INI>) -> Box<dyn E
 
 pub fn tensile_formation_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<TensileFormationUpdateModuleData>()
-        .expect("TensileFormationUpdateModuleData expected");
-    let module_data_arc = Arc::new(typed_data.clone());
+    assert!(module_data.is::<TensileFormationUpdateModuleData>());
     let owner_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("TensileFormationUpdate requires object");
-    let behavior = TensileFormationUpdate::new(object, module_data_arc.clone())
+    let behavior = TensileFormationUpdate::new_with_module_data(object, module_data.clone())
         .expect("TensileFormationUpdate failed to initialize");
     let module_name = AsciiString::from("TensileFormationUpdate");
     Box::new(TensileFormationUpdateModule::new(
         behavior,
         &module_name,
-        module_data_arc,
+        module_data,
     ))
 }
 

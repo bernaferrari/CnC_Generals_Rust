@@ -46,14 +46,6 @@ impl LaserUpdateModuleData {
         ini.init_from_ini_with_fields(self, LASER_UPDATE_FIELDS)
     }
 
-    fn to_live(&self) -> crate::object::update::laser_update::LaserUpdateModuleData {
-        crate::object::update::laser_update::LaserUpdateModuleData {
-            module_tag_name_key: 0,
-            particle_system_name: self.particle_system_name.clone(),
-            target_particle_system_name: self.target_particle_system_name.clone(),
-            punch_through_scalar: self.punch_through_scalar,
-        }
-    }
 }
 
 fn parse_muzzle_particle(
@@ -115,19 +107,18 @@ const LASER_UPDATE_FIELDS: &[FieldParse<LaserUpdateModuleData>] = &[
 
 pub struct LaserUpdate {
     object_id: ObjectID,
-    module_data: Arc<LaserUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     inner: crate::object::update::laser_update::LaserUpdate,
 }
 
 impl LaserUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<LaserUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        if !module_data.is::<LaserUpdateModuleData>() {
+            return Err("Invalid module data".into());
+        }
 
         let object_id = object
             .read()
@@ -142,11 +133,8 @@ impl LaserUpdate {
 
         Ok(Self {
             object_id,
-            module_data: Arc::new(specific_data.clone()),
-            inner: crate::object::update::laser_update::LaserUpdate::new(
-                thing_id,
-                specific_data.to_live(),
-            ),
+            inner: crate::object::update::laser_update::LaserUpdate::with_module_data(thing_id, module_data.clone()),
+            module_data,
         })
     }
 }
@@ -287,14 +275,14 @@ impl Snapshotable for LaserUpdate {
 pub struct LaserUpdateModule {
     behavior: LaserUpdate,
     module_name_key: NameKeyType,
-    module_data: Arc<LaserUpdateModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl LaserUpdateModule {
     pub fn new(
         behavior: LaserUpdate,
         module_name: &AsciiString,
-        module_data: Arc<LaserUpdateModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -344,11 +332,11 @@ impl Module for LaserUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
@@ -374,7 +362,7 @@ pub struct LaserUpdateFactory;
 impl LaserUpdateFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(LaserUpdate::new(thing, module_data)?))
     }

@@ -193,18 +193,22 @@ fn point_inside_area_2d(point: &Coord3D, polygon: &[Coord3D]) -> bool {
 #[derive(Debug)]
 pub struct PrisonBehavior {
     object_id: ObjectID,
-    module_data: Arc<PrisonBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataView<PrisonBehaviorModuleData>,
     contain: OpenContain,
     visuals: Vec<PrisonVisual>,
 }
 
 #[cfg(feature = "allow_surrender")]
 impl PrisonBehavior {
-    pub fn new(
+    pub fn new_with_module_data_view(
         object: Arc<RwLock<Object>>,
-        module_data: Arc<PrisonBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataView<PrisonBehaviorModuleData>,
+        contain_data: game_engine::common::thing::module::ModuleDataView<OpenContainModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let contain = OpenContain::new(Arc::downgrade(&object), &module_data.base)?;
+        let contain = OpenContain::new_with_data_view(
+            Arc::downgrade(&object),
+            contain_data,
+        )?;
         Ok(Self {
             object_id: object
                 .read()
@@ -249,12 +253,10 @@ impl PrisonBehavior {
     }
 
     fn pick_visual_location(&self) -> Coord3D {
+        let prefix = self.module_data.read().prison_yard_bone_prefix.clone();
         self.with_object(|owner_guard| {
             let mut picked = *owner_guard.get_position();
-            let yard_positions = owner_guard.get_multi_logical_bone_position(
-                self.module_data.prison_yard_bone_prefix.as_str(),
-                16,
-            );
+            let yard_positions = owner_guard.get_multi_logical_bone_position(prefix.as_str(), 16);
 
             if yard_positions.len() >= 3 {
                 let mut region = Region2D {
@@ -349,7 +351,8 @@ impl PrisonBehavior {
         };
         if let Ok(mut guard) = obj.write() {
             guard.set_disabled(DisabledType::Held);
-            if self.module_data.show_prisoners {
+            let show_prisoners = self.module_data.read().show_prisoners;
+            if show_prisoners {
                 self.add_visual(&*guard);
             }
         }
@@ -473,7 +476,8 @@ impl ContainModuleInterface for PrisonBehavior {
         };
 
         if let Ok(mut guard) = obj.write() {
-            if self.module_data.show_prisoners {
+            let show_prisoners = self.module_data.read().show_prisoners;
+            if show_prisoners {
                 self.remove_visual(&*guard);
             }
             guard.clear_disabled(DisabledType::Held);
@@ -519,7 +523,7 @@ impl BehaviorModuleInterface for PrisonBehavior {
 pub struct PrisonBehaviorModule {
     behavior: Arc<Mutex<PrisonBehavior>>,
     module_name_key: NameKeyType,
-    module_data: Arc<PrisonBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -527,7 +531,7 @@ impl PrisonBehaviorModule {
     pub fn new(
         behavior: PrisonBehavior,
         module_name: &AsciiString,
-        module_data: Arc<PrisonBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
@@ -716,11 +720,11 @@ impl Module for PrisonBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
     fn on_delete(&mut self) {
         if let Ok(mut guard) = self.behavior.lock() {
@@ -747,21 +751,26 @@ mod tests {
 
     #[test]
     fn contain_handle_returns_stable_owned_snapshot_across_shared_mutation() {
-        let contain = OpenContain::new(
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(PrisonBehaviorModuleData::default());
+        let view = game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| {
+            data.downcast_ref::<PrisonBehaviorModuleData>().expect("prison data")
+        });
+        let contain = OpenContain::new_with_data_view(
             Weak::<RwLock<Object>>::new(),
-            &OpenContainModuleData::default(),
-        )
-        .expect("open contain");
+            game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| {
+                &data.downcast_ref::<PrisonBehaviorModuleData>().expect("prison data").base
+            }),
+        ).expect("open contain");
         let behavior = PrisonBehavior {
             object_id: INVALID_ID,
-            module_data: Arc::new(PrisonBehaviorModuleData::default()),
+            module_data: view,
             contain,
             visuals: Vec::new(),
         };
         let module = PrisonBehaviorModule::new(
             behavior,
             &AsciiString::from("PrisonBehavior"),
-            Arc::new(PrisonBehaviorModuleData::default()),
+            data,
         );
         let handle = module.contain_handle();
         let guard = handle.lock().expect("contain handle");

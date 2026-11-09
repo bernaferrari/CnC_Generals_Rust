@@ -15,12 +15,10 @@
 //!   CREATE_ABOVE_LOCATION (4)       - above the target location (+300 height)
 //!   CREATE_AT_EDGE_FARTHEST_FROM_TARGET (5) - farthest map edge from target
 
-use std::sync::Arc;
-
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, NameKeyType};
 
 use crate::common::science::ScienceType;
 use crate::common::{AsciiString, Coord3D, ObjectID, Real};
@@ -159,7 +157,7 @@ impl Snapshotable for OclSpecialPowerModuleData {
 /// Creates objects from an ObjectCreationList at a target location.
 pub struct OclSpecialPower {
     module_name_key: NameKeyType,
-    data: Arc<OclSpecialPowerModuleData>,
+    data: ModuleDataHandle,
     owner_object_id: ObjectID,
     base_module: crate::object::special_power_module::SpecialPowerModule,
 }
@@ -168,12 +166,13 @@ impl OclSpecialPower {
     pub fn new(
         module_name_key: NameKeyType,
         owner_object_id: ObjectID,
-        data: Arc<OclSpecialPowerModuleData>,
+        data: ModuleDataHandle,
     ) -> Self {
+        let base_module = super::interface::make_shared_base_module!(owner_object_id, data, OclSpecialPowerModuleData);
         Self {
             module_name_key,
             owner_object_id,
-            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            base_module,
             data,
         }
     }
@@ -181,11 +180,14 @@ impl OclSpecialPower {
     /// Find the best OCL to use, checking upgrade science first.
     /// Matches C++ OCLSpecialPower::findOCL().
     fn find_ocl_name(&self) -> Option<AsciiString> {
+        let guard = self.data.read();
+        let data = guard.as_any().downcast_ref::<OclSpecialPowerModuleData>()
+            .expect("OCL special power data type");
         let upgraded_ocl = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_object_id, |owner_guard| {
                 owner_guard
                     .with_controlling_player(|player_guard| {
-                        self.data
+                        data
                             .upgrade_ocl
                             .iter()
                             .find(|upgrade| player_guard.has_science(upgrade.science))
@@ -197,20 +199,23 @@ impl OclSpecialPower {
         if let Some(ocl) = upgraded_ocl {
             return Some(ocl);
         }
-        if self.data.default_ocl.is_empty() {
+        if data.default_ocl.is_empty() {
             None
         } else {
-            Some(self.data.default_ocl.clone())
+            Some(data.default_ocl.clone())
         }
     }
 
     /// Get the reference thing template name (for construction site placement).
     /// Matches C++ OCLSpecialPower::getReferenceThingTemplate().
     pub fn get_reference_thing_template(&self) -> Option<String> {
-        if self.data.reference_thing_name.is_empty() {
+        let guard = self.data.read();
+        let data = guard.as_any().downcast_ref::<OclSpecialPowerModuleData>()
+            .expect("OCL special power data type");
+        if data.reference_thing_name.is_empty() {
             None
         } else {
-            Some(self.data.reference_thing_name.to_string())
+            Some(data.reference_thing_name.to_string())
         }
     }
 
@@ -245,9 +250,15 @@ impl OclSpecialPower {
         };
 
         let mut target_coord = *loc;
+        let (adjust_position, create_loc) = {
+            let guard = self.data.read();
+            let data = guard.as_any().downcast_ref::<OclSpecialPowerModuleData>()
+                .expect("OCL special power data type");
+            (data.ocl_adjust_position_to_passable, data.create_loc)
+        };
 
         // Adjust position to passable if requested (C++ m_isOCLAdjustPositionToPassable)
-        if self.data.ocl_adjust_position_to_passable {
+        if adjust_position {
             // Try to find a passable position near the target
             if let Some(adjusted) = find_passable_position_near(&target_coord) {
                 target_coord = adjusted;
@@ -261,7 +272,7 @@ impl OclSpecialPower {
 
         // Compute creation coordinate based on create_loc
         // Matches C++ OCLSpecialPower::doSpecialPowerAtLocation() creation coord logic
-        let creation_coord = match self.data.create_loc {
+        let creation_coord = match create_loc {
             OCLCreateLocType::CreateAtEdgeNearSource => TheTerrainLogic::get()
                 .map(|terrain| terrain.find_closest_edge_point(owner_guard.get_position()))
                 .unwrap_or(*owner_guard.get_position()),
@@ -286,7 +297,7 @@ impl OclSpecialPower {
 
         // Execute the OCL
         let ctx = crate::object_creation_list::live_creation_context();
-        let create_owner = Self::create_owner_flag_for_create_loc(self.data.create_loc);
+        let create_owner = Self::create_owner_flag_for_create_loc(create_loc);
 
         let result = if create_owner {
             ocl.create_with_angle(
@@ -495,11 +506,11 @@ impl Module for OclSpecialPower {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
     }
 
     fn on_object_created(&mut self) {
@@ -708,8 +719,7 @@ mod tests {
     fn test_find_ocl_name_no_upgrades() {
         let mut data = OclSpecialPowerModuleData::default();
         data.default_ocl = AsciiString::from("OCL_TestDefault");
-        let arc_data = Arc::new(data);
-        let power = OclSpecialPower::new(0, 0, arc_data);
+        let power = OclSpecialPower::new(0, 0, ModuleDataHandle::new(data));
         // Without a valid owner, falls back to default
         assert_eq!(
             power.find_ocl_name(),
@@ -720,16 +730,14 @@ mod tests {
     #[test]
     fn test_find_ocl_name_empty_default() {
         let data = OclSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
-        let power = OclSpecialPower::new(0, 0, arc_data);
+        let power = OclSpecialPower::new(0, 0, ModuleDataHandle::new(data));
         assert_eq!(power.find_ocl_name(), None);
     }
 
     #[test]
     fn test_module_name() {
         let data = OclSpecialPowerModuleData::default();
-        let arc_data = Arc::new(data);
-        let power = OclSpecialPower::new(0, 0, arc_data);
+        let power = OclSpecialPower::new(0, 0, ModuleDataHandle::new(data));
         assert_eq!(power.get_module_name(), "OCLSpecialPower");
     }
 

@@ -10,7 +10,7 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{
-    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Module, ModuleData as EngineModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType, Object as ModuleObject,
     Thing as ModuleThing,
 };
 use log::warn;
@@ -332,7 +332,7 @@ enum MissileStateType {
 #[derive(Debug, Clone)]
 pub struct NeutronMissileUpdate {
     thing: ThingId,
-    module_data: NeutronMissileUpdateModuleData,
+    module_data: ModuleDataHandle,
     module_name_key: NameKeyType,
     state: MissileStateType,
     next_call_frame_and_phase: UnsignedInt,
@@ -357,13 +357,17 @@ pub struct NeutronMissileUpdate {
 impl NeutronMissileUpdate {
     pub fn new(
         thing: ThingId,
-        module_data: NeutronMissileUpdateModuleData,
+        module_data: ModuleDataHandle,
         module_name: &AsciiString,
     ) -> Self {
+        let initial_dist = {
+            let data = module_data.read();
+            data.as_any().downcast_ref::<NeutronMissileUpdateModuleData>().expect("invalid NeutronMissileUpdate data").initial_dist
+        };
         Self {
             thing,
             module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
-            no_turn_dist_left: module_data.initial_dist,
+            no_turn_dist_left: initial_dist,
             reached_intermediate_pos: true,
             module_data,
             target_pos: Coord3D::origin(),
@@ -383,6 +387,12 @@ impl NeutronMissileUpdate {
             exhaust_sys_tmpl: None,
             delivery_decal: RadiusDecal::new(Coord3D::origin(), 0.0),
         }
+    }
+
+    fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, NeutronMissileUpdateModuleData> {
+        game_engine::common::thing::module::ModuleDataGuard::map(self.module_data.read(), |data| {
+            data.as_any().downcast_ref::<NeutronMissileUpdateModuleData>().expect("invalid NeutronMissileUpdate data")
+        })
     }
 
     pub fn projectile_launch_at_object_or_position(
@@ -427,15 +437,19 @@ impl NeutronMissileUpdate {
 
         self.state = MissileStateType::Launch;
         self.state_timestamp = TheGameLogic::get_frame();
+        let (target_above, decal_template, decal_radius) = {
+            let data = self.data();
+            (data.target_from_directly_above, data.delivery_decal_template.clone(), data.delivery_decal_radius)
+        };
 
         if let Some(victim_obj) = victim {
             self.target_pos = *victim_obj.get_position();
             self.intermed_pos = self.target_pos;
-            self.intermed_pos.z += self.module_data.target_from_directly_above;
+            self.intermed_pos.z += target_above;
         } else if let Some(pos) = victim_pos {
             self.target_pos = *pos;
             self.intermed_pos = self.target_pos;
-            self.intermed_pos.z += self.module_data.target_from_directly_above;
+            self.intermed_pos.z += target_above;
         }
 
         // Create delivery decal (radius override matches C++)
@@ -450,25 +464,16 @@ impl NeutronMissileUpdate {
             let local_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index());
-        let allow_decal = if self
-            .module_data
-            .delivery_decal_template
-            .only_visible_to_owning_player
+        let allow_decal = if decal_template.only_visible_to_owning_player
         {
             matches!((local_index, owner_index), (Some(local), Some(owner)) if local == owner)
         } else {
             true
         };
         if allow_decal {
-            let mut decal = self
-                .module_data
-                .delivery_decal_template
-                .create_radius_decal_with_radius(
-                    self.target_pos,
-                    self.module_data.delivery_decal_radius,
-                );
+            let mut decal = decal_template.create_radius_decal_with_radius(self.target_pos, decal_radius);
             if !decal.is_empty() {
-                if self.module_data.delivery_decal_template.color == 0 {
+                if decal_template.color == 0 {
                     if let (Some(owner), Ok(list)) = (owner_index, ThePlayerList().read()) {
                         if let Some(player) = list.get_player(owner).and_then(|p| p.read().ok()) {
                             decal.color = player.get_player_color().to_argb_u32();
@@ -549,12 +554,16 @@ impl NeutronMissileUpdate {
 
             self.is_launched = true;
 
-            if self.module_data.target_from_directly_above > 0.0 {
+            let (target_above, launch_fx) = {
+                let data = self.data();
+                (data.target_from_directly_above, data.launch_fx)
+            };
+            if target_above > 0.0 {
                 self.reached_intermediate_pos = false;
             }
 
             // Do launch FX
-            if let Some(fx) = self.module_data.launch_fx {
+            if let Some(fx) = launch_fx {
                 if let Some(fx_list) = ctx.fx_list {
                     fx_list.do_fx_obj(fx, self.thing);
                 }
@@ -578,7 +587,8 @@ impl NeutronMissileUpdate {
         }
 
         // Do ignition FX
-        if let Some(fx) = self.module_data.ignition_fx {
+        let ignition_fx = self.data().ignition_fx;
+        if let Some(fx) = ignition_fx {
             if let Some(fx_list) = ctx.fx_list {
                 fx_list.do_fx_obj(fx, self.thing);
             }
@@ -602,14 +612,19 @@ impl NeutronMissileUpdate {
     fn do_attack(&mut self, ctx: &mut UpdateContext<'_>) {
         // Get frame now before mutable borrow
         let now = ctx.game_logic.get_frame();
+        let (mut speed, target_above, max_turn_rate, damping, special_speed_time,
+            special_accel_factor, special_speed_height, special_jitter_distance) = {
+            let data = self.data();
+            (data.relative_speed, data.target_from_directly_above, data.max_turn_rate,
+                data.forward_damping, data.special_speed_time, data.special_accel_factor,
+                data.special_speed_height, data.special_jitter_distance)
+        };
 
         let Some(object) = ctx.game_logic.find_object_mut(self.thing) else {
             return;
         };
 
-        let mut speed = self.module_data.relative_speed;
-
-        if self.module_data.target_from_directly_above > 0.0 && self.reached_intermediate_pos {
+        if target_above > 0.0 && self.reached_intermediate_pos {
             speed *= STRAIGHT_DOWN_SLOW_FACTOR;
         }
 
@@ -623,14 +638,13 @@ impl NeutronMissileUpdate {
         let mx = if self.no_turn_dist_left > 0.0 {
             object.get_transform_matrix()
         } else {
-            calc_transform(object, target_pos, self.module_data.max_turn_rate)
+            calc_transform(object, target_pos, max_turn_rate)
         };
 
         // Get true forward direction of missile
         let true_dir = mx.x_axis.truncate().normalize();
 
         // Move forward along forward direction
-        let damping = self.module_data.forward_damping;
         self.accel.x = speed * true_dir.x - damping * self.vel.x;
         self.accel.y = speed * true_dir.y - damping * self.vel.y;
         self.accel.z = speed * true_dir.z - damping * self.vel.z;
@@ -642,17 +656,17 @@ impl NeutronMissileUpdate {
         let mut pos = *object.get_position();
 
         // Handle special speed/height logic
-        if self.module_data.special_speed_time > 0
-            && now <= self.frame_at_launch + self.module_data.special_speed_time
+        if special_speed_time > 0
+            && now <= self.frame_at_launch + special_speed_time
         {
             if let Some(drawable) = object.get_drawable() {
                 drawable.set_instance_matrix(None);
             }
 
             let elapsed = now - self.frame_at_launch;
-            if elapsed < self.module_data.special_speed_time {
-                let time_frac = elapsed as f32 / self.module_data.special_speed_time as f32;
-                let mut accel_factor = self.module_data.special_accel_factor;
+            if elapsed < special_speed_time {
+                let time_frac = elapsed as f32 / special_speed_time as f32;
+                let mut accel_factor = special_accel_factor;
                 if accel_factor < 0.01 {
                     accel_factor = 0.01;
                 }
@@ -661,15 +675,15 @@ impl NeutronMissileUpdate {
                 // C++: z = heightAtLaunch + (sqr(accelFactor * timeFrac) / accelFactor) * specialSpeedHeight
                 new_pos.z = self.height_at_launch
                     + ((accel_factor * time_frac).powi(2) / accel_factor)
-                        * self.module_data.special_speed_height;
+                        * special_speed_height;
 
                 self.vel.x = new_pos.x - pos.x;
                 self.vel.y = new_pos.y - pos.y;
                 self.vel.z = new_pos.z - pos.z;
 
                 // Handle jitter
-                if self.module_data.special_jitter_distance > 0.0 {
-                    let amplitude = (1.0 - time_frac) * self.module_data.special_jitter_distance;
+                if special_jitter_distance > 0.0 {
+                    let amplitude = (1.0 - time_frac) * special_jitter_distance;
                     let jitter = Vector3 {
                         x: 0.0,
                         y: GameLogicRandomValueReal(-1.0, 1.0) * amplitude,
@@ -1100,11 +1114,11 @@ impl Module for NeutronMissileUpdate {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        EngineModuleData::get_module_tag_name_key(&self.module_data)
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        &self.module_data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.module_data)
     }
 }
 
@@ -1124,12 +1138,9 @@ pub fn neutron_missile_update_data_factory(ini: Option<&mut INI>) -> Box<dyn Eng
 
 pub fn neutron_missile_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn EngineModuleData>,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let typed = module_data
-        .as_any()
-        .downcast_ref::<NeutronMissileUpdateModuleData>()
-        .expect("NeutronMissileUpdateModuleData expected");
+    assert!(module_data.is::<NeutronMissileUpdateModuleData>(), "NeutronMissileUpdateModuleData expected");
     let object_id = thing
         .as_object()
         .map(ModuleObject::get_object_id)
@@ -1137,7 +1148,7 @@ pub fn neutron_missile_update_module_factory(
 
     Box::new(NeutronMissileUpdate::new(
         object_id,
-        typed.clone(),
+        module_data,
         &AsciiString::from("NeutronMissileUpdate"),
     ))
 }

@@ -80,19 +80,19 @@ fn source_template_with_motion(
             TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: "OwnedMotionBody".into(),
-                data: Arc::new(body),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(body),
                 interface_mask: ModuleInterfaceType::BODY,
             },
             TemplateModuleInfo {
                 name: "AIUpdateInterface".into(),
                 module_tag: "OwnedMotionAI".into(),
-                data: Arc::new(ai),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(ai),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
             TemplateModuleInfo {
                 name: "PhysicsBehavior".into(),
                 module_tag: "OwnedMotionPhysics".into(),
-                data: Arc::new(PhysicsBehaviorModuleData::default()),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(PhysicsBehaviorModuleData::default()),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
         ],

@@ -11,6 +11,8 @@ use crate::object::collide::crate_collide::*;
 use crate::player::{PlayerIndex, player_list};
 use crate::upgrade::center::get_upgrade_center;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
+use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 
 /// Upgrade pair structure for bonus calculations
 #[derive(Debug, Clone, PartialEq)]
@@ -365,15 +367,21 @@ pub struct MoneyCrateCollide {
     /// Base crate collision functionality
     base_crate: CrateCollide,
     /// Module-specific configuration
-    module_data: MoneyCrateCollideModuleData,
+    module_data: ModuleDataView<MoneyCrateCollideModuleData>,
     /// Collection state owned by this module instance.
     state: MoneyCollectionState,
 }
 
 impl MoneyCrateCollide {
-    pub fn new(object_id: ObjectId, module_data: MoneyCrateCollideModuleData) -> Self {
+    pub fn new(object_id: ObjectId, handle: ModuleDataHandle) -> Self {
+        let base = ModuleDataView::new(handle.clone(), |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<MoneyCrateCollideModuleData>>().expect("MoneyCrateCollide data").data.base
+        });
+        let module_data = ModuleDataView::new(handle, |data| {
+            &data.as_any().downcast_ref::<CrateCollideDataAdapter<MoneyCrateCollideModuleData>>().expect("MoneyCrateCollide data").data
+        });
         Self {
-            base_crate: CrateCollide::new(object_id, module_data.base.clone()),
+            base_crate: CrateCollide::new(object_id, base),
             module_data,
             state: MoneyCollectionState {
                 is_collecting: false,
@@ -384,8 +392,8 @@ impl MoneyCrateCollide {
         }
     }
 
-    pub fn get_module_data(&self) -> &MoneyCrateCollideModuleData {
-        &self.module_data
+    pub fn get_module_data(&self) -> impl std::ops::Deref<Target = MoneyCrateCollideModuleData> + '_ {
+        self.module_data.read()
     }
 
     /// Execute the money collection process
@@ -400,7 +408,7 @@ impl MoneyCrateCollide {
             return Ok(false);
         };
 
-        let base_money = self.module_data.money_provided;
+        let base_money = self.module_data.read().money_provided;
         let (upgrade_bonus, contributing_upgrades) =
             self.get_upgraded_supply_boost_for_player(player_id)?;
         let total_money = Self::apply_money_boost(base_money, upgrade_bonus);
@@ -433,7 +441,7 @@ impl MoneyCrateCollide {
         &self,
         player_id: PlayerId,
     ) -> Result<(i32, Vec<String>), CollisionError> {
-        for upgrade_pair in &self.module_data.upgrade_boosts {
+        for upgrade_pair in &self.module_data.read().upgrade_boosts {
             if self.player_has_upgrade(player_id, &upgrade_pair.upgrade_type)? {
                 return Ok((upgrade_pair.amount, vec![upgrade_pair.upgrade_type.clone()]));
             }
@@ -472,7 +480,7 @@ impl MoneyCrateCollide {
         &self,
         player_id: PlayerId,
     ) -> Result<u32, CollisionError> {
-        let base_money = self.module_data.money_provided;
+        let base_money = self.module_data.read().money_provided;
         let (boost, _) = self.get_upgraded_supply_boost_for_player(player_id)?;
         Ok(Self::apply_money_boost(base_money, boost))
     }
@@ -617,14 +625,14 @@ pub struct MoneyCrateCollideFactory;
 impl MoneyCrateCollideFactory {
     pub fn create(object_id: ObjectId, money_amount: u32) -> MoneyCrateCollide {
         let data = MoneyCrateCollideModuleData::new().with_money_amount(money_amount);
-        MoneyCrateCollide::new(object_id, data)
+        MoneyCrateCollide::new(object_id, ModuleDataHandle::new(CrateCollideDataAdapter::new(data)))
     }
 
     pub fn create_with_config(
         object_id: ObjectId,
         config: MoneyCrateCollideModuleData,
     ) -> MoneyCrateCollide {
-        MoneyCrateCollide::new(object_id, config)
+        MoneyCrateCollide::new(object_id, ModuleDataHandle::new(CrateCollideDataAdapter::new(config)))
     }
 
     pub fn create_with_upgrades(
@@ -635,7 +643,7 @@ impl MoneyCrateCollideFactory {
         let data = MoneyCrateCollideModuleData::new()
             .with_money_amount(base_amount)
             .with_upgrade_boosts(upgrades);
-        MoneyCrateCollide::new(object_id, data)
+        MoneyCrateCollide::new(object_id, ModuleDataHandle::new(CrateCollideDataAdapter::new(data)))
     }
 
     pub fn create_small_money_crate(object_id: ObjectId) -> MoneyCrateCollide {
@@ -668,6 +676,23 @@ mod tests {
     use crate::player::{Player, PlayerArcExt, player_list};
     use crate::upgrade::{UpgradeStatus, center::with_upgrade_center_mut};
     use std::sync::RwLock;
+
+    #[test]
+    fn module_reads_live_admitted_money_data() {
+        let handle = ModuleDataHandle::new(CrateCollideDataAdapter::new(
+            MoneyCrateCollideModuleData::new().with_money_amount(100),
+        ));
+        let module = MoneyCrateCollide::new(1, handle.clone());
+        {
+            let mut data = handle.write();
+            let any: &mut dyn std::any::Any = &mut *data;
+            any.downcast_mut::<CrateCollideDataAdapter<MoneyCrateCollideModuleData>>()
+                .unwrap()
+                .data
+                .money_provided = 250;
+        }
+        assert_eq!(module.get_module_data().money_provided, 250);
+    }
 
     #[test]
     fn money_audio_binds_to_collector_object_like_cpp() {

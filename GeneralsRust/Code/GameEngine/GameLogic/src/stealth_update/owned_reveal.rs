@@ -5,19 +5,21 @@ use super::*;
 impl StealthUpdateModule {
     pub(crate) fn new_staged(
         key: NameKeyType,
-        data: Arc<StealthUpdateModuleData>,
+        data: ModuleDataHandle,
         id: ObjectID,
     ) -> Self {
         Self {
             module_name_key: key,
             controller: Arc::new(Mutex::new(StealthController::new_at(
-                Arc::clone(&data),
+                data.clone(),
                 id,
                 0,
                 0.0,
                 false,
             ))),
-            data,
+            data: ModuleDataView::new(data, |data| {
+                data.as_any().downcast_ref::<StealthUpdateModuleData>().expect("incorrect StealthUpdate module data")
+            }),
             object_id: id,
             next_call_frame_and_phase: 0,
         }
@@ -35,7 +37,7 @@ impl StealthUpdateModule {
         if !unpublished && !controller.native_ready {
             let frame = TheGameLogic::get_frame();
             controller.initialize_at(frame, crate::system::engine_stores::active_services().client_random_value_real(0.0, PI));
-            self.next_call_frame_and_phase = if self.data.granted_by_special_power {
+            self.next_call_frame_and_phase = if self.data.read().granted_by_special_power {
                 crate::modules::UpdateSleepTime::Forever.to_u32()
             } else {
                 frame.wrapping_add(1)
@@ -58,17 +60,17 @@ impl StealthUpdateModule {
             return Err("stealth already admitted or restored".into());
         }
         controller.initialize_at(frame, pulse);
-        self.next_call_frame_and_phase = if self.data.granted_by_special_power {
+        self.next_call_frame_and_phase = if self.data.read().granted_by_special_power {
             crate::modules::UpdateSleepTime::Forever.to_u32()
         } else {
             frame.wrapping_add(1)
         };
-        Ok((self.data.innate_stealth, self.next_call_frame_and_phase))
+        Ok((self.data.read().innate_stealth, self.next_call_frame_and_phase))
     }
 }
 impl StealthController {
     fn initialize_at(&mut self, frame: u32, pulse: f32) {
-        self.stealth_allowed_frame = frame.wrapping_add(self.data.stealth_delay_frames);
+        self.stealth_allowed_frame = frame.wrapping_add(self.data.read().stealth_delay_frames);
         self.pulse_phase = pulse;
         self.native_ready = true;
     }
@@ -91,7 +93,7 @@ impl StealthController {
         Ok(())
     }
     pub(crate) fn uses_rider_stealth(&self) -> bool {
-        self.data.use_rider_stealth
+        self.data.read().use_rider_stealth
     }
     pub(crate) fn birth_deadline(&self) -> u32 {
         self.stealth_allowed_frame
@@ -100,7 +102,7 @@ impl StealthController {
         self.native_ready
     }
     pub(crate) fn detection_orders_idle_enemies(&self) -> bool {
-        self.data.order_idle_enemies_to_attack
+        self.data.read().order_idle_enemies_to_attack
     }
     pub(crate) fn mark_as_detected_at_owned(&mut self, frame: u32, frames: u32) -> bool {
         assert!(self.native_ready, "stealth must be admitted before reveal");
@@ -110,12 +112,12 @@ impl StealthController {
         if disguise && self.disguised {
             self.disguise_as_template_name = None;
             self.disguise_as_player_index = 0;
-            self.disguise_transition_frames = self.data.disguise_reveal_transition_frames;
+            self.disguise_transition_frames = self.data.read().disguise_reveal_transition_frames;
             self.transitioning_to_disguise = false;
             self.disguise_halfpoint_reached = false;
         }
         if frames == 0 {
-            self.detection_expires_frame = frame.wrapping_add(self.data.stealth_delay_frames);
+            self.detection_expires_frame = frame.wrapping_add(self.data.read().stealth_delay_frames);
         } else if self.detection_expires_frame < frame.wrapping_add(frames) {
             self.detection_expires_frame = frame.wrapping_add(frames);
         }

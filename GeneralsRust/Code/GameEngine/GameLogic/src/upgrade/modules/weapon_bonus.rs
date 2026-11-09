@@ -9,7 +9,6 @@ use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
 pub struct WeaponBonusUpgradeModuleData {
@@ -133,7 +132,7 @@ const WEAPON_BONUS_UPGRADE_FIELDS: &[FieldParse<WeaponBonusUpgradeModuleData>] =
 
 pub struct WeaponBonusUpgrade {
     module_name_key: NameKeyType,
-    data: Arc<WeaponBonusUpgradeModuleData>,
+    data: game_engine::common::thing::module::ModuleDataView<WeaponBonusUpgradeModuleData>,
     object_id: ObjectID,
     mux: UpgradeMux,
 }
@@ -141,13 +140,13 @@ pub struct WeaponBonusUpgrade {
 impl WeaponBonusUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<WeaponBonusUpgradeModuleData>,
+        data: game_engine::common::thing::module::ModuleDataHandle,
         object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        let mux = UpgradeMux::new_shared(game_engine::common::thing::module::ModuleDataView::new(data.clone(), |data| &data.as_any().downcast_ref::<WeaponBonusUpgradeModuleData>().expect("WeaponBonusUpgradeModuleData").upgrade_mux_data));
         Self {
             module_name_key,
-            data,
+            data: game_engine::common::thing::module::ModuleDataView::new(data, |data| data.as_any().downcast_ref::<WeaponBonusUpgradeModuleData>().expect("WeaponBonusUpgradeModuleData")),
             object_id,
             mux,
         }
@@ -181,8 +180,9 @@ impl UpgradeModuleInterface for WeaponBonusUpgrade {
     }
     fn attempt_upgrade(&mut self, key_mask: UpgradeMask, object: &mut Object) -> bool {
         if self.mux.would_upgrade(key_mask) {
-            self.mux.data.perform_upgrade_fx(object);
-            self.mux.data.process_upgrade_removal(object);
+            let data = self.mux.data_snapshot();
+            data.perform_upgrade_fx(object);
+            data.process_upgrade_removal(object);
             self.upgrade_implementation(object);
             self.mux.set_upgrade_executed(true);
             true
@@ -217,10 +217,10 @@ impl Module for WeaponBonusUpgrade {
         self.module_name_key
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.handle().read().get_module_tag_name_key()
     }
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(self.data.handle())
     }
 }
 

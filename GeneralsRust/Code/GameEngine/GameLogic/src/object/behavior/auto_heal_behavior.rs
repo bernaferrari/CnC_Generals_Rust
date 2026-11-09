@@ -737,7 +737,7 @@ enum AutoHealUpgradeMaskCache {
 
 /// AutoHealBehavior - Main implementation of auto-healing behavior
 pub struct AutoHealBehavior {
-    pub module_data: Arc<AutoHealBehaviorModuleData>,
+    pub module_data: game_engine::common::thing::module::ModuleDataHandle,
 
     // Particle system for radius effect
     pub radius_particle_system_id: ParticleSystemID,
@@ -769,7 +769,7 @@ impl fmt::Debug for AutoHealBehavior {
 impl AutoHealBehavior {
     pub(crate) fn construct_inert_with_object_id(
         object_id: ObjectID,
-        module_data: Arc<AutoHealBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         Self {
             module_data,
@@ -785,7 +785,9 @@ impl AutoHealBehavior {
         }
     }
     pub(crate) fn validate_owned_damage_callback(&self) -> Result<(), String> {
-        if self.module_data.radius != 0.0 || self.module_data.radius_particle_system_tmpl.is_some()
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
+        if data.radius != 0.0 || data.radius_particle_system_tmpl.is_some()
         {
             return Err("native AutoHeal radius effects not admitted".into());
         }
@@ -801,8 +803,10 @@ impl AutoHealBehavior {
             return Err("AutoHeal birth already admitted".into());
         }
         self.owned_birth_admitted = true;
-        self.upgrade_executed = self.module_data.initially_active;
-        let delay = self.module_data.healing_delay;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
+        self.upgrade_executed = data.initially_active;
+        let delay = data.healing_delay;
         let wake = if !self.upgrade_executed {
             0x3fff_ffff
         } else if delay == 0 {
@@ -817,11 +821,13 @@ impl AutoHealBehavior {
         self.owned_birth_admitted
     }
     pub(crate) fn damage_wake_at(&self, frame: u32) -> Option<UpdateSleepTime> {
-        if self.stopped || !self.is_upgrade_active() || self.module_data.radius != 0.0 {
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
+        if self.stopped || !self.is_upgrade_active() || data.radius != 0.0 {
             return None;
         }
-        if self.module_data.start_healing_delay > 0 {
-            Some(update_sleep_time(self.module_data.start_healing_delay))
+        if data.start_healing_delay > 0 {
+            Some(update_sleep_time(data.start_healing_delay))
         } else if frame > self.soonest_heal_frame {
             Some(UPDATE_SLEEP_NONE)
         } else {
@@ -840,11 +846,16 @@ impl AutoHealBehavior {
     }
     pub(crate) fn construct_with_object_id(
         object_id: ObjectID,
-        module_data: Arc<AutoHealBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let mut behavior = Self::construct_inert_with_object_id(object_id, module_data);
+        let (radius_tmpl, initially_active, delay) = {
+            let guard = behavior.module_data.read();
+            let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
+            (data.radius_particle_system_tmpl.clone(), data.initially_active, data.healing_delay)
+        };
 
-        if let Some(radius_tmpl) = &behavior.module_data.radius_particle_system_tmpl {
+        if let Some(radius_tmpl) = &radius_tmpl {
             if let Some(manager) = TheParticleSystemManager::get() {
                 if let Some(ps_id) = manager.create_particle_system(Some(radius_tmpl.name.as_str()))
                 {
@@ -858,9 +869,8 @@ impl AutoHealBehavior {
             }
         }
 
-        if behavior.module_data.initially_active {
+        if initially_active {
             behavior.give_self_upgrade();
-            let delay = behavior.module_data.healing_delay;
             if delay > 0 {
                 let high = i32::try_from(delay).unwrap_or(i32::MAX);
                 let random_delay = GameLogicRandomValue(1, high) as UnsignedInt;
@@ -893,7 +903,7 @@ impl AutoHealBehavior {
 
     pub fn from_module_thing(
         thing: Arc<dyn ModuleThing>,
-        module_data: Arc<AutoHealBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = thing
             .as_object()
@@ -904,7 +914,7 @@ impl AutoHealBehavior {
 
     pub fn new_from_object_handle(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<AutoHealBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
         let object_id = object
             .read()
@@ -973,7 +983,8 @@ impl AutoHealBehavior {
             return Ok(());
         }
 
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
         let amount = data.healing_amount as Real;
         let delay = data.healing_delay;
         let target_id = obj
@@ -1117,12 +1128,15 @@ impl UpdateModuleInterface for AutoHealBehavior {
             return Ok(UPDATE_SLEEP_FOREVER);
         }
 
-        let data = &self.module_data;
-        if data.affects_whole_player {
+        let (affects_whole_player, radius) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
+            (data.affects_whole_player, data.radius)
+        };
+        if affects_whole_player {
             return self.heal_all_player_objects();
         }
-
-        if data.radius > 0.0 {
+        if radius > 0.0 {
             return self.heal_friendlies_in_radius();
         }
 
@@ -1175,15 +1189,16 @@ impl DamageModuleInterface for AutoHealBehavior {
 pub struct AutoHealBehaviorModule {
     behavior: AutoHealBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<AutoHealBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
 }
 
 impl AutoHealBehaviorModule {
     pub fn new(
         behavior: AutoHealBehavior,
         module_name: &AsciiString,
-        module_data: Arc<AutoHealBehaviorModuleData>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Self {
+        assert!(game_engine::common::thing::module::ModuleDataHandle::ptr_eq(&behavior.module_data, &module_data));
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
@@ -1232,11 +1247,11 @@ impl Module for AutoHealBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.module_data)
     }
 
     fn on_object_created(&mut self) {
@@ -1274,10 +1289,11 @@ impl AutoHealBehavior {
     fn heal_all_player_objects(
         &mut self,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let kind_of_to_test = self.module_data.kind_of.clone();
-        let forbidden_kind_of = self.module_data.forbidden_kind_of.clone();
-        let skip_self = self.module_data.skip_self_for_healing;
-        let healing_delay = self.module_data.healing_delay;
+        let (kind_of_to_test, forbidden_kind_of, skip_self, healing_delay) = {
+            let guard = self.module_data.read();
+            let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
+            (data.kind_of.clone(), data.forbidden_kind_of.clone(), data.skip_self_for_healing, data.healing_delay)
+        };
         let Some(healer_id) = self.with_object(|obj_read| obj_read.get_id()) else {
             return Ok(UPDATE_SLEEP_FOREVER);
         };
@@ -1315,7 +1331,7 @@ impl AutoHealBehavior {
     fn heal_self_only(
         &mut self,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let healing_delay = self.module_data.healing_delay;
+        let healing_delay = self.module_data.read().downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data").healing_delay;
         let needs_healing = self
             .with_object(|obj_read| {
                 if let Some(body) = obj_read.get_body_module() {
@@ -1346,7 +1362,8 @@ impl AutoHealBehavior {
     fn heal_friendlies_in_radius(
         &mut self,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
         let Some((position, healer_team, healer_off_map)) = self.with_object(|obj_read| {
             (
                 *obj_read.get_position(),
@@ -1372,6 +1389,7 @@ impl AutoHealBehavior {
         let forbidden_kind_of = data.forbidden_kind_of;
         let single_burst = data.single_burst;
         let healing_delay = data.healing_delay;
+        drop(guard);
 
         let mut _healed_any = false;
         for object_id in partition.get_objects_in_range(&position, radius) {
@@ -1451,7 +1469,7 @@ impl UpgradeModuleInterface for AutoHealBehavior {
             return true;
         }
 
-        if self.module_data.upgrade_mux_data.requires_all_triggers() {
+        if self.module_data.read().downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data").upgrade_mux_data.requires_all_triggers() {
             upgrade_mask.contains(activation_mask)
         } else {
             upgrade_mask.intersects(activation_mask)
@@ -1473,7 +1491,7 @@ impl UpgradeModuleInterface for AutoHealBehavior {
         if !self.upgrade_executed {
             self.give_self_upgrade();
             let _ = self.with_object(|thing| {
-                self.module_data.upgrade_mux_data.perform_upgrade_fx(thing);
+                self.module_data.read().downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data").upgrade_mux_data.perform_upgrade_fx(thing);
             });
         }
 
@@ -1487,7 +1505,7 @@ impl UpgradeModuleInterface for AutoHealBehavior {
             let object_id = self.owner_object_id();
             if object_id != OBJECT_INVALID_ID {
                 let object_handle = AutoHealObjectHandle { object_id };
-                self.module_data
+                self.module_data.read().downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data")
                     .upgrade_mux_data
                     .mux_data_process_upgrade_removal(&object_handle);
             }
@@ -1582,22 +1600,19 @@ impl AutoHealBehavior {
         // Mark before calling the resolver. If it unwinds, later queries keep
         // the old poisoned-cache zero pair without retrying mask allocation.
         self.upgrade_masks = AutoHealUpgradeMaskCache::ResolvingOrFailed;
-        let activation = self
-            .module_data
-            .upgrade_mux_data
+        let guard = self.module_data.read();
+        let data = guard.downcast_ref::<AutoHealBehaviorModuleData>().expect("Invalid AutoHealBehavior data");
+        let activation = data.upgrade_mux_data
             .activation_upgrade_names()
             .iter()
             .chain(
-                self.module_data
-                    .upgrade_mux_data
+                data.upgrade_mux_data
                     .trigger_upgrade_names()
                     .iter(),
             )
             .fold(UpgradeMaskType::none(), |mask, name| mask | resolve(name));
 
-        let conflicting = self
-            .module_data
-            .upgrade_mux_data
+        let conflicting = data.upgrade_mux_data
             .conflicting_upgrade_names()
             .iter()
             .fold(UpgradeMaskType::none(), |mask, name| mask | resolve(name));
@@ -1672,7 +1687,7 @@ mod tests {
 
     #[test]
     fn auto_heal_processes_while_held() {
-        let data = Arc::new(AutoHealBehaviorModuleData::new());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(AutoHealBehaviorModuleData::new());
         let behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data);
         assert_eq!(
             UpdateModuleInterface::get_disabled_types_to_process(&behavior),
@@ -1696,7 +1711,7 @@ mod tests {
     fn on_damage_wakes_after_full_health_sleep() {
         // C++ AutoHealBehavior.cpp:136-157 — radius==0 onDamage resets StartHealingDelay
         // after update() returned UPDATE_SLEEP_FOREVER at max health (:218-219).
-        let data = Arc::new(AutoHealBehaviorModuleData::default_auto_heal());
+        let data = game_engine::common::thing::module::ModuleDataHandle::new(AutoHealBehaviorModuleData::default_auto_heal());
         let mut behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data);
         assert!(behavior.is_upgrade_active());
         behavior.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
@@ -1717,7 +1732,7 @@ mod tests {
         let mut data = AutoHealBehaviorModuleData::default_auto_heal();
         data.start_healing_delay = 0;
         let mut behavior =
-            AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, Arc::new(data));
+            AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, game_engine::common::thing::module::ModuleDataHandle::new(data));
         behavior.soonest_heal_frame = UnsignedInt::MAX;
         behavior.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
         let mut damage = DamageInfo::default();

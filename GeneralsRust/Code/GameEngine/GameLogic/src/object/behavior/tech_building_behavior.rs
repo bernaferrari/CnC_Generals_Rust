@@ -108,23 +108,19 @@ const TECH_BUILDING_BEHAVIOR_FIELDS: &[FieldParse<TechBuildingBehaviorModuleData
 #[derive(Debug)]
 pub struct TechBuildingBehavior {
     object_id: ObjectID,
-    module_data: Arc<TechBuildingBehaviorModuleData>,
+    module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
 }
 
 impl TechBuildingBehavior {
-    pub fn new(
-        thing: Arc<RwLock<Object>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = {
-            let data_ref = module_data
-                .as_any()
-                .downcast_ref::<TechBuildingBehaviorModuleData>()
-                .ok_or("Invalid module data type")?;
-            data_ref.clone()
-        };
 
+    pub fn new_with_module_data(
+        thing: Arc<RwLock<Object>>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if !module_data.is::<TechBuildingBehaviorModuleData>() {
+            return Err("Invalid module data type".into());
+        }
         let now = TheGameLogic::get_frame();
 
         Ok(Self {
@@ -133,7 +129,7 @@ impl TechBuildingBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            module_data: Arc::new(data),
+            module_data,
             next_call_frame_and_phase: now.saturating_add(1),
         })
     }
@@ -205,7 +201,9 @@ impl TechBuildingBehavior {
 
 impl UpdateModuleInterface for TechBuildingBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let data = &self.module_data;
+        let guard = self.module_data.read();
+        let data = guard.as_any().downcast_ref::<TechBuildingBehaviorModuleData>()
+            .expect("TechBuildingBehavior module data");
 
         // Update our model condition for the captured status
         let is_playable_side = self
@@ -314,7 +312,6 @@ impl Snapshotable for TechBuildingBehavior {
 pub struct TechBuildingBehaviorModule {
     behavior: TechBuildingBehavior,
     module_name_key: NameKeyType,
-    module_data: Arc<TechBuildingBehaviorModuleData>,
 }
 
 impl TechBuildingBehaviorModule {
@@ -325,13 +322,11 @@ impl TechBuildingBehaviorModule {
     pub fn new(
         behavior: TechBuildingBehavior,
         module_name: &game_engine::common::rts::AsciiString,
-        module_data: Arc<TechBuildingBehaviorModuleData>,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
             behavior,
             module_name_key,
-            module_data,
         }
     }
 
@@ -360,11 +355,11 @@ impl Module for TechBuildingBehaviorModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        self.behavior.module_data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn EngineModuleData {
-        self.module_data.as_ref()
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.behavior.module_data)
     }
 
     /// C++ `UpdateModule : Module` interface query

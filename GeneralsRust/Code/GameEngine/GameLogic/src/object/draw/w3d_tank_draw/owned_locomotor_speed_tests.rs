@@ -16,9 +16,8 @@ fn admitted_cached_ai_supplies_body_condition_tread_speed() {
     let second = Fixture::actual_draw(&fixture.damaged, "W3DTankDraw");
     for handle in [&first, &second] {
         let data = handle.module_data_arc();
-        let data = data
-            .as_ref()
-            .as_any()
+        let guard = data.read();
+        let data = (&*guard as &dyn Any)
             .downcast_ref::<W3DTankDrawModuleData>()
             .expect("Common must invoke the actual registered Draw data proc");
         // INI::parseVelocityReal stores velocity per 30 Hz logic frame.

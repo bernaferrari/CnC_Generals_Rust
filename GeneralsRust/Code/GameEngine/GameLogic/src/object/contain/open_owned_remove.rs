@@ -112,8 +112,10 @@ impl OpenContain {
         world.set_object_layer(&mut rider, layer);
         drop(rider);
         if self.last_unload_sound_frame != world.frame() {
-            if let Some(sound) = &self.module_data.exit_sound {
-                let mut event = AudioEventRts::new(sound.get_event_name());
+            let name = self.module_data.read().exit_sound.as_ref()
+                .map(|sound| sound.get_event_name().to_string());
+            if let Some(name) = name {
+                let mut event = AudioEventRts::new(&name);
                 event.set_object_id(self.object_id);
                 world.play_containment_sound(&event);
             }
@@ -233,8 +235,8 @@ impl OpenContain {
         &mut self,
         world: &mut dyn AiWorld,
     ) {
-        assert!(self.module_data.number_of_exit_paths <= 0);
-        self.door_close_countdown = self.module_data.door_open_time;
+        assert!(self.module_data.read().number_of_exit_paths <= 0);
+        self.door_close_countdown = self.module_data.read().door_open_time;
         if self.door_close_countdown != 0 {
             let owner = world
                 .object(self.get_object_id())
@@ -256,9 +258,9 @@ impl OpenContain {
         &mut self,
         world: &mut dyn AiWorld,
     ) -> crate::modules::OwnedContainExitPath {
-        assert!(self.module_data.number_of_exit_paths > 0);
+        assert!(self.module_data.read().number_of_exit_paths > 0);
         // Door flags precede pristine-bone selection, matching OpenContain.cpp915.
-        self.door_close_countdown = self.module_data.door_open_time;
+        self.door_close_countdown = self.module_data.read().door_open_time;
         let owner = world
             .object(self.get_object_id())
             .expect("admitted exit owner retired");

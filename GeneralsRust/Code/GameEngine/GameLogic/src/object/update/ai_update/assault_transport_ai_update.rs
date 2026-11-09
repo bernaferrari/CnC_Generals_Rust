@@ -14,7 +14,7 @@ use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::weapon::NO_MAX_SHOTS_LIMIT;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType};
 
 /// Wave 369: host-only path has no dual-world factory objects.
 #[inline]
@@ -219,13 +219,13 @@ const ASSAULT_TRANSPORT_AI_UPDATE_FIELDS: &[FieldParse<AssaultTransportAIUpdateM
 #[derive(Debug)]
 pub struct AssaultTransportAIUpdateModule {
     module_name_key: NameKeyType,
-    data: Arc<AssaultTransportAIUpdateModuleData>,
+    data: ModuleDataHandle,
 }
 
 impl AssaultTransportAIUpdateModule {
     pub fn new(
         module_name_key: NameKeyType,
-        data: Arc<AssaultTransportAIUpdateModuleData>,
+        data: ModuleDataHandle,
     ) -> Self {
         Self {
             module_name_key,
@@ -240,21 +240,21 @@ impl Module for AssaultTransportAIUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        self.data.read().get_module_tag_name_key()
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        self.data.as_ref()
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
 impl Snapshotable for AssaultTransportAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        self.data.read().crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+        self.data.write().xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -262,26 +262,10 @@ impl Snapshotable for AssaultTransportAIUpdateModule {
     }
 }
 
-/// Runtime configuration for AssaultTransportAIUpdate.
-#[derive(Debug, Clone)]
-pub struct AssaultTransportAIUpdateData {
-    pub members_get_healed_at_life_ratio: Real,
-    pub clear_range_required_to_continue_attack_move: Real,
-}
-
-impl Default for AssaultTransportAIUpdateData {
-    fn default() -> Self {
-        Self {
-            members_get_healed_at_life_ratio: 0.0,
-            clear_range_required_to_continue_attack_move: 50.0,
-        }
-    }
-}
-
 /// Assault transport AI runtime logic.
 #[derive(Debug, Clone)]
 pub struct AssaultTransportAIUpdate {
-    data: AssaultTransportAIUpdateData,
+    data: ModuleDataHandle,
     owner_id: ObjectID,
     member_ids: [ObjectID; MAX_TRANSPORT_SLOTS],
     member_healing: [Bool; MAX_TRANSPORT_SLOTS],
@@ -297,7 +281,7 @@ pub struct AssaultTransportAIUpdate {
 }
 
 impl AssaultTransportAIUpdate {
-    pub fn new(data: AssaultTransportAIUpdateData, owner_id: ObjectID) -> Self {
+    pub fn new(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
         let mut update = Self {
             data,
             owner_id,
@@ -628,7 +612,7 @@ impl AssaultTransportAIUpdate {
             return false;
         };
         let ratio = body_guard.get_health() / body_guard.get_max_health();
-        ratio < self.data.members_get_healed_at_life_ratio
+        ratio < self.data.read().downcast_ref::<AssaultTransportAIUpdateModuleData>().expect("AssaultTransport data type").members_get_healed_at_life_ratio
     }
 
     fn is_member_healthy(&self, member: &crate::object::Object) -> Bool {

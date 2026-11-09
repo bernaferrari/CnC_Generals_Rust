@@ -2,8 +2,9 @@ impl Module for W3DModelDraw {
     fn on_drawable_bound_to_object(&mut self) {
         self.seed_hex_color_from_owner();
         self.apply_receives_dynamic_lights();
-        if self.data.default_state >= 0 {
-            self.set_model_state(self.data.default_state as usize);
+        let default_state = self.model_data().default_state;
+        if default_state >= 0 {
+            self.set_model_state(default_state as usize);
         } else if let Some(state_index) = self.find_best_state_index(&ModelConditionFlags::empty())
         {
             self.set_model_state(state_index);
@@ -26,8 +27,11 @@ impl Module for W3DModelDraw {
         // `preloadModelAssets(m_modelName)` for `m_conditionStates`.
         // `timeOfDay` and the drawable scale are unused. Transition states
         // and animation names are not preloaded.
-        for state in &self.data.condition_states {
-            preload_draw_asset(state.model_name.as_str());
+        let models: Vec<_> = self.model_data().condition_states.iter()
+            .map(|state| state.model_name.clone())
+            .collect();
+        for model in models {
+            preload_draw_asset(model.as_str());
         }
     }
 
@@ -43,11 +47,11 @@ impl Module for W3DModelDraw {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.module_tag_name_key
+        self.model_data().module_tag_name_key
     }
 
-    fn get_module_data(&self) -> &dyn ModuleData {
-        &self.data
+    fn get_module_data(&self) -> ModuleDataRead<'_> {
+        ModuleDataRead::shared(&self.data)
     }
 }
 
@@ -76,8 +80,9 @@ impl DrawModule for W3DModelDraw {
         time: &crate::helpers::DrawTimeObservation,
     ) {
         // C++: setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))
+        let animations_require_power = self.model_data().animations_require_power;
         let should_animate = driver
-            .map(|drawable| drawable.get_should_animate(self.data.animations_require_power))
+            .map(|drawable| drawable.get_should_animate(animations_require_power))
             .unwrap_or_else(|| self.owner_should_animate());
         self.set_pause_animation(!should_animate);
         let state_context = driver.map(|drawable| ModelDrawContext {
@@ -98,16 +103,16 @@ impl DrawModule for W3DModelDraw {
                 }
             }
 
-            if let Some(state) = self.current_state() {
+            let should_restart = self.current_state().is_some_and(|state| {
                 let anim_index = self.which_anim_in_cur_state;
-                if anim_index >= 0 && (anim_index as usize) < state.animations.len() {
-                    let should_restart = state.animations[anim_index as usize].is_idle_anim
-                        || test_flag_bit(state.flags, ACBIT_RESTART_ANIM_WHEN_COMPLETE);
-                    if should_restart {
-                        let cur_ref = self.cur_state;
-                        self.adjust_animation(cur_ref, -1.0);
-                    }
-                }
+                anim_index >= 0
+                    && (anim_index as usize) < state.animations.len()
+                    && (state.animations[anim_index as usize].is_idle_anim
+                        || test_flag_bit(state.flags, ACBIT_RESTART_ANIM_WHEN_COMPLETE))
+            });
+            if should_restart {
+                let cur_ref = self.cur_state;
+                self.adjust_animation(cur_ref, -1.0);
             }
         }
 
@@ -119,7 +124,8 @@ impl DrawModule for W3DModelDraw {
         }
 
         self.recalc_bones_for_client_particle_systems_for_owner(driver);
-        if self.data.particles_attached_to_animated_bones {
+        let particles_attached = self.model_data().particles_attached_to_animated_bones;
+        if particles_attached {
             let _ = if let Some(driver) = driver {
                 self.update_particle_bones_for_owner(driver)
             } else {
@@ -321,9 +327,10 @@ impl ObjectDrawInterface for W3DModelDraw {
         }
         let adjusted = self.adjust_transform_mtx(&source);
         *pos = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
-        *bounding_sphere_radius = self
-            .current_state()
-            .and_then(|state| lookup_model_obj_bounds(state.model_name.as_str()))
+        let model = self.current_state().map(|state| state.model_name.as_str().to_owned());
+        *bounding_sphere_radius = model
+            .as_deref()
+            .and_then(lookup_model_obj_bounds)
             .map(|(_, extent)| {
                 (extent[0] * extent[0] + extent[1] * extent[1] + extent[2] * extent[2]).sqrt()
             })
@@ -403,7 +410,8 @@ impl ObjectDrawInterface for W3DModelDraw {
         // and stop at the first missing name. A later bone does not fill the gap.
         // The miss writes a fallback matrix that is not counted.
         const MAX_BONE_GET: usize = 64;
-        let Some(state) = self.data.find_best_info(condition) else {
+        let data = self.model_data();
+        let Some(state) = data.find_best_info(condition) else {
             return 0;
         };
 
@@ -660,9 +668,9 @@ impl ObjectDrawInterface for W3DModelDraw {
         if (barrel_info.recoil_bone != 0 || barrel_info.muzzle_flash_bone != 0)
             && selected_barrel < self.weapon_recoil_info[weapon_slot].len()
         {
+            let initial_recoil = self.model_data().initial_recoil;
             self.weapon_recoil_info[weapon_slot][selected_barrel].state = RecoilState::RecoilStart;
-            self.weapon_recoil_info[weapon_slot][selected_barrel].recoil_rate =
-                self.data.initial_recoil;
+            self.weapon_recoil_info[weapon_slot][selected_barrel].recoil_rate = initial_recoil;
             if barrel_info.muzzle_flash_bone != 0 {
                 self.set_muzzle_flash_hidden(weapon_slot, selected_barrel, false);
             }
