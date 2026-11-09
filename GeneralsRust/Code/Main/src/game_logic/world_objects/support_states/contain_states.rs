@@ -163,7 +163,7 @@ impl GameLogic {
     }
 
     /// OpenContain::doUnloadSound before onRemoving; exactly once per frame.
-    fn play_container_exit_sound(
+    pub(crate) fn play_container_exit_sound(
         &mut self,
         container_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,

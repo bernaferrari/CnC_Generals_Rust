@@ -815,6 +815,18 @@ impl GameLogic {
         if container.thing().template.contain_module.kind == ContainModuleKind::None {
             return;
         }
+        if container.is_cave_style_container() {
+            // CaveContain inherits OpenContain::onSelling, whose virtual
+            // roster is the shared CaveIndex tracker. AIExit only enters its
+            // state here; the exit update performs the actual removal.
+            self.order_owned_passengers_to_exit_with_effects(
+                structure_id,
+                false,
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
+                effects,
+            );
+            return;
+        }
         let pos = container.get_position();
         // Snapshot occupants.
         let occupants: Vec<ObjectId> = self

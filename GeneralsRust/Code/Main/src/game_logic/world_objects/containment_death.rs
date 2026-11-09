@@ -210,58 +210,34 @@ impl GameLogic {
             if self.cave_system.index_of(id).is_none() {
                 return Ok(());
             }
-            let remaining: Vec<_> = self
-                .objects
-                .registered_values()
-                .filter(|object| {
-                    object.id != id
-                        && object.is_alive()
-                        && !object.status.sold
-                        && object.is_cave_style_container()
-                        && object.cave_index == index
-                })
-                .map(|object| object.id)
-                .collect();
-            let outcome = self.cave_system.on_cave_destroyed(id, &remaining);
+            let outcome = self.cave_system.on_cave_destroyed(id);
             if outcome.cave_in {
-                for child in outcome.cave_in_units {
-                    if let Some(child) = self.objects.get_mut(&child) {
-                        let containment_actor_id = child.id;
-                        Self::set_owned_containment_in_parts(
-                            &mut self.objects,
-                            &mut self.partition_manager,
-                            &mut self.ai_groups,
-                            &mut self.pathfinding_system,
-                            containment_actor_id,
-                            None,
-                            true,
-                        );
-                        let child = self
-                            .objects
-                            .get_mut(&containment_actor_id)
-                            .expect("containment operation preserves this birth");
+                let riders: Vec<_> = outcome.cave_in_units.into_iter().filter_map(|id| {
+                    self.objects.get(&id).map(|object| {
+                        (id, std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                    })
+                }).collect();
+                for (child, birth) in riders {
+                    if !self.objects.get(&child).is_some_and(|object| {
+                        birth.ptr_eq(&std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                    }) {
+                        continue;
                     }
+                    self.objects.get_mut(&child).expect("cave-in rider remains installed")
+                        .finish_containment_reference_with_partition_owner(
+                            None, false, &mut self.partition_manager,
+                        );
                     // TunnelTracker cave-in is direct destruction, not body death.
                     self.destroy_object_with_effects(child, presentation_effects)?;
                 }
+                self.cave_system.finish_cave_in(index);
             } else if let Some(entrance) = outcome.remapped_to {
                 for child in self.cave_system.contained_for_index(index) {
                     if let Some(child) = self.objects.get_mut(&child) {
                         if child.contained_by == Some(id) {
-                            let containment_actor_id = child.id;
-                            Self::set_owned_containment_in_parts(
-                                &mut self.objects,
-                                &mut self.partition_manager,
-                                &mut self.ai_groups,
-                                &mut self.pathfinding_system,
-                                containment_actor_id,
-                                Some(entrance),
-                                true,
+                            child.finish_containment_reference_with_partition_owner(
+                                Some(entrance), true, &mut self.partition_manager,
                             );
-                            let child = self
-                                .objects
-                                .get_mut(&containment_actor_id)
-                                .expect("containment operation preserves this birth");
                         }
                     }
                 }

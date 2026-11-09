@@ -338,20 +338,46 @@ impl GameLogic {
         container_id: ObjectId,
         reject_subdued: bool,
     ) {
+        self.order_owned_passengers_to_exit_with_effects(
+            container_id,
+            reject_subdued,
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
+            &mut Default::default(),
+        );
+    }
+
+    /// OpenContain::orderAllPassengersToExit against the actual receiving roster.
+    pub(in crate::game_logic) fn order_owned_passengers_to_exit_with_effects(
+        &mut self,
+        container_id: ObjectId,
+        reject_subdued: bool,
+        source: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(container) = self.host_object(container_id) else {
             return;
         };
         if reject_subdued && container.is_subdued_disabled() {
             return;
         }
-        let passengers = container.contained_units();
+        let cave_index = container.is_cave_style_container().then_some(container.cave_index);
+        let passengers = if container.is_cave_style_container() {
+            let Some(index) = cave_index else { return };
+            self.cave_system.contained_for_index(index)
+        } else {
+            container.contained_units()
+        };
         for passenger in passengers {
             if passenger == container_id
                 || !self.host_object(passenger).is_some_and(|p| {
                     p.has_ai_update_interface()
                         && p.is_alive()
                         && !p.status.effectively_dead
-                        && p.contained_by == Some(container_id)
+                        && if let Some(index) = cave_index {
+                            self.cave_system.is_in_network(index, passenger)
+                        } else {
+                            p.contained_by == Some(container_id)
+                        }
                 })
             {
                 continue;
@@ -372,11 +398,9 @@ impl GameLogic {
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 operation_frame,
-                &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(partition),
+                &mut effects.reborrow_for_object(partition),
             );
-            object.last_command_source =
-                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+            object.last_command_source = source;
             object.set_ai_state(
                 AIState::Exiting,
                 operation_frame,
@@ -417,10 +441,14 @@ impl GameLogic {
         };
         // A malformed or stale restored relationship must not eject a rider
         // from a different container or manufacture a passenger at this one.
-        if object.contained_by != Some(container_id)
-            || !container.contained_units().contains(&passenger)
-            || !container.can_contain()
-        {
+        let valid_membership = if container.is_cave_style_container() {
+            self.cave_system.is_in_network(container.cave_index, passenger)
+        } else {
+            object.contained_by == Some(container_id)
+                && container.contained_units().contains(&passenger)
+                && container.can_contain()
+        };
+        if !valid_membership {
             self.apply_owned_script_idle(passenger);
             return;
         }

@@ -1063,18 +1063,45 @@ impl GameLogic {
         self.skirmish_rules.limit_superweapons = limited;
     }
 
-    /// Replace the live CaveSystem from a world snapshot tail.
-    pub fn restore_cave_system(&mut self, system: crate::game_logic::HostCaveSystem) {
-        // The tracker serializes each registered entrance's current index.
-        // Restore the entrance view from that owner before queries resume.
+    /// Restore the receiving world's tracker and run TunnelTracker postload
+    /// against its installed objects, never an ambient compatibility world.
+    pub fn restore_cave_system(
+        &mut self,
+        system: crate::game_logic::HostCaveSystem,
+    ) -> Result<(), String> {
+        self.install_saved_cave_system(system);
+        self.finish_cave_system_postload()
+    }
+
+    pub(crate) fn install_saved_cave_system(
+        &mut self,
+        mut system: crate::game_logic::HostCaveSystem,
+    ) {
         for object in self.objects.registered_values_mut() {
             if let Some(index) = system.index_of(object.id) {
                 object.cave_index = index;
             }
         }
-        let capacity = self.cave_system.capacity();
+        system.set_capacity(self.cave_system.capacity());
         self.cave_system = system;
-        self.cave_system.set_capacity(capacity);
+    }
+
+    pub(crate) fn finish_cave_system_postload(&mut self) -> Result<(), String> {
+        let mut networks: Vec<_> = self.cave_system.networks().collect();
+        networks.sort_by_key(|(index, _)| *index);
+        let mut passengers = Vec::new();
+        for (_, network) in networks {
+            for &id in &network.contained {
+                if self.objects.get(&id).is_none() {
+                    return Err(format!("cave tracker postload object {} missing", id.0));
+                }
+                passengers.push(id);
+            }
+        }
+        for id in passengers {
+            self.restore_cave_passenger_world_membership(id);
+        }
+        Ok(())
     }
 
     /// Mutable CaveSystem for snapshot tests / restore helpers.

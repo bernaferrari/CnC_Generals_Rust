@@ -342,7 +342,7 @@ pub use super::host_bridge_behavior::{
     BRIDGE_SCAFFOLD_TEMPLATE, BRIDGE_SPLAT_DAMAGE, HostBridgeBehaviorRegistry,
     is_bridge_or_tower_template, is_bridge_span_template,
 };
-pub use super::host_cave_system::{HostCaveSystem, is_cave_template};
+pub use super::host_cave_system::HostCaveSystem;
 pub use super::host_rank_ui_residual::{
     honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
     honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,

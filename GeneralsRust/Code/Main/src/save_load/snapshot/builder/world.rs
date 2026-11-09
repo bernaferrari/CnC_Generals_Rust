@@ -567,6 +567,15 @@ impl SnapshotBuilder {
                 }
             }
         }
+        for (_, network) in snapshot.cave_system.networks() {
+            for id in &network.contained {
+                if !snapshot.objects.contains_key(id) {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "cave tracker postload object {} missing", id.0
+                    )));
+                }
+            }
+        }
         self.validate_object_restore_admission(&snapshot.objects, game_logic)?;
         if game_logic.object_lifecycle_callback_depth != 0
             || game_logic.host_objects().registered_values().any(|object| {
@@ -1304,6 +1313,11 @@ impl SnapshotBuilder {
                 object.pathfind_goal_on_ground = ground.on_ground;
             }
         }
+        // TunnelTracker postload removes saved passengers from the fully
+        // reconstructed receiving partition, groups, drawable and pathfinder.
+        game_logic
+            .finish_cave_system_postload()
+            .map_err(SaveLoadError::Corrupted)?;
         // Guard state loadPostProcess reconstructs its attack deadline after
         // the saved nemesis and the receiving session's frame are available.
         game_logic.restore_guard_chase_deadlines_after_load();

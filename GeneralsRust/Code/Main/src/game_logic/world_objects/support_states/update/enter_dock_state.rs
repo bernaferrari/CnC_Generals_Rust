@@ -698,11 +698,27 @@ impl GameLogic {
                 }
                 return Ok(());
             }
+            self.play_container_on_containing_sound(container_id, effects);
+            if let Some(rider) = self.objects.get_mut(&object_id) {
+                rider.set_status_disabled_held(true);
+            }
+            if let Some(cave) = self.objects.get_mut(&container_id) {
+                if let Some(building) = cave.building_data.as_mut() {
+                    if building.original_team_instance_id.is_none() {
+                        building.original_team = cave.team_instance_id.map(|_| cave.team);
+                        building.original_garrison_player_id = cave.team_instance_id.and(cave.owner_player_id);
+                        building.original_team_instance_id = cave.team_instance_id;
+                        building.original_team_instance_name = cave.team_instance_id.map(|_| cave.team_instance_name.clone());
+                    }
+                }
+            }
             self.apply_cave_capture_event_with_effects(idx, ev, container_id, effects)?;
         }
         self.stamp_player_who_entered(container_id, object_id);
         // C++ OpenContain::addToContain doLoadSound — leftover TheAudio.
-        self.play_container_enter_sound(container_id, effects);
+        if !container_is_cave {
+            self.play_container_enter_sound(container_id, effects);
+        }
 
         let container_is_heal_contain = self
             .objects
@@ -772,6 +788,9 @@ impl GameLogic {
             if container_is_structure {
                 obj.deselect();
             }
+        }
+        if container_is_cave {
+            self.play_container_load_sound(container_id, effects);
         }
         self.apply_helix_contain_on_enter(container_id, object_id);
         self.admit_object_drawable_deselection(object_id);

@@ -424,20 +424,39 @@ impl GameLogic {
             }
             let mut walked_transport = false;
             let mut side_end: Option<glam::Vec3> = None;
-            // Remove from container first.
-            self.remove_owned_occupant_with_bonus_callback(container_id, *pid, presentation_effects);
+            if is_cave {
+                match self.exit_cave_unit_with_effects(*pid, container_id, presentation_effects) {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(error) => {
+                        log::error!("Cave removal failed: {error}");
+                        return false;
+                    }
+                }
+                if !self.objects.get(pid).is_some_and(|object| {
+                    passenger_births.get(pid).is_some_and(|birth| {
+                        birth.ptr_eq(&std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+                    })
+                }) {
+                    continue;
+                }
+            } else {
+                self.remove_owned_occupant_with_bonus_callback(container_id, *pid, presentation_effects);
+            }
             if let Some(p) = self.objects.get_mut(pid) {
                 // Wave 201: host_contain_log last-writer (do not bypass set_contained_by).
                 let containment_actor_id = p.id;
-                Self::set_owned_containment_in_parts(
-                    &mut self.objects,
-                    &mut self.partition_manager,
-                    &mut self.ai_groups,
-                    &mut self.pathfinding_system,
-                    containment_actor_id,
-                    None,
-                    true,
-                );
+                if !is_cave {
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        &mut self.ai_groups,
+                        &mut self.pathfinding_system,
+                        containment_actor_id,
+                        None,
+                        true,
+                    );
+                }
                 let mut p = self
                     .objects
                     .get_mut(&containment_actor_id)
@@ -609,21 +628,12 @@ impl GameLogic {
                     *pid,
                     presentation_effects,
                 );
-            } else if is_tunnel || is_cave {
+            } else if is_tunnel {
                 self.play_container_removing_template_sounds(
                     container_id,
                     *pid,
                     presentation_effects,
                 );
-            }
-            if is_cave {
-                // Leftover CaveContain::onRemoving: record_exit + LastEmpty team revert.
-                if let Err(error) =
-                    self.exit_cave_unit_with_effects(*pid, container_id, presentation_effects)
-                {
-                    log::error!("Cave owner restoration failed: {error}");
-                    return false;
-                }
             }
             if self
                 .host_object(container_id)

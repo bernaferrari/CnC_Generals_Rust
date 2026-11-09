@@ -402,3 +402,126 @@ fn cave_death_remaps_shared_pool_before_last_entrance_direct_destruction() {
             .any(|object| object.template_name == "OwnedRiderDeathWitness")
     );
 }
+
+#[test]
+fn cave_death_uses_registered_entrance_order_even_during_sale() {
+    let (mut owner, first, rider) = parsed_world("CaveContain", "", 100);
+    let (peer, peer_first, peer_rider) = parsed_world("CaveContain", "", 100);
+    assert_eq!((first, rider), (peer_first, peer_rider));
+    let index = owner.host_object(first).unwrap().cave_index;
+    let second = owner
+        .create_object_for_player("OwnedContainDeath", 1, Vec3::new(100.0, 0.0, 50.0))
+        .unwrap();
+    let third = owner
+        .create_object_for_player("OwnedContainDeath", 1, Vec3::new(150.0, 0.0, 50.0))
+        .unwrap();
+    owner.host_object_mut(second).unwrap().status.sold = true;
+    assert_eq!(owner.cave_system.cave_ids_for_index(index), vec![first, second, third]);
+
+    kill(&mut owner, first);
+    assert_eq!(owner.host_object(rider).unwrap().contained_by, Some(second));
+    assert!(!owner.host_object(rider).unwrap().status.destroyed);
+    assert_eq!(owner.cave_system.contained_for_index(index), vec![rider]);
+    assert_eq!(peer.host_object(rider).unwrap().contained_by, Some(first));
+}
+#[test]
+fn selling_cave_orders_shared_riders_through_sold_entrance_without_immediate_removal() {
+    let (mut owner, first, rider) = parsed_world("CaveContain", "", 100);
+    let (peer, peer_first, peer_rider) = parsed_world("CaveContain", "", 100);
+    assert_eq!((first, rider), (peer_first, peer_rider));
+    let second = owner
+        .create_object_for_player("OwnedContainDeath", 1, Vec3::new(100.0, 0.0, 50.0))
+        .unwrap();
+    let index = owner.host_object(first).unwrap().cave_index;
+    let before = owner.host_object(rider).unwrap().get_position();
+    owner.on_selling_container_residual(second);
+    assert_eq!(owner.cave_system.contained_for_index(index), vec![rider]);
+    let passenger = owner.host_object(rider).unwrap();
+    assert_eq!(passenger.contained_by, Some(first));
+    assert_eq!(passenger.get_position(), before);
+    assert_eq!(passenger.ai_state(), crate::game_logic::AIState::Exiting);
+    assert_eq!(passenger.target, Some(second));
+    assert_eq!(
+        passenger.last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
+    );
+    assert_eq!(peer.host_object(rider).unwrap().contained_by, Some(first));
+    assert_ne!(peer.host_object(rider).unwrap().ai_state(), crate::game_logic::AIState::Exiting);
+
+    owner.update_owned_passenger_exit(rider);
+    assert_eq!(owner.host_object(rider).unwrap().contained_by, None);
+    assert!(owner.cave_system.contained_for_index(index).is_empty());
+    assert_eq!(owner.cave_system.cross_exits, 1);
+    assert_eq!(peer.cave_system.contained_for_index(index), vec![rider]);
+}
+
+#[test]
+fn selling_cave_leaves_passengers_without_ai_in_the_shared_tracker() {
+    let (mut owner, cave, _) = parsed_world("CaveContain", "", 100);
+    let index = owner.host_object(cave).unwrap().cave_index;
+    let passenger = owner
+        .create_object_for_player("OwnedRiderDeathWitness", 1, Vec3::new(50.0, 0.0, 50.0))
+        .unwrap();
+    assert!(!owner.host_object(passenger).unwrap().has_ai_update_interface());
+    assert!(owner.cave_system.record_enter(index, passenger, cave, Team::USA).0);
+    owner.set_fixture_object_contained_by(passenger, Some(cave));
+    let position = owner.host_object(passenger).unwrap().get_position();
+    owner.on_selling_container_residual(cave);
+    assert!(owner.cave_system.is_in_network(index, passenger));
+    assert_eq!(owner.host_object(passenger).unwrap().contained_by, Some(cave));
+    assert_eq!(owner.host_object(passenger).unwrap().get_position(), position);
+}
+
+
+#[test]
+fn cave_name_without_authored_module_is_not_a_cave() {
+    let (mut owner, container, _) = parsed_world("TransportContain", "", 0);
+    owner.host_object_mut(container).unwrap().template_name = "FakeCave".into();
+    assert!(!owner.host_object(container).unwrap().is_cave_style_container());
+}
+
+#[test]
+fn cave_exit_rejects_an_entrance_from_another_network() {
+    let (mut owner, first, rider) = parsed_world("CaveContain", "", 100);
+    let other = owner
+        .create_object_for_player("OwnedContainDeath", 1, Vec3::new(100.0, 0.0, 50.0))
+        .unwrap();
+    let index = owner.host_object(first).unwrap().cave_index;
+    assert!(!owner.try_set_cave_index(other, index + 1));
+    // Both trackers must be empty when the connection changes.
+    assert!(owner.exit_cave_unit(rider, first));
+    assert_eq!(owner.host_object(rider).unwrap().contained_by, None);
+    assert_eq!(owner.host_object(rider).unwrap().get_position(), owner.host_object(first).unwrap().get_position());
+    assert!(owner.try_set_cave_index(other, index + 1));
+    assert!(owner.cave_system.record_enter(index, rider, first, Team::USA).0);
+    assert!(!owner.exit_cave_unit(rider, other));
+    assert_eq!(owner.cave_system.contained_for_index(index), vec![rider]);
+}
+
+#[test]
+fn cave_evacuation_removes_the_receiving_shared_roster_once() {
+    let (mut owner, cave, rider) = parsed_world("CaveContain", "", 100);
+    let (peer, peer_cave, peer_rider) = parsed_world("CaveContain", "", 100);
+    assert_eq!((cave, rider), (peer_cave, peer_rider));
+    let index = owner.host_object(cave).unwrap().cave_index;
+    assert!(owner.evacuate_container_now(cave, false));
+    assert!(owner.cave_system.contained_for_index(index).is_empty());
+    assert_eq!(owner.cave_system.exits, 1);
+    assert_eq!(owner.host_object(rider).unwrap().contained_by, None);
+    assert_eq!(peer.cave_system.contained_for_index(index), vec![rider]);
+    assert_eq!(peer.host_object(rider).unwrap().contained_by, Some(cave));
+}
+
+#[test]
+fn cave_exit_accepts_same_index_after_entrance_unregistered() {
+    let (mut owner, first, rider) = parsed_world("CaveContain", "", 100);
+    let second = owner
+        .create_object_for_player("OwnedContainDeath", 1, Vec3::new(100.0, 0.0, 50.0))
+        .unwrap();
+    let index = owner.host_object(first).unwrap().cave_index;
+    assert!(!owner.cave_system.on_cave_destroyed(second).cave_in);
+    assert_eq!(owner.cave_system.index_of(second), None);
+    assert!(owner.exit_cave_unit(rider, second));
+    assert!(owner.cave_system.contained_for_index(index).is_empty());
+    assert_eq!(owner.host_object(rider).unwrap().contained_by, None);
+}

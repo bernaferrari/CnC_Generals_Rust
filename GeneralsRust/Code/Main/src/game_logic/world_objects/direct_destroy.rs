@@ -396,6 +396,16 @@ impl GameLogic {
         &mut self, id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let containing = self.objects.get(&id).and_then(|o| o.contained_by);
+        if let Some(cave) = containing {
+            if self.cave_system.index_holding_unit(id).is_some_and(|index| {
+                self.objects.get(&cave).is_some_and(|object| {
+                    object.is_cave_style_container() && object.cave_index == index
+                })
+            }) {
+                self.exit_cave_unit_with_effects(id, cave, effects)?;
+                return Ok(());
+            }
+        }
         if let Some(cid) = containing {
             if self.objects.get(&cid).is_some_and(|container| {
                 container.thing().template.contain_module.kind == ContainModuleKind::RailedTransport
@@ -440,9 +450,8 @@ impl GameLogic {
                 .tunnel_network
                 .record_exit(player, id, containing.unwrap_or(id));
         }
-        if self.cave_system.index_holding_unit(id).is_some() {
-            let _ = self.exit_cave_unit(id, containing.unwrap_or(id));
-        }
+        // Cave-in clears contained_by before destruction and retains the
+        // tracker roster until every direct-destruction callback has run.
         Ok(())
     }
 

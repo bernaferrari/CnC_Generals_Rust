@@ -88,6 +88,10 @@ impl HostCaveSystem {
     pub fn network(&self, index: i32) -> Option<&HostCaveNetwork> {
         self.networks.get(&index)
     }
+    pub(crate) fn networks(&self) -> impl Iterator<Item = (i32, &HostCaveNetwork)> {
+        self.networks.iter().map(|(&index, network)| (index, network))
+    }
+
 
     fn network_mut(&mut self, index: i32) -> &mut HostCaveNetwork {
         self.networks.entry(index).or_default()
@@ -149,9 +153,6 @@ impl HostCaveSystem {
         let Some(old) = self.cave_index_of.get(&cave.0).copied() else {
             return false;
         };
-        if old == new_index {
-            return true;
-        }
         if !self.can_switch_index_to_index(old, new_index) {
             return false;
         }
@@ -232,11 +233,7 @@ impl HostCaveSystem {
     }
 
     /// C++ `CaveContain::onDie` → `unregisterCave` + `onTunnelDestroyed`.
-    pub fn on_cave_destroyed(
-        &mut self,
-        dead_cave: ObjectId,
-        remaining_other: &[ObjectId],
-    ) -> CaveDestroyedOutcome {
+    pub fn on_cave_destroyed(&mut self, dead_cave: ObjectId) -> CaveDestroyedOutcome {
         self.caves_destroyed = self.caves_destroyed.saturating_add(1);
         let Some(index) = self.cave_index_of.remove(&dead_cave.0) else {
             return CaveDestroyedOutcome::default();
@@ -244,11 +241,9 @@ impl HostCaveSystem {
         if let Some(net) = self.networks.get_mut(&index) {
             net.cave_ids.retain(|id| *id != dead_cave);
         }
-        if remaining_other.is_empty() {
+        let remaining = self.networks.get(&index).and_then(|net| net.cave_ids.first()).copied();
+        if remaining.is_none() {
             let units = self.contained_for_index(index);
-            for &uid in &units {
-                let _ = self.record_exit(index, uid, dead_cave);
-            }
             self.cave_ins = self.cave_ins.saturating_add(1);
             self.cave_in_kills = self.cave_in_kills.saturating_add(units.len() as u32);
             CaveDestroyedOutcome {
@@ -257,7 +252,7 @@ impl HostCaveSystem {
                 remapped_to: None,
             }
         } else {
-            let remapped_to = remaining_other[0];
+            let remapped_to = remaining.expect("remaining cave checked above");
             if let Some(net) = self.networks.get_mut(&index) {
                 for entry in net.entry_cave.values_mut() {
                     if *entry == dead_cave {
@@ -270,6 +265,16 @@ impl HostCaveSystem {
                 cave_in_units: Vec::new(),
                 remapped_to: Some(remapped_to),
             }
+        }
+    }
+
+    /// TunnelTracker clears the shared list only after all cave-in destroy
+    /// callbacks have run, without issuing containment exit callbacks.
+    pub fn finish_cave_in(&mut self, index: i32) {
+        if let Some(net) = self.networks.get_mut(&index) {
+            net.contained.clear();
+            net.entry_cave.clear();
+            net.controlling_team = None;
         }
     }
 
@@ -290,41 +295,6 @@ impl HostCaveSystem {
     }
 }
 
-/// C++ CivilianBuilding.ini / CaveContain CaveIndex templates.
-///
-/// C++ never name-matches caves: CaveContain is an authored object module
-/// (CaveContain.cpp installed via the map object's module list).  The
-/// residual name gate must therefore only hit a *cave token*, not any
-/// substring: the naive `contains("cave")` crossed the faction/model token
-/// boundary of every `AmericaVehicle*` template ("ameriCA VEHicle" contains
-/// "cave") and installed CaveContain garrison storage on TransportContain
-/// vehicles — Combat Chinook riders landed in
-/// `building_data.garrisoned_units` so `transport_count()` stayed 0
-/// (TransportContain.cpp:105+ slot storage).  Accept "cave" at a token
-/// boundary only: string start, a non-letter separator (`_`, `.`, `-`,
-/// digit), or an authored camelCase boundary (uppercase `C` after a
-/// lowercase letter).  Authored exclusions ("cavein", "scaffold") stay.
-pub fn is_cave_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("cavein") || n.contains("scaffold") {
-        return false;
-    }
-    let lower_bytes = n.as_bytes();
-    let orig_bytes = template_name.as_bytes();
-    let mut from = 0;
-    while let Some(rel) = n[from..].find("cave") {
-        let i = from + rel;
-        let at_start = i == 0;
-        let prev_is_lower = i > 0 && lower_bytes[i - 1].is_ascii_lowercase();
-        // camelCase boundary: authored uppercase 'C' following a letter.
-        let camel_case = i > 0 && orig_bytes[i].is_ascii_uppercase() && prev_is_lower;
-        if at_start || !prev_is_lower || camel_case {
-            return true;
-        }
-        from = i + 1;
-    }
-    false
-}
 
 #[cfg(test)]
 mod tests {
@@ -360,10 +330,13 @@ mod tests {
         assert!(sys.record_enter(0, u, a, Team::GLA).0);
         assert!(sys.is_in_network(0, u));
         assert!(!sys.try_set_cave_index(b, 1));
+        assert!(!sys.try_set_cave_index(a, 0));
         let _ = sys.record_exit(0, u, b);
+        assert!(sys.try_set_cave_index(a, 0));
+        assert_eq!(sys.cave_ids_for_index(0), vec![b, a]);
         assert!(sys.try_set_cave_index(b, 1));
         assert_eq!(sys.index_of(b), Some(1));
-        assert_eq!(sys.index_switches, 1);
+        assert_eq!(sys.index_switches, 2);
     }
 
     #[test]
@@ -376,12 +349,17 @@ mod tests {
         sys.register_cave(a, 0, Team::Neutral);
         sys.register_cave(b, 0, Team::Neutral);
         assert!(sys.record_enter(0, u, a, Team::USA).0);
-        let keep = sys.on_cave_destroyed(a, &[b]);
+        let keep = sys.on_cave_destroyed(a);
         assert!(!keep.cave_in);
         assert_eq!(keep.remapped_to, Some(b));
-        let last = sys.on_cave_destroyed(b, &[]);
+        let last = sys.on_cave_destroyed(b);
         assert!(last.cave_in);
         assert_eq!(last.cave_in_units, vec![u]);
+        assert_eq!(sys.contained_for_index(0), vec![u]);
+        assert_eq!(sys.exits, 0);
+        sys.finish_cave_in(0);
+        assert!(sys.contained_for_index(0).is_empty());
+        assert_eq!(sys.exits, 0);
         assert!(sys.honesty_cave_in_ok());
     }
 }

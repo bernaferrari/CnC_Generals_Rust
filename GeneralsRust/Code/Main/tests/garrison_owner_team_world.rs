@@ -666,6 +666,53 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
 }
 
 #[test]
+fn cave_snapshot_postload_restores_receiving_passengers_and_original_team() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut source, _, rider) = world(&map, false);
+    let (mut peer, _, peer_rider) = world(&map, false);
+    let make_caves = |world: &mut GameLogic| {
+        let first = world.create_object_for_player("OwnedCave", 1, Vec3::new(50., 0., 50.)).unwrap();
+        let second = world.create_object_for_player("OwnedCave", 1, Vec3::new(70., 0., 50.)).unwrap();
+        (first, second)
+    };
+    let (first, second) = make_caves(&mut source);
+    let (peer_first, peer_second) = make_caves(&mut peer);
+    assert_eq!((first, second, rider), (peer_first, peer_second, peer_rider));
+    let original_team = source.host_object(first).unwrap().team_instance_id;
+    source.unit_command_set_ai_state(rider, AIState::Entering).unwrap();
+    source.host_object_mut(rider).unwrap().target = Some(first);
+    source.try_physics_collide(rider, first, 1.0).unwrap();
+    assert_eq!(source.cave_system_residual().contained_for_index(7), vec![rider]);
+    assert_eq!(source.host_object(first).unwrap().owner_player_id, Some(2));
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = clone_bincode_snapshot(&builder.create_world_snapshot(&source).unwrap());
+    let mut invalid = clone_bincode_snapshot(&snapshot);
+    assert!(invalid.cave_system.record_enter(7, ObjectId(900_000), first, Team::USA).0);
+    let (mut rejecting, rejecting_host, _) = world(&map, false);
+    rejecting.host_object_mut(rejecting_host).unwrap().health.current = 321.0;
+    assert!(builder.restore_from_snapshot(&invalid, &mut rejecting).is_err());
+    assert_eq!(rejecting.host_object(rejecting_host).unwrap().health.current, 321.0);
+    let (mut receiving, _, _) = world(&map, false);
+    builder.restore_from_snapshot(&snapshot, &mut receiving).unwrap();
+    assert_eq!(receiving.cave_system_residual().cave_ids_for_index(7), vec![first, second]);
+    assert_eq!(receiving.cave_system_residual().contained_for_index(7), vec![rider]);
+    assert_eq!(receiving.host_object(rider).unwrap().contained_by, Some(first));
+    assert!(receiving.host_object(rider).unwrap().drawable_hidden);
+    assert_eq!(receiving.host_object(first).unwrap().owner_player_id, Some(2));
+    assert!(receiving.exit_cave_unit(rider, second));
+    assert_eq!(receiving.host_object(first).unwrap().team_instance_id, original_team);
+    assert_eq!(receiving.host_object(second).unwrap().team_instance_id, original_team);
+    assert_eq!(receiving.host_object(rider).unwrap().contained_by, None);
+    assert!(!receiving.host_object(rider).unwrap().drawable_hidden);
+    assert_eq!(source.cave_system_residual().contained_for_index(7), vec![rider]);
+    assert!(source.host_object(rider).unwrap().drawable_hidden);
+    assert!(peer.cave_system_residual().contained_for_index(7).is_empty());
+    assert!(!peer.host_object(peer_rider).unwrap().drawable_hidden);
+}
+
+#[test]
 fn reset_retires_only_the_receiving_worlds_cave_trackers() {
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
@@ -2387,7 +2434,7 @@ fn authored_tunnel_capacity_is_session_owned_and_retained_by_restore() {
         &bincode_legacy::serialize(one.tunnel_network_residual()).unwrap(),
     )
     .unwrap();
-    two.restore_cave_system(source_caves);
+    two.restore_cave_system(source_caves).unwrap();
     two.restore_tunnel_network(source_tunnels);
     assert_eq!(
         two.normal_enter_available_capacity_for(other_rider, other_tunnel),

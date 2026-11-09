@@ -10,7 +10,13 @@ impl GameLogic {
     /// module callbacks observe the original intermediate state.
     pub(crate) fn change_owned_containment_world_membership(&mut self, id: ObjectId, add: bool) {
         change_world_membership(&mut self.objects, &mut self.partition_manager,
-            &mut self.ai_groups, &mut self.pathfinding_system, id, add, &mut Vec::new());
+            &mut self.ai_groups, &mut self.pathfinding_system, id, add, &mut Vec::new(), true);
+    }
+
+    /// TunnelTracker::loadPostProcess visits only the saved passenger itself.
+    pub(crate) fn restore_cave_passenger_world_membership(&mut self, id: ObjectId) {
+        change_world_membership(&mut self.objects, &mut self.partition_manager,
+            &mut self.ai_groups, &mut self.pathfinding_system, id, false, &mut Vec::new(), false);
     }
 
     /// Explicit split fields permit audio/movement loans to remain independent.
@@ -42,6 +48,7 @@ impl GameLogic {
                 id,
                 false,
                 &mut Vec::new(),
+                true,
             );
         } else if container.is_none() && was_enclosed && !partition.is_registered(id.0) {
             change_world_membership(
@@ -52,6 +59,7 @@ impl GameLogic {
                 id,
                 true,
                 &mut Vec::new(),
+                true,
             );
         }
         let actor = objects
@@ -68,6 +76,7 @@ fn change_world_membership(
     id: ObjectId,
     add: bool,
     path: &mut Vec<ObjectId>,
+    recurse: bool,
 ) {
     assert!(
         !path.contains(&id),
@@ -118,6 +127,10 @@ fn change_world_membership(
             actor.pathfind_goal_cell = (-1, -1);
         }
     }
+    if !recurse {
+        assert_eq!(path.pop(), Some(id));
+        return;
+    }
     let children = objects
         .get(&id)
         .expect("installed container")
@@ -139,6 +152,7 @@ fn change_world_membership(
                 child_id,
                 add,
                 path,
+                true,
             );
         }
     }

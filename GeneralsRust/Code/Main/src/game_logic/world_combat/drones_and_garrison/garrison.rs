@@ -1182,6 +1182,7 @@ impl GameLogic {
         // when another behavior wins Object::getObjectExitInterface.
         let rally = container.open_contain_rally_point;
         let is_garrison = container.is_garrison_contain();
+        let is_cave = container.is_cave_style_container();
         let is_helix = container.is_helix_transport;
         let container_layer = container.pathfind_layer;
         let door_open_time = container.thing().template.contain_module.door_open_time;
@@ -1252,7 +1253,20 @@ impl GameLogic {
                 }
             }
         }
-        self.remove_owned_occupant_with_bonus_callback(container_id, unit_id, presentation_effects);
+        if is_cave {
+            if self.cave_system.index_holding_unit(unit_id).is_some() {
+                match self.exit_cave_unit_with_effects(unit_id, container_id, presentation_effects) {
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(error) => {
+                        log::error!("Cave removal failed: {error}");
+                        return;
+                    }
+                }
+            }
+        } else {
+            self.remove_owned_occupant_with_bonus_callback(container_id, unit_id, presentation_effects);
+        }
         // TransportContain::onRemoving wakes only an idle rider, before
         // OpenContain::exitObjectViaDoor issues its follow-path command.
         if !is_helix {
@@ -1271,15 +1285,17 @@ impl GameLogic {
         if is_garrison || exit_count > 0 {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 let containment_actor_id = unit.id;
-                Self::set_owned_containment_in_parts(
-                    &mut self.objects,
-                    &mut self.partition_manager,
-                    &mut self.ai_groups,
-                    &mut self.pathfinding_system,
-                    containment_actor_id,
-                    None,
-                    true,
-                );
+                if !is_cave {
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        &mut self.ai_groups,
+                        &mut self.pathfinding_system,
+                        containment_actor_id,
+                        None,
+                        true,
+                    );
+                }
                 let mut unit = self
                     .objects
                     .get_mut(&containment_actor_id)
@@ -1369,15 +1385,17 @@ impl GameLogic {
         let dest = door_end;
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             let containment_actor_id = unit.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                &mut self.ai_groups,
-                &mut self.pathfinding_system,
-                containment_actor_id,
-                None,
-                true,
-            );
+            if !is_cave {
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    &mut self.ai_groups,
+                    &mut self.pathfinding_system,
+                    containment_actor_id,
+                    None,
+                    true,
+                );
+            }
             let mut unit = self
                 .objects
                 .get_mut(&containment_actor_id)
@@ -1511,7 +1529,7 @@ impl GameLogic {
         if transport_mood && !is_helix {
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
-        if !is_garrison && !is_helix {
+        if !is_garrison && !is_helix && !is_cave {
             self.play_container_removing_template_sounds(container_id, unit_id, presentation_effects);
         }
         // C++ OpenContain::exitObjectViaDoor door countdown + DOOR_1_OPENING.

@@ -882,6 +882,9 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
         "snapshot_round_trips_scoring_restriction_cave_tunnel_airfield",
         || {
             let mut source = GameLogic::new();
+            source.templates.insert("SavedCaveRider".into(), ThingTemplate::new("SavedCaveRider"));
+            source.add_player(Player::new(1, Team::USA, "USA", true));
+            let rider = source.create_object("SavedCaveRider", Team::USA, Vec3::ZERO).unwrap();
             source.execute_scoring_script_for_test(false);
             source.set_limit_superweapons(true);
             source
@@ -889,7 +892,7 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
                 .register_cave(ObjectId(10), 1, Team::USA);
             let _ = source.cave_system_residual_mut().record_enter(
                 1,
-                ObjectId(20),
+                rider,
                 ObjectId(10),
                 Team::USA,
             );
@@ -909,7 +912,7 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
             let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
             assert!(!snapshot.is_scoring_enabled);
             assert!(snapshot.limit_superweapons);
-            assert!(snapshot.cave_system.is_in_network(1, ObjectId(20)));
+            assert!(snapshot.cave_system.is_in_network(1, rider));
             assert!(snapshot.tunnel_network.is_in_network(1, ObjectId(40)));
             assert_eq!(
                 snapshot.airfield_parking.fields[0].spaces[0].object_id,
@@ -917,6 +920,7 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
             );
 
             let mut restored = GameLogic::new();
+            restored.templates = source.templates.clone();
             builder
                 .restore_from_snapshot(&snapshot, &mut restored)
                 .expect("restore");
@@ -925,7 +929,7 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
             assert!(
                 restored
                     .cave_system_residual()
-                    .is_in_network(1, ObjectId(20))
+                    .is_in_network(1, rider)
             );
             assert!(
                 restored

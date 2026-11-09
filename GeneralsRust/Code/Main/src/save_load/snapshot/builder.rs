@@ -2025,7 +2025,7 @@ impl SnapshotBuilder {
         {
             leftover.set_superweapon_restriction(if snapshot.limit_superweapons { 1 } else { 0 });
         }
-        game_logic.restore_cave_system(snapshot.cave_system.clone());
+        game_logic.install_saved_cave_system(snapshot.cave_system.clone());
         game_logic.restore_tunnel_network(snapshot.tunnel_network.clone());
         game_logic.restore_airfield_parking_spaces(
             snapshot

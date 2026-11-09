@@ -1616,9 +1616,7 @@ impl Object {
     }
 
     pub fn is_cave_style_container(&self) -> bool {
-        self.is_cave_contain
-            || self.thing.template.contain_module.kind.is_cave_contain()
-            || crate::game_logic::host_cave_system::is_cave_template(&self.template_name)
+        self.is_cave_contain || self.thing.template.contain_module.kind.is_cave_contain()
     }
 
     /// Install residual GLA Technical transport:

@@ -218,6 +218,18 @@ impl GameLogic {
         let Some(index) = self.cave_system.index_holding_unit(unit_id) else {
             return Ok(false);
         };
+        let Some((position, cave_birth)) = self.objects.get(&exit_cave)
+            .filter(|cave| cave.is_cave_style_container() && cave.cave_index == index)
+            .map(|cave| {
+            (cave.get_position(), std::sync::Arc::downgrade(&cave.visual_draw_identity_token))
+        }) else {
+            return Ok(false);
+        };
+        let Some(rider_birth) = self.objects.get(&unit_id)
+            .map(|unit| std::sync::Arc::downgrade(&unit.visual_draw_identity_token))
+        else {
+            return Ok(false);
+        };
         let (entry, ev) = self.cave_system.record_exit(index, unit_id, exit_cave);
         if let Some(entry_id) = entry {
             if let Some(container) = self.objects.get_mut(&entry_id) {
@@ -237,10 +249,36 @@ impl GameLogic {
                 );
             }
         }
+        self.play_container_on_removing_template_sounds(exit_cave, unit_id, effects);
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.set_status_disabled_held(false);
         }
+        self.change_owned_containment_world_membership(unit_id, true);
+        if !self.set_owned_object_position_with_effects(unit_id, position, self.frame, effects) {
+            return Ok(true);
+        }
+        if !self.objects.get(&exit_cave).is_some_and(|cave| {
+            cave_birth.ptr_eq(&std::sync::Arc::downgrade(&cave.visual_draw_identity_token))
+        }) || !self.objects.get(&unit_id).is_some_and(|unit| {
+            rider_birth.ptr_eq(&std::sync::Arc::downgrade(&unit.visual_draw_identity_token))
+        }) {
+            return Ok(true);
+        }
+        self.play_container_exit_sound(exit_cave, effects);
         self.apply_cave_capture_event_with_effects(index, ev, exit_cave, effects)?;
+        if self.objects.get(&unit_id).is_some_and(|unit| {
+            rider_birth.ptr_eq(&std::sync::Arc::downgrade(&unit.visual_draw_identity_token))
+        }) {
+            Self::set_owned_containment_in_parts(
+                &mut self.objects,
+                &mut self.partition_manager,
+                &mut self.ai_groups,
+                &mut self.pathfinding_system,
+                unit_id,
+                None,
+                true,
+            );
+        }
         Ok(true)
     }
 
