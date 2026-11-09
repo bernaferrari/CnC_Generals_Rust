@@ -76,7 +76,7 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
             }
         };
         let source = UpgradeTooltipSource::Receiving(&observe);
-        let (command, status) = resolve_command_button_from_source(&window, source).unwrap();
+        let (command, status) = resolve_command_button_from_source(&window, source, None).unwrap();
         WindowEventEffects::with_standalone(|effects| populate_layout_for_command(
             &layout,
             &command,
@@ -101,7 +101,7 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
         object_affected: Some(false),
     };
     assert!(
-        resolve_command_button_from_source(&window, UpgradeTooltipSource::Receiving(&missing))
+        resolve_command_button_from_source(&window, UpgradeTooltipSource::Receiving(&missing), None)
             .is_none()
     );
     let missing_upgrade = |_: &str, _: &str| UpgradeTooltipObservation {
@@ -112,7 +112,7 @@ fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observation
         object_affected: Some(false),
     };
     let source = UpgradeTooltipSource::Receiving(&missing_upgrade);
-    let (command, status) = resolve_command_button_from_source(&window, source).unwrap();
+    let (command, status) = resolve_command_button_from_source(&window, source, None).unwrap();
     WindowEventEffects::with_standalone(|effects| populate_layout_for_command(
         &layout,
         &command,

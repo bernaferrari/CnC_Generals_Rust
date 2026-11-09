@@ -427,9 +427,7 @@ impl CommandSetManager {
             None => return Err(INIError::InvalidData),
         };
 
-        initialize_command_set_manager();
-        let mut manager =
-            get_command_set_manager_mut().expect("Command set manager not initialized");
+        let mut manager = loading_command_set_write();
 
         // Check if command set already exists.
         // C++ ControlBar.cpp:1949-1981 (KM's note): on a duplicate the existing
@@ -493,20 +491,16 @@ fn ini_command_set_cell() -> std::sync::Arc<parking_lot::RwLock<CommandSetManage
 }
 
 
+/// INI loader setup for the CommonServices being loaded.
 pub fn initialize_command_set_manager() {
     let _ = ini_command_set_cell();
 }
 
-
-pub fn get_command_set_manager() -> Option<OwnedReadGuard<CommandSetManager>> {
-    let cell = ini_command_set_cell();
-    Some(cell.read_arc())
-}
-
-
-pub fn get_command_set_manager_mut() -> Option<OwnedWriteGuard<CommandSetManager>> {
-    let cell = ini_command_set_cell();
-    Some(cell.write_arc())
+/// Load-time write of the CommandSet catalog in the CommonServices being
+/// loaded (C++ INI::load into that engine's TheControlBar). Runtime callers
+/// borrow their instance's `CommandDefinitions` instead.
+fn loading_command_set_write() -> OwnedWriteGuard<CommandSetManager> {
+    ini_command_set_cell().write_arc()
 }
 
 /// Parse command set definition from INI file
@@ -729,39 +723,38 @@ mod tests {
 
     #[test]
     fn parse_fields_accept_duplicate_button_slots() {
-        crate::common::ini::ini_command_button::initialize_control_bar();
-        {
-            let services = crate::common::common_services::common_services();
-            let mut control_bar = services.ini.control_bar.write();
-            control_bar.clear();
-            control_bar.new_command_button("Command_TransportExit".to_string());
-        }
+        // CommandSet slot parsing validates against the CommandButton catalog
+        // of the CommonServices being loaded (C++ that engine's TheControlBar).
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::with_common_services(&services, || {
+            {
+                let mut control_bar = services.ini.control_bar.write();
+                control_bar.clear();
+                control_bar.new_command_button("Command_TransportExit".to_string());
+            }
 
-        let mut command_set = CommandSet::new("AmericaTransportCommandSet".to_string());
-        let mut ini = INI::new();
+            let mut command_set = CommandSet::new("AmericaTransportCommandSet".to_string());
+            let mut ini = INI::new();
 
-        parse_button_1(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
-        parse_button_2(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
-        parse_button_3(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
+            parse_button_1(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
+            parse_button_2(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
+            parse_button_3(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
 
-        assert_eq!(
-            command_set.get_button_at_position(0).map(String::as_str),
-            Some("Command_TransportExit")
-        );
-        assert_eq!(
-            command_set.get_button_at_position(1).map(String::as_str),
-            Some("Command_TransportExit")
-        );
-        assert_eq!(
-            command_set.get_button_at_position(2).map(String::as_str),
-            Some("Command_TransportExit")
-        );
-        assert!(command_set.validate().is_ok());
+            assert_eq!(
+                command_set.get_button_at_position(0).map(String::as_str),
+                Some("Command_TransportExit")
+            );
+            assert_eq!(
+                command_set.get_button_at_position(1).map(String::as_str),
+                Some("Command_TransportExit")
+            );
+            assert_eq!(
+                command_set.get_button_at_position(2).map(String::as_str),
+                Some("Command_TransportExit")
+            );
+            assert!(command_set.validate().is_ok());
 
-        crate::common::common_services::common_services()
-            .ini
-            .control_bar
-            .write()
-            .clear();
+            services.ini.control_bar.write().clear();
+        });
     }
 }

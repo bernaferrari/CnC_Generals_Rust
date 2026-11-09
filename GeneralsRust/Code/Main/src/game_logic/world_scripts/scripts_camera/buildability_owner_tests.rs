@@ -10,28 +10,22 @@ const PRODUCER: &str = "OwnedOverrideBarracks";
 const UNIT: &str = "OwnedOverrideInfantry";
 const BUILD: &str = "Command_OwnedOverrideBuild";
 const GUARD: &str = "Command_OwnedOverrideGuard";
-fn definitions() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        use game_engine::common::ini::{ini_command_button as buttons, ini_command_set as sets};
-        buttons::initialize_control_bar();
-        sets::initialize_command_set_manager();
-        {
-            let mut bar = buttons::get_control_bar_mut().unwrap();
-            let build = bar.new_command_button(BUILD.into());
-            build.command = "UNIT_BUILD".into();
-            build.object = UNIT.into();
-            bar.new_command_button(GUARD.into()).command = "GUARD".into();
-        }
-        let mut manager = sets::get_command_set_manager_mut().unwrap();
+/// This world's own CommandButton/CommandSet catalog (C++ the owning
+/// engine's TheControlBar), not a thread-published one.
+fn definitions(world: &GameLogic) {
+    world.edit_own_command_definitions_for_test(|bar, manager| {
+        let build = bar.new_command_button(BUILD.into());
+        build.command = "UNIT_BUILD".into();
+        build.object = UNIT.into();
+        bar.new_command_button(GUARD.into()).command = "GUARD".into();
         let set = manager.new_command_set(SET.into());
         set.set_button_at_position(0, BUILD.into()).unwrap();
         set.set_button_at_position(1, GUARD.into()).unwrap();
     });
 }
 fn fixture() -> (GameLogic, ObjectId) {
-    definitions();
     let mut world = GameLogic::new();
+    definitions(&world);
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
     world.add_player(

@@ -454,20 +454,14 @@ fn sell_everything_uses_owned_faction_structure_filter_and_real_sell_lifecycle()
 
 #[test]
 fn command_button_hunt_validates_authored_button_then_arms_owned_real_update() {
-    // Immutable authored content is admitted once, without world publication,
-    // global resets, or registration of mutable match objects.
-    static DEFINITION: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    // Each world admits the authored button into its own catalog (C++ the
+    // owning engine's TheControlBar), without publishing either world.
     const BUTTON: &str = "Command_OwnedRuntimeFireWeapon";
-    DEFINITION.get_or_init(|| {
-        let mut ini = game_engine::common::ini::INI::new();
-        ini.with_inline_source(
-            &format!("CommandButton {BUTTON}\n Command = FIRE_WEAPON\nEnd\n"),
-            |ini| ini.parse_current_file(),
-        )
-        .unwrap();
-    });
+    let definition = format!("CommandButton {BUTTON}\n Command = FIRE_WEAPON\nEnd\n");
     let (mut owner, unit, _) = world();
     let (peer, peer_unit, _) = world();
+    owner.load_own_command_ini_for_test(&definition);
+    peer.load_own_command_ini_for_test(&definition);
     roster(&owner, "HuntTeam", unit, 1);
     roster(&peer, "HuntTeam", peer_unit, 1);
     // The actual native classifier needs a hunt-capable authored unit.

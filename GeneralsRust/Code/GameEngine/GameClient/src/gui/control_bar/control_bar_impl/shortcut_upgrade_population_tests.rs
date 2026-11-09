@@ -6,7 +6,6 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
     crate::test_support::ensure_ambient_host();
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
     { // was owner.with_scope
-        use game_engine::common::ini::{ini_command_button, ini_command_set};
         use game_engine::common::thing::receiving_module_content::{
             UpgradeTooltipObservation, UpgradeTooltipSource,
         };
@@ -27,17 +26,19 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
         let upgrade = gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
             center.new_upgrade(UPGRADE.into())
         });
-        ini_command_button::initialize_control_bar();
         {
-            let mut definitions = ini_command_button::get_control_bar_mut().unwrap();
+            // The thread's test world catalog: its bridge is rebuilt below.
+            let services = game_engine::common::common_services::common_services();
+            let mut definitions = services.ini.control_bar.write();
             let button = definitions.new_command_button(BUTTON.to_owned());
             button.command = "STOP".to_owned();
             button.upgrade = UPGRADE.to_owned();
             button.options_bits = CommandOption::NeedUpgrade as u32;
         }
-        ini_command_set::initialize_command_set_manager();
-        ini_command_set::get_command_set_manager_mut()
-            .unwrap()
+        game_engine::common::common_services::common_services()
+            .ini
+            .command_set
+            .write()
             .new_command_set(SET.to_owned())
             .set_button_at_position(0, BUTTON.to_owned())
             .unwrap();

@@ -1,6 +1,5 @@
 use game_engine::common::{
     dict::Dict,
-    ini::{ini_command_button as buttons, ini_command_set as command_sets},
     system::DataChunkOutput,
     well_known_keys::{
         key_player_display_name, key_player_faction, key_player_is_human, key_player_name,
@@ -21,13 +20,17 @@ const COMMAND_SET: &str = "GlobalHuntButtonSet";
 const TEAM: &str = "CommandButtonOwnerTeam";
 
 fn install_global_button() {
-    buttons::initialize_control_bar();
-    command_sets::initialize_command_set_manager();
-    let mut bar = buttons::get_control_bar_mut().unwrap();
+    // The thread's published (global) catalog the receiving world must ignore.
+    let mut bar = game_engine::common::common_services::common_services()
+        .ini
+        .control_bar
+        .write_arc();
     bar.new_command_button(BUTTON.into()).command = "SWITCH_WEAPON".into();
     drop(bar);
-    command_sets::get_command_set_manager_mut()
-        .unwrap()
+    game_engine::common::common_services::common_services()
+        .ini
+        .command_set
+        .write()
         .new_command_set(COMMAND_SET.into())
         .set_button_at_position(0, BUTTON.into())
         .unwrap();

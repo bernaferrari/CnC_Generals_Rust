@@ -461,16 +461,19 @@ mod tests {
         const IMAGE: &str = "SNTestCameoArt";
         const BUTTON: &str = "Command_TestCameoImageLookup";
 
-        game_engine::common::ini::ini_command_button::initialize_control_bar();
+        // This bar's own CommandButton catalog.
+        let services = game_engine::common::common_services::CommonServices::new();
         {
-            let mut bar = game_engine::common::ini::ini_command_button::get_control_bar_mut()
-                .expect("INI control bar");
+            let mut bar = services.ini.control_bar.write();
             let button = bar.new_command_button(BUTTON.to_string());
             button.upgrade = UPGRADE.to_string();
             button.button_image = IMAGE.to_string();
         }
 
         let mut control_bar = ControlBar::new();
+        control_bar.bind_command_definitions(Some(
+            game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&services),
+        ));
         let mut catalog = gamelogic::upgrade::center::UpgradeCenter::new();
         catalog.new_upgrade(UPGRADE.into());
         control_bar.set_receiving_upgrade_definitions(&catalog, None);

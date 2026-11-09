@@ -605,9 +605,11 @@ impl WindowManager {
             // Release the child before layout creation/population uses its manager.
             if !context.tooltips_disabled && !context.game_ending {
                 let upgrade_source = context.upgrade_tooltip;
+                // The hovered bar's own CommandButton catalog.
+                let definitions = context.control_bar.command_definitions().cloned();
                 context.with_tooltip_effects(self, |tooltip, manager, effects| {
                     crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_with_upgrade_source(
-                        tooltip, manager, window, upgrade_source, effects,
+                        tooltip, manager, window, upgrade_source, definitions.as_ref(), effects,
                     );
                 });
             }

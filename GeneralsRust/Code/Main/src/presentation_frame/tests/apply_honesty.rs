@@ -2140,18 +2140,13 @@ fn command_set_strip_keeps_authored_holes() {
 
 #[test]
 fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
-    use game_engine::common::ini::ini_command_set::{
-        get_command_set_manager_mut, initialize_command_set_manager,
-    };
-
     const FIXTURE_SET: &str = "FixtureOverrideRangerCommandSet";
     const FIXTURE_TEMPLATE: &str = "FixtureOverrideRanger";
     // Admit the actual authored Ranger slots under a private definition name.
     // The explicit Object override below selects this set; no template-name
     // residual fallback participates in the test.
-    initialize_command_set_manager();
-    {
-        let mut manager = get_command_set_manager_mut().expect("command set manager");
+    let mut logic = GameLogic::new();
+    logic.edit_own_command_definitions_for_test(|_, manager| {
         let set = manager.new_command_set(FIXTURE_SET.into());
         for (slot, command) in [
             (0, "Command_AmericaRangerCaptureBuilding"),
@@ -2165,9 +2160,7 @@ fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
                 .expect("authored Ranger slot");
         }
         assert!(manager.find_command_set_resolved(FIXTURE_SET).is_some());
-    }
-
-    let mut logic = GameLogic::new();
+    });
     // Controlling-player provenance: C++ evaluateContextUI populates only the
     // local player's selection (ControlBar.cpp:1359-1580).
     logic.add_player(Player::new(0, Team::USA, "USA", true));

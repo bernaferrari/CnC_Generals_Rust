@@ -164,16 +164,11 @@ End\n";
     fn map_ini_create_overrides_applies_command_set() {
         // C++ loadMapINI full table: CommandSet CREATE_OVERRIDES must apply
         // even when mixed Object/Weather content is present.
-        use game_engine::common::ini::ini_command_set::{
-            get_command_set_manager, initialize_command_set_manager,
-        };
-        initialize_command_set_manager();
         // C++ CommandSet::parseCommandButton resolves already-loaded buttons.
         // Make that precondition explicit instead of depending on earlier tests.
-        game_engine::common::ini::ini_command_button::initialize_control_bar();
         {
             let mut control_bar =
-                game_engine::common::ini::ini_command_button::get_control_bar_mut().unwrap();
+                game_engine::common::common_services::common_services().ini.control_bar.write_arc();
             for name in [
                 "Command_ConstructAmericaPowerPlant",
                 "Command_ConstructAmericaBarracks",
@@ -205,7 +200,10 @@ End\n";
             applied >= 1,
             "map.ini CommandSet/Upgrade CREATE_OVERRIDES must apply"
         );
-        let manager = get_command_set_manager().expect("CommandSet manager");
+        let manager = game_engine::common::common_services::common_services()
+            .ini
+            .command_set
+            .read_arc();
         let set = manager
             .find_command_set_resolved("MapIniDozerCommandSet")
             .expect("map.ini CommandSet override must reach TheControlBar table");

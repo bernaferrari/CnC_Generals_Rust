@@ -133,6 +133,45 @@ impl GameLogic {
             None => CommandDefinitions::from_common(self.world_services.common()),
         }
     }
+    /// Test fixture: parse CommandButton/CommandSet INI into this world's own
+    /// catalog (C++ INI::load into the owning engine's TheControlBar), then
+    /// rebuild this world's ControlBar bridge from it.
+    #[cfg(test)]
+    pub(crate) fn load_own_command_ini_for_test(&self, source: &str) {
+        self.with_own_services(|| {
+            let mut ini = game_engine::common::ini::INI::new();
+            ini.with_inline_source(source, |ini| ini.parse_current_file())
+                .expect("parse fixture command INI");
+        });
+        gamelogic::control_bar::refresh_control_bar_bridge_for_world(
+            &self.world_services,
+            Some(&self.upgrade_definitions),
+        )
+        .expect("rebuild this world's ControlBar bridge");
+    }
+    /// Test fixture: edit this world's own CommandButton/CommandSet catalog
+    /// directly, then rebuild this world's ControlBar bridge from it.
+    #[cfg(test)]
+    pub(crate) fn edit_own_command_definitions_for_test<R>(
+        &self,
+        edit: impl FnOnce(
+            &mut game_engine::common::ini::ini_command_button::ControlBar,
+            &mut game_engine::common::ini::ini_command_set::CommandSetManager,
+        ) -> R,
+    ) -> R {
+        let common = self.world_services.common();
+        let result = {
+            let mut buttons = common.ini.control_bar.write();
+            let mut sets = common.ini.command_set.write();
+            edit(&mut buttons, &mut sets)
+        };
+        gamelogic::control_bar::refresh_control_bar_bridge_for_world(
+            &self.world_services,
+            Some(&self.upgrade_definitions),
+        )
+        .expect("rebuild this world's ControlBar bridge");
+        result
+    }
     /// INI CommandButton catalog owned by this world's `CommonServices`.
     pub(crate) fn world_ini_control_bar(
         &self,

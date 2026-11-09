@@ -1,15 +1,11 @@
-use game_engine::common::ini::ini_command_button::{get_control_bar_mut, initialize_control_bar};
-use game_engine::common::ini::ini_command_set::{
-    get_command_set_manager, initialize_command_set_manager,
-};
 use game_engine::common::system::upgrade::get_upgrade_center;
 use gamelogic::system::load_map_ini_ui_overrides_from_contents;
 
 #[test]
 fn map_ini_create_overrides_applies_command_set_and_upgrade() {
-    initialize_command_set_manager();
-    initialize_control_bar();
-    if let Some(mut bar) = get_control_bar_mut() {
+    {
+        let services = game_engine::common::common_services::common_services();
+        let mut bar = services.ini.control_bar.write();
         bar.new_command_button("Command_ConstructAmericaPowerPlant".to_string());
         bar.new_command_button("Command_ConstructAmericaBarracks".to_string());
     }
@@ -36,7 +32,10 @@ End
         .expect("map.ini CREATE_OVERRIDES must dispatch CommandSet/Upgrade");
     assert!(applied >= 2, "expected CommandSet+Upgrade, got {applied}");
 
-    let manager = get_command_set_manager().expect("CommandSet manager");
+    let manager = game_engine::common::common_services::common_services()
+        .ini
+        .command_set
+        .read_arc();
     let set = manager
         .find_command_set_resolved("MapIniDozerCommandSet")
         .expect("map.ini CommandSet override must apply");

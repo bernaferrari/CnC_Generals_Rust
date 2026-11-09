@@ -45,24 +45,24 @@ fn presentation_input_owner_tooltip_uses_bound_window_inputs() {
     let second_window = named_window("OwnerIsolationSecond");
     first.apply_presentation_can_make(&[("ownerisolationtank".to_owned(), 2)]);
     owner.with_manager(|wm| first.set_control_command(&first_window, &command, wm));
-    let expected = crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow());
+    let expected = crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow(), first.command_definitions());
     assert!(
         !expected.is_empty(),
         "the authored CanMake denial appears in the tooltip"
     );
     second.apply_presentation_can_make(&[("OwnerIsolationTank".to_owned(), 4)]);
     owner.with_manager(|wm| second.set_control_command(&second_window, &command, wm));
-    assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow()), expected, "a second game's queue denial must not rewrite the first window's money denial");
-    assert_ne!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&second_window.borrow()), expected);
+    assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow(), first.command_definitions()), expected, "a second game's queue denial must not rewrite the first window's money denial");
+    assert_ne!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&second_window.borrow(), second.command_definitions()), expected);
     second.apply_presentation_can_make(&[]);
-    assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow()), expected, "clearing the other bar leaves the bound snapshot unchanged");
+    assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow(), first.command_definitions()), expected, "clearing the other bar leaves the bound snapshot unchanged");
 
     // A change to the driving bar takes effect when that window is rebound;
     // the old typed userdata remains immutable until then.
     first.apply_presentation_can_make(&[("OwnerIsolationTank".to_owned(), 5)]);
-    assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow()), expected);
+    assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow(), first.command_definitions()), expected);
     owner.with_manager(|wm| first.set_control_command(&first_window, &command, wm));
-    assert_ne!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow()), expected);
+    assert_ne!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow(), first.command_definitions()), expected);
 }
 
 #[test]
@@ -98,8 +98,12 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
             };
             // Exercise the authored-INI resolver branch too: it must not discard the
             // specific live window's optional status when recovering the definition.
-            game_engine::common::ini::ini_command_button::get_control_bar_mut()
-                .unwrap()
+            // This bar's own catalog (C++ its engine's TheControlBar).
+            let services = game_engine::common::common_services::CommonServices::new();
+            services
+                .ini
+                .control_bar
+                .write()
                 .new_command_button(command.command_name.clone())
                 .object = command.object.clone();
             let window = owner.with_manager(|wm| {
@@ -110,9 +114,12 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
                 win
             });
             let mut bar = ControlBar::new();
+            bar.bind_command_definitions(Some(
+                game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&services),
+            ));
             bar.apply_presentation_can_make(&[(command.object.clone(), 2)]);
             owner.with_manager(|wm| bar.set_control_command(&window, &command, wm));
-            let initial = presentation_input_owner_tooltip_text(&window.borrow());
+            let initial = presentation_input_owner_tooltip_text(&window.borrow(), bar.command_definitions());
             let command_string_pointer = window
                 .borrow()
                 .get_user_data::<CommandButton>()
@@ -126,7 +133,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
             )]);
             owner.with_manager(|wm| bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability, wm));
             assert_ne!(
-                presentation_input_owner_tooltip_text(&window.borrow()),
+                presentation_input_owner_tooltip_text(&window.borrow(), bar.command_definitions()),
                 initial
             );
             assert_eq!(
@@ -150,7 +157,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
             bar.apply_presentation_can_make(&[]);
             owner.with_manager(|wm| bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability, wm));
             assert!(
-                presentation_input_owner_tooltip_text(&window.borrow()).is_empty(),
+                presentation_input_owner_tooltip_text(&window.borrow(), bar.command_definitions()).is_empty(),
                 "missing frozen status must not reuse the previous denial"
             );
         }

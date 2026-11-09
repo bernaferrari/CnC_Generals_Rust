@@ -9,9 +9,8 @@ use crate::gui::{
 };
 
 use crate::message_stream::place_event_confirm::can_make_unit_for_place;
-use game_engine::common::ini::ini_command_button::{
-    CommandButton as IniCommandButton, get_control_bar as get_ini_control_bar,
-};
+use game_engine::common::ini::command_definitions::CommandDefinitions;
+use game_engine::common::ini::ini_command_button::CommandButton as IniCommandButton;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::get_science_store;
@@ -74,13 +73,20 @@ fn resolve_local_player() -> Option<Arc<std::sync::RwLock<Player>>> {
     list.get_local_player().cloned()
 }
 
-fn leftover_ini_command_button(name: &str) -> Option<IniCommandButton> {
-    get_ini_control_bar()?
-        .find_command_button_resolved(name)
-        .cloned()
+/// C++ TheControlBar->findCommandButton on the hovered bar's own catalog
+/// (ControlBarPopupDescription.cpp populateBuildTooltipLayout). A window with
+/// no bound owner resolves nothing from any other instance.
+fn instance_ini_command_button(
+    definitions: Option<&CommandDefinitions>,
+    name: &str,
+) -> Option<IniCommandButton> {
+    definitions?.find_command_button(name)
 }
 
-fn resolve_command_button(window: &GameWindow) -> Option<(IniCommandButton, Option<u32>)> {
+fn resolve_command_button(
+    window: &GameWindow,
+    definitions: Option<&CommandDefinitions>,
+) -> Option<(IniCommandButton, Option<u32>)> {
     if let Some(button) = window.get_user_data::<IniCommandButton>() {
         return Some((button.clone(), None));
     }
@@ -88,7 +94,7 @@ fn resolve_command_button(window: &GameWindow) -> Option<(IniCommandButton, Opti
         return Some(((**button).clone(), None));
     }
     if let Some(button) = window.get_user_data::<LiveCommandButton>() {
-        if let Some(ini) = leftover_ini_command_button(&button.command_name) {
+        if let Some(ini) = instance_ini_command_button(definitions, &button.command_name) {
             return Some((ini, button.presentation_can_make_status));
         }
         let mut ini = IniCommandButton::default();
@@ -103,7 +109,7 @@ fn resolve_command_button(window: &GameWindow) -> Option<(IniCommandButton, Opti
         return Some((ini, button.presentation_can_make_status));
     }
     if let Some(name) = window.get_user_data::<String>() {
-        return leftover_ini_command_button(name).map(|ini| (ini, None));
+        return instance_ini_command_button(definitions, name).map(|ini| (ini, None));
     }
     None
 }
@@ -270,9 +276,10 @@ fn leftover_requires_list(
 fn resolve_command_button_from_source(
     window: &GameWindow,
     source: UpgradeTooltipSource<'_>,
+    definitions: Option<&CommandDefinitions>,
 ) -> Option<(IniCommandButton, Option<u32>)> {
     match source {
-        UpgradeTooltipSource::Standalone => resolve_command_button(window),
+        UpgradeTooltipSource::Standalone => resolve_command_button(window, definitions),
         UpgradeTooltipSource::Receiving(observe) => {
             // Native windows bind the exact live command name. Missing receiving
             // catalog data is authoritative and never selects a global definition.
@@ -337,9 +344,12 @@ fn leftover_append_presentation_can_make(
 }
 
 #[cfg(test)]
-pub(crate) fn presentation_input_owner_tooltip_text(window: &GameWindow) -> String {
+pub(crate) fn presentation_input_owner_tooltip_text(
+    window: &GameWindow,
+    definitions: Option<&CommandDefinitions>,
+) -> String {
     let mut description = String::new();
-    if let Some((command, status)) = resolve_command_button(window) {
+    if let Some((command, status)) = resolve_command_button(window, definitions) {
         leftover_append_presentation_can_make(&mut description, &command, status);
     }
     description
@@ -764,13 +774,14 @@ fn populate_layout_for_window(
 pub fn show_build_tooltip_layout(
     state: &mut TooltipState,
     cmd_button: Rc<RefCell<GameWindow>>,
+    definitions: Option<&CommandDefinitions>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     if effects.ui().tooltips_disabled_at(effects.logic_frame()) {
         return WindowMsgHandled::Ignored;
     }
     effects.with_manager(|manager, effects| {
-        show_build_tooltip_layout_owned(state, manager, cmd_button, effects)
+        show_build_tooltip_layout_owned(state, manager, cmd_button, definitions, effects)
     })
 }
 
@@ -778,6 +789,7 @@ pub(crate) fn show_build_tooltip_layout_owned(
     state: &mut TooltipState,
     manager: &mut WindowManager,
     cmd_button: Rc<RefCell<GameWindow>>,
+    definitions: Option<&CommandDefinitions>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     show_build_tooltip_layout_with_upgrade_source(
@@ -785,6 +797,7 @@ pub(crate) fn show_build_tooltip_layout_owned(
         manager,
         cmd_button,
         UpgradeTooltipSource::Standalone,
+        definitions,
         effects,
     )
 }
@@ -794,6 +807,7 @@ pub(crate) fn show_build_tooltip_layout_with_upgrade_source(
     manager: &mut WindowManager,
     cmd_button: Rc<RefCell<GameWindow>>,
     upgrade_source: UpgradeTooltipSource<'_>,
+    definitions: Option<&CommandDefinitions>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let layout = match ensure_layout(state, manager, effects) {
@@ -849,7 +863,7 @@ pub(crate) fn show_build_tooltip_layout_with_upgrade_source(
     let is_button = (cmd_button.borrow().get_style() & GWS_PUSH_BUTTON) != 0;
     if is_button {
         if let Some((command_button, status)) =
-            resolve_command_button_from_source(&cmd_button.borrow(), upgrade_source)
+            resolve_command_button_from_source(&cmd_button.borrow(), upgrade_source, definitions)
         {
             populate_layout_for_command(
                 &layout,
@@ -886,6 +900,7 @@ pub(crate) fn show_build_tooltip_layout_with_upgrade_source(
 
 pub fn repopulate_build_tooltip_layout(
     state: &mut TooltipState,
+    definitions: Option<&CommandDefinitions>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let Some(layout) = state.layout.clone() else {
@@ -901,7 +916,7 @@ pub fn repopulate_build_tooltip_layout(
     if (prev_window.borrow().get_style() & GWS_PUSH_BUTTON) == 0 {
         return WindowMsgHandled::Ignored;
     }
-    if let Some((command_button, status)) = resolve_command_button(&prev_window.borrow()) {
+    if let Some((command_button, status)) = resolve_command_button(&prev_window.borrow(), definitions) {
         effects.with_manager(|manager, effects| {
             populate_layout_for_command(
                 &layout,
@@ -1111,7 +1126,7 @@ use crate::gui::game_window::WindowEventEffects;
                         presentation_can_make_status: status,
                         ..LiveCommandButton::default()
                     });
-                    let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
+                    let (command, frozen_status) = resolve_command_button(&command_window, None).unwrap();
                     owner.with_manager(|manager| {
                         WindowEventEffects::with_standalone(|effects| populate_layout_for_command(
                             &layout,
