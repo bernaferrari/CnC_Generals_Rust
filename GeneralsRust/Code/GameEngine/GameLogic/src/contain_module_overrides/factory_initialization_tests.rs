@@ -94,6 +94,38 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
         module.on_object_created();
         assert_eq!(receiving_cave.lock().unwrap().registered_indices(), vec![4]);
         assert!(foreign_cave.lock().unwrap().registered_indices().is_empty());
+
+        // Exercise the same owner propagation through actual native object
+        // assembly, not only through the module constructor.
+        let mut catalog = ModuleFactory::new();
+        catalog.add_module_internal(
+            Some(cave_contain_module_factory), None, ModuleType::Behavior,
+            "CaveContain", ModuleInterfaceType::CONTAIN,
+        );
+        let mut native_data = CaveContainModuleData::default();
+        native_data.cave_index_data = 5;
+        let template: Arc<dyn ThingTemplate> = Arc::new(FailingTemplate {
+            base: crate::common::DefaultThingTemplate::new("OwnedCaveFactory".into()),
+            modules: vec![crate::common::TemplateModuleInfo {
+                name: "CaveContain".into(),
+                module_tag: "OwnedCave".into(),
+                data: Arc::new(ContainModuleDataAdapter::new(native_data)),
+                interface_mask: ModuleInterfaceType::CONTAIN,
+            }],
+        });
+        let bodies = Arc::new(crate::object::body::active_body::BodyDefinitionCatalog::new(
+            Some(&game_engine::common::global_data::GlobalData::default()),
+            std::collections::HashMap::new(), std::collections::HashMap::new(),
+        ).unwrap());
+        let mut scheduler = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(&receiving));
+        let mut objects = crate::object::object_factory::ObjectFactory::new();
+        objects.prepare_object_owned(
+            &mut scheduler, template, Coord3D::ZERO, None,
+            crate::object::object_factory::ObjectCreationFlags::NO_AI,
+            &mut |_name: &str| Ok(None), bodies, &catalog,
+        ).expect("owned cave assembly");
+        assert_eq!(receiving_cave.lock().unwrap().registered_indices(), vec![4, 5]);
+        assert!(foreign_cave.lock().unwrap().registered_indices().is_empty());
     });
 }
 
