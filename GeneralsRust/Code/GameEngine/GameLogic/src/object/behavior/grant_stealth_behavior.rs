@@ -259,11 +259,12 @@ impl GrantStealthBehavior {
             }
         }
 
-        if let Ok(obj_guard) = object.read() {
+        // The module is not installed yet. Registration later consumes this
+        // instance's initial wake; waking by class here would affect siblings.
+        if object.read().is_ok() {
             let now = crate::helpers::TheGameLogic::get_frame();
             let wake_frame = now.saturating_add(1);
             behavior.next_call_frame_and_phase = wake_frame;
-            obj_guard.reschedule_named_update("GrantStealthBehavior", wake_frame);
         }
 
         Ok(behavior)
@@ -633,6 +634,96 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn constructing_another_tag_does_not_reschedule_installed_siblings_or_peer() {
+        use crate::modules::UpdateModulePtr;
+        use crate::object::ModuleUpdateProxy;
+        use crate::system::game_logic::GameLogic;
+
+        fn install(
+            owner: &Arc<RwLock<GameObject>>,
+            mut register: impl FnMut(ObjectID, UpdateModulePtr, UnsignedInt),
+            tag: NameKeyType,
+        ) -> UpdateModulePtr {
+            let data = Arc::new(GrantStealthBehaviorModuleData {
+                module_tag_name_key: tag,
+                ..Default::default()
+            });
+            let behavior = GrantStealthBehavior::new_with_data(owner.clone(), data.clone()).unwrap();
+            let module = GrantStealthBehaviorModule::new(
+                behavior,
+                &AsciiString::from("GrantStealthBehavior"),
+                data.clone(),
+            );
+            let initial_wake = module.initial_wake_frame();
+            owner.write().unwrap().install_update_module(
+                "GrantStealthBehavior",
+                Box::new(module),
+                data,
+            );
+            let (id, entry) = {
+                let object = owner.read().unwrap();
+                (object.get_id(), object.modules.last().unwrap().clone())
+            };
+            let proxy: UpdateModulePtr =
+                Arc::new(RwLock::new(ModuleUpdateProxy::new(entry.clone(), id)));
+            owner
+                .write()
+                .unwrap()
+                .attach_update_module_registration(proxy.clone(), Some(&entry))
+                .unwrap();
+            register(id, proxy.clone(), initial_wake);
+            proxy
+        }
+
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, || {
+        let id = 91_602;
+        let owner = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+        let peer = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+        let ambient = crate::system::game_logic::get_game_logic();
+        ambient.lock().unwrap().admit_scheduling_owner(id, owner.clone());
+        let mut other_world = GameLogic::new();
+        other_world.admit_scheduling_owner(id, peer.clone());
+        let register_ambient = |id, proxy, wake| {
+            ambient.lock().unwrap().register_sleepy_update_module(id, proxy, wake);
+        };
+        let first = install(&owner, register_ambient, 1);
+        let other = install(
+            &peer,
+            |id, proxy, wake| other_world.register_sleepy_update_module(id, proxy, wake),
+            1,
+        );
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let first_wake = now.saturating_add(37);
+        {
+            let mut scheduler = ambient.lock().unwrap();
+            scheduler.register_sleepy_update_module(id, first.clone(), first_wake);
+        }
+        let other_before = other_world.sleepy_entry_for(&other).unwrap().1;
+
+        // The constructor runs before the second entry is installed. It must
+        // not find the first entry by class and rewrite its scheduling state.
+        let second = install(&owner, register_ambient, 2);
+        let (first_after, second_after) = {
+            let mut scheduler = ambient.lock().unwrap();
+            let first_after = scheduler.sleepy_entry_for(&first).map(|entry| entry.1);
+            let second_after = scheduler.sleepy_entry_for(&second).map(|entry| entry.1);
+            scheduler.unregister_update_module(id, first.clone());
+            scheduler.unregister_update_module(id, second.clone());
+            (first_after, second_after)
+        };
+
+        assert_eq!(first_after, Some(first_wake));
+        assert_eq!(second_after, Some(now.saturating_add(1)));
+        assert_eq!(other_world.sleepy_entry_for(&other).unwrap().1, other_before);
+        });
+        });
+    }
+
+    #[test]
     fn test_grant_stealth_creation() {
         let data = GrantStealthBehaviorModuleData::default();
         assert_eq!(data.start_radius, 0.0);
@@ -673,7 +764,7 @@ mod tests {
         let mut saved = GrantStealthBehavior {
             object_id: crate::common::INVALID_ID,
             module_data: module_data.clone(),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: 0x1234_5679,
             radius_particle_system_id: 0x1234_5678,
             current_scan_radius: 42.25,
         };
@@ -703,6 +794,7 @@ mod tests {
             load.close().unwrap();
         }
 
+        assert_eq!(loaded.next_call_frame_and_phase, 0x1234_5679);
         assert_eq!(loaded.radius_particle_system_id, 0x1234_5678);
         assert_eq!(loaded.current_scan_radius, 42.25);
 
