@@ -2810,16 +2810,17 @@ fn patriot_re_ask_replaces_pending_assist_and_resets_clip() {
 #[test]
 fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
     use crate::game_logic::host_base_defense::{
-        LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
-        PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+        LAZR_PATRIOT_ASSIST_WEAPON, LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON,
+        PATRIOT_ASSIST_WEAPON, PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE,
+        PATRIOT_SECONDARY_WEAPON,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
-    for (name, primary, secondary, expected_laser) in [
-        ("AmericaPatriotBattery", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
-        ("CustomAirDefense", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
-        ("Lazr_AmericaPatriotBattery", PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON, false),
+    for (name, primary, assist, air, expected_laser) in [
+        ("AmericaPatriotBattery", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_ASSIST_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
+        ("CustomAirDefense", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_ASSIST_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
+        ("Lazr_AmericaPatriotBattery", PATRIOT_PRIMARY_WEAPON, PATRIOT_ASSIST_WEAPON, PATRIOT_SECONDARY_WEAPON, false),
     ] {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
@@ -2830,7 +2831,8 @@ fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
             .add_kind_of(KindOf::FSBaseDefense)
             .set_health(600.0)
             .set_primary_weapon_name(primary)
-            .set_secondary_weapon_name(secondary);
+            .set_secondary_weapon_name(assist)
+            .set_tertiary_weapon_name(air);
         game_logic.templates.insert(name.to_string(), tpl);
         let requester = game_logic.create_object(name, Team::USA, Vec3::ZERO).expect("requester");
         let helper = game_logic
@@ -2870,6 +2872,12 @@ fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
             .find(|p| p.assistant_id == helper)
             .unwrap_or_else(|| panic!("{name}: helper must accept the assist request"));
         assert_eq!(clip.assistant_laser, expected_laser, "{name}");
+        game_logic.pending_patriot_assists.clear();
+        game_logic.process_patriot_assist_request(requester, enemy, 2);
+        assert!(
+            game_logic.pending_patriot_assists.iter().any(|p| p.assistant_id == helper),
+            "{name}: the authored air weapon also requests assistance",
+        );
     }
 }
 
