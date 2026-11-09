@@ -186,6 +186,10 @@ fn prepared_object_rank_award_uses_its_own_roster_with_foreign_world_active() {
             ObjectCreationFlags::NO_AI,
         ).unwrap();
         let object = factory.get_object(id).unwrap().get_base_object().unwrap();
+        assert!(Arc::ptr_eq(
+            &object.read().unwrap().get_controlling_player().unwrap(),
+            &receiving_player,
+        ));
         let cap = object.read().unwrap().with_controlling_player_rank_capped_mut(|player, cap| {
             player.get_money_mut().set_money(777);
             cap
