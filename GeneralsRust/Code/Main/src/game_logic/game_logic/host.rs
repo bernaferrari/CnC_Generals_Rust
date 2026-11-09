@@ -1476,6 +1476,15 @@ impl GameLogic {
     pub(crate) fn set_rank_points_to_add_at_game_start(&mut self, points: i32) {
         self.rank_points_to_add_at_game_start = points;
     }
+    /// Core player roster owned by this match, used by legacy Core callbacks.
+    pub fn core_player_roster(&self) -> &std::sync::Arc<std::sync::RwLock<gamelogic::player::PlayerList>> {
+        self.world_services.players()
+    }
+    /// Rank definitions used by this match's Core player callbacks.
+    pub fn core_rank_info_store(&self) -> &std::sync::Arc<std::sync::RwLock<gamelogic::system::rank_info::RankInfoStore>> {
+        self.world_services.rank_info_store()
+    }
+
 
     /// C++ GameLogic::m_rankLevelLimit of this match. It is held with this
     /// world's player roster, so Core script actions and Main awards read the

@@ -1023,6 +1023,11 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Core roster belonging to the receiving world, when the driver owns one.
+    fn player_rank_roster(&self) -> Option<Arc<RwLock<crate::player::PlayerList>>> {
+        None
+    }
+
     /// Apply rank/skill actions synchronously on the receiving match.
     /// `None` retains the standalone Core PlayerList implementation.
     fn player_rank(

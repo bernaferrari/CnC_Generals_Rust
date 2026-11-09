@@ -335,15 +335,17 @@ impl ScriptActionDispatcher<'_> {
             // control-bar callbacks consumed by existing production paths.
             // Preserve those callbacks until their recipients are session-owned
             // (hq-eiojb); the Main rank mutation itself no longer uses a queue.
+            let roster = driver.player_rank_roster()
+                .unwrap_or_else(|| Arc::clone(self.context.borrowed_engine().players()));
             let core_result = match action_type {
-                ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action),
-                ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action),
-                ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action),
+                ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action, &roster),
+                ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action, &roster),
+                ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action, &roster),
                 ScriptActionType::PlayerSetRanklevellimit => {
-                    self.do_player_set_ranklevellimit(action)
+                    self.do_player_set_ranklevellimit(action, &roster)
                 }
                 ScriptActionType::PlayerAffectReceivingExperience => {
-                    self.do_player_affect_receiving_experience(action)
+                    self.do_player_affect_receiving_experience(action, &roster)
                 }
                 _ => unreachable!("rank request was constructed above"),
             }?;
@@ -2139,17 +2141,15 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::PlayerCreateTeamFromCapturedUnits => {
                 self.do_player_create_team_from_captured_units(action)
             }
-            ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action),
-            ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action),
-            ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action),
-            ScriptActionType::PlayerSetRanklevellimit => self.do_player_set_ranklevellimit(action),
+            ScriptActionType::PlayerAddSkillpoints
+            | ScriptActionType::PlayerAddRanklevel
+            | ScriptActionType::PlayerSetRanklevel
+            | ScriptActionType::PlayerSetRanklevellimit => unreachable!("rank actions handled above"),
             ScriptActionType::PlayerPurchaseScience => self.do_player_purchase_science(action),
             ScriptActionType::PlayerRepairNamedStructure => {
                 self.do_player_repair_named_structure(action, driver)
             }
-            ScriptActionType::PlayerAffectReceivingExperience => {
-                self.do_player_affect_receiving_experience(action)
-            }
+            ScriptActionType::PlayerAffectReceivingExperience => unreachable!("rank actions handled above"),
             ScriptActionType::PlayerExcludeFromScoreScreen => {
                 self.do_player_exclude_from_score_screen(action)
             }

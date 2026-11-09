@@ -1949,6 +1949,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
+    fn player_rank_roster(&self) -> Option<Arc<RwLock<gamelogic::player::PlayerList>>> {
+        Some(Arc::clone(self.world.world_services.players()))
+    }
+
     fn player_rank(
         &mut self,
         request: ScriptPlayerRankRequest,

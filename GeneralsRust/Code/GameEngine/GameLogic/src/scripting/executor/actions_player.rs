@@ -464,12 +464,13 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_add_skillpoints(
         &mut self,
         action: &ScriptAction,
+        roster: &RwLock<crate::player::PlayerList>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let points = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} skill points", player_name, points);
 
-        let listed = self.context.borrowed_engine().players().read().ok().and_then(|list| {
+        let listed = roster.read().ok().and_then(|list| {
             list.find_player_by_name(&player_name)
                 .map(|player| (player, list.rank_level_limit()))
         });
@@ -488,12 +489,13 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_add_ranklevel(
         &mut self,
         action: &ScriptAction,
+        roster: &RwLock<crate::player::PlayerList>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let levels = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} rank levels", player_name, levels);
 
-        let listed = self.context.borrowed_engine().players().read().ok().and_then(|list| {
+        let listed = roster.read().ok().and_then(|list| {
             list.find_player_by_name(&player_name)
                 .map(|player| (player, list.rank_level_limit()))
         });
@@ -513,12 +515,13 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_set_ranklevel(
         &mut self,
         action: &ScriptAction,
+        roster: &RwLock<crate::player::PlayerList>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let level = self.get_int_param(action, 1)?;
         log::info!("Player '{}' setting rank level to {}", player_name, level);
 
-        let listed = self.context.borrowed_engine().players().read().ok().and_then(|list| {
+        let listed = roster.read().ok().and_then(|list| {
             list.find_player_by_name(&player_name)
                 .map(|player| (player, list.rank_level_limit()))
         });
@@ -537,12 +540,13 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_set_ranklevellimit(
         &mut self,
         action: &ScriptAction,
+        roster: &RwLock<crate::player::PlayerList>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let limit = self.get_int_param(action, 0)?;
         log::debug!("Setting map rank level limit to {}", limit);
         // C++ doMapSetRankLevelLimit -> TheGameLogic->setRankLevelLimit: the
         // cap is visible to the very next rank/award operation of this world.
-        self.context.borrowed_engine().players()
+        roster
             .write()
             .map_err(|_| ScriptError::ExecutionFailed("player roster poisoned".into()))?
             .set_rank_level_limit(limit);
@@ -641,6 +645,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_affect_receiving_experience(
         &mut self,
         action: &ScriptAction,
+        roster: &RwLock<crate::player::PlayerList>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let modifier = self.get_real_param(action, 1)?;
@@ -650,8 +655,7 @@ impl ScriptActionDispatcher<'_> {
             modifier
         );
 
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
+        if let Ok(list_guard) = roster.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_skill_points_modifier(modifier);
