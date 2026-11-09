@@ -338,14 +338,14 @@ impl ScriptActionDispatcher<'_> {
             let roster = driver.player_rank_roster()
                 .unwrap_or_else(|| Arc::clone(self.context.borrowed_engine().players()));
             let core_result = match action_type {
-                ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action, &roster),
-                ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action, &roster),
-                ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action, &roster),
+                ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action, &roster, driver),
+                ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action, &roster, driver),
+                ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action, &roster, driver),
                 ScriptActionType::PlayerSetRanklevellimit => {
                     self.do_player_set_ranklevellimit(action, &roster)
                 }
                 ScriptActionType::PlayerAffectReceivingExperience => {
-                    self.do_player_affect_receiving_experience(action, &roster)
+                    self.do_player_affect_receiving_experience(action, &roster, driver)
                 }
                 _ => unreachable!("rank request was constructed above"),
             }?;

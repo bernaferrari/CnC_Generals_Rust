@@ -4,7 +4,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::player::{Player as CorePlayer, PlayerList};
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
-    ScriptActionType, ScriptList,
+    ScriptActionType, ScriptList, LOCAL_PLAYER,
 };
 use gamelogic::scripting::engine::ScriptEngine;
 use gamelogic::system::rank_info::{RankDefinition, RankDefinitionMode, RankInfoStore};
@@ -38,11 +38,12 @@ fn rank_action_retains_science_callback_on_its_receiving_interpreter() {
     world.add_player(
         Player::new(0, Team::USA, "RankOwner", false).with_script_identity("RankOwner"),
     );
+    assert!(world.select_local_player(Some(0)));
     let mut action = ScriptAction::new(ScriptActionType::PlayerSetRanklevel);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Side,
-            "RankOwner".into(),
+            LOCAL_PLAYER.into(),
         ))
         .unwrap();
     action

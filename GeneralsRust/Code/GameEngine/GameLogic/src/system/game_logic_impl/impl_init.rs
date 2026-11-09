@@ -17,20 +17,34 @@ impl GameLogic {
         logic
     }
 
+    /// Build the Main compatibility logic against its receiving services.
+    pub(crate) fn new_with_world_services(
+        services: Arc<crate::system::engine_stores::WorldServices>,
+    ) -> Self {
+        let mut logic = Self::new();
+        logic.world_services = Some(Arc::downgrade(&services));
+        logic
+    }
+
+    fn owning_world_services(&self) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
+        self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services()))
+            .or_else(|| self.world_services.as_ref().and_then(std::sync::Weak::upgrade))
+    }
+
     /// This logic's script engine slot (C++ `TheScriptEngine` of the world
     /// this GameLogic belongs to). A logic built with an owner never consults
     /// the published world; an ownerless one falls back to it.
     pub(crate) fn script_engine_slot(&self) -> crate::scripting::engine::ScriptEngineHandle {
-        match self.pathfinding_owner.as_ref() {
-            Some(owner) => owner.services().scripts().engine().clone(),
+        match self.owning_world_services() {
+            Some(services) => services.scripts().engine().clone(),
             None => get_script_engine(),
         }
     }
 
     /// C++ `TheScriptEngine->init()` against this logic's own world.
     fn initialize_owned_script_engine(&self) -> crate::GameLogicResult<()> {
-        match self.pathfinding_owner.as_ref() {
-            Some(owner) => owner.services().scripts().initialize_engine(),
+        match self.owning_world_services() {
+            Some(services) => services.scripts().initialize_engine(),
             None => initialize_script_engine(),
         }
     }
@@ -78,8 +92,8 @@ impl GameLogic {
     /// Get the map/script rank level cap of this logic's world.
     /// C++ reference: GameLogic::getRankLevelLimit()
     pub fn get_rank_level_limit(&self) -> Int {
-        match self.pathfinding_owner.as_ref() {
-            Some(owner) => owner.services().players().read()
+        match self.owning_world_services() {
+            Some(services) => services.players().read()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .rank_level_limit(),
             None => self.standalone_rank_level_limit,
@@ -105,8 +119,8 @@ impl GameLogic {
     /// Set the global map/script rank level cap.
     /// C++ reference: GameLogic::setRankLevelLimit()
     pub fn set_rank_level_limit(&mut self, level: Int) {
-        match self.pathfinding_owner.as_ref() {
-            Some(owner) => owner.services().players().write()
+        match self.owning_world_services() {
+            Some(services) => services.players().write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .set_rank_level_limit(level),
             None => self.standalone_rank_level_limit = level.max(1),

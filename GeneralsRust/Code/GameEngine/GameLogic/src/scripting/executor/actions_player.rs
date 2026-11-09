@@ -465,8 +465,11 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
+        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let points = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} skill points", player_name, points);
 
@@ -490,8 +493,11 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
+        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let levels = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} rank levels", player_name, levels);
 
@@ -516,8 +522,11 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
+        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let level = self.get_int_param(action, 1)?;
         log::info!("Player '{}' setting rank level to {}", player_name, level);
 
@@ -646,8 +655,11 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
+        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let modifier = self.get_real_param(action, 1)?;
         log::debug!(
             "Affecting experience receiving for '{}' modifier {}",

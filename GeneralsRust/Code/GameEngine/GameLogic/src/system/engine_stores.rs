@@ -407,10 +407,10 @@ impl WorldServices {
     ) -> &std::sync::Arc<crate::locomotor::LocomotorStore> {
         &self.locomotor_store
     }
-    pub(crate) fn game_logic_mutex(&self) -> &'static Mutex<crate::system::game_logic::GameLogic> {
+    pub(crate) fn game_logic_mutex(self: &Arc<Self>) -> &'static Mutex<crate::system::game_logic::GameLogic> {
         *self.main_game_logic.get_or_init(|| {
             Box::leak(Box::new(Mutex::new(
-                crate::system::game_logic::GameLogic::new(),
+                crate::system::game_logic::GameLogic::new_with_world_services(Arc::clone(self)),
             )))
         })
     }

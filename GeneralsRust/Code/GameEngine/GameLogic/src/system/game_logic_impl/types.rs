@@ -279,6 +279,8 @@ pub struct GameLogic {
     /// Explicit Core owner used by synchronous Object destruction cleanup.
     /// Constructors stay inert; runtime owners install their EngineStores.
     pathfinding_owner: Option<Arc<crate::system::engine_stores::EngineStores>>,
+    /// Main's service owner when there is no Core EngineStores owner.
+    world_services: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
 
     // Player/Team management (references only)
     // Actual player list is managed by player_list() singleton
@@ -388,6 +390,7 @@ impl Default for GameLogic {
             dead_objects: Vec::new(),
             objects: HashMap::new(),
             pathfinding_owner: None,
+            world_services: None,
             partition_manager: PartitionManager::new(),
             physics_world: PhysicsWorld::new(),
             event_queue: Vec::new(),

@@ -2596,6 +2596,15 @@ mod tests {
         assert_eq!(standalone.get_rank_level_limit(), 7);
         assert_eq!(first.get_rank_level_limit(), 1000);
         assert_eq!(second.get_rank_level_limit(), 4);
+
+        // Main's compatibility singleton must share its own world's cap too.
+        let main_services = crate::system::engine_stores::new_world_services();
+        {
+            let mut main_logic = main_services.game_logic_mutex().lock().unwrap();
+            main_logic.set_rank_level_limit(3);
+            assert_eq!(main_logic.get_rank_level_limit(), 3);
+        }
+        assert_eq!(main_services.players().read().unwrap().rank_level_limit(), 3);
     }
 
     /// hq-r0o8i: C++ `TheScriptEngine` and its named-object table belong to

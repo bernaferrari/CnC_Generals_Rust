@@ -372,9 +372,8 @@ fn xfer_cave_system_snapshot(logic: &GameLogic, xfer: &mut dyn Xfer) -> Result<(
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
     let cave = logic
-        .pathfinding_owner
-        .as_ref()
-        .map(|owner| Arc::clone(&owner.services().logic_managers().cave))
+        .owning_world_services()
+        .map(|services| Arc::clone(&services.logic_managers().cave))
         .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
     let mut guard = cave.lock().map_err(|_| XferStatus::InvalidData)?;
     guard.xfer_game_logic(xfer)
