@@ -771,7 +771,7 @@ mod tests {
         );
 
         let object = Arc::new(RwLock::new(Object::new_test(0x0C12, 100.0)));
-        Object::invoke_on_object_created_after_install(&object).unwrap();
+        Object::invoke_on_object_created_after_install(&object, None).unwrap();
         let obj = object.read().unwrap();
         let siblings = Object::last_on_created_sibling_count();
         assert!(

@@ -631,13 +631,26 @@ impl CaveContain {
             return Ok(());
         };
 
+        self.finish_tracker_creation(&tracker)
+    }
+
+    /// C++ onBuildComplete with the driving CaveSystem borrowed by the caller.
+    pub fn on_build_complete_in(&mut self, system: &mut CaveSystem) -> GameResult<()> {
+        if !self.should_do_on_build_complete() {
+            return Ok(());
+        }
+        self.need_to_run_on_build_complete = false;
+        let tracker = self.register_in(system)?;
+        self.finish_tracker_creation(&tracker)
+    }
+
+    fn finish_tracker_creation(&self, tracker: &Arc<RwLock<TunnelTracker>>) -> GameResult<()> {
         if let Ok(mut tunnel) = tracker.write() {
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
                 tunnel.on_tunnel_created_id(owner_id)?;
             }
         }
-
         Ok(())
     }
 
@@ -1046,6 +1059,14 @@ impl ContainModuleInterface for CaveContain {
 
     fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         CaveContain::on_owner_created(self).map_err(|e| e.into())
+    }
+
+    fn on_owner_created_with_cave(
+        &mut self,
+        system: &mut CaveSystem,
+    ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        let data = self.module_data.clone();
+        Some(self.on_create(&data).and_then(|()| self.on_build_complete_in(system)))
     }
 
     fn on_create(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

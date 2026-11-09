@@ -873,7 +873,7 @@ mod tests {
                 Box::new(wrapper),
                 data,
             );
-            GameObject::invoke_on_object_created_after_install(&owner.object).unwrap();
+            GameObject::invoke_on_object_created_after_install(&owner.object, None).unwrap();
             let mut object = owner.object.write().unwrap();
             assert!(object.test_weapon_set_flag(WeaponSetType::Veteran));
             let (weapon, slot) = object.get_current_weapon().unwrap();

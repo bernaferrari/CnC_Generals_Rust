@@ -573,6 +573,7 @@ impl Object {
     /// after helpers + template modules are all installed.
     pub(super) fn invoke_on_object_created_after_install(
         object: &Arc<RwLock<Self>>,
+        cave_system: Option<&Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // C++ callbacks can resolve and mutate their owner. Snapshot only the
         // installed module handles, releasing the owner before entering them.
@@ -587,6 +588,31 @@ impl Object {
         };
         for entry in &modules {
             entry.with_module(|module| {
+                if entry.name.as_str().eq_ignore_ascii_case("CaveContain")
+                    && matches!(
+                        crate::contain_module_overrides::ContainModuleDataKind::from_module_data(
+                            module.get_module_data()
+                        ),
+                        Some(crate::contain_module_overrides::ContainModuleDataKind::Cave(_))
+                    )
+                {
+                    if let (Some(system), Some(contain)) = (
+                        cave_system,
+                        crate::contain_module_overrides::contain_handle_for_module(module),
+                    ) {
+                        let result: Result<(), String> = (|| {
+                            let mut contain = contain.lock().map_err(|_| "cave contain poisoned".to_string())?;
+                            let mut system = system.lock().map_err(|_| "cave system poisoned".to_string())?;
+                            contain.on_owner_created_with_cave(&mut system)
+                                .ok_or_else(|| "cave creation callback absent".to_string())?
+                                .map_err(|error| error.to_string())
+                        })();
+                        if let Err(error) = result {
+                            warn!("CaveContain on_owner_created failed: {}", error);
+                        }
+                        return;
+                    }
+                }
                 if unpublished {
                     if let Some(contain) =
                         crate::contain_module_overrides::contain_handle_for_module(module)
@@ -938,7 +964,7 @@ impl Object {
         }
 
         let thing_handle: Arc<ObjectThingHandle> =
-            Arc::new(ObjectThingHandle::with_cave_system(object, cave_system));
+            Arc::new(ObjectThingHandle::with_cave_system(object, cave_system.clone()));
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
         let mut modules_to_install: Vec<Arc<ModuleEntry>> = Vec::new();
 
@@ -1295,7 +1321,7 @@ impl Object {
 
         // C++ Object.cpp:458-471 — inter-module resolution after the full list
         // exists and before modulesReady, without recursively locking Object.
-        Self::invoke_on_object_created_after_install(object)?;
+        Self::invoke_on_object_created_after_install(object, cave_system.as_ref())?;
         object
             .write()
             .map_err(|_| "object lock poisoned after creation callbacks")?
