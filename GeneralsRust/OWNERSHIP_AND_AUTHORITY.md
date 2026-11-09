@@ -3291,3 +3291,23 @@ host snapshots and drive the receiving client's public timer display. Same-ID
 world probes cover rank isolation and timer restore. Core GameText, control bar
 and EVA delivery still have ambient compatibility paths (hq-yac16).
 
+
+## Control bar definitions and EVA delivery
+
+CommandButton/CommandSet lookups take the receiving instance's
+`CommandDefinitions` (C++ that engine's `TheControlBar` m_commandButtons /
+m_commandSets, ControlBar.cpp:1060-1120). Main GameLogic lends its admitted
+catalog, or the INI catalog of its own `CommonServices` for fixtures without
+admitted content; presentation frames freeze that owner, and the GameClient
+ControlBar is bound to it explicitly. An unbound bar resolves nothing instead of
+reading a published peer. The ControlBar bridge is rebuilt from the catalog of
+the world whose slot it fills. Remaining published-catalog readers: the INI
+loader itself (load-time, receiving CommonServices published), the standalone
+tooltip adapter (`UpgradeTooltipSource::Standalone`) and test fixtures.
+
+Logic EVA events are queued on the owning world's Eva (`TheEva::*_in`). The
+standalone client Eva reads its bound world's enabled flag, queue and roster
+local player; reset re-arms only that world. Core object/collide/scripting
+callbacks still raise EVA through the published world (no world borrow is
+passed to them yet). EVA INI definitions are written only by the INI loader into
+the receiving CommonServices; the client Eva owns its parsed check infos.

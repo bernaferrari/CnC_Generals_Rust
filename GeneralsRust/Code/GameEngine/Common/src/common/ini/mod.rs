@@ -153,8 +153,7 @@ pub use ini_credits::{
     get_credits_manager_mut, init_credits_manager, parse_credits_definition,
 };
 pub use ini_eva_event::{
-    EvaCheckInfo, EvaEventStore, EvaMessage, EvaSideSounds, get_eva_event_store,
-    get_eva_event_store_mut, init_eva_event_store, parse_eva_event_definition,
+    EvaCheckInfo, EvaEventStore, EvaMessage, EvaSideSounds, parse_eva_event_definition,
 };
 pub use ini_fx_list::{
     DispatchedFxNugget, FXList, FXListError, FXListResult, FXListStore, FXNugget, FxListObjRuntime,

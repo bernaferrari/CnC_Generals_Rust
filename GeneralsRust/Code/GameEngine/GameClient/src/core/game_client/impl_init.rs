@@ -555,8 +555,15 @@ impl GameClient {
         self.subsystem_manager
             .reset_all(self.script_display.fx_mut(), &self.session_lighting)?;
         if self.input_authority == ClientInputAuthority::StandaloneCore {
+            let world = self
+                .visual_world
+                .as_ref()
+                .map(|handle| std::sync::Arc::clone(handle.world_services()));
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
-                crate::eva::reset_eva_system(&mut ui.eva);
+                match world.as_deref() {
+                    Some(world) => crate::eva::reset_eva_system_for_world(&mut ui.eva, world),
+                    None => crate::eva::reset_eva_system(&mut ui.eva),
+                }
             }
         }
         if let Some(particles) = self.drawables.particles.as_mut() { particles.reset_runtime(); };

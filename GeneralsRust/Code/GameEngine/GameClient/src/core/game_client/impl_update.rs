@@ -2884,8 +2884,21 @@ impl GameClient {
         }
 
         if self.input_authority == ClientInputAuthority::StandaloneCore {
+            // C++ Eva belongs to this client; it reads its own world's logic
+            // EVA queue and roster (Eva.cpp:265-300).
+            let world = self
+                .visual_world
+                .as_ref()
+                .map(|handle| std::sync::Arc::clone(handle.world_services()));
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
-                crate::eva::update_eva_system(&mut ui.eva, &mut self.client_random);
+                match world.as_deref() {
+                    Some(world) => crate::eva::update_eva_system_for_world(
+                        &mut ui.eva,
+                        world,
+                        &mut self.client_random,
+                    ),
+                    None => crate::eva::update_eva_system(&mut ui.eva, &mut self.client_random),
+                }
             }
         }
 

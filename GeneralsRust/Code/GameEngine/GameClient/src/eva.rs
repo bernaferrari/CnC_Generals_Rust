@@ -661,6 +661,69 @@ impl Eva {
         self.should_play.fill(false);
     }
 
+    /// C++ `Eva::update` (Eva.cpp:265-300) for the client bound to `world`:
+    /// the enabled flag, pending logic events and the local player all come
+    /// from that world, never from whichever world is published.
+    pub fn update_for_world(
+        &mut self,
+        world: &gamelogic::system::engine_stores::WorldServices,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) {
+        if let Ok(enabled) = LogicEva::is_enabled_in(world) {
+            if self.enabled != enabled {
+                self.set_enabled(enabled);
+            }
+        }
+        let context = self.frame_context_for_world(world);
+        if self.enabled && context.frame >= 2 {
+            if let Ok(events) = LogicEva::drain_events_in(world) {
+                for event in events {
+                    if let Some(message) = map_logic_event(event) {
+                        self.set_should_play(message);
+                    }
+                }
+            }
+        }
+        self.update_with_playback(&context, &mut CoreEvaPlayback, &mut |lo, hi| {
+            client_random.next_int(lo, hi)
+        });
+    }
+
+    /// Frame context whose local player is `world`'s roster local player
+    /// (C++ Eva.cpp:270 `ThePlayerList->getLocalPlayer()` of that engine).
+    pub fn frame_context_for_world(
+        &self,
+        world: &gamelogic::system::engine_stores::WorldServices,
+    ) -> EvaFrameContext {
+        let roster_local = world
+            .players()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|player| {
+                player.read().ok().map(|player| EvaLocalPlayerContext {
+                    side: player.get_side().to_string(),
+                    index: player.get_player_index() as u32,
+                    sufficient_power: player.get_energy().has_sufficient_power(),
+                })
+            });
+        let local_player = match (self.host_local_player.clone(), roster_local) {
+            (Some((side, index)), roster) => Some(EvaLocalPlayerContext {
+                side,
+                index,
+                sufficient_power: self
+                    .host_sufficient_power
+                    .or(roster.map(|local| local.sufficient_power))
+                    .unwrap_or(true),
+            }),
+            (None, roster) => roster,
+        };
+        EvaFrameContext {
+            frame: self.logic_frame(),
+            local_player,
+        }
+    }
+
     pub fn legacy_frame_context(&self) -> EvaFrameContext {
         let local_player = if let Some((side, index)) = self.host_local_player.clone() {
             let sufficient_power = match self.host_sufficient_power {
@@ -1167,6 +1230,27 @@ pub fn update_eva_system(eva: &mut Eva, client_random: &mut game_engine::common:
     eva.update(client_random);
 }
 
+/// Advance `eva` against the world its client is bound to.
+pub fn update_eva_system_for_world(
+    eva: &mut Eva,
+    world: &gamelogic::system::engine_stores::WorldServices,
+    client_random: &mut game_engine::common::random_value::RandomState,
+) {
+    eva.update_for_world(world, client_random);
+}
+
+/// C++ GameClient::reset → Eva::reset (Eva.cpp:245-263) re-arms the Eva of
+/// the client's own world, not a published peer's.
+pub fn reset_eva_system_for_world(
+    eva: &mut Eva,
+    world: &gamelogic::system::engine_stores::WorldServices,
+) {
+    eva.set_host_frame(0);
+    eva.clear_host_sufficient_power();
+    let _ = LogicEva::set_enabled_in(world, true);
+    eva.reset();
+}
+
 pub fn set_eva_should_play(eva: &mut Eva, message: EvaMessage) {
     eva.set_should_play(message);
 }
@@ -1349,6 +1433,42 @@ mod tests {
         assert_eq!(count, 49);
         assert!(has_gps);
         assert!(has_sneak);
+    }
+
+    #[test]
+    fn two_client_evas_read_only_their_own_world() {
+        use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+        let a = new_world_services();
+        let b = new_world_services();
+        LogicEva::set_should_play_in(&a, LogicEvaEvent::UnitLost).unwrap();
+        LogicEva::set_should_play_in(&b, LogicEvaEvent::BuildingLost).unwrap();
+        let mut eva_a = Eva::new();
+        let mut eva_b = Eva::new();
+        eva_a.set_host_frame(5);
+        eva_b.set_host_frame(5);
+
+        // Interleave with the peer published: the explicit world still wins.
+        with_world_services(&b, || eva_a.update_for_world(&a, &mut Default::default()));
+        assert!(LogicEva::drain_events_in(&a).unwrap().is_empty(), "a's client drained a");
+        assert_eq!(
+            LogicEva::drain_events_in(&b).unwrap(),
+            vec![LogicEvaEvent::BuildingLost],
+            "a's client must not consume b's EVA events"
+        );
+
+        // Script EVA_SET_ENABLED_DISABLED(false) in b silences only b's client.
+        LogicEva::set_enabled_in(&b, false).unwrap();
+        with_world_services(&a, || eva_b.update_for_world(&b, &mut Default::default()));
+        eva_a.update_for_world(&a, &mut Default::default());
+        assert!(!eva_b.is_enabled());
+        assert!(eva_a.is_enabled());
+
+        // Reset re-arms only the client's own world.
+        reset_eva_system_for_world(&mut eva_b, &b);
+        assert!(LogicEva::is_enabled_in(&b).unwrap());
+        LogicEva::set_enabled_in(&a, false).unwrap();
+        reset_eva_system_for_world(&mut eva_b, &b);
+        assert!(!LogicEva::is_enabled_in(&a).unwrap());
     }
 
     #[test]

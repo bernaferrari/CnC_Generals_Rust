@@ -964,13 +964,51 @@ impl TheEva {
         )
     }
 
+    /// C++ `TheEva->setShouldPlay` on the Eva owned by `world` (Eva.cpp:339-345).
+    /// The flag latches regardless of `m_enabled`; the disabled update
+    /// (Eva.cpp:267-269) returns before the flag clear, so alerts raised while
+    /// disabled fire on re-enable. `set_enabled(false)` clears the pending set
+    /// (Eva.cpp:371-377).
+    pub fn set_should_play_in(
+        world: &crate::system::engine_stores::WorldServices,
+        event: EvaEvent,
+    ) -> Result<(), GameError> {
+        let mut guard = world.eva().lock().map_err(|_| GameError::LockError)?;
+        guard.queued.push(event);
+        Ok(())
+    }
+
+    /// C++ `Eva::setEnabled` (Eva.cpp:371-377) on `world`'s Eva.
+    pub fn set_enabled_in(
+        world: &crate::system::engine_stores::WorldServices,
+        enabled: bool,
+    ) -> Result<(), GameError> {
+        let mut guard = world.eva().lock().map_err(|_| GameError::LockError)?;
+        guard.enabled = enabled;
+        if !enabled {
+            guard.queued.clear();
+        }
+        Ok(())
+    }
+
+    pub fn is_enabled_in(world: &crate::system::engine_stores::WorldServices) -> Result<bool, GameError> {
+        let guard = world.eva().lock().map_err(|_| GameError::LockError)?;
+        Ok(guard.enabled)
+    }
+
+    /// Hand `world`'s pending logic EVA events to that world's client Eva.
+    pub fn drain_events_in(
+        world: &crate::system::engine_stores::WorldServices,
+    ) -> Result<Vec<EvaEvent>, GameError> {
+        let mut guard = world.eva().lock().map_err(|_| GameError::LockError)?;
+        Ok(guard.queued.drain(..).collect())
+    }
+
+    /// Published-world compatibility entry for Core module callbacks that do
+    /// not yet receive their world; prefer [`Self::set_should_play_in`].
     pub fn set_should_play(event: EvaEvent) -> Result<(), GameError> {
         let state = Self::state_arc();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
-        // C++ Eva.cpp:339-345 latches the flag regardless of m_enabled; the
-        // disabled update (Eva.cpp:267-269) returns before the flag clear, so
-        // alerts raised while disabled fire on re-enable. set_enabled(false)
-        // clears the pending set (Eva.cpp:371-377).
         guard.queued.push(event);
         Ok(())
     }
@@ -1006,6 +1044,31 @@ mod in_game_ui_eva_ownership_tests {
     use crate::system::engine_stores::{new_world_services, with_world_services};
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
+
+    #[test]
+    fn same_thread_worlds_keep_explicit_eva_queues_apart() {
+        // Two worlds on one thread, nothing published: each explicit borrow
+        // reaches only its own Eva (C++ Eva is per engine instance).
+        let a = new_world_services();
+        let b = new_world_services();
+        TheEva::set_should_play_in(&a, EvaEvent::LowPower).unwrap();
+        TheEva::set_should_play_in(&b, EvaEvent::BuildingLost).unwrap();
+        TheEva::set_should_play_in(&a, EvaEvent::UnitLost).unwrap();
+        TheEva::set_enabled_in(&b, false).unwrap();
+        assert!(TheEva::is_enabled_in(&a).unwrap());
+        assert!(!TheEva::is_enabled_in(&b).unwrap());
+        assert_eq!(
+            TheEva::drain_events_in(&a).unwrap(),
+            vec![EvaEvent::LowPower, EvaEvent::UnitLost]
+        );
+        assert!(TheEva::drain_events_in(&b).unwrap().is_empty());
+        // Publishing `b` does not redirect explicit writes to `a`.
+        with_world_services(&b, || {
+            TheEva::set_should_play_in(&a, EvaEvent::GeneralLevelUp).unwrap();
+        });
+        assert_eq!(TheEva::drain_events_in(&a).unwrap(), vec![EvaEvent::GeneralLevelUp]);
+        assert!(TheEva::drain_events_in(&b).unwrap().is_empty());
+    }
 
     #[test]
     fn parallel_worlds_keep_independent_in_game_ui_and_eva() {

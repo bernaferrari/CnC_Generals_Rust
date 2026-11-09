@@ -620,37 +620,20 @@ impl Default for EvaEventStore {
     }
 }
 
-/// Get the global EVA event store (read access)
-
-/// Get the global EVA event store (write access)
-/// Initialize the global EVA event store
-
-fn ini_eva_cell() -> std::sync::Arc<parking_lot::RwLock<EvaEventStore>> {
+/// INI-load-only: the loader publishes the receiving instance's
+/// `CommonServices` for the INI pass (C++ INI::parseEvaEvent writes that
+/// engine's TheEva). Runtime readers borrow `CommonServices::ini.eva` of their
+/// own instance; the client Eva owns its parsed check infos.
+fn loading_eva_cell() -> std::sync::Arc<parking_lot::RwLock<EvaEventStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.eva)
-}
-
-
-pub fn get_eva_event_store() -> OwnedReadGuard<EvaEventStore> {
-    let cell = ini_eva_cell();
-    cell.read_arc()
-}
-
-
-pub fn get_eva_event_store_mut() -> OwnedWriteGuard<EvaEventStore> {
-    let cell = ini_eva_cell();
-    cell.write_arc()
-}
-
-
-pub fn init_eva_event_store() {
-    ini_eva_cell().write().init();
 }
 
 /// Parse EvaEvent definition from INI block
 /// This is the main entry point for the INI parser
 /// Matches C++ INI::parseEvaEvent from Eva.cpp lines 43-57
 pub fn parse_eva_event_definition(ini: &mut INI) -> Result<(), String> {
-    let mut store = get_eva_event_store_mut();
+    let cell = loading_eva_cell();
+    let mut store = cell.write();
 
     store
         .parse_eva_event_definition(ini)
@@ -820,10 +803,17 @@ mod tests {
     }
 
     #[test]
-    fn test_global_store() {
-        init_eva_event_store();
-
-        let store = get_eva_event_store();
-        assert!(store.len() >= 0);
+    fn eva_definitions_belong_to_their_common_services() {
+        let a = crate::common::common_services::CommonServices::new();
+        let b = crate::common::common_services::CommonServices::new();
+        let mut info = EvaCheckInfo::default();
+        info.message = EvaMessage::LowPower;
+        info.priority = 7;
+        a.ini.eva.write().add_check_info(info);
+        assert_eq!(
+            a.ini.eva.read().get_check_info(EvaMessage::LowPower).map(|i| i.priority),
+            Some(7)
+        );
+        assert!(b.ini.eva.read().get_check_info(EvaMessage::LowPower).is_none());
     }
 }
