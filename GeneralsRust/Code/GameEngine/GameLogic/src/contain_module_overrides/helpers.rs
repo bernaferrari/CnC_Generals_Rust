@@ -68,7 +68,7 @@ impl Snapshotable for MissingOwnerModule {
     }
 }
 
-fn failed_initialization_module(
+pub(super) fn failed_initialization_module(
     module_name: &str,
     module_data: Arc<dyn ModuleData>,
     error: String,

@@ -548,7 +548,7 @@ impl Object {
         let cave_bound = self.owner_cave.is_some();
         let cave_system = self.owner_cave.as_ref().and_then(Weak::upgrade);
         for module in modules {
-            let is_cave = module.name.as_str().eq_ignore_ascii_case("CaveContain");
+            let is_cave = module.name().as_str().eq_ignore_ascii_case("CaveContain");
             module.with_module(|module| {
                 if build_complete && is_cave && cave_bound {
                     if let Some(contain) = crate::contain_module_overrides::contain_handle_for_module(module) {
