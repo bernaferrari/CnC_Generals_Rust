@@ -8,7 +8,7 @@ fn isolated(name: &str, run: impl FnOnce()) {
 }
 
 fn script_engine(id: u32) -> ScriptEngine {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut sequential = SequentialScript::new();
     sequential.team_to_exec_on = Some(id);
     engine.append_sequential_script(sequential);

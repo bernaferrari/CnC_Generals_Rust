@@ -15,7 +15,7 @@ fn fixture() -> (GameLogic, ObjectId) {
         .create_object_for_player("LifetimeInfantry", 1, Vec3::ZERO)
         .unwrap();
     assert!(world.set_host_object_name(id, "Hero"));
-    world.install_owned_script_engine(ScriptEngine::new().unwrap());
+    world.install_owned_script_engine(ScriptEngine::new_in_published_world().unwrap());
     world.initialize_receiving_named_cache_for_fixture();
     (world, id)
 }
@@ -113,6 +113,6 @@ fn renaming_and_actual_snapshot_restore_preserve_history_but_reset_clears_it() {
         "NeverCreated"
     ));
     restored.reset();
-    restored.install_owned_script_engine(ScriptEngine::new().unwrap());
+    restored.install_owned_script_engine(ScriptEngine::new_in_published_world().unwrap());
     assert!(!query(&mut restored, ConditionType::NamedDestroyed, "Hero"));
 }

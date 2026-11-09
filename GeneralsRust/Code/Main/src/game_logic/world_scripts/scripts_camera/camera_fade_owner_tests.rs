@@ -61,7 +61,7 @@ fn native_fade_freezes_actual_authored_receiver_without_global_selection_or_cloc
             let scripts = gamelogic::scripting::get_script_engine();
             {
                 let mut foreign = scripts.write().unwrap();
-                *foreign = Some(gamelogic::scripting::engine::ScriptEngine::new().unwrap());
+                *foreign = Some(gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap());
                 foreign.as_ref().unwrap().set_fade_parameters(
                     gamelogic::scripting::TFade::Subtract,
                     0.1,

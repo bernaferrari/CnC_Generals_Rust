@@ -237,7 +237,7 @@ fn team_move_this_team_uses_calling_team_identity() {
             "ContextMoveWaypoint".into(),
         ))
         .unwrap();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_external_eval_context(None, Some(condition_id));
     let services = owner.world_services.clone();
     gamelogic::system::engine_stores::with_world_services(&services, || {
@@ -321,7 +321,7 @@ fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
             "ContextMoveWaypoint".into(),
         ))
         .unwrap();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_external_eval_context(None, Some(condition_id));
     let services = owner.world_services.clone();
     gamelogic::system::engine_stores::with_world_services(&services, || {
@@ -571,7 +571,7 @@ fn team_damage_runs_immediate_owned_unresistable_health_and_negative_kill() {
     let (peer, peer_unit, _) = world();
     roster(&owner, "DamageTeam", unit, 1);
     roster(&peer, "DamageTeam", peer_unit, 1);
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     for amount in [25.0, -1.0] {
         let mut action = ScriptAction::new(ScriptActionType::DamageMembersOfTeam);
         action
@@ -606,7 +606,7 @@ fn world_effects_deliver_to_the_driving_interpreter_hooks_before_next_action() {
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
     let (mut owner, _, _) = world();
     let (peer, _, _) = world();
-    let mut engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(
         crate::game_logic::mission_scripts::MissionScriptActionHandler::new(Arc::clone(
             &owner.mission_scripts,
@@ -660,7 +660,7 @@ fn named_presentation_and_sequential_use_owned_identity_then_topple_consumes_own
         .unwrap();
     owner.host_object_mut(building).unwrap().name = "OwnedFallingHall".into();
     assert!(owner.add_receiving_named_script_object(building));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let mut script = Script::new();
     script.script_name = "OwnedUnitSequence".into();
     let mut list = ScriptList::new();

@@ -28,7 +28,7 @@ impl GameLogic {
         script.action = Some(Box::new(action));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine.set_counter("OwnedConditionObserved", 0).unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
@@ -138,7 +138,7 @@ fn scripted_music_completion_uses_receiving_device_receipts_and_reset() {
         script.action = Some(Box::new(action));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine.set_counter("MusicObserved", 0).unwrap();
         engine.set_script_list_for_player(0, Some(Box::new(list))).unwrap();
         let mut audio = NativeAudioService::receiving(owner).unwrap();

@@ -55,7 +55,7 @@ fn named_delete_and_missing_kill_leave_same_id_peer_unchanged() {
     let (mut owner, id, target) = world();
     let (peer, peer_id, _) = world();
     assert_eq!(id, peer_id);
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     execute(&mut owner, &engine, ScriptActionType::NamedKill, "Missing");
     assert!(owner.host_object(id).unwrap().is_alive());
     execute(
@@ -83,7 +83,7 @@ fn team_delete_living_uses_effectively_dead_state_instead_of_health() {
         .unwrap()
         .status
         .effectively_dead = true;
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     execute(
         &mut owner,
         &engine,
@@ -112,7 +112,7 @@ fn refresh_radar_script_action_targets_only_the_receiving_world() {
     let owner_generation = owner.radar().terrain_generation();
     let peer_generation = peer.radar().terrain_generation();
     let peer_texture = peer.radar().get_terrain_texture().to_vec();
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let context = gamelogic::scripting::executor::ScriptContext::at_frame(11);
     let mut driver = HostScriptExecutionDriver::with_interpreter(&mut owner, &engine);
     engine.friend_execute_action_with_driver(
@@ -145,8 +145,8 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
         .unwrap();
     owner.host_object_mut(id).unwrap().name = "ToppleTarget".into();
     owner.initialize_receiving_named_cache_for_fixture();
-    let supplied = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
-    let foreign = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let supplied = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    let foreign = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     supplied.set_topple_direction(
         "ToppleTarget",
         Some(gamelogic::common::Coord3D::new(0.0, 1.0, 0.0)),
@@ -209,7 +209,7 @@ fn player_kill_targets_exact_same_faction_owner_and_missing_is_inert() {
     let other = owner
         .create_object_for_player("OwnedNamedInfantry", 3, Vec3::ZERO)
         .unwrap();
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     execute(&mut owner, &engine, ScriptActionType::PlayerKill, "Missing");
     assert!(owner.host_object(id).unwrap().is_alive());
     execute(

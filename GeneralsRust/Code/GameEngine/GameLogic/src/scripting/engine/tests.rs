@@ -76,7 +76,7 @@ impl Drop for RegisteredSequentialObjectCleanup {
 
 #[test]
 fn test_script_engine_creation() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     // Slot 0 is reserved, matching runtime reset semantics.
     assert_eq!(engine.with_inner(|i| i.num_counters), 1);
     assert_eq!(engine.with_inner(|i| i.num_flags), 1);
@@ -90,7 +90,7 @@ fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
     use crate::system::engine_stores::{new_world_services, with_world_services};
     let services = new_world_services();
     with_world_services(&services, || {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut tail = ScriptEngineXferTail::default();
         tail.fade = TFade::None as i32;
         engine.restore_receiving_xfer_tail(&tail);
@@ -114,7 +114,7 @@ fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
 
 #[test]
 fn test_new_map_starts_fade_in_from_black() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.reset();
     assert_eq!(engine.with_inner(|i| i.fade), TFade::None);
     engine.new_map();
@@ -130,7 +130,7 @@ fn test_new_map_starts_fade_in_from_black() {
 
 #[test]
 fn test_counter_operations() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
 
     // Set a counter
     engine.set_counter("test_counter", 42).unwrap();
@@ -144,7 +144,7 @@ fn test_counter_operations() {
 
 #[test]
 fn test_flag_operations() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
 
     // Set a flag
     engine.set_flag("test_flag", true).unwrap();
@@ -158,7 +158,7 @@ fn test_flag_operations() {
 
 #[test]
 fn test_end_game_timer() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     assert!(!engine.is_game_ending());
 
     engine.start_end_game_timer();
@@ -178,7 +178,7 @@ fn end_game_timer_expiry_appends_clear_game_data_message() {
     use game_engine::common::message_stream::{GameMessageType, get_message_stream};
 
     let _lock = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     {
         let stream = get_message_stream();
         let mut stream = stream.write().expect("message stream");
@@ -202,7 +202,7 @@ fn close_window_timer_expiry_destroys_message_window() {
     let _lock = crate::test_sync::lock();
     struct HeadlessWindows;
     impl ScriptActionHandler for HeadlessWindows {}
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(std::sync::Arc::new(HeadlessWindows)));
     engine.create_win_lose_window("Menus/LocalDefeat.wnd");
     assert_eq!(
@@ -223,7 +223,7 @@ fn close_window_timer_expiry_destroys_message_window() {
 
 #[test]
 fn test_time_freeze() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     assert!(!engine.is_time_frozen_script());
 
     engine.do_freeze_time();
@@ -235,7 +235,7 @@ fn test_time_freeze() {
 
 #[test]
 fn test_debug_freeze_stops_update_progression() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_timer("freeze_timer", 10).unwrap();
     engine.set_time_frozen_debug(true);
 
@@ -262,7 +262,7 @@ fn test_debug_freeze_stops_update_progression() {
 #[test]
 fn countdown_timer_rests_at_minus_one_after_expire() {
     // C++ ScriptEngine.cpp:5547-5550: decrement while value >= 0, rest at -1.
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_timer("expire_to_minus_one", 0).unwrap();
     engine.update().expect("update from 0");
     assert_eq!(
@@ -382,7 +382,7 @@ fn sequential_pending_retry_action_classification_matches_cxx() {
 
 #[test]
 fn set_script_list_initializes_delay_evaluation_frame_offset() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
 
     let mut delayed_script = Script::new();
     delayed_script.delay_evaluation_seconds = 3;
@@ -408,7 +408,7 @@ fn set_script_list_initializes_delay_evaluation_frame_offset() {
 
 #[test]
 fn set_script_list_infers_condition_team_name_for_singleton_team() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let team_name = "RuntimeInitSingletonTeam".to_string();
 
     if let Ok(mut factory) = get_team_factory().lock() {
@@ -449,7 +449,7 @@ fn set_script_list_infers_condition_team_name_for_singleton_team() {
 
 #[test]
 fn call_subroutine_executes_in_place_and_persists_one_shot_state() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
 
     let mut condition = Condition::new(ConditionType::ConditionTrue);
     let mut or_condition = OrCondition::new();
@@ -486,7 +486,7 @@ fn call_subroutine_executes_in_place_and_persists_one_shot_state() {
 
 #[test]
 fn call_subroutine_resolves_subroutine_group_name_first() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
 
     let mut condition = Condition::new(ConditionType::ConditionTrue);
     let mut or_condition = OrCondition::new();
@@ -534,7 +534,7 @@ fn enable_disable_script_by_group_name_toggles_cxx_group_state() {
     // first-classifies a matching ScriptGroup separately from matching Script.
     // An inactive subroutine group must become callable immediately when enabled
     // and must stop being callable when disabled.
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
 
     let mut member = Script::new();
     member.script_name = "Toggle Group Member".to_string();
@@ -568,7 +568,7 @@ fn enable_disable_script_by_group_name_toggles_cxx_group_state() {
 
 #[test]
 fn millisecond_script_seconds_use_ceil_frame_conversion() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_timer_millisecond_script_seconds("shell_camera", 0.12)
         .unwrap();
@@ -583,7 +583,7 @@ fn millisecond_script_seconds_use_ceil_frame_conversion() {
 
 #[test]
 fn stop_timer_preserves_remaining_value() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_timer("pause_test", 17).unwrap();
     engine.stop_timer("pause_test").unwrap();
 
@@ -597,7 +597,7 @@ fn stop_timer_preserves_remaining_value() {
 
 #[test]
 fn subtract_millisecond_script_seconds_can_drive_timer_negative() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_timer("negative_test", 2).unwrap();
     engine
         .subtract_from_timer_millisecond_script_seconds("negative_test", 0.12)
@@ -616,7 +616,7 @@ fn subtract_millisecond_script_seconds_can_drive_timer_negative() {
 /// and must observe outer mutations already applied.
 #[test]
 fn nested_with_script_engine_mut_runs_immediately_like_cxx_call_subroutine() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.with_active(|| {
         engine.set_counter("outer_before", 1).unwrap();
         let mut order = Vec::new();
@@ -889,7 +889,7 @@ fn nested_call_subroutine_reenters_immediately_through_scoped_tls() {
 #[test]
 fn sequential_script_dispatch_reenters_immediately_without_holding_inner_borrow() {
     let _lock = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let object_id = 0x51_5E_0001;
     let object = Arc::new(RwLock::new(crate::object::Object::new_test(
         object_id, 100.0,
@@ -981,7 +981,7 @@ fn nested_call_subroutine_finds_callee_on_a_different_side_in_cxx_order() {
 
 #[test]
 fn detached_script_is_reinserted_in_original_order_after_unwind() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut list = ScriptList::new();
 
     let mut first = Script::new();
@@ -1085,7 +1085,7 @@ fn same_script_reentry_is_explicit_and_restores_the_live_node() {
 
 #[test]
 fn with_active_script_engine_ref_skips_while_inner_mut_live() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.with_active(|| {
         {
             let _guard = engine.lock_inner_mut();
@@ -1104,8 +1104,8 @@ fn with_active_script_engine_ref_skips_while_inner_mut_live() {
 
 #[test]
 fn lexical_active_engine_restores_outer_binding_after_nested_scope() {
-    let outer = ScriptEngine::new().unwrap();
-    let inner = ScriptEngine::new().unwrap();
+    let outer = ScriptEngine::new_in_published_world().unwrap();
+    let inner = ScriptEngine::new_in_published_world().unwrap();
 
     outer.with_active(|| {
         outer.set_counter("outer_before", 1).unwrap();
@@ -1152,7 +1152,7 @@ fn lexical_active_engine_restores_outer_binding_after_nested_scope() {
 
 #[test]
 fn lexical_active_engine_is_cleared_after_unwind() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         engine.with_active(|| {
             assert!(ACTIVE_SCRIPT_ENGINE.is_set());
@@ -1170,7 +1170,7 @@ fn lexical_active_engine_is_cleared_after_unwind() {
 
 #[test]
 fn breeze_and_track_getters_return_owned_snapshots() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_current_track_name("intro".into());
     engine.set_breeze_info(0.5, 0.1, 0.0, 30, 0.0);
 
@@ -1195,7 +1195,7 @@ fn breeze_and_track_getters_return_owned_snapshots() {
 fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
     let _lock = crate::test_sync::lock();
     get_named_object_tracker().clear().unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.do_freeze_time();
     engine.start_end_game_timer();
     engine.set_current_track_name("Combat".into());
@@ -1219,7 +1219,7 @@ fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
             .any(|(name, id)| name == "NamedHero" && *id == 42)
     );
 
-    let restored = ScriptEngine::new().unwrap();
+    let restored = ScriptEngine::new_in_published_world().unwrap();
     restored.restore_xfer_tail(&tail);
     assert!(restored.is_time_frozen_script());
     assert!(restored.is_game_ending());
@@ -1247,7 +1247,7 @@ fn empty_object_registry_still_runs_true_side_scripts() {
     crate::object::registry::OBJECT_REGISTRY.clear();
     assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
 
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut script = Script::new();
     script.script_name = "EmptyRegistryTrue".to_string();
     script.is_active = true;
@@ -1281,7 +1281,7 @@ fn empty_object_registry_still_progresses_sequential_scripts() {
     crate::object::registry::OBJECT_REGISTRY.clear();
     assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
 
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut sequence = SequentialScript::new();
     sequence.script_to_execute_sequentially = Some(Box::new({
         let mut script = Script::new();
@@ -1332,7 +1332,7 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
         ..Default::default()
     });
 
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut sequence = SequentialScript::new();
     sequence.team_to_exec_on = get_team_factory()
         .lock()
@@ -1363,7 +1363,7 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
 
 #[test]
 fn sequential_scripts_snapshot_preserves_count_and_instruction() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut sequence = SequentialScript::new();
     sequence.object_id = 0x51_5E_0002;
     sequence.current_instruction = 4;
@@ -1403,7 +1403,7 @@ fn sequential_scripts_snapshot_preserves_count_and_instruction() {
 #[test]
 fn named_reveals_snapshot_survives_restore_for_undo() {
     let _lock = crate::test_sync::lock();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.create_named_map_reveal("BaseLook", "WP_Base", 250.0, "PlyrAmerica");
     engine.create_named_map_reveal("HillLook", "WP_Hill", 80.0, "PlyrChina");
 
@@ -1433,7 +1433,7 @@ fn eval_flag_true_when_ui_interaction_name_matches_like_cxx() {
     // C++ ScriptEngine::evaluateFlag (ScriptEngine.cpp:6450-6458): stored flag
     // miss is still true if m_uiInteractions contains the flag name.
     let _lock = crate::test_sync::lock();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
 
     const HOOK: &str = "ShellMainMenuOnlineHighlighted";
     {
@@ -1503,7 +1503,7 @@ fn live_update_flag_true_when_ui_interaction_pulses_like_cxx() {
     crate::object::registry::OBJECT_REGISTRY.clear();
 
     const HOOK: &str = "ShellMainMenuOnlineHighlighted";
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let mut script = Script::new();
     script.script_name = "UiPulseFlag".to_string();
     script.is_active = true;

@@ -29,7 +29,7 @@ fn eva_announcement_owner_tests_actual_script_toggles_only_driving_world() {
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

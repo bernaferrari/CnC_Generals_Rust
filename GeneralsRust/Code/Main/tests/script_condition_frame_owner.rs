@@ -32,7 +32,7 @@ fn supply_source_cached_result(world: &GameLogic, cache_frame: u32) -> bool {
     branch.set_first_and_condition(Some(Box::new(condition)));
     let mut script = Script::new();
     script.condition = Some(Box::new(branch));
-    let engine = ScriptEngine::new().expect("script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("script engine");
     let mut driver = NoopDriver;
     engine.evaluate_conditions_with_driver(
         &mut script,

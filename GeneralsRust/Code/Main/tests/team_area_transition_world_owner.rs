@@ -139,7 +139,7 @@ fn engine(name: &str, cases: Vec<(Condition, String)>) -> ScriptEngine {
         scripts.append_script(Box::new(script));
         counters.push(counter);
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     for counter in counters {
         engine.set_counter(&counter, 0).unwrap();
     }

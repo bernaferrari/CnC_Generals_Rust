@@ -99,7 +99,7 @@ fn world(root: &std::path::Path, label: &str) -> (GameLogic, ObjectId, String) {
         .get_side_info_mut(0)
         .expect("owner side")
         .set_script_list(Some(Box::new(script_list)));
-    let script_engine = ScriptEngine::new().expect("script templates");
+    let script_engine = ScriptEngine::new_in_published_world().expect("script templates");
 
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
@@ -300,7 +300,7 @@ fn ordered_mux_world(
         .get_side_info_mut(0)
         .expect("owner side")
         .set_script_list(Some(Box::new(script_list)));
-    let script_engine = ScriptEngine::new().expect("script templates");
+    let script_engine = ScriptEngine::new_in_published_world().expect("script templates");
 
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);

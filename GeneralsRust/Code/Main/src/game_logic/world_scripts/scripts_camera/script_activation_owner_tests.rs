@@ -35,7 +35,7 @@ fn script(name: &str, actions: Vec<Box<ScriptAction>>, one_shot: bool) -> Box<Sc
 }
 
 fn install(world: &mut GameLogic, list: ScriptList) {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
         world.mission_scripts.clone(),
     ))));

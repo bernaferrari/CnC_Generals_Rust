@@ -41,7 +41,7 @@ impl Drop for BootstrapDifficultyRestore {
 }
 
 fn engine_with_owner_flag(flag: &str, difficulty: crate::player::GameDifficulty) -> ScriptEngine {
-    let mut engine = ScriptEngine::new().expect("script engine");
+    let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
     engine.set_global_difficulty(difficulty);
 
     let mut script = Script::new();
@@ -285,7 +285,7 @@ fn active_read_query_fails_closed_during_exclusive_borrow() {
     foreign.start_quick_end_game_timer();
     foreign.do_freeze_time();
     let slot = ScriptEngineSlotRestore::install(Some(foreign));
-    let driving = ScriptEngine::new().expect("driving engine");
+    let driving = ScriptEngine::new_in_published_world().expect("driving engine");
 
     driving.with_active_for_test(|| {
         let _exclusive = driving.lock_inner_mut();
@@ -304,10 +304,10 @@ fn active_read_query_fails_closed_during_exclusive_borrow() {
 #[test]
 fn nested_active_facade_restores_outer_owner_after_panic_and_keeps_fallback() {
     let _guard = crate::test_sync::lock();
-    let fallback = ScriptEngine::new().expect("fallback engine");
+    let fallback = ScriptEngine::new_in_published_world().expect("fallback engine");
     let _slot = ScriptEngineSlotRestore::install(Some(fallback));
-    let outer = ScriptEngine::new().expect("outer engine");
-    let inner = ScriptEngine::new().expect("inner engine");
+    let outer = ScriptEngine::new_in_published_world().expect("outer engine");
+    let inner = ScriptEngine::new_in_published_world().expect("inner engine");
 
     outer.with_active_for_test(|| {
         TheScriptEngine::signal_ui_interact("outer-before");

@@ -96,7 +96,7 @@ fn install_condition(world: &mut GameLogic, unit: &str, kind: ConditionType) {
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
         world.mission_scripts.clone(),
     ))));

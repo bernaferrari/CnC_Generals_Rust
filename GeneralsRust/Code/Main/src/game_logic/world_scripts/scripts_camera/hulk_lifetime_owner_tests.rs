@@ -17,7 +17,7 @@ fn apply(world: &mut GameLogic, engine: &gamelogic::scripting::engine::ScriptEng
 
 #[test]
 fn hulk_override_script_targets_one_owner_and_truncates_cpp_seconds() {
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let mut owner = GameLogic::new();
     let mut peer = GameLogic::new();
     assert_eq!(owner.native_hulk_max_lifetime_override, -1);
@@ -41,7 +41,7 @@ fn hulk_override_script_targets_one_owner_and_truncates_cpp_seconds() {
 
 #[test]
 fn invalid_hulk_script_values_do_not_mutate_receiving_override() {
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let mut owner = GameLogic::new();
     apply(&mut owner, &engine, 2.0);
     for seconds in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {

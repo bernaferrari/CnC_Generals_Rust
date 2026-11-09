@@ -496,7 +496,7 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     interpreter
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

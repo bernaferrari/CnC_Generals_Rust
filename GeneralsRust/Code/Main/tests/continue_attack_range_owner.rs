@@ -1003,7 +1003,7 @@ fn switched_boundary_worlds() -> (GameLogic, GameLogic, ObjectId, ObjectId, Obje
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();
@@ -1163,7 +1163,7 @@ fn oversized_boundary_rejection_leaves_the_receiving_session_unchanged() {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();
@@ -1209,7 +1209,7 @@ fn boundary_observer_uses_authored_player_name_not_display_label() {
         script.action = Some(Box::new(action));
         let mut scripts = ScriptList::new();
         scripts.append_script(Box::new(script));
-        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(scripts)))
             .unwrap();

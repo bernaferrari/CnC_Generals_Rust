@@ -143,7 +143,7 @@ fn script(name: &str, actions: Vec<Box<ScriptAction>>, one_shot: bool) -> Box<Sc
     Box::new(script)
 }
 fn engine(hooks: Arc<MissionScriptHooks>, list: ScriptList) -> ScriptEngine {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(hooks))));
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
@@ -635,7 +635,7 @@ fn standalone_motion_blur_jump_error_keeps_same_handler_move_fallback() {
                 )],
                 true,
             ));
-            let mut standalone = ScriptEngine::new().unwrap();
+            let mut standalone = ScriptEngine::new_in_published_world().unwrap();
             standalone.set_action_handler(Some(probe.clone()));
             standalone
                 .set_script_list_for_player(0, Some(Box::new(list)))
@@ -1090,7 +1090,7 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
                 )],
                 true,
             ));
-            let mut engine = ScriptEngine::new().unwrap();
+            let mut engine = ScriptEngine::new_in_published_world().unwrap();
             engine.set_action_handler(Some(foreign.clone()));
             engine
                 .set_script_list_for_player(0, Some(Box::new(list)))

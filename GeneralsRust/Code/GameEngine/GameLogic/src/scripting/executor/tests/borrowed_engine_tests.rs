@@ -32,7 +32,7 @@ fn default_action(name: &str, value: i32) -> ScriptAction {
     action
 }
 fn own_engine(value: i32) -> ScriptEngineHandle {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_priority_default("Shared", value);
     ScriptEngineHandle::from_engine(engine)
 }
@@ -50,7 +50,7 @@ fn priority(handle: &ScriptEngineHandle) -> i32 {
 #[test]
 fn injected_evaluator_priority_action_mutates_its_engine() {
     let _serial = crate::test_sync::lock();
-    let ambient = ScriptEngine::new().unwrap();
+    let ambient = ScriptEngine::new_in_published_world().unwrap();
     ambient.set_priority_default("Shared", 19);
     let _restore = GlobalRestore::install(Some(ambient));
     let own = own_engine(4);
@@ -88,7 +88,7 @@ fn injected_evaluator_with_no_global_engine_keeps_live_mutations() {
 #[test]
 fn two_injected_evaluators_keep_same_named_rows_independent() {
     let _serial = crate::test_sync::lock();
-    let _restore = GlobalRestore::install(Some(ScriptEngine::new().unwrap()));
+    let _restore = GlobalRestore::install(Some(ScriptEngine::new_in_published_world().unwrap()));
     let a = own_engine(4);
     let b = own_engine(19);
     let eval_a = ScriptEvaluator::new(a.clone());
@@ -108,7 +108,7 @@ fn two_injected_evaluators_keep_same_named_rows_independent() {
 #[test]
 fn injected_evaluator_preserves_default_and_empty_named_row_identity() {
     let _serial = crate::test_sync::lock();
-    let _restore = GlobalRestore::install(Some(ScriptEngine::new().unwrap()));
+    let _restore = GlobalRestore::install(Some(ScriptEngine::new_in_published_world().unwrap()));
     let own = own_engine(4);
     ScriptEvaluator::new(own.clone())
         .execute_action(&default_action("", 77))

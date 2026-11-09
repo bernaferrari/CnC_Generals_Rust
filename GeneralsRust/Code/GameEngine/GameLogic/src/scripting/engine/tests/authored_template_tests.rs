@@ -35,17 +35,17 @@ fn assert_rows(engine: &ScriptEngine, kind: &str) {
 
 #[test]
 fn all_authored_action_names_and_keys_match_cpp() {
-    assert_rows(&ScriptEngine::new().unwrap(), "action");
+    assert_rows(&ScriptEngine::new_in_published_world().unwrap(), "action");
 }
 
 #[test]
 fn all_authored_condition_names_and_keys_match_cpp() {
-    assert_rows(&ScriptEngine::new().unwrap(), "condition");
+    assert_rows(&ScriptEngine::new_in_published_world().unwrap(), "condition");
 }
 
 #[test]
 fn unsupported_slots_keep_empty_names_and_share_the_empty_name_key() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let empty_key = NameKeyGenerator::name_to_key("");
     let mut empty_slots = 0;
     for kind in ["condition", "action"] {
@@ -70,7 +70,7 @@ fn unsupported_slots_keep_empty_names_and_share_the_empty_name_key() {
 fn keys_are_interned_in_cpp_condition_then_action_ordinal_order() {
     // This test thread owns its registry. No engine/global registry is published.
     NameKeyGenerator::reset();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut assigned = HashMap::new();
     let mut next_key = 1;
     for kind in ["condition", "action"] {
@@ -97,7 +97,7 @@ fn keys_are_interned_in_cpp_condition_then_action_ordinal_order() {
 #[test]
 fn reset_and_runtime_restore_preserve_authored_definitions() {
     let _serial = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let before = engine.snapshot_xfer_tail();
     engine.set_counter("runtime-only", 42).unwrap();
     engine.reset();
@@ -105,7 +105,7 @@ fn reset_and_runtime_restore_preserve_authored_definitions() {
     assert_rows(&engine, "condition");
     assert_rows(&engine, "action");
     // C++ does not transfer the template catalog as mutable runtime state.
-    let restored = ScriptEngine::new().unwrap();
+    let restored = ScriptEngine::new_in_published_world().unwrap();
     restored.restore_xfer_tail(&before);
     assert_rows(&restored, "condition");
     assert_rows(&restored, "action");

@@ -468,7 +468,7 @@ fn admit_scripts(logic: &mut GameLogic) -> Value {
         list.append_script(Box::new(script));
     }
     let authored = serde_json::to_value(&list).unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     assert!(engine.action_handler().is_none());
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))

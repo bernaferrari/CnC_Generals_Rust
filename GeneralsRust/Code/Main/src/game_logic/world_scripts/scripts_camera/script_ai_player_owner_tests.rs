@@ -130,7 +130,7 @@ fn authored_player_ai_actions_ignore_foreign_same_id_controller_and_preserve_cor
                 .unwrap();
             let before = foreign_controller_snapshot(1);
             let second_before = second.ai_manager.ai_players[&1].capture_queue_persist();
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             let actions = action_chain("ScriptAiOwner");
             engine.friend_execute_action_with_driver(
                 &actions,
@@ -201,7 +201,7 @@ fn missing_main_ai_player_is_authoritative_even_when_core_player_exists() {
             let owned_before =
                 serde_json::to_vec(&world.ai_manager.ai_players[&1].capture_queue_persist())
                     .unwrap();
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             engine.friend_execute_action_with_driver(
                 &action_chain("OnlyCorePlayer"),
                 None,

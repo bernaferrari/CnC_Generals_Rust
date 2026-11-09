@@ -118,7 +118,7 @@ fn actual_retail_map_factory_uses_prepared_sparse_slots_and_receiving_controller
 }
 
 fn callback_engine() -> ScriptEngine {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut list = ScriptList::new();
     for (name, kind, amount) in [
         ("First", ScriptActionType::SetCounter, 1),

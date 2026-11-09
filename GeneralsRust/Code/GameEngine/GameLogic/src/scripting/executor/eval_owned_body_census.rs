@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn owned_body_census_missing_is_authoritative_and_unavailable_retains_adapter() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let state = RefCell::new(ScriptContext::at_frame(0));
         let evaluator = ScriptConditionEvaluator::new(&engine, &state);
         let owner = Owner {

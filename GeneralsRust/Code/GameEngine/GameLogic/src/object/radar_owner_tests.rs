@@ -409,7 +409,7 @@ fn installed_production_completion_owns_grant_clock_notification_and_continuatio
         ini.read_line()?;
         center.parse_upgrade_definition(ini)
     }).unwrap();
-    let mut scripts = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let mut scripts = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let mut edges = EdgeServices {
         in_logic: true,
         frame: 20,

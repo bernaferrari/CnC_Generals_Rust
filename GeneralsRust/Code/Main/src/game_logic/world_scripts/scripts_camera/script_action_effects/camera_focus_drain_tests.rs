@@ -110,7 +110,7 @@ fn install(world: &mut GameLogic, mut actions: Vec<Box<ScriptAction>>, nested: b
         list.append_script(Box::new(outer));
     }
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
         world.mission_scripts.clone(),
     ))));

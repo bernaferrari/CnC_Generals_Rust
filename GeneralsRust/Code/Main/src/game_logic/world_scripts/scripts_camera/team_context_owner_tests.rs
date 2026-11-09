@@ -59,7 +59,7 @@ fn sequence_engine() -> ScriptEngine {
     script.action = Some(Box::new(body));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("AfterGuard", 0).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
@@ -97,7 +97,7 @@ fn literal_context_selects_older_same_name_instance_and_missing_id_cannot_retarg
     let (mut world, first, second) = world();
     let older = admit(&world, "SiblingRoster", first, 1);
     let newer = admit(&world, "SiblingRoster", second, 2);
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.friend_execute_action_with_driver(
         &guard("SiblingRoster"),
         Some(older),
@@ -374,7 +374,7 @@ fn team_attitude_same_ids_in_two_worlds_select_only_exact_older_context() {
     for id in [older_member, newer_member] {
         first_world.host_object_mut(id).unwrap().team_instance_name = "ForeignRoster".into();
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     attitude(&engine, &mut first_world, Some(older), THIS_TEAM, -2);
     assert_eq!(
         first_world.host_object(older_member).unwrap().ai_attitude,
@@ -431,7 +431,7 @@ fn team_attitude_modifies_dead_immobile_ai_but_skips_non_ai_and_missing_context(
         .unwrap()
         .template_mut()
         .set_authored_ai_update_interface(Some(false));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     attitude(&engine, &mut world, Some(id), THIS_TEAM, 3);
     assert_eq!(world.host_object(first).unwrap().ai_attitude, 3);
     assert_eq!(world.host_object(second).unwrap().ai_attitude, 0);

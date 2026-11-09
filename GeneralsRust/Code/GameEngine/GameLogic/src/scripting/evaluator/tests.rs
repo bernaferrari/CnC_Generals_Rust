@@ -3,8 +3,8 @@ use super::*;
 
 #[test]
 fn unit_emptied_history_uses_the_evaluator_engine_under_foreign_active_scope() {
-    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
-    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
+    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
     let first = ScriptEvaluator::new(first_handle.clone());
     let second = ScriptEvaluator::new(second_handle.clone());
     let object = 41;
@@ -40,7 +40,7 @@ fn unit_emptied_history_uses_the_evaluator_engine_under_foreign_active_scope() {
 
 #[test]
 fn unit_emptied_evaluator_rejects_stale_owner_when_handle_is_replaced_under_lock() {
-    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
     let evaluator = ScriptEvaluator::new(handle.clone());
     let object = 17;
     assert!(!evaluator
@@ -49,7 +49,7 @@ fn unit_emptied_evaluator_rejects_stale_owner_when_handle_is_replaced_under_lock
 
     let mut guard = handle.write().unwrap();
     let original = guard.take().unwrap();
-    *guard = Some(ScriptEngine::new().unwrap());
+    *guard = Some(ScriptEngine::new_in_published_world().unwrap());
     original.with_active(|| {
         assert!(matches!(
             evaluator.observe_receiving_unit_emptied(object, 21, 2),
@@ -73,7 +73,7 @@ fn unit_emptied_evaluator_rejects_stale_owner_when_handle_is_replaced_under_lock
 
 #[test]
 fn unit_emptied_history_is_cleared_by_reset_and_xfer_restore() {
-    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
     let evaluator = ScriptEvaluator::new(handle.clone());
     let object = 29;
 
@@ -149,8 +149,8 @@ fn public_unit_emptied_condition_uses_receiving_engine_during_nested_evaluation(
         .register_named_object(OBJECT_NAME.to_string(), OBJECT_ID)
         .unwrap();
 
-    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
-    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new().unwrap());
+    let first_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
+    let second_handle = ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap());
     let first = ScriptEvaluator::new(first_handle.clone());
     let second = ScriptEvaluator::new(second_handle.clone());
     let frame = TheGameLogic::get_frame();
@@ -466,7 +466,7 @@ fn evaluator_uses_active_engine_before_its_private_handle() {
     )));
     crate::object::registry::OBJECT_REGISTRY.register_object(SENTINEL_ID, &sentinel);
 
-    let mut private_engine = ScriptEngine::new().expect("private script engine");
+    let mut private_engine = ScriptEngine::new_in_published_world().expect("private script engine");
     private_engine
         .set_counter(COUNTER_NAME, 11)
         .expect("private counter");
@@ -1258,7 +1258,7 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
     let mut list = ScriptList::new();
     list.append_group(Box::new(group));
 
-    let mut private_engine = ScriptEngine::new().expect("private script engine should initialize");
+    let mut private_engine = ScriptEngine::new_in_published_world().expect("private script engine should initialize");
     private_engine.set_action_handler(Some(Arc::new(ScriptToggleRecordingHandler {
         updates: Arc::clone(&updates),
     })));

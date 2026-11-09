@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn has_finished_speech_uses_audio_length_not_one_frame() {
-        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         assert!(!engine.is_speech_complete_at_frame("", false, 10));
         let mut tail = engine.snapshot_xfer_tail();
         // C++ 5-second audio length at30 logic FPS completes150 frames later.
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn has_finished_audio_uses_the_audio_length_not_one_frame() {
-        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         assert!(!engine.is_audio_complete_at_frame("", false, 10));
         let mut tail = engine.snapshot_xfer_tail();
         tail.testing_audio = vec![("Boom".into(), 160)];
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn has_finished_video_uses_explicit_completion_list() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks);
         assert!(!engine.is_video_complete("IntroMovie", false));

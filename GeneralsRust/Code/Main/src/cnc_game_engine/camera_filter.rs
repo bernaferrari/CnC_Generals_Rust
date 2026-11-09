@@ -167,7 +167,7 @@ mod tests {
                 script.action = next;
                 let mut list = ScriptList::new();
                 list.append_script(Box::new(script));
-                let interpreter = ScriptEngine::new().unwrap();
+                let interpreter = ScriptEngine::new_in_published_world().unwrap();
                 interpreter
                     .set_script_list_for_player(0, Some(Box::new(list)))
                     .unwrap();

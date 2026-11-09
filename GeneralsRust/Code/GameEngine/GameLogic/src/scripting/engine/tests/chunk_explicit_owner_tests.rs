@@ -68,7 +68,7 @@ fn decode(engine: &mut ScriptEngine, condition: bool) -> ScriptList {
     assert!(input.is_valid_file_type());
     input.register_parser("PlayerScriptsList", "", parse_player_scripts_list_chunk);
     let templates = engine.script_template_lookup();
-    let foreign = ScriptEngine::new().unwrap();
+    let foreign = ScriptEngine::new_in_published_world().unwrap();
     foreign.with_active(|| {
         let mut read = ScriptListReadInfo::with_templates(templates);
         assert!(input.parse(&mut read));
@@ -81,7 +81,7 @@ fn decode(engine: &mut ScriptEngine, condition: bool) -> ScriptList {
 fn explicit_condition_decoder_ignores_foreign_active_engine() {
     let _serial = crate::test_sync::lock();
     let _restore = RestoreGlobal(get_script_engine().write().unwrap().take());
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let list = decode(&mut engine, true);
     let condition = list
         .first_script
@@ -99,7 +99,7 @@ fn explicit_condition_decoder_ignores_foreign_active_engine() {
 fn explicit_action_decoder_ignores_foreign_active_engine() {
     let _serial = crate::test_sync::lock();
     let _restore = RestoreGlobal(get_script_engine().write().unwrap().take());
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let list = decode(&mut engine, false);
     let action = list.first_script.unwrap().action.unwrap();
     assert_eq!(action.action_type, ScriptActionType::Victory);

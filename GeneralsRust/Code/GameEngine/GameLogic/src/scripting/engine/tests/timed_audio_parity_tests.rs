@@ -38,9 +38,9 @@ fn first_canonical_queries_insert_at_the_front_without_reordering_existing_rows(
     if !in_child("first_canonical_queries_insert_at_the_front_without_reordering_existing_rows") {
         return;
     }
-    let mut first = ScriptEngine::new().unwrap();
+    let mut first = ScriptEngine::new_in_published_world().unwrap();
     first.new_map();
-    let foreign = ScriptEngine::new().unwrap();
+    let foreign = ScriptEngine::new_in_published_world().unwrap();
     let names = ["TimerParity_Missing_First", "TimerParity_Missing_Second"];
     for (slot, name) in names.iter().enumerate() {
         let frame = 10 + slot as u32;
@@ -58,7 +58,7 @@ fn first_canonical_queries_insert_at_the_front_without_reordering_existing_rows(
     let mut saved = Cursor::new(Vec::new());
     first.xfer(&mut XferSave::new(&mut saved, 1)).unwrap();
     let saved = saved.into_inner();
-    let mut restored = ScriptEngine::new().unwrap();
+    let mut restored = ScriptEngine::new_in_published_world().unwrap();
     restored
         .xfer(&mut XferLoad::new(Cursor::new(saved.clone()), 1))
         .unwrap();
@@ -169,7 +169,7 @@ fn canonical_audio_deadlines_wrap_like_cpp_unsigned_frames() {
         TheAudio::get().unwrap().get_audio_length_ms(&leftover),
         100.0
     );
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let now = u32::MAX - 1;
     // C++ adds 3 with unsigned wrap, then immediately compares now >= 1.
     assert!(engine.is_speech_complete_at_frame(name, false, now));
@@ -193,8 +193,8 @@ fn canonical_audio_deadlines_wrap_like_cpp_unsigned_frames() {
 #[test]
 fn canonical_timer_reset_and_new_map_clear_only_the_driving_engine() {
     let _guard = crate::test_sync::lock();
-    let mut first = ScriptEngine::new().unwrap();
-    let mut second = ScriptEngine::new().unwrap();
+    let mut first = ScriptEngine::new_in_published_world().unwrap();
+    let mut second = ScriptEngine::new_in_published_world().unwrap();
     first.with_inner_mut(|inner| {
         inner.testing_speech = vec![("SameName".into(), 20)];
         inner.testing_audio = vec![("SameName".into(), 30)];

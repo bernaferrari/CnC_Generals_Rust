@@ -57,7 +57,7 @@ fn execute(world: &mut GameLogic, name: &str) -> i32 {
     script.action = Some(Box::new(action(name)));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("TeamObserved", 0).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
@@ -137,7 +137,7 @@ fn team_guard_calling_team_precedes_condition_team() {
     let calling_id = team(&world, "CallingGuard", &[calling], true, false);
     let condition_id = team(&world, "ConditionGuard", &[condition], false, true);
     let post = world.host_object(calling).unwrap().get_position();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_external_eval_context(None, Some(condition_id));
     engine.set_counter("TeamObserved", 0).unwrap();
     engine.friend_execute_action_with_driver(

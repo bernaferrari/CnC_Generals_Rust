@@ -112,7 +112,7 @@ fn with_condition(condition: Condition) -> Script {
     script
 }
 fn engine() -> ScriptEngine {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut inner = engine.lock_inner_mut();
     inner.current_player = Some("outer".into());
     inner.calling_team = Some(777);
@@ -132,7 +132,7 @@ fn assert_restored(engine: &ScriptEngine) {
 fn borrowed_condition_queries_short_circuit_and_restore_the_driving_scope() {
     let engine = engine();
     let mut owner = Owner::new(&engine, 100);
-    let peer_engine = ScriptEngine::new().unwrap();
+    let peer_engine = ScriptEngine::new_in_published_world().unwrap();
     let mut peer = Owner::new(&peer_engine, 10);
     let mut first = credits("missing", 0);
     first.next_and_condition = Some(Box::new(credits("must-not-run-and", 0)));

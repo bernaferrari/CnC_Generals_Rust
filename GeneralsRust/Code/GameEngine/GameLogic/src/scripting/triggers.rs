@@ -580,7 +580,7 @@ mod tests {
     use super::*;
 
     fn create_test_engine() -> crate::scripting::engine::ScriptEngineHandle {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         crate::scripting::engine::ScriptEngineHandle::from_engine(engine)
     }
 

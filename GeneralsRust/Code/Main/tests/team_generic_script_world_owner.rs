@@ -100,7 +100,7 @@ fn authored_map_file(
         .get_side_info_mut(0)
         .expect("Owner side")
         .set_script_list(Some(Box::new(script_list)));
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
 
     let mut out = DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
@@ -205,7 +205,7 @@ fn map_with_later_prototype_creation(root: &std::path::Path) -> std::path::PathB
         .expect("Owner side")
         .set_script_list(Some(Box::new(script_list)));
 
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     let mut out = DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 1, 1681] {
@@ -297,7 +297,7 @@ fn map_with_transfer_options(root: &std::path::Path, siblings: bool) -> std::pat
         .expect("Owner side")
         .set_script_list(Some(Box::new(script_list)));
 
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     let mut out = DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 1, 1681] {
@@ -371,7 +371,7 @@ fn transfer_engine() -> ScriptEngine {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .expect("admit transfer script");
@@ -386,7 +386,7 @@ fn single_action_engine(name: &str, action: ScriptAction) -> ScriptEngine {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .expect("admit script");
@@ -426,7 +426,7 @@ fn team_build_money_engine(amount: i32) -> ScriptEngine {
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(callback));
     scripts.append_script(Box::new(trigger));
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .expect("admit TeamBuild and callback scripts");

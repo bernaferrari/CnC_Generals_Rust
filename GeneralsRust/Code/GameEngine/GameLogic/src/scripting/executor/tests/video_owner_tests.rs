@@ -23,9 +23,9 @@ fn completed(engine: &ScriptEngine, name: &str) -> bool {
 
 #[test]
 fn video_condition_consumes_only_its_receiving_list_even_with_handler_and_foreign_scope() {
-    let mut owner = ScriptEngine::new().unwrap();
+    let mut owner = ScriptEngine::new_in_published_world().unwrap();
     owner.set_action_handler(Some(Arc::new(NoMediaCallbacks)));
-    let peer = ScriptEngine::new().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
     peer.notify_of_completed_video("Briefing");
     assert!(!completed(&owner, "Briefing"));
     owner.notify_of_completed_video("Briefing");
@@ -49,11 +49,11 @@ fn video_condition_consumes_only_its_receiving_list_even_with_handler_and_foreig
 
 #[test]
 fn video_completion_tail_and_reset_preserve_each_receiving_future() {
-    let mut owner = ScriptEngine::new().unwrap();
+    let mut owner = ScriptEngine::new_in_published_world().unwrap();
     owner.notify_of_completed_video("Briefing");
     owner.notify_of_completed_video("Briefing");
     let tail = owner.snapshot_xfer_tail_with_named_objects(Vec::new());
-    let restored = ScriptEngine::new().unwrap();
+    let restored = ScriptEngine::new_in_published_world().unwrap();
     restored.restore_receiving_xfer_tail(&tail);
     assert!(completed(&owner, "Briefing"));
     owner.reset();

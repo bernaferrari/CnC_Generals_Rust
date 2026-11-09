@@ -80,10 +80,10 @@ mod tests {
     fn receiving_terrain_motion_observes_only_its_script_and_physics_owner() {
         let mut first = GameLogic::new();
         let mut second = GameLogic::new();
-        let first_engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let first_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         first_engine.set_breeze_info(0.25, 0.5, 0.75, 17, 0.125);
         first.install_owned_script_engine(first_engine);
-        let mut second_engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let mut second_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         second_engine.set_breeze_info(1.25, 2.5, 3.75, 29, 0.625);
         second_engine.set_time_frozen_debug(true);
         second.install_owned_script_engine(second_engine);

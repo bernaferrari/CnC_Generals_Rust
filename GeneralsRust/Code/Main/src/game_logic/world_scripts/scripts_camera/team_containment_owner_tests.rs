@@ -141,7 +141,7 @@ fn actual_transport_team_wait_observes_only_driving_roster_and_physical_containm
         owner.host_object(unit).unwrap().contained_by,
         Some(transport)
     );
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     for all in [true, false] {
         assert_eq!(
             HostScriptExecutionDriver::with_interpreter(&mut owner, &engine).team_contained(
@@ -197,7 +197,7 @@ fn authored_cave_index_driver_updates_exact_owner_network_and_rejects_occupied_s
     assert_eq!(cave, peer_cave);
     owner.host_object_mut(cave).unwrap().name = "CaveB".into();
     peer.host_object_mut(peer_cave).unwrap().name = "CaveB".into();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     assert_eq!(
         HostScriptExecutionDriver::with_interpreter(&mut owner, &engine)
             .set_named_cave_index("CaveB", 3),
@@ -233,7 +233,7 @@ fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_pee
     peer.host_object_mut(train).unwrap().name = "OwnedTrain".into();
     assert!(owner.add_receiving_named_script_object(train));
     assert!(peer.add_receiving_named_script_object(peer_train));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = ScriptContext::at_frame(0);
     let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
     action
@@ -286,7 +286,7 @@ impl GameLogic {
     /// Exercise the actual borrowed action ingress from native train fixtures.
     pub(crate) fn execute_train_held_script_for_test(&mut self, name: &str, held: bool) {
         self.with_own_services_mut(|this| {
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             let context = gamelogic::scripting::executor::ScriptContext::at_frame(this.frame);
             let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
             action

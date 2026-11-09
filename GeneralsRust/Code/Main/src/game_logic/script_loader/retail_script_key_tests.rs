@@ -44,7 +44,7 @@ mod retail_script_key_tests {
     #[ignore = "requires untracked retail map; set GENERALS_SCRIPT_KEY_RETAIL_MAP and run explicitly"]
     fn physical_map_script_key_trace() {
         let path = std::env::var("GENERALS_SCRIPT_KEY_RETAIL_MAP").expect("retail path required");
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let catalog = ScriptTemplateLookup::from_engine(&engine);
         let document = load_chunky_map(&path)
             .unwrap()

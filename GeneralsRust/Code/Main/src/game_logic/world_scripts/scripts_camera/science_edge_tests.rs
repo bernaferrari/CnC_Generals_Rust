@@ -163,7 +163,7 @@ fn one_acquisition_edge_triggers_only_one_of_two_one_shot_observers() {
                 flag_action(OBSERVER_B),
             ));
 
-            let mut engine = ScriptEngine::new().expect("script engine");
+            let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
             engine
                 .set_script_list_for_player(0, Some(Box::new(scripts)))
                 .expect("script list");
@@ -219,7 +219,7 @@ fn persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired() {
                 acquired_condition(),
                 flag_action(OBSERVER_A),
             ));
-            let mut engine = ScriptEngine::new().expect("script engine");
+            let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
             engine
                 .set_script_list_for_player(0, Some(Box::new(scripts)))
                 .expect("script list");
@@ -272,7 +272,7 @@ fn owned_science_before_fresh_engine_has_no_acquisition_event() {
                 acquired_condition(),
                 flag_action(OBSERVER_A),
             ));
-            let mut fresh = ScriptEngine::new().expect("fresh script engine");
+            let mut fresh = ScriptEngine::new_in_published_world().expect("fresh script engine");
             assert!(
                 !fresh.is_science_acquired(
                     0,

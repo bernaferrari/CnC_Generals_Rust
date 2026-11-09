@@ -69,7 +69,7 @@ fn built_by_player_requires_owned_literal_definition_before_type_list_expansion(
     let (mut owner, unit, _) = world();
     let (mut peer, _, _) = world();
     owner.host_object_mut(unit).unwrap().status.effectively_dead = true;
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut list = gamelogic::object::object_types::ObjectTypes::new();
     list.add_object_type(gamelogic::common::AsciiString::from("OwnedNamedInfantry"));
     engine.set_object_types("OwnerInfantryList".into(), list);
@@ -331,7 +331,7 @@ fn crossed_display_labels_cannot_redirect_script_condition_or_action_owner() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 4))
         .unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.friend_execute_action_with_driver(
         &action,
         None,

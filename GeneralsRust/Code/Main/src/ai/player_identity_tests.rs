@@ -159,7 +159,7 @@ fn supply_source_queries_use_canonical_map_player_identity() {
 
             gamelogic::scripting::clear_host_script_query_snapshot();
             assert!(gamelogic::object::registry::OBJECT_REGISTRY.is_empty());
-            let engine = gamelogic::scripting::engine::ScriptEngine::new().expect("ScriptEngine");
+            let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("ScriptEngine");
             let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
             let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
 

@@ -56,7 +56,7 @@ impl Local {
             .insert("GenericConditions".into(), prototype.clone());
         factory.admit_team_instance(81, team.clone());
         let visits = Arc::new(Visits::default());
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();

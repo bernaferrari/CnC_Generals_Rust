@@ -77,7 +77,7 @@ fn admitted(script: Script) -> ScriptEngineHandle {
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
     list.append_script(Box::new(suffix));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
@@ -259,7 +259,7 @@ fn taking_a_generic_runtime_marks_it_in_flight_for_reentrant_evaluation() {
     script.comment = "original-runtime".into();
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

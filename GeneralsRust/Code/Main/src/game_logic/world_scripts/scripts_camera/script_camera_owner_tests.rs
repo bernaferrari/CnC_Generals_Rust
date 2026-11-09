@@ -28,7 +28,7 @@ fn authored(zoom: f32, hooks: Arc<MissionScriptHooks>) -> ScriptEngine {
     script.action = Some(rotate);
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(hooks))));
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
@@ -138,7 +138,7 @@ fn actual_main_camera_move_keeps_engine_axes_and_zero_duration_without_a_handler
                 script.action = Some(Box::new(action));
                 let mut list = ScriptList::new();
                 list.append_script(Box::new(script));
-                let mut engine = ScriptEngine::new().unwrap();
+                let mut engine = ScriptEngine::new_in_published_world().unwrap();
                 assert!(engine.action_handler().is_none());
                 engine
                     .set_script_list_for_player(0, Some(Box::new(list)))

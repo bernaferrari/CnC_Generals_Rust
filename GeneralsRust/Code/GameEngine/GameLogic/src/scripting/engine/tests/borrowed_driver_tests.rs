@@ -27,7 +27,7 @@ fn nested_subroutine_reuses_borrowed_driver_before_next_outer_instruction() {
     // CPP ScriptEngine.cpp:7609–7652: callSubroutine is an immediate
     // ScriptEngine action in the outer linked action walk.
     let _guard = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let mut outer = set_flag_action("driver_before");
     let mut call = call_subroutine_action("DriverNested");
     call.next_action = Some(set_flag_action("driver_after"));
@@ -67,7 +67,7 @@ fn nested_subroutine_reuses_borrowed_driver_before_next_outer_instruction() {
 #[test]
 fn false_action_chain_notifies_driver_between_every_instruction() {
     let _guard = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let mut root = Script::new();
     root.script_name = "DriverFalseBranch".to_string();
     // No conditions is false in the original executor.
@@ -220,7 +220,7 @@ fn trigger_engine(kind: ConditionType) -> ScriptEngine {
     script.action = Some(set_flag_action("owner_predicate_fired"));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

@@ -148,7 +148,7 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
             sequence.script_to_execute_sequentially = Some(Box::new(script));
 
             // Same actual engine + handler pair installed by initialize_scripts_with_map_data.
-            let mut engine = ScriptEngine::new().unwrap();
+            let mut engine = ScriptEngine::new_in_published_world().unwrap();
             engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
                 world.mission_scripts.clone(),
             ))));

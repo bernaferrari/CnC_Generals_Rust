@@ -49,7 +49,7 @@ fn execute_chain(world: &mut GameLogic, mut actions: Vec<Box<ScriptAction>>, nes
         list.append_script(Box::new(outer));
     }
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     // The driving world supplies camera effects; no retained handler is needed.
     assert!(engine.action_handler().is_none());
     engine

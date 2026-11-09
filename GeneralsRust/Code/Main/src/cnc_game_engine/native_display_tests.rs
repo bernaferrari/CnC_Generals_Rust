@@ -84,7 +84,7 @@ fn failed_expected_shell_has_no_implicit_fallback_or_second_admission() {
 fn receiving_debug_freeze_precedes_actual_fast_display_admission() {
     let mut owner = GameLogic::new();
     let peer = GameLogic::new();
-    let mut debug = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let mut debug = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     debug.set_time_frozen_debug(true);
     owner.install_owned_script_engine(debug);
     for world in [&mut owner] {

@@ -62,7 +62,7 @@ fn waypoint_map(root: &std::path::Path, endpoint_x: f32) -> std::path::PathBuf {
         .get_side_info_mut(0)
         .expect("Owner side")
         .set_script_list(Some(Box::new(scripts)));
-    let script_engine = ScriptEngine::new().expect("script templates");
+    let script_engine = ScriptEngine::new_in_published_world().expect("script templates");
 
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);

@@ -52,7 +52,7 @@ impl CompletionFixture {
             &mut *crate::scripting::engine::get_script_engine()
                 .write()
                 .unwrap(),
-            Some(crate::scripting::engine::ScriptEngine::new().unwrap()),
+            Some(crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap()),
         );
         let previous_ai = crate::ai::integration::replace_ai_integration_for_world_boundary(Some(
             crate::ai::integration::AiIntegrationManager::new(),

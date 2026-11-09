@@ -34,7 +34,7 @@ fn private_runtime_recording_into(
     handler: Arc<RecordingScriptHandler>,
     lists: &[ScriptList],
 ) -> MissionScriptRuntime {
-    let mut private_engine = ScriptEngine::new().expect("private script engine should initialize");
+    let mut private_engine = ScriptEngine::new_in_published_world().expect("private script engine should initialize");
     private_engine.set_action_handler(Some(handler));
     for (side_index, list) in lists.iter().enumerate() {
         private_engine
@@ -300,7 +300,7 @@ fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() 
     self_disabling_group.append_script(Box::new(sibling));
     list.append_group(Box::new(self_disabling_group));
 
-    let mut private_engine = ScriptEngine::new().expect("private script engine should initialize");
+    let mut private_engine = ScriptEngine::new_in_published_world().expect("private script engine should initialize");
     private_engine.set_action_handler(Some(handler.clone()));
     private_engine
         .set_script_list_for_player(0, Some(Box::new(list.clone())))
@@ -363,7 +363,7 @@ fn script_and_group_toggles_keep_cxx_authored_name_case() {
     list.append_script(Box::new(root_script));
     list.append_group(Box::new(group));
 
-    let private_engine = ScriptEngine::new().expect("private script engine");
+    let private_engine = ScriptEngine::new_in_published_world().expect("private script engine");
     let mut runtime = MissionScriptRuntime::new(
         ScriptEvaluator::new(ScriptEngineHandle::from_engine(private_engine)),
         Arc::new(Mutex::new(Vec::new())),
@@ -394,7 +394,7 @@ fn explicit_runtime_constructor_and_reset_do_not_publish_or_mutate_another_owner
     let make_runtime = || {
         MissionScriptRuntime::new(
             ScriptEvaluator::new(ScriptEngineHandle::from_engine(
-                ScriptEngine::new().unwrap(),
+                ScriptEngine::new_in_published_world().unwrap(),
             )),
             Arc::new(Mutex::new(Vec::new())),
         )

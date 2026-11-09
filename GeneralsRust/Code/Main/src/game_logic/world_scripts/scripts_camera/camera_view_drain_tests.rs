@@ -194,7 +194,7 @@ fn camera_view_drain_nested_authored_blur_then_bw_applies_before_next_action() {
             let mut list = ScriptList::new();
             list.append_script(Box::new(outer));
             list.append_script(Box::new(inner));
-            let mut engine = ScriptEngine::new().unwrap();
+            let mut engine = ScriptEngine::new_in_published_world().unwrap();
             engine
                 .set_script_list_for_player(0, Some(Box::new(list)))
                 .unwrap();

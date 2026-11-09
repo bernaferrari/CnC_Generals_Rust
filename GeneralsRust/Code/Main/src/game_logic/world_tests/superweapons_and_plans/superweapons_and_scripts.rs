@@ -24,7 +24,7 @@ fn execute_owned_fixture_action(
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
@@ -2988,7 +2988,7 @@ fn script_move_towards_nearest_writes_live() {
 
 #[test]
 fn script_wait_for_not_contained_uses_live_contained_by_census() {
-    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     use gamelogic::scripting::executor::{

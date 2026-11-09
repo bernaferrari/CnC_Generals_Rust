@@ -1,7 +1,7 @@
 use super::*;
 #[test]
 fn sequence_capsule_without_team_calibrates() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let records = vec![SequentialScriptSnapshot {
         script_name: "Sequence".into(),
         ..Default::default()
@@ -11,7 +11,7 @@ fn sequence_capsule_without_team_calibrates() {
 }
 #[test]
 fn sequence_capsule_keeps_exact_reference_before_owner_binding() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let records = vec![SequentialScriptSnapshot {
         team_id: 90,
         script_name: "Sequence".into(),

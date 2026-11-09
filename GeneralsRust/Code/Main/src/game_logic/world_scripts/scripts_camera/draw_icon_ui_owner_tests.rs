@@ -17,7 +17,7 @@ fn draw_icon_script_is_instance_owned_and_reset_does_not_touch_peer() {
         || {
             let mut a = GameLogic::new();
             let mut b = GameLogic::new();
-            let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+            let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
             assert!(a.get_draw_icon_ui() && b.get_draw_icon_ui());
             gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
             a.execute_checked_factory_actions_for_test(&engine, &action(0))

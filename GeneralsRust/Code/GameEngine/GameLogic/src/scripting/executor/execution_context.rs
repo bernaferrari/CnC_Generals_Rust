@@ -83,8 +83,8 @@ mod tests {
 
     #[test]
     fn borrowed_dispatch_uses_its_engine_inside_a_foreign_lexical_scope() {
-        let own = ScriptEngine::new().unwrap();
-        let foreign = ScriptEngine::new().unwrap();
+        let own = ScriptEngine::new_in_published_world().unwrap();
+        let foreign = ScriptEngine::new_in_published_world().unwrap();
         own.set_priority_default("Shared", 4);
         foreign.set_priority_default("Shared", 19);
         let state = RefCell::new(ScriptContext::at_frame(0));
@@ -110,8 +110,8 @@ mod tests {
 
     #[test]
     fn borrowed_condition_uses_its_engine_inside_a_foreign_lexical_scope() {
-        let own = ScriptEngine::new().unwrap();
-        let foreign = ScriptEngine::new().unwrap();
+        let own = ScriptEngine::new_in_published_world().unwrap();
+        let foreign = ScriptEngine::new_in_published_world().unwrap();
         own.set_flag("Shared", true);
         foreign.set_flag("Shared", false);
         let state = RefCell::new(ScriptContext::at_frame(0));
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn borrowed_operation_context_shares_state_and_construction_is_inert() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let state = RefCell::new(ScriptContext::at_frame(47));
         state.borrow_mut().suppress_new_windows = true;
         assert!(!crate::scripting::engine::is_script_engine_active());

@@ -106,7 +106,7 @@ fn unknown_or_display_only_team_owner_uses_cpp_neutral_fallback() {
     let mut neutral = Player::new(9, Team::Neutral, "Neutral Display", false);
     neutral.map_side.role = PlayerSideRole::Neutral;
     world.add_player(neutral);
-    world.install_owned_script_engine(gamelogic::scripting::engine::ScriptEngine::new().unwrap());
+    world.install_owned_script_engine(gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap());
     for owner in ["MissingOwner", "Visible Label", ""] {
         let mut definition = Dict::new();
         definition.set_ascii_string(key_team_name(), "ReceivingTeam");

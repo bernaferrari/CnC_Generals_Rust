@@ -185,7 +185,7 @@ fn camera_create_engine() -> gamelogic::scripting::engine::ScriptEngine {
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
@@ -336,7 +336,7 @@ fn native_nested_authored_create_keeps_current_interpreter_and_exact_team_identi
     let mut list = ScriptList::new();
     list.append_script(Box::new(outer_script));
     list.append_script(Box::new(inner_script));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
@@ -462,7 +462,7 @@ fn death_runs_the_resident_team_script_on_the_receiving_world_once() {
         script.action = Some(Box::new(action));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
@@ -616,7 +616,7 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
     let mut list = ScriptList::new();
     list.append_script(Box::new(main));
     list.append_script(Box::new(callback));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

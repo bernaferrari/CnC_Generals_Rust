@@ -29,11 +29,17 @@ impl XferSnapshotTrait for GameLogicSnapshotBridge {
 
 struct ScriptEngineSnapshotBridge {
     script_engine: crate::scripting::engine::ScriptEngineHandle,
+    /// The registering world; an empty slot is rebuilt on it, never on
+    /// whichever world is published when the save runs.
+    world: std::sync::Weak<crate::system::engine_stores::WorldServices>,
 }
 
 impl ScriptEngineSnapshotBridge {
-    fn new(script_engine: crate::scripting::engine::ScriptEngineHandle) -> Self {
-        Self { script_engine }
+    fn new(world: &std::sync::Arc<crate::system::engine_stores::WorldServices>) -> Self {
+        Self {
+            script_engine: world.scripts().engine().clone(),
+            world: std::sync::Arc::downgrade(world),
+        }
     }
 
     fn with_engine_mut<R, F>(&self, mut callback: F) -> Result<R, XferStatus>
@@ -45,7 +51,8 @@ impl ScriptEngineSnapshotBridge {
             .write()
             .map_err(|_| XferStatus::InvalidData)?;
         if guard.is_none() {
-            *guard = Some(ScriptEngine::new().map_err(|_| XferStatus::InvalidData)?);
+            let world = self.world.upgrade().ok_or(XferStatus::InvalidData)?;
+            *guard = Some(ScriptEngine::new_with_services(&world).map_err(|_| XferStatus::InvalidData)?);
         }
         let engine = guard.as_mut().ok_or(XferStatus::InvalidData)?;
         callback(engine)
@@ -280,18 +287,12 @@ fn register_game_logic_snapshot_block() {
     // SAVE_GAME_COUNTER_HOOKS OnceLock while install_save_game_counter runs.
     // The registering world owns both the logic and the script engine the
     // bridges serialize (C++ xferSnapshot(TheScriptEngine) of that world).
-    let (logic, script_engine) = if let Some(core) =
+    let (logic, world) = if let Some(core) =
         crate::system::engine_stores::published_core_for_game_logic()
     {
-        (
-            core.game_logic_mutex(),
-            core.services().scripts().engine().clone(),
-        )
+        (core.game_logic_mutex(), std::sync::Arc::clone(core.services()))
     } else if let Some(services) = crate::system::engine_stores::try_active_services() {
-        (
-            services.game_logic_mutex(),
-            services.scripts().engine().clone(),
-        )
+        (services.game_logic_mutex(), services)
     } else {
         panic!("snapshot block registration requires published Core or WorldServices");
     };
@@ -333,12 +334,12 @@ fn register_game_logic_snapshot_block() {
     );
     state.add_snapshot_block(
         "CHUNK_ScriptEngine".to_string(),
-        Box::new(ScriptEngineSnapshotBridge::new(script_engine.clone())),
+        Box::new(ScriptEngineSnapshotBridge::new(&world)),
         game_engine::System::SnapshotType::SaveLoad,
     );
     state.add_snapshot_block(
         "CHUNK_ScriptEngine".to_string(),
-        Box::new(ScriptEngineSnapshotBridge::new(script_engine)),
+        Box::new(ScriptEngineSnapshotBridge::new(&world)),
         game_engine::System::SnapshotType::DeepCrcLogicOnly,
     );
     state.add_snapshot_block(

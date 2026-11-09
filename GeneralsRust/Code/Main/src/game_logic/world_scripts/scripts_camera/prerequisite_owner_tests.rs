@@ -73,7 +73,7 @@ fn engine_with_scripts(scripts: Vec<Script>) -> ScriptEngine {
     for script in scripts {
         list.append_script(Box::new(script));
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("CanBuild", 0).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))

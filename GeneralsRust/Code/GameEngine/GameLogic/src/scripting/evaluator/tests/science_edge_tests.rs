@@ -100,7 +100,7 @@ fn fixture(pending_events: usize) -> (ScriptEvaluator, ScriptEngineHandle, i32) 
             game_engine::common::rts::science::get_science_store().expect("authored ScienceStore");
         store.get_science_from_internal_name(SCIENCE)
     };
-    let owner = ScriptEngine::new().expect("script engine");
+    let owner = ScriptEngine::new_in_published_world().expect("script engine");
     for _ in 0..pending_events {
         owner.notify_of_acquired_science(0, science);
     }

@@ -2842,7 +2842,7 @@ fn live_named_and_skirmish_conditions_use_receiving_driver() {
             logic.host_object_mut(id).unwrap().completed_waypoint_labels =
                 vec!["HeroPath".into(), String::new(), "OtherPath".into()];
         }
-        logic.install_owned_script_engine(ScriptEngine::new().unwrap());
+        logic.install_owned_script_engine(ScriptEngine::new_in_published_world().unwrap());
         logic.initialize_receiving_named_cache_for_fixture();
         (logic, id)
     }
@@ -3176,7 +3176,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         script.action = Some(Box::new(action));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
@@ -3406,7 +3406,7 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
         script.action = Some(Box::new(action));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
@@ -3528,7 +3528,7 @@ fn live_team_garrison_nearest_preserves_roster_order_for_membership() {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();

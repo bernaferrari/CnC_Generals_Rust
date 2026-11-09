@@ -358,7 +358,7 @@ fn named_garrison(world: &mut GameLogic, unit_name: &str) {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();
@@ -398,7 +398,7 @@ fn observe_building_entered(world: &mut GameLogic, player: &str) -> bool {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("ObservedEntry", 0).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))

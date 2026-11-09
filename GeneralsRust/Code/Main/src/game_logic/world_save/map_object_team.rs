@@ -336,7 +336,7 @@ mod tests {
         script.action = Some(Box::new(increment));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         engine.set_counter("MapTeamCreateCount", 0).unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
@@ -494,7 +494,7 @@ mod tests {
                 action.add_parameter(parameter).unwrap();
             }
             world.install_owned_script_engine(
-                gamelogic::scripting::engine::ScriptEngine::new().unwrap(),
+                gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap(),
             );
             world
                 .with_owned_script_engine(|engine, world| {

@@ -48,7 +48,7 @@ impl ScriptExecutionDriver for Owner {
 }
 #[test]
 fn checked_friend_action_returns_constructor_failure_before_next_action_and_restores_context() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_external_eval_context(Some("before".into()), Some(77));
     let mut first = create("First");
     first.next_action = Some(Box::new(create("After")));

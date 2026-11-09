@@ -1207,7 +1207,7 @@ mod tests {
         assert_eq!(first.windows[0].name, "FirstWindow");
 
         // The script facade must use the same fresh-file contract too.
-        let engine = crate::gui::game_window_manager_script::WindowScriptEngine::new();
+        let engine = crate::gui::game_window_manager_script::WindowScriptEngine::new_in_published_world();
         let via_engine = engine.load_window_layout(&path).unwrap();
         assert_eq!(via_engine.version, 3);
         assert_eq!(via_engine.windows[0].name, "SecondWindow");

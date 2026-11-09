@@ -61,7 +61,7 @@ fn map_file(
         .get_side_info_mut(0)
         .expect("owner side")
         .set_script_list(Some(Box::new(scripts)));
-    let script_engine = ScriptEngine::new().expect("script templates");
+    let script_engine = ScriptEngine::new_in_published_world().expect("script templates");
 
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);

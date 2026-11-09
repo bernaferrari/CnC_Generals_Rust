@@ -12,7 +12,7 @@ fn append_depth_chain(list: &mut ScriptList, prefix: &str, count: u32, flag: &st
 }
 
 fn engine_with_list(list: ScriptList) -> ScriptEngine {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

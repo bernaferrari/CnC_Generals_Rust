@@ -47,7 +47,7 @@ impl ScriptExecutionDriver for Owner {
 
 #[test]
 fn callback_scopes_exact_identity_and_controller_without_a_registry() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let saved = engine.set_external_eval_context(Some("outer-player".into()), Some(10));
     let mut owner = Owner::default();
     engine.friend_execute_action_with_driver(
@@ -68,7 +68,7 @@ fn callback_scopes_exact_identity_and_controller_without_a_registry() {
 
 #[test]
 fn callback_unwind_restores_outer_context() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_external_eval_context(Some("outer-player".into()), Some(10));
     let mut owner = Owner {
         panic: true,
@@ -102,7 +102,7 @@ fn sequence(team: TeamID, name: &str) -> SequentialScript {
 
 #[test]
 fn snapshots_retain_ids_without_name_lookup_or_an_installed_world() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.append_sequential_script(sequence(90, "Older"));
     engine.append_sequential_script(sequence(10, "Head"));
     let snapshot = engine.snapshot_sequential_scripts();
@@ -110,14 +110,14 @@ fn snapshots_retain_ids_without_name_lookup_or_an_installed_world() {
         snapshot.iter().map(|s| s.team_id).collect::<Vec<_>>(),
         vec![90, 10]
     );
-    let other = ScriptEngine::new().unwrap();
+    let other = ScriptEngine::new_in_published_world().unwrap();
     other.restore_sequential_scripts(&snapshot);
     assert_eq!(other.snapshot_sequential_scripts(), snapshot);
 }
 
 #[test]
 fn same_prototype_sequences_are_grouped_by_instance_and_destroy_only_exact_id() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.append_sequential_script(sequence(90, "first"));
     engine.append_sequential_script(sequence(10, "sibling"));
     engine.append_sequential_script(sequence(90, "continuation"));
@@ -138,7 +138,7 @@ fn same_prototype_sequences_are_grouped_by_instance_and_destroy_only_exact_id() 
 
 #[test]
 fn sequential_timer_changes_only_the_selected_instance() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.append_sequential_script(sequence(90, "first"));
     engine.append_sequential_script(sequence(10, "sibling"));
     engine.set_sequential_timer_for_team(90, 13);
@@ -151,7 +151,7 @@ fn sequential_timer_changes_only_the_selected_instance() {
 
 #[test]
 fn condition_loop_uses_owned_visit_order_even_after_oneshot_success() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let mut script = Script::new();
     script.script_name = "each-copy".into();
     script.condition_team_name = "Copies".into();
@@ -217,7 +217,7 @@ fn nested_callback_restores_outer_identity_and_controller_before_continuing() {
             Some(Ok(()))
         }
     }
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_external_eval_context(Some("outer".into()), Some(777));
     let mut owner = Nested {
         engine: &engine,

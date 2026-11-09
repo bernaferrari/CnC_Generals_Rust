@@ -35,7 +35,7 @@ fn executor_named_attack_named_selects_borrowed_driver() {
         }
     }
 
-    let engine = ScriptEngine::new().expect("script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("script engine");
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = NamedOwner {
@@ -73,7 +73,7 @@ fn executor_named_attack_named_selects_borrowed_driver() {
 fn executor_team_attack_team_dispatches_attack_team() {
     // This checks explicit dispatcher admission; real C++ effect and peer-world
     // isolation assertions live in Main::owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamAttackTeam);
@@ -201,7 +201,7 @@ fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
     }
     let mut owner = make_owner();
     let foreign = make_owner();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
     let mut action = ScriptAction::new(ScriptActionType::NamedAttackArea);
@@ -331,7 +331,7 @@ fn executor_named_attack_team_validates_team_and_sets_max_shots() {
             ai: OwnedAi::default(),
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = make_owner();
@@ -432,7 +432,7 @@ fn executor_team_attack_named_ignores_stale_target_tracker_id() {
         None,
     );
     owner.factory.create_team("ExecutorSourceTeam").unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamAttackNamed);
@@ -488,7 +488,7 @@ fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
     // The driver owns NORMAL -> Hunt and preservation of group membership;
     // Main's real object tests verify those effects. Core verifies that public
     // dispatch selects that owner, including its missing-object no-op.
-    let engine = ScriptEngine::new().expect("script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("script engine");
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = NamedHuntOwner {
@@ -522,7 +522,7 @@ fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
 
 #[test]
 fn named_hunt_requires_unit_parameter_before_owner_dispatch() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = NamedHuntOwner {
@@ -556,7 +556,7 @@ fn default_named_hunt_driver_leaves_standalone_adapter_available() {
 
 #[test]
 fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = BorrowedIdleOwner::new();
@@ -715,7 +715,7 @@ fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
     // Main's real object tests own leaveGroup -> NORMAL -> position guard,
     // NORMAL mode and SCRIPT source. Core verifies actual dispatcher selection
     // of that owner, including its authoritative missing-object no-op.
-    let engine = ScriptEngine::new().expect("script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("script engine");
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = NamedGuardOwner {
@@ -749,7 +749,7 @@ fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
 
 #[test]
 fn named_guard_requires_unit_parameter_before_owner_dispatch() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = NamedGuardOwner {
@@ -783,7 +783,7 @@ fn default_named_guard_driver_leaves_standalone_adapter_available() {
 
 #[test]
 fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     for kind in [
@@ -823,7 +823,7 @@ fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
 fn executor_team_guard_object_ignores_stale_target_tracker_id() {
     // The dispatcher selects a borrowed owner even for authoritative absence.
     // Main accepts the actual guard/health effects in owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamGuardObject);
@@ -905,7 +905,7 @@ fn executor_team_stop_and_disband_missing_local_team_cannot_select_same_id_peer(
     let source = peer.factory.create_team("ExecutorDisbandSource").unwrap();
     source.write().unwrap().add_member(peer.object.get_id());
     assert_eq!(local.object.get_id(), peer.object.get_id());
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamStopAndDisband);
@@ -945,7 +945,7 @@ fn executor_team_execute_sequential_script_requires_script_before_idle() {
             panic!("CPP missing-script lookup returns before any Idle owner callback")
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
@@ -998,8 +998,8 @@ fn executor_team_stop_sequential_script_requires_live_team() {
             Some(Ok(()))
         }
     }
-    let engine = ScriptEngine::new().expect("script engine");
-    let foreign_engine = ScriptEngine::new().expect("foreign script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("script engine");
+    let foreign_engine = ScriptEngine::new_in_published_world().expect("foreign script engine");
     for owner in [&engine, &foreign_engine] {
         let mut sequential = SequentialScript::new();
         sequential.team_to_exec_on = Some(1);
@@ -1040,7 +1040,7 @@ fn executor_team_stop_sequential_script_requires_live_team() {
 
 #[test]
 fn condition_player_destroyed_n_buildings_player_matches_cxx_todo_false() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let mut condition = Condition::new(ConditionType::PlayerDestroyedNBuildingsPlayer);
     condition
@@ -1071,7 +1071,7 @@ fn condition_player_destroyed_n_buildings_player_matches_cxx_todo_false() {
 
 #[test]
 fn condition_mission_attempts_ignores_parameters_like_cxx_stub() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let mut condition = Condition::new(ConditionType::MissionAttempts);
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
@@ -1120,7 +1120,7 @@ impl ScriptExecutionDriver for PlayerCensusOwner {
 
 #[test]
 fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // C++ ScriptEngine.cpp:4414-4416 template [INT, COMPARISON, SIDE]
     // ScriptConditions.cpp:952-966 compares credits param to countMoney().
@@ -1189,7 +1189,7 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
 
 #[test]
 fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
-    let dispatch_engine = ScriptEngine::new().unwrap();
+    let dispatch_engine = ScriptEngine::new_in_published_world().unwrap();
     // The contradictory peer is never published, so only the driving census
     // can answer these conditions even when player identities coincide.
     let peer = crate::player::Player::new(0);
@@ -1491,7 +1491,7 @@ impl ScriptExecutionDriver for NamedLifetimeOwner {
 
 #[test]
 fn named_destroyed_false_if_name_never_existed_like_cxx() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:274-286)
     let mut owner = NamedLifetimeOwner {
@@ -1523,7 +1523,7 @@ fn named_destroyed_false_if_name_never_existed_like_cxx() {
 
 #[test]
 fn named_destroyed_and_dying_use_effectively_dead_while_object_exists_like_cxx() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // C++ ScriptConditions.cpp:274-318 — existing unit uses isEffectivelyDead();
     // NAMED_DYING is false once the object is gone.
@@ -1612,8 +1612,8 @@ impl crate::scripting::engine::ScriptExecutionDriver for VictoryOwner<'_> {
 }
 
 fn run_owned_victory_action(kind: ScriptActionType, observer: bool, already_defeated: bool) {
-    let engine = ScriptEngine::new().unwrap();
-    let peer = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("VictoryReentry", 3).unwrap();
     peer.set_counter("VictoryReentry", 9).unwrap();
     engine.set_campaign_victorious(true);
@@ -1710,8 +1710,8 @@ fn do_local_defeat_creates_local_defeat_window_layout() {
 
 #[test]
 fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
-    let engine = ScriptEngine::new().unwrap();
-    let peer = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
     peer.set_counter("WorldHandlerImmediateReentry", 9).unwrap();
     let mut owner = BorrowedWorldOwner {
         engine: &engine,
@@ -1840,8 +1840,8 @@ fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
 
 #[test]
 fn active_player_display_actions_clone_handler_before_reentry() {
-    let engine = ScriptEngine::new().unwrap();
-    let peer = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
     peer.set_counter("WorldHandlerImmediateReentry", 9).unwrap();
     let mut owner = BorrowedWorldOwner {
         engine: &engine,
@@ -1940,8 +1940,8 @@ fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
             Some(self.engine.increment_counter("ImmediateCameraReentry", 1))
         }
     }
-    let engine = ScriptEngine::new().unwrap();
-    let peer = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("ImmediateCameraReentry", 0).unwrap();
     peer.set_counter("ImmediateCameraReentry", 9).unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
@@ -1990,7 +1990,7 @@ fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
 fn active_attack_priority_and_object_list_actions_mutate_the_live_engine() {
     // The real dispatcher mutates this engine's priority/list/flag stores.
     // No process-wide ScriptEngine admission or test serialization is needed.
-    let engine = ScriptEngine::new().expect("script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("script engine");
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
@@ -2123,7 +2123,7 @@ fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
         }
     }
 
-    let engine = ScriptEngine::new().expect("owned script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("owned script engine");
     let list_name = "ActiveSkirmishEmptyPrerequisiteList";
     engine.set_object_types(
         list_name.into(),
@@ -2223,8 +2223,8 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
     }
     const OBJECT_ID: ObjectID = 86220;
     const OBJECT_NAME: &str = "OwnedNamedActionObject";
-    let engine = ScriptEngine::new().unwrap();
-    let peer = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
     let mut named_object = crate::object::Object::new_raw(
         Arc::new(crate::common::DefaultThingTemplate::new(
             "OwnedNamedAction".into(),
@@ -2396,8 +2396,8 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
             Some(Ok(()))
         }
     }
-    let engine = ScriptEngine::new().unwrap();
-    let peer = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
     let mut sequential = SequentialScript::new();
     sequential.team_to_exec_on = Some(1);
     peer.append_sequential_script(sequential);
@@ -2479,7 +2479,7 @@ fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_lik
         }
     }
 
-    let engine = ScriptEngine::new().expect("owned script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("owned script engine");
     let evaluator_state = RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
     let mut driver = EventOwner;
@@ -2530,7 +2530,7 @@ fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_lik
 fn team_hunt_with_command_button_invokes_hunt_update() {
     // This checks explicit dispatcher admission; real C++ effect and peer-world
     // isolation assertions live in Main::owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamHuntWithCommandButton);
@@ -2591,7 +2591,7 @@ fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
             Some(Ok(()))
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = Owner {
@@ -2647,7 +2647,7 @@ fn build_and_recruit_team_select_borrowed_driver_with_exact_payloads() {
             Some(Ok(()))
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut admission = Admission::default();
@@ -2686,7 +2686,7 @@ fn build_and_recruit_team_select_borrowed_driver_with_exact_payloads() {
 fn team_transfer_to_player_reassigns_team_controller_without_capture() {
     // This checks explicit dispatcher admission; real C++ effect and peer-world
     // isolation assertions live in Main::owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamTransferToPlayer);
@@ -2728,7 +2728,7 @@ fn team_transfer_to_player_reassigns_team_controller_without_capture() {
 fn player_sell_everything_sells_faction_structures_like_cxx() {
     // This checks explicit dispatcher admission; real C++ effect and peer-world
     // isolation assertions live in Main::owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::PlayerSellEverything);
@@ -2760,7 +2760,7 @@ fn player_sell_everything_sells_faction_structures_like_cxx() {
 fn damage_members_of_team_applies_unresistable_damage() {
     // The dispatcher selects a borrowed owner even for authoritative absence.
     // Main accepts the actual guard/health effects in owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::DamageMembersOfTeam);
@@ -2792,7 +2792,7 @@ fn damage_members_of_team_applies_unresistable_damage() {
 fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
     // This checks explicit dispatcher admission; real C++ effect and peer-world
     // isolation assertions live in Main::owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::MoveNamedUnitTo);
@@ -2834,7 +2834,7 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
 fn named_follow_waypoints_leaves_group_and_selects_normal_loco() {
     // This checks explicit dispatcher admission; real C++ effect and peer-world
     // isolation assertions live in Main::owned_runtime_command_tests.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::NamedFollowWaypoints);

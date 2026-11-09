@@ -1933,7 +1933,7 @@ mod clear_game_data_freeze_escape_tests {
     fn script_phase_error_does_not_block_a_later_tick() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
-        let scripts = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let scripts = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         let mut logic = GameLogic::new();
         let error = logic.update_with_script_phase(
             0,
@@ -1953,8 +1953,8 @@ mod clear_game_data_freeze_escape_tests {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
         unfreeze_global_script_time();
-        let frozen = crate::scripting::engine::ScriptEngine::new().unwrap();
-        let peer = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let frozen = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+        let peer = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         frozen.do_freeze_time();
         struct Driver;
         impl crate::scripting::engine::ScriptExecutionDriver for Driver {

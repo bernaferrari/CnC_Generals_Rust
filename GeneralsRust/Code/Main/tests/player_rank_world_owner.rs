@@ -32,7 +32,7 @@ fn run(world: &mut GameLogic, side: usize, actions: Vec<ScriptAction>) {
     }
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(side, Some(Box::new(list)))
         .unwrap();

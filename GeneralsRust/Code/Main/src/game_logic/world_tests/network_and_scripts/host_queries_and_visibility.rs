@@ -163,7 +163,7 @@ fn host_named_unit_found_with_empty_object_registry() {
 
 #[test]
 fn live_executor_named_team_conditions_use_host_snapshot() {
-    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::clear_host_script_query_snapshot;
@@ -743,7 +743,7 @@ fn live_host_team_hooks_add_member_and_notify_death_once() {
     }
 
     let team_id = logic.host_object(id).unwrap().team_instance_id;
-    let interpreter = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let interpreter = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     logic
         .notify_owned_team_of_object_death_with_effects(
             id,

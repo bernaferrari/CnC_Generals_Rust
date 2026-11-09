@@ -40,7 +40,7 @@ fn expected_type(row: &Row, index: usize, value: i32) -> ParameterType {
 
 #[test]
 fn every_active_parameter_and_count_matches_the_cpp_assignment_table() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let rows = rows();
     assert_eq!(rows.len(), 453);
     for row in rows {
@@ -79,7 +79,7 @@ fn assert_ui(engine: &ScriptEngine) {
 
 #[test]
 fn every_ui_default_and_active_string_matches_cpp() {
-    assert_ui(&ScriptEngine::new().unwrap());
+    assert_ui(&ScriptEngine::new_in_published_world().unwrap());
 }
 
 #[test]
@@ -102,13 +102,13 @@ fn standalone_templates_keep_the_cpp_unused_placeholder() {
 #[test]
 fn reset_and_runtime_restore_keep_authored_metadata() {
     let _serial = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let runtime = engine.snapshot_xfer_tail();
     engine.set_counter("runtime", 19).unwrap();
     engine.reset();
     engine.restore_xfer_tail(&runtime);
     assert_ui(&engine);
-    let restored = ScriptEngine::new().unwrap();
+    let restored = ScriptEngine::new_in_published_world().unwrap();
     restored.restore_xfer_tail(&runtime);
     assert_ui(&restored);
 }

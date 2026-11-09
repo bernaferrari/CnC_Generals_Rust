@@ -103,7 +103,7 @@ fn world(
         .get_side_info_mut(0)
         .expect("owner side")
         .set_script_list(Some(Box::new(script_list)));
-    let script_engine = ScriptEngine::new().expect("script templates");
+    let script_engine = ScriptEngine::new_in_published_world().expect("script templates");
 
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
@@ -160,7 +160,7 @@ fn find_template<'a>(
 fn run_authored_upgrade(game: &mut GameLogic) {
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(receive_upgrade_script()));
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();

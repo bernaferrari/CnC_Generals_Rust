@@ -48,7 +48,7 @@ fn world(spawn: bool) -> (GameLogic, Option<ObjectId>, Option<ObjectId>) {
     world.add_player(
         Player::new(2, Team::USA, "EventOwner", false).with_script_identity("EventOwner"),
     );
-    world.install_owned_script_engine(ScriptEngine::new().unwrap());
+    world.install_owned_script_engine(ScriptEngine::new_in_published_world().unwrap());
     if !spawn {
         return (world, None, None);
     }
@@ -147,7 +147,7 @@ fn ordinary_special_power_producer_uses_receiving_interpreter_not_foreign_core()
     let (peer, peer_carrier, _) = world(true);
     let carrier = carrier.unwrap();
     assert_eq!(Some(carrier), peer_carrier);
-    let foreign = ScriptEngine::new().unwrap();
+    let foreign = ScriptEngine::new_in_published_world().unwrap();
     foreign.notify_of_triggered_special_power(2, "ForeignSentinel", carrier.0);
     under_foreign(&foreign, || {
         assert!(
@@ -183,7 +183,7 @@ fn borrowed_actual_driver_completion_die_notifies_before_next_action_and_stays_i
     let (mut owner, _, victim) = world(true);
     let (peer, _, peer_victim) = world(true);
     assert_eq!(victim, peer_victim);
-    let foreign = ScriptEngine::new().unwrap();
+    let foreign = ScriptEngine::new_in_published_world().unwrap();
     foreign.notify_of_completed_special_power(2, POWER, 777);
     owner
         .with_owned_script_engine(|engine, world| {
@@ -216,7 +216,7 @@ fn borrowed_body_death_weapon_reborrows_same_notification_recipient_into_nested_
     let (peer, peer_carrier, peer_victim) = world(true);
     assert_eq!(carrier, peer_carrier);
     assert_eq!(victim, peer_victim);
-    let foreign = ScriptEngine::new().unwrap();
+    let foreign = ScriptEngine::new_in_published_world().unwrap();
     owner
         .with_owned_script_engine(|engine, world| {
             under_foreign(&foreign, || {

@@ -49,7 +49,7 @@ fn engine() -> ScriptEngine {
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("Visited", 0).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))

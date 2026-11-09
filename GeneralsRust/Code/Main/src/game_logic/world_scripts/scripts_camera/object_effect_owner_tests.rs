@@ -4,7 +4,7 @@ use super::*;
 use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn execute(world: &mut GameLogic, kind: ScriptActionType, name: &str, value: Option<i32>) {
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let mut action = ScriptAction::new(kind);
     if kind != ScriptActionType::DeleteAllUnmanned {
         action

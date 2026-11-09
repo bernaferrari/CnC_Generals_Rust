@@ -56,7 +56,7 @@ fn condition(player: &str, types: &str) -> Condition {
 
 #[test]
 fn registered_empty_unknown_and_empty_parameter_remain_distinct() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_object_types("EmptyList".into(), ObjectTypes::new());
     let mut empty_name = ObjectTypes::new();
     empty_name.add_object_type(AsciiString::from("MustNotAppear"));
@@ -89,7 +89,7 @@ fn registered_empty_unknown_and_empty_parameter_remain_distinct() {
 
 #[test]
 fn missing_owner_is_authoritative_even_with_candidates() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let state = RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     let mut driver = owner(ScriptOwnerQuery::Missing);
@@ -118,12 +118,12 @@ fn missing_owner_is_authoritative_even_with_candidates() {
 
 #[test]
 fn raw_player_and_type_tokens_use_borrowed_engine_context() {
-    let mut own = ScriptEngine::new().unwrap();
+    let mut own = ScriptEngine::new_in_published_world().unwrap();
     own.set_external_eval_context(Some("OwnedCurrent".into()), None);
     let mut own_types = ObjectTypes::new();
     own_types.add_object_type(AsciiString::from("OwnedCandidate"));
     own.set_object_types(LOCAL_PLAYER.into(), own_types);
-    let mut foreign = ScriptEngine::new().unwrap();
+    let mut foreign = ScriptEngine::new_in_published_world().unwrap();
     foreign.set_external_eval_context(Some("ForeignCurrent".into()), None);
     foreign.set_object_types(LOCAL_PLAYER.into(), ObjectTypes::new());
     let state = RefCell::new(ScriptContext::at_frame(0));
@@ -164,7 +164,7 @@ fn default_driver_preserves_unavailable_prerequisite_selection() {
 
 #[test]
 fn missing_parameters_are_errors_before_owner_query() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let state = RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     let mut driver = owner(ScriptOwnerQuery::Missing);

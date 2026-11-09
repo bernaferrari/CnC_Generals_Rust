@@ -163,8 +163,8 @@ mod tests {
 
     #[test]
     fn public_unit_emptied_dispatch_uses_each_borrowed_engine_with_same_object_id() {
-        let first = ScriptEngine::new().unwrap();
-        let second = ScriptEngine::new().unwrap();
+        let first = ScriptEngine::new_in_published_world().unwrap();
+        let second = ScriptEngine::new_in_published_world().unwrap();
         let first_state = std::cell::RefCell::new(ScriptContext::at_frame(10));
         let second_state = std::cell::RefCell::new(ScriptContext::at_frame(10));
         let mut first_eval = ScriptConditionEvaluator::new(&first, &first_state);
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn public_unit_emptied_dispatch_reports_engine_borrow_conflict() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let state = std::cell::RefCell::new(ScriptContext::at_frame(4));
         let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
         let mut driver = TransportDriver { frame: 4, count: 0 };
@@ -270,8 +270,8 @@ mod tests {
             },
         );
 
-        let first = ScriptEngine::new().unwrap();
-        let second = ScriptEngine::new().unwrap();
+        let first = ScriptEngine::new_in_published_world().unwrap();
+        let second = ScriptEngine::new_in_published_world().unwrap();
         let first_state = std::cell::RefCell::new(ScriptContext::at_frame(20));
         let second_state = std::cell::RefCell::new(ScriptContext::at_frame(20));
         let mut first_eval = ScriptConditionEvaluator::new(&first, &first_state);
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn receiving_transport_history_wraps_repeats_and_is_not_xfer_history() {
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         assert!(!engine.observe_receiving_transport_empty(7, u32::MAX, 1));
         assert!(engine.observe_receiving_transport_empty(7, 0, 0));
         assert!(engine.observe_receiving_transport_empty(7, 0, 0));

@@ -90,7 +90,7 @@ impl GameLogic {
         script.action = Some(Box::new(action));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
@@ -324,7 +324,7 @@ fn closest_query_uses_supplied_object_list_and_preserves_present_empty_without_g
         || {
             let (mut owner, source, target) = tracking_world();
             trigger(&owner);
-            let foreign = ScriptEngine::new().unwrap();
+            let foreign = ScriptEngine::new_in_published_world().unwrap();
             let mut foreign_list = gamelogic::object::types::ObjectTypes::new();
             foreign_list.add_object_type("OwnedNearestTarget".into());
             foreign.set_object_types("EmptyList".into(), foreign_list.clone());

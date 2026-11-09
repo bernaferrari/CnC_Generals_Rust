@@ -49,7 +49,7 @@ fn native_team_preflight_unexpected_create_rejects_before_live_session_or_camera
             peer.session_view.target = glam::Vec3::new(-5.0, 9.0, 80.0);
             let owner_target = owner.session_view.target;
             let peer_target = peer.session_view.target;
-            let foreign = ScriptEngine::new().unwrap();
+            let foreign = ScriptEngine::new_in_published_world().unwrap();
             foreign.set_counter("ForeignCallback", 41).unwrap();
             *get_script_engine().write().unwrap() = Some(foreign);
             let stage = HostRuntimeWorldStage::begin(&owner.world_services);

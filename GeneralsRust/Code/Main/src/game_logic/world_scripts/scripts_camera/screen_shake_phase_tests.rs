@@ -120,7 +120,7 @@ fn actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_froz
             let (mut peer, peer_ids) = world();
             assert_eq!(ids, peer_ids);
             let peer_before = peer.capture_camera_continuation().unwrap();
-            let mut engine = ScriptEngine::new().unwrap();
+            let mut engine = ScriptEngine::new_in_published_world().unwrap();
             // A mistaken retained-handler fallback would mutate the actual peer.
             engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
                 peer.mission_scripts.clone(),
@@ -279,7 +279,7 @@ fn authored_shake_then_home_observes_active_impulse_and_rule_changes_only_next_a
             .capture_continuation(),
     )
     .unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = || gamelogic::scripting::executor::ScriptContext::at_frame(713);
     engine.friend_execute_action_with_driver(
         &actions().remove(0),

@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn named_flash_sets_drawable_flash_count_for_presentation() {
     use super::borrowed_presentation_owner::PresentationOwner;
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = PresentationOwner::new("FlashUnit", 8750);
@@ -90,7 +90,7 @@ fn named_flash_sets_drawable_flash_count_for_presentation() {
 #[test]
 fn named_custom_color_unpacks_argb_without_swapping_red_blue() {
     use super::borrowed_presentation_owner::PresentationOwner;
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = PresentationOwner::new("ColorUnit", 8760);
@@ -199,7 +199,7 @@ fn named_set_attitude_reads_int_mood() {
         ai: OwnedAi::default(),
     };
     assert_eq!(owner.object.get_id(), peer.object.get_id());
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::NamedSetAttitude);
@@ -251,7 +251,7 @@ fn named_attack_area_qualifies_my_inner_perimeter() {
     }
     // Qualification needs the driving player's start index. The dispatcher
     // forwards the token; the actual Main owner regression verifies resolution.
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_external_eval_context(Some("PerimeterOwner".into()), None);
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
@@ -321,7 +321,7 @@ fn team_follow_waypoints_honors_as_team_int() {
             })
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = PathIngress {
@@ -405,7 +405,7 @@ fn named_face_named_selects_borrowed_driver() {
         }
     }
 
-    let engine = ScriptEngine::new().expect("script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("script engine");
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = NamedOwner {
@@ -441,7 +441,7 @@ fn named_face_named_selects_borrowed_driver() {
 
 #[test]
 fn video_completion_requires_notification_and_is_consumed() {
-    let engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
     let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     let mut condition = Condition::new(ConditionType::HasFinishedVideo);
@@ -469,7 +469,7 @@ fn video_completion_requires_notification_and_is_consumed() {
 
 #[test]
 fn speech_and_audio_completion_use_owned_deadlines_without_handler() {
-    let engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
     // ScriptEngine.cpp:7268-7330: retained timers belong to this engine.
     // Seed the serialized continuation, avoiding global audio catalog access.
     let mut tail = engine.snapshot_xfer_tail();
@@ -525,7 +525,7 @@ fn speech_and_audio_completion_use_owned_deadlines_without_handler() {
 
 #[test]
 fn multiplayer_player_defeat_has_no_player_param() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // C++ ScriptConditions.cpp:1748-1750 — no params; missing local player is false, not error.
     let mut condition = Condition::new(ConditionType::MultiplayerPlayerDefeat);
@@ -556,7 +556,7 @@ impl crate::scripting::engine::ScriptExecutionDriver for NamedLifetimeOwner {
 
 #[test]
 fn named_totally_dead_false_while_object_exists() {
-    let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut owner = NamedLifetimeOwner(crate::scripting::engine::ScriptNamedLifecycle {
@@ -590,7 +590,7 @@ fn named_totally_dead_false_while_object_exists() {
 
 #[test]
 fn named_totally_dead_false_if_name_never_existed() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut owner = NamedLifetimeOwner(crate::scripting::engine::ScriptNamedLifecycle {
@@ -638,7 +638,7 @@ fn unit_health_uses_initial_health_rounding() {
             self.0
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut condition = Condition::new(ConditionType::UnitHealth);
@@ -704,7 +704,7 @@ fn built_by_player_rejects_object_type_lists() {
             crate::scripting::engine::ScriptOwnerQuery::Present((0, census))
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut list = crate::object::object_types::ObjectTypes::new();
     list.add_object_type(crate::common::AsciiString::from("AmericaRanger"));
     engine.set_object_types("HeroList".into(), list);
@@ -738,7 +738,7 @@ fn built_by_player_rejects_object_type_lists() {
 
 #[test]
 fn team_the_player_not_remapped_outside_challenge() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // C++ ScriptEngine.cpp:5935-5939 remaps TEAM_THE_PLAYER only in Challenge.
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
@@ -751,7 +751,7 @@ fn team_the_player_not_remapped_outside_challenge() {
 
 #[test]
 fn the_player_not_remapped_outside_challenge() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // C++ ScriptEngine.cpp:5809-5814 remaps THE_PLAYER only in Challenge.
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
@@ -822,7 +822,7 @@ fn player_has_counts_dead_lost_ignores_dead() {
 
 #[test]
 fn skirmish_value_in_area_excludes_inert() {
-    let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut owner = OwnedAreaCensus::new(vec![owned_area_unit(
@@ -874,7 +874,7 @@ fn set_cave_index_uses_supplied_owner() {
             Some(())
         }
     }
-    let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(42));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::SetCaveIndex);
@@ -896,7 +896,7 @@ fn set_cave_index_uses_supplied_owner() {
 
 #[test]
 fn team_panic_queues_host_when_dual_world_empty() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     struct Owner {
         route: Option<(String, String)>,
@@ -1001,7 +1001,7 @@ fn create_object_admits_only_the_borrowed_creation_owner() {
             .init_team_owned("teamAmerica".into(), "Owner".into(), false, None, Some(7))
             .unwrap();
     }
-    let dispatch_engine = ScriptEngine::new().unwrap();
+    let dispatch_engine = ScriptEngine::new_in_published_world().unwrap();
     let mut action = ScriptAction::new(ScriptActionType::CreateObject);
     action
         .add_parameter(Parameter::with_string(
@@ -1058,7 +1058,7 @@ fn create_object_admits_only_the_borrowed_creation_owner() {
 
 #[test]
 fn named_team_lifecycle_uses_supplied_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
@@ -1199,7 +1199,7 @@ fn named_team_lifecycle_uses_supplied_owner() {
 
 #[test]
 fn player_kill_uses_supplied_owner_even_when_missing() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
@@ -1227,7 +1227,7 @@ fn player_kill_uses_supplied_owner_even_when_missing() {
 
 #[test]
 fn named_object_sound_uses_supplied_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
@@ -1300,7 +1300,7 @@ fn named_object_sound_uses_supplied_owner() {
 
 #[test]
 fn team_set_attitude_uses_borrowed_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let mut action = ScriptAction::new(ScriptActionType::TeamSetAttitude);
     action
@@ -1354,7 +1354,7 @@ fn build_team_queues_host_when_dual_world_empty() {
             })
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::BuildTeam);
@@ -1394,7 +1394,7 @@ fn build_team_queues_host_when_dual_world_empty() {
 
 #[test]
 fn ai_player_build_actions_queue_host_when_dual_world_empty() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let mut owner = OwnedAiActions::default();
 
@@ -1501,7 +1501,7 @@ fn ai_player_build_actions_queue_host_when_dual_world_empty() {
 fn live_named_created_true_from_host_snapshot() {
     // Owner-ingress contract; Main named_lifecycle_owner_tests verifies actual
     // creation, renaming, destruction, save/load and same-ID peer isolation.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut owner = NamedLifetimeOwner(crate::scripting::engine::ScriptNamedLifecycle {
@@ -1557,7 +1557,7 @@ fn enemy_and_type_sighted_dispatch_to_the_owned_query() {
             ScriptOwnerQuery::Present(self.visible)
         }
     }
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     let mut owner = SightingOwner { visible: true };
@@ -1628,7 +1628,7 @@ fn enemy_and_type_sighted_dispatch_to_the_owned_query() {
 #[test]
 fn live_named_totally_dead_false_at_load_when_host_unit_lives() {
     // Main named_lifecycle_owner_tests covers the real persisted continuation.
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut owner = NamedLifetimeOwner(crate::scripting::engine::ScriptNamedLifecycle {
@@ -1660,7 +1660,7 @@ fn live_named_totally_dead_false_at_load_when_host_unit_lives() {
 
 #[test]
 fn live_named_destroyed_true_after_host_destroy_list() {
-    let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut owner = NamedLifetimeOwner(crate::scripting::engine::ScriptNamedLifecycle {
@@ -1695,7 +1695,7 @@ fn live_named_destroyed_true_after_host_destroy_list() {
 #[test]
 fn named_selected_uses_actual_owned_selection_changes_and_cpp_cache() {
     use super::borrowed_selection_owner::SelectionOwner;
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     let mut owner = SelectionOwner::new("TutorialRanger", 11);
@@ -1789,7 +1789,7 @@ fn live_team_destroyed_false_when_host_members_live() {
             ScriptOwnerQuery::Present(self.0)
         }
     }
-    let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     let mut owner = PresenceOwner(true);
@@ -1898,7 +1898,7 @@ fn live_named_entered_uses_host_trigger_flags() {
     owner
         .world
         .update_object_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(20));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut condition = Condition::new(ConditionType::NamedEnteredArea);
@@ -1928,7 +1928,7 @@ fn live_named_entered_uses_host_trigger_flags() {
 
 #[test]
 fn live_named_body_state_reads_host_snapshot() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     use crate::scripting::engine::{
         ScriptContainmentStatus, ScriptExecutionDriver, ScriptNamedLifecycle, ScriptOwnerQuery,
@@ -2058,7 +2058,7 @@ fn live_named_body_state_reads_host_snapshot() {
 
 #[test]
 fn eval_player_has_comparison_unit_type_in_trigger_area_zero_matching() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // Given: live host census with no matching type in the trigger
     // When: PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA compares the count
@@ -2093,7 +2093,7 @@ fn eval_player_has_comparison_unit_type_in_trigger_area_zero_matching() {
 
 #[test]
 fn eval_player_has_comparison_unit_type_in_trigger_area_n_units_ge_n() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // Given: N live host units of the scripted type inside the trigger
     // When: PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA asks >= N
@@ -2146,7 +2146,7 @@ fn eval_player_has_comparison_unit_type_in_trigger_area_n_units_ge_n() {
 
 #[test]
 fn eval_player_has_comparison_unit_type_in_trigger_area_map_load_eq_zero_false() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // Given: map-load census with living units already standing in the zone
     // When: PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA == 0
@@ -2173,7 +2173,7 @@ fn eval_player_has_comparison_unit_type_in_trigger_area_map_load_eq_zero_false()
 
 #[test]
 fn eval_player_has_comparison_unit_kind_in_trigger_area_n_units_ge_n() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // Given: N live host infantry inside the trigger
     // When: PLAYER_HAS_COMPARISON_UNIT_KIND_IN_TRIGGER_AREA asks >= N
@@ -2218,7 +2218,7 @@ fn eval_player_has_comparison_unit_kind_in_trigger_area_n_units_ge_n() {
 
 #[test]
 fn live_skirmish_leftover_conditions_read_host_snapshot() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     use crate::scripting::engine::{
         ScriptOwnerQuery, ScriptPlayerAreaQuery, ScriptSkirmishCensus, ScriptSpecialPowerReadiness,
@@ -2427,7 +2427,7 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
             self.0
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
     let mut broken = Condition::new(ConditionType::BridgeBroken);
@@ -2502,7 +2502,7 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
 
 #[test]
 fn player_set_give_money_use_only_the_borrowed_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     #[derive(Default)]
     struct MoneyOwner(Vec<HostScriptMoneyRequest>);
@@ -2574,7 +2574,7 @@ fn player_set_give_money_use_only_the_borrowed_owner() {
 }
 #[test]
 fn named_team_unmanned_stealth_radar_use_supplied_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
@@ -2723,7 +2723,7 @@ fn named_team_unmanned_stealth_radar_use_supplied_owner() {
 
 #[test]
 fn live_host_team_reached_waypoints_end_uses_snapshot_labels() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     struct Owner;
     impl ScriptExecutionDriver for Owner {
@@ -2767,7 +2767,7 @@ fn live_host_team_reached_waypoints_end_uses_snapshot_labels() {
 
 #[test]
 fn live_host_skirmish_discovered_uses_snapshot() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     struct Owner;
     impl ScriptExecutionDriver for Owner {
@@ -2833,7 +2833,7 @@ fn live_host_from_named_special_power_uses_host_id() {
         }
     }
 
-    let engine = ScriptEngine::new().expect("owned script engine");
+    let engine = ScriptEngine::new_in_published_world().expect("owned script engine");
     engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", 42);
     engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", 43);
     let mut condition = Condition::new(ConditionType::PlayerTriggeredSpecialPowerFromNamed);
@@ -2870,7 +2870,7 @@ fn live_host_from_named_special_power_uses_host_id() {
 
 #[test]
 fn skirmish_approach_and_defense_host_queues_roundtrip() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
     let mut owner = OwnedAiActions::default();
@@ -2931,7 +2931,7 @@ fn skirmish_approach_and_defense_host_queues_roundtrip() {
 
 #[test]
 fn set_base_construction_speed_queues_host() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let mut owner = OwnedAiActions::default();
     let mut action = ScriptAction::new(ScriptActionType::SetBaseConstructionSpeed);
@@ -2971,7 +2971,7 @@ fn set_train_held_uses_supplied_owner_without_request_drain() {
             Some(())
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(42));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
@@ -2996,7 +2996,7 @@ fn set_train_held_uses_supplied_owner_without_request_drain() {
 
 #[test]
 fn nearest_command_buttons_use_supplied_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     #[derive(Default)]
     struct NearestOwner(Vec<HostScriptUseCommandButtonRequest>);
@@ -3083,7 +3083,7 @@ fn nearest_command_buttons_use_supplied_owner() {
 
 #[test]
 fn idle_and_guard_for_framecount_use_borrowed_commands_and_preserve_pending_frames() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let mut owner = super::borrowed_order_owner::OrderOwner::default();
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
@@ -3177,7 +3177,7 @@ fn idle_and_guard_for_framecount_use_borrowed_commands_and_preserve_pending_fram
 
 #[test]
 fn move_towards_nearest_uses_borrowed_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let mut owner = super::borrowed_order_owner::OrderOwner::default();
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
@@ -3272,7 +3272,7 @@ fn team_wait_for_not_contained_uses_supplied_roster_without_ambient_census() {
             ScriptOwnerQuery::Present(script_team_is_contained(self.0.iter().copied(), all))
         }
     }
-    let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(42));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = Owner(vec![None, Some(true)]);
@@ -3332,7 +3332,7 @@ fn named_owned_by_player_uses_explicit_owner_without_ambient_fallback() {
             ScriptOwnerQuery::Present(player == "Owner")
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     for (unit, player, expected) in [
@@ -3469,7 +3469,7 @@ fn partial_command_button_uses_supplied_owner_ingress() {
             Some(Ok(()))
         }
     }
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
     let mut owner = Owner { received: None };

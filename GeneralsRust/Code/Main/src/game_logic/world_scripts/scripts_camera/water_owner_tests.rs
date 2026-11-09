@@ -90,7 +90,7 @@ fn script_water_classifies_and_damages_before_next_action_with_foreign_ai_held()
             gamelogic::object::registry::OBJECT_REGISTRY.register_object(id.0, &foreign_object);
             let foreign_body = foreign_object.read().unwrap().get_body_module().unwrap();
             let foreign_health = foreign_body.lock().unwrap().get_health();
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             let foreign = gamelogic::ai::the_ai();
             let _foreign_held = foreign.write().unwrap();
             let mut actions = action(5.0);
@@ -430,7 +430,7 @@ fn script_water_damage_uses_original_diagonal_range_and_no_projectile_skip() {
                     glam::Vec3::new(30.0, 0.0, 30.0),
                 )
                 .unwrap();
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             engine.friend_execute_action_with_driver(
                 &action(5.0),
                 None,

@@ -229,7 +229,7 @@ fn execute_bridge_condition(world: &mut GameLogic, name: &str, repaired: bool) -
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("BridgeObserved", 0).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
@@ -402,7 +402,7 @@ fn named_damage_completes_bridge_callbacks_before_subroutine_condition() {
             let mut list = ScriptList::new();
             list.append_script(Box::new(outer));
             list.append_script(Box::new(subroutine));
-            let mut engine = ScriptEngine::new().unwrap();
+            let mut engine = ScriptEngine::new_in_published_world().unwrap();
             engine.set_counter("ImmediateBridge", 0).unwrap();
             engine
                 .set_script_list_for_player(0, Some(Box::new(list)))

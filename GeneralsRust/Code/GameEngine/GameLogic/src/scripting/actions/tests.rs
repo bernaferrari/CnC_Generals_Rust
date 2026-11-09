@@ -157,7 +157,7 @@ fn reset_test_players(count: PlayerIndex) {
 fn reset_test_script_engine() {
     let engine_lock = get_script_engine();
     let mut engine = engine_lock.write().unwrap();
-    *engine = Some(crate::scripting::engine::ScriptEngine::new().unwrap());
+    *engine = Some(crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap());
 }
 
 fn reset_test_object_manager() {

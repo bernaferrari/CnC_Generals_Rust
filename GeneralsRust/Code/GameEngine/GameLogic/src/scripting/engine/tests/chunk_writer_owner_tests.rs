@@ -7,7 +7,7 @@ use crate::sides_list::SidesList;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 
 fn private_engine() -> ScriptEngine {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.with_inner_mut(|inner| {
         inner.condition_templates[ConditionType::ConditionTrue as usize]
             .base
@@ -226,7 +226,7 @@ fn check_graph(list: &ScriptList) {
 fn private_writer_catalog_survives_foreign_active_engine_in_all_branches() {
     let engine = private_engine();
     let catalog = ScriptTemplateLookup::from_engine(&engine);
-    let foreign = ScriptEngine::new().unwrap();
+    let foreign = ScriptEngine::new_in_published_world().unwrap();
     let list = graph();
     for sides in [false, true] {
         let bytes = encode(&foreign, &list, &catalog, sides);
@@ -245,8 +245,8 @@ fn retained_catalog_outlives_engine_and_is_stable_across_nested_scopes() {
     let engine = private_engine();
     let catalog = ScriptTemplateLookup::from_engine(&engine);
     drop(engine);
-    let first = ScriptEngine::new().unwrap();
-    let second = ScriptEngine::new().unwrap();
+    let first = ScriptEngine::new_in_published_world().unwrap();
+    let second = ScriptEngine::new_in_published_world().unwrap();
     let list = graph();
     first.with_active(|| {
         for sides in [false, true] {
@@ -320,7 +320,7 @@ fn present_zero_key_is_not_a_missing_template() {
 #[test]
 fn valid_template_does_not_intern_cpp_bogus_fallback() {
     std::thread::spawn(|| {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let catalog = ScriptTemplateLookup::from_engine(&engine);
         let before = NameKeyGenerator::name_to_key("OWNER41_BEFORE_VALID_WRITE");
         for action in [false, true] {
@@ -338,7 +338,7 @@ fn valid_template_does_not_intern_cpp_bogus_fallback() {
 }
 #[test]
 fn retained_chunk_writer_wire_trace() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let catalog = ScriptTemplateLookup::from_engine(&engine);
     for sides in [false, true] {
         let bytes = encode(&engine, &graph(), &catalog, sides);

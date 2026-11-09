@@ -377,7 +377,7 @@ mod popup_owner_tests {
         let mut client = GameClient::new().unwrap();
         let mut world = gamelogic::system::game_logic::GameLogic::new();
         let mut bar = crate::gui::control_bar::ControlBar::new();
-        let scripts = ScriptEngine::new().unwrap();
+        let scripts = ScriptEngine::new_in_published_world().unwrap();
         scripts.do_freeze_time();
         client
             .update_core_logic_with_scripts(&mut world, &scripts, &mut bar, 0, || None)

@@ -91,7 +91,7 @@ fn native_selection_stamp_changes_only_at_actual_local_mutations() {
 #[test]
 fn actual_selection_condition_preserves_same_frame_cache_and_multiplayer_cache() {
     let (mut owner, id, _) = world();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut script = selected_script("NamedUnit");
     owner.frame = 7;
     owner.select_objects_no_sound(1, vec![id]);

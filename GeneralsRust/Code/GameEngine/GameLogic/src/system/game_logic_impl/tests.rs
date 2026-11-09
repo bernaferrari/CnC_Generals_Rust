@@ -871,7 +871,7 @@ mod tests {
             }
         }
         let script_store = crate::scripting::engine::get_script_engine();
-        let mut script = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+        let mut script = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
         script.set_frame_object_count_changed(9);
         let _restore = RestoreScriptEngine(
             script_store

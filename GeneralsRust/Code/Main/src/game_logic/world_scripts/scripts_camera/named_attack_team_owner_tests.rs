@@ -138,7 +138,7 @@ fn named_attitude_changes_only_owned_ai_without_command_admission() {
     action
         .add_parameter(Parameter::with_int(ParameterType::AiMood, 2))
         .unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.friend_execute_action_with_driver(
         &action,
         None,
@@ -210,7 +210,7 @@ fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
             "StopDisbandSource".into(),
         ))
         .unwrap();
-    ScriptEngine::new()
+    ScriptEngine::new_in_published_world()
         .unwrap()
         .friend_execute_action_with_driver(
             &action,
@@ -293,7 +293,7 @@ fn create_object_uses_exact_team_controller_before_factory_admission() {
     action
         .add_parameter(Parameter::with_real(ParameterType::Angle, 1.5))
         .unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let peer_count = peer.objects.registered_len();
     let before = owner.objects.registered_len();
     let mut driver = HostScriptExecutionDriver::new(&mut owner);

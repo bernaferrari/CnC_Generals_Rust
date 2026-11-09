@@ -2249,8 +2249,8 @@ mod receiving_window_driver_tests {
     }
     #[test]
     fn window_tracking_precedes_callbacks_and_peer_execution_is_isolated() {
-        let a = ScriptEngine::new().unwrap();
-        let b = ScriptEngine::new().unwrap();
+        let a = ScriptEngine::new_in_published_world().unwrap();
+        let b = ScriptEngine::new_in_published_world().unwrap();
         let mut a_ui = Windows {
             engine: &a,
             events: Vec::new(),

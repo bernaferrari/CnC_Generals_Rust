@@ -15,7 +15,7 @@ fn world(cash: u32) -> GameLogic {
     world
 }
 fn execute(world: &mut GameLogic, kind: ScriptActionType, player: &str, amount: i32) {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut action = ScriptAction::new(kind);
     action
         .add_parameter(Parameter::with_string(ParameterType::Side, player.into()))

@@ -87,7 +87,7 @@ fn receive_veteran_upgrade(world: &mut GameLogic, source: ObjectId) {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .expect("install script on receiving side");

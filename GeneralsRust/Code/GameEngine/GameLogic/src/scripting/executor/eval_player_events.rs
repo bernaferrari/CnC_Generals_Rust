@@ -273,7 +273,7 @@ mod tests {
             ConditionType::PlayerCompletedSpecialPowerFromNamed,
             ConditionType::PlayerBuiltUpgradeFromNamed,
         ] {
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             let (_, from_named) = PlayerEventKind::condition(kind).unwrap();
             let source = if from_named { 42 } else { INVALID_ID };
             let mut driver = owner(source);
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn duplicate_events_remove_first_match_only_and_preserve_other_sources() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         for source in [43, 42, 42] {
             engine.notify_of_triggered_special_power(1, "Power", source);
         }
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn authoritative_missing_does_not_consume_or_fall_back() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         engine.notify_of_completed_upgrade(1, "Upgrade", 42);
         let mut driver = owner(42);
         driver.selected = ScriptOwnerQuery::Missing;
@@ -365,9 +365,9 @@ mod tests {
 
     #[test]
     fn borrowed_engine_event_and_raw_tokens_win_over_foreign_lexical_scope() {
-        let mut own = ScriptEngine::new().unwrap();
+        let mut own = ScriptEngine::new_in_published_world().unwrap();
         own.set_external_eval_context(Some("OwnedCurrent".into()), None);
-        let mut foreign = ScriptEngine::new().unwrap();
+        let mut foreign = ScriptEngine::new_in_published_world().unwrap();
         foreign.set_external_eval_context(Some("ForeignCurrent".into()), None);
         own.notify_of_completed_special_power(1, LOCAL_PLAYER, 42);
         foreign.notify_of_completed_special_power(1, LOCAL_PLAYER, 42);
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn missing_required_event_parameter_is_an_error_even_for_missing_owner() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut driver = owner(42);
         driver.selected = ScriptOwnerQuery::Missing;
         let mut condition = Condition::new(ConditionType::PlayerTriggeredSpecialPower);

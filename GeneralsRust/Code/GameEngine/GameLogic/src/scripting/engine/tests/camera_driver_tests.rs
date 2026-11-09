@@ -435,7 +435,7 @@ fn camera_engine(explicit: bool) -> (ScriptEngine, Arc<AtomicUsize>, Vec<String>
     script.action = next;
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let retained = Arc::new(AtomicUsize::new(0));
     engine.set_action_handler(Some(Arc::new(RetainedCameraHandler {
         calls: retained.clone(),
@@ -483,7 +483,7 @@ fn standalone_camera_adapter_preserves_defaults_errors_and_reentry() {
 
 #[test]
 fn invalid_camera_parameters_do_not_reach_the_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let _guard = crate::test_sync::lock();
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());

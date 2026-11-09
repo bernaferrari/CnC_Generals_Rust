@@ -12,7 +12,7 @@ fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler
             for foreign_handler in [false, true] {
                 let mut owner = GameLogic::new();
                 let mut peer = GameLogic::new();
-                let mut engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+                let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
                 if foreign_handler {
                     engine.set_action_handler(Some(Arc::new(
                         crate::game_logic::mission_scripts::MissionScriptActionHandler::new(
@@ -114,7 +114,7 @@ fn authored_weather_reaches_borrowed_snow_and_detached_intent_catches_up() {
     let mut owner = GameLogic::new();
     let peer = game_client::snow::SnowManager::new();
     let mut snow = game_client::snow::SnowManager::new();
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     for visible in [false, true, false] {
         let mut action = ScriptAction::new(ScriptActionType::ShowWeather);
         action

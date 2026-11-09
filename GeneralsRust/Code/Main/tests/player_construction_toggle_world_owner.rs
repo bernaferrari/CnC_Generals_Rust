@@ -30,7 +30,7 @@ fn script(action_type: ScriptActionType, factory: bool, factory_name: &str) -> S
     authored.is_one_shot = true;
     let mut list = ScriptList::new();
     list.append_script(Box::new(authored));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
@@ -86,7 +86,7 @@ fn enable_then_conditionally_disable_base() -> ScriptEngine {
     let mut list = ScriptList::new();
     list.append_script(Box::new(first));
     list.append_script(Box::new(second));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
@@ -208,7 +208,7 @@ fn missing_receiving_this_player_does_not_mutate_local_or_peer_player() {
     authored.is_one_shot = true;
     let mut list = ScriptList::new();
     list.append_script(Box::new(authored));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(1, Some(Box::new(list)))
         .unwrap();

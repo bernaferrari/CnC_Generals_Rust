@@ -173,7 +173,7 @@ fn unknown_own_definition_and_missing_object_are_authoritative_while_this_uses_a
         || {
             let (mut owner, id) = world(false);
             let (peer, peer_id) = world(true);
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             {
                 let mut driver = HostScriptExecutionDriver::with_interpreter(&mut owner, &engine);
                 assert!(driver.named_upgrade(ACTOR, KEY, None).unwrap().is_ok());

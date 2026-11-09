@@ -32,7 +32,7 @@ fn script_default(engine: &ScriptEngine, name: &str, value: i32) {
 #[test]
 fn default_missing_and_named_lookup_keep_cpp_row_order() {
     let _serial = crate::test_sync::lock();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     assert_eq!(priority(&engine, ""), 1);
     assert_eq!(engine.get_attack_info("Missing").unwrap().get_name(), "");
     assert!(engine.set_priority_default("Zulu", 7));
@@ -49,7 +49,7 @@ fn default_missing_and_named_lookup_keep_cpp_row_order() {
 #[test]
 fn empty_named_row_is_distinct_from_canonical_default() {
     let _serial = crate::test_sync::lock();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     // C++ findAttackInfo searches from1 even for an empty input name.
     assert!(engine.set_priority_default("", 77));
     assert_eq!(priority(&engine, ""), 77);
@@ -68,7 +68,7 @@ fn empty_named_row_is_distinct_from_canonical_default() {
 #[test]
 fn capacity_rejects_new_rows_but_updates_existing_rows() {
     let _serial = crate::test_sync::lock();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     for i in 1..MAX_ATTACK_PRIORITIES {
         assert!(engine.set_priority_default(&format!("Row{i}"), i as i32));
     }
@@ -85,7 +85,7 @@ fn capacity_rejects_new_rows_but_updates_existing_rows() {
 #[test]
 fn live_script_edits_update_existing_definition_without_new_row() {
     let _serial = crate::test_sync::lock();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     script_default(&engine, "Live", 4);
     let old_snapshot = engine.get_attack_info("Live").unwrap();
     script_default(&engine, "Live", 13);
@@ -100,10 +100,10 @@ fn live_script_edits_update_existing_definition_without_new_row() {
 #[test]
 fn independent_engine_construction_does_not_publish_or_replace_definitions() {
     let _serial = crate::test_sync::lock();
-    let first = ScriptEngine::new().unwrap();
+    let first = ScriptEngine::new_in_published_world().unwrap();
     script_default(&first, "SharedName", 4);
     first.with_active(|| {
-        let second = ScriptEngine::new().unwrap();
+        let second = ScriptEngine::new_in_published_world().unwrap();
         assert_eq!(
             with_active_script_engine_ref(|e| priority(e, "SharedName")),
             Some(4)
@@ -121,7 +121,7 @@ fn independent_engine_construction_does_not_publish_or_replace_definitions() {
 #[test]
 fn reset_recreates_default_and_removes_named_rows() {
     let _serial = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     assert!(engine.set_priority_default("BeforeReset", 23));
     let before = engine.get_attack_info("BeforeReset").unwrap();
     engine.reset();
@@ -135,7 +135,7 @@ fn reset_recreates_default_and_removes_named_rows() {
 #[test]
 fn host_tail_preserves_row_order_overrides_and_empty_restore_default() {
     let _serial = crate::test_sync::lock();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut tail = engine.snapshot_xfer_tail();
     tail.attack_priorities = vec![
         ("".into(), 1, vec![]),
@@ -182,7 +182,7 @@ fn base_xfer_round_trip_keeps_priority_wire_and_rng() {
     let _serial = crate::test_sync::lock();
     get_named_object_tracker().clear().unwrap();
     let before = game_engine::common::random_value::get_game_logic_random_seed_state();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     // C++ load intentionally starts a fade when saved fade is None; use the
     // actual new-map phase so full-wire resave remains a valid invariant.
     engine.new_map();
@@ -191,7 +191,7 @@ fn base_xfer_round_trip_keeps_priority_wire_and_rng() {
     let mut saved = Cursor::new(Vec::new());
     engine.xfer(&mut XferSave::new(&mut saved, 1)).unwrap();
     let saved = saved.into_inner();
-    let mut restored = ScriptEngine::new().unwrap();
+    let mut restored = ScriptEngine::new_in_published_world().unwrap();
     restored
         .xfer(&mut XferLoad::new(Cursor::new(saved.clone()), 1))
         .unwrap();
@@ -279,7 +279,7 @@ fn excessive_row_prefix_is_invalid_data_and_preserves_table() {
 #[test]
 fn oversized_host_restore_cannot_be_serialized_even_after_u16_wrap() {
     let _serial = crate::test_sync::lock();
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let mut tail = engine.snapshot_xfer_tail();
     tail.attack_priorities = (0..=MAX_ATTACK_PRIORITIES)
         .map(|i| (format!("Row{i}"), i as i32, vec![]))

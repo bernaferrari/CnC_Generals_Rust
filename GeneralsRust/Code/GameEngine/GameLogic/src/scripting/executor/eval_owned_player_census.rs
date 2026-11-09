@@ -131,7 +131,7 @@ mod tests {
     }
     #[test]
     fn built_by_player_cache_uses_only_the_driving_object_count_frame() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut evaluator = ScriptConditionEvaluator::new(&engine, &context);
         let mut condition = Condition::new(ConditionType::BuiltByPlayer);

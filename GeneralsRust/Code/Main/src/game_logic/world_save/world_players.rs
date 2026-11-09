@@ -1229,7 +1229,7 @@ mod map_singleton_owner_tests {
         dict
     }
     fn interpreter() -> ScriptEngine {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut first = ScriptAction::new(ScriptActionType::SetCounter);
         first
             .add_parameter(Parameter::with_string(

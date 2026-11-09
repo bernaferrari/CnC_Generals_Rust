@@ -381,7 +381,7 @@ impl GameLogic {
         action
             .add_parameter(Parameter::with_string(ParameterType::Team, team.into()))
             .unwrap();
-        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         engine.friend_execute_action_with_driver(
             &action,
             None,

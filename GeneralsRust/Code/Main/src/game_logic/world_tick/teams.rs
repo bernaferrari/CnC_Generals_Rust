@@ -3175,7 +3175,7 @@ mod tests {
         // C++ seeds named requests on the interpreter's first update, after
         // map actors have their authored names. Exercise that phase before
         // asking the live named-weapon command to resolve the launcher.
-        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         assert_eq!(logic.host_object_id_by_script_name("NamedScud"), None);
         logic
             .update_local_script_engine_with_owner(&engine)

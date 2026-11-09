@@ -125,7 +125,7 @@ fn script_engine(team: &str) -> ScriptEngine {
     let mut list = ScriptList::new();
     list.append_script(Box::new(callback));
     list.append_script(Box::new(trigger));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

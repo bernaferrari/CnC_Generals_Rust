@@ -79,7 +79,7 @@ fn decode(engine: &mut ScriptEngine, condition: bool) -> ScriptList {
 fn public_condition_decoder_uses_driving_engine_templates() {
     let _serial = crate::test_sync::lock();
     let _restore = RestoreGlobal(get_script_engine().write().unwrap().take());
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let list = decode(&mut engine, true);
     let condition = list
         .first_script
@@ -97,7 +97,7 @@ fn public_condition_decoder_uses_driving_engine_templates() {
 fn public_action_decoder_uses_driving_engine_templates() {
     let _serial = crate::test_sync::lock();
     let _restore = RestoreGlobal(get_script_engine().write().unwrap().take());
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let list = decode(&mut engine, false);
     let action = list.first_script.unwrap().action.unwrap();
     assert_eq!(action.action_type, ScriptActionType::Victory);

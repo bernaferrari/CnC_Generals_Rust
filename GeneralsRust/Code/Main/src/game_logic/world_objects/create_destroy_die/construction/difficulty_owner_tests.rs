@@ -157,7 +157,7 @@ fn owned_birth_policy_survives_real_snapshot_and_controls_next_factory_admission
 #[test]
 fn interpreter_admission_adopts_policy_once_without_tick_global_polling() {
     let mut world = world();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_objects_should_receive_difficulty_bonus(false);
     world.install_owned_script_engine(engine);
     let id = world

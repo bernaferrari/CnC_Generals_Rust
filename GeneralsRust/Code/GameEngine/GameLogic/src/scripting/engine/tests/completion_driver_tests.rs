@@ -51,7 +51,7 @@ fn borrowed_engine_timers_are_authoritative_for_true_and_false() {
     ] {
         for answer in [false, true] {
             let calls = Arc::new(AtomicUsize::new(0));
-            let mut own = ScriptEngine::new().unwrap();
+            let mut own = ScriptEngine::new_in_published_world().unwrap();
             own.set_action_handler(Some(Arc::new(RetainedCompletionHandler {
                 calls: calls.clone(),
                 answer: !answer,
@@ -64,7 +64,7 @@ fn borrowed_engine_timers_are_authoritative_for_true_and_false() {
             };
             timers.push((name.into(), if answer { 10 } else { 11 }));
             own.restore_xfer_tail(&tail);
-            let foreign = ScriptEngine::new().unwrap();
+            let foreign = ScriptEngine::new_in_published_world().unwrap();
             let mut foreign_tail = foreign.snapshot_xfer_tail();
             foreign_tail.testing_speech = vec![(name.into(), 90)];
             foreign_tail.testing_audio = vec![(name.into(), 100)];
@@ -103,7 +103,7 @@ fn borrowed_engine_timers_are_authoritative_for_true_and_false() {
 
 #[test]
 fn public_wrapper_and_driver_walk_query_the_same_canonical_timer() {
-    let own = ScriptEngine::new().unwrap();
+    let own = ScriptEngine::new_in_published_world().unwrap();
     let mut tail = own.snapshot_xfer_tail();
     tail.testing_speech = vec![("Briefing".into(), 20)];
     tail.testing_audio = vec![("Explosion".into(), 20)];
@@ -137,7 +137,7 @@ fn public_wrapper_and_driver_walk_query_the_same_canonical_timer() {
 
 #[test]
 fn malformed_completion_conditions_leave_canonical_timers_untouched() {
-    let own = ScriptEngine::new().unwrap();
+    let own = ScriptEngine::new_in_published_world().unwrap();
     let mut tail = own.snapshot_xfer_tail();
     tail.testing_speech = vec![("Briefing".into(), 20)];
     tail.testing_audio = vec![("Explosion".into(), 30)];
@@ -166,7 +166,7 @@ fn and_chain(first: Condition, second: Condition) -> Box<Condition> {
 
 #[test]
 fn completion_queries_preserve_and_or_short_circuit_order() {
-    let own = ScriptEngine::new().unwrap();
+    let own = ScriptEngine::new_in_published_world().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::new());
     state.borrow_mut().current_frame = 10;
     let mut evaluator = ScriptConditionEvaluator::new(&own, &state);

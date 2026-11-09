@@ -24,7 +24,7 @@ fn seed(marker: u32) {
         .add_player(Arc::new(std::sync::RwLock::new(
             crate::player::Player::new(marker as i32),
         )));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_counter("ReservationMarker", marker as i32)
         .unwrap();

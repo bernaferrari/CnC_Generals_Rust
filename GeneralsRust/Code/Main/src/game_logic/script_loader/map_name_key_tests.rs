@@ -138,7 +138,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn dropping_earlier_templates_cannot_erase_later_decode_definitions() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
         let earlier = Templates::new(&engine);
         let later = Templates::new(&engine);
@@ -156,7 +156,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn conflicting_catalogs_stay_explicit_across_interleaved_decode_routes() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
         let authored = ScriptTemplateLookup::from_engine(&engine);
         let empty = ScriptTemplateLookup::default();
@@ -204,7 +204,7 @@ mod map_name_key_tests {
         // Exercise the real adapter without publishing a fixture. These older
         // records contain no template keys. Named-record owner selection and
         // cross-thread key namespaces remain separate migration obligations.
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut ordinal = Record::valid(&engine);
         ordinal.condition_version = 3;
         ordinal.action_version = 1;
@@ -225,7 +225,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn direct_condition_matches_ordinal_by_decoded_name() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
         assert_eq!(
             read(&engine, &document(record, false, 0)).0,
@@ -234,7 +234,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn direct_condition_rematches_stale_ordinal_by_decoded_name() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut record = Record::valid(&engine);
         record.condition = ConditionType::ConditionFalse;
         assert_eq!(
@@ -244,7 +244,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn direct_action_matches_ordinal_by_decoded_name() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
         let (_, yes, no) = read(&engine, &document(record, false, 0));
         assert_eq!(yes, ScriptActionType::Victory);
@@ -252,7 +252,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn direct_action_rematches_stale_ordinal_in_both_branches() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut record = Record::valid(&engine);
         record.action = ScriptActionType::NoOp;
         let (_, yes, no) = read(&engine, &document(record, false, 0));
@@ -261,7 +261,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn direct_and_sides_decode_identical_named_records_after_file_id_changes() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
         for padding in [0, 9] {
             assert_eq!(
@@ -272,7 +272,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn unknown_names_keep_false_noop_in_both_paths() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut record = Record::valid(&engine);
         record.condition_key = NameKeyGenerator::name_to_key("UNKNOWN_MAP_CONDITION");
         record.action_key = NameKeyGenerator::name_to_key("UNKNOWN_MAP_ACTION");
@@ -289,7 +289,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn older_versions_do_not_consume_a_name_key_word() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut record = Record::valid(&engine);
         record.condition_version = 3;
         record.action_version = 1;
@@ -351,7 +351,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn absent_file_name_ids_rematch_the_cpp_empty_template_slots() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
         for sides in [false, true] {
             let mut document = document(record, sides, 0);
@@ -369,7 +369,7 @@ mod map_name_key_tests {
     }
     #[test]
     fn signed_packed_ids_do_not_alias_positive_toc_ids() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let record = Record::valid(&engine);
         for sides in [false, true] {
             let mut document = document(record, sides, 0);

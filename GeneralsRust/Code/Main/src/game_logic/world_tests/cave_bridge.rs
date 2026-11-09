@@ -333,7 +333,7 @@ fn ini_cave_index_registers_on_create() {
 
 #[test]
 fn set_cave_index_runs_on_the_receiving_host() {
-    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     // C++ ScriptActions.cpp:5063 SET_CAVE_INDEX targets the named cave immediately.
     let mut logic = GameLogic::new();

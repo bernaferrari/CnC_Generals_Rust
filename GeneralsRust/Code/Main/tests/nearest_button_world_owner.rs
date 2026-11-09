@@ -78,7 +78,7 @@ fn world_with_roster(
         .get_side_info_mut(0)
         .unwrap()
         .set_script_list(Some(Box::new(scripts)));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 4);
     for value in [41, 41, 1, 1, boundary, boundary, 1681] {
@@ -190,7 +190,7 @@ fn execute(game: &mut GameLogic) {
     script.action = Some(Box::new(action));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
@@ -324,7 +324,7 @@ fn execute_garrison_for(game: &mut GameLogic, by_team: bool, unit: &str) {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();

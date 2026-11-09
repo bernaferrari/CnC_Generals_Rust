@@ -63,7 +63,7 @@ fn prepare(world: &mut GameLogic, name: &str, include_neutral: bool) -> Vec<Dict
 // The direct snapshot API receives an already-loaded map foundation, exactly
 // as the production stage admits saved initial slots then loads map definitions.
 fn prepare_restore_foundation(world: &mut GameLogic) {
-    world.install_owned_script_engine(gamelogic::scripting::engine::ScriptEngine::new().unwrap());
+    world.install_owned_script_engine(gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap());
     let definitions = prepare(world, "PlyrCivilian", false);
     assert!(world.sync_legacy_team_factory_from_team_dicts(&definitions));
 }

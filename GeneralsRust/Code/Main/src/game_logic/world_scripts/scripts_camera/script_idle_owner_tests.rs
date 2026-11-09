@@ -98,7 +98,7 @@ fn timed_guard_uses_idle_without_guard_or_peer_mutation() {
     roster(&owner, unit);
     roster(&peer, peer_unit);
     attacking(&mut peer, peer_unit, peer_target);
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     for kind in [
         ScriptActionType::TeamGuardForFramecount,
         ScriptActionType::TeamIdleForFramecount,
@@ -136,7 +136,7 @@ fn missing_sequential_script_preserves_live_ai_then_valid_script_idles_before_ap
     assert_eq!(team, peer_team);
     attacking(&mut owner, unit, target);
     attacking(&mut peer, peer_unit, peer_target);
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut action = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
     action
         .add_parameter(Parameter::with_string(

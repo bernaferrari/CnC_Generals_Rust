@@ -76,7 +76,7 @@ fn speech_playback_does_not_start_or_restart_the_completion_query_timer() {
         "speech_playback_does_not_start_or_restart_the_completion_query_timer",
         || {
             let hooks = MissionScriptHooks::new();
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             let name = "CompletionProbe_Unregistered_Speech";
             let handler = unknown_speech(&hooks, name);
             let frame = 10;
@@ -133,7 +133,7 @@ fn speech_playback_preserves_an_existing_not_yet_complete_query_deadline() {
         "speech_playback_preserves_an_existing_not_yet_complete_query_deadline",
         || {
             let hooks = MissionScriptHooks::new();
-            let engine = ScriptEngine::new().unwrap();
+            let engine = ScriptEngine::new_in_published_world().unwrap();
             let name = "CompletionProbe_Existing_Timer";
             let handler = unknown_speech(&hooks, name);
             let mut tail = engine.snapshot_xfer_tail();

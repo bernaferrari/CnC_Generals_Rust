@@ -62,7 +62,7 @@ fn map_file(root: &std::path::Path, destination: [f32; 3]) -> std::path::PathBuf
         .expect("Owner map side")
         .set_script_list(Some(Box::new(script_list)));
 
-    let engine = ScriptEngine::new().expect("script templates");
+    let engine = ScriptEngine::new_in_published_world().expect("script templates");
     let mut out = DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 1, 1681] {
@@ -269,7 +269,7 @@ fn scripted_death_runs_the_callback_on_the_already_borrowed_interpreter() {
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(callback));
     scripts.append_script(Box::new(trigger));
-    let interpreter = ScriptEngine::new().unwrap();
+    let interpreter = ScriptEngine::new_in_published_world().unwrap();
     interpreter
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();

@@ -60,7 +60,7 @@ fn owned_template_sides_document(engine: &gamelogic::scripting::engine::ScriptEn
 
 #[test]
 fn sides_fallback_uses_supplied_catalog_for_nested_conditions_and_both_actions() {
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let document = owned_template_sides_document(&engine);
     for (catalog, condition_kind, action_kind) in [
         (

@@ -49,7 +49,7 @@ fn guard_action(team: &str) -> ScriptAction {
 
 #[test]
 fn team_guard_dispatches_raw_token_and_condition_from_borrowed_engine() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let saved = engine.set_external_eval_context(None, Some(19));
     let context = std::cell::RefCell::new(ScriptContext::at_frame(19));
     let mut owner = GuardOwner::default();
@@ -78,7 +78,7 @@ fn team_guard_dispatches_raw_token_and_condition_from_borrowed_engine() {
 
 #[test]
 fn team_guard_friend_action_passes_both_contexts_and_restores_calling_team() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let saved = engine.set_external_eval_context(None, Some(19));
     let mut owner = GuardOwner::default();
     engine.friend_execute_action_with_driver(
@@ -100,7 +100,7 @@ fn team_guard_friend_action_passes_both_contexts_and_restores_calling_team() {
 
 #[test]
 fn team_guard_missing_owner_result_is_authoritative_success() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = GuardOwner::default();
@@ -115,7 +115,7 @@ fn team_guard_missing_owner_result_is_authoritative_success() {
 
 #[test]
 fn team_guard_owner_error_is_authoritative_without_standalone_retry() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = GuardOwner {
@@ -131,7 +131,7 @@ fn team_guard_owner_error_is_authoritative_without_standalone_retry() {
 
 #[test]
 fn team_guard_requires_team_parameter_before_owner_dispatch() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut owner = GuardOwner::default();

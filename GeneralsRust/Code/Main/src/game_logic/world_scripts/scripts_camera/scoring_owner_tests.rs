@@ -7,7 +7,7 @@ use gamelogic::scripting::engine::ScriptEngine;
 #[cfg(test)]
 impl GameLogic {
     pub(crate) fn execute_scoring_script_for_test(&mut self, enabled: bool) {
-        let engine = ScriptEngine::new().expect("local script engine");
+        let engine = ScriptEngine::new_in_published_world().expect("local script engine");
         let action = ScriptAction::new(if enabled {
             ScriptActionType::EnableScoring
         } else {

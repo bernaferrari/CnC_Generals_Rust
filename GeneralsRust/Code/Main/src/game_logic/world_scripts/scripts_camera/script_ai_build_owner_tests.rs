@@ -117,7 +117,7 @@ fn authored_build_recruit_and_supply_actions_mutate_only_the_borrowed_world() {
     let peer_team_before = peer.host_object(peer_unit).unwrap().team_instance_id;
     let peer_before =
         serde_json::to_vec(&peer.ai_manager.ai_players[&1].capture_queue_persist()).unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     run(
         &engine,
         &mut owner,
@@ -243,7 +243,7 @@ fn supply_script_acquires_enemy_at_deadline_in_only_the_receiving_world() {
 
     let mut first = prepared_world();
     let mut second = prepared_world();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut supply = action(
         ScriptActionType::AiPlayerBuildSupplyCenter,
         ParameterType::Side,
@@ -298,7 +298,7 @@ fn upgrade_and_nearest_team_actions_apply_immediately_to_actual_owner() {
     admit(&owner, "NearestOwnedTeam", 77, Some(unit));
     admit(&peer, "NearestOwnedTeam", 77, Some(peer_unit));
     let before = peer.ai_manager.ai_players[&1].building_queue.len();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut nearest = action(
         ScriptActionType::AiPlayerBuildTypeNearestTeam,
         ParameterType::Side,
@@ -399,7 +399,7 @@ fn approach_move_uses_owned_team_and_owned_enemy_numbered_waypoint() {
             "ActualPath".into(),
         ))
         .unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     run(&engine, &mut owner, &action);
     assert_eq!(
         owner.host_object(unit).unwrap().requested_destination,
@@ -426,7 +426,7 @@ fn front_defense_script_admits_actual_layout_row_in_supplied_ai() {
     owner.ai_manager.ai_players.get_mut(&1).unwrap().base_center = Vec3::ZERO;
     let before = owner.ai_manager.ai_players[&1].building_queue.len();
     let peer_before = peer.ai_manager.ai_players[&1].building_queue.len();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     super::condition_cursor_control_tests::admit(&owner, "DefenseCaller", 77, None);
     engine.friend_execute_action_with_driver(
         &action(
@@ -497,7 +497,7 @@ fn panic_action_uses_actual_team_member_and_own_closest_waypoint() {
             "MissingPath".into(),
         ))
         .unwrap();
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     run(&engine, &mut owner, &panic);
     assert!(owner.host_object(unit).unwrap().panic_runtime.is_none());
     panic.parameters[1].as_mut().unwrap().string_value = "ActualPanicPath".into();

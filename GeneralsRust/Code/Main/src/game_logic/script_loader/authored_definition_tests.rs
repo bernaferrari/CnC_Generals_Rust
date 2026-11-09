@@ -77,7 +77,7 @@ mod authored_definition_tests {
     }
 
     fn check_condition(name: &str, expected: ConditionType, opponent: bool) {
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         // Ordinary reset keeps the authored definitions; it must not invent names.
         engine.reset();
         let mut parameters = vec![
@@ -240,7 +240,7 @@ mod authored_definition_tests {
     }
     #[test]
     fn both_routes_reject_a_name_cpp_never_authored() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         for sides in [false, true] {
             let script = read(
                 &engine,
@@ -262,7 +262,7 @@ mod authored_definition_tests {
     }
     #[test]
     fn empty_names_preserve_stored_slots_then_rematch_first_empty_slot() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         for sides in [false, true] {
             for (stored, expected) in [
                 (

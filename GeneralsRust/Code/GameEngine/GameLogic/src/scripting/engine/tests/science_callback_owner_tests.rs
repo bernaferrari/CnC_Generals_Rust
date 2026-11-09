@@ -85,7 +85,7 @@ impl Drop for RankCatalogRestore {
 }
 
 fn science_test_engine(flag: &str) -> ScriptEngine {
-    let mut engine = ScriptEngine::new().expect("script engine");
+    let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
     let mut script = Script::new();
     script.script_name = format!("ScienceOwner_{flag}");
     script.is_one_shot = true;
@@ -135,7 +135,7 @@ fn interleaved_science_updates(foreign_slot: bool) {
     let _guard = crate::test_sync::lock();
     let _rank_catalog = RankCatalogRestore::install(&[Vec::new()]);
     let _slot = ScriptEngineSlotRestore::install(
-        foreign_slot.then(|| ScriptEngine::new().expect("foreign engine")),
+        foreign_slot.then(|| ScriptEngine::new_in_published_world().expect("foreign engine")),
     );
     let science = NameKeyGenerator::name_to_key("SCIENCE_OWNER_CALLBACK") as ScienceType;
     let mut first_player = Player::new(0);
@@ -294,7 +294,7 @@ fn player_rank_up_and_down_callbacks_publish_exact_reset_science_sequence() {
 fn acquired_science_consumption_removes_first_match_after_saved_tail_snapshot() {
     let _guard = crate::test_sync::lock();
     let _empty_slot = ScriptEngineSlotRestore::install(None);
-    let owner = ScriptEngine::new().expect("script engine");
+    let owner = ScriptEngine::new_in_published_world().expect("script engine");
     let first = NameKeyGenerator::name_to_key("SCIENCE_FIRST") as ScienceType;
     let between = NameKeyGenerator::name_to_key("SCIENCE_BETWEEN") as ScienceType;
 
@@ -311,7 +311,7 @@ fn acquired_science_consumption_removes_first_match_after_saved_tail_snapshot() 
         "save/Xfer state must include ordered pending HAS_SCIENCE edges before consume"
     );
 
-    let restored = ScriptEngine::new().expect("restored engine");
+    let restored = ScriptEngine::new_in_published_world().expect("restored engine");
     restored.restore_xfer_tail(&before_consumption);
     assert_eq!(acquired(&restored), vec![first, between, first]);
     assert!(restored.is_science_acquired(0, first, true));
@@ -334,7 +334,7 @@ fn standalone_player_add_science_still_notifies_the_process_engine() {
     let _empty_slot = ScriptEngineSlotRestore::install(None);
     let _rank_catalog = RankCatalogRestore::install(&[Vec::new()]);
     let science = NameKeyGenerator::name_to_key("SCIENCE_STANDALONE_OWNER") as ScienceType;
-    let standalone = ScriptEngine::new().expect("standalone engine");
+    let standalone = ScriptEngine::new_in_published_world().expect("standalone engine");
     let _standalone_slot = ScriptEngineSlotRestore::install(Some(standalone));
 
     let mut player = Player::new(0);

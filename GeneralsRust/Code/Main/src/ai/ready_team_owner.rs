@@ -171,7 +171,7 @@ mod tests {
             team.get_id()
         };
         world.host_object_mut(unit).unwrap().team_instance_name = "ReadyTeam".into();
-        world.install_owned_script_engine(ScriptEngine::new().unwrap());
+        world.install_owned_script_engine(ScriptEngine::new_in_published_world().unwrap());
         let mut node = AITeamQueue::new("ReadyTeam".into(), Vec::new(), false, 100);
         node.team_id = Some(id);
         world

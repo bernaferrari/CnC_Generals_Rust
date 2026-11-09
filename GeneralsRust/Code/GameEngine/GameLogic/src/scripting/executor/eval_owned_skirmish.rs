@@ -150,7 +150,7 @@ mod tests {
     }
     #[test]
     fn power_parameter_retains_cpp_future_frame_and_missing_definition_latches() {
-        let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         let mut condition = Condition::new(ConditionType::SkirmishSpecialPowerReady);
         condition
             .add_parameter(Parameter::with_string(ParameterType::Side, "Owner".into()))

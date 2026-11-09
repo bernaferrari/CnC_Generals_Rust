@@ -57,18 +57,27 @@ impl ScriptEngine {
         (&self.cave_names, &self.cave_objects, &self.cave_system)
     }
 
+    /// A script engine on a fresh private world. It never adopts the world
+    /// published on the calling thread; callers that belong to a world use
+    /// [`Self::new_with_services`] with that world.
     pub fn new() -> GameLogicResult<Self> {
-        // Prefer the published world; otherwise allocate a private owner so unit
-        // tests never touch a process-wide bag.
+        Self::new_with_services(&crate::system::engine_stores::new_world_services())
+    }
+
+    /// Fixture/probe convenience: build on the world published on this
+    /// thread, or a private world keyed by the published Common names when
+    /// none is. Gameplay code names its world with [`Self::new_with_services`].
+    pub fn new_in_published_world() -> GameLogicResult<Self> {
         if let Some(services) = crate::system::engine_stores::try_active_services() {
             return Self::new_with_services(&services);
         }
         let services = crate::system::engine_stores::new_world_services();
-        if let Some(common) = game_engine::common::common_services::try_common_services() {
-            let mut names = common.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
-            Self::new_with_names(&services, &mut names)
-        } else {
-            Self::new_with_services(&services)
+        match game_engine::common::common_services::try_common_services() {
+            Some(common) => {
+                let mut names = common.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
+                Self::new_with_names(&services, &mut names)
+            }
+            None => Self::new_with_services(&services),
         }
     }
 
@@ -1521,6 +1530,30 @@ impl ScriptEngine {
 mod script_object_context_tests {
     use super::*;
 
+    /// C++ each GameEngine constructs its own TheScriptEngine. A bare
+    /// `ScriptEngine::new()` must not adopt the world published on the thread:
+    /// two worlds taking turns get distinct rosters and caves, and an engine
+    /// built while one is published stays off it.
+    #[test]
+    fn bare_script_engine_never_adopts_the_published_world() {
+        use crate::system::engine_stores::{with_active_stores, EngineStores};
+        let _lock = crate::test_sync::lock();
+        let world_a = std::sync::Arc::new(EngineStores::new_for_world());
+        let world_b = std::sync::Arc::new(EngineStores::new_for_world());
+        for (published, other) in [(&world_a, &world_b), (&world_b, &world_a)] {
+            with_active_stores(published, || {
+                let bare = ScriptEngine::new().expect("bare engine");
+                for world in [published, other] {
+                    assert!(!Arc::ptr_eq(bare.players(), world.services().players()));
+                    assert!(!Arc::ptr_eq(&bare.cave_system, &world.services().logic_managers().cave));
+                }
+                let owned = ScriptEngine::new_with_services(other.services()).expect("owned engine");
+                assert!(Arc::ptr_eq(owned.players(), other.services().players()));
+                assert!(!Arc::ptr_eq(owned.players(), published.services().players()));
+            });
+        }
+    }
+
     #[test]
     fn named_command_snapshots_this_object_from_borrowed_engine() {
         use crate::scripting::core::{
@@ -1556,12 +1589,12 @@ mod script_object_context_tests {
             }
         }
 
-        let mut own = ScriptEngine::new().unwrap();
+        let mut own = ScriptEngine::new_in_published_world().unwrap();
         own.with_inner_mut(|inner| {
             inner.calling_object = Some(73);
             inner.condition_object = Some(41);
         });
-        let mut foreign = ScriptEngine::new().unwrap();
+        let mut foreign = ScriptEngine::new_in_published_world().unwrap();
         foreign.with_inner_mut(|inner| inner.calling_object = Some(13));
         let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&own, &context);
@@ -1618,7 +1651,7 @@ mod script_object_context_tests {
 
     #[test]
     fn script_object_id_prefers_calling_object_then_condition_object() {
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         assert_eq!(engine.script_object_id(), None);
         engine.with_inner_mut(|inner| inner.condition_object = Some(41));
         assert_eq!(engine.script_object_id(), Some(41));

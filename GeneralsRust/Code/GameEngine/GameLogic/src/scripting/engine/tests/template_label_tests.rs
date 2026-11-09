@@ -25,7 +25,7 @@ fn assert_nonlabel_fields(before: &Template, after: &Template) {
 
 #[test]
 fn labels_apply_in_source_order_without_altering_authored_fields() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let before = action(&engine);
     let text = format!(
         "{}ScriptAction\nInternalName = SET_FLAG\nUIName2 = Secondary\nHelpText = Help\nEnd\n",
@@ -42,7 +42,7 @@ fn labels_apply_in_source_order_without_altering_authored_fields() {
 
 #[test]
 fn exact_case_and_unknown_names_do_not_change_authored_templates() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let before = action(&engine);
     engine.parse_template_labels("ScriptAction\nInternalName = set_flag\nUIName = Wrong\nEnd\nScriptAction\nInternalName = UNKNOWN_TEMPLATE\nUIName = Unknown\nEnd\n").unwrap();
     let after = action(&engine);
@@ -54,7 +54,7 @@ fn exact_case_and_unknown_names_do_not_change_authored_templates() {
 
 #[test]
 fn condition_labels_use_the_condition_catalog() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let index = ConditionType::ConditionTrue as usize;
     let before = engine.get_condition_template(index).unwrap().base;
     let text = format!(
@@ -69,7 +69,7 @@ fn condition_labels_use_the_condition_catalog() {
 
 #[test]
 fn empty_name_changes_only_the_first_unused_condition_slot() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let slots: Vec<_> = (0..ConditionType::NumItems as usize)
         .filter(|&i| {
             engine
@@ -106,9 +106,9 @@ fn empty_name_changes_only_the_first_unused_condition_slot() {
 #[test]
 fn interleaved_engines_constructor_reset_and_restore_keep_owner_labels() {
     let _serial = crate::test_sync::lock();
-    let mut a = ScriptEngine::new().unwrap();
+    let mut a = ScriptEngine::new_in_published_world().unwrap();
     a.parse_template_labels(&source("OwnerA")).unwrap();
-    let mut b = ScriptEngine::new().unwrap();
+    let mut b = ScriptEngine::new_in_published_world().unwrap();
     assert_eq!(action(&a).ui_name, "OwnerA");
     assert_ne!(action(&b).ui_name, "OwnerA");
     b.parse_template_labels(&source("OwnerB")).unwrap();
@@ -125,7 +125,7 @@ fn interleaved_engines_constructor_reset_and_restore_keep_owner_labels() {
 
 #[test]
 fn later_parse_error_keeps_completed_block_but_not_incomplete_block() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let text = format!(
         "{}ScriptAction\nInternalName = SET_FLAG\nUIName = Broken\nUnknown = 1\nEnd\n",
         source("Completed")

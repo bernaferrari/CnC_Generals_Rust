@@ -829,7 +829,7 @@ mod tests {
             .unwrap();
         receipt.action = Some(Box::new(display));
         list.append_script(Box::new(receipt));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
@@ -908,7 +908,7 @@ mod tests {
         let mut scripts = ScriptList::new();
         scripts.append_script(Box::new(create));
         scripts.append_script(Box::new(peer_create));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine.set_counter("PeerCreateVisits", 0).unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(scripts)))
@@ -1074,7 +1074,7 @@ mod tests {
         script.normal = false;
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
@@ -1219,7 +1219,7 @@ mod tests {
         script.action = Some(Box::new(display));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(list)))
             .unwrap();
@@ -1295,7 +1295,7 @@ mod tests {
         script.action = Some(Box::new(action));
         let mut scripts = ScriptList::new();
         scripts.append_script(Box::new(script));
-        let mut engine = ScriptEngine::new().unwrap();
+        let mut engine = ScriptEngine::new_in_published_world().unwrap();
         engine
             .set_script_list_for_player(0, Some(Box::new(scripts)))
             .unwrap();

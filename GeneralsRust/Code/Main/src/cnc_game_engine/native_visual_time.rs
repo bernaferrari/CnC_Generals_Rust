@@ -191,7 +191,7 @@ mod tests {
     fn late_native_visual_time_reads_receiving_debug_owner_and_preserves_short_circuit() {
         let mut owner = GameLogic::new();
         let peer = GameLogic::new();
-        let mut engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         engine.set_time_frozen_debug(true);
         owner.install_owned_script_engine(engine);
         assert!(observe_receiving(&owner, false, None).unwrap().frozen);

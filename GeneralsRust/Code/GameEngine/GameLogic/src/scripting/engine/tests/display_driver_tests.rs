@@ -83,7 +83,7 @@ fn engine() -> (ScriptEngine, Arc<AtomicUsize>) {
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(RetainedDisplayHandler(calls.clone()))));
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
@@ -179,7 +179,7 @@ fn standalone_display_adapter_preserves_defaults_errors_and_reentry() {
 
 #[test]
 fn invalid_display_parameters_do_not_reach_the_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let _guard = crate::test_sync::lock();
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
@@ -210,7 +210,7 @@ fn invalid_display_parameters_do_not_reach_the_owner() {
 
 #[test]
 fn display_parameters_preserve_explicit_cinematic_values_and_caption_policy() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let _guard = crate::test_sync::lock();
     let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());

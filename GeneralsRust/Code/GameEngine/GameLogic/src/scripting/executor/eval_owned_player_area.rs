@@ -171,7 +171,7 @@ mod tests {
     }
     #[test]
     fn area_type_and_value_cache_keep_distinct_cpp_frame_gates_and_missing_is_final() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let evaluator = ScriptConditionEvaluator::new(&engine, &context);
         for kind in [
@@ -223,7 +223,7 @@ mod tests {
     }
     #[test]
     fn area_kind_preserves_cpp_frame_in_custom_data_quirk() {
-        let engine = ScriptEngine::new().unwrap();
+        let engine = ScriptEngine::new_in_published_world().unwrap();
         let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let evaluator = ScriptConditionEvaluator::new(&engine, &context);
         let mut condition = condition(ConditionType::PlayerHasComparisonUnitKindInTriggerArea);

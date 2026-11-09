@@ -58,7 +58,7 @@ fn action(path: Option<&str>) -> ScriptAction {
 
 #[test]
 fn wander_dispatches_synchronously_to_the_supplied_owner() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let saved = engine.set_external_eval_context(None, Some(19));
     let mut first = Owner::default();
     let mut peer = Owner::default();
@@ -94,7 +94,7 @@ fn wander_dispatches_synchronously_to_the_supplied_owner() {
 
 #[test]
 fn wander_owner_error_does_not_fall_back_to_another_world() {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut owner = Owner {
         reject: true,
         ..Default::default()

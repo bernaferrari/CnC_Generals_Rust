@@ -510,7 +510,7 @@ fn prepare_scripted_external_energy_with_nested(
     script.action = Some(Box::new(count));
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("ExternalEnergyVisits", 0).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
@@ -776,7 +776,7 @@ fn actual_singleton_factory_reuses_running_identity_and_executes_its_creation_ac
     on_create.action = Some(Box::new(increment));
     let mut list = ScriptList::new();
     list.append_script(Box::new(on_create));
-    let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     interpreter.set_counter("SingletonVisits", 0).unwrap();
     interpreter
         .set_script_list_for_player(0, Some(Box::new(list)))

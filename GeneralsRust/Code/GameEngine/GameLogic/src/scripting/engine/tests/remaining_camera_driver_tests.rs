@@ -163,7 +163,7 @@ fn view_engine() -> (ScriptEngine, Arc<AtomicUsize>, Vec<String>) {
     script.action = next;
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     engine.set_action_handler(Some(Arc::new(ViewHandler(calls.clone()))));
     engine

@@ -341,7 +341,7 @@ fn instant_build_player_completion_admits_power_and_owned_ai_synchronously() {
     let admitted_power = world.get_player(0).unwrap().power_available;
     world.update_player_resources(0.0);
     assert_eq!(world.get_player(0).unwrap().power_available, admitted_power);
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     world
         .update_local_script_engine_with_owner(&engine)
         .unwrap();
@@ -441,7 +441,7 @@ fn attached_completion_engine() -> gamelogic::scripting::engine::ScriptEngine {
     let mut list = ScriptList::new();
     list.append_script(Box::new(outer));
     list.append_script(Box::new(nested));
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();

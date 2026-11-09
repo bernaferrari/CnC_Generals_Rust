@@ -60,7 +60,7 @@ fn capture_nearest(
         ))
         .unwrap();
     action.next_action = Some(Box::new(after_capture));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_counter("AfterCapture", 0).unwrap();
     engine.set_external_eval_context(None, Some(condition_team));
     let mut observations = Vec::new();

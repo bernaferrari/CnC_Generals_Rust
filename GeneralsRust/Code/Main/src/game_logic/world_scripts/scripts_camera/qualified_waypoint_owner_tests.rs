@@ -17,7 +17,7 @@ fn roster(owner: &GameLogic, unit: ObjectId) -> u32 {
     team.get_id()
 }
 fn issue(owner: &mut GameLogic, team: u32, action: &ScriptAction) {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.friend_execute_action_with_driver(
         action,
         Some(team),

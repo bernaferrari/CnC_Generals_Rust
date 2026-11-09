@@ -512,7 +512,7 @@ fn exact_script_propagates_nested_garrison_error_before_following_action() {
             };
             let mut first = action("CheckedParent");
             first.next_action = Some(Box::new(action("CheckedAfter")));
-            let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+            let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
             let error = world
                 .execute_checked_factory_actions_for_test(&engine, &first)
                 .unwrap_err();

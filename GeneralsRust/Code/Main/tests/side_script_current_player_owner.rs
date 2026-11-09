@@ -25,7 +25,7 @@ fn script() -> ScriptEngine {
     script.is_one_shot = true;
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
         .set_script_list_for_player(1, Some(Box::new(list)))
         .unwrap();
@@ -88,7 +88,7 @@ fn ai_player_action_script() -> ScriptEngine {
     script.is_one_shot = true;
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     // Side slot 2 maps to the receiving Player whose numeric ID is also 2.
     engine
         .set_script_list_for_player(2, Some(Box::new(list)))
@@ -116,7 +116,7 @@ fn missing_current_player_script() -> ScriptEngine {
     script.is_one_shot = true;
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     // Slot 0 is absent even though slot 1 holds a local AI Player; do not
     // compact sparse IDs or substitute the local Player for THIS_PLAYER.
     engine

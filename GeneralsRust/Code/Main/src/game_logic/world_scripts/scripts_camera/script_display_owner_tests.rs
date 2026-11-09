@@ -45,7 +45,7 @@ fn authored_engine(text: &str, retained_hooks: Arc<MissionScriptHooks>) -> Scrip
     script.action = next;
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
-    let mut engine = ScriptEngine::new().unwrap();
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
     engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
         retained_hooks,
     ))));
@@ -171,7 +171,7 @@ fn actual_main_nested_display_flushes_before_the_next_instruction_without_a_hand
             let mut list = ScriptList::new();
             list.append_script(Box::new(outer));
             list.append_script(Box::new(inner));
-            let mut engine = ScriptEngine::new().unwrap();
+            let mut engine = ScriptEngine::new_in_published_world().unwrap();
             assert!(engine.action_handler().is_none());
             engine
                 .set_script_list_for_player(0, Some(Box::new(list)))
@@ -235,7 +235,7 @@ fn named_presentation_actions_mutate_only_the_borrowed_same_id_world() {
     let (mut first, id) = session();
     let (second, peer) = session();
     assert_eq!(id, peer);
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut flash = ScriptAction::new(ScriptActionType::NamedFlashWhite);
     flash
         .add_parameter(Parameter::with_string(

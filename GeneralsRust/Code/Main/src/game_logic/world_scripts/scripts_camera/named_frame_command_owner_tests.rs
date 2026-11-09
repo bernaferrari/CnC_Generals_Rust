@@ -8,7 +8,7 @@ use gamelogic::scripting::engine::{
 };
 
 fn execute(world: &mut GameLogic, kind: ScriptActionType, name: &str) {
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut action = ScriptAction::new(kind);
     action
         .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))

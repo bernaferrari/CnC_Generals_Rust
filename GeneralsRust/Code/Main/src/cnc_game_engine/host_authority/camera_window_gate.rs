@@ -368,7 +368,7 @@ impl CnCGameEngine {
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
         let mut interpreter =
-            gamelogic::scripting::engine::ScriptEngine::new().map_err(|error| error.to_string())?;
+            gamelogic::scripting::engine::ScriptEngine::new_in_published_world().map_err(|error| error.to_string())?;
         interpreter
             .set_script_list_for_player(0, Some(Box::new(list)))
             .map_err(|error| error.to_string())?;

@@ -871,7 +871,7 @@ fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameE
     let mut list = ScriptList::new();
     list.append_script(Box::new(on_create));
     list.append_script(Box::new(scheduled));
-    let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    let mut interpreter = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     for counter in ["DriverFailureVisits", "DriverFailureTrigger"] {
         interpreter.set_counter(counter, 0).unwrap();
     }

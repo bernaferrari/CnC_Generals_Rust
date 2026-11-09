@@ -1006,7 +1006,7 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
             source.native_hulk_max_lifetime_override = 42;
             source.set_rank_points_to_add_at_game_start(15);
             source.set_draw_icon_ui(false);
-            let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+            let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
             {
                 engine.restore_named_trackers(
                     &[("MissionClock".into(), 90, true)],

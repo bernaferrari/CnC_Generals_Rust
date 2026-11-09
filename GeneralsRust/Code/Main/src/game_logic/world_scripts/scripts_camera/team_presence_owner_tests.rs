@@ -32,7 +32,7 @@ fn evaluate(owner: &mut GameLogic, kind: ConditionType, name: &str, context: Opt
     branch.set_first_and_condition(Some(Box::new(condition)));
     let mut script = Script::new();
     script.condition = Some(Box::new(branch));
-    let engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.evaluate_conditions_with_driver(
         &mut script,
         context,

@@ -138,8 +138,8 @@ fn simulation_camera_short_circuit_does_not_invent_a_missing_debug_owner() {
 
 #[test]
 fn explicit_interpreter_reset_keeps_the_existing_owned_port_lifetime() {
-    let mut interpreter = ScriptEngine::new().unwrap();
-    let mut peer = ScriptEngine::new().unwrap();
+    let mut interpreter = ScriptEngine::new_in_published_world().unwrap();
+    let mut peer = ScriptEngine::new_in_published_world().unwrap();
     interpreter.set_time_frozen_debug(true);
     interpreter.do_freeze_time();
     peer.set_time_frozen_debug(true);

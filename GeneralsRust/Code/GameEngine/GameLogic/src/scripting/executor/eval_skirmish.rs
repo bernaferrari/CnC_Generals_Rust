@@ -1566,7 +1566,7 @@ mod tech_building_latch_tests {
     }
 
     fn evaluate(condition: &mut Condition, owner: &mut TechOwner) -> ScriptConditionResult {
-        let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         ScriptConditionEvaluator::new(&engine, &state)
             .evaluate_condition_with_driver(condition, owner)
@@ -1678,7 +1678,7 @@ mod tech_building_latch_tests {
                 ScriptOwnerQuery::Present(true)
             }
         }
-        let mut engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let mut engine = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         engine.set_external_eval_context(Some("Viewer".into()), None);
         let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut condition = tech_condition();
