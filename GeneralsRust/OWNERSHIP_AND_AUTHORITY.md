@@ -186,6 +186,14 @@ to that player; impact combines the captured and current conditions before
 applying the authored weapon bonus. Both survive Rust snapshot restoration.
 `DumbProjectileBehavior.cpp` defines the original condition lifetime.
 
+Authored missile flights carry their receiving session's locomotor and physics
+state in the combat projectile and preserve it in snapshots. Launch capture uses
+the receiving asset manager's selected draw and muzzle transform; cold lookups
+load the required W3D prototype and animation. Retail Patriot tests exercise
+powered battery fire, impact and in-flight save continuation; separate tests
+cover autonomous ground, anti-air and assisted targeting. These checks do not
+constitute a full original-game differential for every missile configuration.
+
 Unsigned deadlines use `wrapping_add`, following C++ `Weapon.cpp:1057`. The
 existing raw current-frame comparison is retained: an overflowing deadline can
 already be due during the current high frame. Actual materialization tests
