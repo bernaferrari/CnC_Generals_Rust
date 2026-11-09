@@ -38,6 +38,14 @@ impl GameLogic {
             .map(|services| Arc::clone(&services.logic_managers().cave))
     }
 
+    /// C++ tunnel capacity belongs to the receiving world's GameData.
+    pub(crate) fn owned_cave_capacity(&self) -> Option<i32> {
+        let services = self.owning_world_services()?;
+        let data = services.common().system.global_data.lock().ok()?.clone()?;
+        let capacity = data.read().max_tunnel_capacity;
+        Some(capacity)
+    }
+
     pub(crate) fn owned_player_list(&self) -> Option<Arc<RwLock<crate::player::PlayerList>>> {
         self.owning_world_services().map(|services| Arc::clone(services.players()))
     }

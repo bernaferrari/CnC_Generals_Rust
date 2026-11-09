@@ -460,6 +460,17 @@ impl AiWorld for BorrowedAiWorld<'_> {
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         self.factory.get_object(id)?.get_base_object()
     }
+    fn cave_tracker(
+        &self,
+        index: i32,
+    ) -> Option<Arc<RwLock<crate::tunnel_tracker::TunnelTracker>>> {
+        let system = self.services.update_scheduler.owned_cave_system()?;
+        let system = system.lock().ok()?;
+        system.get_tunnel_tracker_for_cave_index(index).ok()
+    }
+    fn cave_capacity(&self) -> Option<i32> {
+        self.services.update_scheduler.owned_cave_capacity()
+    }
     fn shorten_ai_queue_wake(&mut self, owner_id: ObjectID, frames: u32) -> Result<(), String> {
         let owner = self
             .factory

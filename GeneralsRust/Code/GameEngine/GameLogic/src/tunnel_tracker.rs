@@ -73,17 +73,25 @@ impl TunnelTracker {
         object: &Object,
         check_capacity: bool,
     ) -> GameResult<bool> {
-        // October 11, 2002 -- ALL units can use tunnels except aircraft
-        // (Matches C++ comment lines 134-135)
         if object.is_kind_of(KindOf::Aircraft) {
             return Ok(false);
         }
+        let capacity = if check_capacity { self.get_contain_max()? } else { 0 };
+        self.is_valid_container_for_with_capacity(object, check_capacity, capacity)
+    }
 
+    /// Same C++ predicate with the driving world's GameData capacity.
+    pub fn is_valid_container_for_with_capacity(
+        &self,
+        object: &Object,
+        check_capacity: bool,
+        capacity: i32,
+    ) -> GameResult<bool> {
+        if object.is_kind_of(KindOf::Aircraft) {
+            return Ok(false);
+        }
         if check_capacity {
-            let contain_max = self.get_contain_max()?;
-            let contain_count = self.get_contain_count()?;
-            // C++ TunnelTracker.cpp:142 — `containCount < containMax`. 0 is not unlimited.
-            Ok((contain_count as i32) < contain_max)
+            Ok((self.get_contain_count()? as i32) < capacity)
         } else {
             Ok(true)
         }
