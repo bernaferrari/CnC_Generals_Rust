@@ -118,7 +118,7 @@ impl ControlBar {
         &self,
         button: &CommandButton,
     ) -> Option<gamelogic::command_button::CommandButton> {
-        let control_bar = get_control_bar_bridge()?;
+        let control_bar = self.control_bar_bridge()?;
         control_bar
             .find_command_button_by_name(&button.command_name)
             .cloned()
@@ -546,7 +546,7 @@ impl ControlBar {
                 return Some(Self::command_from_definition(definition));
             }
         }
-        if let Some(bridge) = get_control_bar_bridge() {
+        if let Some(bridge) = self.control_bar_bridge() {
             if let Some(logic) = bridge.find_command_button_by_name(name) {
                 return Some(Self::command_from_logic_button(logic));
             }

@@ -283,6 +283,9 @@ pub struct ControlBar {
     /// `TheControlBar` m_commandButtons/m_commandSets). Unbound bars resolve
     /// nothing rather than reading a published peer.
     pub(crate) command_definitions: Option<game_engine::common::ini::command_definitions::CommandDefinitions>,
+    /// The owning world's resolved ControlBar catalog (C++ that engine's
+    /// TheControlBar command buttons/sets with resolved templates).
+    pub(crate) control_bar_bridge: Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>>,
 
     pub(crate) tooltip: crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
     context: ControlBarContext,

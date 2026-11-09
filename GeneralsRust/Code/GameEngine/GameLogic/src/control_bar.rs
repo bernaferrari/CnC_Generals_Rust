@@ -239,6 +239,13 @@ pub fn refresh_control_bar_bridge_for_world(
     Ok(())
 }
 
+/// `world`'s own resolved ControlBar catalog, read from that world's slot.
+pub fn control_bar_bridge_for_world(
+    world: &crate::system::engine_stores::WorldServices,
+) -> Option<Arc<ControlBarBridge>> {
+    world.control_bar_bridge().read().ok().and_then(|guard| guard.clone())
+}
+
 fn replace_control_bar_bridge(bridge: ControlBarBridge) -> Result<(), String> {
     with_bridge_slot(|slot| {
         let mut guard = slot

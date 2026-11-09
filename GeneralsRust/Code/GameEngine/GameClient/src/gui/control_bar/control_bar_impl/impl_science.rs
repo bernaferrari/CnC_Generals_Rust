@@ -671,7 +671,7 @@ impl ControlBar {
         if name1.is_empty() || name3.is_empty() || name8.is_empty() {
             return;
         }
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.control_bar_bridge() else {
             return;
         };
         let find_set = |name: &str| {
@@ -2090,7 +2090,7 @@ impl ControlBar {
             return Ok(());
         }
 
-        let control_bar = get_control_bar_bridge();
+        let control_bar = self.control_bar_bridge();
         let Some(control_bar) = control_bar else {
             return Ok(());
         };
@@ -2325,7 +2325,7 @@ impl ControlBar {
             return;
         }
 
-        let control_bar = get_control_bar_bridge();
+        let control_bar = self.control_bar_bridge();
         for i in 0..self.special_power_shortcuts.len() {
             if self.special_power_shortcuts[i].is_hidden {
                 continue;

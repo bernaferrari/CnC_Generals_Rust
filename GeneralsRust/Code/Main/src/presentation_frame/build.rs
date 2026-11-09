@@ -1953,6 +1953,7 @@ impl PresentationFrame {
             restrict_a: PresentationRestrictA::default(),
             control_bar_overrides: logic.control_bar_overrides().clone(),
             command_definitions: Some(logic.command_definitions()),
+            control_bar_bridge: super::frame::FrameControlBarBridge(logic.control_bar_bridge()),
             local_queued_upgrades,
             selected,
             events,

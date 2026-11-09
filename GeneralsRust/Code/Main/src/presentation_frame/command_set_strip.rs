@@ -264,7 +264,7 @@ impl PresentationFrame {
     ) -> game_client::gui::control_bar::ControlBar {
         let panel = self.control_bar_selection_panel();
         let mut bar = game_client::gui::control_bar::ControlBar::new();
-        bar.bind_command_definitions(self.command_definitions.clone());
+        bar.bind_logic_owner(self.command_definitions.clone(), self.control_bar_bridge.0.clone());
         let mut completed = panel.applied_upgrades.clone();
         for name in &self.local_unlocked_sciences {
             if !completed

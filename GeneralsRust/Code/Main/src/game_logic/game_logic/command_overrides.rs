@@ -133,6 +133,12 @@ impl GameLogic {
             None => CommandDefinitions::from_common(self.world_services.common()),
         }
     }
+    /// This world's own resolved ControlBar catalog (its bridge slot).
+    pub(crate) fn control_bar_bridge(
+        &self,
+    ) -> Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>> {
+        gamelogic::control_bar::control_bar_bridge_for_world(&self.world_services)
+    }
     /// Test fixture: parse CommandButton/CommandSet INI into this world's own
     /// catalog (C++ INI::load into the owning engine's TheControlBar), then
     /// rebuild this world's ControlBar bridge from it.

@@ -52,7 +52,7 @@ impl ControlBar {
             return Ok(());
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.control_bar_bridge() else {
             return Ok(());
         };
         let definitions = self.command_definitions.clone();
@@ -279,7 +279,7 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        super::control_bar_observer::populate_observer_commands(context, self.command_definitions.as_ref())?;
+        super::control_bar_observer::populate_observer_commands(context, self.command_definitions.as_ref(), self.control_bar_bridge())?;
         Ok(())
     }
 
@@ -707,7 +707,7 @@ impl ControlBar {
         let Some(template) = player.get_player_template() else {
             return;
         };
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.control_bar_bridge() else {
             return;
         };
         let definitions = self.command_definitions.clone();
@@ -782,7 +782,7 @@ impl ControlBar {
         &self,
         button: &CommandButton,
     ) -> Result<gamelogic::command_button::CommandButtonId, Box<dyn std::error::Error>> {
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.control_bar_bridge() else {
             return Err("Control bar bridge not initialized".into());
         };
         let Some(logic_button) = control_bar.find_command_button_by_name(&button.command_name)

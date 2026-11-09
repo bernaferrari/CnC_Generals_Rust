@@ -711,7 +711,7 @@ impl ControlBar {
             self.mark_ui_dirty();
             return;
         }
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.control_bar_bridge() else {
             return;
         };
         let definitions = self.command_definitions.clone();
@@ -787,7 +787,7 @@ impl ControlBar {
             self.mark_ui_dirty();
             return;
         }
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.control_bar_bridge() else {
             return;
         };
         let definitions = self.command_definitions.clone();

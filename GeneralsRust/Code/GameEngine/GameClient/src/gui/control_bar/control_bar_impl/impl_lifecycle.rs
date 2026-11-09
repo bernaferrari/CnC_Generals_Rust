@@ -28,6 +28,22 @@ impl ControlBar {
         self.command_definitions = definitions;
     }
 
+    /// Bind this bar to its owning world: the CommandButton/CommandSet
+    /// catalog and that world's resolved ControlBar bridge.
+    pub fn bind_logic_owner(
+        &mut self,
+        definitions: Option<game_engine::common::ini::command_definitions::CommandDefinitions>,
+        bridge: Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>>,
+    ) {
+        self.command_definitions = definitions;
+        self.control_bar_bridge = bridge;
+    }
+
+    /// The owning world's resolved ControlBar catalog; an unbound bar has none.
+    pub fn control_bar_bridge(&self) -> Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>> {
+        self.control_bar_bridge.clone()
+    }
+
     pub fn command_definitions(&self) -> Option<&game_engine::common::ini::command_definitions::CommandDefinitions> {
         self.command_definitions.as_ref()
     }
@@ -45,6 +61,7 @@ impl ControlBar {
             receiving_cameo_images: None,
             receiving_upgrade_actions: None,
             command_definitions: None,
+            control_bar_bridge: None,
             tooltip: Default::default(),
             context: ControlBarContext::default(),
             is_animating: false,

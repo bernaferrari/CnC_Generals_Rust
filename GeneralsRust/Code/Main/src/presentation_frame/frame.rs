@@ -21,6 +21,23 @@ impl PartialEq for PresentationAssetOwner {
 }
 
 
+/// The receiving world's bridge handle; frames compare it by owner identity
+/// (like `CommandDefinitions`), never by content.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FrameControlBarBridge(
+    pub(crate) Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>>,
+);
+
+impl PartialEq for FrameControlBarBridge {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     #[serde(skip)]
@@ -39,6 +56,9 @@ pub struct PresentationFrame {
     #[serde(skip)]
     pub(crate) command_definitions:
         Option<game_engine::common::ini::command_definitions::CommandDefinitions>,
+    /// The receiving world's resolved ControlBar catalog (its bridge slot).
+    #[serde(skip)]
+    pub(crate) control_bar_bridge: FrameControlBarBridge,
     /// Frozen C++ disabled-state callbacks from the receiving body owner.
     #[serde(skip)]
     pub(crate) disable_audio_receipts:

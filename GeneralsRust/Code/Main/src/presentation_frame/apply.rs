@@ -1184,7 +1184,10 @@ impl PresentationFrame {
     ) {
         // The frame's receiving world owns the catalog this bar resolves.
         if self.command_definitions.is_some() {
-            control_bar.bind_command_definitions(self.command_definitions.clone());
+            control_bar.bind_logic_owner(
+                self.command_definitions.clone(),
+                self.control_bar_bridge.0.clone(),
+            );
         }
         let panel = self.control_bar_selection_panel();
         let ids: Vec<u32> = if !self.selected.is_empty() {

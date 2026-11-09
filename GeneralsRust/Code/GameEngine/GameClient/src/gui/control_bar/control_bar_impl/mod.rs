@@ -35,7 +35,6 @@ use gamelogic::commands::command::CommandType;
 use gamelogic::commands::{Command, CommandPriority, QueuedCommand, get_command_queue_manager};
 use gamelogic::common::GameError;
 use gamelogic::common::types::{KindOf, OBJECT_STATUS_SOLD, OBJECT_STATUS_UNDER_CONSTRUCTION};
-use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerIndex, player_list as logic_player_list};

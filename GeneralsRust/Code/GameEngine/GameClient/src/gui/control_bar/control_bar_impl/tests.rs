@@ -455,6 +455,39 @@ mod tests {
     }
 
     #[test]
+    fn two_bars_resolve_logic_buttons_only_from_their_own_world_bridge() {
+        // C++ each engine's TheControlBar resolves its own CommandButtons; a
+        // bar reads the bridge of the world it was bound to, never a peer's.
+        crate::test_support::ensure_ambient_host();
+        const NAME: &str = "Command_TwoWorldBridgeButton";
+        let a = game_engine::common::common_services::CommonServices::new();
+        let b = game_engine::common::common_services::CommonServices::new();
+        a.ini.control_bar.write().new_command_button(NAME.into()).command = "STOP".into();
+        b.ini.control_bar.write().new_command_button(NAME.into()).command = "GUARD".into();
+        let bridge_a = std::sync::Arc::new(
+            gamelogic::control_bar::ControlBarBridge::build_from_common(&a).expect("bridge a"),
+        );
+        let bridge_b = std::sync::Arc::new(
+            gamelogic::control_bar::ControlBarBridge::build_from_common(&b).expect("bridge b"),
+        );
+        // Bind only the bridges so the lookup cannot be satisfied by INI defs.
+        let mut bar_a = ControlBar::new();
+        let mut bar_b = ControlBar::new();
+        bar_a.bind_logic_owner(None, Some(bridge_a));
+        bar_b.bind_logic_owner(None, Some(bridge_b));
+        let unbound = ControlBar::new();
+
+        let from_a = bar_a.leftover_command_button_by_name(NAME).expect("a's button");
+        let from_b = bar_b.leftover_command_button_by_name(NAME).expect("b's button");
+        assert_ne!(from_a.command_type, from_b.command_type);
+        assert!(unbound.control_bar_bridge().is_none());
+        assert!(
+            unbound.leftover_command_button_by_name(NAME).is_none(),
+            "an unbound bar must not read a published peer bridge"
+        );
+    }
+
+    #[test]
     fn upgrade_cameo_does_not_use_command_button_image() {
         crate::test_support::ensure_ambient_host();
         const UPGRADE: &str = "Upgrade_TestCameoImageLookup";

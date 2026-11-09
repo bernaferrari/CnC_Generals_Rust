@@ -7,7 +7,6 @@ use super::{CommandOption, ControlBarContext};
 use gamelogic::command_button::MAX_COMMANDS_PER_SET;
 use gamelogic::commands::CommandType;
 use gamelogic::common::types::{KindOf, OBJECT_STATUS_SOLD};
-use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
 /// Populate multi-select buttons by intersecting command-set names
@@ -20,7 +19,7 @@ pub(super) fn populate_multi_select_commands_from_sets(
     if command_set_names.len() < 2 {
         return Ok(());
     }
-    let Some(control_bar) = get_control_bar_bridge() else {
+    let Some(control_bar) = bar.control_bar_bridge() else {
         return Ok(());
     };
     let Some(common_bar) = bar.ini_buttons() else {
@@ -65,7 +64,7 @@ pub(super) fn populate_multi_select_commands(
     bar: &ControlBar,
     context: &mut ControlBarContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(control_bar) = get_control_bar_bridge() else {
+    let Some(control_bar) = bar.control_bar_bridge() else {
         return Ok(());
     };
     let Some(common_bar) = bar.ini_buttons() else {

@@ -152,7 +152,10 @@ impl CnCGameEngine {
                 .map(|content| content.action_definitions_shared()),
         );
         self.control_bar
-            .bind_command_definitions(Some(self.game_logic.command_definitions()));
+            .bind_logic_owner(
+                Some(self.game_logic.command_definitions()),
+                self.game_logic.control_bar_bridge(),
+            );
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let pick_objects = self.game_logic.translator_pick_object_view();
         let mut replay_operation =

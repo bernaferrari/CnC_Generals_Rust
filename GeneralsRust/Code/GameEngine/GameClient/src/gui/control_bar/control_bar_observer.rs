@@ -8,7 +8,6 @@ use crate::game_text::GameText;
 use crate::gui::game_window::{Image, WindowStatus};
 use crate::gui::{GameWindow, WindowMessage, WindowMsgHandled};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{PlayerType, player_list as logic_player_list};
 
@@ -28,8 +27,9 @@ const KINDOF_SCORE_DESTROY: u128 = 1u128 << 37;
 pub(super) fn populate_observer_commands(
     context: &mut ControlBarContext,
     definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
+    bridge: Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(control_bar) = get_control_bar_bridge() else {
+    let Some(control_bar) = bridge else {
         return Ok(());
     };
     let Some(common_bar) = definitions.map(|definitions| definitions.buttons()) else {

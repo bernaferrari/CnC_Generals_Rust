@@ -1909,7 +1909,10 @@ impl CnCGameEngine {
                     .map(|content| content.action_definitions_shared()),
             );
             self.control_bar
-                .bind_command_definitions(Some(self.game_logic.command_definitions()));
+                .bind_logic_owner(
+                Some(self.game_logic.command_definitions()),
+                self.game_logic.control_bar_bridge(),
+            );
             let facts = self.receiving_menu_world_facts();
             let bar = &mut self.control_bar;
             self.game_client
