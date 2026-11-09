@@ -151,7 +151,7 @@ fn receiving_sessions_roll_back_real_native_parser_errors_independently() {
 
     fn session(cost: u32) -> ReceivingModuleContent {
         let mut modules = ModuleFactory::new_receiving(NameKeyNamespace::new());
-        register_native_data_parsers(&mut modules);
+        super::super::register_native_module_overrides(&mut modules).unwrap();
         let mut content = ReceivingModuleContent::new(modules);
         content
             .load_ini_text(
