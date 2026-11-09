@@ -2956,6 +2956,10 @@ impl Snapshotable for GarrisonContain {
 }
 
 impl ContainModuleInterface for GarrisonContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
         // A garrison cannot board itself. Reject before borrowing the owner
         // again through the registry (the caller may hold that exact object).

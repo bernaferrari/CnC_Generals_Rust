@@ -335,6 +335,10 @@ impl Snapshotable for HealContain {
 }
 
 impl ContainModuleInterface for HealContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
         // Wave 370: empty dual-world → false.
         if dual_world_registry_unavailable() {

@@ -942,7 +942,7 @@ impl Object {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<&Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
-        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        cave_system: Option<crate::object::ObjectWorld>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let unpublished = !object
             .read()
@@ -964,7 +964,7 @@ impl Object {
         }
 
         let thing_handle: Arc<ObjectThingHandle> =
-            Arc::new(ObjectThingHandle::with_cave_system(object, cave_system.clone()));
+            Arc::new(ObjectThingHandle::with_world(object, cave_system.clone()));
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
         let mut modules_to_install: Vec<Arc<ModuleEntry>> = Vec::new();
 
@@ -1321,7 +1321,7 @@ impl Object {
 
         // C++ Object.cpp:458-471 — inter-module resolution after the full list
         // exists and before modulesReady, without recursively locking Object.
-        Self::invoke_on_object_created_after_install(object, cave_system.as_ref())?;
+        Self::invoke_on_object_created_after_install(object, cave_system.as_ref().map(crate::object::ObjectWorld::cave))?;
         object
             .write()
             .map_err(|_| "object lock poisoned after creation callbacks")?

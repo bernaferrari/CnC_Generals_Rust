@@ -892,6 +892,10 @@ impl Snapshotable for HelixContain {
 }
 
 impl ContainModuleInterface for HelixContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
         crate::object::registry::OBJECT_REGISTRY
             .with_object(object_id, |obj_guard| {

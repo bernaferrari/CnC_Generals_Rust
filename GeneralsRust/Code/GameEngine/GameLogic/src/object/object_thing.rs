@@ -88,25 +88,63 @@ impl engine_module::Thing for Object {
     }
 }
 
+/// The receiving world an Object is assembled in: C++ resolves its
+/// `TheGameLogic`, `TheCaveSystem` and `ThePlayerList` from the GameEngine that
+/// owns the Object. Modules keep this instead of consulting the published world.
+#[derive(Clone)]
+pub struct ObjectWorld {
+    world: Weak<crate::system::engine_stores::WorldServices>,
+    cave: Arc<Mutex<crate::system::cave_system::CaveSystem>>,
+}
+
+impl ObjectWorld {
+    /// The world's own services and CaveSystem.
+    pub fn of(world: &Arc<crate::system::engine_stores::WorldServices>) -> Self {
+        Self::with_cave(world, Arc::clone(&world.logic_managers().cave))
+    }
+
+    /// `world` with an explicitly supplied CaveSystem (fixtures).
+    pub fn with_cave(
+        world: &Arc<crate::system::engine_stores::WorldServices>,
+        cave: Arc<Mutex<crate::system::cave_system::CaveSystem>>,
+    ) -> Self {
+        Self { world: Arc::downgrade(world), cave }
+    }
+
+    pub fn cave(&self) -> &Arc<Mutex<crate::system::cave_system::CaveSystem>> {
+        &self.cave
+    }
+
+    pub fn world(&self) -> &Weak<crate::system::engine_stores::WorldServices> {
+        &self.world
+    }
+}
+
+impl std::fmt::Debug for ObjectWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObjectWorld")
+            .field("world", &self.world.as_ptr())
+            .field("cave", &Arc::as_ptr(&self.cave))
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ObjectThingHandle {
     object: Weak<RwLock<Object>>,
-    cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+    world: Option<ObjectWorld>,
 }
 
 impl ObjectThingHandle {
     pub(crate) fn new(object: &Arc<RwLock<Object>>) -> Self {
         Self {
             object: Arc::downgrade(object),
-            cave_system: None,
+            world: None,
         }
     }
 
-    pub(crate) fn with_cave_system(
-        object: &Arc<RwLock<Object>>,
-        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
-    ) -> Self {
-        Self { object: Arc::downgrade(object), cave_system }
+    pub(crate) fn with_world(object: &Arc<RwLock<Object>>, world: Option<ObjectWorld>) -> Self {
+        Self { object: Arc::downgrade(object), world }
     }
 
     fn with_object<F, R>(&self, f: F) -> Option<R>
@@ -224,17 +262,15 @@ pub(crate) fn supplied_module_owner(
         .ok_or("module Thing owner has retired".into())
 }
 
-/// Cave owner passed at Object assembly, if that assembly has a driving world.
-pub(crate) fn supplied_module_cave_system(
-    thing: &dyn ModuleThing,
-) -> Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>> {
+/// Receiving world passed at Object assembly, if that assembly has a driving world.
+pub(crate) fn supplied_module_world(thing: &dyn ModuleThing) -> Option<ObjectWorld> {
     let thing: &dyn std::any::Any = thing;
     let handle = if let Some(handle) = thing.downcast_ref::<ObjectThingHandle>() {
         handle
     } else {
         &thing.downcast_ref::<ObjectDrawableThingHandle>()?.object
     };
-    handle.cave_system.clone()
+    handle.world.clone()
 }
 
 pub(crate) fn make_drawable_module_thing_handle(

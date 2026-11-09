@@ -1696,6 +1696,10 @@ impl Snapshotable for TransportContain {
 }
 
 impl ContainModuleInterface for TransportContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn supports_owned_numbered_exit(&self) -> bool {
         self.module_data.read().base.number_of_exit_paths > 0
     }

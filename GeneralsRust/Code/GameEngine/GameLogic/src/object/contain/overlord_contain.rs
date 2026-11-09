@@ -946,6 +946,10 @@ impl Snapshotable for OverlordContain {
 }
 
 impl ContainModuleInterface for OverlordContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn supports_owned_enter(&self) -> bool {
         self.base.supports_owned_enter()
     }

@@ -96,7 +96,7 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
     with_active_stores(&foreign, || {
         let owner = Arc::new(RwLock::new(crate::object::Object::new_test(0xFACA_0003, 100.0)));
         let thing: Arc<dyn ModuleThing> = Arc::new(
-            crate::object::ObjectThingHandle::with_cave_system(&owner, Some(Arc::clone(&receiving_cave))),
+            crate::object::ObjectThingHandle::with_world(&owner, Some(crate::object::ObjectWorld::of(receiving.services()))),
         );
         let mut data = CaveContainModuleData::default();
         data.cave_index_data = 4;
@@ -166,7 +166,7 @@ fn cave_index_script_uses_the_interpreters_world_with_foreign_world_active() {
         let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
         let caves = Arc::clone(&world.services().logic_managers().cave);
         let data = ModuleDataHandle::new(ContainModuleDataAdapter::new(CaveContainModuleData::default()));
-        let mut cave = CaveContain::new(Arc::downgrade(&owner), data, caves).unwrap();
+        let mut cave = CaveContain::new(Arc::downgrade(&owner), data, crate::object::ObjectWorld::with_cave(world.services(), caves)).unwrap();
         cave.on_owner_created().unwrap();
         owner.write().unwrap().set_contain(Some(Arc::new(Mutex::new(cave))));
         world.services().object_registry().register_object(id, &owner);

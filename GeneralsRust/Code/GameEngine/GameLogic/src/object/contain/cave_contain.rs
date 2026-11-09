@@ -104,6 +104,9 @@ pub struct CaveContain {
     /// that built this entrance). Always present: a cave is never assembled
     /// without its receiving world.
     cave_system: Arc<Mutex<CaveSystem>>,
+    /// The receiving world (C++ the GameEngine owning this entrance): its
+    /// objects, players and GameData, never the published world's.
+    world: std::sync::Weak<crate::system::engine_stores::WorldServices>,
 }
 
 impl CaveContain {
@@ -111,14 +114,15 @@ impl CaveContain {
     pub fn new(
         object: Weak<RwLock<Object>>,
         module_data: ModuleDataHandle,
-        cave_system: Arc<Mutex<CaveSystem>>,
+        world: crate::object::ObjectWorld,
     ) -> GameResult<Self> {
         let data = ModuleDataView::new(module_data.clone(), |data| {
             data.downcast_ref::<ContainModuleDataAdapter<CaveContainModuleData>>()
                 .expect("cave contain module data has an incompatible type").contain_data()
         });
         let cave_index = data.read().cave_index_data;
-        let base = OpenContain::new(object.clone(), module_data)?;
+        let mut base = OpenContain::new(object.clone(), module_data)?;
+        base.bind_owning_world(world.world());
 
         Ok(Self {
             base,
@@ -132,7 +136,8 @@ impl CaveContain {
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
             object,
-            cave_system,
+            cave_system: Arc::clone(world.cave()),
+            world: world.world().clone(),
         })
     }
 
@@ -232,7 +237,7 @@ impl CaveContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -251,7 +256,7 @@ impl CaveContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.base.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -323,7 +328,7 @@ impl CaveContain {
 
     /// Add object to contain list
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let tracker = self.tracker()?;
@@ -339,7 +344,7 @@ impl CaveContain {
 
     /// Add object to containment using CaveContain's tracker-backed storage.
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         if super::should_cancel_containment_after_booby_trap(
@@ -431,7 +436,7 @@ impl CaveContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.base.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let tracker = self.tracker()?;
@@ -734,7 +739,7 @@ impl CaveContain {
             if let Ok(ids) = self.get_contained_item_ids() {
                 if let Some(&rider_id) = ids.first() {
                     if let Some(rider) =
-                        crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
+                        self.base.objects().get_object(rider_id)
                     {
                         if let Ok(rider_obj) = rider.read() {
                             if let Some(controlling_player) = rider_obj.get_controlling_player() {
@@ -757,17 +762,20 @@ impl CaveContain {
 
         // Handle the team color that is rendered.
         let has_local_player = {
-            ThePlayerList()
-                .read()
-                .ok()
-                .and_then(|list| list.get_local_player().cloned())
+            self.world
+                .upgrade()
+                .and_then(|world| world.players().read().ok().and_then(|list| list.get_local_player().cloned()))
                 .is_some()
         };
         if has_local_player {
             if let Some(controller) = self.get_apparent_controlling_player(None) {
                 if let Ok(controller_guard) = controller.read() {
-                    let time_of_day = TheGlobalData::get()
-                        .map(|global| global.get_time_of_day())
+                    // C++ TheGlobalData->m_timeOfDay of the receiving world.
+                    let time_of_day = self
+                        .world
+                        .upgrade()
+                        .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
+                        .map(|data| crate::helpers::map_time_of_day(data.read().time_of_day))
                         .unwrap_or(crate::common::audio::TimeOfDay::Day);
                     let color = match time_of_day {
                         crate::common::audio::TimeOfDay::Night => {
@@ -803,7 +811,7 @@ impl CaveContain {
             let team_arc = new_team.as_ref().and_then(|weak| weak.upgrade());
 
             for cave_id in all_caves {
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(cave_id) else {
+                let Some(obj_arc) = self.base.objects().get_object(cave_id) else {
                     continue;
                 };
 
@@ -928,6 +936,10 @@ impl Snapshotable for CaveContain {
 }
 
 impl ContainModuleInterface for CaveContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn is_valid_container_for_with_world(
         &self,
         passenger: &Object,
@@ -969,7 +981,7 @@ impl ContainModuleInterface for CaveContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.base.objects()
             .with_object(object_id, |obj_guard| {
             return self
                 .is_valid_container_for(&*obj_guard, true)
@@ -1099,7 +1111,7 @@ impl ContainModuleInterface for CaveContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.base.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1314,6 +1326,12 @@ mod tests {
         });
     }
 
+    /// Fixture entrances live in the test's published world with `cave` as
+    /// their CaveSystem.
+    fn published_world_owner(cave: Arc<Mutex<CaveSystem>>) -> crate::object::ObjectWorld {
+        crate::object::ObjectWorld::with_cave(&crate::system::engine_stores::active_services(), cave)
+    }
+
     fn reset_players() {
         ThePlayerList().write().expect("player list write").clear();
     }
@@ -1342,7 +1360,7 @@ mod tests {
         data.cave_index_data = cave_index;
 
         let mut cave =
-            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())), Arc::clone(&cave_system))
+            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())), published_world_owner(Arc::clone(&cave_system)))
                 .expect("cave contain");
         cave.on_create(&data).expect("on create");
         (cave, cave_system)
@@ -1648,7 +1666,7 @@ mod tests {
             let owner = test_object("CaveIndexOwner", 93101);
             let mut data = CaveContainModuleData::default();
             data.cave_index_data = 7;
-            let cave = CaveContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), Arc::new(Mutex::new(CaveSystem::new()))).expect("cave");
+            let cave = CaveContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), published_world_owner(Arc::new(Mutex::new(CaveSystem::new())))).expect("cave");
             assert_eq!(
                 cave.cave_index, 7,
                 "C++ onCreate copies INI CaveIndex; ctor must not hardcode 0"
@@ -1668,7 +1686,7 @@ mod tests {
             let mut cave = CaveContain::new(
                 Arc::downgrade(&owner),
                 ModuleDataHandle::new(ContainModuleDataAdapter::new(data)),
-                Arc::clone(&cave_system),
+                published_world_owner(Arc::clone(&cave_system)),
             )
             .expect("cave");
             ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
@@ -1704,7 +1722,7 @@ mod tests {
             let mut cave_b = CaveContain::new(
                 Arc::downgrade(&owner_b),
                 ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone())),
-                Arc::clone(&cave_system),
+                published_world_owner(Arc::clone(&cave_system)),
             )
             .expect("cave b");
             cave_b.on_create(&data).expect("on create");
@@ -1749,7 +1767,7 @@ mod tests {
         data.base.allow_neutral_inside = true;
         data.cave_index_data = 0;
         let mut cave =
-            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), Arc::clone(handle)).expect("cave");
+            CaveContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data)), published_world_owner(Arc::clone(handle))).expect("cave");
         ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
         cave
     }
@@ -2002,6 +2020,79 @@ mod tests {
             });
         });
         trace.expect("cave world trace")
+    }
+
+    /// C++ each GameEngine's CaveContain resolves riders through its own
+    /// TheGameLogic (CaveContain.cpp addToContain -> OpenContain::addToContain).
+    /// Two worlds take turns on ONE thread with the same object ids: an entrance
+    /// of world A, driven while world B is published, still moves world A's
+    /// rider and leaves world B's same-id rider untouched, and vice versa.
+    #[test]
+    fn cave_entrances_resolve_their_own_world_when_worlds_take_turns_on_one_thread() {
+        use crate::system::engine_stores::{with_active_stores, EngineStores};
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let world_a = Arc::new(EngineStores::new_for_world());
+            let world_b = Arc::new(EngineStores::new_for_world());
+            const ENTRANCE: ObjectID = 93601;
+            const RIDER: ObjectID = 93602;
+            let build = |stores: &Arc<EngineStores>, tag: &str| {
+                with_active_stores(stores, || {
+                    let entrance = test_object(&format!("TurnCaveEntrance{tag}"), ENTRANCE);
+                    let rider = test_object(&format!("TurnCaveRider{tag}"), RIDER);
+                    let mut data = CaveContainModuleData::default();
+                    data.base.allow_neutral_inside = true;
+                    let mut cave = CaveContain::new(
+                        Arc::downgrade(&entrance),
+                        ModuleDataHandle::new(ContainModuleDataAdapter::new(data)),
+                        crate::object::ObjectWorld::of(stores.services()),
+                    )
+                    .expect("cave");
+                    ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
+                    (entrance, rider, cave)
+                })
+            };
+            let (_entrance_a, rider_a, mut cave_a) = build(&world_a, "A");
+            let (_entrance_b, rider_b, mut cave_b) = build(&world_b, "B");
+            let contained_by = |rider: &Arc<RwLock<Object>>| rider.read().expect("rider").get_contained_by();
+
+            // World A's entrance, driven while world B is published.
+            with_active_stores(&world_b, || {
+                ContainModuleInterface::contain_object(&mut cave_a, RIDER).expect("enter A");
+            });
+            assert_eq!(contained_by(&rider_a), Some(ENTRANCE), "world A's rider entered A's cave");
+            assert_eq!(contained_by(&rider_b), None, "world B's same-id rider was not touched");
+            assert_eq!(
+                ContainModuleInterface::get_contained_objects(&cave_a).into_owned(),
+                vec![RIDER]
+            );
+            assert!(ContainModuleInterface::get_contained_objects(&cave_b).is_empty());
+
+            // World B's entrance, driven while world A is published.
+            with_active_stores(&world_a, || {
+                ContainModuleInterface::contain_object(&mut cave_b, RIDER).expect("enter B");
+            });
+            assert_eq!(contained_by(&rider_b), Some(ENTRANCE));
+
+            // Releasing A's rider under B's publication leaves B's rider inside.
+            with_active_stores(&world_b, || {
+                ContainModuleInterface::release_object(&mut cave_a, RIDER).expect("exit A");
+            });
+            assert_eq!(contained_by(&rider_a), None, "world A's rider left A's cave");
+            assert_eq!(contained_by(&rider_b), Some(ENTRANCE), "world B's rider stayed inside");
+            assert_eq!(
+                ContainModuleInterface::get_contained_objects(&cave_b).into_owned(),
+                vec![RIDER]
+            );
+
+            for stores in [&world_a, &world_b] {
+                with_active_stores(stores, || {
+                    OBJECT_REGISTRY.unregister_object(ENTRANCE);
+                    OBJECT_REGISTRY.unregister_object(RIDER);
+                });
+            }
+        });
     }
 
     #[test]

@@ -300,6 +300,14 @@ pub(super) fn build_contain_module(
 ) -> Box<dyn Module> {
     let module_name_key = NameKeyGenerator::name_to_key(module_name);
     let owner_id = resolve_owner_id(&thing);
+    // Every container assembled in a receiving world resolves that world's
+    // objects (C++ TheGameLogic of the owning engine), not the published one.
+    if let Some(world) = crate::object::supplied_module_world(thing.as_ref()) {
+        match contain.lock() {
+            Ok(mut contain) => contain.bind_owning_world(world.world()),
+            Err(poisoned) => poisoned.into_inner().bind_owning_world(world.world()),
+        }
+    }
     Box::new(ContainBindingModule::new(
         module_name_key,
         module_data,
@@ -621,14 +629,14 @@ pub(super) fn cave_contain_module_factory(
     // entrance (CaveContain.cpp:45-312). Without the receiving world's cave
     // system the module fails initialization instead of borrowing whichever
     // world happens to be published.
-    let Some(cave_system) = crate::object::supplied_module_cave_system(thing.as_ref()) else {
+    let Some(world) = crate::object::supplied_module_world(thing.as_ref()) else {
         return failed_initialization_module(
             "CaveContain",
             module_data,
             "CaveContain requires its receiving world's CaveSystem".to_string(),
         );
     };
-    let contain = match CaveContain::new(Arc::downgrade(&owner), module_data.clone(), cave_system) {
+    let contain = match CaveContain::new(Arc::downgrade(&owner), module_data.clone(), world) {
         Ok(contain) => contain,
         Err(error) => return failed_initialization_module("CaveContain", module_data, error.to_string()),
     };

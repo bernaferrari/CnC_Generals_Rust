@@ -53,8 +53,12 @@ struct ExitPrep {
     ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
 }
 
-fn queue_produced_exit(obj_id: ObjectID, exit: crate::object::PendingProducedExit) {
-    let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+fn queue_produced_exit(
+    objects: &crate::object::registry::ObjectLookup,
+    obj_id: ObjectID,
+    exit: crate::object::PendingProducedExit,
+) {
+    let Some(obj) = objects.get_object(obj_id) else {
         return;
     };
     let mut owner = obj.write().unwrap_or_else(|err| err.into_inner());
@@ -882,6 +886,8 @@ pub(super) const OPEN_CONTAIN_FIELDS: &[FieldParse<OpenContainModuleData>] = &[
 pub struct OpenContain {
     /// Owning object id (resolve for the duration of an op)
     object_id: ObjectID,
+    /// Receiving world (C++ the GameEngine owning this Object).
+    world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
     /// UpdateModule base scheduler state.
     next_call_frame_and_phase: UnsignedInt,
     /// Contained object IDs (stable; resolve for the duration of an op).
@@ -921,6 +927,27 @@ pub struct OpenContain {
 }
 
 impl OpenContain {
+    /// Bind the receiving world (see [`crate::object::ObjectWorld`]).
+    pub fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.world = Some(world.clone());
+    }
+
+    /// Receiving world, when bound and still alive.
+    pub(crate) fn owning_world(&self) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
+        self.world.as_ref().and_then(std::sync::Weak::upgrade)
+    }
+
+    /// Object lookups for this container: the bound world's registry, never
+    /// the published world once bound.
+    pub(crate) fn objects(&self) -> crate::object::registry::ObjectLookup {
+        match &self.world {
+            Some(world) => crate::object::registry::ObjectLookup::World(
+                world.upgrade().map(|services| Arc::clone(services.object_registry())),
+            ),
+            None => crate::object::registry::ObjectLookup::Published,
+        }
+    }
+
     /// Create a new OpenContain module
     pub fn new(
         object: Weak<RwLock<Object>>,
@@ -961,6 +988,7 @@ impl OpenContain {
     ) -> GameResult<Self> {
         let passengers_allowed_to_fire = module_data.read().passengers_allowed_to_fire;
         Ok(Self {
+            world: None,
             object_id,
             next_call_frame_and_phase: 0,
             contained_object_ids: Vec::new(),
@@ -1079,7 +1107,7 @@ impl OpenContain {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+        self.objects().get_object(self.object_id)
     }
 
     pub fn get_object_id(&self) -> ObjectID {
@@ -1090,7 +1118,7 @@ impl OpenContain {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
+        self.objects().with_object(self.object_id, f)
     }
 
     /// Update method called once per frame
@@ -1109,7 +1137,7 @@ impl OpenContain {
             if pulse.set_closing {
                 let owner_id = self.get_object_id();
                 if owner_id != crate::common::INVALID_ID {
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    let _ = self.objects().with_object_mut(
                         owner_id,
                         |owner_guard| {
                             let _ = owner_guard.clear_and_set_model_condition_flags(
@@ -1133,7 +1161,7 @@ impl OpenContain {
         if owner_id == crate::common::INVALID_ID {
             return Ok(());
         }
-        let Some(curr_condition) = crate::object::registry::OBJECT_REGISTRY
+        let Some(curr_condition) = self.objects()
             .with_object(owner_id, |owner_guard| {
                 owner_guard
                     .get_drawable()
@@ -1167,7 +1195,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY
+        let obj = self.objects()
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
 
@@ -1214,7 +1242,7 @@ impl OpenContain {
         if !self.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.objects().get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1233,7 +1261,7 @@ impl OpenContain {
         if other_id == crate::common::INVALID_ID || other_id == self.object_id {
             return Ok(false);
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
+        let Some(other) = self.objects().get_object(other_id) else {
             return Ok(false);
         };
         let wants_enter = {
@@ -1257,7 +1285,7 @@ impl OpenContain {
         let other_player = other_guard.get_controlling_player();
         drop(other_guard);
         for rider_id in self.contained_object_ids.clone() {
-            let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
+            let Some(rider) = self.objects().get_object(rider_id) else {
                 continue;
             };
             let Ok(rider_guard) = rider.try_read() else {
@@ -1307,12 +1335,12 @@ impl OpenContain {
     fn resolve_contained_objects(&self) -> Vec<Arc<RwLock<Object>>> {
         self.contained_object_ids
             .iter()
-            .filter_map(|&id| TheGameLogic::find_object_by_id(id))
+            .filter_map(|&id| self.objects().get_object(id))
             .collect()
     }
 
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let is_stealth_garrison = crate::object::registry::OBJECT_REGISTRY
+        let is_stealth_garrison = self.objects()
             .get_object(obj_id)
             .and_then(|obj| {
                 obj.read()
@@ -1345,7 +1373,7 @@ impl OpenContain {
         if !self.contained_object_ids.iter().any(|&id| id == object_id) {
             return None;
         }
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
+        let Some(obj) = self.objects().get_object(object_id) else {
             self.contained_object_ids.retain(|&id| id != object_id);
             return Some(false);
         };
@@ -1372,7 +1400,7 @@ impl OpenContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1474,7 +1502,7 @@ impl OpenContain {
     /// Matches C++ OpenContain::killAllContained.
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
         while let Some(&obj_id) = self.contained_object_ids.first() {
-            let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id);
+            let obj = self.objects().get_object(obj_id);
             if let Err(err) = self.remove_from_contain(obj_id, true) {
                 log::warn!(
                     "OpenContain::kill_all_contained failed for {}: {}",
@@ -1503,7 +1531,7 @@ impl OpenContain {
         damage_info: &mut DamageInfo,
     ) -> GameResult<()> {
         while let Some(&obj_id) = self.contained_object_ids.first() {
-            let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id);
+            let obj = self.objects().get_object(obj_id);
             if let Err(err) = self.remove_from_contain(obj_id, true) {
                 log::warn!(
                     "OpenContain::harmAndForceExitAllContained failed for {}: {}",
@@ -1527,7 +1555,7 @@ impl OpenContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1586,7 +1614,7 @@ impl OpenContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1616,7 +1644,7 @@ impl OpenContain {
 
     /// C++ `rider->onRemovedFrom`, after `Contain::onRemoving` returns.
     pub fn note_removed_from(&self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
         let container_id = self.get_object_id();
@@ -1666,7 +1694,7 @@ impl OpenContain {
         };
         let passenger_ids = self.contained_object_ids.clone();
         for obj_id in passenger_ids {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(obj) = self.objects().get_object(obj_id) else {
                 continue;
             };
             let Ok(guard) = obj.try_read() else {
@@ -1816,8 +1844,9 @@ impl OpenContain {
 
     /// Prune dead wanters (C++ OpenContain::pruneDeadWanters).
     pub fn prune_dead_wanters(&mut self) {
+        let objects = self.objects();
         self.object_enter_exit_info.retain(|id, _| {
-            if let Some(obj) = TheGameLogic::find_object_by_id(*id) {
+            if let Some(obj) = objects.get_object(*id) {
                 if let Ok(obj_guard) = obj.try_read() {
                     return !obj_guard.is_effectively_dead();
                 }
@@ -1863,7 +1892,7 @@ impl OpenContain {
     {
         self.iterate_contained_ids(
             |id| {
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(id) {
+                if let Some(obj) = self.objects().get_object(id) {
                     func(obj)?;
                 }
                 Ok(())
@@ -1902,7 +1931,7 @@ impl OpenContain {
             let Some(parent_id) = owner.get_contained_by() else {
                 return true;
             };
-            let Some(parent) = crate::object::registry::OBJECT_REGISTRY.get_object(parent_id)
+            let Some(parent) = self.objects().get_object(parent_id)
             else {
                 return true;
             };
@@ -1949,7 +1978,7 @@ impl OpenContain {
         if owner_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+        self.objects().with_object(owner_id, |owner_guard| {
             let number_exits = self.module_data.read().number_of_exit_paths;
             if number_exits > 0 {
                 let end_bone = if number_exits > 1 {
@@ -2090,7 +2119,7 @@ impl OpenContain {
         obj_id: ObjectID,
         hurry: bool,
     ) -> GameResult<Option<ExitPrep>> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(None);
         };
 
@@ -2103,7 +2132,7 @@ impl OpenContain {
         self.door_close_countdown = pulse.countdown;
         if pulse.set_opening {
             let _ =
-                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+                self.objects().with_object_mut(owner_id, |owner_guard| {
                     let _ = owner_guard.clear_and_set_model_condition_flags(
                         MODELCONDITION_DOOR_1_CLOSING,
                         MODELCONDITION_DOOR_1_OPENING,
@@ -2173,7 +2202,7 @@ impl OpenContain {
         obj_id: ObjectID,
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
-        let Some(_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(_obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2215,6 +2244,7 @@ impl OpenContain {
                     .update_goal_position(&prep.end_pos, Self::destination_layer(&prep.end_pos));
             } else {
                 queue_produced_exit(
+                    &self.objects(),
                     obj_id,
                     crate::object::PendingProducedExit::Follow {
                         path: prep.exit_path,
@@ -2225,6 +2255,7 @@ impl OpenContain {
             }
         } else {
             queue_produced_exit(
+                    &self.objects(),
                 obj_id,
                 crate::object::PendingProducedExit::Follow {
                     path: prep.exit_path,
@@ -2244,7 +2275,7 @@ impl OpenContain {
     }
 
     pub fn exit_object_in_a_hurry(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        if crate::object::registry::OBJECT_REGISTRY
+        if self.objects()
             .get_object(obj_id)
             .is_none()
         {
@@ -2266,6 +2297,7 @@ impl OpenContain {
                     .update_goal_position(&prep.end_pos, Self::destination_layer(&prep.end_pos));
             } else {
                 queue_produced_exit(
+                    &self.objects(),
                     obj_id,
                     crate::object::PendingProducedExit::Quick(prep.exit_path),
                 );
@@ -2344,7 +2376,7 @@ impl OpenContain {
         self.fire_point_size = count as i32;
         let mut cursor = 0;
         for obj_id in ids.iter().rev() {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id) else {
+            let Some(obj) = self.objects().get_object(*obj_id) else {
                 continue;
             };
             let Ok(mut guard) = obj.try_write() else {
@@ -2395,12 +2427,12 @@ impl OpenContain {
         if owner_id == crate::common::INVALID_ID {
             return Ok(());
         }
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
         if self.fire_point_size == 0 && !self.no_fire_points_in_art {
-            let fire_points = crate::object::registry::OBJECT_REGISTRY
+            let fire_points = self.objects()
                 .with_object(owner_id, |owner_guard| {
                     owner_guard.get_multi_logical_bone_position("FIREPOINT", MAX_FIRE_POINTS)
                 })
@@ -2417,13 +2449,13 @@ impl OpenContain {
         }
 
         let pos = if self.no_fire_points_in_art {
-            crate::object::registry::OBJECT_REGISTRY
+            self.objects()
                 .with_object(owner_id, |owner_guard| *owner_guard.get_position())
                 .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
         } else if self.module_data.read().passengers_in_turret {
             let firepoint = format!("FIREPOINT{:02}", self.fire_point_next + 1);
             if let Some((pos, matrix)) =
-                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                self.objects().with_object(owner_id, |owner_guard| {
                     let (_, pos, matrix) = owner_guard.get_single_logical_bone_position_on_turret(
                         TurretType::Primary,
                         &firepoint,
@@ -2475,7 +2507,7 @@ impl OpenContain {
         obj_id: ObjectID,
         add: bool,
     ) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2531,7 +2563,7 @@ impl OpenContain {
                 .map(|contain_guard| contain_guard.get_contained_objects().into_owned())
         });
         for child_id in contained_ids.unwrap_or_default() {
-            let Some(child) = crate::object::registry::OBJECT_REGISTRY.get_object(child_id) else {
+            let Some(child) = self.objects().get_object(child_id) else {
                 continue;
             };
             let should_recurse = obj.try_read().ok().and_then(|obj_guard| {
@@ -2615,7 +2647,7 @@ impl OpenContain {
         }
         let ids = std::mem::take(&mut self.xfer_contain_id_list);
         for object_id in ids {
-            let obj = TheGameLogic::find_object_by_id(object_id).ok_or_else(|| {
+            let obj = self.objects().get_object(object_id).ok_or_else(|| {
                 format!("OpenContain could not resolve contained object {object_id}")
             })?;
             self.contained_object_ids.push(object_id);
@@ -2671,6 +2703,10 @@ impl OpenContain {
 }
 
 impl ContainModuleInterface for OpenContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        OpenContain::bind_owning_world(self, world);
+    }
+
     fn supports_owned_numbered_exit(&self) -> bool {
         self.module_data.read().number_of_exit_paths > 0
     }
@@ -2724,7 +2760,7 @@ impl ContainModuleInterface for OpenContain {
     }
 
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        crate::object::registry::OBJECT_REGISTRY
+        self.objects()
             .with_object(object_id, |obj_guard| {
                 OpenContain::is_valid_container_for(self, obj_guard, true)
             })
@@ -2898,7 +2934,7 @@ impl ContainModuleInterface for OpenContain {
         obj_id: ObjectID,
         door: ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2909,7 +2945,7 @@ impl ContainModuleInterface for OpenContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2929,7 +2965,7 @@ impl ContainModuleInterface for OpenContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2944,7 +2980,7 @@ impl ContainModuleInterface for OpenContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(obj) = self.objects().get_object(obj_id) else {
             return Ok(());
         };
 
@@ -3023,7 +3059,7 @@ impl ContainModuleInterface for OpenContain {
         // Use the trait default body via Super? Inherent delegates to trait.
         // Re-implement here so OpenContain callers hit the same path.
         for object_id in self.contained_object_ids.clone() {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
+            let Some(obj) = self.objects().get_object(object_id) else {
                 continue;
             };
             let Ok(obj_guard) = obj.read() else {

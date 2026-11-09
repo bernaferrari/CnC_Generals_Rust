@@ -290,7 +290,7 @@ impl ObjectFactory {
             None,
             None,
             None,
-            game_logic.owned_cave_system(),
+            game_logic.owned_object_world(),
             game_logic.owned_player_list(),
         )?;
         let owner = self
@@ -328,7 +328,7 @@ impl ObjectFactory {
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
-            game_logic.owned_cave_system(),
+            game_logic.owned_object_world(),
             game_logic.owned_player_list(),
         )?;
         let owner = self
@@ -386,7 +386,7 @@ impl ObjectFactory {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
-        mut cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        mut cave_system: Option<crate::object::ObjectWorld>,
         mut owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
@@ -403,7 +403,7 @@ impl ObjectFactory {
                     .lock()
                     .map_err(|_| "Object creation identity owner poisoned")?;
                 if cave_system.is_none() {
-                    cave_system = logic.owned_cave_system();
+                    cave_system = logic.owned_object_world();
                 }
                 if owner_roster.is_none() {
                     owner_roster = logic.owned_player_list();

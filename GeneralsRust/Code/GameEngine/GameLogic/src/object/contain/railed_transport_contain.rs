@@ -129,6 +129,10 @@ impl RailedTransportContain {
 }
 
 impl ContainModuleInterface for RailedTransportContain {
+    fn bind_owning_world(&mut self, world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {
+        self.base.bind_owning_world(world);
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
             if let Ok(obj_guard) = obj.try_read() {

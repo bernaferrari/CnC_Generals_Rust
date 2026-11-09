@@ -107,7 +107,7 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
-        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        cave_system: Option<crate::object::ObjectWorld>,
         owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
@@ -133,7 +133,7 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
-        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        cave_system: Option<crate::object::ObjectWorld>,
         owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
@@ -160,7 +160,7 @@ impl Object {
         lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
         module_factory: &game_engine::common::thing::module_factory::ModuleFactory,
-        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        cave_system: Option<crate::object::ObjectWorld>,
         owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
@@ -188,7 +188,7 @@ impl Object {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&game_engine::common::thing::module_factory::ModuleFactory>,
-        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        cave_system: Option<crate::object::ObjectWorld>,
         owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
@@ -201,7 +201,7 @@ impl Object {
             if publish { None } else { team.clone() },
         );
         obj.owner_roster = owner_roster.as_ref().map(Arc::downgrade);
-        obj.owner_cave = cave_system.as_ref().map(Arc::downgrade);
+        obj.owner_cave = cave_system.as_ref().map(|world| Arc::downgrade(world.cave()));
         obj.ambient_lifecycle_admitted = publish;
         if publish {
             obj.set_team(team)?;

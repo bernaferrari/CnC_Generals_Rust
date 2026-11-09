@@ -80,6 +80,10 @@ pub struct OwnedContainExitPath {
 }
 
 pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
+    /// Bind the receiving world this container was assembled in, so its
+    /// object lookups resolve that world rather than the published one.
+    fn bind_owning_world(&mut self, _world: &std::sync::Weak<crate::system::engine_stores::WorldServices>) {}
+
     /// Admission against an explicit store and relationship owner. Unsupported
     /// derived modules must not rediscover a process-global player or rider.
     fn is_valid_container_for_with_world(

@@ -366,7 +366,7 @@ impl TheGlobalData {
     }
 }
 
-fn map_time_of_day(value: IniTimeOfDay) -> TimeOfDay {
+pub(crate) fn map_time_of_day(value: IniTimeOfDay) -> TimeOfDay {
     match value {
         IniTimeOfDay::Invalid => TimeOfDay::Day,
         IniTimeOfDay::Morning => TimeOfDay::Morning,

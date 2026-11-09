@@ -2508,8 +2508,9 @@ mod vision;
 
 pub use object_thing::ObjectArcExt;
 pub(crate) use object_thing::{
-    ObjectThingHandle, make_drawable_module_thing_handle, supplied_module_cave_system, supplied_module_owner,
+    ObjectThingHandle, make_drawable_module_thing_handle, supplied_module_world, supplied_module_owner,
 };
+pub use object_thing::ObjectWorld;
 pub use object_xfer::ObjectXferError;
 
 pub type ObjectId = ObjectID;

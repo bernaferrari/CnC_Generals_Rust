@@ -357,6 +357,44 @@ impl ObjectRegistry {
     }
 }
 
+/// Object lookup for a module: its owning world's registry when the module
+/// was assembled with one (C++ `TheGameLogic->findObjectByID` of that engine),
+/// otherwise the legacy published-world proxy for not-yet-bound callers.
+pub enum ObjectLookup {
+    /// The owning world's registry; `None` once that world has retired.
+    World(Option<Arc<ObjectRegistry>>),
+    /// Unbound legacy module: the thread's published world.
+    Published,
+}
+
+impl ObjectLookup {
+    pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+        match self {
+            Self::World(registry) => registry.as_ref()?.get_object(id),
+            Self::Published => OBJECT_REGISTRY.get_object(id),
+        }
+    }
+
+    pub fn contains(&self, id: ObjectID) -> bool {
+        match self {
+            Self::World(registry) => registry.as_ref().is_some_and(|r| r.contains(id)),
+            Self::Published => OBJECT_REGISTRY.contains(id),
+        }
+    }
+
+    pub fn with_object<R>(&self, id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        let arc = self.get_object(id)?;
+        let guard = arc.read().ok()?;
+        Some(f(&guard))
+    }
+
+    pub fn with_object_mut<R>(&self, id: ObjectID, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        let arc = self.get_object(id)?;
+        let mut guard = arc.write().ok()?;
+        Some(f(&mut guard))
+    }
+}
+
 /// Call-site-compatible proxy; resolves the published world's registry.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ObjectRegistryGlobal;
