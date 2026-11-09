@@ -811,9 +811,17 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         p.shooter_id,
         fire_target_id,
         flight_speed_per_second,
-        projectile_lifecycle
-            .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::follows_target)
-            .unwrap_or(p.is_homing),
+        // MissileAIUpdate sets m_isTrackingTarget only for an object shot
+        // with TryToFollowTarget, not for coordinate or scattered shots.
+        // This also selects the full rather than halved lock distance.
+        match projectile_lifecycle {
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile {
+                try_to_follow_target,
+                ..
+            }) => try_to_follow_target && fire_target_id.is_some(),
+            Some(lifecycle) => lifecycle.follows_target(),
+            None => p.is_homing,
+        },
     );
     let mut flight_valid = true;
     if let Some(proj) = combat.projectile_mut(pid) {

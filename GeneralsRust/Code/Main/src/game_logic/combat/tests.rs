@@ -2812,6 +2812,73 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
+    fn missile_coordinate_shot_uses_half_lock_distance_after_arena_restore() {
+        use crate::game_logic::weapon_bootstrap::HostMissilePhase;
+
+        let _combat_serial = combat_test_guard();
+        let mut combat = CombatSystem::new();
+        let pending = lifecycle_test_pending_projectile(
+            "PatriotMissile",
+            None,
+            Vec3::new(50.0, 0.0, 0.0),
+        );
+        queue_projectile_direct(&mut combat, pending);
+        let objects = crate::game_logic::HostObjectStore::new();
+        drain_pending_projectiles(
+            &mut combat,
+            objects.read(),
+            0,
+            &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+        );
+        let id = combat.projectiles_snapshot()[0].id;
+        let p = combat.projectile_mut(id).unwrap();
+        assert!(!p.is_homing, "a coordinate shot has no tracked object");
+        assert_eq!(p.update(1.0 / 30.0, true), ProjectileStep::Alive);
+
+        let bytes = bincode_legacy::serialize(&combat.live_projectile_arena_snapshot()).unwrap();
+        let arena: LiveProjectileArenaSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+        let mut restored = CombatSystem::new();
+        restored.restore_live_projectile_arena(arena.validate().unwrap());
+        for owner in [&mut combat, &mut restored] {
+            let p = owner.projectile_mut(id).unwrap();
+            assert_eq!(p.update(1.0 / 30.0, true), ProjectileStep::Alive);
+            assert_eq!(
+                p.flight_runtime.missile_phase,
+                HostMissilePhase::Attack,
+                "50 units is outside the 37.5-unit coordinate lock radius"
+            );
+        }
+    }
+
+    #[test]
+    fn missile_object_shot_keeps_full_tracking_lock_distance() {
+        use crate::game_logic::weapon_bootstrap::HostMissilePhase;
+
+        let _combat_serial = combat_test_guard();
+        let target = ObjectId(42);
+        let position = Vec3::new(50.0, 0.0, 0.0);
+        let mut objects = crate::game_logic::HostObjectStore::new();
+        objects.insert(target, make_obj("Target", target, Team::USA, position, &[], 1.0));
+        let mut combat = CombatSystem::new();
+        queue_projectile_direct(
+            &mut combat,
+            lifecycle_test_pending_projectile("PatriotMissile", Some(target), position),
+        );
+        drain_pending_projectiles(
+            &mut combat,
+            objects.read(),
+            0,
+            &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+        );
+        let id = combat.projectiles_snapshot()[0].id;
+        let p = combat.projectile_mut(id).unwrap();
+        assert!(p.is_homing);
+        assert_eq!(p.update(1.0 / 30.0, true), ProjectileStep::Alive);
+        assert_eq!(p.update(1.0 / 30.0, true), ProjectileStep::Alive);
+        assert_eq!(p.flight_runtime.missile_phase, HostMissilePhase::Kill);
+    }
+
+    #[test]
     fn materialized_missile_close_distance_uses_normalized_weapon_speed() {
         let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 
