@@ -537,11 +537,11 @@ impl ControlBar {
         Ok(())
     }
 
-    fn leftover_command_button_by_name(name: &str) -> Option<CommandButton> {
+    pub(crate) fn leftover_command_button_by_name(&self, name: &str) -> Option<CommandButton> {
         if name.is_empty() {
             return None;
         }
-        if let Some(ini) = get_ini_control_bar() {
+        if let Some(ini) = self.ini_buttons() {
             if let Some(definition) = ini.find_command_button_resolved(name) {
                 return Some(Self::command_from_definition(definition));
             }

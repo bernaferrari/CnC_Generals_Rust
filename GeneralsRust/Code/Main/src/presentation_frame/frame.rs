@@ -34,6 +34,11 @@ pub struct PresentationFrame {
     #[serde(skip)]
     pub(crate) control_bar_overrides:
         crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
+    /// The receiving world's CommandButton/CommandSet catalog (C++ that
+    /// engine's `TheControlBar` definitions; map INI overrides included).
+    #[serde(skip)]
+    pub(crate) command_definitions:
+        Option<game_engine::common::ini::command_definitions::CommandDefinitions>,
     /// Frozen C++ disabled-state callbacks from the receiving body owner.
     #[serde(skip)]
     pub(crate) disable_audio_receipts:

@@ -23,11 +23,28 @@ impl ControlBar {
         self.receiving_upgrade_actions = actions;
     }
 
+    /// Bind this bar to its owning instance's CommandButton/CommandSet catalog.
+    pub fn bind_command_definitions(&mut self, definitions: Option<game_engine::common::ini::command_definitions::CommandDefinitions>) {
+        self.command_definitions = definitions;
+    }
+
+    pub fn command_definitions(&self) -> Option<&game_engine::common::ini::command_definitions::CommandDefinitions> {
+        self.command_definitions.as_ref()
+    }
+
+    /// This bar's own INI CommandButton catalog view.
+    pub(crate) fn ini_buttons(
+        &self,
+    ) -> Option<game_engine::common::ini::command_definitions::ButtonsRef<'_>> {
+        self.command_definitions.as_ref().map(|definitions| definitions.buttons())
+    }
+
     pub fn new() -> Self {
         Self {
             receiving_upgrade_catalog: None,
             receiving_cameo_images: None,
             receiving_upgrade_actions: None,
+            command_definitions: None,
             tooltip: Default::default(),
             context: ControlBarContext::default(),
             is_animating: false,

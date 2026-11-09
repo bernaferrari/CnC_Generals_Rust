@@ -81,6 +81,7 @@ fn resolve_upgrade_cameo_button_image(
     receiving_actions: Option<
         &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
     >,
+    definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
 ) -> String {
     let trimmed = upgrade_name.trim();
     if trimmed.is_empty() {
@@ -122,7 +123,7 @@ fn resolve_upgrade_cameo_button_image(
             return image;
         }
     } else if receiving_catalog.is_none() {
-        if let Some(bar) = get_ini_control_bar() {
+        if let Some(bar) = definitions.map(|definitions| definitions.buttons()) {
             if let Some(image) = button_image(&bar) {
                 return image;
             }
@@ -278,6 +279,10 @@ pub struct ControlBar {
     receiving_upgrade_actions: Option<
         Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
     >,
+    /// This client's CommandButton/CommandSet catalog (C++ its engine's
+    /// `TheControlBar` m_commandButtons/m_commandSets). Unbound bars resolve
+    /// nothing rather than reading a published peer.
+    pub(crate) command_definitions: Option<game_engine::common::ini::command_definitions::CommandDefinitions>,
 
     pub(crate) tooltip: crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
     context: ControlBarContext,

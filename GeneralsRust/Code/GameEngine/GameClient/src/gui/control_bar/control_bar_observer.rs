@@ -7,7 +7,6 @@ use super::control_bar::ControlBar;
 use crate::game_text::GameText;
 use crate::gui::game_window::{Image, WindowStatus};
 use crate::gui::{GameWindow, WindowMessage, WindowMsgHandled};
-use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheGameLogic;
@@ -28,11 +27,12 @@ const KINDOF_SCORE_DESTROY: u128 = 1u128 << 37;
 /// from an observer command set when present.
 pub(super) fn populate_observer_commands(
     context: &mut ControlBarContext,
+    definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let Some(control_bar) = get_control_bar_bridge() else {
         return Ok(());
     };
-    let Some(common_bar) = get_ini_control_bar() else {
+    let Some(common_bar) = definitions.map(|definitions| definitions.buttons()) else {
         return Ok(());
     };
 

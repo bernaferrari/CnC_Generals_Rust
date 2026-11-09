@@ -547,20 +547,16 @@ impl Default for ControlBar {
     }
 }
 
-fn control_bar_read() -> OwnedReadGuard<ControlBar> {
-    let cell = ini_control_bar_cell();
-    cell.read_arc()
+/// INI-load-only view of the catalog being loaded. The loader publishes the
+/// receiving instance's `CommonServices` for the duration of the INI pass
+/// (C++ INI.cpp loads into that engine's `TheControlBar`). Runtime callers
+/// borrow `command_definitions::CommandDefinitions` from their instance.
+pub(super) fn loading_control_bar_read() -> OwnedReadGuard<ControlBar> {
+    ini_control_bar_cell().read_arc()
 }
 fn control_bar_write() -> OwnedWriteGuard<ControlBar> {
-    let cell = ini_control_bar_cell();
-    cell.write_arc()
+    ini_control_bar_cell().write_arc()
 }
-/// Initialize the global control bar
-
-/// Get a reference to the global control bar
-/// Get a mutable reference to the global control bar
-/// Parse command button definition from INI file
-/// This is the main entry point called by the INI parser
 
 fn ini_control_bar_cell() -> std::sync::Arc<parking_lot::RwLock<ControlBar>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.control_bar)
@@ -570,14 +566,15 @@ pub fn initialize_control_bar() {
     let _ = ini_control_bar_cell();
 }
 
+/// Published-catalog read for the GameClient ControlBar callers that have not
+/// yet received their instance's `CommandDefinitions`. Scheduled for deletion.
 pub fn get_control_bar() -> Option<OwnedReadGuard<ControlBar>> {
-    let cell = ini_control_bar_cell();
-    Some(cell.read_arc())
+    Some(loading_control_bar_read())
 }
 
+/// Test-fixture write of the published catalog. Scheduled for deletion.
 pub fn get_control_bar_mut() -> Option<OwnedWriteGuard<ControlBar>> {
-    let cell = ini_control_bar_cell();
-    Some(cell.write_arc())
+    Some(control_bar_write())
 }
 
 pub fn parse_command_button_definition(ini: &mut INI) -> INIResult<()> {

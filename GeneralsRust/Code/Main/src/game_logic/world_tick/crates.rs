@@ -195,7 +195,7 @@ impl GameLogic {
         unit: &crate::game_logic::Object,
         button: &str,
     ) -> Option<bool> {
-        let manager = game_engine::common::ini::ini_command_set::get_command_set_manager()?;
+        let manager = self.world_ini_command_sets()?;
         let set_name = unit
             .command_set_override
             .as_deref()

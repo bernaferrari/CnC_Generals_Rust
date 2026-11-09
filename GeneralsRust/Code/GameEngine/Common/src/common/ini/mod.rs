@@ -22,6 +22,7 @@ pub mod ini;
 pub mod ini_ai_data;
 pub mod ini_animation;
 pub mod ini_audio_event_info;
+pub mod command_definitions;
 pub mod ini_command_button;
 pub mod ini_command_set;
 pub mod ini_control_bar_scheme;

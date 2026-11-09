@@ -587,7 +587,7 @@ impl PresentationFrame {
         hud.sync_selection_from_presentation(ids, infos);
         // ControlBar unit command residual: keep holes, portraits, clocks.
         let cmds = self.unit_command_buttons();
-        hud.apply_presentation_unit_commands(&cmds);
+        hud.apply_presentation_unit_commands_with(self.command_definitions.as_ref(), &cmds);
         self.apply_events_to_game_hud(hud);
     }
 
@@ -1182,6 +1182,10 @@ impl PresentationFrame {
         manager: &mut game_client::gui::window_manager::WindowManager,
         effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
     ) {
+        // The frame's receiving world owns the catalog this bar resolves.
+        if self.command_definitions.is_some() {
+            control_bar.bind_command_definitions(self.command_definitions.clone());
+        }
         let panel = self.control_bar_selection_panel();
         let ids: Vec<u32> = if !self.selected.is_empty() {
             self.selected.iter().map(|id| id.0).collect()

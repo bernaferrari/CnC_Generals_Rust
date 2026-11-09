@@ -4,7 +4,6 @@
 
 use super::control_bar::ControlBar;
 use super::{CommandOption, ControlBarContext};
-use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use gamelogic::command_button::MAX_COMMANDS_PER_SET;
 use gamelogic::commands::CommandType;
 use gamelogic::common::types::{KindOf, OBJECT_STATUS_SOLD};
@@ -24,7 +23,7 @@ pub(super) fn populate_multi_select_commands_from_sets(
     let Some(control_bar) = get_control_bar_bridge() else {
         return Ok(());
     };
-    let Some(common_bar) = get_ini_control_bar() else {
+    let Some(common_bar) = bar.ini_buttons() else {
         return Ok(());
     };
 
@@ -69,7 +68,7 @@ pub(super) fn populate_multi_select_commands(
     let Some(control_bar) = get_control_bar_bridge() else {
         return Ok(());
     };
-    let Some(common_bar) = get_ini_control_bar() else {
+    let Some(common_bar) = bar.ini_buttons() else {
         return Ok(());
     };
 

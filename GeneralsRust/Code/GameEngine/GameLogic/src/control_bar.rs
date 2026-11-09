@@ -8,8 +8,6 @@ use crate::common::KindOf;
 use crate::common::types::ControlBarInterface;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
-use game_engine::common::ini::ini_command_button::get_control_bar;
-use game_engine::common::ini::ini_command_set::get_command_set_manager;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::{CommandSetHandle, PlayerHandle, ThingTemplateHandle};
 use game_engine::rts::academy_stats::{
@@ -53,25 +51,31 @@ fn is_exact_unit_build_identity(
 }
 
 impl ControlBarBridge {
-    pub fn build_from_common() -> Result<Self, String> {
-        Self::build_from_common_using(CommandButton::from_common)
+    /// Build from the CommandButton/CommandSet catalog owned by `common`
+    /// (C++ ControlBar.cpp:1060-1120: the engine's own ControlBar parses them).
+    pub fn build_from_common(
+        common: &game_engine::common::common_services::CommonServices,
+    ) -> Result<Self, String> {
+        Self::build_from_common_using(common, CommandButton::from_common)
     }
 
     pub fn build_from_common_with_upgrade_definitions(
+        common: &game_engine::common::common_services::CommonServices,
         upgrade_definitions: &UpgradeCenter,
     ) -> Result<Self, String> {
-        Self::build_from_common_using(|id, button| {
+        Self::build_from_common_using(common, |id, button| {
             CommandButton::from_common_with_upgrade_definitions(id, button, upgrade_definitions)
         })
     }
 
     fn build_from_common_using(
+        common: &game_engine::common::common_services::CommonServices,
         mut make_button: impl FnMut(
             CommandButtonId,
             &game_engine::common::ini::ini_command_button::CommandButton,
         ) -> CommandButton,
     ) -> Result<Self, String> {
-        let control_bar = get_control_bar().ok_or("ControlBar not initialized")?;
+        let control_bar = common.ini.control_bar.read();
         let mut button_names: Vec<String> = control_bar
             .get_button_names()
             .into_iter()
@@ -94,7 +98,8 @@ impl ControlBarBridge {
         }
 
         let mut command_sets = HashMap::new();
-        if let Some(manager) = get_command_set_manager() {
+        {
+            let manager = common.ini.command_set.read();
             for (name, set) in manager.iter_resolved_sets() {
                 let mut command_set = CommandSet::new(name.clone());
 
@@ -196,21 +201,42 @@ fn with_bridge_slot<R>(f: impl FnOnce(&RwLock<Option<Arc<ControlBarBridge>>>) ->
 }
 
 pub fn initialize_control_bar_bridge_from_common() -> Result<(), String> {
-    let bridge = ControlBarBridge::build_from_common()?;
-    replace_control_bar_bridge(bridge)
+    refresh_control_bar_bridge_from_common()
 }
 
+/// Rebuild the published world's bridge from that same world's catalog.
 pub fn refresh_control_bar_bridge_from_common() -> Result<(), String> {
-    let bridge = ControlBarBridge::build_from_common()?;
-    replace_control_bar_bridge(bridge)
+    refresh_control_bar_bridge_for_world(&crate::system::engine_stores::active_services(), None)
 }
 
 /// Refresh from explicit receiving-session upgrade content without selecting Core AI.
 pub fn refresh_control_bar_bridge_from_common_with_upgrade_definitions(
     upgrade_definitions: &UpgradeCenter,
 ) -> Result<(), String> {
-    let bridge = ControlBarBridge::build_from_common_with_upgrade_definitions(upgrade_definitions)?;
-    replace_control_bar_bridge(bridge)
+    refresh_control_bar_bridge_for_world(
+        &crate::system::engine_stores::active_services(),
+        Some(upgrade_definitions),
+    )
+}
+
+/// Rebuild `world`'s bridge from the CommandButton/CommandSet catalog owned by
+/// `world.common()`. Neither the catalog nor the slot is read from a peer.
+pub fn refresh_control_bar_bridge_for_world(
+    world: &crate::system::engine_stores::WorldServices,
+    upgrade_definitions: Option<&UpgradeCenter>,
+) -> Result<(), String> {
+    let bridge = match upgrade_definitions {
+        Some(upgrades) => {
+            ControlBarBridge::build_from_common_with_upgrade_definitions(world.common(), upgrades)?
+        }
+        None => ControlBarBridge::build_from_common(world.common())?,
+    };
+    let mut guard = world
+        .control_bar_bridge()
+        .write()
+        .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
+    *guard = Some(Arc::new(bridge));
+    Ok(())
 }
 
 fn replace_control_bar_bridge(bridge: ControlBarBridge) -> Result<(), String> {

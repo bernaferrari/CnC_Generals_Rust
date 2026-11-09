@@ -55,7 +55,8 @@ impl ControlBar {
         let Some(control_bar) = get_control_bar_bridge() else {
             return Ok(());
         };
-        let Some(common_bar) = get_ini_control_bar() else {
+        let definitions = self.command_definitions.clone();
+        let Some(common_bar) = definitions.as_ref().map(|definitions| definitions.buttons()) else {
             return Ok(());
         };
 
@@ -132,6 +133,7 @@ impl ControlBar {
         super::control_bar_beacon::append_beacon_commands_with_presentation(
             context,
             &self.presentation_primary_command_set,
+            self.command_definitions.as_ref(),
         )?;
         Ok(())
     }
@@ -277,7 +279,7 @@ impl ControlBar {
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        super::control_bar_observer::populate_observer_commands(context)?;
+        super::control_bar_observer::populate_observer_commands(context, self.command_definitions.as_ref())?;
         Ok(())
     }
 
@@ -298,7 +300,10 @@ impl ControlBar {
                 Self::push_command_if_missing(context, Self::command_from_definition(definition));
             }
         } else {
-            super::control_bar_under_construction::populate_under_construction_commands(context)?;
+            super::control_bar_under_construction::populate_under_construction_commands(
+                context,
+                self.command_definitions.as_ref(),
+            )?;
         }
         Ok(())
     }
@@ -314,6 +319,7 @@ impl ControlBar {
             &self.presentation_occupants,
             self.receiving_upgrade_actions.as_deref(),
             self.presentation_selected_context.is_some(),
+            self.command_definitions.as_ref(),
         )?;
         Ok(())
     }
@@ -344,6 +350,7 @@ impl ControlBar {
         super::control_bar_beacon::append_beacon_commands_with_presentation(
             context,
             &self.presentation_primary_command_set,
+            self.command_definitions.as_ref(),
         )?;
         Ok(())
     }
@@ -703,7 +710,8 @@ impl ControlBar {
         let Some(control_bar) = get_control_bar_bridge() else {
             return;
         };
-        let Some(common_bar) = get_ini_control_bar() else {
+        let definitions = self.command_definitions.clone();
+        let Some(common_bar) = definitions.as_ref().map(|definitions| definitions.buttons()) else {
             return;
         };
         let names = [

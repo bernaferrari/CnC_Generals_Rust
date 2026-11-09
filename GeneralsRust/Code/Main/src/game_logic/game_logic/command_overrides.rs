@@ -120,35 +120,44 @@ impl GameLogic {
             self.set_buildable_status_override(template, status);
         }
     }
+    /// C++ `TheControlBar` CommandButton/CommandSet catalog of THIS world
+    /// (ControlBar.cpp:1060-1120 parse, 1690-1730 find). The admitted
+    /// receiving catalog wins; fixtures without one read the INI catalog
+    /// owned by this world's `CommonServices`, never a published peer's.
+    pub(crate) fn command_definitions(
+        &self,
+    ) -> game_engine::common::ini::command_definitions::CommandDefinitions {
+        use game_engine::common::ini::command_definitions::CommandDefinitions;
+        match self.receiving_module_content.as_ref() {
+            Some(content) => CommandDefinitions::Admitted(content.action_definitions_shared()),
+            None => CommandDefinitions::from_common(self.world_services.common()),
+        }
+    }
+    /// INI CommandButton catalog owned by this world's `CommonServices`.
+    pub(crate) fn world_ini_control_bar(
+        &self,
+    ) -> Option<impl std::ops::Deref<Target = game_engine::common::ini::ini_command_button::ControlBar> + '_>
+    {
+        Some(self.world_services.common().ini.control_bar.read())
+    }
+    /// INI CommandSet catalog owned by this world's `CommonServices`.
+    pub(crate) fn world_ini_command_sets(
+        &self,
+    ) -> Option<impl std::ops::Deref<Target = game_engine::common::ini::ini_command_set::CommandSetManager> + '_>
+    {
+        Some(self.world_services.common().ini.command_set.read())
+    }
     pub(crate) fn admitted_command_button(
         &self,
         name: &str,
     ) -> Option<game_engine::common::ini::ini_command_button::CommandButton> {
-        if let Some(content) = self.receiving_module_content.as_ref() {
-            return content
-                .action_definitions()
-                .buttons
-                .find_command_button_resolved(name)
-                .cloned();
-        }
-        game_engine::common::ini::ini_command_button::get_control_bar()?
-            .find_command_button_resolved(name)
-            .cloned()
+        self.command_definitions().find_command_button(name)
     }
     fn admitted_command_set(
         &self,
         name: &str,
     ) -> Option<game_engine::common::ini::ini_command_set::CommandSet> {
-        if let Some(content) = self.receiving_module_content.as_ref() {
-            return content
-                .action_definitions()
-                .sets
-                .find_command_set_resolved(name)
-                .cloned();
-        }
-        game_engine::common::ini::ini_command_set::get_command_set_manager()?
-            .find_command_set_resolved(name)
-            .cloned()
+        self.command_definitions().find_command_set(name)
     }
     pub(crate) fn effective_command_slots(&self, set_name: &str) -> Option<Vec<Option<String>>> {
         let set = self.admitted_command_set(set_name)?;

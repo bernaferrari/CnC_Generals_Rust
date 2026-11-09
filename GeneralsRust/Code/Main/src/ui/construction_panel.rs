@@ -15,7 +15,6 @@ use crate::ui::KeyCode;
 use crate::ui::layout;
 use crate::ui::utils;
 
-use game_engine::common::ini::ini_command_button::get_control_bar;
 use game_engine::common::thing::thing_template::BuildableStatus;
 
 /// C++ `HotKeyManager::searchHotKey` (`HotKey.cpp:182-201`): first `&` marker.
@@ -77,12 +76,6 @@ fn keycode_from_hotkey_char(ch: char) -> Option<KeyCode> {
     }
 }
 
-/// C++ ControlBar.cpp:2472-2476 — TextLabel `&` hotkey for a command name.
-pub fn hotkey_for_command_name(command_name: &str) -> Option<KeyCode> {
-    let bar = get_control_bar()?;
-    let button = bar.find_command_button_resolved(command_name)?;
-    hotkey_from_text_label(&button.text_label)
-}
 
 // ---------------------------------------------------------------------------
 // Re-usable data extracted from the INI system
@@ -502,36 +495,31 @@ impl ConstructionPanel {
     /// `Object` field and a `Command` of type `"OBJECT_BUILD"` or similar.
     pub fn populate_from_command_set(
         &mut self,
+        definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
         command_set_name: &str,
         faction_side: &str,
         credits: i32,
     ) {
-        use game_engine::common::ini::ini_command_button::get_control_bar;
-        use game_engine::common::ini::ini_command_set::get_command_set_manager;
-
         self.selected_building = Some(command_set_name.to_string());
         self.items.clear();
         self.tab_order.clear();
 
         // 1. Resolve the command set.
-        let resolved_buttons: Vec<String> = if let Some(csm) = get_command_set_manager() {
-            if let Some(cs) = csm.find_command_set_resolved(command_set_name) {
-                cs.get_all_buttons().iter().map(|s| (*s).clone()).collect()
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
+        let resolved_buttons: Vec<String> = definitions
+            .find_command_set(command_set_name)
+            .map(|cs| cs.get_all_buttons().iter().map(|s| (*s).clone()).collect())
+            .unwrap_or_default();
 
         // 2. For each button name in the set, resolve via the ControlBar and
         //    inspect the `Object` field.
-        if let Some(cb) = get_control_bar() {
-            for btn_name in &resolved_buttons {
-                let btn = match cb.find_command_button_resolved(btn_name) {
-                    Some(b) => b,
-                    None => continue,
-                };
+        let buttons: Vec<_> = definitions.with_buttons(|cb| {
+            resolved_buttons
+                .iter()
+                .filter_map(|name| cb.find_command_button_resolved(name).cloned())
+                .collect()
+        });
+        {
+            for btn in &buttons {
 
                 // Skip buttons without an object (upgrade buttons, action
                 // buttons, etc.).
@@ -558,8 +546,7 @@ impl ConstructionPanel {
                     cost,
                     build_time,
                     button_image: btn.button_image.clone(),
-                    hotkey: hotkey_from_text_label(&btn.text_label)
-                        .or_else(|| hotkey_for_command_name(btn_name)),
+                    hotkey: hotkey_from_text_label(&btn.text_label),
                     button_border_type: btn.button_border_type.clone(),
                     radius_cursor_type: btn.radius_cursor_type.clone(),
                     command: btn.command.clone(),
@@ -584,6 +571,7 @@ impl ConstructionPanel {
     /// Populate from a known building name by looking up its command set.
     pub fn show_for_building(
         &mut self,
+        definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
         building_name: &str,
         faction_side: &str,
         credits: i32,
@@ -597,7 +585,7 @@ impl ConstructionPanel {
             .map(|s| s.to_string())
             .or_else(|| find_command_set_for_object(building_name));
         if let Some(ref cs_name) = command_set {
-            self.populate_from_command_set(cs_name, faction_side, credits);
+            self.populate_from_command_set(definitions, cs_name, faction_side, credits);
         } else {
             // Fallback: show an empty panel.
             self.selected_building = Some(building_name.to_string());
@@ -932,29 +920,23 @@ pub struct CommandSetBuildableCameo {
 }
 
 /// Resolve OBJECT_BUILD / UNIT_BUILD / DOZER_CONSTRUCT objects from CommandSet slots.
-pub fn command_set_buildable_cameos(command_set_name: &str) -> Vec<CommandSetBuildableCameo> {
-    use game_engine::common::ini::ini_command_set::{
-        get_command_set_manager, initialize_command_set_manager,
-    };
-
+pub fn command_set_buildable_cameos(
+    definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
+    command_set_name: &str,
+) -> Vec<CommandSetBuildableCameo> {
     if command_set_name.trim().is_empty() {
         return Vec::new();
     }
-    initialize_command_set_manager();
-    let Some(csm) = get_command_set_manager() else {
+    let Some(cs) = definitions.find_command_set_nocase(command_set_name) else {
         return Vec::new();
     };
-    let Some(cs) = csm.find_command_set_resolved(command_set_name).or_else(|| {
-        csm.iter_resolved_sets()
-            .into_iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(command_set_name))
-            .map(|(_, set)| set)
-    }) else {
-        return Vec::new();
-    };
-    let Some(cb) = get_control_bar() else {
-        return Vec::new();
-    };
+    definitions.with_buttons(|cb| buildable_cameos_from(&cs, cb))
+}
+
+fn buildable_cameos_from(
+    cs: &game_engine::common::ini::ini_command_set::CommandSet,
+    cb: &game_engine::common::ini::ini_command_button::ControlBar,
+) -> Vec<CommandSetBuildableCameo> {
     let mut out = Vec::new();
     for slot in cs.buttons.iter().take(14) {
         let Some(btn_name) = slot else {
@@ -975,8 +957,7 @@ pub fn command_set_buildable_cameos(command_set_name: &str) -> Vec<CommandSetBui
             template_name: btn.object.clone(),
             display_name,
             cost,
-            hotkey: hotkey_from_text_label(&btn.text_label)
-                .or_else(|| hotkey_for_command_name(btn_name)),
+            hotkey: hotkey_from_text_label(&btn.text_label),
             command: btn.command.clone(),
         });
     }

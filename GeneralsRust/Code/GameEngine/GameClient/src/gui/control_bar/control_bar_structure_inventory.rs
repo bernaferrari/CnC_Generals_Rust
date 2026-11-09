@@ -4,7 +4,6 @@
 
 use super::control_bar::ControlBar;
 use super::{CommandButton, ControlBarContext};
-use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use gamelogic::commands::CommandType;
 use gamelogic::common::types::DisabledType;
@@ -211,6 +210,7 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
         &game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions,
     >,
     receiving_frame: bool,
+    definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if context.selected_objects.len() != 1 {
         return Ok(());
@@ -268,7 +268,7 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
     let common_bar = if receiving_frame {
         None
     } else {
-        get_ini_control_bar()
+        definitions.map(|definitions| definitions.buttons())
     };
     let find_button = |name: &str| {
         receiving_actions

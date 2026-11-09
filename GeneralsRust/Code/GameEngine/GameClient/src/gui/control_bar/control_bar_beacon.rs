@@ -4,7 +4,6 @@
 
 use super::ControlBarContext;
 use super::control_bar::ControlBar;
-use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
 /// Append beacon-only commands when the current selection is a local beacon object.
@@ -13,14 +12,16 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 /// containing "BEACON" still enables Command_BeaconDelete (Main snapshot path).
 pub(super) fn append_beacon_commands(
     context: &mut ControlBarContext,
+    definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    append_beacon_commands_with_presentation(context, "")
+    append_beacon_commands_with_presentation(context, "", definitions)
 }
 
 /// Same as [`append_beacon_commands`], with optional presentation command-set residual.
 pub(super) fn append_beacon_commands_with_presentation(
     context: &mut ControlBarContext,
     presentation_command_set: &str,
+    definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if context.selected_objects.len() != 1 {
         return Ok(());
@@ -47,7 +48,7 @@ pub(super) fn append_beacon_commands_with_presentation(
         return Ok(());
     }
 
-    let Some(common_bar) = get_ini_control_bar() else {
+    let Some(common_bar) = definitions.map(|definitions| definitions.buttons()) else {
         return Ok(());
     };
     if let Some(button) = common_bar.find_command_button_resolved("Command_BeaconDelete") {

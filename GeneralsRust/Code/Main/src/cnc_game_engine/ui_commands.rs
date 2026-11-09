@@ -2659,7 +2659,11 @@ impl CnCGameEngine {
         if self.pending_structure_placement.is_some() {
             self.cancel_structure_placement_from_ui();
         }
-        play_named_command_button_unit_specific_sound("Command_ViewCommandCenter", self.local_player_id_for_ui());
+        play_named_command_button_unit_specific_sound(
+            &self.game_logic.command_definitions(),
+            "Command_ViewCommandCenter",
+            self.local_player_id_for_ui(),
+        );
         self.with_native_camera_input_effects(|world, effects, _input| {
             execute_named_view_command_center(world, effects)
         })
@@ -2681,7 +2685,11 @@ impl CnCGameEngine {
         }
         // C++ ControlBarCommandProcessing.cpp:183-189 — every command-button
         // activation plays UnitSpecificSound with the local player index.
-        play_named_command_button_unit_specific_sound(command_name, self.local_player_id_for_ui());
+        play_named_command_button_unit_specific_sound(
+            &self.game_logic.command_definitions(),
+            command_name,
+            self.local_player_id_for_ui(),
+        );
 
         // C++ ControlBar: AttackMove/Guard/SetRally wait for map click residual.
         match command_type {
@@ -2950,7 +2958,7 @@ impl CnCGameEngine {
             }
             _ => {}
         }
-        if named_command_is_single_use(command_name) {
+        if named_command_is_single_use(&self.game_logic.command_definitions(), command_name) {
             for id in &selected {
                 if let Some(obj) = self.game_logic.host_object_mut(*id) {
                     obj.mark_single_use_command_used();
@@ -2969,19 +2977,13 @@ impl CnCGameEngine {
 }
 
 /// C++ ControlBarCommandProcessing.cpp:183-189.
-fn play_named_command_button_unit_specific_sound(command_name: &str, player_id: u32) {
-    let event_name = {
-        let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() else {
-            return;
-        };
-        let Some(button) = bar.find_command_button_resolved(command_name) else {
-            return;
-        };
-        let name = button.unit_specific_sound.playable_event_name();
-        if name.is_empty() {
-            return;
-        }
-        name.to_string()
+fn play_named_command_button_unit_specific_sound(
+    definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
+    command_name: &str,
+    player_id: u32,
+) {
+    let Some(event_name) = named_command_unit_specific_sound(definitions, command_name) else {
+        return;
     };
     if let Some(audio) = gamelogic::helpers::TheAudio::get() {
         let mut event = gamelogic::common::audio::AudioEventRts::new(&event_name);
@@ -2992,12 +2994,20 @@ fn play_named_command_button_unit_specific_sound(command_name: &str, player_id: 
     }
 }
 
+/// The receiving catalog's `UnitSpecificSound` event for a command button.
+fn named_command_unit_specific_sound(definitions: &game_engine::common::ini::command_definitions::CommandDefinitions, command_name: &str) -> Option<String> {
+    {
+        let Some(button) = definitions.find_command_button(command_name) else {
+            return None;
+        };
+        let name = button.unit_specific_sound.playable_event_name();
+        (!name.is_empty()).then(|| name.to_string())
+    }
+}
+
 /// C++ ControlBarCommandProcessing.cpp:167-178.
-fn named_command_is_single_use(command_name: &str) -> bool {
-    let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() else {
-        return false;
-    };
-    let Some(button) = bar.find_command_button_resolved(command_name) else {
+fn named_command_is_single_use(definitions: &game_engine::common::ini::command_definitions::CommandDefinitions, command_name: &str) -> bool {
+    let Some(button) = definitions.find_command_button(command_name) else {
         return false;
     };
     button.options.one_shot
@@ -3306,32 +3316,34 @@ mod tests {
     }
 
     #[test]
-    fn command_button_unit_specific_sound_resolves_from_ini() {
-        game_engine::common::ini::ini_command_button::initialize_control_bar();
-        {
-            let mut bar = game_engine::common::ini::ini_command_button::get_control_bar_mut()
-                .expect("INI control bar");
-            let button = bar.new_command_button("Command_BlackLotusHackBuilding".to_string());
-            button.unit_specific_sound =
+    fn command_button_unit_specific_sound_resolves_from_receiving_catalog() {
+        // Two instances author the same button name with different sounds;
+        // each resolves only its own catalog.
+        let a = game_engine::common::common_services::CommonServices::new();
+        let b = game_engine::common::common_services::CommonServices::new();
+        for (services, sound) in [(&a, "BlackLotusVoiceModeBuilding"), (&b, "PeerVoice")] {
+            services
+                .ini
+                .control_bar
+                .write()
+                .new_command_button("Command_BlackLotusHackBuilding".to_string())
+                .unit_specific_sound =
                 game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
-                    "BlackLotusVoiceModeBuilding".to_string(),
+                    sound.to_string(),
                 );
         }
-        play_named_command_button_unit_specific_sound("Command_BlackLotusHackBuilding", 0);
-        let resolved_name = "Command_BlackLotusHackBuilding".to_string();
-        let resolved: String = {
-            let bar = game_engine::common::ini::ini_command_button::get_control_bar().unwrap();
-            bar.find_command_button_resolved(&resolved_name)
-                .map(|b| b.unit_specific_sound.playable_event_name().to_string())
-                .expect("INI control bar")
-        };
-        assert_eq!(resolved, "BlackLotusVoiceModeBuilding");
-        // The INI control bar is process-global; tests that insert buttons
-        // must remove them again or a later serial test sees a non-empty bar
-        // as authoritative and never falls back to name-derived command types.
-        if let Some(mut bar) = game_engine::common::ini::ini_command_button::get_control_bar_mut() {
-            bar.remove_command_button(&resolved_name);
-        }
+        let da = game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&a);
+        let db = game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&b);
+        assert_eq!(
+            named_command_unit_specific_sound(&da, "Command_BlackLotusHackBuilding").as_deref(),
+            Some("BlackLotusVoiceModeBuilding")
+        );
+        assert_eq!(
+            named_command_unit_specific_sound(&db, "Command_BlackLotusHackBuilding").as_deref(),
+            Some("PeerVoice")
+        );
+        let empty = game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&game_engine::common::common_services::CommonServices::new());
+        assert_eq!(named_command_unit_specific_sound(&empty, "Command_BlackLotusHackBuilding"), None);
     }
 
     #[test]

@@ -1,7 +1,6 @@
 use std::sync::{Arc, RwLock};
 
 use game_client_rust::gui::control_bar::{CommandAvailability, CommandOption, ControlBar};
-use game_engine::common::ini::ini_command_button;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::PlayerArcExt;
 use gamelogic::upgrade::center::{UpgradeCenter, with_upgrade_center_mut};
@@ -18,9 +17,15 @@ fn required_upgrade_is_resolved_from_the_receiving_bar() {
     with_upgrade_center_mut(|center| {
         center.new_upgrade(NAME.into());
     });
-    ini_command_button::initialize_control_bar();
+    // The receiving instance's own CommandButton catalog.
+    let services = game_engine::common::common_services::CommonServices::new();
+    let catalog_owner = || {
+        Some(game_engine::common::ini::command_definitions::CommandDefinitions::from_common(
+            &services,
+        ))
+    };
     {
-        let mut definitions = ini_command_button::get_control_bar_mut().unwrap();
+        let mut definitions = services.ini.control_bar.write();
         let button = definitions.new_command_button(BUTTON.to_owned());
         button.command = "STOP".into();
         button.upgrade = NAME.into();
@@ -51,7 +56,9 @@ fn required_upgrade_is_resolved_from_the_receiving_bar() {
     let mut owner = ControlBar::new();
     let mut peer = ControlBar::new();
     owner.set_receiving_upgrade_definitions(&catalog, None);
+    owner.bind_command_definitions(catalog_owner());
     peer.set_receiving_upgrade_definitions(&empty, None);
+    peer.bind_command_definitions(catalog_owner());
     assert_eq!(
         owner.leftover_evaluate_named_command(BUTTON, OBJECT_ID, PLAYER_ID as u32),
         CommandAvailability::Restricted
@@ -85,7 +92,7 @@ fn required_upgrade_is_resolved_from_the_receiving_bar() {
     object_catalog.init();
     let object_name = "Upgrade_Veterancy_VETERAN";
     {
-        let mut definitions = ini_command_button::get_control_bar_mut().unwrap();
+        let mut definitions = services.ini.control_bar.write();
         let button = definitions.new_command_button("Command_ObjectRequirement".into());
         button.command = "STOP".into();
         button.upgrade = object_name.into();
@@ -93,10 +100,12 @@ fn required_upgrade_is_resolved_from_the_receiving_bar() {
     }
     let mut object_bar = ControlBar::new();
     object_bar.set_receiving_upgrade_definitions(&object_catalog, None);
+    object_bar.bind_command_definitions(catalog_owner());
     let mut player_catalog = UpgradeCenter::new();
     player_catalog.new_upgrade(object_name.into());
     let mut player_bar = ControlBar::new();
     player_bar.set_receiving_upgrade_definitions(&player_catalog, None);
+    player_bar.bind_command_definitions(catalog_owner());
     assert_eq!(
         object_bar.leftover_evaluate_named_command(
             "Command_ObjectRequirement",

@@ -301,6 +301,8 @@ impl CnCGameEngine {
                         .as_ref()
                         .map(|content| content.action_definitions_shared()),
                 );
+                self.control_bar
+                    .bind_command_definitions(Some(self.game_logic.command_definitions()));
                 {
                     let facts = self.receiving_menu_world_facts();
                     let bar = &mut self.control_bar;

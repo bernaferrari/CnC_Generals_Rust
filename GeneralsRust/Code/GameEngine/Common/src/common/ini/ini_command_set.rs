@@ -9,7 +9,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::ini::{FieldParse, INI, INIError, INIResult};
 use super::ini_command_button::CommandButton;
-use super::ini_command_button::get_control_bar;
+use super::ini_command_button::loading_control_bar_read;
 
 /// Maximum number of command buttons in a set
 pub const MAX_COMMAND_BUTTONS_PER_SET: usize = 18; // Typically 3x6 grid
@@ -172,10 +172,11 @@ fn parse_command_button_at(
         if !names.contains(*name) {
             return Err(INIError::InvalidData);
         }
-    } else if let Some(control_bar) = get_control_bar() {
-        if control_bar.find_command_button_resolved(name).is_none() {
-            return Err(INIError::InvalidData);
-        }
+    } else if loading_control_bar_read()
+        .find_command_button_resolved(name)
+        .is_none()
+    {
+        return Err(INIError::InvalidData);
     }
 
     data.set_button_at_position(index, (*name).to_string())
@@ -730,8 +731,8 @@ mod tests {
     fn parse_fields_accept_duplicate_button_slots() {
         crate::common::ini::ini_command_button::initialize_control_bar();
         {
-            let mut control_bar =
-                crate::common::ini::ini_command_button::get_control_bar_mut().unwrap();
+            let services = crate::common::common_services::common_services();
+            let mut control_bar = services.ini.control_bar.write();
             control_bar.clear();
             control_bar.new_command_button("Command_TransportExit".to_string());
         }
@@ -757,8 +758,10 @@ mod tests {
         );
         assert!(command_set.validate().is_ok());
 
-        crate::common::ini::ini_command_button::get_control_bar_mut()
-            .unwrap()
+        crate::common::common_services::common_services()
+            .ini
+            .control_bar
+            .write()
             .clear();
     }
 }

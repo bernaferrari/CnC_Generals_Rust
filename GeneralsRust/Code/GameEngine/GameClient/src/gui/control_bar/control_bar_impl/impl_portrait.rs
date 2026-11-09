@@ -714,7 +714,8 @@ impl ControlBar {
         let Some(control_bar) = get_control_bar_bridge() else {
             return;
         };
-        let Some(common_bar) = get_ini_control_bar() else {
+        let definitions = self.command_definitions.clone();
+        let Some(common_bar) = definitions.as_ref().map(|definitions| definitions.buttons()) else {
             return;
         };
         let command_set = control_bar
@@ -789,7 +790,8 @@ impl ControlBar {
         let Some(control_bar) = get_control_bar_bridge() else {
             return;
         };
-        let Some(common_bar) = get_ini_control_bar() else {
+        let definitions = self.command_definitions.clone();
+        let Some(common_bar) = definitions.as_ref().map(|definitions| definitions.buttons()) else {
             return;
         };
 
@@ -936,6 +938,7 @@ impl ControlBar {
                         &self.presentation_occupants,
                         None,
                         false,
+                        self.command_definitions.as_ref(),
                     );
                 } else {
                     let _ = super::control_bar_structure_inventory::do_transport_inventory_ui(

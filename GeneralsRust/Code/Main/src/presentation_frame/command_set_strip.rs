@@ -10,6 +10,9 @@
 use super::*;
 use crate::ui::{UnitCommandAvailability, UnitCommandButton};
 
+/// The receiving instance's CommandButton/CommandSet catalog frozen on this frame.
+type Defs<'a> = Option<&'a game_engine::common::ini::command_definitions::CommandDefinitions>;
+
 impl PresentationFrame {
     /// Live GameHUD / unit-command-panel strip. Context first, then CommandSet.
     pub fn populate_command_set_strip(&self) -> Vec<UnitCommandButton> {
@@ -73,12 +76,18 @@ impl PresentationFrame {
         let multi = selected.len() > 1;
         let slots = if multi {
             intersect_command_set_slots(
+                self.command_definitions.as_ref(),
                 &self.selected_command_set_names(),
                 &self.control_bar_overrides,
             )
         } else {
             let cs_name = command_set_name_for_object(ro);
-            command_set_slots_for(&cs_name, &ro.template_name, &self.control_bar_overrides)
+            command_set_slots_for(
+                self.command_definitions.as_ref(),
+                &cs_name,
+                &ro.template_name,
+                &self.control_bar_overrides,
+            )
                 .unwrap_or_default()
         };
         if slots.is_empty() {
@@ -150,8 +159,10 @@ impl PresentationFrame {
             if cmd.command_name.is_empty() {
                 continue;
             }
-            let resolved = game_engine::common::ini::ini_command_button::get_control_bar()
-                .and_then(|bar| bar.find_command_button_resolved(&cmd.command_name).cloned());
+            let resolved = self
+                .command_definitions
+                .as_ref()
+                .and_then(|defs| defs.find_command_button(&cmd.command_name));
             if resolved.is_none() {
                 // C++ object-level restrictions evaluate before per-button
                 // definition work (ControlBarCommand.cpp:1020-1036) and the
@@ -253,6 +264,7 @@ impl PresentationFrame {
     ) -> game_client::gui::control_bar::ControlBar {
         let panel = self.control_bar_selection_panel();
         let mut bar = game_client::gui::control_bar::ControlBar::new();
+        bar.bind_command_definitions(self.command_definitions.clone());
         let mut completed = panel.applied_upgrades.clone();
         for name in &self.local_unlocked_sciences {
             if !completed
@@ -393,7 +405,7 @@ impl PresentationFrame {
             == crate::game_logic::host_production_buildable_command_residual::MAX_BUILD_QUEUE_BUTTONS_RESIDUAL;
         for cmd in cmds.iter_mut() {
             let cn = cmd.command_name.to_ascii_lowercase();
-            let target = command_button_build_target(&cmd.command_name);
+            let target = command_button_build_target(self.command_definitions.as_ref(), &cmd.command_name);
             if target.is_none() && !cn.contains("construct") {
                 continue;
             }
@@ -409,7 +421,7 @@ impl PresentationFrame {
         }
         for cmd in cmds.iter_mut() {
             let cn = cmd.command_name.to_ascii_lowercase();
-            let target = command_button_build_target(&cmd.command_name);
+            let target = command_button_build_target(self.command_definitions.as_ref(), &cmd.command_name);
             if target.is_none() && !cn.contains("construct") {
                 continue;
             }
@@ -646,18 +658,20 @@ fn command_set_name_for_object(ro: &RenderableObject) -> String {
 /// `CommandSet::getCommandButton` consults leftover `GameLogic::findControlBarOverride`
 /// before INI / residual buttons so COMMANDBAR_ADD/REMOVE hide or replace slots.
 fn command_set_slots_for(
+    defs: Defs<'_>,
     set_name: &str,
     template_name: &str,
     overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
 ) -> Option<Vec<Option<String>>> {
-    let mut slots = command_set_slots_from_ini(set_name)
-        .or_else(|| residual_command_set_slots(set_name, template_name))?;
-    apply_receiving_control_bar_overrides(set_name, &mut slots, overrides);
+    let mut slots = command_set_slots_from_ini(defs, set_name)
+        .or_else(|| residual_command_set_slots(defs, set_name, template_name))?;
+    apply_receiving_control_bar_overrides(defs, set_name, &mut slots, overrides);
     Some(slots)
 }
 
 /// C++ `CommandSet::getCommandButton` (`ControlBar.cpp:810-817`).
 fn apply_receiving_control_bar_overrides(
+    defs: Defs<'_>,
     set_name: &str,
     slots: &mut [Option<String>],
     overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
@@ -675,7 +689,7 @@ fn apply_receiving_control_bar_overrides(
             None => {}
             Some(None) => *slot = None,
             Some(Some(name)) => {
-                *slot = if command_is_script_only(name) {
+                *slot = if command_is_script_only(defs, name) {
                     None
                 } else {
                     Some(name.to_string())
@@ -685,26 +699,18 @@ fn apply_receiving_control_bar_overrides(
     }
 }
 
-fn command_set_slots_from_ini(set_name: &str) -> Option<Vec<Option<String>>> {
+fn command_set_slots_from_ini(defs: Defs<'_>, set_name: &str) -> Option<Vec<Option<String>>> {
     if set_name.is_empty() {
         return None;
     }
-    game_engine::common::ini::ini_command_set::initialize_command_set_manager();
-    let manager = game_engine::common::ini::ini_command_set::get_command_set_manager()?;
-    let set = manager.find_command_set_resolved(set_name).or_else(|| {
-        manager
-            .iter_resolved_sets()
-            .into_iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(set_name))
-            .map(|(_, set)| set)
-    })?;
+    let set = defs?.find_command_set_nocase(set_name)?;
     if set.is_empty() {
         return None;
     }
     let mut slots = vec![None; 14];
     for (i, button) in set.buttons.iter().take(14).enumerate() {
         match button {
-            Some(name) if !command_is_script_only(name) => {
+            Some(name) if !command_is_script_only(defs, name) => {
                 slots[i] = Some(name.clone());
             }
             _ => {}
@@ -713,7 +719,11 @@ fn command_set_slots_from_ini(set_name: &str) -> Option<Vec<Option<String>>> {
     Some(slots)
 }
 
-fn residual_command_set_slots(set_name: &str, template_name: &str) -> Option<Vec<Option<String>>> {
+fn residual_command_set_slots(
+    defs: Defs<'_>,
+    set_name: &str,
+    template_name: &str,
+) -> Option<Vec<Option<String>>> {
     let aliased = if set_name.eq_ignore_ascii_case("CommandSetAmericaDozer") {
         "AmericaDozerCommandSet"
     } else {
@@ -727,7 +737,7 @@ fn residual_command_set_slots(set_name: &str, template_name: &str) -> Option<Vec
             let mut slots = vec![None; 14];
             for (idx, button) in *pack {
                 let i = (*idx as usize).saturating_sub(1);
-                if i < 14 && !command_is_script_only(button) {
+                if i < 14 && !command_is_script_only(defs, button) {
                     slots[i] = Some((*button).to_string());
                 }
             }
@@ -742,6 +752,7 @@ fn residual_command_set_slots(set_name: &str, template_name: &str) -> Option<Vec
 
 /// C++ `ControlBar::addCommonCommands` — slot intersection, OK_FOR_MULTI_SELECT only.
 fn intersect_command_set_slots(
+    defs: Defs<'_>,
     set_names: &[String],
     overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
 ) -> Vec<Option<String>> {
@@ -752,14 +763,14 @@ fn intersect_command_set_slots(
         if name.is_empty() {
             return vec![None; 14];
         }
-        let Some(slots) = command_set_slots_for(name, name, overrides) else {
+        let Some(slots) = command_set_slots_for(defs, name, name, overrides) else {
             // C++ clears the shared set when a selected object has no CommandSet.
             return vec![None; 14];
         };
         if !saw_first {
             for i in 0..14 {
                 if let Some(cmd) = slots.get(i).and_then(|s| s.as_deref()) {
-                    if command_ok_for_multi_select(cmd) {
+                    if command_ok_for_multi_select(defs, cmd) {
                         common[i] = Some(cmd.to_string());
                     }
                 }
@@ -799,31 +810,19 @@ fn command_is_attack_move(name: &str) -> bool {
     name.to_ascii_lowercase().contains("attackmove")
 }
 
-fn command_ok_for_multi_select(name: &str) -> bool {
-    if let Some(button) = game_engine::common::ini::ini_command_button::get_control_bar()
-        .and_then(|bar| bar.find_command_button_resolved(name).cloned())
-    {
+fn command_ok_for_multi_select(defs: Defs<'_>, name: &str) -> bool {
+    if let Some(button) = defs.and_then(|defs| defs.find_command_button(name)) {
         return button.options.ok_for_multi_select;
     }
     let n = name.to_ascii_lowercase();
     n.contains("attackmove") || n.contains("guard") || n.ends_with("stop") || n.contains("evacuate")
 }
 
-fn command_set_buttons_for(set_name: &str) -> Option<Vec<String>> {
-    command_set_slots_from_ini(set_name).map(|slots| slots.into_iter().flatten().collect())
-}
-
-fn residual_command_set_buttons(set_name: &str, template_name: &str) -> Option<Vec<String>> {
-    residual_command_set_slots(set_name, template_name)
-        .map(|slots| slots.into_iter().flatten().collect())
-}
-
-fn command_is_script_only(name: &str) -> bool {
+fn command_is_script_only(defs: Defs<'_>, name: &str) -> bool {
     if name.to_ascii_uppercase().contains("FAKECOMMAND") {
         return true;
     }
-    game_engine::common::ini::ini_command_button::get_control_bar()
-        .and_then(|bar| bar.find_command_button_resolved(name).cloned())
+    defs.and_then(|defs| defs.find_command_button(name))
         .is_some_and(|button| button.options.scripted_only)
 }
 
@@ -1036,9 +1035,8 @@ const HUD_COMMAND_SET_RESIDUAL_PACKS: &[(&str, &str, &[(u8, &str)])] = &[
     ),
 ];
 
-fn command_button_build_target(name: &str) -> Option<String> {
-    let bar = game_engine::common::ini::ini_command_button::get_control_bar()?;
-    let button = bar.find_command_button_resolved(name)?;
+fn command_button_build_target(defs: Defs<'_>, name: &str) -> Option<String> {
+    let button = defs?.find_command_button(name)?;
     matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
         .then(|| button.object.clone())
 }

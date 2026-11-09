@@ -834,7 +834,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         // Definitions are immutable during a match; the catalog guard does not
         // cross production callbacks or command execution.
-        let Some(button) = game_engine::common::ini::ini_command_button::get_control_bar()
+        let Some(button) = self.world_ini_control_bar()
             .and_then(|catalog| catalog.find_command_button_resolved(name).cloned())
         else {
             return Ok(());

@@ -4,7 +4,6 @@
 
 use super::ControlBarContext;
 use super::control_bar::ControlBar;
-use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 
 /// Populate command buttons for an under-construction selection.
 ///
@@ -12,8 +11,9 @@ use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_con
 /// This Rust pass provides command parity; text/portrait updates remain in window code.
 pub(super) fn populate_under_construction_commands(
     context: &mut ControlBarContext,
+    definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(common_bar) = get_ini_control_bar() else {
+    let Some(common_bar) = definitions.map(|definitions| definitions.buttons()) else {
         return Ok(());
     };
 

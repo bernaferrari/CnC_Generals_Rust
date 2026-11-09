@@ -1887,7 +1887,10 @@ fn leftover_command_button_kind(command_button_name: &str) -> LeftoverCommandBut
             return LeftoverCommandButtonKind::Other;
         }
     }
-    if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+    // Same world as the bridge above and the host query snapshot: its own catalog.
+    let world = crate::system::engine_stores::active_services();
+    {
+        let bar = world.common().ini.control_bar.read();
         if let Some(button) = bar.find_command_button_resolved(command_button_name) {
             if let Some(template) = button.get_special_power_template() {
                 return LeftoverCommandButtonKind::SpecialPower(template.clone());

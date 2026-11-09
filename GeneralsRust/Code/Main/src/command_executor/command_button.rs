@@ -87,8 +87,7 @@ impl<'a> CommandExecutor<'a> {
         // C++ Object::doCommandButtonUsingWaypoints (Object.cpp:5737-5800):
         // require CAN_USE_WAYPOINTS; only GUI_COMMAND_SPECIAL_POWER with a
         // template acts. Unknown/AttackMove/Move/Guard must not invent a path.
-        let definition = game_engine::common::ini::ini_command_button::get_control_bar()
-            .and_then(|bar| bar.find_command_button_resolved(button).cloned());
+        let definition = self.game_logic.command_definitions().find_command_button(button);
         let Some(definition) = definition else {
             return Ok(CommandResult::Success);
         };
@@ -134,11 +133,11 @@ impl<'a> CommandExecutor<'a> {
         // CPP Object.cpp5413 and AIUpdate.cpp4826 dispatch the authored
         // Command type, independently of the button's definition name.
         // Keep the immutable catalog borrow bounded before executing commands.
-        let authored_stop = game_engine::common::ini::ini_command_button::get_control_bar()
-            .is_some_and(|bar| {
-                bar.find_command_button_resolved(button)
-                    .is_some_and(|definition| definition.command.eq_ignore_ascii_case("STOP"))
-            });
+        let authored_stop = self
+            .game_logic
+            .command_definitions()
+            .find_command_button(button)
+            .is_some_and(|definition| definition.command.eq_ignore_ascii_case("STOP"));
         let Some(mut ct) = (if authored_stop {
             Some(CommandType::Stop)
         } else {

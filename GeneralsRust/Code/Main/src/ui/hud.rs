@@ -229,9 +229,8 @@ fn keycode_from_hotkey_char(ch: char) -> Option<KeyCode> {
 /// Live HUD hotkeys come from CommandButton TextLabel `&` markers, not a
 /// hardcoded command-name table. C++ `ControlBar.cpp:2472-2476` calls
 /// `TheHotKeyManager->searchHotKey(commandButton->getTextLabel())`.
-fn command_button_hotkey(command_name: &str) -> Option<KeyCode> {
-    let bar = game_engine::common::ini::ini_command_button::get_control_bar()?;
-    let button = bar.find_command_button_resolved(command_name)?;
+fn command_button_hotkey(definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>, command_name: &str) -> Option<KeyCode> {
+    let button = definitions?.find_command_button(command_name)?;
     let label = button.text_label.trim();
     if label.is_empty() {
         return None;
@@ -683,6 +682,16 @@ impl Default for GameHUD {
 impl GameHUD {
     /// Apply presentation ControlBar unit-command residual (Command_* names).
     pub fn apply_presentation_unit_commands(&mut self, commands: &[crate::ui::UnitCommandButton]) {
+        self.apply_presentation_unit_commands_with(None, commands);
+    }
+
+    /// Same, with the receiving instance's CommandButton catalog for TextLabel
+    /// hotkeys (C++ ControlBar.cpp:2472-2476 reads that engine's buttons).
+    pub fn apply_presentation_unit_commands_with(
+        &mut self,
+        definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
+        commands: &[crate::ui::UnitCommandButton],
+    ) {
         let button_size = 48u32;
         let spacing = 4u32;
         // Wrap at 7 buttons per row inside the authored 140px command bar
@@ -731,7 +740,7 @@ impl GameHUD {
             let hotkey = if cmd.command_name.is_empty() {
                 None
             } else {
-                command_button_hotkey(&cmd.command_name)
+                command_button_hotkey(definitions, &cmd.command_name)
             };
             let icon = if !cmd.button_image.is_empty() {
                 cmd.button_image.clone()
@@ -2045,20 +2054,18 @@ mod tests {
     #[test]
     fn presentation_hotkeys_come_from_command_button_text_label() {
         // C++ ControlBar.cpp:2472-2476 + HotKey.cpp:182-201 searchHotKey(TextLabel).
-        use game_engine::common::ini::ini_command_button::{
-            get_control_bar_mut, initialize_control_bar,
-        };
-
-        initialize_control_bar();
-        {
-            let mut bar = get_control_bar_mut().expect("control bar");
-            bar.new_command_button("Command_HqD1a8xZap".to_string())
-                .text_label = "&Q".to_string();
-        }
+        let services = game_engine::common::common_services::CommonServices::new();
+        services
+            .ini
+            .control_bar
+            .write()
+            .new_command_button("Command_HqD1a8xZap".to_string())
+            .text_label = "&Q".to_string();
+        let defs = game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&services);
 
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
-        hud.apply_presentation_unit_commands(&[
+        hud.apply_presentation_unit_commands_with(Some(&defs), &[
             crate::ui::UnitCommandButton {
                 command_name: "Command_HqD1a8xZap".into(),
                 enabled: true,
@@ -2091,20 +2098,18 @@ mod tests {
 
     #[test]
     fn letter_hotkey_hidden_bar_and_disabled_match_cpp_execute_hot_key() {
-        use game_engine::common::ini::ini_command_button::{
-            get_control_bar_mut, initialize_control_bar,
-        };
-
-        initialize_control_bar();
-        {
-            let mut bar = get_control_bar_mut().expect("control bar");
-            bar.new_command_button("Command_HqD1a8xZap".to_string())
-                .text_label = "&Q".to_string();
-        }
+        let services = game_engine::common::common_services::CommonServices::new();
+        services
+            .ini
+            .control_bar
+            .write()
+            .new_command_button("Command_HqD1a8xZap".to_string())
+            .text_label = "&Q".to_string();
+        let defs = game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&services);
 
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
-        hud.apply_presentation_unit_commands(&[crate::ui::UnitCommandButton {
+        hud.apply_presentation_unit_commands_with(Some(&defs), &[crate::ui::UnitCommandButton {
             command_name: "Command_HqD1a8xZap".into(),
             enabled: true,
             ..Default::default()
@@ -2117,7 +2122,7 @@ mod tests {
         assert!(hud.drain_pending_ui_events().is_empty());
 
         hud.toggle_visibility();
-        hud.apply_presentation_unit_commands(&[crate::ui::UnitCommandButton {
+        hud.apply_presentation_unit_commands_with(Some(&defs), &[crate::ui::UnitCommandButton {
             command_name: "Command_HqD1a8xZap".into(),
             enabled: false,
             ..Default::default()

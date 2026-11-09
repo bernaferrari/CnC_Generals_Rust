@@ -766,7 +766,7 @@ impl GameLogic {
                 return true;
             }
         }
-        if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+        if let Some(bar) = self.world_ini_control_bar() {
             if bar.find_command_button_resolved(ability).is_some() {
                 return true;
             }
@@ -798,7 +798,7 @@ impl GameLogic {
                 return SpecialPowerCommandOption::from_bits_truncate(btn.get_options_bits());
             }
         }
-        if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+        if let Some(bar) = self.world_ini_control_bar() {
             if let Some(btn) = bar.find_command_button_resolved(ability) {
                 return SpecialPowerCommandOption::from_bits_truncate(btn.options_bits);
             }
@@ -2023,7 +2023,7 @@ impl GameLogic {
                 );
             }
         }
-        if let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() {
+        if let Some(bar) = self.world_ini_control_bar() {
             if let Some(btn) = bar.find_command_button_resolved(ability) {
                 return Self::leftover_command_type_is_hunt_capable(
                     gamelogic::command_button::map_gui_command_to_command_type(&btn.command),

@@ -559,7 +559,8 @@ impl ControlBar {
         if command_name.is_empty() {
             return CommandAvailability::Hidden;
         }
-        let button = get_ini_control_bar()
+        let button = self
+            .ini_buttons()
             .and_then(|bar| bar.find_command_button_resolved(command_name).cloned())
             .map(|def| Self::command_from_definition(&def))
             .unwrap_or_else(|| CommandButton {
@@ -1005,8 +1006,8 @@ impl ControlBar {
                     QueueProductionType::Upgrade => "Command_CancelUpgradeCreate",
                     _ => "Command_CancelUnitCreate",
                 };
-                let mut cmd = Self::leftover_command_button_by_name(cancel_name)
-                    .or_else(|| Self::leftover_lookup_command_button(cancel_name))
+                let mut cmd = self.leftover_command_button_by_name(cancel_name)
+                    .or_else(|| self.leftover_lookup_command_button(cancel_name))
                     .unwrap_or_else(|| {
                         let mut fallback = CommandButton::default();
                         fallback.command_name = cancel_name.to_string();
@@ -1236,7 +1237,7 @@ impl ControlBar {
         } else if let Some(button) = if super::host_control_bar_bridge_enabled(ui) {
             None
         } else {
-            Self::leftover_lookup_command_button(command_name)
+            self.leftover_lookup_command_button(command_name)
         } {
             // C++ processCommandUI uses GadgetButtonGetData (setControlCommand).
             // Purchase-science cameos are not in the 14-slot available_commands.
@@ -1436,6 +1437,7 @@ fn leftover_queue_slot_image(
             Some(&context.available_commands),
             bar.receiving_upgrade_catalog.as_ref(),
             bar.receiving_upgrade_actions.as_deref(),
+            bar.command_definitions.as_ref(),
         );
     }
     if !entry.upgrade_name.is_empty() {

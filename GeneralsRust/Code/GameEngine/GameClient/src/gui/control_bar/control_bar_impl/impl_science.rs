@@ -432,8 +432,8 @@ impl ControlBar {
     }
 
     /// Resolve a CommandButton by name for leftover setControlCommand / click.
-    fn leftover_lookup_command_button(command_name: &str) -> Option<CommandButton> {
-        Self::leftover_command_button_by_name(command_name)
+    fn leftover_lookup_command_button(&self, command_name: &str) -> Option<CommandButton> {
+        self.leftover_command_button_by_name(command_name)
     }
 
     fn leftover_apply_purchase_science_windows(
@@ -478,7 +478,7 @@ impl ControlBar {
                                 self.receiving_purchase_sciences
                                     .is_none()
                                     .then(|| {
-                                        Self::leftover_command_button_by_name(&button.command_name)
+                                        self.leftover_command_button_by_name(&button.command_name)
                                     })
                                     .flatten()
                             })
@@ -2175,7 +2175,7 @@ impl ControlBar {
 
             if current_button < self.special_power_shortcuts.len() {
                 let mut cmd = Self::command_from_logic_button(logic_button);
-                if let Some(common_bar) = get_ini_control_bar() {
+                if let Some(common_bar) = self.ini_buttons() {
                     cmd = self.command_from_set_slot(&common_bar, Some(logic_button));
                 } else {
                     self.apply_need_special_power_science(&mut cmd, logic_button);
@@ -2531,7 +2531,7 @@ impl ControlBar {
             .iter()
             .filter(|s| !s.is_hidden && !s.command_name.is_empty())
             .any(|s| {
-                Self::leftover_command_button_by_name(&s.command_name)
+                self.leftover_command_button_by_name(&s.command_name)
                     .map(|button| button.command_type == CommandType::MetaSelectMatchingUnits)
                     .unwrap_or(false)
             })

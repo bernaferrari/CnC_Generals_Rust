@@ -424,6 +424,37 @@ mod tests {
     }
 
     #[test]
+    fn two_bars_resolve_buttons_only_from_their_own_instance_catalog() {
+        // C++ each engine's ControlBar owns m_commandButtons (ControlBar.cpp:1060-1120).
+        // Same button name, different authored Command in two instances.
+        crate::test_support::ensure_ambient_host();
+        const NAME: &str = "Command_TwoInstanceOwnedButton";
+        let a = game_engine::common::common_services::CommonServices::new();
+        let b = game_engine::common::common_services::CommonServices::new();
+        a.ini.control_bar.write().new_command_button(NAME.into()).command = "STOP".into();
+        b.ini.control_bar.write().new_command_button(NAME.into()).command = "GUARD".into();
+        let mut bar_a = ControlBar::new();
+        let mut bar_b = ControlBar::new();
+        bar_a.bind_command_definitions(Some(game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&a)));
+        bar_b.bind_command_definitions(Some(game_engine::common::ini::command_definitions::CommandDefinitions::from_common(&b)));
+        let unbound = ControlBar::new();
+
+        let from_a = bar_a.leftover_command_button_by_name(NAME).expect("a's button");
+        let from_b = bar_b.leftover_command_button_by_name(NAME).expect("b's button");
+        assert_eq!(from_a.command_type, map_gui_command_to_command_type("STOP"));
+        assert_eq!(from_b.command_type, map_gui_command_to_command_type("GUARD"));
+        assert_ne!(from_a.command_type, from_b.command_type);
+        assert!(
+            unbound.leftover_command_button_by_name(NAME).is_none(),
+            "an unbound bar must not read a published peer catalog"
+        );
+        // Interleaved catalog edit in b is invisible to a.
+        b.ini.control_bar.write().new_command_button("Command_OnlyInB".into());
+        assert!(bar_a.leftover_command_button_by_name("Command_OnlyInB").is_none());
+        assert!(bar_b.leftover_command_button_by_name("Command_OnlyInB").is_some());
+    }
+
+    #[test]
     fn upgrade_cameo_does_not_use_command_button_image() {
         crate::test_support::ensure_ambient_host();
         const UPGRADE: &str = "Upgrade_TestCameoImageLookup";

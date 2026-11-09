@@ -27,9 +27,7 @@ use crate::helpers::{drain_live_control_bar_events, set_live_control_bar_observe
 use crate::message_stream::game_message::GameMessageType;
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::system::SubsystemInterface;
-use game_engine::common::ini::ini_command_button::{
-    CommandButton as IniCommandButton, get_control_bar as get_ini_control_bar,
-};
+use game_engine::common::ini::ini_command_button::CommandButton as IniCommandButton;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, WeaponSlotType, get_science_store};
 use gamelogic::command_button::map_gui_command_to_command_type;
