@@ -526,7 +526,13 @@ impl GameLogic {
         else {
             return Ok(());
         };
-        let slot = if dual_slot {
+        let slot = if let Some(locked) = self.objects.get(&defense_id)
+            .filter(|object| object.weapon_lock_type != crate::game_logic::WeaponLockType::NotLocked)
+        {
+            // AssistedTargetingUpdate temporarily locks the assisting WeaponSet
+            // slot; automatic target selection must not replace that slot.
+            locked.weapon_lock_slot
+        } else if dual_slot {
             match preferred_dual_defense_slot(target_is_air) {
                 1 => air_slot,
                 other => other,
@@ -947,15 +953,18 @@ impl GameLogic {
         }
         let victim_pos = victim.get_position();
 
-        // C++ Weapon.cpp:2477 — only fan out when leftover RequestAssistRange > 0.
-        // Read this world's WeaponStore: an unbound read falls back to 0.
-        let request_range = self.with_own_services(|| {
-            patriot_request_assist_range_for_template(
-                &requester_template,
-                slot == crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT,
-                requester_slot_weapon.as_deref(),
-            )
-        });
+        // Weapon.cpp:2477 reads the fired WeaponTemplate, not a process store
+        // entry with the same name. Retain the legacy adapter only for
+        // programmatic objects that have no bound native WeaponSet row.
+        let request_range = requester.selected_native_weapon_rule(slot)
+            .map(|weapon| weapon.get_request_assist_range().max(0.0))
+            .unwrap_or_else(|| self.with_own_services(|| {
+                patriot_request_assist_range_for_template(
+                    &requester_template,
+                    slot == crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT,
+                    requester_slot_weapon.as_deref(),
+                )
+            }));
         if request_range <= 0.0 {
             return;
         }
