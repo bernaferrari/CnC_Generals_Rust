@@ -951,8 +951,8 @@ impl GameClient {
     /// C++ `InitRandom(seed)` presentation half: reseed this instance's
     /// client and audio streams only.
     pub fn seed_presentation_random(&mut self, seed: u32) {
-        self.client_random.seed_random(seed);
         self.audio_random.seed_random(seed);
+        self.client_random.seed_random(seed);
     }
 
     pub(crate) fn client_anim2d_instances_handle(

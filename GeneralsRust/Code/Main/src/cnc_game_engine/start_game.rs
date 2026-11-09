@@ -690,9 +690,7 @@ impl CnCGameEngine {
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
-        if let Some((seed, _)) = replay_inputs {
-            self.host_game_logic_mut().set_logic_random_seed(seed);
-        } else if matches!(mode, GameMode::SinglePlayer | GameMode::Shell) {
+        if replay_inputs.is_none() && matches!(mode, GameMode::SinglePlayer | GameMode::Shell) {
             // Campaign/Challenge and Shell starts select seed 0 in C++ menus. Admission
             // targets this session instead of relying on a process broadcast.
             self.host_game_logic_mut().set_logic_random_seed(0);

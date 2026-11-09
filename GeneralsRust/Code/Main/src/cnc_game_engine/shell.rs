@@ -1809,11 +1809,11 @@ impl CnCGameEngine {
                         // The actual admitted file belongs to this candidate and
                         // moves with it through StartupLoadResult, without re-open.
                         let replay_to_play = replay_to_load.to_ascii_lowercase();
-                        match game_logic.replay_pending.playback_file_owned(replay_to_play, false) {
-                            Ok(true) => {
+                        match game_logic.playback_replay_owned(replay_to_play) {
+                            Ok((true, _)) => {
                                 map_to_load = Some(game_logic.replay_pending.recorder_owned().get_game_info().map.clone());
                             }
-                            Ok(false) => warn!("Receiving Recorder rejected startup replay '{}'", replay_to_load),
+                            Ok((false, _)) => warn!("Receiving Recorder rejected startup replay '{}'", replay_to_load),
                             Err(error) => warn!("Receiving replay bootstrap failed for '{}': {}", replay_to_load, error),
                         }
                     }
@@ -1872,12 +1872,10 @@ impl CnCGameEngine {
                     let default_starting_cash = game_engine::common::global_data::read().default_starting_cash as u32;
                     let mut game_info_starting_cash = None;
                     if replay_startup_requested && !start_in_menu {
-                        // Recorder.cpp:1133 admits the recorded GameInfo seed.
-                        // Address this candidate directly: process initialization
-                        // cannot choose a running Main session's logic stream.
+                        // The seed was admitted at playbackFile, before NewGame.
+                        // Do not restart its streams after intervening work.
                         let info = game_logic.replay_pending.recorder_owned().get_game_info();
-                        let (replay_seed, replay_cash) = (info.seed, info.starting_cash);
-                        game_logic.set_logic_random_seed(replay_seed);
+                        let replay_cash = info.starting_cash;
                         game_info_starting_cash = Some(replay_cash);
                     }
                     let (difficulty, rank, max_fps) = startup_new_game
@@ -2272,6 +2270,12 @@ impl CnCGameEngine {
                 // a shell background is not a selected match map here.
                 self.application_map_fallback = Some(map.to_string());
             }
+        }
+        #[cfg(feature = "game_client")]
+        if result.replay_requested && !result.start_in_menu && result.loaded_map_name.is_some() {
+            let seed = result.game_logic.replay_pending.recorder_owned().get_game_info().seed;
+            self.game_client.seed_presentation_random(seed);
+            self.game_client.particle_systems_mut().seed_presentation_random(seed);
         }
         // Admit the detached worker's actual start_new_game reset only now.
         self.reset_replay_pacing_for_new_game();

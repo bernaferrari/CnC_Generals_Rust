@@ -2,6 +2,28 @@
 use super::*;
 use game_engine::common::recorder::{RecorderOwnerEffects, RecorderOwnerInputs, ReplayHeader};
 
+impl GameLogic {
+    /// Open the startup replay and apply its seed to this candidate immediately.
+    pub(crate) fn playback_replay_owned(
+        &mut self,
+        filename: String,
+    ) -> std::io::Result<(bool, Option<u32>)> {
+        let admitted = self.replay_pending.playback_file_owned(filename, false)?;
+        let seed = if admitted { self.admit_replay_random_seed() } else { None };
+        Ok((admitted, seed))
+    }
+
+    /// Complete UI playback admission after the old world has been cleared.
+    pub(crate) fn admit_prepared_replay_owned(
+        &mut self,
+        admission: game_engine::common::recorder::RecorderPlaybackAdmission,
+    ) -> std::io::Result<(bool, Option<u32>)> {
+        let admitted = self.replay_pending.admit_prepared_playback_owned(admission)?;
+        let seed = if admitted { self.admit_replay_random_seed() } else { None };
+        Ok((admitted, seed))
+    }
+}
+
 impl ReplayPendingState {
     pub(crate) fn recorder_owned(&self) -> &game_engine::common::recorder::Recorder {
         &self.recorder

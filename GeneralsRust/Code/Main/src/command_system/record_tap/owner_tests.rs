@@ -23,7 +23,8 @@ fn pose(player: i32, x: f32) -> ReplayCameraPose {
     }
 }
 fn write_file(state: &mut ReplayPendingState, player: i32, x: f32) -> String {
-    state.record_new_game_owned(GameMode::Skirmish, 37, 1, 0, 30);
+    let seed = state.recorder_owned().owner_inputs().unwrap().seed;
+    state.record_new_game_owned(GameMode::Skirmish, seed, 1, 0, 30);
     state.flush_owned(0, &mut VecDeque::new(), 0, player, None);
     assert!(state.recorder_owned().is_recording());
     state.record_camera_owned(pose(player, x));
@@ -78,6 +79,49 @@ fn real_replay_reader_moves_with_world_and_transient_clear_preserves_future_came
     assert!(
         matches!(installed_world.replay_pending.take_lifecycle_messages_owned().as_slice(), [message] if matches!(message.get_type(), GameMessageType::ClearGameData))
     );
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn real_playback_seeds_receiving_streams_without_mutating_peer() {
+    let directory = tempfile::tempdir().unwrap();
+    let owner = inputs(directory.path(), "Maps/Replay.map", 0x1234_5678);
+    let mut writer = ReplayPendingState::default();
+    writer.reset_recorder_owned(owner.clone());
+    let filename = write_file(&mut writer, 7, 100.0);
+
+    let mut world = GameLogic::new();
+    let mut peer = GameLogic::new();
+    world.seed_fx_random(91);
+    peer.seed_fx_random(73);
+    peer.set_logic_random_seed(73);
+    let peer_client = peer.session_view.client_random.seed_words();
+    let peer_audio = peer.session_view.audio_random.seed_words();
+    let peer_logic = peer.logic_random.seed_words();
+    world.replay_pending.reset_recorder_owned(owner.clone());
+    assert_eq!(world.playback_replay_owned(filename.clone()).unwrap(), (true, Some(0x1234_5678)));
+
+    let mut expected = game_engine::common::random_value::RandomState::default();
+    expected.seed_random(0x1234_5678);
+    assert_eq!(world.session_view.client_random.seed_words(), expected.seed_words());
+    assert_eq!(world.session_view.audio_random.seed_words(), expected.seed_words());
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+    let mut menu_world = GameLogic::new();
+    menu_world.replay_pending.reset_recorder_owned(owner);
+    let admission = menu_world.replay_pending.prepare_playback_owned(filename, false);
+    assert_eq!(menu_world.admit_prepared_replay_owned(admission).unwrap(), (true, Some(0x1234_5678)));
+    assert_eq!(menu_world.session_view.client_random.seed_words(), expected.seed_words());
+    assert_eq!(menu_world.session_view.audio_random.seed_words(), expected.seed_words());
+    let _ = world.session_view.client_random.next_u32();
+    let _ = world.session_view.audio_random.next_u32();
+    let client_continuation = world.session_view.client_random.seed_words();
+    let audio_continuation = world.session_view.audio_random.seed_words();
+    world.reset();
+    assert_eq!(world.session_view.client_random.seed_words(), client_continuation);
+    assert_eq!(world.session_view.audio_random.seed_words(), audio_continuation);
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_client);
+    assert_eq!(peer.session_view.audio_random.seed_words(), peer_audio);
+    assert_eq!(peer.logic_random.seed_words(), peer_logic);
 }
 
 #[test]

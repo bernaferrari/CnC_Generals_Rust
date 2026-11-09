@@ -154,21 +154,17 @@ impl ReplayMenuReceiver for CnCGameEngine {
                 return Err("Replay source clear failed on receiving native world".into());
             }
         }
-        match self
-            .game_logic
-            .replay_pending
-            .admit_prepared_playback_owned(admission)
-        {
-            Ok(true) => {
-                let effects = self.game_logic.replay_pending.take_recorder_effects_owned();
-                if let Some(seed) = effects.admitted_seed {
-                    self.game_logic.set_logic_random_seed(seed);
+        match self.game_logic.admit_prepared_replay_owned(admission) {
+            Ok((true, seed)) => {
+                if let Some(seed) = seed {
+                    self.game_client.seed_presentation_random(seed);
+                    self.game_client.particle_systems_mut().seed_presentation_random(seed);
                 }
                 // C++ playbackFile appends NewGame to the message stream. Leave it
                 // pending until the receiving client/message phase: the native WND
                 // continuation must hide its source parent before NewGame starts.
             }
-            Ok(false) => warn!("Replay header rejected after receiving clear"),
+            Ok((false, _)) => warn!("Replay header rejected after receiving clear"),
             Err(error) => warn!("Replay admission failed after receiving clear: {error}"),
         }
         // WND continuation hides the captured source parent after both success/error.

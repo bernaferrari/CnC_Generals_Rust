@@ -355,6 +355,19 @@ impl GameLogic {
         self.logic_random.seed_random(seed);
     }
 
+    /// Recorder.cpp initializes the receiving streams when playback is admitted,
+    /// not when the subsequently queued NewGame message is dispatched.
+    pub(crate) fn admit_replay_random_seed(&mut self) -> Option<u32> {
+        let seed = self.replay_pending.take_recorder_effects_owned().admitted_seed?;
+        #[cfg(feature = "game_client")]
+        {
+            self.session_view.audio_random.seed_random(seed);
+            self.session_view.client_random.seed_random(seed);
+        }
+        self.set_logic_random_seed(seed);
+        Some(seed)
+    }
+
     pub(in super::super) fn step_simulation_with_budget(
         &mut self,
         delta_time: f32,
