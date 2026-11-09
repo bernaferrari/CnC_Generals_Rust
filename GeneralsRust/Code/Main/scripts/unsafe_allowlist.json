@@ -16,10 +16,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/thing/module_factory.rs": {
-      "constructs": 1,
-      "undocumented": 1
-    },
     "Code/GameEngine/Common/src/memory/allocator.rs": {
       "constructs": 25,
       "undocumented": 0
