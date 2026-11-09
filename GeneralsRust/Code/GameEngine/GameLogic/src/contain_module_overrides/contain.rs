@@ -600,7 +600,8 @@ pub(super) fn cave_contain_module_factory(
         Ok(owner) => owner,
         Err(error) => return failed_initialization_module("CaveContain", module_data, error),
     };
-    let cave_system = crate::system::cave_system::TheCaveSystem();
+    let cave_system = crate::object::supplied_module_cave_system(thing.as_ref())
+        .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
     let contain = CaveContain::new(
         Arc::downgrade(&owner),
         contain_data,

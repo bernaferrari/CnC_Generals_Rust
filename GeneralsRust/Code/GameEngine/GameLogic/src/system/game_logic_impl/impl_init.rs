@@ -31,6 +31,13 @@ impl GameLogic {
             .or_else(|| self.world_services.as_ref().and_then(std::sync::Weak::upgrade))
     }
 
+    pub(crate) fn owned_cave_system(
+        &self,
+    ) -> Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>> {
+        self.owning_world_services()
+            .map(|services| Arc::clone(&services.logic_managers().cave))
+    }
+
     /// This logic's script engine slot (C++ `TheScriptEngine` of the world
     /// this GameLogic belongs to). A logic built with an owner never consults
     /// the published world; an ownerless one falls back to it.

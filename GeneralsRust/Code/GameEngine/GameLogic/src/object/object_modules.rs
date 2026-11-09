@@ -905,6 +905,7 @@ impl Object {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -915,6 +916,7 @@ impl Object {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<&Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
+        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let unpublished = !object
             .read()
@@ -935,7 +937,8 @@ impl Object {
             let _ = thing_template.module_descriptors();
         }
 
-        let thing_handle: Arc<ObjectThingHandle> = Arc::new(ObjectThingHandle::new(object));
+        let thing_handle: Arc<ObjectThingHandle> =
+            Arc::new(ObjectThingHandle::with_cave_system(object, cave_system));
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
         let mut modules_to_install: Vec<Arc<ModuleEntry>> = Vec::new();
 

@@ -261,6 +261,7 @@ impl ObjectFactory {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -287,6 +288,7 @@ impl ObjectFactory {
             None,
             None,
             None,
+            game_logic.owned_cave_system(),
         )?;
         let owner = self
             .get_object(id)
@@ -323,6 +325,7 @@ impl ObjectFactory {
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
+            game_logic.owned_cave_system(),
         )?;
         let owner = self
             .get_object(id)
@@ -362,6 +365,7 @@ impl ObjectFactory {
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
+            None,
         )
     }
 
@@ -377,6 +381,7 @@ impl ObjectFactory {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
+        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
@@ -418,6 +423,7 @@ impl ObjectFactory {
                 lookup,
                 body_definitions.ok_or("native Object construction body definitions absent")?,
                 module_factory.ok_or("native Object construction module catalog absent")?,
+                cave_system,
             )?
         } else {
             let assemble = if publish {
@@ -431,6 +437,7 @@ impl ObjectFactory {
                 status_mask,
                 team.clone(),
                 prepare_ai,
+                cave_system,
             )?
         };
 
