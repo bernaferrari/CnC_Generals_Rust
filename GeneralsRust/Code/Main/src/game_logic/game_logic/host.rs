@@ -1531,7 +1531,7 @@ impl GameLogic {
     /// for the duration of `f` only. Nested restore is stack-based; a peer
     /// instance left alive on the same thread cannot observe these binds after
     /// return. Prefer this over leaving services published until Drop.
-    pub(crate) fn with_own_services<R>(&self, f: impl FnOnce() -> R) -> R {
+    pub fn with_own_services<R>(&self, f: impl FnOnce() -> R) -> R {
         let world = std::sync::Arc::clone(&self.world_services);
         let main = std::sync::Arc::clone(&self.main_services);
         crate::main_services::with_main_services(&main, || {

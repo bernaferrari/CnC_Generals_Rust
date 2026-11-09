@@ -14,7 +14,14 @@ use std::sync::{Arc, RwLock};
 #[test]
 fn rank_action_retains_science_callback_on_its_receiving_interpreter() {
     let mut world = GameLogic::new();
-    let science = NameKeyGenerator::name_to_key("SCIENCE_RankOwnerWitness") as i32;
+    let (science, player_name) = world.with_own_services(|| {
+        *game_engine::common::ini::get_rank_info_store_mut() =
+            game_engine::common::ini::RankInfoStore::new();
+        (
+            NameKeyGenerator::name_to_key("SCIENCE_RankOwnerWitness") as i32,
+            NameKeyGenerator::name_to_key("RankOwner"),
+        )
+    });
     {
         let mut ranks = world.core_rank_info_store().write().unwrap();
         *ranks = RankInfoStore::new();
@@ -27,7 +34,7 @@ fn rank_action_retains_science_callback_on_its_receiving_interpreter() {
     }
 
     let mut core_player = CorePlayer::new(0);
-    core_player.set_player_name_key(NameKeyGenerator::name_to_key("RankOwner"));
+    core_player.set_player_name_key(player_name);
     {
         let handle = world.core_player_roster();
         let mut players = handle.write().unwrap();
@@ -62,18 +69,19 @@ fn rank_action_retains_science_callback_on_its_receiving_interpreter() {
     let mut foreign_player = CorePlayer::new(0);
     foreign_player.set_player_name_key(NameKeyGenerator::name_to_key("RankOwner"));
     let foreign_player = Arc::new(RwLock::new(foreign_player));
+    let foreign_rank = foreign_player.read().unwrap().get_rank_level();
     foreign.players().write().unwrap().add_player(Arc::clone(&foreign_player));
     let engine = ScriptEngine::new_with_services(&foreign).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();
 
-    world
-        .update_local_script_engine_with_owner(&engine)
-        .unwrap();
+    gamelogic::system::engine_stores::with_world_services(&foreign, || {
+        world.update_local_script_engine_with_owner(&engine).unwrap();
+    });
 
     assert_eq!(world.get_player(0).unwrap().rank_level, 2);
     assert!(engine.is_science_acquired(0, science, true));
-    assert_eq!(foreign_player.read().unwrap().get_rank_level(), 1);
+    assert_eq!(foreign_player.read().unwrap().get_rank_level(), foreign_rank);
     assert!(!engine.is_science_acquired(0, science, true));
 }
