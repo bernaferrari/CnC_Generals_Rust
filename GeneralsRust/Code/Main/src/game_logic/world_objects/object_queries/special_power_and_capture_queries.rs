@@ -72,7 +72,11 @@ impl GameLogic {
             }
             // C++ getReadyFrame via Player::getOrStartSpecialPowerReadyFrame.
             if let Some(player) = self.controlling_player_for_special_power(obj) {
-                if !player.is_shared_special_power_ready(power) {
+                if let Some(module) = parsed_module {
+                    if player.authored_special_power_timers.get(&module.special_power_template.to_ascii_lowercase()).copied().unwrap_or(0.0) > 0.0 {
+                        return false;
+                    }
+                } else if !player.is_shared_special_power_ready(power) {
                     return false;
                 }
             }
@@ -130,6 +134,13 @@ impl GameLogic {
             });
         let frame = self.frame;
         if shared_n_sync {
+            if let Some(module) = parsed_module.as_ref() {
+                if let Some(player) = owner_id.and_then(|id| self.get_player_mut(id)) {
+                    let key = module.special_power_template.to_ascii_lowercase();
+                    player.authored_special_power_timers.insert(key, reload);
+                }
+                return true;
+            }
             if let Some(pid) = owner_id {
                 if let Some(player) = self.get_player_mut(pid) {
                     player.reset_shared_special_power_timer(power, reload);
@@ -215,10 +226,16 @@ impl GameLogic {
         power: &crate::command_system::SpecialPowerType,
         seconds: i32,
     ) -> bool {
-        let Some(obj) = self.host_object_mut(object_id) else {
+        let Some(obj) = self.host_object(object_id) else {
             return false;
         };
-        let next = obj.special_power_countdown_seconds(power) + seconds as f32;
+        let remaining = obj.thing().template.special_power_module_for_command(power)
+            .filter(|module| module.shared_n_sync)
+            .and_then(|module| self.controlling_player_for_special_power(obj).map(|player|
+                player.authored_special_power_timers.get(&module.special_power_template.to_ascii_lowercase()).copied().unwrap_or(0.0)))
+            .unwrap_or_else(|| obj.special_power_countdown_seconds(power));
+        let next = remaining + seconds as f32;
+        let Some(obj) = self.host_object_mut(object_id) else { return false };
         obj.set_special_power_ready_seconds(power, next.max(0.0));
         true
     }
@@ -246,9 +263,35 @@ impl GameLogic {
         let Some(object_id) = self.host_object_id_by_script_name(unit_name) else {
             return false;
         };
+        let authored = self.host_object(object_id).and_then(|object| object.thing().template.special_power_modules.iter()
+            .find(|module| module.special_power_template.eq_ignore_ascii_case(power_name))
+            .map(|module| {
+                let shared_remaining = module.shared_n_sync.then(|| self.controlling_player_for_special_power(object)
+                    .map(|player| player.authored_special_power_timers.get(&module.special_power_template.to_ascii_lowercase()).copied().unwrap_or(0.0)))
+                    .flatten();
+                (module.source_index, shared_remaining)
+            }));
+        if let Some((index, shared_remaining)) = authored {
+            let Some(object) = self.host_object_mut(object_id) else { return false };
+            let state = object.authored_special_power_timers.entry(index).or_default();
+            match op {
+                NamedSpecialPowerCountdownOp::Stop => state.1 = state.1.saturating_add(1),
+                NamedSpecialPowerCountdownOp::Start => state.1 = state.1.saturating_sub(1),
+                NamedSpecialPowerCountdownOp::Set => state.0 = seconds.max(0) as f32,
+                NamedSpecialPowerCountdownOp::Add => state.0 = (shared_remaining.unwrap_or(state.0) + seconds as f32).max(0.0),
+            }
+            object.refresh_special_power_aggregate_cooldown();
+            return true;
+        }
         let Some(power) = special_power_type_from_template_name(power_name) else {
             return false;
         };
+        // An enum adapter must not redirect an authored template name to a
+        // different module that happens to share its command family.
+        if self.host_object(object_id).is_some_and(|object|
+            object.thing().template.special_power_module_for_command(&power).is_some()) {
+            return false;
+        }
         match op {
             NamedSpecialPowerCountdownOp::Stop => {
                 self.script_pause_special_power_countdown(object_id, &power, true)
@@ -273,11 +316,17 @@ impl GameLogic {
         if dt <= 0.0 {
             return;
         }
-        // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks shared SP cds.
-        {}
+        let mut authored_ready = Vec::new();
         let mut ready_events: Vec<(u32, String)> = Vec::new();
         for player in self.players.values_mut() {
             let player_id = player.id;
+            for (template, remaining) in player.authored_special_power_timers.iter_mut() {
+                let was = *remaining;
+                *remaining = (*remaining - dt).max(0.0);
+                if was > 0.0 && *remaining <= 0.0 {
+                    authored_ready.push((player_id, template.clone()));
+                }
+            }
             for power in player.tick_shared_special_power_timers(dt) {
                 use crate::game_logic::host_special_power_enum_residual::special_power_has_public_timer;
                 if !special_power_has_public_timer(&power) {
@@ -302,82 +351,59 @@ impl GameLogic {
                 ready_events.push((player_id, template.to_string()));
             }
         }
+        for (player_id, template) in authored_ready {
+            let source = self.objects.registered_values().find(|obj|
+                self.player_owner_for_host_object(obj) == Some(player_id)
+                    && obj.thing().template.special_power_modules.iter().any(|module|
+                        module.shared_n_sync && module.public_timer
+                            && module.special_power_template.eq_ignore_ascii_case(&template)))
+                .map(|obj| obj.id);
+            if let Some(source) = source {
+                self.try_eva_superweapon_ready_for_source(source);
+            }
+        }
         for (player_id, name) in ready_events {
             self.try_eva_superweapon_ready_for_player(player_id, &name);
         }
     }
 
-    /// C++ SpecialPowerModule::onSpecialPowerCreation residual.
-    ///
-    /// When a science is first acquired, sharedNSync powers that require it are
-    /// expressed ready-now on the player timer (Dustin residual: start ready to fire).
-    /// Fail-closed: not full StartsPaused upgrade gate / InGameUI addSuperweapon font.
+    /// Wake every matching behavior on objects controlled by the receiving player.
     pub fn on_special_power_science_creation(&mut self, player_id: u32, science_name: &str) {
-        use crate::command_system::SpecialPowerType as P;
         use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
-        use crate::game_logic::host_special_power_enum_residual::{
-            special_power_required_science, special_power_uses_shared_synced_timer,
-        };
-        let sci = normalize_science_name_residual(science_name);
-        if sci.is_empty() {
+        if !self.players.contains_key(&player_id) {
             return;
         }
-        {
-            let Some(player) = self.players.get_mut(&player_id) else {
-                return;
-            };
-
-            // Sample of host powers that may require this science residual.
-            const CANDIDATES: &[P] = &[
-                P::Airstrike,
-                P::AirForceAirstrike,
-                P::DaisyCutter,
-                P::AirForceDaisyCutter,
-                P::FuelAirBomb,
-                P::SpyDrone,
-                P::Paradrop,
-                P::InfantryParadrop,
-                P::TankParadrop,
-                P::CarpetBomb,
-                P::AirForceCarpetBomb,
-                P::EarlyChinaCarpetBomb,
-                P::ClusterMines,
-                P::EmpPulse,
-                P::LeafletDrop,
-                P::Ambush,
-                P::TerrorCell,
-                P::Frenzy,
-                P::EmergencyRepair,
-                P::GpsScrambler,
-                P::SneakAttack,
-                P::SpectreGunship,
-                P::AirForceSpectreGunship,
-                P::NapalmStrike,
-                P::BlackMarketNuke,
-                P::Artillery,
-                P::CrateDrop,
-                P::CashHack,
-                P::SpySatellite,
-            ];
-            for power in CANDIDATES {
-                let Some(req) = special_power_required_science(power) else {
-                    continue;
-                };
-                // Match science residual (canonical or alias).
-                let req_n = req.to_ascii_lowercase();
-                let sci_n = sci.to_ascii_lowercase();
-                if req_n != sci_n && !sci_n.ends_with(&req_n) && !req_n.ends_with(&sci_n) {
-                    continue;
+        let science = normalize_science_name_residual(science_name);
+        if science.is_empty() {
+            return;
+        }
+        let matches: Vec<_> = self.objects.registered_values()
+            .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
+            .flat_map(|object| object.thing().template.special_power_modules.iter()
+                .filter(|module| module.required_science.as_deref().is_some_and(|required|
+                    normalize_science_name_residual(required).eq_ignore_ascii_case(&science)))
+                .map(move |module| (object.id, module.source_index, module.special_power_template.to_ascii_lowercase(),
+                    module.shared_n_sync, module.starts_paused, module.public_timer,
+                    object.is_kind_of(KindOf::Structure))))
+            .collect();
+        for (object_id, index, template, shared, starts_paused, public, structure) in matches {
+            if shared {
+                if let Some(player) = self.players.get_mut(&player_id) {
+                    player.authored_special_power_timers.insert(template, 0.0);
                 }
-                if !special_power_uses_shared_synced_timer(power) {
-                    continue;
+            }
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                let state = object.authored_special_power_timers.entry(index).or_default();
+                state.0 = 0.0;
+                if starts_paused {
+                    state.1 = state.1.saturating_add(1);
                 }
-                // C++: startPowerRecharge then express ready-now for sharedNSync.
-                player.express_shared_special_power_ready_now(power);
+                if public && structure {
+                    object.authored_public_timer_registered.insert(index);
+                }
+                object.refresh_special_power_aggregate_cooldown();
             }
         }
-        // C++ Player::addScience → SpecialPowerModule::onSpecialPowerCreation
-        // for modules whose RequiredScience is this science (Player.cpp:2533).
         self.apply_cash_bounty_for_added_science(player_id, science_name);
     }
 
@@ -541,10 +567,8 @@ impl GameLogic {
             let Some(owner_id) = owner_id else {
                 return false;
             };
-            return self
-                .players
-                .get(&owner_id)
-                .is_some_and(|player| player.is_shared_special_power_ready(&power));
+            return self.players.get(&owner_id).is_some_and(|player|
+                player.authored_special_power_timers.get(&metadata.special_power_template.to_ascii_lowercase()).copied().unwrap_or(0.0) <= 0.0);
         }
         source.is_special_power_ready(&power)
     }
@@ -573,10 +597,10 @@ impl GameLogic {
             let Some(player) = self.players.get_mut(&owner_id) else {
                 return false;
             };
-            player.reset_shared_special_power_timer(
-                &power,
-                metadata.reload_time_frames as f32 / 30.0,
-            );
+            let key = metadata.special_power_template.to_ascii_lowercase();
+            // The readiness query above is C++ getOrStart: it creates a ready
+            // entry before startPowerRecharge resets it.
+            player.authored_special_power_timers.insert(key, metadata.reload_time_frames as f32 / 30.0);
         } else if let Some(source) = self.objects.get_mut(&source_id) {
             source.start_power_recharge_with_frames(&power, metadata.reload_time_frames);
         } else {

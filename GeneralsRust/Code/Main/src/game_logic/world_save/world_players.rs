@@ -445,6 +445,23 @@ impl GameLogic {
             self.loaded_script_lists.len()
         );
         let sides_write_started = Instant::now();
+        let general_name = if self.is_loading_saved_snapshot() {
+            None
+        } else if let Some(native) = native.as_mut() {
+            let source = self.map_definition_source.as_deref()
+                .map(Path::new)
+                .unwrap_or(map_path);
+            native.admit_map_text(source)?
+        } else {
+            None
+        };
+        if self.uses_lobby_side_foundation() {
+            if let Some(name) = general_name.as_deref() {
+                for player in self.players.values_mut() {
+                    player.general_name = name.to_owned();
+                }
+            }
+        }
         // Borrow via take — ScriptList deep-clone of Lone Eagle lists was multi-second.
         let script_lists = std::mem::take(&mut self.loaded_script_lists);
         let prepared_team_definitions = self.sync_legacy_sides_list_from_dicts(
@@ -452,6 +469,7 @@ impl GameLogic {
             &sides_data.team_dicts,
             &sides_data.side_builds,
             &script_lists,
+            general_name.as_deref(),
         );
         self.loaded_script_lists = script_lists;
         log::info!(
@@ -463,7 +481,7 @@ impl GameLogic {
         );
         stage_started = Instant::now();
         if !self.uses_lobby_side_foundation() {
-            if let Err(error) = self.admit_direct_map_players_from_prepared_sides() {
+            if let Err(error) = self.admit_direct_map_players_from_prepared_sides(general_name.as_deref()) {
                 log::error!("Receiving authored Player admission failed: {error}");
                 return Ok(false);
             }
@@ -823,6 +841,7 @@ impl GameLogic {
     pub(in super::super) fn apply_host_players_from_sides_list(
         &mut self,
         replace_default_money: bool,
+        general_name: Option<&str>,
     ) {
         let sides_guard = &self.prepared_map_sides;
         let side_dicts: Vec<Dict> = (0..sides_guard.get_num_sides())
@@ -832,7 +851,7 @@ impl GameLogic {
                     .map(|side| side.get_dict().clone())
             })
             .collect();
-        self.apply_host_players_from_side_dicts(&side_dicts, replace_default_money);
+        self.apply_host_players_from_side_dicts(&side_dicts, replace_default_money, general_name);
     }
 
     /// C++ Player::initFromDict + PlayerList relationship pass onto live host players.
@@ -840,11 +859,12 @@ impl GameLogic {
         &mut self,
         side_dicts: &[Dict],
         replace_default_money: bool,
+        general_name: Option<&str>,
     ) {
         if side_dicts.is_empty() {
             return;
         }
-        self.admit_retained_map_civilians(side_dicts);
+        self.admit_retained_map_civilians(side_dicts, general_name);
         for dict in side_dicts {
             let name = dict.get_ascii_string(key_player_name());
             if name.is_empty() {
@@ -1060,7 +1080,7 @@ impl GameLogic {
         )
     }
 
-    pub(in super::super) fn sync_legacy_team_factory_from_team_dicts_with_effects(
+    pub(crate) fn sync_legacy_team_factory_from_team_dicts_with_effects(
         &mut self,
         team_dicts: &[Dict],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,

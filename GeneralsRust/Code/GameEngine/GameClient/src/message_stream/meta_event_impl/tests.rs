@@ -95,7 +95,7 @@ mod tests {
     ) -> Option<GameMessageDisposition> {
         let mut display = noop_display_dispatch;
         let world = gamelogic::system::engine_stores::active_services();
-        dispatch_map_entry(record, &mut display, Some(&world), TheGameLogic::is_in_multiplayer_game(), 0, ui)
+        dispatch_map_entry(record, &mut display, Some(&world), TheGameLogic::is_in_multiplayer_game(), false, 0, ui)
     }
 
     fn dispatch_shared(
@@ -936,6 +936,7 @@ mod tests {
                     None,
                     None,
                     Some(world),
+                    None,
                 ).unwrap();
                 assert!(matches!(&result, game_engine::common::message_stream::PropagationProgress::Complete(messages) if messages.is_empty()));
             };

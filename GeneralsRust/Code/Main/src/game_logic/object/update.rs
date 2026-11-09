@@ -151,6 +151,13 @@ impl Object {
         // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks countdown;
         // host only refreshes ready aggregate after writeback (Wave 618 ready-log).
 
+        if dt > 0.0 && !freeze_special_power {
+            for (remaining, paused) in self.authored_special_power_timers.values_mut() {
+                if *paused == 0 {
+                    *remaining = (*remaining - dt).max(0.0);
+                }
+            }
+        }
         if dt > 0.0 && !freeze_special_power && !self.special_power_cooldowns.is_empty() {
             let paused: Vec<_> = self
                 .special_power_cooldowns

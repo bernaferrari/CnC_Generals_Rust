@@ -341,6 +341,7 @@ mod tests {
         src.special_power_cooldown_remaining = 12.0;
         src.special_power_cooldowns
             .insert(SpecialPowerType::DaisyCutter, 8.0);
+        src.authored_special_power_timers.insert(17, (8.0, 2));
         src.special_power_override_destination = Some(Vec3::new(1.0, 2.0, 3.0));
         src.weapon_lock_type = WeaponLockType::LockedPermanently;
         src.weapon_lock_slot = 1;
@@ -363,6 +364,7 @@ mod tests {
         assert!(tags.contains(&"FireWeaponWhenDead"));
         assert!(tags.contains(&"CreateObjectDieTransfer"));
         assert!(tags.contains(&"SpecialPowerCooldown"));
+        assert!(tags.contains(&"AuthoredSpecialPowerTimers"));
         assert!(tags.contains(&"WeaponLock"));
         assert!(tags.contains(&"EmoticonSurrender"));
         assert!(tags.contains(&"ProjectileFlightResiduals.v2"));
@@ -379,6 +381,7 @@ mod tests {
                 .copied(),
             Some(8.0)
         );
+        assert_eq!(dst.authored_special_power_timers.get(&17), Some(&(8.0, 2)));
         assert_eq!(dst.weapon_lock_type, WeaponLockType::LockedPermanently);
         assert_eq!(dst.emoticon_frames_left, 45);
         assert!(dst.is_surrendered);

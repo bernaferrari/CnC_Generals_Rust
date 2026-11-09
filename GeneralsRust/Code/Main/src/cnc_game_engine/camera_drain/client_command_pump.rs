@@ -1,6 +1,61 @@
 use super::*;
 
 impl CnCGameEngine {
+    #[cfg(feature = "game_client")]
+    pub(in crate::cnc_game_engine) fn apply_receiving_rank_science_action(
+        &mut self,
+        action: game_engine::common::message_stream::ReceivingRankScienceAction,
+    ) -> Result<(), String> {
+        use game_engine::common::message_stream::{ReceivingRankScienceAction as Action, ReceivingRankScienceUi};
+        let Some(id) = self.game_logic.local_player_id() else { return Ok(()) };
+        let resets_rank = self.game_logic.get_player(id)
+            .is_some_and(|player| {
+                let old = player.rank_level.max(1);
+                let requested = match action {
+                    Action::GiveRank => old.saturating_add(1),
+                    Action::TakeRank => old.saturating_sub(1).max(1),
+                    _ => return false,
+                };
+                let count = self.game_logic.world_services.common().ini.rank.read().get_rank_level_count();
+                count > 0 && requested.min(self.game_logic.rank_level_limit().max(1) as u32)
+                    .min(count as u32) < old
+            });
+        let default_general_name = if resets_rank {
+            Some(self.game_client.game_text_store().write()
+                .map_err(|error| format!("receiving GameText lock poisoned: {error}"))?
+                .fetch_owned("SCIENCE:GeneralName"))
+        } else {
+            None
+        };
+        let owner = self.game_client.window_manager_owner();
+        let bar = &mut self.control_bar;
+        let client = &mut self.game_client;
+        self.game_logic.apply_receiving_rank_science(id, action, default_general_name, None, &mut |event| {
+            match event {
+                ReceivingRankScienceUi::ScienceAdded => bar.mark_ui_dirty(),
+                ReceivingRankScienceUi::RankChanged { purchase_points }
+                | ReceivingRankScienceUi::PurchasePointsChanged { purchase_points } => {
+                    if let Some(ui) = client.in_game_ui_subsystem_mut() {
+                        owner.with_manager(|manager| {
+                            bar.on_receiving_player_rank_or_points_changed(manager, ui, purchase_points);
+                        });
+                    }
+                }
+            }
+        })?;
+        let text = match action {
+            Action::AddPurchasePoint => "Adding a SciencePurchasePoint",
+            Action::GrantAllSciences => "Granting all sciences!",
+            Action::GiveRank => "Adding a RankLevel",
+            Action::TakeRank => "Subtracting a RankLevel",
+            Action::SetRank(_) => return Ok(()),
+        };
+        if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
+            ui.message(text, self.game_logic.get_frame());
+        }
+        Ok(())
+    }
+
     /// C++ GameClient.cpp:560-565 — TheSnowManager + TheAnim2DCollection
     /// UPDATE at the execute/logic cadence, not every 45 Hz present.
     pub(in crate::cnc_game_engine) fn host_update_cpp_snow_and_anim2d(&mut self) {
@@ -17,7 +72,7 @@ impl CnCGameEngine {
 
     /// The host branch observes wall time only outside a running/paused match.
     /// Keeping observation here allows deterministic tests of the real API.
-    fn snow_anim2d_dt_for_present_with_now(&mut self, now: impl FnOnce() -> Instant) -> f32 {
+    pub(super) fn snow_anim2d_dt_for_present_with_now(&mut self, now: impl FnOnce() -> Instant) -> f32 {
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             let now = self.host_match_logic_frame;
             let steps = match (now, self.host_snow_logic_frame_applied) {
@@ -66,6 +121,7 @@ impl CnCGameEngine {
         (
             R,
             Vec<game_client::gui::callbacks::replay_menu::ingress::ReplayMenuStep>,
+            Option<game_engine::common::message_stream::ReceivingRankScienceAction>,
         ),
         String,
     > {
@@ -103,6 +159,7 @@ impl CnCGameEngine {
                 self.game_client.window_manager_owner().downgrade(),
             );
         let mut steps = Vec::new();
+        let rank_action = std::cell::Cell::new(None);
         let result = {
             let pending = &mut self.game_logic.replay_pending;
             let mut replay_version = |filename: &str| {
@@ -127,6 +184,10 @@ impl CnCGameEngine {
                               cursor_mouse: Option<&mut game_client::input::Mouse>,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
+                if let game_engine::common::message_stream::WindowInputDispatch::RankScience(action) = request {
+                    rank_action.set(Some(action));
+                    return Some(game_engine::common::message_stream::WindowInputDispatchResult::RankScienceAccepted);
+                }
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation.clone()),
             diplomacy_world: diplomacy_world.as_ref(),
@@ -172,7 +233,7 @@ impl CnCGameEngine {
                 &mut self.subsystem_manager,
             )
         };
-        Ok((result, steps))
+        Ok((result, steps, rank_action.get()))
     }
 
     #[cfg(feature = "game_client")]
@@ -181,7 +242,7 @@ impl CnCGameEngine {
         let mut cursor = None;
         loop {
             let facts = self.receiving_menu_world_facts();
-            let (progress, steps) =
+            let (progress, steps, rank_action) =
                 self.with_receiving_client_translation(|client, phases, _manager| {
                     crate::subsystem_manager::ReceivingClientPhaseDriver::propagate(
                         phases,
@@ -189,6 +250,9 @@ impl CnCGameEngine {
                         cursor.take(),
                     )
                 })?;
+            if let Some(action) = rank_action {
+                self.apply_receiving_rank_science_action(action)?;
+            }
             match progress.map_err(|error| error.to_string())? {
                 PropagationProgress::Complete(messages) => {
                     // OptionsMenu WND callbacks can finish without emitting a

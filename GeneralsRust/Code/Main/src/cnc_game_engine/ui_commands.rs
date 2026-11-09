@@ -1299,6 +1299,16 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
         #[cfg(feature = "game_client")]
+        let map_text = self.game_client.ensure_game_text_store();
+        #[cfg(feature = "game_client")]
+        let game_client = std::cell::RefCell::new(&mut self.game_client);
+        #[cfg(feature = "game_client")]
+        let control_bar = &mut self.control_bar;
+        #[cfg(feature = "game_client")]
+        let mut rank_ui = |event| {
+            super::map_native_admission::deliver_map_rank_ui(&game_client, control_bar, event)
+        };
+        #[cfg(feature = "game_client")]
         let (draw_services, mut load_surface) = self
             .render_pipeline
             .borrow_native_draw_services_and_load_surface();
@@ -1313,7 +1323,9 @@ impl CnCGameEngine {
                 .get::<crate::subsystem_manager::AudioManagerSubsystem>()
                 .and_then(|audio| audio.receiving_audio_device()),
         ) {
-            Ok(attempt) => attempt.with_pristine_bones(self.application_assets.as_ref()),
+            Ok(attempt) => attempt.with_pristine_bones(self.application_assets.as_ref())
+                .with_game_text(map_text)
+                .with_rank_ui(&mut rank_ui),
             Err(error) => {
                 warn!("Cannot lend native map admission: {error}");
                 return None;
@@ -1337,9 +1349,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let menu_audio = &mut self.menu_audio;
         #[cfg(feature = "game_client")]
-        let game_client = &mut self.game_client;
-        #[cfg(feature = "game_client")]
-        if game_client.ui_renderer().is_none() {
+        if game_client.borrow().ui_renderer().is_none() {
             warn!("Native map load has no receiving UI renderer");
             return None;
         }
@@ -1396,8 +1406,9 @@ impl CnCGameEngine {
                                 audio_locality,
                                 audio_view,
                             );
+                            let mut client = game_client.borrow_mut();
                             let (mut load_owner, _default_pump) =
-                                game_client.split_load_screen_services(&mut audio);
+                                client.split_load_screen_services(&mut audio);
                             Self::pump_cpp_load_screen_progress(
                                 &mut load_screen_presentation_pump,
                                 kind,
@@ -1431,8 +1442,9 @@ impl CnCGameEngine {
                                     audio_locality,
                                     audio_view,
                                 );
+                                let mut client = game_client.borrow_mut();
                                 let (mut load_owner, _default_pump) =
-                                    game_client.split_load_screen_services(&mut audio);
+                                    client.split_load_screen_services(&mut audio);
                                 Self::pump_cpp_load_screen_progress(
                                     &mut load_screen_presentation_pump,
                                     kind,
@@ -1487,6 +1499,10 @@ impl CnCGameEngine {
         };
         #[cfg(feature = "game_client")]
         drop(attempt);
+        #[cfg(feature = "game_client")]
+        drop(rank_ui);
+        #[cfg(feature = "game_client")]
+        drop(game_client);
 
         #[cfg(feature = "game_client")]
         drop(load_screen_presentation_pump);
@@ -1577,14 +1593,6 @@ impl CnCGameEngine {
             // successful map result or discard its concrete diagnostic.
             error!("Cannot complete direct native map audio admission: {error}");
             return None;
-        }
-        #[cfg(feature = "game_client")]
-        {
-            let map_path = self.game_logic.map_definition_source.as_deref()
-                .map(std::path::PathBuf::from)
-                .or_else(|| crate::game_logic::script_loader::find_map_file(&loaded))
-                .unwrap_or_else(|| std::path::PathBuf::from(&loaded));
-            self.game_client.admit_map_text(&map_path);
         }
         self.invalidate_presentation_terrain_cache();
         if loaded != map_name {

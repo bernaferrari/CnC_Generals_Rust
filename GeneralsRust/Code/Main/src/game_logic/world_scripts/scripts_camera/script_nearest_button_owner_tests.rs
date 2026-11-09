@@ -152,11 +152,8 @@ fn nearest_authored_button_uses_first_source_map_status_and_ai_nonheld_center() 
     );
     // Module source is selected before readiness; a future-ready first source
     // cannot silently be replaced with a later member's map status.
-    owner
-        .host_object_mut(source)
-        .unwrap()
-        .special_power_cooldowns
-        .insert(SpecialPowerType::MissileDefenderLaserGuided, 9999.0);
+    owner.host_object_mut(source).unwrap()
+        .set_special_power_ready_seconds(&SpecialPowerType::MissileDefenderLaserGuided, 9999.0);
     owner.set_fixture_object_position(source, Vec3::new(-1002.0, 0.0, 50.0));
     assert_eq!(
         owner

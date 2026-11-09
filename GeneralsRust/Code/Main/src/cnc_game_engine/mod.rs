@@ -148,6 +148,10 @@ pub use run_loop::run_cnc_game;
 pub fn run_snow_anim2d_owner_probe() -> anyhow::Result<()> {
     camera_drain::run_snow_anim2d_owner_probe()
 }
+#[cfg(all(feature = "internal", feature = "game_client", not(target_arch = "wasm32")))]
+pub fn run_native_rank_science_probe() -> anyhow::Result<()> {
+    camera_drain::run_native_rank_science_probe()
+}
 #[cfg(feature = "internal")]
 pub fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
     camera_drain::run_replay_fast_forward_engine_probe()

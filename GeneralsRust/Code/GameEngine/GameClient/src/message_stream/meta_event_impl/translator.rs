@@ -35,7 +35,7 @@ impl GameMessageTranslator for MetaEventTranslator {
         drawable_owner: Option<&mut dyn std::any::Any>,
     ) -> GameMessageDisposition {
         self.translate_game_message_with_receiving_world(
-            msg, client, _dispatch, _emitted, pick_view, client_ui, drawable_owner, None, None,
+            msg, client, _dispatch, _emitted, pick_view, client_ui, drawable_owner, None, None, None,
         )
     }
 
@@ -50,6 +50,7 @@ impl GameMessageTranslator for MetaEventTranslator {
         drawable_owner: Option<&mut dyn std::any::Any>,
         _eva: Option<&mut dyn game_engine::common::message_stream::ReceivingEvaFeedback>,
         world: Option<&dyn std::any::Any>,
+        command_map: Option<&dyn std::any::Any>,
     ) -> GameMessageDisposition {
         let ui = &mut crate::message_stream::ReceivingUi::new_with_owner(
             client_ui,
@@ -60,7 +61,7 @@ impl GameMessageTranslator for MetaEventTranslator {
         )
         .with_emitter(_emitted);
 
-        self.translate_receiving(msg, client, _dispatch, ui, world.and_then(|world| world.downcast_ref::<gamelogic::system::engine_stores::WorldServices>()))
+        self.translate_receiving(msg, client, _dispatch, ui, world.and_then(|world| world.downcast_ref::<gamelogic::system::engine_stores::WorldServices>()), command_map.and_then(|map| map.downcast_ref::<MetaMap>()))
     }
 }
 
@@ -73,8 +74,9 @@ impl MetaEventTranslator {
 
         ui: &mut crate::message_stream::ReceivingUi<'_>,
         world: Option<&gamelogic::system::engine_stores::WorldServices>,
+        command_map: Option<&MetaMap>,
     ) -> GameMessageDisposition {
-        let receiving_multiplayer = if world.is_some() {
+        let receiving_multiplayer = if world.is_some() || client.native_hosted {
             matches!(
                 client.game_mode,
                 gamelogic::system::game_logic::GAME_LAN | gamelogic::system::game_logic::GAME_INTERNET
@@ -126,7 +128,7 @@ impl MetaEventTranslator {
             let shell_active = client.shell_active;
             let client_frame = client.frame;
 
-            disp = with_meta_map_ref(|meta_map| {
+            let mut translate_map = |meta_map: &MetaMap| {
                 let mut disp = disp;
                 for map in meta_map.iter() {
                     // C++ parity: ignore game-only keybinds before the GameClient reaches frame 1.
@@ -148,7 +150,7 @@ impl MetaEventTranslator {
                             || (map.transition == Transition::Down
                                 && map.mod_state == new_mod_state))
                     {
-                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, world, receiving_multiplayer, client.logic_frame, ui) {
+                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, world, receiving_multiplayer, client.native_hosted, client.logic_frame, ui) {
                             disp = new_disp;
                             break;
                         }
@@ -168,14 +170,19 @@ impl MetaEventTranslator {
                             break;
                         }
 
-                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, world, receiving_multiplayer, client.logic_frame, ui) {
+                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, world, receiving_multiplayer, client.native_hosted, client.logic_frame, ui) {
                             disp = new_disp;
                             break;
                         }
                     }
                 }
                 disp
-            });
+            };
+            disp = if let Some(map) = command_map {
+                translate_map(map)
+            } else {
+                with_meta_map_ref(translate_map)
+            };
 
             if matches!(msg_type, GameMessageType::RawKeyDown(_)) {
                 self.last_key_down = key;

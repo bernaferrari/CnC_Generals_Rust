@@ -330,6 +330,12 @@ pub(crate) fn collect_module_states(
     )?;
     push_present(
         &mut out,
+        TAG_AUTHORED_SPECIAL_POWER_TIMERS,
+        !object.authored_special_power_timers.is_empty(),
+        &object.authored_special_power_timers,
+    )?;
+    push_present(
+        &mut out,
         TAG_WEAPON_LOCK,
         WeaponLockResidual::present(object),
         &WeaponLockResidual::from_object(object),

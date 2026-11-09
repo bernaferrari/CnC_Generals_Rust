@@ -190,7 +190,7 @@ fn actual_civilian_dict_identity_precedes_default_team_but_deposit_remains_after
     dict.set_ascii_string(key_player_faction(), "FactionCivilian");
     dict.set_unicode_string(key_player_display_name(), "Only Display");
     dict.set_int(key_player_start_money(), 41);
-    owner.admit_retained_map_civilians(&[dict]);
+    owner.admit_retained_map_civilians(&[dict], None);
     let player = owner
         .get_players()
         .values()

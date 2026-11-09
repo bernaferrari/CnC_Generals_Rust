@@ -6,9 +6,40 @@ fn dispatch_map_entry(
 
     world: Option<&gamelogic::system::engine_stores::WorldServices>,
     receiving_multiplayer: bool,
+    receiving_hosted: bool,
     logic_frame: u32,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<GameMessageDisposition> {
+    use game_engine::common::message_stream::{
+        ReceivingRankScienceAction as RankAction, WindowInputDispatch,
+        WindowInputDispatchResult,
+    };
+    let action = if record.name.eq_ignore_ascii_case("DEMO_GIVE_RANKLEVEL") {
+        Some(RankAction::GiveRank)
+    } else if record.name.eq_ignore_ascii_case("DEMO_TAKE_RANKLEVEL") {
+        Some(RankAction::TakeRank)
+    } else if record.name.eq_ignore_ascii_case("DEMO_GIVE_SCIENCEPURCHASEPOINTS")
+        || (!receiving_multiplayer && record.name.eq_ignore_ascii_case("CHEAT_GIVE_SCIENCEPURCHASEPOINTS"))
+    {
+        Some(RankAction::AddPurchasePoint)
+    } else if record.name.eq_ignore_ascii_case("DEMO_GIVE_ALL_SCIENCES")
+        || (!receiving_multiplayer && record.name.eq_ignore_ascii_case("CHEAT_GIVE_ALL_SCIENCES"))
+    {
+        Some(RankAction::GrantAllSciences)
+    } else {
+        None
+    };
+    if let Some(action) = action {
+        if matches!(
+            ui.dispatch(display_dispatch, WindowInputDispatch::RankScience(action)),
+            Some(WindowInputDispatchResult::RankScienceAccepted)
+        ) {
+            // The host resumes this translator pass only after applying the
+            // operation and its player/UI callbacks to its own world.
+            return Some(GameMessageDisposition::DestroyMessage);
+        }
+        assert!(!receiving_hosted, "native rank/science input requires its receiving world");
+    }
     if let Some(meta) = &record.meta {
         if matches!(meta, GameMessageType::MetaToggleFastForwardReplay) {
             // C++ MetaEvent.cpp:473-489: replay-gated (unless debug cheats),

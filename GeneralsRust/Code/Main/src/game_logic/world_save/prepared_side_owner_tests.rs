@@ -57,7 +57,7 @@ fn prepare(world: &mut GameLogic, name: &str, include_neutral: bool) -> Vec<Dict
         unsellable: Some(true),
         repairable: Some(true),
     }];
-    world.sync_legacy_sides_list_from_dicts(&rows, &[], &builds, &scripts)
+    world.sync_legacy_sides_list_from_dicts(&rows, &[], &builds, &scripts, None)
 }
 
 // The direct snapshot API receives an already-loaded map foundation, exactly
@@ -289,7 +289,7 @@ fn retry_with_different_map_retires_previous_authored_owners() {
             // Seed through the existing dictionary admission boundary so OLD also
             // owns the first map. The control must detect retirement itself.
             let (rows, _) = map_rows("FirstCivilian", true);
-            world.apply_host_players_from_side_dicts(&rows, false);
+            world.apply_host_players_from_side_dicts(&rows, false, None);
             prepare(&mut world, "FirstCivilian", false);
             let previous = retained(&world, "FirstCivilian");
             world

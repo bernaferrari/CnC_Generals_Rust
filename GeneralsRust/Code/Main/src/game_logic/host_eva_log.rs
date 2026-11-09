@@ -92,7 +92,7 @@ impl HostEvaAnnouncements {
             enabled: self.delivery.enabled,
         }
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "internal"))]
     pub fn take_requests(&mut self) -> Vec<EvaEvent> {
         let mut requests = Vec::new();
         self.delivery.operations.retain(|operation| {

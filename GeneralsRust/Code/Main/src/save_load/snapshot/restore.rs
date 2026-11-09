@@ -1319,6 +1319,7 @@ impl SnapshotBuilder {
                     default_team_id: initialized.as_ref().and_then(|p| p.default_team_id),
                     team: snap.team,
                     name: snap.name.clone(),
+                    general_name: String::new(),
                     resources: snap.resources,
 
                     power_available: snap.resources.power,
@@ -1370,6 +1371,7 @@ impl SnapshotBuilder {
 
                     kind_of_production_cost_changes: Vec::new(),
                     shared_special_power_cooldowns: std::collections::HashMap::new(),
+                    authored_special_power_timers: std::collections::HashMap::new(),
                     // C++ Player::xfer m_upgradesCompleted. Stamp writes the name
                     // list onto snap.upgrades; apply also re-adds after host registry.
                     completed_upgrades: snap

@@ -1677,6 +1677,16 @@ pub struct Object {
     /// A10 vs SpySatellite do not share one charge (C++ SpecialPowerModule style).
     #[serde(default)]
     pub special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
+    /// Live state for authored behavior modules, keyed by their declaration index.
+    /// The tuple contains remaining seconds and the pause reference count.
+    #[serde(default)]
+    pub authored_special_power_timers: HashMap<u32, (f32, u32)>,
+    /// Modules registered with the owning client's public superweapon strip.
+    #[serde(default)]
+    pub authored_public_timer_registered: HashSet<u32>,
+    /// Registration-time science visibility, latched until the row is removed.
+    #[serde(default)]
+    pub authored_public_timer_hidden_by_science: HashSet<u32>,
     /// C++ SpecialPowerUpdateInterface overridable destination residual.
     #[serde(default)]
     pub special_power_override_destination: Option<Vec3>,

@@ -4,6 +4,17 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    /// Resolve text at the synchronous action boundary on the receiving client.
+    fn game_text(&mut self, _key: &str) -> gamelogic::GameLogicResult<String> {
+        Err(gamelogic::GameLogicError::Configuration(
+            "script rank reset requires receiving GameText".into(),
+        ))
+    }
+    fn rank_science_event(
+        &mut self,
+        _event: game_engine::common::message_stream::ReceivingRankScienceUi,
+    ) {}
+
     fn visit_owned_menu_audio_receipts(
         &self,
         _visit: &mut dyn FnMut(

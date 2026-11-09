@@ -850,6 +850,10 @@ impl GameLogic {
         let owner_id = self.player_owner_for_host_object(obj);
         // C++ SpecialPowerCreate walks every getSpecialPower() behavior — not a type whitelist.
         let modules: Vec<_> = obj.thing().template.special_power_modules.clone();
+        let hidden_indices: std::collections::HashSet<u32> = modules.iter()
+            .filter(|module| module.required_science.as_deref().is_some_and(|science|
+                !owner_id.and_then(|id| self.players.get(&id)).is_some_and(|p| p.has_unlocked_science(science))))
+            .map(|module| module.source_index).collect();
         if modules.is_empty() {
             return;
         }
@@ -863,27 +867,31 @@ impl GameLogic {
         let mut shared_ready = Vec::new();
         if obj.thing().template.has_special_power_create {
             if let Some(obj) = self.objects.get_mut(&structure_id) {
+                let register_public = owner_id.is_some() && obj.is_kind_of(KindOf::Structure);
                 for module in modules.iter() {
-                    let Some(power) = module.command_power.as_ref() else {
-                        continue;
-                    };
-                    obj.start_power_recharge_with_frames(power, module.reload_time_frames);
+                    let state = obj.authored_special_power_timers.entry(module.source_index).or_default();
                     if module.shared_n_sync {
-                        shared_ready.push(power.clone());
+                        shared_ready.push(module.special_power_template.to_ascii_lowercase());
+                        state.0 = 0.0;
+                    } else {
+                        state.0 = module.reload_time_frames as f32 / 30.0;
                     }
-                    // C++ SpecialPowerCreate::onBuildComplete → onSpecialPowerCreation
-                    // pauseCountdown(TRUE). Units without that Create module only get
-                    // the ctor pause from init_special_power_ctor_arms.
                     if module.starts_paused {
-                        obj.pause_special_power_countdown(power, true);
+                        state.1 = state.1.saturating_add(1);
+                    }
+                    if module.public_timer && register_public
+                        && obj.authored_public_timer_registered.insert(module.source_index)
+                        && hidden_indices.contains(&module.source_index) {
+                        obj.authored_public_timer_hidden_by_science.insert(module.source_index);
                     }
                 }
+                obj.refresh_special_power_aggregate_cooldown();
             }
         }
         if let Some(player_id) = owner_id {
             if let Some(player) = self.players.get_mut(&player_id) {
-                for power in &shared_ready {
-                    player.express_shared_special_power_ready_now(power);
+                for template in shared_ready {
+                    player.authored_special_power_timers.insert(template, 0.0);
                 }
             }
         }

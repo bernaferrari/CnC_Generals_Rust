@@ -359,6 +359,7 @@ mod audio_owner_tests {
 /// stored in the detached world.
 #[cfg(feature = "game_client")]
 pub(super) struct NativeMapAttempt<'a> {
+    game_text: Option<std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>>,
     pristine_bones: Option<&'a dyn crate::assets::pristine_bones::PristineBoneAssets>,
     retirement: &'a mut CandidateRetirement,
     audio: &'a mut super::native_audio_effects::PendingNativeAudio,
@@ -395,6 +396,7 @@ impl NativeMapCandidate {
             retirement,
         );
         Ok(NativeMapAttempt {
+            game_text: None,
             pristine_bones: None,
             retirement: &mut self.retirement,
             audio: &mut self.audio,
@@ -405,6 +407,25 @@ impl NativeMapCandidate {
 }
 #[cfg(feature = "game_client")]
 impl<'a> NativeMapAttempt<'a> {
+    pub(super) fn with_game_text(
+        mut self,
+        game_text: std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>,
+    ) -> Self {
+        self.game_text = Some(game_text);
+        self
+    }
+    pub(super) fn with_rank_ui(
+        mut self,
+        callback: &'a mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi) -> Result<(), String>,
+    ) -> Self {
+        self.view.with_map_rank_ui(
+            callback,
+            std::sync::Arc::clone(self.game_text.as_ref().expect("map rank UI requires GameText")),
+        );
+        self
+    }
+
+
     pub(super) fn with_pristine_bones(
         mut self,
         assets: &'a dyn crate::assets::pristine_bones::PristineBoneAssets,
@@ -413,8 +434,46 @@ impl<'a> NativeMapAttempt<'a> {
         self
     }
 }
+
+#[cfg(feature = "game_client")]
+pub(super) fn deliver_map_rank_ui(
+    client: &std::cell::RefCell<&mut game_client::core::GameClient>,
+    bar: &mut game_client::gui::control_bar::ControlBar,
+    event: game_engine::common::message_stream::ReceivingRankScienceUi,
+) -> Result<(), String> {
+    use game_engine::common::message_stream::ReceivingRankScienceUi;
+    match event {
+        ReceivingRankScienceUi::ScienceAdded => bar.mark_ui_dirty(),
+        ReceivingRankScienceUi::RankChanged { purchase_points }
+        | ReceivingRankScienceUi::PurchasePointsChanged { purchase_points } => {
+            let mut client = client.try_borrow_mut()
+                .map_err(|_| "receiving Client is already borrowed during rank callback")?;
+            let owner = client.window_manager_owner();
+            if let Some(ui) = client.in_game_ui_subsystem_mut() {
+                owner.with_manager(|manager| {
+                    bar.on_receiving_player_rank_or_points_changed(manager, ui, purchase_points);
+                });
+            }
+        }
+    }
+    Ok(())
+}
 #[cfg(feature = "game_client")]
 impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
+    fn admit_map_text(&mut self, map_path: &std::path::Path) -> Result<Option<String>, String> {
+        let Some(text) = self.game_text.as_ref() else { return Ok(None) };
+        game_client::core::GameClient::admit_map_text_to_store(text, map_path);
+        self.general_name()
+    }
+
+    fn general_name(&mut self) -> Result<Option<String>, String> {
+        self.game_text.as_ref().map(|text| {
+            text.write()
+                .map(|mut text| text.fetch_owned("SCIENCE:GeneralName"))
+                .map_err(|error| format!("receiving GameText lock poisoned: {error}"))
+        }).transpose()
+    }
+
     fn discard_attempt(&mut self) -> Result<(), String> {
         if matches!(*self.retirement, CandidateRetirement::Failed) {
             return Err("native candidate destructor previously failed; retry prohibited".into());

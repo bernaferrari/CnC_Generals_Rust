@@ -658,19 +658,6 @@ fn partial_authored_button_executes_actual_power_for_first_valid_owned_team_memb
         Some(first)
     );
     assert_eq!(peer.cia_intelligence.activations(), 0);
-    assert!(
-        owner.host_object(first).unwrap().special_power_cooldowns
-            [&SpecialPowerType::CiaIntelligence]
-            > 0.0
-    );
-    assert_eq!(
-        owner
-            .host_object(second)
-            .unwrap()
-            .special_power_cooldowns
-            .get(&SpecialPowerType::CiaIntelligence)
-            .copied()
-            .unwrap_or(0.0),
-        0.0
-    );
+    assert!(owner.host_object(first).unwrap().special_power_countdown_seconds(&SpecialPowerType::CiaIntelligence) > 0.0);
+    assert_eq!(owner.host_object(second).unwrap().special_power_countdown_seconds(&SpecialPowerType::CiaIntelligence), 0.0);
 }

@@ -279,6 +279,10 @@ impl Object {
         if self.is_special_power_countdown_paused(power) {
             return false;
         }
+        if let Some(module) = self.thing().template.special_power_module_for_command(power) {
+            return self.authored_special_power_timers.get(&module.source_index)
+                .is_none_or(|(remaining, paused)| *remaining <= 0.0 && *paused == 0);
+        }
         let remaining = self
             .special_power_cooldowns
             .get(power)
@@ -294,6 +298,15 @@ impl Object {
     /// ticks already freeze while paused, so a power that was ready stays
     /// ready (`availableOnFrame` slides with pause duration in C++).
     pub fn pause_special_power_countdown(&mut self, power: &SpecialPowerType, pause: bool) {
+        if let Some(index) = self.thing().template.special_power_module_for_command(power).map(|m| m.source_index) {
+            let state = self.authored_special_power_timers.entry(index).or_default();
+            if pause {
+                state.1 = state.1.saturating_add(1);
+            } else {
+                state.1 = state.1.saturating_sub(1);
+            }
+            return;
+        }
         if pause {
             let count = self.special_power_paused.entry(power.clone()).or_insert(0);
             *count = count.saturating_add(1);
@@ -309,6 +322,9 @@ impl Object {
 
     /// C++ `m_pausedCount > 0` residual.
     pub fn is_special_power_countdown_paused(&self, power: &SpecialPowerType) -> bool {
+        if let Some(module) = self.thing().template.special_power_module_for_command(power) {
+            return self.authored_special_power_timers.get(&module.source_index).is_some_and(|state| state.1 > 0);
+        }
         self.special_power_paused.get(power).copied().unwrap_or(0) > 0
     }
 
@@ -317,6 +333,11 @@ impl Object {
     /// `seconds` is remaining countdown (`LOGICFRAMES_PER_SECOND * seconds` in
     /// C++ ScriptActions.cpp:4094-4113). Zero or negative means ready now.
     pub fn set_special_power_ready_seconds(&mut self, power: &SpecialPowerType, seconds: f32) {
+        if let Some(index) = self.thing().template.special_power_module_for_command(power).map(|m| m.source_index) {
+            self.authored_special_power_timers.entry(index).or_default().0 = seconds.max(0.0);
+            self.refresh_special_power_aggregate_cooldown();
+            return;
+        }
         if seconds <= 0.0 {
             self.special_power_cooldowns.remove(power);
         } else {
@@ -327,6 +348,9 @@ impl Object {
 
     /// Remaining per-power countdown seconds (0 = ready).
     pub fn special_power_countdown_seconds(&self, power: &SpecialPowerType) -> f32 {
+        if let Some(module) = self.thing().template.special_power_module_for_command(power) {
+            return self.authored_special_power_timers.get(&module.source_index).map_or(0.0, |state| state.0);
+        }
         self.special_power_cooldowns
             .get(power)
             .copied()
@@ -590,6 +614,10 @@ impl Object {
     /// Sets this power's cooldown to full ReloadTime so PublicTimer SWs start
     /// charging when the structure is created/completed — not ready-to-fire.
     pub fn start_power_recharge(&mut self, power: &crate::command_system::SpecialPowerType) {
+        if let Some(frames) = self.thing().template.special_power_module_for_command(power).map(|module| module.reload_time_frames) {
+            self.start_power_recharge_with_frames(power, frames);
+            return;
+        }
         let cd = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
             power,
         )
@@ -623,6 +651,11 @@ impl Object {
         power: &crate::command_system::SpecialPowerType,
         reload_time_frames: u32,
     ) {
+        if let Some(index) = self.thing().template.special_power_module_for_command(power).map(|m| m.source_index) {
+            self.authored_special_power_timers.entry(index).or_default().0 = reload_time_frames as f32 / 30.0;
+            self.refresh_special_power_aggregate_cooldown();
+            return;
+        }
         let seconds = reload_time_frames as f32 / 30.0;
         if seconds > 0.0 {
             self.special_power_cooldowns.insert(power.clone(), seconds);
@@ -679,6 +712,9 @@ impl Object {
     /// Refresh legacy aggregate ready/remaining from per-power residual timers.
     pub fn refresh_special_power_aggregate_cooldown(&mut self) {
         let mut max_rem = 0.0_f32;
+        for (remaining, _) in self.authored_special_power_timers.values() {
+            max_rem = max_rem.max(*remaining);
+        }
         self.special_power_cooldowns.retain(|_, r| {
             if *r > max_rem {
                 max_rem = *r;
@@ -686,7 +722,8 @@ impl Object {
             *r > 0.0
         });
         // Also consider legacy single timer if still non-zero (older save residual).
-        if self.special_power_cooldown_remaining > max_rem {
+        if self.authored_special_power_timers.is_empty() && self.special_power_cooldowns.is_empty()
+            && self.special_power_cooldown_remaining > max_rem {
             max_rem = self.special_power_cooldown_remaining;
         }
         self.special_power_cooldown_remaining = max_rem;

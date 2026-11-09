@@ -662,6 +662,7 @@ mod tests {
             logic_frame: 1,
             game_mode: 0,
             shell_active: false,
+            native_hosted: false,
             time_of_day: 0,
             weather_is_snowy: false,
             force_models_to_follow_time_of_day: false,

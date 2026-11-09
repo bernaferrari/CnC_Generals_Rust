@@ -32,6 +32,7 @@ fn known(tag: &[u8]) -> bool {
             | b"OLYR"
             | b"NDIE"
             | b"SPCD"
+            | b"PGNM"
             | b"BPPL"
             | b"SUBD"
             | b"HSQD"

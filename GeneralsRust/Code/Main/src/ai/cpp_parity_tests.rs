@@ -112,6 +112,7 @@ fn admit_receiving_computer_class(world: &mut GameLogic, player_id: u32, skirmis
             &[],
             &[],
             &catalog,
+            None,
         );
     });
 }
@@ -3518,7 +3519,7 @@ fn air_force_side_info_skillset_is_a10_not_paladin() {
 }
 
 #[test]
-fn skillset_purchase_readies_required_special_powers() {
+fn skillset_purchase_does_not_wake_a_power_without_an_owned_module() {
     use crate::command_system::SpecialPowerType;
     let mut logic = crate::game_logic::GameLogic::new();
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
@@ -3537,12 +3538,8 @@ fn skillset_purchase_readies_required_special_powers() {
         player.has_unlocked_science("SCIENCE_DaisyCutter"),
         "skillset 1 must buy DaisyCutter once AMERICA is owned"
     );
-    assert!(
-        !player
-            .shared_special_power_cooldowns
-            .contains_key(&SpecialPowerType::DaisyCutter),
-        "C++ addScience onSpecialPowerCreation must ready the required shared power"
-    );
+    assert_eq!(player.shared_special_power_cooldowns.get(&SpecialPowerType::DaisyCutter), Some(&99.0),
+        "C++ addScience only visits modules on owned objects");
 }
 
 #[test]

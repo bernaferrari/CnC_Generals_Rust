@@ -1463,25 +1463,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 }) {
                     continue;
                 }
-                let Some(power) = module.command_power.as_ref() else {
-                    continue;
+                let state_for_module = object.authored_special_power_timers.get(&module.source_index).copied().unwrap_or_default();
+                let seconds = if module.shared_n_sync {
+                    self.world.get_player(owner).unwrap().authored_special_power_timers
+                        .get(&module.special_power_template.to_ascii_lowercase()).copied().unwrap_or(0.0)
+                } else {
+                    state_for_module.0
                 };
-                if self.world.is_special_power_ready_for(object.id, power) {
+                if seconds <= 0.0 && state_for_module.1 == 0 && !object.is_disabled() {
                     state.ready = true;
                     return ScriptOwnerQuery::Present(state);
                 }
-                let seconds = if module.shared_n_sync {
-                    self.world
-                        .get_player(owner)
-                        .unwrap()
-                        .shared_special_power_remaining(power)
-                } else {
-                    object
-                        .special_power_cooldowns
-                        .get(power)
-                        .copied()
-                        .unwrap_or(0.0)
-                };
                 let ready_frame = self
                     .world
                     .frame
@@ -1973,25 +1965,67 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(player_id) = self.script_player_id(player_token, current_player) else {
             return Some(Ok(()));
         };
+        let add_rank = matches!(&request, Request::AddRankLevel { .. });
         match request {
             Request::AddSkillPoints { delta, .. } => {
                 self.world.add_player_skill_points(player_id, delta);
             }
-            Request::AddRankLevel { delta, .. } => {
-                let Some(current) = self.world.players.get(&player_id).map(|p| p.rank_level) else {
+            Request::AddRankLevel { delta, .. } | Request::SetRankLevel { level: delta, .. } => {
+                let Some(current) = self.world.players.get(&player_id).map(|p| p.rank_level.max(1)) else {
                     return Some(Ok(()));
                 };
-                let next = (i64::from(current) + i64::from(delta)).clamp(1, i64::from(u32::MAX));
-                if self.world.set_player_rank_level(player_id, next as u32) {
-                    self.world.try_eva_general_level_up(player_id);
+                let requested = if add_rank {
+                    (i64::from(current) + i64::from(delta)).clamp(1, i64::from(u32::MAX)) as u32
+                } else {
+                    delta.max(1) as u32
+                };
+                let count = self.world.world_services.common().ini.rank.read().get_rank_level_count();
+                let target = requested.min(self.world.rank_level_limit().max(1) as u32)
+                    .min(count as u32);
+                let name = if count > 0 && target < current {
+                    let fetched = if let Some(ui) = self.ui.ui.as_deref_mut() {
+                        ui.game_text("SCIENCE:GeneralName")
+                    } else if let Some(view) = self.ui.view.as_deref_mut() {
+                        view.admission_rank_text("SCIENCE:GeneralName")
+                            .map_err(gamelogic::GameLogicError::Configuration)
+                    } else {
+                        Err(gamelogic::GameLogicError::Configuration(
+                            "script rank reset requires receiving GameText".into(),
+                        ))
+                    };
+                    match fetched {
+                        Ok(name) => Some(name),
+                        Err(error) => return Some(Err(error)),
+                    }
+                } else {
+                    None
+                };
+                let is_local = self.world.local_player_id() == Some(player_id);
+                let ui = &mut self.ui.ui;
+                let view = &mut self.ui.view;
+                let mut callback_error = None;
+                let result = self.world.apply_receiving_rank_science(
+                    player_id,
+                    game_engine::common::message_stream::ReceivingRankScienceAction::SetRank(requested),
+                    name,
+                    self.interpreter,
+                    &mut |event| {
+                        if is_local || matches!(event, game_engine::common::message_stream::ReceivingRankScienceUi::ScienceAdded) {
+                            if let Some(ui) = ui.as_deref_mut() {
+                                ui.rank_science_event(event);
+                            } else if let Some(view) = view.as_deref_mut() {
+                                if let Err(error) = view.admission_rank_event(event) {
+                                    callback_error.get_or_insert(error);
+                                }
+                            }
+                        }
+                    },
+                );
+                if let Some(error) = callback_error {
+                    return Some(Err(gamelogic::GameLogicError::Configuration(error)));
                 }
-            }
-            Request::SetRankLevel { level, .. } => {
-                if self
-                    .world
-                    .set_player_rank_level(player_id, level.max(1) as u32)
-                {
-                    self.world.try_eva_general_level_up(player_id);
+                if let Err(error) = result {
+                    return Some(Err(gamelogic::GameLogicError::Configuration(error)));
                 }
             }
             Request::AffectReceivingExperience { modifier, .. } => {
@@ -3541,6 +3575,21 @@ impl GameLogic {
                 gamelogic::scripting::executor::ScriptContext::at_frame(world.frame)
                     .with_session_world(world.host_trigger_world.clone()),
                 &mut HostScriptExecutionDriver::with_interpreter(world, engine),
+            )
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_local_script_engine_with_effects(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        mut effects: crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.with_own_services_mut(|world| {
+            engine.update_with_driver(
+                gamelogic::scripting::executor::ScriptContext::at_frame(world.frame)
+                    .with_session_world(world.host_trigger_world.clone()),
+                &mut HostScriptExecutionDriver::with_effects(world, engine, effects.reborrow()),
             )
         })
     }

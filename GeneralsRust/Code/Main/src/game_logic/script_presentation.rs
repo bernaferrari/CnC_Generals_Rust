@@ -242,6 +242,18 @@ pub(crate) trait NativeProjectedRadiusAllocator {
 }
 
 pub(crate) trait NativeViewEffects {
+    /// Rank callbacks during native map construction borrow the same Client
+    /// that owns the map's GameText and ControlBar.
+    fn admission_rank_text(&mut self, _key: &str) -> Result<String, String> {
+        Err("native map rank action has no receiving GameText".into())
+    }
+    fn admission_rank_event(
+        &mut self,
+        _event: game_engine::common::message_stream::ReceivingRankScienceUi,
+    ) -> Result<(), String> {
+        Err("native map rank action has no receiving ControlBar".into())
+    }
+
     fn visit_owned_ambient_audio_handles(
         &self,
         _visit: &mut dyn FnMut(&std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>, u32),
@@ -428,6 +440,15 @@ pub(crate) struct NativeFactoryDrawableSource {
 /// Detached native map admission, borrowed by the one production map loader.
 /// The owner is returned to its application only after that load succeeds.
 pub(crate) trait NativeMapAdmission {
+    /// Admit this attempt's map labels before PlayerList initialization.
+    /// A headless admission has no GameText owner.
+    fn admit_map_text(&mut self, _map_path: &std::path::Path) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    /// Fetch from the same receiving catalog after map text has been admitted.
+    fn general_name(&mut self) -> Result<Option<String>, String> {
+        Ok(None)
+    }
     /// Rejection or a new attempt discards only this candidate's native outputs.
     fn discard_attempt(&mut self) -> Result<(), String>;
     /// Actual receiving Drawable prepend roster, before the driving map gate

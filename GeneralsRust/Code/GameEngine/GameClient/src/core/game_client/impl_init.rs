@@ -973,6 +973,15 @@ impl GameClient {
     ) -> &mut crate::message_stream::message_stream::MessageStream {
         &mut self.message_stream
     }
+    /// Authored CommandMap belonging to this receiving client.
+    pub fn meta_map(&self) -> &crate::message_stream::meta_event::MetaMap {
+        &self.meta_map
+    }
+
+    pub fn meta_map_mut(&mut self) -> &mut crate::message_stream::meta_event::MetaMap {
+        &mut self.meta_map
+    }
+
 
     pub fn init_audio_subsystems(&mut self) -> GameClientResult<()> {
         if self.subsystem_manager.audio.is_none() {
@@ -1697,7 +1706,11 @@ impl GameClient {
                         game_engine::common::message_stream::WindowInputDispatchResult::Ui(result),
                     );
                 }
+                if matches!(request, game_engine::common::message_stream::WindowInputDispatch::RankScience(_)) {
+                    return None;
+                }
                 let result = owner.try_with_manager(|manager| match request {
+                    game_engine::common::message_stream::WindowInputDispatch::RankScience(_) => unreachable!(),
                     game_engine::common::message_stream::WindowInputDispatch::Camera(_) | game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen{..} | game_engine::common::message_stream::WindowInputDispatch::Display(_) | game_engine::common::message_stream::WindowInputDispatch::Ui(_) => {
                         unreachable!("display dispatch is completed before the window manager loan")
                     }
@@ -1813,6 +1826,7 @@ impl GameClient {
         use game_engine::common::message_stream::PropagationProgress;
         let yielded = std::cell::Cell::new(false);
         let frame = self.frame;
+        let native_hosted = self.input_authority == ClientInputAuthority::NativeHosted;
         let time_of_day = self.session_time_of_day;
         let weather_is_snowy = self.session_weather_is_snowy;
         let force_models_to_follow_time_of_day = self.session_force_models_to_follow_time_of_day;
@@ -1868,7 +1882,7 @@ impl GameClient {
                 request,
                 emitted,
             );
-            yielded.set(host.has_requests());
+            yielded.set(host.has_requests() || matches!(result, Some(game_engine::common::message_stream::WindowInputDispatchResult::RankScienceAccepted)));
             result
         };
         let mut receiving_pick_view = pick_view.cloned();
@@ -1888,6 +1902,7 @@ impl GameClient {
                             logic_frame,
                             game_mode,
                             shell_active,
+                            native_hosted,
                             time_of_day,
                             weather_is_snowy,
                             force_models_to_follow_time_of_day,
@@ -1900,6 +1915,7 @@ impl GameClient {
                 receiving_pick_view.as_ref(),
                 eva,
                 world.map(|world| world as &dyn std::any::Any),
+                native_hosted.then_some(&self.meta_map as &dyn std::any::Any),
             )
             .map_err(|error| {
                 GameClientError::SubsystemError(format!("Message stream update failed: {error}"))

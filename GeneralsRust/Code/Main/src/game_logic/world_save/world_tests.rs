@@ -28,7 +28,7 @@ mod sides_host_apply_tests {
         gla.set_int(key_player_start_money(), 1_500);
         gla.set_ascii_string(key_player_enemies(), "PlyrAmerica");
 
-        logic.apply_host_players_from_side_dicts(&[america, gla], true);
+        logic.apply_host_players_from_side_dicts(&[america, gla], true, None);
 
         let usa = logic.get_player(0).expect("usa");
         // Player.cpp1007 deposits onto the initialized fallback, not replaces it.
@@ -69,7 +69,7 @@ mod sides_host_apply_tests {
                 let dicts: Vec<Dict> = (0..sides.get_num_sides())
                     .filter_map(|i| sides.get_side_info(i).map(|side| side.get_dict().clone()))
                     .collect();
-                logic.apply_host_players_from_side_dicts(&dicts, false);
+                logic.apply_host_players_from_side_dicts(&dicts, false, None);
 
                 assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
                 assert_eq!(logic.player_relationship(1, 0), Relationship::Enemies);

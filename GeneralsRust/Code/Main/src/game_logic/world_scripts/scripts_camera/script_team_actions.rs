@@ -193,9 +193,18 @@ impl GameLogic {
         // C++ script fire does not consult isReady; only paused/disabled.
         if !self.is_special_power_ready_for(id, &power) {
             let _ = self.script_set_special_power_countdown(id, &power, 0);
-            if let Some(obj) = self.host_object(id) {
-                if let Some(pid) = self.player_owner_for_host_object(obj) {
-                    if let Some(player) = self.get_player_mut(pid) {
+            let owner_and_template = self.host_object(id).and_then(|obj| {
+                self.player_owner_for_host_object(obj).map(|pid| (
+                    pid,
+                    obj.thing().template.special_power_module_for_command(&power)
+                        .map(|module| module.special_power_template.to_ascii_lowercase()),
+                ))
+            });
+            if let Some((pid, template)) = owner_and_template {
+                if let Some(player) = self.get_player_mut(pid) {
+                    if let Some(template) = template {
+                        player.authored_special_power_timers.insert(template, 0.0);
+                    } else {
                         player.express_shared_special_power_ready_now(&power);
                     }
                 }

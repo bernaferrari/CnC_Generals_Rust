@@ -18,6 +18,7 @@ impl GameLogic {
     }
     pub(in crate::game_logic) fn admit_direct_map_players_from_prepared_sides(
         &mut self,
+        general_name: Option<&str>,
     ) -> gamelogic::GameLogicResult<()> {
         let invalid = |reason: &str| gamelogic::GameLogicError::Configuration(reason.into());
         if let Some(error) = self.object_retirement_error() {
@@ -43,6 +44,9 @@ impl GameLogic {
         let mut local = None;
         let mut next = 1u32;
         let mut neutral = Player::new(0, Team::Neutral, "", false);
+        if let Some(name) = general_name {
+            neutral.general_name = name.to_owned();
+        }
         neutral.map_side.role = PlayerSideRole::Neutral;
         neutral.map_side.map_player_name.clear();
         neutral.resources.supplies = 0;
@@ -93,6 +97,9 @@ impl GameLogic {
                 &row.get_unicode_string(key_player_display_name()),
                 human,
             );
+            if let Some(name) = general_name {
+                player.general_name = name.to_owned();
+            }
             player.apply_map_side_identity_from_dict(row);
             controller.apply(&mut player);
             player.resources.supplies = self.skirmish_rules.starting_cash;
@@ -148,7 +155,7 @@ impl GameLogic {
         }
         // Existing implementation owns handicap/color/deposit/relationship
         // order; invoke it ONCE, after template initialization, not before it.
-        self.apply_host_players_from_side_dicts(&rows, true);
+        self.apply_host_players_from_side_dicts(&rows, true, general_name);
         if let Some(id) = fallback_human {
             self.players
                 .get_mut(&id)
@@ -170,6 +177,75 @@ mod tests {
         row.set_int(key_player_start_money(), money);
         row
     }
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn map_player_initialization_uses_receiving_text_before_team_creation() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "map_player_initialization_uses_receiving_text_before_team_creation",
+            || {
+                use std::sync::Arc;
+                crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+                let root = tempfile::tempdir().unwrap();
+                let alpha = root.path().join("alpha");
+                let beta = root.path().join("beta");
+                std::fs::create_dir_all(&alpha).unwrap();
+                std::fs::create_dir_all(&beta).unwrap();
+                std::fs::write(alpha.join("map.str"), "SCIENCE:GeneralName\n\"Alpha General\"\nEND\n").unwrap();
+                std::fs::write(beta.join("map.str"), "SCIENCE:GeneralName\n\"Beta General\"\nEND\n").unwrap();
+                let mut client_a = game_client::core::GameClient::new().unwrap();
+                let mut client_b = game_client::core::GameClient::new().unwrap();
+                client_a.admit_map_text(&alpha.join("map.map"));
+                client_b.admit_map_text(&beta.join("map.map"));
+                let name_a = client_a.game_text_store().write().unwrap().fetch_owned("SCIENCE:GeneralName");
+                let name_b = client_b.game_text_store().write().unwrap().fetch_owned("SCIENCE:GeneralName");
+                let mut a = GameLogic::new();
+                let mut b = GameLogic::new();
+                for world in [&mut a, &mut b] {
+                    world.with_own_services_mut(|world| {
+                        world.prepared_map_sides.add_side(&row("Owner", true, 0));
+                        world.prepared_map_sides.add_side(&row("", false, 0));
+                    });
+                }
+                let foreign = Arc::clone(&b.world_services);
+                gamelogic::system::engine_stores::with_world_services(&foreign, || {
+                    a.with_own_services_mut(|world| {
+                        world.admit_direct_map_players_from_prepared_sides(Some(&name_a)).unwrap();
+                    });
+                    b.with_own_services_mut(|world| {
+                        world.admit_direct_map_players_from_prepared_sides(Some(&name_b)).unwrap();
+                    });
+                    assert_eq!(a.get_player(0).unwrap().general_name, "Alpha General");
+                    assert_eq!(a.get_player(1).unwrap().general_name, "Alpha General");
+                    assert_eq!(b.get_player(0).unwrap().general_name, "Beta General");
+                    assert_eq!(b.get_player(1).unwrap().general_name, "Beta General");
+                    a.with_own_services_mut(|world| world.ensure_host_default_team(1));
+                    assert_eq!(a.get_player(1).unwrap().general_name, "Alpha General");
+                    let mut lobby = GameLogic::new();
+                    lobby.prepare_native_command_mode(GameMode::Skirmish);
+                    let mut existing = Player::new(9, Team::USA, "Lobby", true)
+                        .with_script_identity("Lobby");
+                    existing.general_name = name_a.clone();
+                    lobby.add_player(existing);
+                    lobby.with_own_services_mut(|world| {
+                        let mut civilian = row("Civilian", false, 0);
+                        civilian.set_ascii_string(key_player_faction(), "FactionCivilian");
+                        world.sync_legacy_sides_list_from_dicts(
+                            &[civilian, row("", false, 0)], &[], &[], &[], Some(&name_a),
+                        );
+                    });
+                    assert!(lobby.get_players().values().any(|player|
+                        player.script_identity() == Some("Civilian")
+                            && player.general_name == "Alpha General"
+                    ));
+                    assert!(lobby.get_players().values().any(|player|
+                        player.is_reserved_neutral() && player.general_name == "Alpha General"
+                    ));
+                });
+            },
+        );
+    }
+
     #[test]
     fn prepared_authored_rows_admit_exact_players_before_teams_with_neutral_last_and_human_fallback()
      {
@@ -189,7 +265,7 @@ mod tests {
                     owner.prepared_map_sides.add_side(&row);
                 }
                 owner
-                    .admit_direct_map_players_from_prepared_sides()
+                    .admit_direct_map_players_from_prepared_sides(None)
                     .unwrap();
                 assert!(owner.prepared_side_identity_is_complete());
                 assert_eq!(owner.host_player_id_for_side_index(0), Some(1));
@@ -253,7 +329,7 @@ mod tests {
                     owner.prepared_map_sides.add_side(&row);
                 }
                 owner
-                    .admit_direct_map_players_from_prepared_sides()
+                    .admit_direct_map_players_from_prepared_sides(None)
                     .unwrap();
                 assert!(!owner.is_local_player(1));
                 assert!(owner.get_player(1).unwrap().is_human);
@@ -290,7 +366,7 @@ mod reordered_civilian_tests {
                     owner.prepared_map_sides.add_side(&row);
                 }
                 owner
-                    .admit_direct_map_players_from_prepared_sides()
+                    .admit_direct_map_players_from_prepared_sides(None)
                     .unwrap();
                 assert_eq!(
                     owner.get_player(1).unwrap().script_identity(),
@@ -315,7 +391,7 @@ mod reordered_civilian_tests {
                     owner.prepared_map_sides.add_side(&row);
                 }
                 owner
-                    .admit_direct_map_players_from_prepared_sides()
+                    .admit_direct_map_players_from_prepared_sides(None)
                     .unwrap();
                 assert_eq!(
                     owner.get_player(1).unwrap().script_identity(),

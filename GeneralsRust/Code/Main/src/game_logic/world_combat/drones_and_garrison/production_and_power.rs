@@ -206,39 +206,19 @@ impl GameLogic {
         // (SpecialPowerCreate.cpp:36-53) arms them at construction
         // completion via notify_structure_construction_complete.
         use crate::command_system::SpecialPowerType as P;
-        let hacker_disable = self
-            .objects
-            .get(&object_id)
-            .and_then(|obj| obj.thing().template.hacker_disable_building.clone());
-        let handled_hdb = hacker_disable.is_some();
-        if let Some(metadata) = hacker_disable {
-            let owner_id = self
-                .objects
-                .get(&object_id)
-                .and_then(|obj| self.player_owner_for_host_object(obj));
-            if metadata.shared_n_sync {
-                // SharedNSync belongs to the exact controller, never the
-                // first player selected by faction.  Missing/stale ownership
-                // remains unavailable through the typed readiness gate.
-                if let Some(owner_id) = owner_id {
-                    if let Some(player) = self.get_player_mut(owner_id) {
-                        player.reset_shared_special_power_timer(
-                            &P::HackerDisableBuilding,
-                            metadata.reload_time_frames as f32 / 30.0,
-                        );
-                    }
-                }
-            }
-            if metadata.starts_paused {
-                if let Some(object) = self.objects.get_mut(&object_id) {
-                    object.pause_special_power_countdown(&P::HackerDisableBuilding, true);
-                }
-            }
-        }
+        let owner_id = self.objects.get(&object_id)
+            .and_then(|obj| self.player_owner_for_host_object(obj));
+        let hidden_indices: std::collections::HashSet<u32> = self.objects.get(&object_id).into_iter()
+            .flat_map(|obj| obj.thing().template.special_power_modules.iter())
+            .filter(|module| module.required_science.as_deref().is_some_and(|science|
+                !owner_id.and_then(|id| self.players.get(&id)).is_some_and(|p| p.has_unlocked_science(science))))
+            .map(|module| module.source_index).collect();
+        let has_owner = owner_id.is_some();
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         let under_construction = obj.status.under_construction;
+        let is_structure = obj.is_kind_of(KindOf::Structure);
         // C++ SpecialPowerModule: pauseCountdown(TRUE) once when StartsPaused.
         // Pause is a refcount — a second pause here or in SpecialPowerCreate
         // leaves the upgrade unpause one short. Nuke Helix maps to
@@ -248,28 +228,24 @@ impl GameLogic {
             planned.iter().any(|(existing, _, _, _)| existing == power)
         };
 
-        for module in &obj.thing().template.special_power_modules {
-            let Some(power) = module.command_power.clone() else {
-                continue;
-            };
-            if handled_hdb && matches!(power, P::HackerDisableBuilding) {
-                continue;
+        let authored: Vec<_> = obj.thing().template.special_power_modules.iter()
+            .map(|module| (module.source_index, module.command_power.clone(),
+                module.reload_time_frames, module.shared_n_sync, module.starts_paused, module.public_timer))
+            .collect();
+        for (index, power, frames, shared, paused, public) in authored {
+            let remaining = if has_owner && !under_construction && !shared { frames as f32 / 30.0 } else { 0.0 };
+            obj.authored_special_power_timers.insert(index, (remaining, u32::from(paused)));
+            if shared && public && !paused && has_owner && is_structure {
+                obj.authored_public_timer_registered.insert(index);
+                if hidden_indices.contains(&index) {
+                    obj.authored_public_timer_hidden_by_science.insert(index);
+                }
             }
-            // C++ ctor neither arms nor pauses a SharedNSync module that does
-            // not also carry StartsPaused; the player timer owns its readiness.
-            if module.shared_n_sync && !module.starts_paused {
-                continue;
+            if let Some(power) = power {
+                planned.push((power, None, true, false));
             }
-            if already(&planned, &power) {
-                continue;
-            }
-            planned.push((
-                power,
-                Some(module.reload_time_frames),
-                module.shared_n_sync,
-                module.starts_paused,
-            ));
         }
+        obj.refresh_special_power_aggregate_cooldown();
 
         if obj.thing().template.capture_starts_paused {
             if let Some(power) = obj.thing().template.capture_power.special_power_type() {

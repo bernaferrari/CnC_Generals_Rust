@@ -1338,15 +1338,9 @@ impl CnCGameEngine {
             } else {
                 game_client::message_stream::meta_event::COMMAND_MAP_USABLE_GAME
             };
-            let Some(name) = (if key_down {
-                game_client::message_stream::meta_event::lookup_command_map_name_usable(
-                    code, mods, usable,
-                )
-            } else {
-                game_client::message_stream::meta_event::lookup_command_map_name_usable_up(
-                    code, mods, usable,
-                )
-            }) else {
+            let Some(name) = game_client::message_stream::meta_event::lookup_receiving_command_map(
+                self.game_client.meta_map(), code, mods, usable, key_down,
+            ) else {
                 return Ok(false);
             };
             let upper = name.to_ascii_uppercase();
@@ -1368,6 +1362,23 @@ impl CnCGameEngine {
             }
 
             Ok(match upper.as_str() {
+                "DEMO_GIVE_RANKLEVEL" | "DEMO_TAKE_RANKLEVEL"
+                | "DEMO_GIVE_SCIENCEPURCHASEPOINTS" | "DEMO_GIVE_ALL_SCIENCES"
+                | "CHEAT_GIVE_SCIENCEPURCHASEPOINTS" | "CHEAT_GIVE_ALL_SCIENCES" => {
+                    use game_engine::common::message_stream::ReceivingRankScienceAction as Action;
+                    if upper.starts_with("CHEAT_") && self.game_logic.isInNetworkGame() {
+                        false
+                    } else {
+                        let action = match upper.as_str() {
+                            "DEMO_GIVE_RANKLEVEL" => Action::GiveRank,
+                            "DEMO_TAKE_RANKLEVEL" => Action::TakeRank,
+                            "DEMO_GIVE_SCIENCEPURCHASEPOINTS" | "CHEAT_GIVE_SCIENCEPURCHASEPOINTS" => Action::AddPurchasePoint,
+                            _ => Action::GrantAllSciences,
+                        };
+                        self.apply_receiving_rank_science_action(action)?;
+                        true
+                    }
+                }
                 "TOGGLE_FAST_FORWARD_REPLAY" => {
                     self.toggle_replay_fast_forward_hotkey();
                     true

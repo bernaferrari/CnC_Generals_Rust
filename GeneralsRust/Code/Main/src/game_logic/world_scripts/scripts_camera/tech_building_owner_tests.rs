@@ -160,7 +160,7 @@ fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, Obj
         "FactionGLA",
     );
     let team_definitions =
-        world.sync_legacy_sides_list_from_dicts(&[civilian, faction], &[], &[], &[]);
+        world.sync_legacy_sides_list_from_dicts(&[civilian, faction], &[], &[], &[], None);
     assert!(world.sync_legacy_team_factory_from_team_dicts(&team_definitions));
     assert_eq!(world.prepared_map_sides.find_side_info("player0"), Some(1));
     assert_eq!(world.prepared_map_sides.find_side_info("player3"), Some(2));

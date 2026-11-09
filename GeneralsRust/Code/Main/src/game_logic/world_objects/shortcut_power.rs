@@ -100,21 +100,13 @@ impl GameLogic {
             else {
                 continue;
             };
-            let remaining = module
-                .command_power
-                .as_ref()
-                .map(|kind| {
-                    if module.shared_n_sync {
-                        player.shared_special_power_remaining(kind)
-                    } else {
-                        object.special_power_countdown_seconds(kind)
-                    }
-                })
-                .filter(|seconds| seconds.is_finite());
-            let paused = module
-                .command_power
-                .as_ref()
-                .is_some_and(|kind| object.is_special_power_countdown_paused(kind));
+            let state = object.authored_special_power_timers.get(&module.source_index).copied().unwrap_or_default();
+            let remaining = Some(if module.shared_n_sync {
+                player.authored_special_power_timers.get(&module.special_power_template.to_ascii_lowercase()).copied().unwrap_or(0.0)
+            } else {
+                state.0
+            }).filter(|seconds| seconds.is_finite());
+            let paused = state.1 > 0;
             let disabled = object.is_disabled();
             if !disabled
                 && !paused

@@ -572,13 +572,16 @@ impl CnCGameEngine {
             let sw_timers: Vec<(String, String, bool)> = if !pres.superweapon_display_enabled {
                 Vec::new()
             } else {
+                let mut text = self.game_client.game_text_store().write().unwrap_or_else(|error| error.into_inner());
                 pres.superweapon_timers
                     .iter()
                     .filter(|t| t.unlocked)
                     .map(|t| {
-                        // C++ InGameUI.cpp:3648-3650 name + mm:ss even when ready (0:00).
+                        let key = format!("GUI:{}", t.template_name);
+                        let localized = text.fetch_owned(&key);
+                        let decorated = superweapon_timer_strip_name(pres, t);
                         (
-                            superweapon_timer_strip_name(pres, t),
+                            decorated.replacen(&key, &localized, 1),
                             superweapon_countdown_text(t.remaining),
                             t.ready,
                         )

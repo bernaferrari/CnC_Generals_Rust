@@ -171,6 +171,7 @@ impl Default for RankInfo {
 ///     RankInfoVec m_rankInfos;
 /// };
 /// ```
+#[derive(Clone)]
 pub struct RankInfoStore {
     /// Vector of rank infos, indexed by (level - 1)
     /// Ranks are 1-indexed externally, 0-indexed internally
@@ -229,7 +230,7 @@ impl RankInfoStore {
 
     /// Add a new rank info (must be in sequential order)
     /// Returns error if rank level doesn't match expected next level
-    fn add_rank(&mut self, info: RankInfo) -> RankResult<()> {
+    pub fn add_rank(&mut self, info: RankInfo) -> RankResult<()> {
         let expected_level = self.rank_infos.len() + 1;
         let actual_level = self.rank_infos.len() + 1; // New rank will be at this position
 
@@ -323,7 +324,7 @@ impl RankInfoStore {
                 }
                 "sciencesgranted" => {
                     // parseScienceVector - parse space-separated science names
-                    info.sciences_granted = self.parse_science_vector(&value);
+                    info.sciences_granted = self.parse_science_vector(&value)?;
                 }
                 "sciencepurchasepointsgranted" => {
                     // parseUnsignedInt
@@ -339,24 +340,20 @@ impl RankInfoStore {
 
     /// Parse a vector of sciences from a space-separated string
     /// Matches C++ INI::parseScienceVector from INI.cpp lines 674-685
-    fn parse_science_vector(&self, value: &str) -> Vec<ScienceType> {
+    fn parse_science_vector(&self, value: &str) -> INIResult<Vec<ScienceType>> {
         let mut sciences = Vec::new();
-
         for token in value.split_whitespace() {
-            if token.is_empty() || token.eq_ignore_ascii_case("None") {
-                continue;
+            if token.eq_ignore_ascii_case("None") {
+                return Ok(Vec::new());
             }
-
-            // Look up science by name from the science store
-            if let Some(store) = get_science_store() {
-                let science = store.get_science_from_internal_name(token);
-                if science != SCIENCE_INVALID {
-                    sciences.push(science);
-                }
+            let store = get_science_store().ok_or(INIError::InvalidData)?;
+            let science = store.get_science_from_internal_name(token);
+            if science == SCIENCE_INVALID {
+                return Err(INIError::InvalidData);
             }
+            sciences.push(science);
         }
-
-        sciences
+        Ok(sciences)
     }
 
     /// Get rank level for a given skill points total

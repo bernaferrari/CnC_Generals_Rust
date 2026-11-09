@@ -179,6 +179,8 @@ pub struct Player {
     pub science_purchase_points: i32,
     /// C++ Player::m_skillPointsModifier residual (default 1.0).
     pub skill_points_modifier: f32,
+    /// C++ Player::m_generalName; independently mutable and serialized.
+    pub general_name: String,
     /// C++ Player::m_canBuildUnits (Player.cpp:2301). Scripts flip this via
     /// PLAYER_DISABLE/ENABLE_UNIT_CONSTRUCTION.
     pub can_build_units: bool,
@@ -192,6 +194,8 @@ pub struct Player {
     /// C++ Player::m_specialPowerReadyTimerList residual (seconds remaining).
     /// SharedSyncedTimer superweapons sync across a player's command centers.
     pub shared_special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
+    /// Shared authored templates keyed by their canonical lowercase name.
+    pub authored_special_power_timers: HashMap<String, f32>,
     /// C++ GrantUpgradeCreate / Player::addUpgrade completed names.
     pub completed_upgrades: HashSet<String>,
     /// C++ ResourceGatheringManager supply-center object IDs.
@@ -384,6 +388,129 @@ impl PlayerTemplateIdentity {
 }
 
 impl GameLogic {
+    /// Apply a science to the native player and deliver its immediate
+    /// special-power and script callbacks in the receiving world.
+    fn add_receiving_science(&mut self, id: u32, science: i32, name: &str, interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>, ui: &mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi)) -> bool {
+        if !self.players.get_mut(&id).is_some_and(|player| player.unlock_science(name)) {
+            return false;
+        }
+        self.on_special_power_science_creation(id, name);
+        ui(game_engine::common::message_stream::ReceivingRankScienceUi::ScienceAdded);
+        interpreter.or(self.owned_script_engine.as_ref())
+            .expect("science callback requires the receiving script interpreter")
+            .notify_of_acquired_science(id as usize, science);
+        true
+    }
+
+    /// Execute against this native player and its world's authored definitions.
+    /// During a script walk the exact interpreter is loaned by the caller.
+    pub(crate) fn apply_receiving_rank_science(
+        &mut self,
+        id: u32,
+        action: game_engine::common::message_stream::ReceivingRankScienceAction,
+        default_general_name: Option<String>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi),
+    ) -> Result<(), String> {
+        use game_engine::common::message_stream::{ReceivingRankScienceAction as Action, ReceivingRankScienceUi};
+        if !self.players.contains_key(&id) { return Ok(()); }
+        if action == Action::AddPurchasePoint {
+            let player = self.players.get_mut(&id).expect("local player");
+            let old = player.science_purchase_points;
+            player.science_purchase_points = old.saturating_add(1).max(0);
+            if old != player.science_purchase_points {
+                ui(ReceivingRankScienceUi::PurchasePointsChanged { purchase_points: player.science_purchase_points });
+            }
+            return Ok(());
+        }
+        let content = self.receiving_module_content.as_ref()
+            .ok_or_else(|| "rank/science input requires the receiving science catalog".to_owned())?;
+        let facts = content.science_facts();
+        if action == Action::GrantAllSciences {
+            for (&science, _) in facts.definitions().iter() {
+                if facts.definitions().is_science_grantable(science) {
+                    if let Some(name) = facts.name(science) {
+                        self.add_receiving_science(id, science, name, interpreter, ui);
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let ranks: Vec<_> = {
+            let ranks = self.world_services.common().ini.rank.read();
+            (1..=ranks.get_rank_level_count())
+                .filter_map(|level| ranks.get_rank_info(level).cloned())
+                .collect()
+        };
+        if ranks.is_empty() { return Err("rank input requires the receiving Rank.ini catalog".into()); }
+        let cap = self.rank_level_limit().max(1) as u32;
+        let old_rank = self.players[&id].rank_level.max(1);
+        let target = match action {
+            Action::GiveRank => old_rank.saturating_add(1),
+            Action::TakeRank => old_rank.saturating_sub(1).max(1),
+            Action::SetRank(level) => level.max(1),
+            _ => unreachable!(),
+        }.min(cap).min(ranks.len() as u32);
+        if target == old_rank { return Ok(()); }
+        if ranks.iter().take(target as usize).flat_map(|rank| &rank.sciences_granted)
+            .any(|&science| facts.name(science).is_none())
+        {
+            return Err("Rank.ini references a science missing from the receiving catalog".into());
+        }
+        let old_points = self.players[&id].science_purchase_points;
+        if target < old_rank {
+            let general_name = default_general_name
+                .ok_or_else(|| "rank reset requires receiving GameText".to_owned())?;
+            let template = self.resolved_player_template(id);
+            let mut reset_sciences: Vec<i32> = template.as_ref()
+                .into_iter().flat_map(|template| template.get_intrinsic_sciences())
+                .filter_map(|name| facts.science(name)).collect();
+            let player = self.players.get_mut(&id).expect("local player");
+            player.rank_level = 1;
+            player.skill_points = 0;
+            player.general_name = general_name;
+            player.unlocked_sciences.clear();
+            if let Some(template) = template.as_ref() {
+                player.unlocked_sciences.extend(template.get_intrinsic_sciences().iter().cloned());
+            }
+            player.science_purchase_points = template.as_ref()
+                .map(|template| template.get_intrinsic_science_purchase_points()).unwrap_or(0)
+                .saturating_add(ranks[0].science_purchase_points_granted as i32);
+            for &science in &ranks[0].sciences_granted {
+                if !reset_sciences.contains(&science) {
+                    reset_sciences.push(science);
+                }
+                if let Some(name) = facts.name(science) {
+                    self.add_receiving_science(id, science, name, interpreter, ui);
+                }
+            }
+            let engine = interpreter.or(self.owned_script_engine.as_ref())
+                .expect("science reset requires the receiving script interpreter");
+            for science in reset_sciences { engine.notify_of_acquired_science(id as usize, science); }
+        }
+        let from = self.players[&id].rank_level;
+        for level in (from + 1)..=target {
+            let rank = &ranks[(level - 1) as usize];
+            let player = self.players.get_mut(&id).expect("local player");
+            player.science_purchase_points = player.science_purchase_points
+                .saturating_add(rank.science_purchase_points_granted as i32).max(0);
+            player.skill_points = player.skill_points.max(rank.skill_points_needed);
+            for &science in &rank.sciences_granted {
+                if let Some(name) = facts.name(science) {
+                    self.add_receiving_science(id, science, name, interpreter, ui);
+                }
+            }
+        }
+        self.players.get_mut(&id).expect("local player").rank_level = target;
+        self.try_eva_general_level_up(id);
+        let points = self.players[&id].science_purchase_points;
+        ui(ReceivingRankScienceUi::RankChanged { purchase_points: points });
+        if old_points != points {
+            ui(ReceivingRankScienceUi::PurchasePointsChanged { purchase_points: points });
+        }
+        Ok(())
+    }
+
     /// Purchase through this session's science definitions and live player.
     pub(crate) fn attempt_player_science_purchase(&mut self, id: u32, name: &str) -> bool {
         self.with_own_services_mut(|this| {
@@ -445,6 +572,15 @@ impl GameLogic {
 }
 
 impl Player {
+    /// C++ Player::getGeneralName / setGeneralName.
+    pub fn get_general_name(&self) -> &str {
+        &self.general_name
+    }
+
+    pub fn set_general_name(&mut self, name: String) {
+        self.general_name = name;
+    }
+
     pub(crate) const HOTKEY_SQUAD_COUNT: usize = 10;
 
     pub(crate) fn hotkey_squad(&self, slot: u8) -> Option<&[ObjectId]> {
@@ -580,12 +716,14 @@ impl Player {
             skill_points: 0,
             science_purchase_points: 0,
             skill_points_modifier: 1.0,
+            general_name: String::new(),
             can_build_units: true,
             can_build_base: true,
             units_should_hunt: false,
             list_in_score_screen: true,
 
             shared_special_power_cooldowns: HashMap::new(),
+            authored_special_power_timers: HashMap::new(),
             team_relations: std::collections::BTreeMap::new(),
             sciences_disabled: HashSet::new(),
             sciences_hidden: HashSet::new(),

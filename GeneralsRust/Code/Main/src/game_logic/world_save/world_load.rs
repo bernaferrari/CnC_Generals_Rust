@@ -855,6 +855,13 @@ impl GameLogic {
                         // players were already configured. Wiping would destroy
                         // apply_skirmish_config slots/AI on Lone Eagle-style loads.
                         if !map_player_to_team.is_empty() {
+                            let general_name = if self.is_loading_saved_snapshot() {
+                                None
+                            } else if let Some(native) = native.as_mut() {
+                                native.general_name()?
+                            } else {
+                                None
+                            };
                             let preserve_host_players = (self.uses_lobby_side_foundation()
                                 || self.game_mode == GameMode::SinglePlayer
                                 || self.prepared_side_identity_is_complete())
@@ -870,7 +877,7 @@ impl GameLogic {
                                     && (self.uses_lobby_side_foundation()
                                         || !self.prepared_side_identity_is_complete())
                                 {
-                                    self.apply_host_players_from_sides_list(false);
+                                    self.apply_host_players_from_sides_list(false, general_name.as_deref());
                                 }
                             } else {
                                 self.players.clear();
@@ -878,12 +885,15 @@ impl GameLogic {
                                 for (&pid, &team) in &map_player_to_team {
                                     let is_local = pid == 0;
                                     let name = format!("Player{}", pid + 1);
-                                    self.players
-                                        .insert(pid, Player::new(pid, team, &name, is_local));
+                                    let mut player = Player::new(pid, team, &name, is_local);
+                                    if let Some(name) = general_name.as_deref() {
+                                        player.general_name = name.to_owned();
+                                    }
+                                    self.players.insert(pid, player);
                                 }
                                 let selected = self.players.contains_key(&0).then_some(0);
                                 self.select_local_player(selected);
-                                self.apply_host_players_from_sides_list(true);
+                                self.apply_host_players_from_sides_list(true, general_name.as_deref());
                             }
                             self.stash_side_builds_on_host(&meta.side_builds);
                         }

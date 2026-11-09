@@ -81,6 +81,14 @@ fn snow_anim2d_client_only_dt(last: &mut Option<Instant>, now: Instant) -> f32 {
 #[cfg(any(test, feature = "internal"))]
 mod replay_fast_forward_probe;
 
+#[cfg(all(feature = "internal", feature = "game_client", not(target_arch = "wasm32")))]
+mod native_rank_science_probe;
+
+#[cfg(all(feature = "internal", feature = "game_client", not(target_arch = "wasm32")))]
+pub(super) fn run_native_rank_science_probe() -> anyhow::Result<()> {
+    native_rank_science_probe::run()
+}
+
 #[cfg(test)]
 mod superweapon_countdown_tests {
     use super::superweapon_countdown_text;

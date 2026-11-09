@@ -40,7 +40,7 @@ impl GameLogic {
     pub fn set_eva_enabled(&mut self, enabled: bool) {
         self.eva_announcements.set_enabled(enabled);
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "internal"))]
     pub fn take_eva_requests(&mut self) -> Vec<gamelogic::helpers::EvaEvent> {
         self.eva_announcements.take_requests()
     }

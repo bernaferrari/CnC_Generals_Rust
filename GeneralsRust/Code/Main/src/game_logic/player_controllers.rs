@@ -89,6 +89,7 @@ mod tests {
                 &[],
                 &[],
                 catalog,
+                None,
             );
         });
         world

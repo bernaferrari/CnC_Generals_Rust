@@ -426,9 +426,17 @@ impl GameClient {
         &**store
     }
 
-    /// Replace map-specific labels when a new native world is committed.
+    /// Replace map-specific labels for one receiving GameText owner.
     pub fn admit_map_text(&mut self, map_path: &std::path::Path) {
-        let mut text = self.game_text_store().write().unwrap_or_else(|e| e.into_inner());
+        Self::admit_map_text_to_store(self.game_text_store(), map_path);
+    }
+
+    /// Used by a native map attempt while the Client is lent to load-screen drawing.
+    pub fn admit_map_text_to_store(
+        store: &std::sync::RwLock<crate::game_text::GameText>,
+        map_path: &std::path::Path,
+    ) {
+        let mut text = store.write().unwrap_or_else(|e| e.into_inner());
         text.reset_owned();
         if let Some(directory) = map_path.parent() {
             for name in ["map.str", "Map.str"] {

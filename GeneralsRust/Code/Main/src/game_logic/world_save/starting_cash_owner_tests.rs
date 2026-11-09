@@ -33,7 +33,7 @@ fn rows(name: &str, money: Option<i32>) -> Vec<Dict> {
 }
 
 fn prepare(world: &mut GameLogic, rows: &[Dict]) -> u32 {
-    world.sync_legacy_sides_list_from_dicts(rows, &[], &[], &[]);
+    world.sync_legacy_sides_list_from_dicts(rows, &[], &[], &[], None);
     world
         .players
         .values()
@@ -362,7 +362,7 @@ fn relationship_admission_does_not_deposit_authored_money_twice() {
         || {
             let mut world = configured(12_500);
             let input = rows("Civilian", Some(700));
-            world.apply_host_players_from_side_dicts(&input, true);
+            world.apply_host_players_from_side_dicts(&input, true, None);
             let id = world
                 .players
                 .values()

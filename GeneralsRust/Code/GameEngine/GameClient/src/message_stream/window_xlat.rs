@@ -260,6 +260,7 @@ impl WindowTranslator {
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
                     Some(WindowInputDispatchResult::OpaqueWindow(_))
+                    | Some(WindowInputDispatchResult::RankScienceAccepted)
                     | Some(WindowInputDispatchResult::Display(_))
                     | Some(WindowInputDispatchResult::Ui(_))
                     | Some(WindowInputDispatchResult::Camera(_)) => {
@@ -295,6 +296,7 @@ impl WindowTranslator {
                 ) {
                     Some(WindowInputDispatchResult::Used) => WindowInputReturnCode::Used,
                     Some(WindowInputDispatchResult::OpaqueWindow(_))
+                    | Some(WindowInputDispatchResult::RankScienceAccepted)
                     | Some(WindowInputDispatchResult::Display(_))
                     | Some(WindowInputDispatchResult::Ui(_))
                     | Some(WindowInputDispatchResult::Camera(_)) => {

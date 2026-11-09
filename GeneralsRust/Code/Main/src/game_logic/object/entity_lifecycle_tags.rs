@@ -130,6 +130,8 @@ pub const TAG_FIRE_WEAPON_WHEN_DEAD: &str = "FireWeaponWhenDead";
 pub const TAG_CREATE_OBJECT_DIE_TRANSFER: &str = "CreateObjectDieTransfer";
 /// C++ SpecialPowerModule per-power cooldown map + override dest.
 pub const TAG_SPECIAL_POWER_COOLDOWNS: &str = "SpecialPowerCooldown";
+/// Authored SpecialPowerModule cooldowns and pause counts.
+pub const TAG_AUTHORED_SPECIAL_POWER_TIMERS: &str = "AuthoredSpecialPowerTimers";
 /// C++ WeaponSet lock residual (`WeaponLockType` + slot).
 pub const TAG_WEAPON_LOCK: &str = "WeaponLock";
 /// C++ Drawable::setEmoticon + AIUpdateInterface::setSurrendered timers.
@@ -212,6 +214,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_FIRE_WEAPON_WHEN_DEAD,
     TAG_CREATE_OBJECT_DIE_TRANSFER,
     TAG_SPECIAL_POWER_COOLDOWNS,
+    TAG_AUTHORED_SPECIAL_POWER_TIMERS,
     TAG_WEAPON_LOCK,
     TAG_EMOTICON_SURRENDER,
     TAG_PROJECTILE_FLIGHT,

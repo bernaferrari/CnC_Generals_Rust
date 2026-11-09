@@ -1686,6 +1686,21 @@ impl ControlBar {
         self.gen_star_flash = true;
         self.mark_ui_dirty();
     }
+    /// Native match callback: the purchase-point value comes from the
+    /// receiving player, never the independent Core player list.
+    pub fn on_receiving_player_rank_or_points_changed(
+        &mut self,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        ui: &mut crate::core::subsystems::InGameUISubsystem,
+        purchase_points: i32,
+    ) {
+        if self.last_flashed_at_point_value <= purchase_points && ui.get_input_enabled() {
+            leftover_transition_group("ControlBarArrow", receiving_manager);
+        }
+        self.gen_star_flash = true;
+        self.mark_ui_dirty();
+    }
+
 
     // ---------------------------------------------------------------------------
     // Special power shortcut bar

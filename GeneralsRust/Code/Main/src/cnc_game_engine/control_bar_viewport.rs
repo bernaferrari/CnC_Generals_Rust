@@ -440,6 +440,36 @@ impl<'a> NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
+    fn game_text(&mut self, key: &str) -> gamelogic::GameLogicResult<String> {
+        let text = self.game_text.ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "script rank reset requires receiving client text".into(),
+            )
+        })?;
+        Ok(text.write().unwrap_or_else(|error| error.into_inner()).fetch_owned(key))
+    }
+
+    fn rank_science_event(
+        &mut self,
+        event: game_engine::common::message_stream::ReceivingRankScienceUi,
+    ) {
+        use game_engine::common::message_stream::ReceivingRankScienceUi;
+        match event {
+            ReceivingRankScienceUi::ScienceAdded => self.bar.mark_ui_dirty(),
+            ReceivingRankScienceUi::RankChanged { purchase_points }
+            | ReceivingRankScienceUi::PurchasePointsChanged { purchase_points } => {
+                let effects = self.window_effects.as_mut()
+                    .expect("rank callback requires receiving client UI");
+                let bar = &mut *self.bar;
+                self.window_manager_owner.with_manager(|manager| {
+                    bar.on_receiving_player_rank_or_points_changed(
+                        manager, effects.ui_mut(), purchase_points,
+                    );
+                });
+            }
+        }
+    }
+
     fn visit_owned_menu_audio_receipts(
         &self,
         visit: &mut dyn FnMut(

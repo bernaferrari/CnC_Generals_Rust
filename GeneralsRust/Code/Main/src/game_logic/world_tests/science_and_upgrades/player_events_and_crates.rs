@@ -93,10 +93,28 @@ fn script_set_rank_level_plays_eva_general_level_up() {
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
+    let store = game_engine::common::rts::science::ScienceStore::new_owned();
+    let facts = std::sync::Arc::new(
+        game_engine::common::rts::science::ScienceNameFacts::from_store(&store),
+    );
+    let content = crate::assets::ReceivingObjectContent::from_sources_with_sciences(
+        Vec::<(String, String)>::new(), facts,
+    ).unwrap();
+    logic.admit_receiving_module_content(content).unwrap();
+    {
+        let mut ranks = logic.world_services.common().ini.rank.write();
+        ranks.init();
+        for skill in [0, 800, 1500] {
+            let mut rank = game_engine::common::ini::ini_rank::RankInfo::new();
+            rank.skill_points_needed = skill;
+            ranks.add_rank(rank).unwrap();
+        }
+    }
     logic.players.insert(
         0,
         crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"),
     );
+    assert!(logic.select_local_player(Some(0)));
     let mut action = ScriptAction::new(ScriptActionType::PlayerSetRanklevel);
     action
         .add_parameter(Parameter::with_string(ParameterType::Side, "Local".into()))

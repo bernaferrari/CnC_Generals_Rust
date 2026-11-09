@@ -287,7 +287,39 @@ pub fn reset_command_map_entries() {
     load_meta_map_files();
 }
 
+/// Parse one authored source directly into its receiving client's map.
+pub fn apply_command_map_source(map: &mut MetaMap, source: &str) -> INIResult<()> {
+    let mut ini = INI::new();
+    ini.with_inline_source(source, |ini| {
+        while !ini.is_eof() {
+            ini.read_line()?;
+            if ini.is_eof() { break; }
+            let tokens = ini.get_line_tokens();
+            if tokens.first().is_some_and(|token| token.eq_ignore_ascii_case("CommandMap")) {
+                map.add_record(parse_meta_map_record(ini)?);
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Look up a chord on the receiving client's owned map.
+pub fn lookup_receiving_command_map(
+    map: &MetaMap, key: u32, mod_state: u32, usable_mask: u32, down: bool,
+) -> Option<String> {
+    let transition = if down { Transition::Down } else { Transition::Up };
+    map.iter().find(|record| record.key == key && record.mod_state == mod_state
+        && record.transition == transition && record.usable_in & usable_mask != 0)
+        .map(|record| record.name.clone())
+}
+
 fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
+    let record = parse_meta_map_record(ini)?;
+    with_meta_map(|map| map.add_record(record));
+    Ok(())
+}
+
+fn parse_meta_map_record(ini: &mut INI) -> INIResult<MetaMapRec> {
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
@@ -361,8 +393,7 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         }
     }
 
-    with_meta_map(|map| map.add_record(record));
-    Ok(())
+    Ok(record)
 }
 
 fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {

@@ -109,19 +109,12 @@ fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
     let id = logic
         .create_object_for_player("OwnedScudTimer", 0, glam::Vec3::ZERO)
         .unwrap();
-    logic
-        .get_player_mut(0)
-        .unwrap()
-        .reset_shared_special_power_timer(&power, 5.0);
+    logic.get_player_mut(0).unwrap().authored_special_power_timers.insert(SW_POWER_NAME.to_ascii_lowercase(), 5.0);
     let mut hud = crate::ui::GameHUD::new();
     for (elapsed, remaining, ready) in
         [(2.0, 3.0, false), (2.0, 1.0, false), (4.0 / 3.0, 0.0, true)]
     {
-        let became_ready = logic
-            .get_player_mut(0)
-            .unwrap()
-            .tick_shared_special_power_timers(elapsed);
-        assert_eq!(became_ready.contains(&power), ready);
+        logic.tick_shared_special_power_timers(elapsed);
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let row = frame
             .superweapon_timers()

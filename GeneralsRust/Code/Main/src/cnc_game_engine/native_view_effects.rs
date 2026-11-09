@@ -7,6 +7,12 @@ use crate::graphics::render_pipeline::native_pose_loan::NativeInstalledPoseLoan;
 use crate::presentation_frame::camera::build::SlaveCameraSample;
 
 #[cfg(feature = "game_client")]
+struct NativeMapRankUi<'a> {
+    callback: &'a mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi) -> Result<(), String>,
+    text: std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>,
+}
+
+#[cfg(feature = "game_client")]
 pub(super) struct NativeRendererViewEffects<'a> {
     poses: NativeInstalledPoseLoan<'a>,
     graphics: &'a mut GraphicsSystem,
@@ -15,6 +21,7 @@ pub(super) struct NativeRendererViewEffects<'a> {
     retirement: &'a mut dyn game_client::core::game_client::NativeDrawableRetirement,
     host_epoch: u64,
     local_player_id: u32,
+    map_rank_ui: Option<NativeMapRankUi<'a>>,
 }
 #[cfg(feature = "game_client")]
 impl<'a> NativeRendererViewEffects<'a> {
@@ -35,9 +42,18 @@ impl<'a> NativeRendererViewEffects<'a> {
             policy,
             retirement,
             host_epoch,
+            map_rank_ui: None,
             local_player_id,
         }
     }
+    pub(super) fn with_map_rank_ui(
+        &mut self,
+        callback: &'a mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi) -> Result<(), String>,
+        text: std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>,
+    ) {
+        self.map_rank_ui = Some(NativeMapRankUi { callback, text });
+    }
+
     pub(super) fn admit_map_particle_definitions(
         &mut self,
         sources: &[String],
@@ -212,6 +228,20 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
+    fn admission_rank_text(&mut self, key: &str) -> Result<String, String> {
+        let ui = self.map_rank_ui.as_mut().ok_or("native map rank action has no receiving GameText")?;
+        let mut text = ui.text.write().map_err(|error| format!("receiving GameText lock poisoned: {error}"))?;
+        Ok(text.fetch_owned(key))
+    }
+
+    fn admission_rank_event(
+        &mut self,
+        event: game_engine::common::message_stream::ReceivingRankScienceUi,
+    ) -> Result<(), String> {
+        let ui = self.map_rank_ui.as_mut().ok_or("native map rank action has no receiving ControlBar")?;
+        (ui.callback)(event)
+    }
+
     fn visit_owned_ambient_audio_handles(
         &self,
         visit: &mut dyn FnMut(&std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>, u32),
@@ -602,7 +632,13 @@ impl CnCGameEngine {
         {
             let policy = receiving_native_drawable_policy_for(&self.game_logic);
             let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
-            let (frame, _, drawables) = self.game_client.split_frame_snow_and_drawable_owner();
+            let owner = self.game_client.window_manager_owner();
+            let mut messages = Vec::new();
+            let (frame, snow, drawables, _, window_effects, stream, text) = self.game_client
+                .split_frame_snow_drawable_script_ui_and_hints(&mut messages);
+            let mut ui = super::control_bar_viewport::NativeScriptUi::new(
+                snow, &mut self.control_bar, owner,
+            ).with_game_text(text).with_window_effects(window_effects, stream);
             let input = super::mouse::CameraInputLoan::new(
                 &mut self.look_at_modes,
                 &mut self.is_mmb_rotating,
@@ -630,7 +666,7 @@ impl CnCGameEngine {
                     audio: audio.as_mut().map(|service| service.receiver()),
                     terrain: terrain
                         .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),
-                    ui: None,
+                    ui: Some(&mut ui),
                     view: Some(&mut view),
                 },
                 input,

@@ -212,6 +212,7 @@ impl SnapshotBuilder {
                 super::super::special_power_cooldown_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
+                super::super::special_power_cooldown_persist::append_player_general_names(&mut bytes, game_logic);
                 super::super::battle_plan_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::super::subdual_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::super::booby_trap_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
@@ -1058,6 +1059,7 @@ impl SnapshotBuilder {
             lifecycle_tail,
             game_logic,
         )?;
+        super::super::special_power_cooldown_persist::apply_player_general_names(lifecycle_tail, game_logic)?;
         super::super::battle_plan_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::subdual_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::booby_trap_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;

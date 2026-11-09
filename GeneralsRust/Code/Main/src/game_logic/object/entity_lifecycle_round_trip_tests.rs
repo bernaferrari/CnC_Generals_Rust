@@ -18,7 +18,7 @@ fn present_groups(
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 69] = [
+    let pairs: [(&'static str, bool); 70] = [
         (TAG_STATUS_BITS, true),
         (
             TAG_WEAPON_SLOTS,
@@ -165,6 +165,7 @@ fn present_groups(
             TAG_SPECIAL_POWER_COOLDOWNS,
             SpecialPowerCooldownResidual::present(object),
         ),
+        (TAG_AUTHORED_SPECIAL_POWER_TIMERS, !object.authored_special_power_timers.is_empty()),
         (TAG_WEAPON_LOCK, WeaponLockResidual::present(object)),
         (
             TAG_EMOTICON_SURRENDER,

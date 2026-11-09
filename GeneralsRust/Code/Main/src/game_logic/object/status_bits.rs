@@ -1071,13 +1071,11 @@ impl Object {
     pub fn set_special_power_ready(&mut self, ready: bool) {
         self.special_power_ready = ready;
         if ready {
-            // Force-ready is the port's test/script express-ready cheat.  The
-            // authoritative per-module gate is the cooldown map
-            // (Object::is_special_power_ready reads special_power_cooldowns),
-            // so expressing readiness must clear it — otherwise a caster
-            // created after C++ SpecialPowerModule ctor arming
-            // (SpecialPowerModule.cpp:86-94) could never cast at frame 0.
             self.special_power_cooldowns.clear();
+            for (remaining, _) in self.authored_special_power_timers.values_mut() {
+                *remaining = 0.0;
+            }
+            self.special_power_cooldown_remaining = 0.0;
         }
     }
 

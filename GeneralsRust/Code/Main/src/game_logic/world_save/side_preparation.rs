@@ -82,6 +82,7 @@ impl GameLogic {
         team_dicts: &[Dict],
         side_builds: &[super::script_loader::SideBuildEntry],
         script_lists: &[ScriptList],
+        general_name: Option<&str>,
     ) -> Vec<Dict> {
         // The prepared controller sides must come from this world's definitions.
         let collect =
@@ -109,6 +110,7 @@ impl GameLogic {
             side_builds,
             script_lists,
             &catalog,
+            general_name,
         )
     }
 
@@ -119,6 +121,7 @@ impl GameLogic {
         side_builds: &[super::script_loader::SideBuildEntry],
         script_lists: &[ScriptList],
         catalog: &HashMap<String, String>,
+        general_name: Option<&str>,
     ) -> Vec<Dict> {
         // Preparation may load faction scripts. Neither that IO nor host admission
         // needs to hold, or discover its owner through, the compatibility registry.
@@ -174,7 +177,7 @@ impl GameLogic {
                     }
                 }
             }
-            self.admit_retained_map_civilians(&rows);
+            self.admit_retained_map_civilians(&rows, general_name);
         }
         // An empty/campaign host still uses the later map-player admission path.
         // Creating only civilians here would make its roster-preservation check

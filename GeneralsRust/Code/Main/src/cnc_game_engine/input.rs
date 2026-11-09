@@ -1584,7 +1584,7 @@ impl CnCGameEngine {
             let mut resume = None;
             loop {
                 let facts = self.receiving_menu_world_facts();
-                let (progress, steps) =
+                let (progress, steps, rank_action) =
                     self.with_receiving_client_translation(|client, phases, manager| {
                         manager.update_all_receiving_client(
                             dt,
@@ -1595,6 +1595,9 @@ impl CnCGameEngine {
                             phases,
                         )
                     })?;
+                if let Some(action) = rank_action {
+                    self.apply_receiving_rank_science_action(action)?;
+                }
                 match progress {
                     Ok(crate::subsystem_manager::ReceivingClientUpdateProgress::HostBoundary(
                         cursor,

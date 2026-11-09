@@ -308,6 +308,7 @@ impl GameLogic {
 
         let mut recharged: Vec<crate::command_system::SpecialPowerType> = Vec::new();
         let mut shared_resets: Vec<(crate::command_system::SpecialPowerType, f32)> = Vec::new();
+        let mut authored_shared = Vec::new();
         {
             let Some(target) = self.objects.get_mut(&target_id) else {
                 return false;
@@ -315,27 +316,19 @@ impl GameLogic {
             // C++ walks every behavior module and startPowerRecharge()s each
             // SpecialPowerModuleInterface (Spy + Emergency Repair + CIA, etc.).
             for module in &modules {
-                let Some(power) = module.command_power.as_ref() else {
-                    continue;
-                };
-                let reload_seconds = if module.reload_time_frames > 0 {
-                    target.start_power_recharge_with_frames(power, module.reload_time_frames);
-                    module.reload_time_frames as f32 / 30.0
-                } else {
-                    target.start_power_recharge(power);
-                    crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
-                        power,
-                    )
-                    .unwrap_or(target.special_power_cooldown)
-                    .max(0.0)
-                };
-                if !recharged.contains(power) {
-                    recharged.push(power.clone());
+                if let Some(power) = module.command_power.as_ref() {
+                    if !recharged.contains(power) {
+                        recharged.push(power.clone());
+                    }
                 }
-                if module.shared_n_sync && !shared_resets.iter().any(|(p, _)| p == power) {
-                    shared_resets.push((power.clone(), reload_seconds));
+                let reload = module.reload_time_frames as f32 / 30.0;
+                if module.shared_n_sync {
+                    authored_shared.push((module.special_power_template.to_ascii_lowercase(), reload));
+                } else {
+                    target.authored_special_power_timers.entry(module.source_index).or_default().0 = reload;
                 }
             }
+            target.refresh_special_power_aggregate_cooldown();
             let leftover: Vec<crate::command_system::SpecialPowerType> = target
                 .special_power_cooldowns
                 .keys()
@@ -357,7 +350,7 @@ impl GameLogic {
                 }
                 recharged.push(power);
             }
-            if recharged.is_empty() {
+            if recharged.is_empty() && modules.is_empty() {
                 // Host residual single-slot when no modules / map entries exist.
                 target.set_special_power_ready(false);
                 if target.special_power_cooldown <= 0.0 {
@@ -368,6 +361,13 @@ impl GameLogic {
         }
         if let Some(pid) = owner_id {
             if let Some(player) = self.get_player_mut(pid) {
+                for (template, reload) in authored_shared {
+                    if let Some(remaining) = player.authored_special_power_timers.get_mut(&template) {
+                        *remaining = reload;
+                    } else {
+                        player.authored_special_power_timers.insert(template, 0.0);
+                    }
+                }
                 for (power, reload) in shared_resets {
                     player.reset_shared_special_power_timer(&power, reload);
                 }

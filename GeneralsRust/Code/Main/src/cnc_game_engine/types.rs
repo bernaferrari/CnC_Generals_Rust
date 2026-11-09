@@ -578,6 +578,7 @@ pub(crate) struct StartupMapAdmissionRequest {
 pub(crate) struct StartupPreparedLoadResult {
     pub(crate) default_starting_cash: u32,
     pub(crate) game_logic: GameLogic,
+    pub(crate) command_map_sources: Vec<String>,
     pub(crate) request: StartupMapAdmissionRequest,
     pub(crate) start_in_menu: bool,
     pub(crate) map_requested_from_cli: bool,
@@ -588,6 +589,7 @@ pub(crate) struct StartupLoadResult {
     pub(crate) native_map: super::map_native_admission::NativeMapCandidate,
     pub(crate) default_starting_cash: u32,
     pub(crate) game_logic: GameLogic,
+    pub(crate) command_map_sources: Vec<String>,
     pub(crate) loaded_map_name: Option<String>,
     pub(crate) start_in_menu: bool,
     pub(crate) map_requested_from_cli: bool,

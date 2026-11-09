@@ -1742,17 +1742,19 @@ impl CnCGameEngine {
 
                     // C++ parity: GameEngine.cpp:500-501 — load CommandMap.ini (language-specific + fallback).
                     // C++ loads "Data\{language}\CommandMap.ini" then "Data\INI\CommandMap.ini".
+                    let mut command_map_sources = Vec::new();
                     game_engine::common::ini::ini_command_map::init_meta_map();
                     {
                         let language = game_engine::common::ini::ini_webpage_url::get_registry_language();
                         let lang_path = format!("Data/{}/CommandMap.ini", language.as_str());
-                        for cmd_path in &[lang_path.as_str(), "Data/INI/CommandMap.ini"] {
+                        for cmd_path in &[lang_path.as_str(), "Data/INI/CommandMap.ini", "Data/INI/CommandMapDebug.ini", "Data/INI/CommandMapDemo.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(cmd_path)? {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded command map from {}", cmd_path),
                                     Err(err) => warn!("Failed parsing CommandMap.ini '{}': {}", cmd_path, err),
                                 }
+                                command_map_sources.push(content);
                             }
                         }
                     }
@@ -1763,7 +1765,12 @@ impl CnCGameEngine {
                         .lock()
                         .map_err(|_| "Cannot admit initial weapon definitions: asset manager poisoned")?
                         .weapon_definitions_snapshot();
+                    // Rank.ini was parsed on the startup worker's Common owner.
+                    // Admit its effective authored rows into the newly created
+                    // match; that match must not consult the worker's active TLS.
+                    let startup_ranks = _world_tls.common().ini.rank.read().clone();
                     let mut game_logic = GameLogic::initialize();
+                    *game_logic.world_services.common().ini.rank.write() = startup_ranks;
                     game_logic.bind_application_assets(Arc::clone(&application_assets));
                     simulation_rules.admit_locomotors_before_objects(&mut game_logic)?;
                     game_logic.admit_startup_content(
@@ -1914,6 +1921,7 @@ impl CnCGameEngine {
                     Ok(StartupPreparedLoadResult {
                         default_starting_cash,
                         game_logic,
+                        command_map_sources,
                         request: StartupMapAdmissionRequest { map_to_load, player_name },
                         start_in_menu,
                         map_requested_from_cli,
@@ -1959,6 +1967,7 @@ impl CnCGameEngine {
         let StartupPreparedLoadResult {
             default_starting_cash,
             mut game_logic,
+            command_map_sources,
             request:
                 StartupMapAdmissionRequest {
                     map_to_load,
@@ -2001,8 +2010,13 @@ impl CnCGameEngine {
                 let audio_locality = game_logic.receiving_audio_locality_for_player(-1);
                 let audio_view = super::audio_view::CompletedAudioView::capture(&game_logic);
                 let menu_audio = &mut self.menu_audio;
-                let game_client = &mut self.game_client;
-                if game_client.ui_renderer().is_none() {
+                let map_text = self.game_client.ensure_game_text_store();
+                let game_client = std::cell::RefCell::new(&mut self.game_client);
+                let control_bar = &mut self.control_bar;
+                let mut rank_ui = |event| {
+                    super::map_native_admission::deliver_map_rank_ui(&game_client, control_bar, event)
+                };
+                if game_client.borrow().ui_renderer().is_none() {
                     return Err(anyhow::anyhow!("startup loading UI renderer unavailable"));
                 }
                 let (draw_services, mut surface) = self
@@ -2041,7 +2055,9 @@ impl CnCGameEngine {
                             .and_then(|audio| audio.receiving_audio_device()),
                     )
                     .map_err(anyhow::Error::msg)?
-                    .with_pristine_bones(self.application_assets.as_ref());
+                    .with_pristine_bones(self.application_assets.as_ref())
+                    .with_game_text(map_text)
+                    .with_rank_ui(&mut rank_ui);
                 // C++ updates the load bar without a full present on every MapReader
                 // stage. Throttle GPU presents — under load each present was ~2–13s
                 // and dominated Lone Eagle "Fast legacy sync" stage timers.
@@ -2069,8 +2085,9 @@ impl CnCGameEngine {
                                         audio_locality,
                                         audio_view,
                                     );
+                                    let mut client = game_client.borrow_mut();
                                     let (mut load_owner, _default_pump) =
-                                        game_client.split_load_screen_services(&mut audio);
+                                        client.split_load_screen_services(&mut audio);
                                     Self::pump_cpp_load_screen_progress(
                                         &mut pump,
                                         kind,
@@ -2196,6 +2213,7 @@ impl CnCGameEngine {
             native_map,
             default_starting_cash,
             game_logic,
+            command_map_sources,
             loaded_map_name,
             start_in_menu,
             map_requested_from_cli,
@@ -2277,10 +2295,21 @@ impl CnCGameEngine {
             self.game_client.seed_presentation_random(seed);
             self.game_client.particle_systems_mut().seed_presentation_random(seed);
         }
+        #[cfg(feature = "game_client")]
+        let command_map = {
+            let mut map = game_client::message_stream::meta_event::MetaMap::default();
+            for source in &result.command_map_sources {
+                game_client::message_stream::meta_event::apply_command_map_source(&mut map, source)
+                    .map_err(|error| anyhow::anyhow!("Cannot admit CommandMap: {error}"))?;
+            }
+            map
+        };
         // Admit the detached worker's actual start_new_game reset only now.
         self.reset_replay_pacing_for_new_game();
         self.host_replace_game_logic(result.game_logic, result.native_map)
             .map_err(anyhow::Error::msg)?;
+        #[cfg(feature = "game_client")]
+        { *self.game_client.meta_map_mut() = command_map; }
         // The worker has finished PlayerTemplate/Multiplayer definitions and
         // its actual INI CRC. Admit these application observations on the UI
         // thread, not lazily on the first mouse move.

@@ -236,7 +236,7 @@ fn unnamed_neutral_and_named_civilian_have_distinct_owned_admissions() {
         "unnamed_neutral_and_named_civilian_have_distinct_owned_admissions",
         || {
             let mut world = configured(false, false);
-            world.apply_host_players_from_side_dicts(&civilian_rows(), true);
+            world.apply_host_players_from_side_dicts(&civilian_rows(), true, None);
             assert_eq!(
                 world.players[&0].map_side.map_player_name, "player0",
                 "neutral cannot overwrite the first lobby owner"

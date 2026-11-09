@@ -3276,7 +3276,11 @@ serde framing; it does not establish original C++ save interoperability.
 ## Receiving rank and science keys
 
 Standalone Core clients use their bound world's roster, rank and science
-catalogs for rank/science key actions. Same-ID foreign-world roster mutation is
-avoided. Hosted Main still uses its legacy ambient path; Core GameText, control
-bar and EVA delivery are not yet fully instance-owned (hq-yac16).
+catalogs for rank/science key actions. Hosted Main rank keys and scripted rank
+changes use the receiving world, authored rank/science data, interpreter and
+client GameText; map admission loads map text before player and team creation.
+Authored special-power timers retain per-module and shared player state through
+host snapshots and drive the receiving client's public timer display. Same-ID
+world probes cover rank isolation and timer restore. Core GameText, control bar
+and EVA delivery still have ambient compatibility paths (hq-yac16).
 

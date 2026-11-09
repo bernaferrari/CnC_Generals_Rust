@@ -253,6 +253,9 @@ fn apply_one(
             let residual: SpecialPowerCooldownResidual = decode_payload(payload)?;
             residual.apply(object);
         }
+        TAG_AUTHORED_SPECIAL_POWER_TIMERS => {
+            object.authored_special_power_timers = decode_payload(payload)?;
+        }
         TAG_WEAPON_LOCK => {
             let residual: WeaponLockResidual = decode_payload(payload)?;
             residual.apply(object);

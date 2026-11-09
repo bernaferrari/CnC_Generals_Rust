@@ -1263,56 +1263,6 @@ impl PresentationFrame {
             self.local_radar_disabled = p.radar_disabled;
             self.local_cash_bounty_percent = p.cash_bounty_percent;
             self.local_color_rgb = p.color_rgb;
-            self.local_rank_level = p.rank_level.max(1);
-            self.local_skill_points = p.skill_points;
-            self.local_science_purchase_points = p.science_purchase_points;
-            self.local_unlocked_sciences = p.unlocked_sciences.clone();
-            {
-                use crate::game_logic::host_rank_ui_residual::{
-                    RankSkillStateResidual, rank_level_down_threshold_residual,
-                    rank_level_up_threshold_residual, rank_progress_percent_residual,
-                };
-                let state = RankSkillStateResidual {
-                    rank_level: self.local_rank_level,
-                    skill_points: self.local_skill_points,
-                    science_purchase_points: self.local_science_purchase_points,
-                    level_up: rank_level_up_threshold_residual(self.local_rank_level),
-                    level_down: rank_level_down_threshold_residual(self.local_rank_level),
-                };
-                self.local_rank_progress_percent = rank_progress_percent_residual(&state);
-            }
-            // Superweapon PublicTimer remaining from the owning player's
-            // SharedNSync ready frame (C++ SpecialPowerModule.cpp:756-765).
-            // power_key is bare for the local player and `Type#id` for others.
-            for timer in &mut self.superweapon_timers {
-                if timer.power_key.is_empty() {
-                    continue;
-                }
-                let (owner_id, key) = super::build::split_superweapon_power_key(
-                    &timer.power_key,
-                    self.local_player_id,
-                );
-                let pid = gamelogic::world::PlayerId::from_index(owner_id as u8);
-                let Some(owner) = shadow.world().player(pid) else {
-                    continue;
-                };
-                if let Some((_, rem)) = owner
-                    .shared_special_power_cooldowns
-                    .iter()
-                    .find(|(k, _)| k == key)
-                {
-                    let rem = (*rem).max(0.0);
-                    if (timer.remaining - rem).abs() > 1e-5 {
-                        timer.remaining = rem;
-                        updated += 1;
-                    }
-                    let ready = timer.unlocked && rem <= 0.0;
-                    if timer.ready != ready {
-                        timer.ready = ready;
-                        updated += 1;
-                    }
-                }
-            }
         }
         // Roster is_alive / color from shadow slots (dense host id ↔ PlayerId residual).
         for pi in &mut self.players {

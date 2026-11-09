@@ -291,27 +291,6 @@ pub(crate) fn split_superweapon_power_key(power_key: &str, local_player_id: u32)
     (local_player_id, power_key)
 }
 
-fn object_public_timer_remaining(
-    obj: &crate::game_logic::Object,
-    power: &crate::command_system::SpecialPowerType,
-) -> f32 {
-    obj.special_power_cooldowns
-        .get(power)
-        .copied()
-        .unwrap_or(obj.special_power_cooldown_remaining)
-        .max(0.0)
-}
-
-/// C++ `SpecialPowerModule::isReady` plus HUD bold/flash: remaining 0 is not
-/// ready when the source is disabled or pauseCountdown is held.
-fn object_public_timer_ready(
-    obj: &crate::game_logic::Object,
-    power: &crate::command_system::SpecialPowerType,
-    remaining: f32,
-) -> bool {
-    remaining <= 0.0 && !obj.is_disabled() && !obj.is_special_power_countdown_paused(power)
-}
-
 impl PresentationFrame {
     /// Standalone compatibility snapshot facade. Native Engine publication uses
     /// the checked receiving entrypoints in `camera_fade` instead.
@@ -1243,16 +1222,14 @@ impl PresentationFrame {
         let local_skill_points = local.map(|p| p.skill_points).unwrap_or(0);
         let local_science_purchase_points = local.map(|p| p.science_purchase_points).unwrap_or(0);
         let local_rank_progress_percent = {
-            use crate::game_logic::host_rank_ui_residual::{
-                RankSkillStateResidual, rank_level_down_threshold_residual,
-                rank_level_up_threshold_residual, rank_progress_percent_residual,
-            };
+            use crate::game_logic::host_rank_ui_residual::{RankSkillStateResidual, rank_progress_percent_residual};
+            let ranks = logic.world_services.common().ini.rank.read();
             let state = RankSkillStateResidual {
                 rank_level: local_rank_level,
                 skill_points: local_skill_points,
                 science_purchase_points: local_science_purchase_points,
-                level_up: rank_level_up_threshold_residual(local_rank_level),
-                level_down: rank_level_down_threshold_residual(local_rank_level),
+                level_up: local_rank_level.checked_add(1).and_then(|level| i32::try_from(level).ok()).and_then(|level| ranks.get_rank_info(level)).map(|r| r.skill_points_needed).unwrap_or(i32::MAX),
+                level_down: i32::try_from(local_rank_level).ok().and_then(|level| ranks.get_rank_info(level)).map(|r| r.skill_points_needed).unwrap_or(0),
             };
             rank_progress_percent_residual(&state)
         };
@@ -1295,29 +1272,6 @@ impl PresentationFrame {
         let mut superweapon_timers: Vec<PresentationSuperweaponTimer> = Vec::new();
         if logic.peek_script_superweapon_display_enabled() {
             let hidden_objects = logic.peek_script_superweapon_hidden_objects();
-            use crate::command_system::SpecialPowerType as P;
-            use crate::game_logic::host_special_power_enum_residual::{
-                special_power_has_public_timer, special_power_is_structure_bound_public_timer,
-                special_power_public_timer_display_name, special_power_public_timer_icon,
-                special_power_reload_seconds, special_power_required_science,
-                special_power_uses_shared_synced_timer,
-            };
-            const PUBLIC_POWERS: &[P] = &[
-                P::ParticleCannon,
-                P::NuclearMissile,
-                P::ScudStorm,
-                P::CarpetBomb,
-                P::CruiseMissile,
-                P::NapalmStrike,
-                P::BlackMarketNuke,
-                P::CrateDrop,
-                P::TerrorCell,
-                P::SuperweaponParticleCannon,
-                P::LaserCannon,
-                P::NukeNeutronMissile,
-                P::SuperweaponNeutronMissile,
-                P::BaikonurRocket,
-            ];
             let mut player_ids: Vec<u32> = logic.get_players().keys().copied().collect();
             player_ids.sort_unstable();
             for pid in player_ids {
@@ -1342,132 +1296,43 @@ impl PresentationFrame {
                             .template
                             .special_power_modules
                             .iter()
-                            .filter(|module| module.public_timer)
+                            .filter(|module| module.public_timer
+                                && obj.authored_public_timer_registered.contains(&module.source_index))
                             .map(move |module| (obj, module))
                     })
                     .collect();
-                let mut seen = std::collections::HashSet::new();
-                for power in PUBLIC_POWERS {
-                    if !special_power_has_public_timer(power) {
+                let mut shared_seen = std::collections::HashSet::new();
+                for (obj, module) in owned_structure_modules {
+                    if obj.authored_public_timer_hidden_by_science.contains(&module.source_index) {
                         continue;
                     }
-                    let template = format!("{:?}", power);
-                    if !seen.insert(template.clone()) {
+                    let template_key = module.special_power_template.to_ascii_lowercase();
+                    if module.shared_n_sync && !shared_seen.insert(template_key.clone()) {
                         continue;
                     }
-                    let structure_bound = special_power_is_structure_bound_public_timer(power);
-                    let matching_modules: Vec<_> = owned_structure_modules
-                        .iter()
-                        .copied()
-                        .filter(|(_, module)| {
-                            module
-                                .command_power
-                                .as_ref()
-                                .is_some_and(|candidate| candidate == power)
-                        })
-                        .collect();
-                    // C++ registers public timers from a living structure's
-                    // SpecialPowerModule, never from an unlocked science alone.
-                    if matching_modules.is_empty() {
-                        continue;
-                    }
-                    let science_ok = if structure_bound {
-                        matching_modules.iter().any(|(_, module)| {
-                            module
-                                .required_science
-                                .as_deref()
-                                .map(|required| p.has_unlocked_science(required))
-                                .unwrap_or(true)
-                        })
+                    let state = obj.authored_special_power_timers.get(&module.source_index).copied().unwrap_or_default();
+                    let remaining = if module.shared_n_sync {
+                        p.authored_special_power_timers.get(&template_key).copied().unwrap_or(0.0)
                     } else {
-                        match special_power_required_science(power) {
-                            Some(req) => p.has_unlocked_science(req),
-                            None => true,
-                        }
+                        state.0
                     };
-                    let unlocked = if structure_bound {
-                        science_ok && !matching_modules.is_empty()
-                    } else {
-                        science_ok
-                    };
-                    if !unlocked {
-                        continue;
-                    }
-                    let shared_n_sync = matching_modules
-                        .iter()
-                        .any(|(_, module)| module.shared_n_sync)
-                        || special_power_uses_shared_synced_timer(power);
-                    if shared_n_sync {
-                        // C++ SpecialPowerModule.cpp:756-765 + InGameUI.cpp:3684 —
-                        // one row per player+template from the player ready frame.
-                        let module = matching_modules.first().map(|(_, module)| *module);
-                        let remaining = p.shared_special_power_remaining(power);
-                        let ready = match matching_modules.first() {
-                            Some((obj, _)) => object_public_timer_ready(obj, power, remaining),
-                            None => remaining <= 0.0,
-                        };
-                        superweapon_timers.push(PresentationSuperweaponTimer {
-                            name: public_timer_row_name(
-                                special_power_public_timer_display_name(power),
-                                is_local,
-                                rel,
-                                p.color_rgb,
-                            ),
-                            template_name: module
-                                .map(|module| module.special_power_template.clone())
-                                .unwrap_or_else(|| template.clone()),
-                            icon: special_power_public_timer_icon(power).to_string(),
-                            recharge_time: module
-                                .map(|module| (module.reload_time_frames as f32 / 30.0).max(0.0))
-                                .unwrap_or_else(|| {
-                                    special_power_reload_seconds(power).unwrap_or(0.0).max(0.0)
-                                }),
-                            remaining,
-                            unlocked,
-                            ready,
-                            power_key: public_timer_power_key(power, pid, local_player_id),
-                        });
-                    } else if structure_bound {
-                        // C++ one SuperweaponInfo per object; no min() merge.
-                        for (obj, module) in matching_modules {
-                            let remaining = object_public_timer_remaining(obj, power);
-                            let ready = object_public_timer_ready(obj, power, remaining);
-                            superweapon_timers.push(PresentationSuperweaponTimer {
-                                name: public_timer_row_name(
-                                    special_power_public_timer_display_name(power),
-                                    is_local,
-                                    rel,
-                                    p.color_rgb,
-                                ),
-                                template_name: module.special_power_template.clone(),
-                                icon: special_power_public_timer_icon(power).to_string(),
-                                recharge_time: (module.reload_time_frames as f32 / 30.0).max(0.0),
-                                remaining,
-                                unlocked,
-                                ready,
-                                power_key: public_timer_power_key(power, pid, local_player_id),
-                            });
-                        }
-                    } else {
-                        let remaining = p.shared_special_power_remaining(power);
-                        superweapon_timers.push(PresentationSuperweaponTimer {
-                            name: public_timer_row_name(
-                                special_power_public_timer_display_name(power),
-                                is_local,
-                                rel,
-                                p.color_rgb,
-                            ),
-                            template_name: template.clone(),
-                            icon: special_power_public_timer_icon(power).to_string(),
-                            recharge_time: special_power_reload_seconds(power)
-                                .unwrap_or(0.0)
-                                .max(0.0),
-                            remaining,
-                            unlocked,
-                            ready: remaining <= 0.0,
-                            power_key: public_timer_power_key(power, pid, local_player_id),
-                        });
-                    }
+                    let power = module.command_power.as_ref();
+                    let display = format!("GUI:{}", module.special_power_template);
+                    superweapon_timers.push(PresentationSuperweaponTimer {
+                        name: public_timer_row_name(&display, is_local, rel, p.color_rgb),
+                        template_name: module.special_power_template.clone(),
+                        icon: logic.receiving_module_content.as_ref()
+                            .and_then(|content| content.admitted_template(&obj.template_name))
+                            .map(|template| template.button_image_name().to_owned())
+                            .unwrap_or_default(),
+                        recharge_time: module.reload_time_frames as f32 / 30.0,
+                        remaining,
+                        unlocked: true,
+                        // SharedNSync isReady returns the player's frame before
+                        // inspecting the module's local pause count.
+                        ready: remaining <= 0.0 && (module.shared_n_sync || (state.1 == 0 && !obj.is_disabled())),
+                        power_key: power.map(|power| public_timer_power_key(power, pid, local_player_id)).unwrap_or_default(),
+                    });
                 }
             }
             superweapon_timers.sort_by(|a, b| {
@@ -2661,6 +2526,42 @@ mod sw_hud_tests {
         }
     }
 
+    #[test]
+    fn science_grant_registers_paused_shared_timer_only_once() {
+        fn world() -> (GameLogic, crate::game_logic::ObjectId) {
+            let mut world = GameLogic::new();
+            world.add_player(Player::new(0, Team::USA, "Owner", true));
+            let mut template = ThingTemplate::new("ScienceTimerStructure");
+            template.add_kind_of(KindOf::Structure).set_health(4000.0);
+            let mut module = sw_module("ScienceTimer", SpecialPowerType::ScudStorm, true);
+            module.required_science = Some("SCIENCE_TestTimer".into());
+            module.starts_paused = true;
+            template.special_power_modules.push(module);
+            world.templates.insert(template.name.clone(), template);
+            let id = world.create_object_for_player("ScienceTimerStructure", 0, glam::Vec3::ZERO).unwrap();
+            (world, id)
+        }
+        let (mut first, id) = world();
+        let (mut second, peer_id) = world();
+        assert_eq!(id, peer_id);
+        assert!(PresentationFrame::build_from_logic(&mut first, 0).superweapon_timers().is_empty());
+        assert!(first.unlock_team_science(Team::USA, "SCIENCE_TestTimer"));
+        assert_eq!(first.host_object(id).unwrap().authored_special_power_timers[&0].1, 2);
+        let frame = PresentationFrame::build_from_logic(&mut first, 0);
+        assert!(frame.superweapon_timers().iter().any(|row| row.template_name == "ScienceTimer" && row.ready));
+        first.script_pause_special_power_countdown(id, &SpecialPowerType::ScudStorm, false);
+        first.script_pause_special_power_countdown(id, &SpecialPowerType::ScudStorm, false);
+        assert!(first.consume_special_power_charge_for(id, &SpecialPowerType::ScudStorm));
+        first.script_pause_special_power_countdown(id, &SpecialPowerType::ScudStorm, true);
+        assert!(!first.unlock_team_science(Team::USA, "SCIENCE_TestTimer"));
+        assert!(first.script_add_special_power_countdown(id, &SpecialPowerType::ScudStorm, 10));
+        assert_eq!(first.host_object(id).unwrap().special_power_countdown_seconds(&SpecialPowerType::ScudStorm), 310.0);
+        assert_eq!(first.host_object(id).unwrap().authored_special_power_timers[&0].1, 1);
+        let frame = PresentationFrame::build_from_logic(&mut first, 0);
+        assert_eq!(frame.superweapon_timers().iter().find(|row| row.template_name == "ScienceTimer").unwrap().remaining, 300.0);
+        assert!(PresentationFrame::build_from_logic(&mut second, 0).superweapon_timers().is_empty());
+    }
+
     fn spawn_sw(
         logic: &mut GameLogic,
         name: &str,
@@ -2673,8 +2574,15 @@ mod sw_hud_tests {
         tpl.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::FSSuperweapon)
             .set_health(4000.0);
+        let generated_name;
+        let template_name = if shared {
+            "SuperweaponSharedParticle"
+        } else {
+            generated_name = format!("Superweapon{name}");
+            &generated_name
+        };
         tpl.special_power_modules.push(sw_module(
-            &format!("Superweapon{name}"),
+            template_name,
             power.clone(),
             shared,
         ));
@@ -2685,7 +2593,8 @@ mod sw_hud_tests {
         if let Some(o) = logic.host_object_mut(id) {
             o.status.under_construction = false;
             o.construction_percent = 1.0;
-            o.special_power_cooldowns.insert(power, object_remaining);
+            o.authored_special_power_timers.entry(0).or_default().0 = object_remaining;
+            o.authored_public_timer_registered.insert(0);
             o.special_power_cooldown_remaining = object_remaining;
             o.special_power_ready = object_remaining <= 0.0;
         }
@@ -2729,7 +2638,7 @@ mod sw_hud_tests {
         let local_row = frame
             .superweapon_timers
             .iter()
-            .find(|t| t.name.contains("Particle"))
+            .find(|t| t.template_name == "SuperweaponLocalPuc")
             .expect("local PUC row");
         assert!(
             !local_row.name.contains("Enemy"),
@@ -2768,8 +2677,7 @@ mod sw_hud_tests {
         let mut logic = GameLogic::new();
         let mut p = Player::new(0, Team::USA, "USA", true);
         p.apply_faction_intrinsic_sciences();
-        p.shared_special_power_cooldowns
-            .insert(SpecialPowerType::ParticleCannon, 45.0);
+        p.authored_special_power_timers.insert("superweaponsharedparticle".into(), 45.0);
         logic.add_player(p);
 
         spawn_sw(
@@ -2793,7 +2701,7 @@ mod sw_hud_tests {
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
-            .filter(|t| t.name.contains("Particle"))
+            .filter(|t| t.template_name == "SuperweaponSharedParticle")
             .collect();
         assert_eq!(
             rows.len(),
@@ -2835,7 +2743,7 @@ mod sw_hud_tests {
         let mut rem: Vec<f32> = frame
             .superweapon_timers
             .iter()
-            .filter(|t| t.name.contains("Particle"))
+            .filter(|t| t.template_name.starts_with("SuperweaponPuc"))
             .map(|t| t.remaining)
             .collect();
         rem.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -2889,7 +2797,7 @@ mod sw_hud_tests {
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
-            .filter(|t| t.name.contains("Particle"))
+            .filter(|t| t.template_name.starts_with("SuperweaponPuc"))
             .collect();
         assert_eq!(
             rows.len(),
@@ -2935,7 +2843,7 @@ mod sw_hud_tests {
         let row = frame
             .superweapon_timers
             .iter()
-            .find(|t| t.name.contains("Particle"))
+            .find(|t| t.template_name == "SuperweaponPucBrownout")
             .expect("row");
         assert!(row.remaining <= 0.0);
         assert!(!row.ready, "brownout ready PUC is 0:00 not bold");

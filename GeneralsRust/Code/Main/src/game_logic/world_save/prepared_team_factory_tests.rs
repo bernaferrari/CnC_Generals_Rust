@@ -192,7 +192,7 @@ fn prepared_authored_default_retains_configuration_and_callback_order() {
             }
             // validateSides repairs only the default singleton flag; it must not
             // replace this authored definition with a new inert default.
-            let prepared = world.sync_legacy_sides_list_from_dicts(&[side], &definitions, &[], &[]);
+            let prepared = world.sync_legacy_sides_list_from_dicts(&[side], &definitions, &[], &[], None);
             assert_eq!(
                 prepared[0].get_ascii_string(key_team_name()),
                 "teamMapOwner"

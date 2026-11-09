@@ -1079,6 +1079,9 @@ pub fn dispatch_translated_window_input_for_owner(
     request: game_engine::common::message_stream::WindowInputDispatch,
     context: &mut super::ControlBarInputContext<'_>,
 ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult> {
+    if matches!(request, game_engine::common::message_stream::WindowInputDispatch::RankScience(_)) {
+        return None;
+    }
     if let game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen { x, y } =
         request
     {
@@ -1110,6 +1113,7 @@ pub fn dispatch_translated_window_input_for_owner(
     );
     let game_ending = context.game_ending;
     let result = owner.try_with_manager(|manager| match request {
+        game_engine::common::message_stream::WindowInputDispatch::RankScience(_) => unreachable!(),
         game_engine::common::message_stream::WindowInputDispatch::OpaqueWindowAtScreen {
             ..
         }

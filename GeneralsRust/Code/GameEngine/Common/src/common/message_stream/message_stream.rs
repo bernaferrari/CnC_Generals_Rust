@@ -171,9 +171,29 @@ pub enum CameraInputAction {
     SetLocation(CameraLocation),
 }
 
+/// Rank/science operations that must run on the world receiving this input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceivingRankScienceAction {
+    AddPurchasePoint,
+    GrantAllSciences,
+    GiveRank,
+    TakeRank,
+    /// An authored script's absolute rank target.
+    SetRank(u32),
+}
+/// Immediate presentation callbacks from the receiving native player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceivingRankScienceUi {
+    ScienceAdded,
+    RankChanged { purchase_points: i32 },
+    PurchasePointsChanged { purchase_points: i32 },
+}
+
+
 /// One native window input operation requested by the WindowTranslator.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowInputDispatch {
+    RankScience(ReceivingRankScienceAction),
     Camera(CameraInputAction),
     OpaqueWindowAtScreen {
         x: i32,
@@ -197,6 +217,7 @@ pub enum WindowInputDispatch {
 /// Result returned by the receiving WindowManager for one input operation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowInputDispatchResult {
+    RankScienceAccepted,
     Camera(CameraInputObservation),
     OpaqueWindow(bool),
     Display(bool),
@@ -239,6 +260,8 @@ pub struct TranslatorClientObservation {
     pub logic_frame: u32,
     pub game_mode: i32,
     pub shell_active: bool,
+    /// Hosted Main uses the supplied mode, not the active Core world.
+    pub native_hosted: bool,
     /// Session lighting values supplied by the receiving client owner.
     /// Integer encoding is the Common INI TimeOfDay discriminant.
     pub time_of_day: i32,
@@ -314,6 +337,7 @@ pub trait GameMessageTranslator: Send + Sync {
         drawable_owner: Option<&mut dyn std::any::Any>,
         eva: Option<&mut dyn ReceivingEvaFeedback>,
         _world: Option<&dyn std::any::Any>,
+        _command_map: Option<&dyn std::any::Any>,
     ) -> GameMessageDisposition {
         self.translate_game_message_with_receiving_eva(
             msg, client, dispatch, emitted, pick_view, client_ui, drawable_owner, eva,
@@ -612,6 +636,7 @@ impl MessageStream {
             pick_view,
             None,
             None,
+            None,
         )
     }
 
@@ -626,6 +651,7 @@ impl MessageStream {
         pick_view: Option<&TranslatorPickObjectView>,
         mut eva: Option<&mut dyn ReceivingEvaFeedback>,
         world: Option<&dyn std::any::Any>,
+        command_map: Option<&dyn std::any::Any>,
     ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
         // A missing standalone camera is a configuration error before any
         // translator can mutate its UI or consume input. Native-hosted clients
@@ -690,6 +716,7 @@ impl MessageStream {
                         eva.as_mut()
                             .map(|receiver| &mut **receiver as &mut dyn ReceivingEvaFeedback),
                         world,
+                        command_map,
                     ),
                     Err(e) => {
                         error!("Failed to acquire translator lock: {}", e);

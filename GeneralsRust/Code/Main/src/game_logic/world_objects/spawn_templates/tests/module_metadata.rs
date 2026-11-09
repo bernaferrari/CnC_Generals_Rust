@@ -474,13 +474,8 @@ End
         "the live paired spoof retains its original inherited zero"
     );
     use crate::command_system::SpecialPowerType as P;
-    assert!(
-        logic
-            .host_object(particle_id)
-            .expect("particle object")
-            .special_power_cooldowns
-            .contains_key(&P::ParticleCannon)
-    );
+    assert!(logic.host_object(particle_id).expect("particle object")
+        .special_power_countdown_seconds(&P::ParticleCannon) > 0.0);
     assert!(
         logic
             .host_object(spoof_id)
@@ -495,11 +490,7 @@ End
     ));
 
     let particle_object = logic.host_object_mut(particle_id).expect("particle object");
-    particle_object
-        .special_power_cooldowns
-        .remove(&P::ParticleCannon);
-    particle_object.special_power_cooldown_remaining = 0.0;
-    particle_object.refresh_special_power_aggregate_cooldown();
+    particle_object.set_special_power_ready_seconds(&P::ParticleCannon, 0.0);
     assert!(logic.is_special_power_ready_for(particle_id, &P::ParticleCannon));
     assert!(!logic.is_special_power_ready_for(spoof_id, &P::ParticleCannon));
     let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 1);

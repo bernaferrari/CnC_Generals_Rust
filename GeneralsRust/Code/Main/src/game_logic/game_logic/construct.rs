@@ -1027,6 +1027,7 @@ impl GameLogic {
         self.set_rank_level_limit(
             crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
         );
+        self.world_services.common().ini.rank.write().reset();
         self.rank_points_to_add_at_game_start = 0;
         self.buildable_status_overrides.clear();
         self.control_bar_overrides.clear();
