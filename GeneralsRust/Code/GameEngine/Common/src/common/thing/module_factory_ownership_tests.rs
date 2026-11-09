@@ -465,6 +465,8 @@ fn factory_post_load_preserves_aliased_registered_data_identity_and_payload() {
 #[test]
 fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
     use crate::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use crate::common::ascii_string::AsciiString;
+    use crate::common::thing::thing_template::ThingTemplate;
     use std::io::Cursor;
 
     fn bytes(first: u32, second: u32) -> Vec<u8> {
@@ -480,13 +482,42 @@ fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
 
     let mut first = post_load_error_factory();
     let mut second = post_load_error_factory();
-    let first_data = [new_post_load_error_data(&mut first), new_post_load_error_data(&mut first)];
-    let second_data = [new_post_load_error_data(&mut second), new_post_load_error_data(&mut second)];
+    for factory in [&mut first, &mut second] {
+        factory.add_module_internal(
+            Some(create_module),
+            Some(create_post_load_error_data),
+            ModuleType::Draw,
+            "SnapshotDraw",
+            ModuleInterfaceType::DRAW,
+        );
+    }
+    let mut first_template = ThingTemplate::new();
+    let mut second_template = ThingTemplate::new();
+    for (factory, template) in [
+        (&mut first, &mut first_template),
+        (&mut second, &mut second_template),
+    ] {
+        for tag in ["SnapshotFirst", "SnapshotSecond"] {
+            let data = factory
+                .new_module_data_from_ini(None, "SnapshotDraw", ModuleType::Draw, tag)
+                .unwrap();
+            template.add_draw_module_info(
+                AsciiString::from("SnapshotDraw"),
+                AsciiString::from(tag),
+                data,
+                ModuleInterfaceType::DRAW,
+            );
+        }
+    }
+    let first_inherited = first_template.clone();
+    let second_inherited = second_template.clone();
+    let first_data = first_template.get_draw_module_info();
+    let second_data = second_template.get_draw_module_info();
     let first_module = first.new_module(
-        Arc::new(Owner), "PostLoadErrorProbe", Arc::clone(&first_data[0]), ModuleType::Behavior,
+        Arc::new(Owner), "SnapshotDraw", Arc::clone(first_data.get_nth_data(0).unwrap()), ModuleType::Draw,
     ).unwrap();
     let second_module = second.new_module(
-        Arc::new(Owner), "PostLoadErrorProbe", Arc::clone(&second_data[0]), ModuleType::Behavior,
+        Arc::new(Owner), "SnapshotDraw", Arc::clone(second_data.get_nth_data(0).unwrap()), ModuleType::Draw,
     ).unwrap();
 
     for round in 0..3 {
@@ -494,14 +525,21 @@ fn factory_xfer_preserves_order_identity_and_two_world_isolation() {
         let second_values = (30 + round, 40 + round);
         first.xfer(&mut XferLoad::new(Cursor::new(bytes(first_values.0, first_values.1)), 1)).unwrap();
         assert_eq!(payload(first_module.get_module_data()), first_values.0);
-        assert_eq!(payload(first_data[1].as_ref()), first_values.1);
+        assert_eq!(payload(first_data.get_nth_data(1).unwrap().as_ref()), first_values.1);
         assert_eq!(payload(second_module.get_module_data()), if round == 0 { 17 } else { second_values.0 - 1 });
         second.xfer(&mut XferLoad::new(Cursor::new(bytes(second_values.0, second_values.1)), 1)).unwrap();
-        assert_eq!(payload(second_module.get_module_data()), second_values.0);
-        assert_eq!(payload(second_data[1].as_ref()), second_values.1);
+        assert_eq!(payload(second_data.get_nth_data(1).unwrap().as_ref()), second_values.1);
         assert_eq!(payload(first_module.get_module_data()), first_values.0);
-        assert!(std::ptr::eq(first_module.get_module_data(), first_data[0].as_ref()));
-        assert!(std::ptr::eq(second_module.get_module_data(), second_data[0].as_ref()));
+        for (module, template, inherited, expected) in [
+            (&first_module, &first_template, &first_inherited, first_values.0),
+            (&second_module, &second_template, &second_inherited, second_values.0),
+        ] {
+            let original = template.get_draw_module_info().get_nth_data(0).unwrap();
+            let shared = inherited.get_draw_module_info().get_nth_data(0).unwrap();
+            assert!(Arc::ptr_eq(original, shared));
+            assert!(std::ptr::eq(module.get_module_data(), shared.as_ref()));
+            assert_eq!(payload(shared.as_ref()), expected);
+        }
 
         for (factory, expected) in [(&mut first, first_values), (&mut second, second_values)] {
             let mut saved = Vec::new();
