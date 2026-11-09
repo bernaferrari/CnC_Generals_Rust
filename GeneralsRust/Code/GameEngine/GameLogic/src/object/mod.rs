@@ -2259,6 +2259,8 @@ pub struct Object {
     /// World roster retained at admission; expired owners never fall back to
     /// an unrelated active world's same-index player.
     owner_roster: Option<Weak<RwLock<crate::player::PlayerList>>>,
+    /// World cave tracker supplied at construction, borrowed for create hooks.
+    owner_cave: Option<Weak<Mutex<crate::system::cave_system::CaveSystem>>>,
     original_team_name: AsciiString,
     indicator_color: Color,
 

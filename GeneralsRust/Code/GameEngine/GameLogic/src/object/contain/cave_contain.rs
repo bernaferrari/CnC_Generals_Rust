@@ -1069,6 +1069,13 @@ impl ContainModuleInterface for CaveContain {
         Some(self.on_create(&data).and_then(|()| self.on_build_complete_in(system)))
     }
 
+    fn on_build_complete_with_cave(
+        &mut self,
+        system: &mut CaveSystem,
+    ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        Some(self.on_build_complete_in(system))
+    }
+
     fn on_create(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let data = self.module_data.clone();
         CaveContain::on_create(self, &data).map_err(|e| e.into())

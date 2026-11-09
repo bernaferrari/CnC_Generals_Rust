@@ -97,10 +97,11 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
 
         // Exercise the same owner propagation through actual native object
         // assembly, not only through the module constructor.
+        let cave_mask = ModuleInterfaceType(ModuleInterfaceType::CONTAIN.0 | ModuleInterfaceType::CREATE.0);
         let mut catalog = ModuleFactory::new();
         catalog.add_module_internal(
             Some(cave_contain_module_factory), None, ModuleType::Behavior,
-            "CaveContain", ModuleInterfaceType::CONTAIN,
+            "CaveContain", cave_mask,
         );
         let mut native_data = CaveContainModuleData::default();
         native_data.cave_index_data = 5;
@@ -110,7 +111,7 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
                 name: "CaveContain".into(),
                 module_tag: "OwnedCave".into(),
                 data: Arc::new(ContainModuleDataAdapter::new(native_data)),
-                interface_mask: ModuleInterfaceType::CONTAIN,
+                interface_mask: cave_mask,
             }],
         });
         let bodies = Arc::new(crate::object::body::active_body::BodyDefinitionCatalog::new(
@@ -119,11 +120,15 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
         ).unwrap());
         let mut scheduler = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(&receiving));
         let mut objects = crate::object::object_factory::ObjectFactory::new();
-        objects.prepare_object_owned(
+        let id = objects.prepare_object_owned(
             &mut scheduler, template, Coord3D::ZERO, None,
             crate::object::object_factory::ObjectCreationFlags::NO_AI,
             &mut |_name: &str| Ok(None), bodies, &catalog,
         ).expect("owned cave assembly");
+        let object = objects.get_object(id).unwrap().get_base_object().unwrap();
+        object.write().unwrap().on_build_complete();
+        let tracker = receiving_cave.lock().unwrap().get_tunnel_tracker_for_cave_index(5).unwrap();
+        assert_eq!(tracker.read().unwrap().get_tunnel_count(), 1);
         assert_eq!(receiving_cave.lock().unwrap().registered_indices(), vec![4, 5]);
         assert!(foreign_cave.lock().unwrap().registered_indices().is_empty());
     });

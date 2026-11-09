@@ -201,6 +201,7 @@ impl Object {
             if publish { None } else { team.clone() },
         );
         obj.owner_roster = owner_roster.as_ref().map(Arc::downgrade);
+        obj.owner_cave = cave_system.as_ref().map(Arc::downgrade);
         obj.ambient_lifecycle_admitted = publish;
         if publish {
             obj.set_team(team)?;
@@ -384,6 +385,7 @@ impl Object {
             team_id,
             team_pin: team,
             owner_roster: None,
+            owner_cave: None,
             original_team_name: AsciiString::new(),
             indicator_color: Color::default(),
 
@@ -543,8 +545,27 @@ impl Object {
     fn run_create_hooks(&mut self, build_complete: bool) {
         let modules = self.modules_with_interface(ModuleInterfaceType::CREATE);
         let object_id = self.id;
+        let cave_bound = self.owner_cave.is_some();
+        let cave_system = self.owner_cave.as_ref().and_then(Weak::upgrade);
         for module in modules {
+            let is_cave = module.name.as_str().eq_ignore_ascii_case("CaveContain");
             module.with_module(|module| {
+                if build_complete && is_cave && cave_bound {
+                    if let Some(contain) = crate::contain_module_overrides::contain_handle_for_module(module) {
+                        let result: Result<(), String> = (|| {
+                            let system = cave_system.as_ref().ok_or_else(|| "cave owner expired".to_string())?;
+                            let mut contain = contain.lock().map_err(|_| "cave contain poisoned".to_string())?;
+                            let mut system = system.lock().map_err(|_| "cave system poisoned".to_string())?;
+                            contain.on_build_complete_with_cave(&mut system)
+                                .ok_or_else(|| "cave build callback absent".to_string())?
+                                .map_err(|error| error.to_string())
+                        })();
+                        if let Err(error) = result {
+                            log::warn!("CaveContain on_build_complete failed for object {}: {}", object_id, error);
+                        }
+                        return;
+                    }
+                }
                 if let Some(create) = module.get_create_interface() {
                     if build_complete {
                         if create.should_do_on_build_complete() {

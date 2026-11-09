@@ -264,6 +264,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         None
     }
 
+    /// Build-complete callback with the receiving cave tracker borrowed.
+    fn on_build_complete_with_cave(
+        &mut self,
+        _caves: &mut crate::system::cave_system::CaveSystem,
+    ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        None
+    }
+
     /// Containment reaction to owner damage.
     fn on_damage(
         &mut self,
