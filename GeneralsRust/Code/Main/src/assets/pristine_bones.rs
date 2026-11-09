@@ -257,6 +257,37 @@ mod tests {
     use crate::assets::{W3dHierarchy, W3dHlod, W3dHlodLod, W3dPivot};
 
     #[test]
+    fn retail_patriot_muzzle_loads_from_archive_on_cold_selected_draw_query() {
+        let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../windows_game/Command & Conquer Generals/W3D.big");
+        let mut manager = crate::assets::AssetManager::new().unwrap();
+        manager.archive_file_system_mut().set_local_search_roots(Vec::new());
+        futures::executor::block_on(manager.archive_file_system_mut().load_big_file(archive))
+            .expect("retail base W3D archive");
+        assert!(manager.cached_w3d_render_object_prototype("ABPatriot").is_none());
+        assert!(manager.get_cached_model_ref("ABPatriot").is_none());
+
+        let assets = std::sync::Mutex::new(manager);
+        // FactionBuilding.ini's pristine Patriot Draw selects ABPatriot and
+        // names WeaponA as its PRIMARY launch-bone base.
+        let draw = AuthoredDrawModel {
+            model_key: "ABPatriot".into(),
+            ..Default::default()
+        };
+        let bones = assets
+            .pristine_bones_for_selected_draw(&draw, 1.0, "WeaponA", 1, 1)
+            .expect("retail muzzle query must load its own source");
+        assert_eq!(bones.len(), 1);
+        // Sum of the retail ROOTTRANSFORM/CHASSIS/TURRET01/TURRETEL/
+        // WEAPONA01 translations, in source C++ Z-up coordinates.
+        let expected = glam::Vec3::new(0.193_172, 1.700_902, 14.466_129);
+        assert!((bones[0].w_axis.truncate() - expected).length() < 0.001);
+        let manager = assets.lock().unwrap();
+        assert!(manager.cached_w3d_render_object_prototype("ABPatriot").is_some());
+        assert!(manager.get_cached_model_ref("ABPatriot").is_none());
+    }
+
+    #[test]
     fn selected_draw_uses_prototype_source_for_animation_without_presentation_cache() {
         let mut model = W3DModel::new("MISSILE_TEST".into());
         let pivot = |name: &str, parent_idx, translation| W3dPivot {
