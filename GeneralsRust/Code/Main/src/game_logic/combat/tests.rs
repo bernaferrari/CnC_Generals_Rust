@@ -3211,6 +3211,27 @@ pub(in crate::game_logic) mod tests {
             HostMissilePhase::Attack
         );
     }
+
+    #[test]
+    fn missile_ignition_and_lock_use_separate_update_states() {
+        use crate::game_logic::weapon_bootstrap::{
+            HostMissileFlight, HostMissilePhase, HostProjectileFlight,
+        };
+        let mut missile = Projectile::new(
+            ObjectId(100_003), Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0),
+            10.0, DamageType::Explosive, ObjectId(1), None,
+        );
+        missile.speed = 30.0;
+        missile.velocity = Vec3::X * 30.0;
+        missile.flight = Some(HostProjectileFlight::Missile(HostMissileFlight::default()));
+        missile.bind_authored_flight(Vec3::ZERO, missile.target_position, 30.0, None);
+
+        missile.update(1.0 / 30.0, true);
+        assert_eq!(missile.flight_runtime.missile_phase, HostMissilePhase::Attack);
+        missile.update(1.0 / 30.0, true);
+        assert_eq!(missile.flight_runtime.missile_phase, HostMissilePhase::Kill);
+        assert_eq!(missile.position, Vec3::new(2.0, 0.0, 0.0));
+    }
 }
 
     #[test]
