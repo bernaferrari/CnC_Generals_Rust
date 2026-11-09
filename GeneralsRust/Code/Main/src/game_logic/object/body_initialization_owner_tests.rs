@@ -22,7 +22,7 @@ fn template(name: &str, initial: Option<&str>, max: f32) -> ThingTemplate {
     )
 }
 
-fn receiving_source(ini: String) -> Result<GameLogic, String> {
+fn receiving_source(ini: String) -> Result<GameLogic, game_engine::common::thing::module_factory::ReceivingModuleError> {
     let content =
         crate::assets::ReceivingObjectContent::from_sources([("receiving-body.ini".into(), ini)])?;
     let mut world = GameLogic::new();
@@ -61,8 +61,13 @@ fn assert_rejected_source(ini: String, name: &str, field: &str) {
     let mut candidate = match receiving_source(ini) {
         Ok(candidate) => candidate,
         Err(error) => {
+            let mut cause = &error;
+            while let game_engine::common::thing::module_factory::ReceivingModuleError::Context(_, inner) = cause {
+                cause = inner;
+            }
             assert!(
-                error.contains("Invalid data") || error.contains(field),
+                matches!(cause, game_engine::common::thing::module_factory::ReceivingModuleError::Ini(game_engine::common::ini::INIError::InvalidData))
+                    || matches!(cause, game_engine::common::thing::module_factory::ReceivingModuleError::Message(message) if message.contains(field)),
                 "unrelated receiving failure is not numeric Body rejection: {error}"
             );
             return;

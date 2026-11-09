@@ -288,9 +288,15 @@ fn authored_absence_and_invalid_boolean_never_infer_a_provider_from_its_name() {
             )])
             .err()
             .expect("invalid authored radar boolean must be rejected");
-            assert!(
-                error.to_ascii_lowercase().contains("invalid")
-                    || error.to_ascii_lowercase().contains("bool"),
+            let mut cause = &error;
+            while let game_engine::common::thing::module_factory::ReceivingModuleError::Context(_, inner) = cause {
+                cause = inner;
+            }
+            assert_eq!(
+                *cause,
+                game_engine::common::thing::module_factory::ReceivingModuleError::Ini(
+                    game_engine::common::ini::INIError::InvalidData
+                ),
                 "{error}"
             );
             assert!(

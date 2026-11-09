@@ -401,5 +401,9 @@ fn unknown_ai_behavior_is_rejected_by_actual_receiving_module_factory() {
     )])
     .err()
     .expect("C++ ModuleFactory has no DecorationAIUpdate registration");
-    assert!(error.contains("DecorationAIUpdate"), "{error}");
+    assert!(matches!(
+        &error,
+        game_engine::common::thing::module_factory::ReceivingModuleError::Context(_, inner)
+            if matches!(inner.as_ref(), game_engine::common::thing::module_factory::ReceivingModuleError::Message(message) if message.contains("DecorationAIUpdate"))
+    ));
 }

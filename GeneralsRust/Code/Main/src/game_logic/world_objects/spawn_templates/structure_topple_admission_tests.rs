@@ -33,8 +33,16 @@ fn resident_retail_template_uses_same_definition_admission_and_does_not_fall_bac
     )])
     .err()
     .expect("the authored invalid Topple definition must be rejected");
-    assert!(
-        error.contains("StructureToppleUpdate") && error.contains("invalid-retail-topple.ini"),
+    assert!(error.to_string().contains("invalid-retail-topple.ini"), "{error}");
+    let mut cause = &error;
+    while let game_engine::common::thing::module_factory::ReceivingModuleError::Context(_, inner) = cause {
+        cause = inner;
+    }
+    assert_eq!(
+        *cause,
+        game_engine::common::thing::module_factory::ReceivingModuleError::Ini(
+            game_engine::common::ini::INIError::InvalidData
+        ),
         "{error}"
     );
     let valid_source = invalid_source.replace("DamageFXTypes = FLAME\n", "");
