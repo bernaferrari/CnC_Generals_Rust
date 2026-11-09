@@ -2998,7 +2998,9 @@ ambient proximity aura. Its separately authored missile jammer observes the
 weapon-slot shot deadline and remains owned by the firing world.
 
 Failed strict module-data parsing rolls back name keys and staged definition
-changes; a successful admission retains existing module-data identities.
+changes; a successful admission retains existing module-data identities. Native
+receiving admission preserves the original typed `INIError` as its source
+through the module factory, template loader, and asset content boundary.
 
 The save-description dialog disables its owning menu's actions while open.
 Closing or reinitializing the cached popup restores its list and action frame
