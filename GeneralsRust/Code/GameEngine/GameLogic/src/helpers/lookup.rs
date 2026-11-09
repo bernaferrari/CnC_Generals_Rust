@@ -1068,23 +1068,40 @@ fn unescape_map_string_value(value: &str) -> String {
 }
 
 impl TheGameText {
-    /// Fetch a localized string; currently returns the key as-is.
+    /// Bridge for module code that is not yet lent its world: resolves the
+    /// published world and reads its own text owners. Callers holding a
+    /// `WorldServices` use [`WorldServices::fetch_game_text`] instead.
     pub fn fetch(key: &str) -> String {
+        crate::system::engine_stores::active_services().fetch_game_text(key)
+    }
+}
+
+impl crate::system::engine_stores::WorldServices {
+    /// C++ `GameTextManager::fetch` (GameText.cpp:1235-1269) against this
+    /// world: the CSF table of its CommonServices first, then the map strings
+    /// this world admitted. Missing labels keep the label text.
+    pub fn fetch_game_text(&self, key: &str) -> String {
         let key = key.trim();
         if key.is_empty() {
             return String::new();
         }
-
-        if let Ok(overlay) = crate::system::engine_stores::active_services().map_string_overlay().read() {
-            if let Some(value) = overlay.get(key) {
-                return value.clone();
-            }
+        let lookup = key.strip_prefix("LOC:").unwrap_or(key);
+        let csf = game_engine::common::language::Language::get_localized_string_in(self.common(), key);
+        if csf != lookup && csf != key {
+            return csf;
         }
-
-        game_engine::common::language::Language::get_localized_string(key)
+        let overlay = self.map_string_overlay().read().unwrap_or_else(|e| e.into_inner());
+        overlay
+            .get(key)
+            .or_else(|| overlay.get(lookup))
+            .cloned()
+            .unwrap_or(csf)
     }
 
-    pub fn init_map_string_file(path: &str) -> Result<(), String> {
+    /// C++ `GameTextManager::initMapStringFile` (GameText.cpp:1100) for this
+    /// world's map: replaces only this world's map strings. The bytes come from
+    /// the loose file or the read-only archive file system.
+    pub fn init_map_string_file(&self, path: &str) -> Result<(), String> {
         let bytes = std::fs::read(path).or_else(|_| {
             let fs_arc = get_file_system();
             let mut fs = fs_arc
@@ -1100,17 +1117,53 @@ impl TheGameText {
             .map(|raw| String::from_utf8_lossy(&raw).into_owned())
             .map_err(|err| format!("Failed reading map string file '{}': {err}", path))?;
 
-        if let Ok(mut overlay) = crate::system::engine_stores::active_services().map_string_overlay().write() {
-            overlay.clear();
-            parse_map_string_file(&contents, &mut overlay);
-        }
-
+        let mut overlay = self.map_string_overlay().write().unwrap_or_else(|e| e.into_inner());
+        overlay.clear();
+        parse_map_string_file(&contents, &mut overlay);
         Ok(())
     }
 
-    pub fn clear_map_string_file() {
-        if let Ok(mut overlay) = crate::system::engine_stores::active_services().map_string_overlay().write() {
-            overlay.clear();
-        }
+    /// C++ `GameTextManager::reset` (GameText.cpp:395) of the map-string table for this world.
+    pub fn clear_map_string_file(&self) {
+        self.map_string_overlay().write().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
+#[cfg(test)]
+mod world_game_text_tests {
+    use crate::system::engine_stores::new_world_services;
+
+    #[test]
+    fn two_worlds_fetch_their_own_map_strings() {
+        // C++ GameLogic.cpp:2421-2424 loads map.str into the loading game's
+        // GameText. Two worlds in one process load different maps: the same
+        // label reads each world's text, CSF stays per CommonServices, and
+        // clearing one world's map text leaves the other's.
+        let directory = std::env::temp_dir().join(format!("gl_world_text_{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let a = directory.join("a.str");
+        let b = directory.join("b.str");
+        std::fs::write(&a, "MAP:Title\n\"Alpha\"\nEND\n").unwrap();
+        std::fs::write(&b, "MAP:Title\n\"Bravo\"\nEND\n").unwrap();
+        let first = new_world_services();
+        let second = new_world_services();
+        assert!(!std::sync::Arc::ptr_eq(first.common(), second.common()));
+        first.init_map_string_file(a.to_str().unwrap()).unwrap();
+        second.init_map_string_file(b.to_str().unwrap()).unwrap();
+        assert_eq!(first.fetch_game_text("MAP:Title"), "Alpha");
+        assert_eq!(second.fetch_game_text("MAP:Title"), "Bravo");
+
+        // CSF precedes map text (GameText.cpp:1235-1258), per instance.
+        first.common().system.language_strings.lock().unwrap()
+            .insert("MAP:Title".into(), "Csf Alpha".into());
+        assert_eq!(first.fetch_game_text("MAP:Title"), "Csf Alpha");
+        assert_eq!(second.fetch_game_text("MAP:Title"), "Bravo");
+
+        second.clear_map_string_file();
+        assert_eq!(second.fetch_game_text("MAP:Title"), "MAP:Title");
+        assert_eq!(first.fetch_game_text("LOC:MAP:Title"), "Csf Alpha");
+        first.common().system.language_strings.lock().unwrap().remove("MAP:Title");
+        assert_eq!(first.fetch_game_text("MAP:Title"), "Alpha");
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }

@@ -235,13 +235,21 @@ impl Language {
 
     /// Get localized string from runtime table, falling back to original key.
     pub fn get_localized_string(key: &str) -> String {
+        let services = crate::common::common_services::common_services();
+        Self::get_localized_string_in(&services, key)
+    }
+
+    /// Lookup in one explicitly borrowed instance's runtime string table.
+    pub fn get_localized_string_in(
+        services: &crate::common::common_services::CommonServices,
+        key: &str,
+    ) -> String {
         let trimmed = key.trim();
         if trimmed.is_empty() {
             return String::new();
         }
 
         let lookup = trimmed.strip_prefix("LOC:").unwrap_or(trimmed);
-        let services = crate::common::common_services::common_services();
         let table = services
             .system
             .language_strings

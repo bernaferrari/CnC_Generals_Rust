@@ -1223,7 +1223,12 @@ impl GameLogic {
     /// PARITY_NOTE: GameLogic::loadMapINI(AsciiString mapName) C++ line 2367.
     /// Loads map-specific INI overrides (map.ini, solo.ini, map.str).
     pub fn load_map_ini(&self, map_name: &str) {
-        crate::system::game_initialization::GameInitializer::load_map_ini(map_name);
+        match self.owning_world_services() {
+            Some(world) => {
+                crate::system::game_initialization::GameInitializer::load_map_ini(&world, map_name)
+            }
+            None => log::warn!("load_map_ini('{map_name}') without an owning world"),
+        }
     }
 
     // =========================================================================

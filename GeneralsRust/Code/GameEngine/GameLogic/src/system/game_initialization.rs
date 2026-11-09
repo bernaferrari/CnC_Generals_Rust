@@ -23,7 +23,6 @@ use crate::common::well_known_keys::{
     key_team_owner, key_team_production_condition,
 };
 use crate::common::{AsciiString, Color, Dict, Relationship};
-use crate::helpers::TheGameText;
 use crate::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerType as LogicPlayerType, ThePlayerList,
@@ -305,7 +304,10 @@ impl GameInitializer {
         println!("[INIT] Phase 1: Loading map from {}", map_path);
 
         // C++ parity: load map.ini/solo.ini and map.str before terrain map load.
-        Self::load_map_sidecar_resources(map_path);
+        // This legacy initializer runs for the world published around it; its
+        // map text goes to that world only.
+        let world = crate::system::engine_stores::active_services();
+        Self::load_map_sidecar_resources(&world, map_path);
 
         // Load the .map file
         game_state.map_loader.load_map(map_path)?;
@@ -434,14 +436,14 @@ impl GameInitializer {
     }
 
     /// C++ `GameLogic::loadMapINI` (GameLogic.cpp:2367).
-    pub fn load_map_ini(map_name: &str) {
+    pub fn load_map_ini(world: &crate::system::engine_stores::WorldServices, map_name: &str) {
         if map_name.is_empty() || map_name.len() < 4 {
             return;
         }
-        Self::load_map_sidecar_resources(map_name);
+        Self::load_map_sidecar_resources(world, map_name);
     }
 
-    fn load_map_sidecar_resources(map_path: &str) {
+    fn load_map_sidecar_resources(world: &crate::system::engine_stores::WorldServices, map_path: &str) {
         let map_for_sidecars = Self::resolve_sidecar_map_path(map_path);
         let Some(map_dir) = Self::map_directory_for_sidecars(&map_for_sidecars) else {
             return;
@@ -454,7 +456,9 @@ impl GameInitializer {
             format!("{map_dir}/map.str"),
             format!("{map_dir}/Map.str"),
         ]) {
-            if let Err(err) = TheGameText::init_map_string_file(&map_str_path) {
+            // C++ GameLogic.cpp:2421-2424: map.str goes into the loading
+            // world's GameText, never another world's.
+            if let Err(err) = world.init_map_string_file(&map_str_path) {
                 log::warn!(
                     "Failed to initialize map string file '{}': {}",
                     map_str_path,
