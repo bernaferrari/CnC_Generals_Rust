@@ -189,12 +189,15 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
     fn pristine_bones_for_selected_draw(
         &self, draw: &AuthoredDrawModel, scale: f32, prefix: &str, start: i32, limit: usize,
     ) -> Result<Vec<glam::Mat4>, String> {
+        if !scale.is_finite() || start < 0 {
+            return Err("invalid pristine pose source".into());
+        }
         let mut assets = self.lock().map_err(|_| "receiving pristine asset service poisoned".to_owned())?;
-        if !draw.model_key.is_empty() {
-            assets.resolve_w3d_render_object_prototype_blocking(&draw.model_key)
+        if !draw.model_key.is_empty() && !prefix.is_empty() && limit != 0 {
+            let prototype = assets.resolve_w3d_render_object_prototype_blocking(&draw.model_key)
                 .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
             if let Some(animation) = draw.animations.first() {
-                if !assets.prewarm_w3d_draw_animation_binding(&draw.model_key, &animation.name) {
+                if !assets.prewarm_w3d_prototype_animation_binding(&prototype, &animation.name) {
                     return Err(format!("pristine authored animation unavailable: {}", animation.name));
                 }
             }
@@ -209,6 +212,12 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
         start: i32,
         limit: usize,
     ) -> Result<Vec<glam::Mat4>, String> {
+        if !source.mesh_scale.is_finite() || start < 0 {
+            return Err("invalid pristine pose source".into());
+        }
+        if prefix.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
         let mut assets = self
             .lock()
             .map_err(|_| "receiving pristine asset service poisoned".to_owned())?;
@@ -218,7 +227,7 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
             if selected.model_key.is_empty() {
                 continue;
             }
-            assets
+            let prototype = assets
                 .resolve_w3d_render_object_prototype_blocking(&selected.model_key)
                 .ok_or_else(|| {
                     format!(
@@ -227,7 +236,7 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
                     )
                 })?;
             if let Some(animation) = selected.animations.first() {
-                if !assets.prewarm_w3d_draw_animation_binding(&selected.model_key, &animation.name)
+                if !assets.prewarm_w3d_prototype_animation_binding(&prototype, &animation.name)
                 {
                     return Err(format!(
                         "pristine authored animation unavailable: {}",
@@ -237,5 +246,64 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
             }
         }
         PristineBoneAssets::pristine_bones_for_draws(&*assets, source, prefix, start, limit)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::ini_parser::AuthoredDrawAnimation;
+    use crate::assets::models::test_animation::{motion, raw_animation};
+    use crate::assets::{W3dHierarchy, W3dHlod, W3dHlodLod, W3dPivot};
+
+    #[test]
+    fn selected_draw_uses_prototype_source_for_animation_without_presentation_cache() {
+        let mut model = W3DModel::new("MISSILE_TEST".into());
+        let pivot = |name: &str, parent_idx, translation| W3dPivot {
+            name: name.into(),
+            parent_idx,
+            translation,
+            euler_angles: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+        };
+        model.hierarchy = Some(W3dHierarchy {
+            name: "MISSILE_RIG".into(),
+            pivots: vec![
+                pivot("ROOT", u32::MAX, [0.0; 3]),
+                pivot("MUZZLE01", 0, [0.0; 3]),
+            ],
+            pivot_fixups: Vec::new(),
+        });
+        model.hlods.push(W3dHlod {
+            version: 0,
+            name: "MISSILE_TEST".into(),
+            hierarchy_name: "MISSILE_RIG".into(),
+            lods: vec![W3dHlodLod { max_screen_size: 1.0, subobjects: Vec::new() }],
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
+        });
+        model.animations.push(raw_animation(
+            "FIRE", "MISSILE_RIG", 2, 30,
+            vec![motion(1, 0, 0, 1, vec![0.0, 17.0])], Vec::new(),
+        ));
+        let mut manager = crate::assets::AssetManager::new().unwrap();
+        manager.admit_test_w3d_source("MISSILE_TEST", model);
+        assert!(manager.get_cached_model_ref("MISSILE_TEST").is_none());
+        let assets = std::sync::Mutex::new(manager);
+        let draw = AuthoredDrawModel {
+            model_key: "MISSILE_TEST".into(),
+            animations: vec![AuthoredDrawAnimation {
+                name: "MISSILE_RIG.FIRE".into(),
+                is_idle: false,
+                distance_covered_token: None,
+            }],
+            flags: 1 << 4,
+            ..Default::default()
+        };
+        let bones = assets.pristine_bones_for_selected_draw(&draw, 1.0, "MUZZLE", 1, 1).unwrap();
+        assert_eq!(bones.len(), 1);
+        assert!((bones[0].w_axis.x - 17.0).abs() < 0.001);
     }
 }

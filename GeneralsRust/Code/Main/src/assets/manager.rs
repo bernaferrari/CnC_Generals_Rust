@@ -347,6 +347,48 @@ impl CompanionAnimationCacheKey {
     }
 }
 
+fn prewarm_animation_for_geometry(
+    geometry_model: &W3DModel,
+    model_name: &str,
+    identity: &str,
+    model_loader: &W3DLoader,
+    archive_system: &mut ArchiveFileSystem,
+    cache: &mut HashMap<CompanionAnimationCacheKey, Option<Arc<W3dAnimation>>>,
+) -> bool {
+    if geometry_model.local_animation_binding_for_draw_identity(identity).is_some() {
+        return true;
+    }
+    let Some(cache_key) = CompanionAnimationCacheKey::for_geometry_model(geometry_model, identity)
+    else {
+        return false;
+    };
+    if let Some(cached) = cache.get(&cache_key) {
+        return cached.is_some();
+    }
+    let animation = match model_loader.load_companion_animation_sync(archive_system, identity) {
+        Ok(animation) => {
+            let animation = Arc::new(animation);
+            let binding = W3dAnimationBinding::companion(identity.trim(), Arc::clone(&animation));
+            if geometry_model.animation_binding_is_compatible(&binding) {
+                Some(animation)
+            } else {
+                warn!(
+                    "W3D Draw companion '{}' is incompatible with geometry hierarchy for '{}'",
+                    identity, model_name
+                );
+                None
+            }
+        }
+        Err(error) => {
+            warn!("W3D Draw companion prewarm failed for '{}': {}", identity, error);
+            None
+        }
+    };
+    let resolved = animation.is_some();
+    cache.insert(cache_key, animation);
+    resolved
+}
+
 /// C++ `stricmp` key for a full source prototype identity.
 ///
 /// W3D names are ASCII records. Deliberately do not trim or strip a suffix:
@@ -2008,8 +2050,8 @@ impl AssetManager {
     /// Resolve one exact C++ render-object prototype, loading the source W3D
     /// named by the portion before its first dot on a cache miss.
     ///
-    /// This method performs synchronous archive I/O and parsing. Use it during
-    /// asset prewarm/construction only; frozen render collection must use
+    /// This method performs synchronous archive I/O and parsing. Gameplay
+    /// pristine-pose queries may use it, but frozen render collection must use
     /// [`Self::cached_w3d_render_object_prototype`] and
     /// [`Self::cached_w3d_render_object_source_model`] exclusively. A file that
     /// lacks the requested complete source identity returns `None` rather than
@@ -2119,53 +2161,29 @@ impl AssetManager {
             }
         };
 
-        if geometry_model
-            .local_animation_binding_for_draw_identity(identity)
-            .is_some()
-        {
-            return true;
-        }
-
-        let Some(cache_key) =
-            CompanionAnimationCacheKey::for_geometry_model(&geometry_model, identity)
-        else {
-            // The frozen identity cannot bind this model's HTree. There is no
-            // compatible cache key and no reason to touch archive storage.
-            return false;
-        };
-
-        if let Some(cached) = self.companion_animation_cache.get(&cache_key) {
-            return cached.is_some();
-        }
-
-        let animation = match self.load_companion_animation_blocking(identity) {
-            Ok(animation) => {
-                let animation = Arc::new(animation);
-                let binding =
-                    W3dAnimationBinding::companion(identity.trim(), Arc::clone(&animation));
-                if geometry_model.animation_binding_is_compatible(&binding) {
-                    Some(animation)
-                } else {
-                    warn!(
-                        "W3D Draw companion '{}' is incompatible with geometry hierarchy for '{}'",
-                        identity, model_name
-                    );
-                    None
-                }
-            }
-            Err(error) => {
-                warn!(
-                    "W3D Draw companion prewarm failed for '{}': {}",
-                    identity, error
-                );
-                None
-            }
-        };
-        let resolved = animation.is_some();
-        self.companion_animation_cache.insert(cache_key, animation);
-        resolved
+        prewarm_animation_for_geometry(
+            &geometry_model, model_name, identity, &self.model_loader,
+            &mut self.archive_system, &mut self.companion_animation_cache,
+        )
     }
 
+    /// Bind an animation against the exact prototype's source, independently
+    /// of the presentation model cache and its possible filename aliases.
+    pub(crate) fn prewarm_w3d_prototype_animation_binding(
+        &mut self,
+        prototype: &W3dRenderObjectPrototype,
+        identity: &str,
+    ) -> bool {
+        let Some(model) = self.w3d_render_object_prototypes.source_model(prototype) else {
+            return false;
+        };
+        prewarm_animation_for_geometry(
+            model, prototype.full_name(), identity, &self.model_loader,
+            &mut self.archive_system, &mut self.companion_animation_cache,
+        )
+    }
+
+    #[cfg(test)]
     fn load_companion_animation_blocking(&mut self, identity: &str) -> Result<W3dAnimation> {
         self.model_loader
             .load_companion_animation_sync(&mut self.archive_system, identity)
