@@ -59,7 +59,7 @@ impl GameLogic {
         } else {
             self.projectile_definitions
                 .with_physics_gravity(self.physics_definitions.base.gravity)?
-        };
+        }.with_locomotors(self.locomotor_definitions.as_ref());
         self.projectile_definitions = candidate;
         Ok(())
     }
@@ -99,7 +99,7 @@ impl GameLogic {
             self.locomotor_definitions.as_ref(),
         )?;
         Self::bind_receiving_production_templates(&mut templates, &candidate)?;
-        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(projection_candidate.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.effective.gravity)?;
+        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(projection_candidate.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.effective.gravity)?.with_locomotors(self.locomotor_definitions.as_ref());
         self.receiving_module_content = Some(candidate);
         self.receiving_object_definitions = Some(projection_candidate);
         self.projectile_definitions = projectile_candidate;
@@ -229,7 +229,7 @@ impl GameLogic {
                 return Err("weapon snapshot has duplicate effective identities".into());
             }
         }
-        let profiles=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.base.gravity)?;
+        let profiles=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.base.gravity)?.with_locomotors(self.locomotor_definitions.as_ref());
         self.weapon_definition_base = Some(catalog.clone());
         self.weapon_definitions = Some(catalog);
         self.projectile_definitions = profiles;

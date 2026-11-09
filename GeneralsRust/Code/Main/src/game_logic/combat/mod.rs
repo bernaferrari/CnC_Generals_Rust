@@ -8,6 +8,8 @@ use crate::game_logic::HostObjectRead;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+mod missile_motion;
+pub(crate) use missile_motion::MissileMotion;
 
 include!("damage.rs");
 include!("projectile.rs");

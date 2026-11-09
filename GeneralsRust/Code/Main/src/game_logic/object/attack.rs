@@ -40,6 +40,123 @@ impl ShotVictim {
 }
 
 impl Object {
+    /// Freeze Weapon::calcProjectileLaunchPosition while the selected barrel,
+    /// logical Draw state and turret pose still belong to this shot.
+    fn projectile_launch_transform(
+        &self,
+        slot: u8,
+        barrel: u8,
+        assets: Option<&dyn crate::assets::pristine_bones::PristineBoneAssets>,
+    ) -> Option<glam::Mat4> {
+        if self.contained_by.is_some() && self.status.masked {
+            return Some(self.get_transform_matrix());
+        }
+        let Some(drawings) = self.get_template().receiving_draw_models_ref() else {
+            // Weapon.cpp uses an identity attachment when there is no Drawable.
+            return Some(self.get_transform_matrix());
+        };
+        let draws = drawings.object_draws(self.model_condition_bits).ok()?;
+        if draws.is_empty() {
+            return Some(self.get_transform_matrix());
+        }
+        let assets = assets?;
+        let turret = self.which_turret_for_weapon_slot(slot);
+        for draw in &draws {
+            if !draw.weapon_bone_bindings.source_fields_valid {
+                return None;
+            }
+            let binding = draw.weapon_bone_bindings.slot(slot)?;
+            let bases = [
+                binding.fire_fx_bone_base.as_deref(),
+                binding.recoil_bone_base.as_deref(),
+                binding.muzzle_flash_bone_base.as_deref(),
+                binding.launch_bone_base.as_deref(),
+            ];
+            let bone = |name: &str, index: i32| {
+                assets.pristine_bones_for_selected_draw(
+                    draw, self.drawable_instance_scale, name, index, 1,
+                ).ok().map(|bones| bones.into_iter().next())
+            };
+            let mut first = None;
+            let mut selected = None;
+            for index in 1..=i32::from(barrel) + 1 {
+                let mut found = false;
+                let mut launch = None;
+                for (kind, base) in bases.iter().enumerate() {
+                    if let Some(base) = base {
+                        let value = bone(base, index)?;
+                        found |= value.is_some();
+                        if kind == 3 { launch = value; }
+                    }
+                }
+                if !found { break; }
+                if first.is_none() { first = Some(launch); }
+                if index == i32::from(barrel) + 1 { selected = Some(launch); }
+            }
+            if first.is_none() {
+                let mut found = false;
+                let mut launch = None;
+                for (kind, base) in bases.iter().enumerate() {
+                    if let Some(base) = base {
+                        let value = bone(base, 0)?;
+                        found |= value.is_some();
+                        if kind == 3 { launch = value; }
+                    }
+                }
+                if found { first = Some(launch); }
+            }
+            let Some(launch) = selected.or(first) else { continue };
+            let mut local = launch.unwrap_or(glam::Mat4::IDENTITY);
+            if let Some(turret) = turret {
+                let info = &draw.primary_turret;
+                let (yaw_name, pitch_name, art_yaw, art_pitch, ai) = match turret {
+                    0 if info.primary_fields_valid => (
+                        info.yaw_bone.as_deref(), info.pitch_bone.as_deref(),
+                        info.yaw_art_angle_radians(), info.pitch_art_angle_radians(),
+                        &self.turret_ai,
+                    ),
+                    1 if info.alternate_fields_valid => (
+                        info.alternate_yaw_bone.as_deref(), info.alternate_pitch_bone.as_deref(),
+                        info.alternate_yaw_art_angle_radians(), info.alternate_pitch_art_angle_radians(),
+                        self.alt_turret_ai.as_ref()?,
+                    ),
+                    _ => return None,
+                };
+                let pivot = |name: Option<&str>| -> Option<Vec3> {
+                    match name {
+                        Some(name) => Some(bone(name, 0)?.map_or(Vec3::ZERO, |m| m.w_axis.truncate())),
+                        None => Some(Vec3::ZERO),
+                    }
+                };
+                let attachment = match draw.attach_to_drawable_bone.as_deref() {
+                    Some(name) => {
+                        let source = crate::assets::pristine_bones::PristineBoneSource {
+                            drawings, condition_bits: self.model_condition_bits,
+                            mesh_scale: self.drawable_instance_scale,
+                        };
+                        assets.pristine_bones_for_draws(&source, name, 0, 1).ok()?
+                            .first().map_or(Vec3::ZERO, |m| m.w_axis.truncate())
+                    }
+                    None => Vec3::ZERO,
+                };
+                let yaw = pivot(yaw_name)? + attachment;
+                let pitch = pivot(pitch_name)? + attachment;
+                local = glam::Mat4::from_rotation_y(-art_pitch)
+                    * glam::Mat4::from_rotation_z(art_yaw) * local;
+                local = glam::Mat4::from_translation(yaw)
+                    * glam::Mat4::from_rotation_z(ai.turret_angle_deg.to_radians())
+                    * glam::Mat4::from_translation(-yaw)
+                    * glam::Mat4::from_translation(pitch)
+                    * glam::Mat4::from_rotation_y(-ai.turret_pitch_deg.to_radians())
+                    * glam::Mat4::from_translation(-pitch) * local;
+            }
+            // Bone matrices are C++ Z-up; the host pose is Y-up.
+            let local = crate::game_logic::host_fx_list_dispatch::host_to_leftover_mat4(local);
+            return Some(self.get_transform_matrix() * local);
+        }
+        None
+    }
+
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
     pub fn fire_at(
         &mut self,
@@ -976,6 +1093,13 @@ impl Object {
                 victim.position(),
             );
         }
+        let launch_transform = if projectile_object_name.is_empty() {
+            None
+        } else {
+            let barrel = self.pending_weapon_visual_capture.as_ref()
+                .map_or(0, |capture| capture.fired_barrel);
+            self.projectile_launch_transform(slot, barrel, operation_effects.pristine_bones)
+        };
         // Read peels before optional ammo commit. GameLogic-owned paths defer
         // C++ Weapon.cpp2617–2669 mutations until after FireFX/FireOCL.
         let (weapon_speed, weapon_splash, weapon_homing) = match self.weapon_slot(slot) {
@@ -1022,6 +1146,7 @@ impl Object {
                 source_veterancy: veterancy,
                 source_orientation: self.get_orientation(),
                 source_velocity: self.movement.velocity,
+                launch_transform,
                 launcher_bonus_mask: self.projectile_launch_bonus_mask(),
             }),
             // Weapon.cpp uses the intended target to determine travel time,
