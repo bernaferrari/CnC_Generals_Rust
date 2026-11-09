@@ -159,6 +159,23 @@ impl WorkerRuntime {
     }
 }
 
+fn attach_worker_drawable(owner: &Arc<RwLock<Object>>) -> Arc<RwLock<crate::object::drawable::Drawable>> {
+    let id = owner.read().unwrap().get_id();
+    let drawable = Arc::new(RwLock::new(crate::object::drawable::Drawable::new(
+        0xA0_0000 + id,
+        id,
+        "FactoryWorkerDrawable".to_owned(),
+        crate::object::drawable::DrawableType::Static,
+    )));
+    owner.write().unwrap().set_drawable(Some(drawable.clone()));
+    drawable
+}
+
+fn worker_drawable_carrying(drawable: &Arc<RwLock<crate::object::drawable::Drawable>>) -> bool {
+    drawable.read().unwrap().get_model_conditions()
+        .contains(crate::common::ModelConditionFlags::CARRYING)
+}
+
 fn worker_wire(ai: &mut dyn AIUpdateInterface) -> Vec<u8> {
     let mut wire = Cursor::new(Vec::new());
     assert!(
@@ -311,6 +328,7 @@ fn factory_worker_full_mine_attack_drops_actual_carried_box() {
         "WorkerOwnerWorker",
         Some(WeaponAntiMask::MINE | WeaponAntiMask::GROUND),
     );
+    let drawable = attach_worker_drawable(&actual.source);
     let mut ai = actual.ai.lock().unwrap();
     assert!(
         ai.get_supply_truck_ai_interface_mut()
@@ -323,6 +341,22 @@ fn factory_worker_full_mine_attack_drops_actual_carried_box() {
             .get_number_boxes(),
         1
     );
+    assert!(worker_drawable_carrying(&drawable));
+    let id = actual.source.read().unwrap().get_id();
+    let foreign_owner = Arc::new(RwLock::new(Object::new_test(id, 200.0)));
+    let foreign_drawable = attach_worker_drawable(&foreign_owner);
+    let foreign = Arc::new(RwLock::new(
+        super::super::Unit::new(
+            foreign_owner.clone(),
+            &crate::common::DefaultThingTemplate::new("ForeignMineDropOwner".into()),
+        ).unwrap(),
+    ));
+    crate::object::registry::OBJECT_REGISTRY.register_object(id, &foreign_owner);
+    crate::ai::object_registry::register_legacy_object(&foreign_owner);
+    super::super::register_unit(id, &foreign);
+    assert!(Arc::ptr_eq(&foreign_owner, &TheGameLogic::find_object_by_id(id).unwrap()));
+    let foreign_owner_lock = foreign_owner.write().unwrap();
+    let foreign_unit_lock = foreign.write().unwrap();
     actual.attack(&mut *ai);
     assert_eq!(
         ai.get_supply_truck_ai_interface()
@@ -331,7 +365,12 @@ fn factory_worker_full_mine_attack_drops_actual_carried_box() {
         0,
         "CPP WorkerAI command drops cargo after establishing mine-clearing attack"
     );
+    assert!(!worker_drawable_carrying(&drawable));
+    assert!(!worker_drawable_carrying(&foreign_drawable));
     assert!(ai.is_clearing_mines());
+    drop(foreign_unit_lock);
+    drop(foreign_owner_lock);
+    super::super::unregister_unit(id);
     let saved = worker_wire(&mut *ai);
     assert!(
         ai.xfer_ai_update_state(&mut XferLoad::new(Cursor::new(saved.clone()), 1))
@@ -344,7 +383,9 @@ fn factory_worker_full_mine_attack_drops_actual_carried_box() {
         0
     );
     assert!(ai.is_clearing_mines());
+    assert!(!worker_drawable_carrying(&drawable));
     assert_eq!(worker_wire(&mut *ai), saved);
+    drop(ai);
 }
 
 #[test]
@@ -358,12 +399,14 @@ fn factory_worker_ground_attack_retains_carried_box() {
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new("WorkerOwnerWorker", Some(WeaponAntiMask::GROUND));
+    let drawable = attach_worker_drawable(&actual.source);
     let mut ai = actual.ai.lock().unwrap();
     assert!(
         ai.get_supply_truck_ai_interface_mut()
             .unwrap()
             .gain_one_box(1)
     );
+    assert!(worker_drawable_carrying(&drawable));
     actual.attack(&mut *ai);
     assert!(!ai.is_clearing_mines());
     assert_eq!(
@@ -372,6 +415,7 @@ fn factory_worker_ground_attack_retains_carried_box() {
             .get_number_boxes(),
         1
     );
+    assert!(worker_drawable_carrying(&drawable));
 }
 
 #[test]
@@ -431,6 +475,77 @@ fn factory_native_mine_query_ignores_locked_foreign_same_id_unit() {
     );
     drop(ai);
     drop(held_foreign);
+    super::super::unregister_unit(id);
+}
+
+#[test]
+fn factory_worker_cargo_notifies_exact_drawable_with_locked_foreign_owner() {
+    if !child(concat!(
+        module_path!(),
+        "::factory_worker_cargo_notifies_exact_drawable_with_locked_foreign_owner"
+    )) {
+        return;
+    }
+    worker_definitions();
+    let _frame = RestoreAmbientFrame::set(17);
+    let actual = WorkerRuntime::new("WorkerOwnerWorker", None);
+    let id = actual.source.read().unwrap().get_id();
+    let drawable = Arc::new(RwLock::new(crate::object::drawable::Drawable::new(
+        0xA0_0000 + id,
+        id,
+        "ActualFactoryWorker".to_owned(),
+        crate::object::drawable::DrawableType::Static,
+    )));
+    actual.source.write().unwrap().set_drawable(Some(drawable.clone()));
+
+    let foreign_owner = Arc::new(RwLock::new(Object::new_test(id, 200.0)));
+    let foreign_drawable = Arc::new(RwLock::new(crate::object::drawable::Drawable::new(
+        0xB0_0000 + id,
+        id,
+        "ForeignWorker".to_owned(),
+        crate::object::drawable::DrawableType::Static,
+    )));
+    foreign_owner.write().unwrap().set_drawable(Some(foreign_drawable.clone()));
+    let foreign = Arc::new(RwLock::new(
+        super::super::Unit::new(
+            foreign_owner.clone(),
+            &crate::common::DefaultThingTemplate::new("ForeignCargoOwner".into()),
+        )
+        .unwrap(),
+    ));
+    crate::object::registry::OBJECT_REGISTRY.register_object(id, &foreign_owner);
+    crate::ai::object_registry::register_legacy_object(&foreign_owner);
+    super::super::register_unit(id, &foreign);
+    assert!(Arc::ptr_eq(&foreign_owner, &TheGameLogic::find_object_by_id(id).unwrap()));
+    assert!(Arc::ptr_eq(
+        &actual.ai,
+        &actual.source.read().unwrap().get_ai_update_interface().unwrap()
+    ));
+    let carrying = |drawable: &Arc<RwLock<crate::object::drawable::Drawable>>| {
+        drawable.read().unwrap().get_model_conditions()
+            .contains(crate::common::ModelConditionFlags::CARRYING)
+    };
+    let foreign_owner_lock = foreign_owner.write().unwrap();
+    let foreign_unit_lock = foreign.write().unwrap();
+    let mut ai = actual.ai.lock().unwrap();
+    let supplies = ai.get_supply_truck_ai_interface_mut().unwrap();
+    assert!(!carrying(&drawable));
+    assert!(!carrying(&foreign_drawable));
+    assert!(!supplies.lose_one_box());
+    assert!(supplies.gain_one_box(1));
+    assert_eq!(supplies.get_number_boxes(), 1);
+    assert!(carrying(&drawable));
+    assert!(!carrying(&foreign_drawable));
+    assert!(!supplies.gain_one_box(1));
+    assert!(carrying(&drawable));
+    assert!(supplies.lose_one_box());
+    assert_eq!(supplies.get_number_boxes(), 0);
+    assert!(!carrying(&drawable));
+    assert!(!supplies.lose_one_box());
+    assert!(!carrying(&foreign_drawable));
+    drop(ai);
+    drop(foreign_unit_lock);
+    drop(foreign_owner_lock);
     super::super::unregister_unit(id);
 }
 
