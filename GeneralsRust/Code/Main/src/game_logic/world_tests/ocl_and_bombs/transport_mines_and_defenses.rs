@@ -2077,42 +2077,11 @@ fn camo_netting_structure_attack_and_damage_reveal() {
 #[test]
 fn patriot_residual_aa_secondary_auto_fires() {
     use crate::game_logic::host_base_defense::{
-        PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE, PATRIOT_GROUND_DAMAGE, PATRIOT_PRIMARY_WEAPON,
-        PATRIOT_SECONDARY_WEAPON, is_patriot_battery_structure,
+        PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE, PATRIOT_GROUND_DAMAGE, is_patriot_battery_structure,
     };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-
-    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
-    patriot_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(600.0)
-        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON)
-        .set_tertiary_weapon_name(PATRIOT_SECONDARY_WEAPON);
-    game_logic
-        .templates
-        .insert("USA_Patriot".to_string(), patriot_tpl);
-
-    let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
-    aircraft_tpl
-        .add_kind_of(KindOf::Aircraft)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(200.0);
-    game_logic
-        .templates
-        .insert("TestAircraft".to_string(), aircraft_tpl);
-
-    let patriot_id = game_logic
-        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("patriot");
+    let (mut game_logic, patriot_id, air_id) =
+        crate::game_logic::game_logic::accepted_projectile_owner_tests::
+            patriot_retail_battery_tests::world_with_air_target();
     {
         let p = game_logic.host_object(patriot_id).expect("patriot");
         assert!(is_patriot_battery_structure(&p.template_name));
@@ -2126,29 +2095,29 @@ fn patriot_residual_aa_secondary_auto_fires() {
         assert!(!sec.can_target_ground);
     }
 
-    let air_id = game_logic
-        .create_object("TestAircraft", Team::GLA, Vec3::new(250.0, 0.0, 0.0))
-        .expect("aircraft");
-    {
-        let a = game_logic.host_object_mut(air_id).unwrap();
-        a.status.airborne_target = true;
-    }
-    {
-        let p = game_logic.host_object_mut(patriot_id).unwrap();
-        if let Some(w) = p.secondary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
-        }
-    }
 
     let air_hp_before = game_logic
         .host_object(air_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
     game_logic.health_events.clear_damage();
-    for f in 0..80 {
-        game_logic.frame = f;
-        game_logic.update_combat(&[patriot_id, air_id], LOGIC_FRAME_TIMESTEP);
+    let assets = game_logic.application_assets().expect("retail W3D owner");
+    let mut observed_aa_flight = false;
+    for _ in 0..80 {
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(assets.as_ref()),
+            ..Default::default()
+        };
+        game_logic.tick_logic_frame_with_script_effects(
+            LOGIC_FRAME_TIMESTEP, None, None, effects, |_| {}, |_| {},
+        );
+        observed_aa_flight |= game_logic.combat_system.projectiles_snapshot().iter().any(|projectile| {
+            projectile.target_id == Some(air_id)
+                && projectile.missile_motion.is_some()
+                && (projectile.damage - PATRIOT_AIR_DAMAGE).abs() < 0.01
+        });
     }
+    assert!(observed_aa_flight, "retail tertiary weapon must launch an owned AA missile");
     let air_hp_after = game_logic
         .host_object(air_id)
         .map(|e| e.health.current)
