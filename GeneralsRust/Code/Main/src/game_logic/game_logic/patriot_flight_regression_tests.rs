@@ -103,6 +103,9 @@ fn retail_patriot_fires_flies_and_impacts() {
     let _ = world.update_with_dt(1.0 / 30.0);
     assert_eq!(world.combat_system.projectile_count(), 1, "missile does not hit at launch");
     assert_ne!(world.combat_system.projectiles_snapshot()[0].position, before, "missile actually flies");
+    let speed = world.combat_system.projectiles_snapshot()[0].velocity.length();
+    assert!(speed > 40.0 && speed < 400.0,
+        "InitialVelocity and locomotor acceleration must drive the shot, not WeaponSpeed=1: {speed}");
     assert_eq!(world.objects[&target].health.current, 1000.0);
     advance_to_impact(&mut world, target);
 }
