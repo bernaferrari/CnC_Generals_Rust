@@ -455,6 +455,11 @@ initial frames to 1. The player map is borrowed through the synchronous AI pass 
 a replacement manager and TeamFactory each frame. Numeric slot order is retained
 in a BTreeMap, eliminating per-frame player sorting from updates and saves.
 
+`GrantStealthBehavior` retains its own initial wake until installation rather
+than rescheduling already-installed modules with the same class name. The
+constructor regression covers distinct tags and a same-ID peer world. Other
+class-name wake callbacks still require exact installed-module identity.
+
 Skirmish setup initializes the driving EngineStores definitions and leaves an
 independent compatibility AI manager intact. Path repulsion and wall fallback
 height read the driving match's rules; wall geometry retains priority. These
