@@ -3254,3 +3254,10 @@ without completing the pending request; the next pick can cancel it. Native
 worker Build/Repair execution and derived worker save/load remain separate,
 incomplete migrations (hq-d1xih).
 
+## Cave snapshot ownership
+
+GameLogic transfers its receiving world's CaveSystem, even if another world is
+published. A missing cave owner or poisoned tracker fails the snapshot rather
+than silently substituting empty state. Native cave entry, capture, exit and
+death still require the full world-owned lifecycle migration (hq-ssws0).
+
