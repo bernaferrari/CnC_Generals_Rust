@@ -634,14 +634,14 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
-    fn installed_grant_stealth_wakes_are_independent_between_tags_and_worlds() {
+    fn constructing_another_tag_does_not_reschedule_installed_siblings_or_peer() {
         use crate::modules::UpdateModulePtr;
         use crate::object::ModuleUpdateProxy;
         use crate::system::game_logic::GameLogic;
 
         fn install(
             owner: &Arc<RwLock<GameObject>>,
-            scheduler: &mut GameLogic,
+            mut register: impl FnMut(ObjectID, UpdateModulePtr, UnsignedInt),
             tag: NameKeyType,
         ) -> UpdateModulePtr {
             let data = Arc::new(GrantStealthBehaviorModuleData {
@@ -671,30 +671,56 @@ mod tests {
                 .unwrap()
                 .attach_update_module_registration(proxy.clone(), Some(&entry))
                 .unwrap();
-            scheduler.register_sleepy_update_module(id, proxy.clone(), initial_wake);
+            register(id, proxy.clone(), initial_wake);
             proxy
         }
 
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, || {
         let id = 91_602;
         let owner = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
         let peer = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
-        let mut world = GameLogic::new();
+        let ambient = crate::system::game_logic::get_game_logic();
+        ambient.lock().unwrap().admit_scheduling_owner(id, owner.clone());
         let mut other_world = GameLogic::new();
-        world.admit_scheduling_owner(id, owner.clone());
         other_world.admit_scheduling_owner(id, peer.clone());
-        let first = install(&owner, &mut world, 1);
-        let second = install(&owner, &mut world, 2);
-        let other = install(&peer, &mut other_world, 1);
-        let second_before = world.sleepy_entry_for(&second).unwrap().1;
+        let register_ambient = |id, proxy, wake| {
+            ambient.lock().unwrap().register_sleepy_update_module(id, proxy, wake);
+        };
+        let first = install(&owner, register_ambient, 1);
+        let other = install(
+            &peer,
+            |id, proxy, wake| other_world.register_sleepy_update_module(id, proxy, wake),
+            1,
+        );
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let first_wake = now.saturating_add(37);
+        {
+            let mut scheduler = ambient.lock().unwrap();
+            scheduler.register_sleepy_update_module(id, first.clone(), first_wake);
+        }
         let other_before = other_world.sleepy_entry_for(&other).unwrap().1;
 
-        world
-            .awaken_update_module_with_current(&first, None, 0, 17)
-            .unwrap();
+        // The constructor runs before the second entry is installed. It must
+        // not find the first entry by class and rewrite its scheduling state.
+        let second = install(&owner, register_ambient, 2);
+        let (first_after, second_after) = {
+            let mut scheduler = ambient.lock().unwrap();
+            let first_after = scheduler.sleepy_entry_for(&first).map(|entry| entry.1);
+            let second_after = scheduler.sleepy_entry_for(&second).map(|entry| entry.1);
+            scheduler.unregister_update_module(id, first.clone());
+            scheduler.unregister_update_module(id, second.clone());
+            (first_after, second_after)
+        };
 
-        assert_eq!(world.sleepy_entry_for(&first).unwrap().1, 17);
-        assert_eq!(world.sleepy_entry_for(&second).unwrap().1, second_before);
+        assert_eq!(first_after, Some(first_wake));
+        assert_eq!(second_after, Some(now.saturating_add(1)));
         assert_eq!(other_world.sleepy_entry_for(&other).unwrap().1, other_before);
+        });
+        });
     }
 
     #[test]
