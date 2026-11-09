@@ -144,6 +144,7 @@ pub mod gameworld_shadow;
 pub mod golden_campaign;
 pub mod golden_skirmish;
 pub mod map_frame_scenario;
+pub mod parallel_harness;
 pub mod presentation_frame;
 pub mod release_candidate;
 pub mod windowed_acceptance;

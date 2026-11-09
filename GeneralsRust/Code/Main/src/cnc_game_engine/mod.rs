@@ -121,7 +121,10 @@ mod native_view_effects;
 #[cfg(feature = "game_client")]
 mod native_visual_time;
 pub(crate) mod object_ini_boot;
-pub use object_ini_boot::{load_standalone_startup_content, start_standalone_game};
+pub use object_ini_boot::{
+    StandaloneStartupSources, load_standalone_startup_content, load_standalone_startup_sources,
+    start_standalone_game,
+};
 mod options_bridge;
 #[cfg(feature = "game_client")]
 mod presentation_materials;

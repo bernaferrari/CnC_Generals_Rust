@@ -126,6 +126,60 @@ fn capture_object_sources(
 /// Load a standalone world's definitions from the same ordered archive and loose
 /// sources as application startup. Missing required catalogs are errors.
 pub fn load_standalone_startup_content() -> Result<crate::assets::ReceivingStartupContent, String> {
+    load_standalone_startup_sources()?.admit()
+}
+
+/// Immutable application definitions read once from the archives: the ordered
+/// Object source texts plus the already-parsed science, action and weapon
+/// catalogs. Several sessions may share one bundle; each receiving world
+/// builds its own module content from it (C++ ThingFactory per engine).
+#[derive(Clone)]
+pub struct StandaloneStartupSources {
+    objects: std::sync::Arc<[(String, String)]>,
+    sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+    actions: std::sync::Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
+    weapons: std::sync::Arc<[(String, gamelogic::weapon::WeaponTemplate)]>,
+    definitions: std::sync::Arc<[(&'static str, String)]>,
+}
+
+/// Session definition INIs read with the startup sources, in C++ GameEngine
+/// load order (Default first, then the retail override).
+const STANDALONE_DEFINITION_PATHS: &[&str] = &[
+    "Data/INI/Default/GameData.ini",
+    "Data/INI/GameData.ini",
+    "Data/INI/Default/Multiplayer.ini",
+    "Data/INI/Multiplayer.ini",
+    "Data/INI/Default/PlayerTemplate.ini",
+    "Data/INI/PlayerTemplate.ini",
+    "Data/INI/Default/Locomotor.ini",
+    "Data/INI/Locomotor.ini",
+];
+
+impl StandaloneStartupSources {
+    /// Build one receiving world's owned startup content from the shared sources.
+    pub fn admit(&self) -> Result<crate::assets::ReceivingStartupContent, String> {
+        crate::assets::ReceivingStartupContent::from_sources(
+            self.objects.iter().cloned(),
+            std::sync::Arc::clone(&self.sciences),
+            std::sync::Arc::clone(&self.actions),
+            self.weapons.to_vec(),
+        )
+    }
+
+    /// Ordered sources of one definition catalog whose path ends with `file`
+    /// (e.g. `"PlayerTemplate.ini"`): Default first, then the override.
+    pub fn definition_texts<'a>(&'a self, file: &'a str) -> impl Iterator<Item = (&'static str, &'a str)> + 'a {
+        self.definitions
+            .iter()
+            .filter(move |(path, _)| {
+                path.rsplit('/').next().is_some_and(|name| name.eq_ignore_ascii_case(file))
+            })
+            .map(|(path, text)| (*path, text.as_str()))
+    }
+}
+
+/// Read the startup definition sources once, without admitting them to a world.
+pub fn load_standalone_startup_sources() -> Result<StandaloneStartupSources, String> {
     use game_engine::common::ini::INILoadType;
     use game_engine::common::rts::science::ScienceNameFacts;
     use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
@@ -188,9 +242,19 @@ pub fn load_standalone_startup_content() -> Result<crate::assets::ReceivingStart
     let sources = capture_object_sources(&paths, |path| {
         read(path)?.map(Some).ok_or_else(|| format!("Required receiving Object source '{path}' is missing"))
     })?;
-    crate::assets::ReceivingStartupContent::from_sources(
-        sources.sources, sciences, Arc::new(actions), weapons,
-    )
+    let mut definitions = Vec::new();
+    for path in STANDALONE_DEFINITION_PATHS {
+        if let Some(text) = read(path)? {
+            definitions.push((*path, text));
+        }
+    }
+    Ok(StandaloneStartupSources {
+        definitions: definitions.into(),
+        objects: sources.sources.into(),
+        sciences,
+        actions: Arc::new(actions),
+        weapons: weapons.into(),
+    })
 }
 
 /// Initialize a standalone world with real application-selected definitions.
