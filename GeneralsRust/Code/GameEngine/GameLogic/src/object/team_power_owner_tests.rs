@@ -161,3 +161,37 @@ fn same_actual_team_assignment_keeps_completed_energy_without_reentering_members
     assert_eq!(energy(&player.read().unwrap()), (10, 0));
     assert!(Arc::ptr_eq(&object.get_team().unwrap(), &team));
 }
+
+#[test]
+fn prepared_object_rank_award_uses_its_own_roster_with_foreign_world_active() {
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+    let receiving = Arc::new(EngineStores::new_for_world());
+    let foreign = Arc::new(EngineStores::new_for_world());
+    let receiving_player = Arc::new(RwLock::new(Player::new(0)));
+    let foreign_player = Arc::new(RwLock::new(Player::new(0)));
+    receiving.services().players().write().unwrap().add_player(Arc::clone(&receiving_player));
+    foreign.services().players().write().unwrap().add_player(Arc::clone(&foreign_player));
+    receiving.services().players().write().unwrap().set_rank_level_limit(2);
+    foreign.services().players().write().unwrap().set_rank_level_limit(4);
+    with_active_stores(&foreign, || {
+        let mut logic = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(&receiving));
+        let mut factory = ObjectFactory::new();
+        let team = Arc::new(RwLock::new(crate::team::Team::new("RankOwner".into(), 42)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+        let id = factory.prepare_object(
+            &mut logic,
+            Arc::new(DefaultThingTemplate::new("RankOwnerUnit".into())),
+            Coord3D::ZERO,
+            Some(team),
+            ObjectCreationFlags::NO_AI,
+        ).unwrap();
+        let object = factory.get_object(id).unwrap().get_base_object().unwrap();
+        let cap = object.read().unwrap().with_controlling_player_rank_capped_mut(|player, cap| {
+            player.get_money_mut().set_money(777);
+            cap
+        }).unwrap();
+        assert_eq!(cap, 2);
+        assert_eq!(receiving_player.read().unwrap().get_money().get_money(), 777);
+        assert_ne!(foreign_player.read().unwrap().get_money().get_money(), 777);
+    });
+}

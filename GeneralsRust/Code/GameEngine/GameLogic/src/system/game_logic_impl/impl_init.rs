@@ -38,6 +38,10 @@ impl GameLogic {
             .map(|services| Arc::clone(&services.logic_managers().cave))
     }
 
+    pub(crate) fn owned_player_list(&self) -> Option<Arc<RwLock<crate::player::PlayerList>>> {
+        self.owning_world_services().map(|services| Arc::clone(services.players()))
+    }
+
     /// This logic's script engine slot (C++ `TheScriptEngine` of the world
     /// this GameLogic belongs to). A logic built with an owner never consults
     /// the published world; an ownerless one falls back to it.

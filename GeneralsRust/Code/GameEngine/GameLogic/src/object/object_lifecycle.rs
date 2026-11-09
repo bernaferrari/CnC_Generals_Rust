@@ -96,7 +96,7 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
-        Self::new_with_id_preparing_ai(thing_template, object_id, object_status_mask, team, false, None)
+        Self::new_with_id_preparing_ai(thing_template, object_id, object_status_mask, team, false, None, None)
     }
 
     /// Factory units prepare their exact AI after module installation and before
@@ -108,6 +108,7 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
         cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
             thing_template,
@@ -120,6 +121,7 @@ impl Object {
             None,
             None,
             cave_system,
+            owner_roster,
         )
     }
 
@@ -132,6 +134,7 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
         cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
             thing_template,
@@ -144,6 +147,7 @@ impl Object {
             None,
             None,
             cave_system,
+            owner_roster,
         )
     }
 
@@ -157,6 +161,7 @@ impl Object {
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
         module_factory: &game_engine::common::thing::module_factory::ModuleFactory,
         cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
             thing_template,
@@ -169,6 +174,7 @@ impl Object {
             Some(body_definitions),
             Some(module_factory),
             cave_system,
+            owner_roster,
         )
     }
 
@@ -183,6 +189,7 @@ impl Object {
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&game_engine::common::thing::module_factory::ModuleFactory>,
         cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
@@ -193,6 +200,7 @@ impl Object {
             object_status_mask,
             if publish { None } else { team.clone() },
         );
+        obj.owner_roster = owner_roster.as_ref().map(Arc::downgrade);
         obj.ambient_lifecycle_admitted = publish;
         if publish {
             obj.set_team(team)?;
@@ -375,6 +383,7 @@ impl Object {
 
             team_id,
             team_pin: team,
+            owner_roster: None,
             original_team_name: AsciiString::new(),
             indicator_color: Color::default(),
 

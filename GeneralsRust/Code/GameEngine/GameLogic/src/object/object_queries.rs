@@ -107,7 +107,10 @@ impl Object {
         f: impl FnOnce(&mut Player, Int) -> R,
     ) -> Option<R> {
         let index = Int::try_from(self.get_controlling_player_id()?).ok()?;
-        let players = crate::player::try_player_list()?;
+        let players = match self.owner_roster.as_ref() {
+            Some(owner) => owner.upgrade()?,
+            None => crate::player::try_player_list()?,
+        };
         crate::player::with_listed_player_mut(&players, index, f)
     }
 

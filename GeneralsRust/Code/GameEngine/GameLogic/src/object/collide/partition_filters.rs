@@ -2213,6 +2213,7 @@ mod tests {
             Some(team),
             false,
             None,
+            None,
         )
         .unwrap()
     }
