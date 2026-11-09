@@ -2358,17 +2358,7 @@ mod w3d_live_path_tests {
     #[test]
     fn w3d_hlod_visibility_bridge_uses_frozen_animation_identity_and_fraction() {
         let mut model = crate::assets::W3DModel::new("bridge_probe".to_string());
-        model.animations.push(crate::assets::W3dAnimation {
-            name: "BridgeClip".to_string(),
-            hierarchy_name: "BridgeHier".to_string(),
-            num_frames: 10,
-            frame_rate: 30,
-            source_is_compressed: false,
-            channels: Vec::new(),
-            raw_visibility_channels: Vec::new(),
-            compressed_visibility_channels: Vec::new(),
-            unsupported_visibility_pivots: Vec::new(),
-        });
+        model.animations.push(crate::assets::models::test_animation::raw_animation("BridgeClip".to_string(), "BridgeHier".to_string(), 10, 30, Vec::new(), Vec::new()));
 
         model.hierarchy = Some(crate::assets::W3dHierarchy {
             name: "BridgeHier".to_string(),

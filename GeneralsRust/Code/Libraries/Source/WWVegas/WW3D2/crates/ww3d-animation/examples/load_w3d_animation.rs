@@ -46,17 +46,8 @@ fn main() {
             println!("Hierarchy: {}", anim_data.hierarchy_name);
             println!("Frames: {}", anim_data.num_frames);
             println!("Frame rate: {} FPS", anim_data.frame_rate);
-            println!("Channels: {}", anim_data.channels.len());
-
-            for (idx, channel) in anim_data.channels.iter().enumerate() {
-                println!(
-                    "  Channel {}: Pivot {} | Type: {:?} | Frames: {}-{}",
-                    idx,
-                    channel.pivot_index,
-                    channel.channel_type,
-                    channel.first_frame,
-                    channel.last_frame
-                );
+            if let Some(raw) = &anim_data.raw_anim {
+                println!("Pivot slots: {}", raw.get_num_pivots());
             }
 
             if let Ok(tree) = &hierarchy {

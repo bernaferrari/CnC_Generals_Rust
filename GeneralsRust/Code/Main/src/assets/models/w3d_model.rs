@@ -1685,11 +1685,16 @@ impl W3DModel {
         {
             return false;
         }
+        if let W3dAnimationMotion::Compressed(compressed) = &animation.motion {
+            if compressed.get_num_pivots() > hierarchy.pivots.len() {
+                return false;
+            }
+        }
 
         match binding {
             W3dAnimationBinding::Local { .. } => true,
             W3dAnimationBinding::Companion { identity, .. } => {
-                !animation.source_is_compressed && animation.matches_draw_identity(identity)
+                animation.matches_draw_identity(identity)
             }
         }
     }

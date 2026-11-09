@@ -13,7 +13,7 @@ use ww3d_animation::hcompressed_anim::{
     ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED, HCompressedAnimClass,
 };
 use ww3d_animation::motion_channels::{
-    AdaptiveDeltaMotionChannelClass, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,
+    AdaptiveDeltaMotionChannelClass, AnimChannelKind, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,
 };
 
 /// Test timecoded channel with simple linear interpolation
@@ -32,7 +32,7 @@ fn test_timecoded_channel_linear_interpolation() {
 
     let mut channel = TimeCodedMotionChannelClass::new(
         0, // pivot_idx
-        0, // channel_type (ANIM_CHANNEL_X)
+        AnimChannelKind::X, // channel_type (ANIM_CHANNEL_X)
         3, // num_timecodes
         1, // vector_len
         data,
@@ -80,7 +80,7 @@ fn test_timecoded_channel_binary_movement() {
         20.0f32.to_bits(),                       // value 20.0
     ];
 
-    let mut channel = TimeCodedMotionChannelClass::new(0, 0, 3, 1, data);
+    let mut channel = TimeCodedMotionChannelClass::new(0, AnimChannelKind::X, 3, 1, data);
 
     let mut result = [0.0f32];
 
@@ -115,7 +115,7 @@ fn test_timecoded_quaternion_slerp() {
 
     let mut channel = TimeCodedMotionChannelClass::new(
         0, // pivot
-        6, // ANIM_CHANNEL_Q
+        AnimChannelKind::Quaternion, // ANIM_CHANNEL_Q
         2, // num_timecodes
         4, // vector_len (quaternion)
         data,
@@ -166,7 +166,7 @@ fn test_timecoded_channel_cache_optimization() {
         data.push((i as f32).to_bits()); // value
     }
 
-    let mut channel = TimeCodedMotionChannelClass::new(0, 0, 100, 1, data);
+    let mut channel = TimeCodedMotionChannelClass::new(0, AnimChannelKind::X, 100, 1, data);
 
     let mut result = [0.0f32];
 
@@ -215,7 +215,7 @@ fn test_adaptive_delta_simple_decompression() {
 
     let mut channel = AdaptiveDeltaMotionChannelClass::new(
         0,   // pivot
-        0,   // channel type
+        AnimChannelKind::X,   // channel type
         1,   // vector_len
         16,  // num_frames
         1.0, // scale
@@ -259,7 +259,7 @@ fn test_adaptive_delta_nibble_extraction() {
 
     data.extend_from_slice(&packet);
 
-    let mut channel = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 16, 1.0, data);
+    let mut channel = AdaptiveDeltaMotionChannelClass::new(0, AnimChannelKind::X, 1, 16, 1.0, data);
 
     let mut result = [0.0f32];
 
@@ -306,10 +306,8 @@ fn test_timecoded_bit_channel() {
     ];
 
     let mut channel = TimeCodedBitChannelClass::new(
-        0,  // pivot
-        15, // BIT_CHANNEL_VIS (type 15 from channel types)
-        1,  // default_val (visible by default)
-        3,  // num_timecodes
+        0, // pivot
+        3, // num_timecodes
         data,
     );
 
@@ -359,7 +357,7 @@ fn test_hcompressed_anim_timecoded() {
 
     let channel = TimeCodedMotionChannelClass::new(
         0, // pivot 0
-        0, // ANIM_CHANNEL_X
+        AnimChannelKind::X, // ANIM_CHANNEL_X
         3, // num_timecodes
         1, // vector_len
         data,
@@ -411,7 +409,7 @@ fn test_hcompressed_anim_adaptive_delta() {
 
     let channel = AdaptiveDeltaMotionChannelClass::new(
         0,   // pivot
-        0,   // ANIM_CHANNEL_X
+        AnimChannelKind::X,   // ANIM_CHANNEL_X
         1,   // vector_len
         16,  // num_frames
         1.0, // scale
@@ -437,7 +435,7 @@ fn adaptive_delta_consumer_seeks_across_packets() {
     ];
     data.extend_from_slice(&bytes);
 
-    let channel = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 19, 0.5, data);
+    let channel = AdaptiveDeltaMotionChannelClass::new(0, AnimChannelKind::X, 1, 19, 0.5, data);
     let mut anim = HCompressedAnimClass::new(
         "packets".into(), "hierarchy".into(), 19, 1, ANIM_FLAVOR_ADAPTIVE_DELTA, 30.0,
     );
@@ -470,17 +468,17 @@ fn adaptive_delta_quaternion_interleaves_component_packets() {
         }
     }
 
-    let channel = AdaptiveDeltaMotionChannelClass::new(0, 6, 4, 18, 0.01, data);
+    let channel = AdaptiveDeltaMotionChannelClass::new(0, AnimChannelKind::Quaternion, 4, 18, 0.01, data);
     let mut anim = HCompressedAnimClass::new(
         "quaternion".into(), "hierarchy".into(), 18, 1, ANIM_FLAVOR_ADAPTIVE_DELTA, 30.0,
     );
     anim.add_adaptive_delta_channel(channel);
     for (frame, expected) in [
         (0.0, Quat::IDENTITY),
-        (1.0, Quat::from_xyzw(0.01, -0.01, 0.02, 1.0).normalize()),
-        (16.0, Quat::from_xyzw(0.16, -0.16, 0.32, 1.0).normalize()),
-        (17.0, Quat::from_xyzw(0.06, -0.06, 0.32, 1.0).normalize()),
-        (1.0, Quat::from_xyzw(0.01, -0.01, 0.02, 1.0).normalize()),
+        (1.0, Quat::from_xyzw(0.01, -0.01, 0.02, 1.0)),
+        (16.0, Quat::from_xyzw(0.16, -0.16, 0.32, 1.0)),
+        (17.0, Quat::from_xyzw(0.06, -0.06, 0.32, 1.0)),
+        (1.0, Quat::from_xyzw(0.01, -0.01, 0.02, 1.0)),
     ] {
         let actual = anim.get_orientation(0, frame);
         assert!((actual - expected).length() < 1e-5, "frame {frame}: {actual:?}");
@@ -489,14 +487,10 @@ fn adaptive_delta_quaternion_interleaves_component_packets() {
 
 #[test]
 fn adaptive_delta_rejects_truncated_data_without_undefined_behavior() {
-    let mut missing_header = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 1, 1.0, vec![]);
-    let mut missing_packet =
-        AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 2, 1.0, 0.0f32.to_le_bytes().to_vec());
-    for channel in [&mut missing_header, &mut missing_packet] {
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            channel.get_vector(0.0, &mut [0.0]);
-        })).is_err());
-    }
+    assert!(AdaptiveDeltaMotionChannelClass::try_new(0, AnimChannelKind::X, 1, 1, 1.0, vec![]).is_err());
+    assert!(AdaptiveDeltaMotionChannelClass::try_new(
+        0, AnimChannelKind::X, 1, 2, 1.0, 0.0f32.to_le_bytes().to_vec(),
+    ).is_err());
 }
 
 /// Test filter table generation
@@ -521,7 +515,7 @@ fn test_filter_table_values() {
 
     data.extend_from_slice(&packet);
 
-    let mut channel = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 8, 1.0, data);
+    let mut channel = AdaptiveDeltaMotionChannelClass::new(0, AnimChannelKind::X, 1, 8, 1.0, data);
 
     let mut result = [0.0f32];
 
@@ -590,7 +584,7 @@ fn test_adaptive_delta_quaternion() {
 
     let mut channel = AdaptiveDeltaMotionChannelClass::new(
         0,   // pivot
-        14,  // ANIM_CHANNEL_ADAPTIVEDELTA_Q
+        AnimChannelKind::Quaternion, // ANIM_CHANNEL_Q
         4,   // vector_len (quaternion)
         16,  // num_frames
         1.0, // scale

@@ -470,91 +470,53 @@ pub(super) fn hmodel_cxx_header_name(bytes: &[u8]) -> String {
     w3d_string_from_bytes(&bytes[..capped_len])
 }
 
-/// Animation channel targeting a specific bone. C++ parity: animation channel data
-#[derive(Debug, Clone)]
-pub struct W3dAnimChannel {
-    pub first_frame: u16,
-    pub last_frame: u16,
-    pub vector_len: u16, // 1 for scalar (X/Y/Z), 4 for quaternion
-    pub flags: u16,      // 0=X, 1=Y, 2=Z, 6=Q
-    pub pivot: u16,      // Bone index
-    pub data: Vec<f32>,
-}
-
-/// A raw `W3dBitChannelStruct` that drives an HTree pivot's visibility.
+/// W3D animation data. C++ parity: W3dAnimHeaderStruct + channels.
 ///
-/// C++ `BitChannelClass::Get_Bit` uses the packed source bytes in LSB-first
-/// order and returns `default_visible` outside the authored frame range.  The
-/// type flag is retained because only `BIT_CHANNEL_VIS` (`0`) is installed by
-/// `HRawAnimClass::add_bit_channel`; other raw bit-channel kinds are not a
-/// visibility authority for an HLOD child.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct W3dRawVisibilityChannel {
-    pub first_frame: u16,
-    pub last_frame: u16,
-    pub flags: u16,
-    pub pivot: u16,
-    pub default_visible: bool,
-    pub bits: Vec<u8>,
-}
-
-impl W3dRawVisibilityChannel {
-    /// Match `BitChannelClass::Get_Bit` exactly: the caller supplies the
-    /// integer raw-HAnim frame, then bit zero is the low bit of the first
-    /// source byte.
-    pub(super) fn visible_at(&self, frame: i32) -> bool {
-        let first_frame = i32::from(self.first_frame);
-        let last_frame = i32::from(self.last_frame);
-        if frame < first_frame || frame > last_frame {
-            return self.default_visible;
-        }
-
-        let bit =
-            usize::try_from(frame - first_frame).expect("frame within a u16 W3D bit-channel range");
-        let byte = self.bits.get(bit / 8).copied().unwrap_or_default();
-        (byte & (1 << (bit % 8))) != 0
-    }
-}
-
-/// Packed timecoded visibility keys from one compressed animation channel.
-#[derive(Debug, Clone)]
-pub struct W3dCompressedVisibilityChannel {
-    pub pivot: u16,
-    pub keys: Vec<u32>,
-}
-
-impl W3dCompressedVisibilityChannel {
-    fn visible_at(&self, frame: i32) -> Option<bool> {
-        let frame = u32::try_from(frame).ok()?;
-        let key = self.keys.partition_point(|key| (key & 0x7fff_ffff) <= frame);
-        self.keys.get(key.saturating_sub(1)).map(|key| key & 0x8000_0000 != 0)
-    }
-}
-
-/// W3D animation data. C++ parity: W3dAnimHeaderStruct + channels
+/// The channels themselves are owned by `ww3d-animation`; Main keeps only
+/// the header fields its draw bindings match on.
 #[derive(Debug, Clone)]
 pub struct W3dAnimation {
     pub name: String,
     pub hierarchy_name: String,
     pub num_frames: u32,
     pub frame_rate: u32,
-    /// True when this record came from a compressed animation container.
-    /// Existing local support remains isolated, but hq-7x9 deliberately does
-    /// not claim external companion compressed-channel parity.
-    pub source_is_compressed: bool,
-    pub channels: Vec<W3dAnimChannel>,
-    /// Raw `BIT_CHANNEL_VIS` channels, in source chunk order.  If duplicate
-    /// pivots occur, C++ overwrites the prior channel, so sampling walks this
-    /// vector from the end.
-    pub raw_visibility_channels: Vec<W3dRawVisibilityChannel>,
-    /// Compressed `BIT_CHANNEL_VIS` keys, in source chunk order.
-    pub compressed_visibility_channels: Vec<W3dCompressedVisibilityChannel>,
-    /// Malformed visibility data; `None` means its pivot could not be read.
-    /// Affected children cannot be rendered with a guessed visibility value.
-    pub unsupported_visibility_pivots: Vec<Option<u16>>,
+    pub motion: W3dAnimationMotion,
+}
+
+/// Which source animation class owns the channels; each keeps its own
+/// sampling semantics.
+#[derive(Debug, Clone)]
+pub enum W3dAnimationMotion {
+    /// `HRawAnimClass`, sampled by Generals' specialized integer-frame
+    /// `HTreeClass::Anim_Update(HRawAnimClass*)`.
+    Raw(ww3d_animation::HRawAnimClass),
+    /// `HCompressedAnimClass`, sampled by the generic interpolated update.
+    Compressed(ww3d_animation::HCompressedAnimClass),
 }
 
 impl W3dAnimation {
+    /// Header fields come from the canonical raw owner.
+    pub fn raw(raw: ww3d_animation::HRawAnimClass) -> Self {
+        Self {
+            name: raw.get_name().to_string(),
+            hierarchy_name: raw.get_hierarchy_name().to_string(),
+            num_frames: raw.get_num_frames(),
+            frame_rate: raw.get_frame_rate(),
+            motion: W3dAnimationMotion::Raw(raw),
+        }
+    }
+
+    /// `frame_rate` is the authored header integer.
+    pub fn compressed(compressed: ww3d_animation::HCompressedAnimClass, frame_rate: u32) -> Self {
+        Self {
+            name: compressed.get_name().to_string(),
+            hierarchy_name: compressed.get_hname().to_string(),
+            num_frames: compressed.get_num_frames(),
+            frame_rate,
+            motion: W3dAnimationMotion::Compressed(compressed),
+        }
+    }
+
     /// Match the name by which C++ `HAnimManagerClass` registers raw W3D
     /// motions: `<HierarchyName>.<AnimationName>`.  A Draw state carries this
     /// qualified identity, so accepting either half independently would turn a
@@ -567,77 +529,37 @@ impl W3dAnimation {
             && self.name.eq_ignore_ascii_case(animation)
     }
 
-    /// Return the source HTree visibility for one pivot, or `None` when a
-    /// compressed/malformed `BIT_CHANNEL_VIS` means Main cannot safely decide
-    /// whether that child should be drawn.
+    /// Return the source HTree visibility for one pivot, or `None` when the
+    /// query frame cannot be sampled.
     pub(super) fn visibility_for_pivot(&self, pivot: usize, frame: f32) -> Option<bool> {
         // `HTreeClass::{Base,Anim}_Update` overwrites pivot zero with the
         // external RenderObj root and forces it visible before it considers
-        // any source HAnim data.  Its raw W3D visibility channel (including a
-        // compressed or malformed one) therefore cannot hide the object root.
+        // any source HAnim data.  Its W3D visibility channel therefore cannot
+        // hide the object root.
         if pivot == 0 {
             return Some(true);
         }
-        let frame = if self.source_is_compressed {
-            if !frame.is_finite() || frame < i32::MIN as f32 || frame > i32::MAX as f32 {
-                return None;
+        match &self.motion {
+            W3dAnimationMotion::Compressed(compressed) => {
+                if !frame.is_finite() || frame < 0.0 || self.num_frames == 0 {
+                    return None;
+                }
+                let frame = frame.min((self.num_frames - 1) as f32);
+                Some(compressed.get_visibility(pivot, frame))
             }
-            frame as i32
-        } else {
-            self.raw_frame_index(frame)?
-        };
-        let pivot = u16::try_from(pivot).ok()?;
-        if self
-            .unsupported_visibility_pivots
-            .iter()
-            .any(|unsupported| match unsupported {
-                Some(value) => *value == pivot,
-                None => true,
-            })
-        {
-            return None;
+            W3dAnimationMotion::Raw(raw) => {
+                Some(raw.raw_pivot_pose(pivot, raw_frame_index(raw, frame)?).visible)
+            }
         }
-        if self.source_is_compressed {
-            return match self.compressed_visibility_channels
-                .iter()
-                .rev()
-                .find(|channel| channel.pivot == pivot)
-            {
-                Some(channel) => channel.visible_at(frame),
-                None => Some(true),
-            };
-        }
-
-        self.raw_visibility_channels
-            .iter()
-            .rev()
-            .find(|channel| channel.pivot == pivot && channel.flags == 0)
-            .map(|channel| channel.visible_at(frame))
-            // `HRawAnimClass::Get_Visibility` defaults to visible when this
-            // animation has no visibility channel for the requested pivot.
-            .or(Some(true))
     }
+}
 
-    /// Generals routes raw W3D HAnims through its specialized
-    /// `HTreeClass::Anim_Update(HRawAnimClass*, frame)`: `Float_To_Long`
-    /// obtains one integer frame, then a value at or beyond `NumFrames`
-    /// wraps to zero.  The game sets x87 rounding to `_RC_NEAR`, so ties use
-    /// nearest-even rather than Rust's truncation/cast behavior.  Negative
-    /// frames intentionally remain negative; raw channels then provide their
-    /// C++ identity/default values.
-    pub(super) fn raw_frame_index(&self, frame: f32) -> Option<i32> {
-        if !frame.is_finite() || self.num_frames == 0 {
-            return None;
-        }
-        let rounded = frame.round_ties_even();
-        if rounded < i32::MIN as f32 || rounded > i32::MAX as f32 {
-            return None;
-        }
-        let frame = rounded as i32;
-        (frame >= i32::try_from(self.num_frames).ok()?)
-            .then_some(0)
-            .or(Some(frame))
-    }
+/// Generals routes raw W3D HAnims through its specialized
+/// `HTreeClass::Anim_Update(HRawAnimClass*, frame)`; the canonical owner
+/// chooses its integer frame. Main fails closed on a non-finite query or a
+/// zero-frame animation instead of sampling the x87 indefinite integer.
+pub(super) fn raw_frame_index(raw: &ww3d_animation::HRawAnimClass, frame: f32) -> Option<i32> {
+    (frame.is_finite() && raw.get_num_frames() != 0).then(|| raw.raw_frame_index(frame))
 }
 
 /// Split the qualified raw-animation name C++ hands to
@@ -737,4 +659,36 @@ pub(super) struct ParsedMaterialPass {
     pub(super) shader_ids: Vec<u32>,
     pub(super) dcg_colors: Vec<W3dRGBAStruct>,
     pub(super) dig_colors: Vec<W3dRGBAStruct>,
+}
+
+/// Fixture builders over the canonical `ww3d-animation` channel owner.
+#[cfg(test)]
+pub(crate) mod test_animation {
+    use super::W3dAnimation;
+    use ww3d_animation::{AnimChannelKind, BitChannelClass, HRawAnimClass, MotionChannelClass};
+
+    /// A raw `W3dAnimChannelStruct` with source `Flags`.
+    pub(crate) fn motion(pivot: u32, flags: u16, first: u16, last: u16, data: Vec<f32>) -> MotionChannelClass {
+        let kind = AnimChannelKind::from_flags(flags).expect("installed raw channel kind");
+        MotionChannelClass::try_new(pivot, kind, first, last, data).expect("valid raw channel")
+    }
+
+    /// A raw `BIT_CHANNEL_VIS` channel.
+    pub(crate) fn visibility(pivot: u32, default_val: u8, first: u16, last: u16, bits: Vec<u8>) -> BitChannelClass {
+        BitChannelClass::try_new(pivot, default_val, first, last, bits).expect("valid raw bit channel")
+    }
+
+    pub(crate) fn raw_animation(
+        name: impl AsRef<str>,
+        hierarchy: impl AsRef<str>,
+        num_frames: u32,
+        frame_rate: u32,
+        motions: Vec<MotionChannelClass>,
+        bits: Vec<BitChannelClass>,
+    ) -> W3dAnimation {
+        let mut raw = HRawAnimClass::new(name.as_ref(), hierarchy.as_ref(), num_frames, frame_rate);
+        motions.into_iter().for_each(|channel| raw.add_channel(channel));
+        bits.into_iter().for_each(|channel| raw.add_bit_channel(channel));
+        W3dAnimation::raw(raw)
+    }
 }

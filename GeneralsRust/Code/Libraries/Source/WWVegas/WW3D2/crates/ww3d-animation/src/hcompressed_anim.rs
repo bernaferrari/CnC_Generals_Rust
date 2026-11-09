@@ -8,7 +8,7 @@
 
 use crate::hanim::{AnimationEvent, AnimationMode};
 use crate::motion_channels::{
-    AdaptiveDeltaMotionChannelClass, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,
+    AdaptiveDeltaMotionChannelClass, AnimChannelKind, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,
 };
 use glam::{Mat4, Quat, Vec3};
 
@@ -190,10 +190,10 @@ impl HCompressedAnimClass {
         if let NodeCompressedMotion::TimeCoded { x, y, z, q, .. } = &mut self.node_motion[pivot_idx]
         {
             match channel.get_type() {
-                0 => *x = Some(channel), // ANIM_CHANNEL_X
-                1 => *y = Some(channel), // ANIM_CHANNEL_Y
-                2 => *z = Some(channel), // ANIM_CHANNEL_Z
-                6 => *q = Some(channel), // ANIM_CHANNEL_Q
+                AnimChannelKind::X => *x = Some(channel),
+                AnimChannelKind::Y => *y = Some(channel),
+                AnimChannelKind::Z => *z = Some(channel),
+                AnimChannelKind::Quaternion => *q = Some(channel),
                 _ => {}
             }
         }
@@ -215,11 +215,10 @@ impl HCompressedAnimClass {
             &mut self.node_motion[pivot_idx]
         {
             match channel.get_type() {
-                0 => *x = Some(channel),  // ANIM_CHANNEL_X
-                1 => *y = Some(channel),  // ANIM_CHANNEL_Y
-                2 => *z = Some(channel),  // ANIM_CHANNEL_Z
-                6 => *q = Some(channel),  // ANIM_CHANNEL_Q (14 for adaptive delta variant)
-                14 => *q = Some(channel), // ANIM_CHANNEL_Q adaptive delta
+                AnimChannelKind::X => *x = Some(channel),
+                AnimChannelKind::Y => *y = Some(channel),
+                AnimChannelKind::Z => *z = Some(channel),
+                AnimChannelKind::Quaternion => *q = Some(channel),
                 _ => {}
             }
         }
@@ -249,14 +248,14 @@ impl HCompressedAnimClass {
 
     /// Get translation for a pivot at a specific frame
     /// Reference: hcanim.cpp:530-551
-    pub fn get_translation(&mut self, pividx: usize, frame: f32) -> Vec3 {
+    pub fn get_translation(&self, pividx: usize, frame: f32) -> Vec3 {
         if pividx >= self.num_nodes {
             return Vec3::ZERO;
         }
 
         let mut trans = Vec3::ZERO;
 
-        match &mut self.node_motion[pividx] {
+        match &self.node_motion[pividx] {
             NodeCompressedMotion::TimeCoded { x, y, z, .. } => {
                 let mut buffer = [0.0f32; 1];
                 if let Some(ch) = x {
@@ -294,12 +293,12 @@ impl HCompressedAnimClass {
 
     /// Get orientation (quaternion) for a pivot at a specific frame
     /// Reference: hcanim.cpp:565-580
-    pub fn get_orientation(&mut self, pividx: usize, frame: f32) -> Quat {
+    pub fn get_orientation(&self, pividx: usize, frame: f32) -> Quat {
         if pividx >= self.num_nodes {
             return Quat::IDENTITY;
         }
 
-        match &mut self.node_motion[pividx] {
+        match &self.node_motion[pividx] {
             NodeCompressedMotion::TimeCoded { q, .. } => {
                 if let Some(ch) = q {
                     ch.get_quat_vector(frame)
@@ -319,7 +318,7 @@ impl HCompressedAnimClass {
 
     /// Get transform matrix for a pivot at a specific frame
     /// Reference: hcanim.cpp:594-626
-    pub fn get_transform(&mut self, pividx: usize, frame: f32) -> Mat4 {
+    pub fn get_transform(&self, pividx: usize, frame: f32) -> Mat4 {
         if pividx >= self.num_nodes {
             return Mat4::IDENTITY;
         }
@@ -328,7 +327,7 @@ impl HCompressedAnimClass {
         let mut mtx = Mat4::from_quat(rotation);
 
         // Set translation components
-        match &mut self.node_motion[pividx] {
+        match &self.node_motion[pividx] {
             NodeCompressedMotion::TimeCoded { x, y, z, .. } => {
                 let mut buffer = [0.0f32; 1];
                 if let Some(ch) = x {
@@ -366,14 +365,14 @@ impl HCompressedAnimClass {
 
     /// Get visibility for a pivot at a specific frame
     /// Reference: hcanim.cpp:640-650
-    pub fn get_visibility(&mut self, pividx: usize, frame: f32) -> bool {
+    pub fn get_visibility(&self, pividx: usize, frame: f32) -> bool {
         if pividx >= self.num_nodes {
             return true; // Default to visible
         }
 
         let frame_int = frame as i32;
 
-        match &mut self.node_motion[pividx] {
+        match &self.node_motion[pividx] {
             NodeCompressedMotion::TimeCoded { vis, .. }
             | NodeCompressedMotion::AdaptiveDelta { vis, .. } => {
                 if let Some(ch) = vis {

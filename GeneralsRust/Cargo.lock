@@ -4540,6 +4540,7 @@ dependencies = [
  "wgpu",
  "windows-sys 0.61.2",
  "winit 0.30.13",
+ "ww3d-animation",
  "ww3d-assets",
  "ww3d-core",
  "ww3d-engine",
@@ -15323,9 +15324,9 @@ dependencies = [
  "configparser",
  "glam 0.33.7",
  "log",
+ "math_utilities",
  "thiserror 2.0.20",
  "wgpu",
- "ww3d-assets",
  "ww3d-core",
 ]
 

@@ -12,9 +12,7 @@
 
 use glam::{Mat4, Quat, Vec3};
 use std::io::Cursor;
-use std::cell::RefCell;
 use std::sync::Arc;
-use std::rc::Rc;
 use ww3d_animation::{
     HAnimClass, HCompressedAnimClass, HTreeClass, load_w3d_animation, w3d_animation_to_hanim,
 };
@@ -76,7 +74,7 @@ pub struct LoadedAnimation {
     /// Uncompressed animation data (if present)
     pub hanim: Option<HAnimClass>,
     /// Compressed animation data (if present)
-    pub compressed_anim: Option<Rc<RefCell<HCompressedAnimClass>>>,
+    pub compressed_anim: Option<HCompressedAnimClass>,
     /// Custom data that animation systems can store
     /// (e.g., serialized animation data, file handles)
     pub metadata: std::collections::HashMap<String, String>,
@@ -172,14 +170,12 @@ impl W3DAnimationLoader {
         loaded.hierarchy_name = hierarchy_name;
         loaded.hanim = hanim;
 
-        if let Some(compressed) = compressed_anim {
-            loaded.compressed_anim = Some(Rc::new(RefCell::new(compressed)));
-        }
+        loaded.compressed_anim = compressed_anim;
 
         loaded.bone_count = if let Some(hanim) = &loaded.hanim {
             hanim.num_pivots() as u32
         } else if let Some(compressed) = &loaded.compressed_anim {
-            compressed.borrow_mut().get_num_pivots() as u32
+            compressed.get_num_pivots() as u32
         } else {
             0
         };
@@ -333,11 +329,11 @@ impl AnimationPlayback {
 
     /// Get bone transform at current frame.
     pub fn get_bone_transform(&self, bone_index: u32) -> Mat4 {
-        let frame = self.get_current_frame() as f32;
+        let frame = self.current_frame.clamp(0.0, self.animation.frame_count.saturating_sub(1) as f32);
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            return compressed.borrow_mut().get_transform(bone_index, frame);
+            return compressed.get_transform(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -349,11 +345,11 @@ impl AnimationPlayback {
 
     /// Get bone translation at current frame.
     pub fn get_bone_translation(&self, bone_index: u32) -> Vec3 {
-        let frame = self.get_current_frame() as f32;
+        let frame = self.current_frame.clamp(0.0, self.animation.frame_count.saturating_sub(1) as f32);
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            return compressed.borrow_mut().get_translation(bone_index, frame);
+            return compressed.get_translation(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -365,11 +361,11 @@ impl AnimationPlayback {
 
     /// Get bone rotation at current frame.
     pub fn get_bone_rotation(&self, bone_index: u32) -> Quat {
-        let frame = self.get_current_frame() as f32;
+        let frame = self.current_frame.clamp(0.0, self.animation.frame_count.saturating_sub(1) as f32);
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            return compressed.borrow_mut().get_orientation(bone_index, frame);
+            return compressed.get_orientation(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -381,11 +377,11 @@ impl AnimationPlayback {
 
     /// Get bone visibility at current frame.
     pub fn get_bone_visibility(&self, bone_index: u32) -> bool {
-        let frame = self.get_current_frame() as f32;
+        let frame = self.current_frame.clamp(0.0, self.animation.frame_count.saturating_sub(1) as f32);
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            return compressed.borrow_mut().get_visibility(bone_index, frame);
+            return compressed.get_visibility(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -408,7 +404,7 @@ impl AnimationPlayback {
 
 /// Cache for loaded animations to avoid reloading
 pub struct AnimationCache {
-    animations: std::collections::HashMap<String, LoadedAnimation>,
+    animations: std::collections::HashMap<String, Arc<LoadedAnimation>>,
 }
 
 impl AnimationCache {
@@ -429,21 +425,19 @@ impl AnimationCache {
         if let Some(anim) = self.animations.get(file_path) {
             if anim.hierarchy_name.eq_ignore_ascii_case(&hierarchy.name)
                 && anim.bone_count as usize == hierarchy.num_pivots() {
-                return Ok(Arc::new(anim.clone()));
+                return Ok(Arc::clone(anim));
             }
         }
 
         // Load from file
-        let anim = W3DAnimationLoader::load_animation(file_path, hierarchy)?;
-        let anim_arc = Arc::new(anim.clone());
-        self.animations.insert(file_path.to_string(), anim);
-
-        Ok(anim_arc)
+        let anim = Arc::new(W3DAnimationLoader::load_animation(file_path, hierarchy)?);
+        self.animations.insert(file_path.to_string(), Arc::clone(&anim));
+        Ok(anim)
     }
 
     /// Get cached animation if available
     pub fn get(&self, file_path: &str) -> Option<Arc<LoadedAnimation>> {
-        self.animations.get(file_path).map(|a| Arc::new(a.clone()))
+        self.animations.get(file_path).map(Arc::clone)
     }
 
     /// Clear animation cache

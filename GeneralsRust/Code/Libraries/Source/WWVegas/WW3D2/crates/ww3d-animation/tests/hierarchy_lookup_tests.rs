@@ -1,6 +1,14 @@
 use glam::{Mat4, Quat, Vec3};
 use std::sync::Arc;
-use ww3d_animation::{Animatable3DObjClass, AnimationMode, BitChannel, HAnimClass, HTreeClass, MotionChannelType};
+use ww3d_animation::{
+    Animatable3DObjClass, AnimationMode, BitChannelClass, HAnimClass, HRawAnimClass, HTreeClass,
+};
+
+fn bit_anim(name: &str, hierarchy: &str, frames: u32, pivots: usize, bits: Vec<BitChannelClass>) -> HAnimClass {
+    let mut raw = HRawAnimClass::new(name, hierarchy, frames, 30);
+    bits.into_iter().for_each(|channel| raw.add_bit_channel(channel));
+    HAnimClass::from_raw(raw.bind_to_hierarchy(pivots))
+}
 
 #[test]
 fn hierarchy_name_lookups_are_case_insensitive_and_use_first_matching_pivot() {
@@ -103,22 +111,12 @@ fn captured_bone_control_applies_local_or_world_translation_after_base_pose() {
 
 #[test]
 fn single_and_blended_animation_apply_visibility_per_pivot() {
-    let channel = |pivot_idx, bits| BitChannel {
-        pivot_idx,
-        channel_type: MotionChannelType::Visibility,
-        data: vec![bits],
-        first_frame: 0,
-        last_frame: 1,
-        default_value: 1,
-    };
-    let hidden = Arc::new(HAnimClass::with_channels(
-        "hidden", "tree", 2, 30.0, 4, vec![],
+    let channel = |pivot, bits| BitChannelClass::try_new(pivot, 1, 0, 1, vec![bits]).unwrap();
+    let hidden = Arc::new(bit_anim(
+        "hidden", "tree", 2, 4,
         vec![channel(1, 0b10), channel(2, 0), channel(3, 0)],
     ));
-    let other = Arc::new(HAnimClass::with_channels(
-        "other", "tree", 2, 30.0, 3, vec![],
-        vec![channel(1, 0b01), channel(2, 0)],
-    ));
+    let other = Arc::new(bit_anim("other", "tree", 2, 3, vec![channel(1, 0b01), channel(2, 0)]));
     let mut tree = HTreeClass::default();
     for name in ["one", "two", "three", "outside"] {
         tree.add_pivot(name, 0, Vec3::ZERO, Quat::IDENTITY);
@@ -152,23 +150,12 @@ fn single_and_blended_animation_apply_visibility_per_pivot() {
 
 #[test]
 fn unanimated_trailing_pivots_use_authored_hierarchy_size_in_single_and_blended_updates() {
-    let hidden = Arc::new(HAnimClass::with_channels(
-        "hidden", "large", 1, 30.0, 5, vec![],
-        vec![BitChannel {
-            pivot_idx: 3,
-            channel_type: MotionChannelType::Visibility,
-            data: vec![0],
-            first_frame: 0,
-            last_frame: 0,
-            default_value: 1,
-        }],
+    let hidden = Arc::new(bit_anim(
+        "hidden", "large", 1, 5,
+        vec![BitChannelClass::try_new(3, 1, 0, 0, vec![0]).unwrap()],
     ));
-    let unanimated = Arc::new(HAnimClass::with_channels(
-        "idle", "large", 1, 30.0, 5, vec![], vec![],
-    ));
-    let shorter = Arc::new(HAnimClass::with_channels(
-        "short", "small", 1, 30.0, 3, vec![], vec![],
-    ));
+    let unanimated = Arc::new(bit_anim("idle", "large", 1, 5, vec![]));
+    let shorter = Arc::new(bit_anim("short", "small", 1, 3, vec![]));
     let mut tree = HTreeClass::default();
     for name in ["one", "two", "three", "four", "outside"] {
         tree.add_pivot(name, 0, Vec3::ZERO, Quat::IDENTITY);

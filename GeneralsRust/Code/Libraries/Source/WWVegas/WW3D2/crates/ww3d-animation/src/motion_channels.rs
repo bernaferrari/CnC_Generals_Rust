@@ -1,706 +1,476 @@
-//! Motion Channel Classes - Direct C++ Port
+//! Canonical W3D motion and bit channels (`motchan.h`, `motchan.cpp`).
 //!
-//! This module implements the exact motion channel compression algorithms from the C++
-//! codebase. These are critical for loading and playing game animations.
-//!
-//! Referenced C++ files:
-//! - motchan.h (lines 217-333)
-//! - motchan.cpp (lines 313-1328)
-//!
-//! ## TimeCodedMotionChannelClass
-//! Uses binary search for keyframe lookup with time-coded packets.
-//! Each packet contains: [timecode, value1, value2, ..., valueN]
-//!
-//! ## AdaptiveDeltaMotionChannelClass
-//! Uses adaptive delta compression with a filter table and nibble-packed deltas.
-//! Data format: [header floats][packets of filter_index + 16 nibbles]
+//! Raw per-frame channels, compressed timecoded/adaptive-delta channels and
+//! both bit-channel forms live here and nowhere else. Payloads and packet
+//! checkpoints are immutable; independent players borrow them without
+//! sharing mutable decoder state. See OWNERSHIP_AND_AUTHORITY.md for the
+//! intentional corrections to the original adaptive random-seek bugs.
 
 use glam::Quat;
-use std::sync::OnceLock;
+use math_utilities::wwmath::{EPSILON2, WWMath};
+use std::sync::LazyLock;
 
-// From motchan.cpp:57-79 - Filter table constants
-const FILTER_TABLE_SIZE: usize = 256;
-const FILTER_TABLE_GEN_START: usize = 16;
-const FILTER_TABLE_GEN_SIZE: usize = FILTER_TABLE_SIZE - FILTER_TABLE_GEN_START;
+const FLAG: u32 = 0x8000_0000;
+const PACKET_SIZE: usize = 9;
 
-// From motchan.cpp:983 - Packet size for adaptive delta
-const PACKET_SIZE: usize = 9; // 1 filter byte + 8 data bytes
+/// Motion channel kinds (`ANIM_CHANNEL_*`, `w3d_file.h:1373-1392`).
+///
+/// Raw animations store these values in `W3dAnimChannelStruct::Flags`;
+/// compressed channels store them in the channel `Flags` byte. Values 7..=15
+/// (timecoded/adaptive aliases and visibility) are never installed by the
+/// source animation classes, so they have no variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AnimChannelKind {
+    X,
+    Y,
+    Z,
+    XRotation,
+    YRotation,
+    ZRotation,
+    Quaternion,
+}
 
-// W3D flags from w3d_file.h
-const W3D_TIMECODED_BINARY_MOVEMENT_FLAG: u32 = 0x80000000;
-const W3D_TIMECODED_BIT_MASK: u32 = 0x80000000;
+impl AnimChannelKind {
+    /// Decode the source `Flags` value; `None` for kinds no animation installs.
+    pub fn from_flags(flags: u16) -> Option<Self> {
+        Some(match flags {
+            0 => Self::X,
+            1 => Self::Y,
+            2 => Self::Z,
+            3 => Self::XRotation,
+            4 => Self::YRotation,
+            5 => Self::ZRotation,
+            6 => Self::Quaternion,
+            _ => return None,
+        })
+    }
 
-// Channel types from w3d_file.h
-#[allow(dead_code)] // C++ parity
-const ANIM_CHANNEL_X: u16 = 0;
-#[allow(dead_code)] // C++ parity
-const ANIM_CHANNEL_Y: u16 = 1;
-#[allow(dead_code)] // C++ parity
-const ANIM_CHANNEL_Z: u16 = 2;
-#[allow(dead_code)] // C++ parity
-const ANIM_CHANNEL_Q: u16 = 6;
+    /// Components per frame. A different authored `VectorLen` would make the
+    /// source write past its three-float translation or read past its
+    /// quaternion, so loaders reject it.
+    pub fn vector_len(self) -> usize {
+        match self {
+            Self::Quaternion => 4,
+            _ => 1,
+        }
+    }
 
-// Bit channel type
-#[allow(dead_code)] // C++ parity
-const BIT_CHANNEL_VIS: u16 = 0;
-
-/// Fast quaternion slerp with lerp approximation for small angles
-fn fast_slerp(q0: Quat, q1: Quat, t: f32) -> Quat {
-    let dot = q0.dot(q1);
-    let q1_adjusted = if dot < 0.0 { -q1 } else { q1 };
-    let dot_abs = dot.abs();
-
-    if dot_abs > 0.9995 {
-        q0.lerp(q1_adjusted, t).normalize()
-    } else {
-        q0.slerp(q1_adjusted, t)
+    /// Translation axis index for X/Y/Z channels.
+    pub fn translation_axis(self) -> Option<usize> {
+        match self {
+            Self::X => Some(0),
+            Self::Y => Some(1),
+            Self::Z => Some(2),
+            _ => None,
+        }
     }
 }
 
-/// Generate the filter table used by adaptive delta decompression
-/// Reference: motchan.cpp:865-879
-fn generate_filter_table() -> [f32; FILTER_TABLE_SIZE] {
-    let mut table = [0.0f32; FILTER_TABLE_SIZE];
+/// Bit channel kinds (`BIT_CHANNEL_*`, `w3d_file.h:1418-1422`). Only
+/// visibility is installed by `HRawAnimClass` and `HCompressedAnimClass`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BitChannelKind {
+    Visibility,
+}
 
-    // First 16 hardcoded values from motchan.cpp:61-77
-    let hardcoded = [
-        0.00000001f32,
-        0.0000001,
-        0.000001,
-        0.00001,
-        0.0001,
-        0.001,
-        0.01,
-        0.1,
-        1.0,
-        10.0,
-        100.0,
-        1000.0,
-        10000.0,
-        100000.0,
-        1000000.0,
-        10000000.0,
-    ];
-    table[0..16].copy_from_slice(&hardcoded);
-
-    // Generate the rest using sine curve (motchan.cpp:868-875)
-    for i in 0..FILTER_TABLE_GEN_SIZE {
-        let ratio = (i + 1) as f32 / FILTER_TABLE_GEN_SIZE as f32;
-        table[i + FILTER_TABLE_GEN_START] = 1.0 - (ratio * std::f32::consts::FRAC_PI_2).sin();
+impl BitChannelKind {
+    pub fn from_flags(flags: u16) -> Option<Self> {
+        (flags == 0).then_some(Self::Visibility)
     }
+}
 
+/// Source Fast_Slerp: hemisphere correction, epsilon-squared linear branch,
+/// and no normalization of authored/compressed values.
+pub fn fast_slerp(a: Quat, b: Quat, t: f32) -> Quat {
+    let mut cosine = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    let flip = cosine < 0.0;
+    if flip {
+        cosine = -cosine;
+    }
+    let (beta, alpha) = if 1.0 - cosine < EPSILON2 {
+        (1.0 - t, t)
+    } else {
+        let theta = WWMath::fast_acos(cosine);
+        let inverse_sine = 1.0 / WWMath::fast_sin(theta);
+        (
+            WWMath::fast_sin(theta - t * theta) * inverse_sine,
+            WWMath::fast_sin(t * theta) * inverse_sine,
+        )
+    };
+    let alpha = if flip { -alpha } else { alpha };
+    Quat::from_xyzw(
+        beta * a.x + alpha * b.x,
+        beta * a.y + alpha * b.y,
+        beta * a.z + alpha * b.z,
+        beta * a.w + alpha * b.w,
+    )
+}
+
+/// `AdaptiveDeltaMotionChannelClass` constructor table (`motchan.cpp:15-33`,
+/// `824-830`): sixteen authored powers of ten, then
+/// `1 - Sin(DEG_TO_RAD(90 * i / 240))`. `DEG_TO_RAD` widens to double before
+/// `WWMath::Sin` narrows its argument back to float.
+fn generate_filter_table() -> [f32; 256] {
+    const WWMATH_PI: f32 = 3.141_592_654;
+    let mut table = [0.0; 256];
+    table[..16].copy_from_slice(&[
+        1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0, 1000.0, 10000.0,
+        100000.0, 1000000.0, 10000000.0,
+    ]);
+    for (index, slot) in (0u8..240).zip(table[16..].iter_mut()) {
+        let ratio = f32::from(index) / 240.0;
+        let radians = f64::from(90.0 * ratio) * f64::from(WWMATH_PI) / 180.0;
+        // Float narrowing at the original `Sin(float)` call boundary.
+        #[allow(clippy::cast_possible_truncation)]
+        let radians = radians as f32;
+        *slot = 1.0 - radians.sin();
+    }
     table
 }
 
-/// Global filter table for adaptive delta decompression
-static FILTER_TABLE: OnceLock<[f32; FILTER_TABLE_SIZE]> = OnceLock::new();
+// Existing immutable format table, never playback state.
+static FILTER_TABLE: LazyLock<[f32; 256]> = LazyLock::new(generate_filter_table);
 
-fn get_filter_table() -> &'static [f32; FILTER_TABLE_SIZE] {
-    FILTER_TABLE.get_or_init(generate_filter_table)
+/// Classic per-frame motion (`MotionChannelClass`, `motchan.h:24-112`).
+///
+/// Frames outside `[FirstFrame, LastFrame]` produce the channel identity:
+/// zero for scalar kinds, `(0, 0, 0, 1)` for quaternions. Authored
+/// quaternions are returned exactly, never normalized.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MotionChannelClass {
+    pivot_idx: u32,
+    kind: AnimChannelKind,
+    first_frame: u16,
+    last_frame: u16,
+    data: Box<[f32]>,
 }
 
-/// Time-coded motion channel with binary search lookup
-/// Reference: motchan.h:217-253, motchan.cpp:313-679
+impl MotionChannelClass {
+    /// `data` must hold exactly `(last - first + 1) * kind.vector_len()`
+    /// values; loaders discard the exporter's trailing surplus first.
+    pub fn try_new(
+        pivot_idx: u32,
+        kind: AnimChannelKind,
+        first_frame: u16,
+        last_frame: u16,
+        data: Vec<f32>,
+    ) -> Result<Self, &'static str> {
+        let frames = Self::frame_count(first_frame, last_frame)?;
+        if frames.checked_mul(kind.vector_len()) != Some(data.len()) {
+            return Err("raw motion payload does not match its frame range");
+        }
+        Ok(Self { pivot_idx, kind, first_frame, last_frame, data: data.into_boxed_slice() })
+    }
+
+    /// Number of authored frames, or an error for an inverted range (the
+    /// source computes an unsigned wrap and fails its read).
+    pub fn frame_count(first_frame: u16, last_frame: u16) -> Result<usize, &'static str> {
+        last_frame
+            .checked_sub(first_frame)
+            .map(|span| usize::from(span) + 1)
+            .ok_or("inverted raw channel frame range")
+    }
+
+    pub fn get_type(&self) -> AnimChannelKind {
+        self.kind
+    }
+
+    pub fn get_pivot(&self) -> u32 {
+        self.pivot_idx
+    }
+
+    fn authored(&self, frame: i32) -> Option<&[f32]> {
+        if frame < i32::from(self.first_frame) || frame > i32::from(self.last_frame) {
+            return None;
+        }
+        let len = self.kind.vector_len();
+        let start = usize::try_from(frame - i32::from(self.first_frame)).ok()? * len;
+        self.data.get(start..start + len)
+    }
+
+    /// `MotionChannelClass::Get_Vector` for a scalar channel.
+    pub fn get_scalar(&self, frame: i32) -> f32 {
+        self.authored(frame).map_or(0.0, |values| values[0])
+    }
+
+    /// `MotionChannelClass::Get_Vector_As_Quat`.
+    pub fn get_vector_as_quat(&self, frame: i32) -> Quat {
+        match self.authored(frame) {
+            Some(&[x, y, z, w]) => Quat::from_xyzw(x, y, z, w),
+            _ => Quat::IDENTITY,
+        }
+    }
+}
+
+/// Classic per-frame bits (`BitChannelClass`, `motchan.h:116-167`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BitChannelClass {
+    pivot_idx: u32,
+    default_val: u8,
+    first_frame: u16,
+    last_frame: u16,
+    bits: Box<[u8]>,
+}
+
+impl BitChannelClass {
+    /// `bits` must hold exactly `ceil((last - first + 1) / 8)` bytes.
+    pub fn try_new(
+        pivot_idx: u32,
+        default_val: u8,
+        first_frame: u16,
+        last_frame: u16,
+        bits: Vec<u8>,
+    ) -> Result<Self, &'static str> {
+        let frames = MotionChannelClass::frame_count(first_frame, last_frame)?;
+        if frames.div_ceil(8) != bits.len() {
+            return Err("raw bit payload does not match its frame range");
+        }
+        Ok(Self { pivot_idx, default_val, first_frame, last_frame, bits: bits.into_boxed_slice() })
+    }
+
+    pub fn get_pivot(&self) -> u32 {
+        self.pivot_idx
+    }
+
+    /// `BitChannelClass::Get_Bit`: the raw `DefaultVal` byte outside the
+    /// authored range (callers compare with one, so a default of two hides),
+    /// otherwise the LSB-first packed bit.
+    pub fn get_bit(&self, frame: i32) -> u8 {
+        if frame < i32::from(self.first_frame) || frame > i32::from(self.last_frame) {
+            return self.default_val;
+        }
+        let Ok(bit) = usize::try_from(frame - i32::from(self.first_frame)) else {
+            return self.default_val;
+        };
+        u8::from(self.bits[bit / 8] & (1 << (bit % 8)) != 0)
+    }
+}
+
+/// Sparse timecoded motion. Movement flags belong to the destination key.
 #[derive(Debug, Clone)]
 pub struct TimeCodedMotionChannelClass {
     pivot_idx: u32,
-    channel_type: u16,
+    kind: AnimChannelKind,
     vector_len: usize,
-    packet_size: usize,
-    num_timecodes: u32,
-    last_timecode_idx: usize,
-    cached_idx: usize,
-    /// Packed data: alternating [timecode, value1, value2, ..., valueN] packets
     data: Vec<u32>,
 }
 
 impl TimeCodedMotionChannelClass {
-    /// Create from W3D chunk data
-    /// Reference: motchan.cpp:386-413
-    pub fn new(
-        pivot_idx: u32,
-        channel_type: u16,
-        num_timecodes: u32,
-        vector_len: usize,
-        data: Vec<u32>,
-    ) -> Self {
-        let packet_size = vector_len + 1; // timecode + values
-        let last_timecode_idx = ((num_timecodes - 1) as usize) * packet_size;
-
-        Self {
-            pivot_idx,
-            channel_type,
-            vector_len,
-            packet_size,
-            num_timecodes,
-            last_timecode_idx,
-            cached_idx: 0,
-            data,
+    pub fn try_new(pivot_idx: u32, kind: AnimChannelKind, num_timecodes: u32,
+        vector_len: usize, data: Vec<u32>) -> Result<Self, &'static str> {
+        if kind.vector_len() != vector_len || num_timecodes == 0 {
+            return Err("invalid timecoded channel shape/count");
         }
+        let size = vector_len + 1;
+        if (num_timecodes as usize).checked_mul(size) != Some(data.len()) {
+            return Err("invalid timecoded payload length");
+        }
+        // Source lookup assumes a motion key at frame zero and strictly
+        // increasing times. Reject violations instead of hanging in its search.
+        if data[0] & !FLAG != 0
+            || data.chunks_exact(size).any(|p| (p[0] & !FLAG) >= (1 << 24))
+            || data.chunks_exact(size).zip(data.chunks_exact(size).skip(1))
+                .any(|(a, b)| (a[0] & !FLAG) >= (b[0] & !FLAG)) {
+            return Err("motion keys must start at zero and strictly increase");
+        }
+        if data.chunks_exact(size).any(|p| p[1..].iter().any(|v| !f32::from_bits(*v).is_finite())) {
+            return Err("non-finite motion value");
+        }
+        Ok(Self { pivot_idx, kind, vector_len, data })
     }
 
-    pub fn get_type(&self) -> u16 {
-        self.channel_type
+    /// Construct trusted in-memory data. File loaders use `try_new`.
+    pub fn new(pivot_idx: u32, kind: AnimChannelKind, num_timecodes: u32,
+        vector_len: usize, data: Vec<u32>) -> Self {
+        Self::try_new(pivot_idx, kind, num_timecodes, vector_len, data)
+            .expect("invalid timecoded channel")
+    }
+    pub fn get_type(&self) -> AnimChannelKind { self.kind }
+    pub fn get_pivot(&self) -> u32 { self.pivot_idx }
+    pub fn last_frame(&self) -> u32 { self.data[self.data.len() - self.vector_len - 1] & !FLAG }
+
+    fn segment(&self, frame: f32) -> (usize, usize, f32) {
+        assert!(frame.is_finite() && frame >= 0.0, "invalid compressed sample frame");
+        let size = self.vector_len + 1;
+        let count = self.data.len() / size;
+        let mut lo = 0;
+        let mut hi = count;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if (self.data[mid * size] & !FLAG) as f32 <= frame { lo = mid + 1; }
+            else { hi = mid; }
+        }
+        let first = lo.saturating_sub(1) * size;
+        let next = first + size;
+        if next == self.data.len() || self.data[next] & FLAG != 0 {
+            return (first + 1, first + 1, 0.0);
+        }
+        let t0 = (self.data[first] & !FLAG) as f32;
+        let t1 = (self.data[next] & !FLAG) as f32;
+        (first + 1, next + 1, (frame - t0) / (t1 - t0))
     }
 
-    pub fn get_pivot(&self) -> u32 {
-        self.pivot_idx
-    }
-
-    /// Get a scalar vector value at the specified frame
-    /// Reference: motchan.cpp:428-479
-    pub fn get_vector(&mut self, frame: f32, setvec: &mut [f32]) {
-        let tc0 = frame as u32;
-        let pidx = self.get_index(tc0);
-
-        // Check if we're at the last packet (motchan.cpp:438-450)
-        if pidx == (self.num_timecodes - 1) as usize * self.packet_size {
-            // Last packet - no interpolation
-            let frm_offset = pidx + 1;
-            for i in 0..self.vector_len.min(setvec.len()) {
-                setvec[i] = f32::from_bits(self.data[frm_offset + i]);
-            }
-            return;
-        }
-
-        let p2idx = pidx + self.packet_size;
-        let time = self.data[p2idx];
-
-        // Check for binary movement flag (motchan.cpp:457-463)
-        if (time & W3D_TIMECODED_BINARY_MOVEMENT_FLAG) != 0 {
-            let frm_offset = pidx + 1;
-            for i in 0..self.vector_len.min(setvec.len()) {
-                setvec[i] = f32::from_bits(self.data[frm_offset + i]);
-            }
-            return;
-        }
-
-        // Interpolate between two keyframes (motchan.cpp:465-477)
-        let time1 = (self.data[pidx] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG) as f32;
-        let time2 = (time & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG) as f32;
-        let ratio = (frame - time1) / (time2 - time1);
-
-        let frame1_offset = pidx + 1;
-        let frame2_offset = p2idx + 1;
-
-        for i in 0..self.vector_len.min(setvec.len()) {
-            let val1 = f32::from_bits(self.data[frame1_offset + i]);
-            let val2 = f32::from_bits(self.data[frame2_offset + i]);
-            setvec[i] = val1 + (val2 - val1) * ratio; // WWMath::Lerp
+    pub fn get_vector(&self, frame: f32, out: &mut [f32]) {
+        let (a, b, t) = self.segment(frame);
+        for (i, value) in out.iter_mut().take(self.vector_len).enumerate() {
+            let x = f32::from_bits(self.data[a + i]);
+            let y = f32::from_bits(self.data[b + i]);
+            *value = if a == b { x } else { x + (y - x) * t };
         }
     }
-
-    /// Get a quaternion vector at the specified frame with slerp interpolation
-    /// Reference: motchan.cpp:482-538
-    pub fn get_quat_vector(&mut self, frame: f32) -> Quat {
-        debug_assert_eq!(
-            self.vector_len, 4,
-            "Quaternion channels must have vector_len=4"
-        );
-
-        let tc0 = frame as u32;
-        let pidx = self.get_index(tc0);
-
-        // Check if we're at the last packet
-        if pidx == (self.num_timecodes - 1) as usize * self.packet_size {
-            let vec_offset = pidx + 1;
-            let x = f32::from_bits(self.data[vec_offset]);
-            let y = f32::from_bits(self.data[vec_offset + 1]);
-            let z = f32::from_bits(self.data[vec_offset + 2]);
-            let w = f32::from_bits(self.data[vec_offset + 3]);
-            return Quat::from_xyzw(x, y, z, w);
-        }
-
-        let p2idx = pidx + self.packet_size;
-        let time = self.data[p2idx];
-
-        // Check for binary movement flag
-        if (time & W3D_TIMECODED_BINARY_MOVEMENT_FLAG) != 0 {
-            let vec_offset = pidx + 1;
-            let x = f32::from_bits(self.data[vec_offset]);
-            let y = f32::from_bits(self.data[vec_offset + 1]);
-            let z = f32::from_bits(self.data[vec_offset + 2]);
-            let w = f32::from_bits(self.data[vec_offset + 3]);
-            return Quat::from_xyzw(x, y, z, w);
-        }
-
-        // Interpolate using slerp (motchan.cpp:520-536)
-        let time1 = (self.data[pidx] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG) as f32;
-        let time2 = (time & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG) as f32;
-        let ratio = (frame - time1) / (time2 - time1);
-
-        let frame1_offset = pidx + 1;
-        let frame2_offset = p2idx + 1;
-
-        let q1 = Quat::from_xyzw(
-            f32::from_bits(self.data[frame1_offset]),
-            f32::from_bits(self.data[frame1_offset + 1]),
-            f32::from_bits(self.data[frame1_offset + 2]),
-            f32::from_bits(self.data[frame1_offset + 3]),
-        );
-
-        let q2 = Quat::from_xyzw(
-            f32::from_bits(self.data[frame2_offset]),
-            f32::from_bits(self.data[frame2_offset + 1]),
-            f32::from_bits(self.data[frame2_offset + 2]),
-            f32::from_bits(self.data[frame2_offset + 3]),
-        );
-
-        fast_slerp(q1, q2, ratio)
-    }
-
-    /// Binary search to find the packet index for a given timecode
-    /// Reference: motchan.cpp:555-609
-    fn binary_search_index(&self, timecode: u32) -> usize {
-        let mut left_idx = 0;
-        let mut right_idx = self.num_timecodes as isize - 2;
-
-        // Special case: check last packet first (motchan.cpp:563-570)
-        let idx = self.last_timecode_idx;
-        let time = self.data[idx] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG;
-        if timecode >= time {
-            return idx;
-        }
-
-        loop {
-            let dx = (right_idx - left_idx) >> 1; // divide by 2
-            let dx = dx + left_idx;
-            let idx = (dx as usize) * self.packet_size;
-
-            let time = self.data[idx] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG;
-            if timecode < time {
-                right_idx = dx;
-                continue;
-            }
-
-            let time_next = self.data[idx + self.packet_size] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG;
-            if timecode < time_next {
-                return idx;
-            }
-
-            if left_idx != dx {
-                left_idx = dx;
-                continue;
-            }
-
-            // If leftIdx == dx prior to assignment, then leftIdx is stuck
-            left_idx += 1;
-        }
-    }
-
-    /// Get the packet index for a timecode with caching
-    /// Reference: motchan.cpp:624-651
-    fn get_index(&mut self, timecode: u32) -> usize {
-        debug_assert!(self.cached_idx <= self.last_timecode_idx);
-
-        let time = self.data[self.cached_idx] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG;
-
-        if timecode >= time {
-            // Possibly in the current packet
-
-            // Special case for end packets
-            if self.cached_idx == self.last_timecode_idx {
-                return self.cached_idx;
-            }
-
-            let time_next =
-                self.data[self.cached_idx + self.packet_size] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG;
-            if timecode < time_next {
-                return self.cached_idx;
-            }
-
-            // Do one time look-ahead before reverting to a search (motchan.cpp:640-644)
-            self.cached_idx += self.packet_size;
-            if self.cached_idx == self.last_timecode_idx {
-                return self.cached_idx;
-            }
-
-            let time_next =
-                self.data[self.cached_idx + self.packet_size] & !W3D_TIMECODED_BINARY_MOVEMENT_FLAG;
-            if timecode < time_next {
-                return self.cached_idx;
-            }
-        }
-
-        // Fall back to binary search
-        self.cached_idx = self.binary_search_index(timecode);
-        self.cached_idx
+    pub fn get_quat_vector(&self, frame: f32) -> Quat {
+        assert_eq!(self.vector_len, 4);
+        let (a, b, t) = self.segment(frame);
+        let quat = |i| Quat::from_xyzw(f32::from_bits(self.data[i]),
+            f32::from_bits(self.data[i + 1]), f32::from_bits(self.data[i + 2]),
+            f32::from_bits(self.data[i + 3]));
+        if a == b { quat(a) } else { fast_slerp(quat(a), quat(b), t) }
     }
 }
 
-/// Adaptive delta motion channel with nibble-packed delta compression
-/// Reference: motchan.h:255-293, motchan.cpp:840-1272
-///
-/// Each 16-delta block contains one contiguous nine-byte packet per vector
-/// component. Sampling truncated data panics rather than reading past it.
+/// Nine-byte component packets, with an immutable base per 16-delta block.
+/// Checkpoints cost 4 * VectorLen * ceil(NumFrames / 16) bytes, not a dense
+/// frame expansion. Construction is linear and adds deltas in source order.
 #[derive(Debug, Clone)]
 pub struct AdaptiveDeltaMotionChannelClass {
     pivot_idx: u32,
-    channel_type: u16,
+    kind: AnimChannelKind,
     vector_len: usize,
     num_frames: u32,
     scale: f32,
-    cache_frame: Option<u32>,
-    cache_data: Vec<f32>, // CacheFrame and CacheFrame+1, by VectorLen
-    /// Exact little-endian bytes: [header floats][compressed packets].
     data: Vec<u8>,
+    checkpoints: Vec<f32>,
 }
 
 impl AdaptiveDeltaMotionChannelClass {
-    /// Create from the exact bytes of the W3D channel payload.
-    /// Reference: motchan.cpp:940-967
-    pub fn new(
-        pivot_idx: u32,
-        channel_type: u16,
-        vector_len: usize,
-        num_frames: u32,
-        scale: f32,
-        data: Vec<u8>,
-    ) -> Self {
-        // Initialize filter table on first use
-        let _ = get_filter_table();
-
-        Self {
-            pivot_idx,
-            channel_type,
-            vector_len,
-            num_frames,
-            scale,
-            cache_frame: None,
-            cache_data: vec![0.0; vector_len * 2], // cached frame & cached frame+1
-            data,
+    pub fn try_new(pivot_idx: u32, kind: AnimChannelKind, vector_len: usize,
+        num_frames: u32, scale: f32, data: Vec<u8>) -> Result<Self, &'static str> {
+        if kind.vector_len() != vector_len || num_frames == 0 || num_frames > (1 << 24) || !scale.is_finite() {
+            return Err("invalid adaptive channel shape/count/scale");
         }
-    }
-
-    pub fn get_type(&self) -> u16 {
-        self.channel_type
-    }
-
-    pub fn get_pivot(&self) -> u32 {
-        self.pivot_idx
-    }
-
-    /// Decode one component from a known frame, using the interleaved
-    /// nine-byte packets described by motchan.cpp.
-    fn decompress_value(
-        data: &[u8],
-        vector_len: usize,
-        scale: f32,
-        vector_idx: usize,
-        mut value: f32,
-        src_idx: u32,
-        frame_idx: u32,
-    ) -> f32 {
-        if src_idx == frame_idx {
-            return value;
+        let blocks = ((num_frames - 1) as usize).div_ceil(16);
+        let required = blocks.checked_mul(PACKET_SIZE).and_then(|n| n.checked_add(4))
+            .and_then(|n| n.checked_mul(vector_len)).ok_or("adaptive payload overflow")?;
+        // A writer may retain a full final unused packet at an exact boundary.
+        // No bytes used by sampling may be missing.
+        if data.len() < required { return Err("truncated adaptive payload"); }
+        let mut channel = Self { pivot_idx, kind, vector_len, num_frames, scale,
+            data, checkpoints: Vec::with_capacity((num_frames as usize).div_ceil(16) * vector_len) };
+        let mut values = [0.0; 4];
+        for (i, value) in values.iter_mut().take(vector_len).enumerate() {
+            *value = f32::from_le_bytes(channel.data[i * 4..i * 4 + 4].try_into().unwrap());
+            if !value.is_finite() { return Err("non-finite adaptive base"); }
         }
-
-        let header_bytes = vector_len.checked_mul(4).expect("adaptive channel header too large");
-        let row_bytes = vector_len.checked_mul(PACKET_SIZE).expect("adaptive channel row too large");
-        let component_offset = vector_idx.checked_mul(PACKET_SIZE).expect("adaptive channel component too large");
-        let byte = |offset: usize| *data.get(offset).expect("truncated adaptive channel packet");
-
-        let mut frame = src_idx + 1;
-        while frame <= frame_idx {
-            let delta_idx = frame - 1;
-            let packet_offset = header_bytes
-                .checked_add(component_offset)
-                .and_then(|offset| {
-                    ((delta_idx >> 4) as usize)
-                        .checked_mul(row_bytes)
-                        .and_then(|row| offset.checked_add(row))
-                })
-                .expect("adaptive channel packet offset too large");
-            let filter = get_filter_table()[byte(packet_offset) as usize] * scale;
-            let mut fi = (delta_idx & 15) as usize;
-            while fi < 16 {
-                let offset = packet_offset.checked_add(1 + (fi >> 1))
-                    .expect("adaptive channel packet offset too large");
-                let packed = byte(offset);
-                let nibble = if fi & 1 == 0 { packed & 0xf } else { packed >> 4 };
-                let factor = if nibble & 8 != 0 {
-                    nibble as i32 - 16
-                } else {
-                    nibble as i32
-                };
-                let delta = factor as f32 * filter;
-                value += delta;
-                if frame == frame_idx {
-                    return value;
+        channel.checkpoints.extend_from_slice(&values[..vector_len]);
+        for block in 0..blocks {
+            let count = ((num_frames - 1) as usize - block * 16).min(16);
+            for (i, value) in values.iter_mut().take(vector_len).enumerate() {
+                let (filter, packet) = channel.packet(block, i);
+                for delta in 0..count {
+                    *value += Self::delta(packet, filter, delta);
+                    if !value.is_finite() { return Err("non-finite adaptive value"); }
                 }
-                frame += 1;
-                fi += 1;
             }
+            if count == 16 { channel.checkpoints.extend_from_slice(&values[..vector_len]); }
         }
-        value
+        Ok(channel)
+    }
+    pub fn new(pivot_idx: u32, kind: AnimChannelKind, vector_len: usize,
+        num_frames: u32, scale: f32, data: Vec<u8>) -> Self {
+        Self::try_new(pivot_idx, kind, vector_len, num_frames, scale, data)
+            .expect("invalid adaptive channel")
+    }
+    pub fn get_type(&self) -> AnimChannelKind { self.kind }
+    pub fn get_pivot(&self) -> u32 { self.pivot_idx }
+    pub fn num_frames(&self) -> u32 { self.num_frames }
+
+    fn packet(&self, block: usize, component: usize) -> (f32, &[u8]) {
+        let offset = self.vector_len * 4 + (block * self.vector_len + component) * PACKET_SIZE;
+        (FILTER_TABLE[usize::from(self.data[offset])] * self.scale, &self.data[offset + 1..offset + 9])
     }
 
-    /// Decompress from the beginning up to frame_idx.
-    fn decompress(data: &[u8], vector_len: usize, scale: f32, frame_idx: u32, outdata: &mut [f32]) {
-        for (vi, out) in outdata.iter_mut().enumerate() {
-            let start = vi.checked_mul(4).expect("adaptive channel header too large");
-            let end = start.checked_add(4).expect("adaptive channel header too large");
-            let bytes: [u8; 4] = data.get(start..end).expect("truncated adaptive channel header")
-                .try_into().expect("four-byte adaptive channel header");
-            let base = f32::from_le_bytes(bytes);
-            *out = Self::decompress_value(data, vector_len, scale, vi, base, 0, frame_idx);
-        }
+    fn delta(packet: &[u8], filter: f32, delta: usize) -> f32 {
+        let byte = packet[delta / 2];
+        let nibble = if delta & 1 == 0 { byte & 15 } else { byte >> 4 };
+        let factor = if nibble & 8 == 0 { nibble as i32 } else { nibble as i32 - 16 };
+        factor as f32 * filter
     }
 
-    /// Decompress from src_idx to frame_idx (continuation).
-    fn decompress_continuation(
-        data: &[u8],
-        vector_len: usize,
-        scale: f32,
-        src_idx: u32,
-        srcdata: &[f32],
-        frame_idx: u32,
-        outdata: &mut [f32],
-    ) {
-        debug_assert!(src_idx < frame_idx);
-        for (vi, (src, out)) in srcdata.iter().zip(outdata.iter_mut()).enumerate() {
-            *out = Self::decompress_value(data, vector_len, scale, vi, *src, src_idx, frame_idx);
-        }
-    }
-
-    /// Get decompressed data for a specific frame and vector index
-    /// Reference: motchan.cpp:1150-1212
-    fn getframe(&mut self, frame_idx: u32, vector_idx: usize) -> f32 {
-        let last_frame = self.num_frames.checked_sub(1).expect("adaptive channel has no frames");
-        let frame_idx = frame_idx.min(last_frame);
-
-        if let Some(cache_frame) = self.cache_frame {
-            if cache_frame == frame_idx {
-                return self.cache_data[vector_idx];
+    // Decode each component separately; crossing a packet never terminates
+    // the other components (unlike motchan.cpp's shared `done` flag).
+    fn pair(&self, frame: f32) -> ([f32; 4], [f32; 4], f32) {
+        assert!(frame.is_finite() && frame >= 0.0, "invalid compressed sample frame");
+        let frame = frame.min((self.num_frames - 1) as f32);
+        let first = frame as u32;
+        let block = first / 16;
+        let mut a = [0.0; 4];
+        let mut b = [0.0; 4];
+        for i in 0..self.vector_len {
+            let mut value = self.checkpoints[block as usize * self.vector_len + i];
+            if first == self.num_frames - 1 && first % 16 == 0 {
+                a[i] = value;
+                b[i] = value;
+                continue;
             }
-            if cache_frame.checked_add(1) == Some(frame_idx) {
-                return self.cache_data[vector_idx + self.vector_len];
-            }
+            let (filter, packet) = self.packet(block as usize, i);
+            let within = first as usize % 16;
+            for delta in 0..within { value += Self::delta(packet, filter, delta); }
+            a[i] = value;
+            b[i] = if first + 1 < self.num_frames {
+                value + Self::delta(packet, filter, within)
+            } else { value };
         }
-
-        let (current, next) = self.cache_data.split_at_mut(self.vector_len);
-        if self.cache_frame.map_or(true, |cache_frame| frame_idx < cache_frame) {
-            Self::decompress(&self.data, self.vector_len, self.scale, frame_idx, current);
-            if frame_idx != last_frame {
-                Self::decompress_continuation(
-                    &self.data, self.vector_len, self.scale, frame_idx, current, frame_idx + 1, next,
-                );
-            }
-            self.cache_frame = Some(frame_idx);
-            return current[vector_idx];
-        }
-
-        let cache_frame = self.cache_frame.expect("cache initialized above");
-        if cache_frame.checked_add(2) == Some(frame_idx) {
-            // Slide the cached next frame down, just as the C++ implementation does.
-            current.copy_from_slice(next);
-            let new_cache_frame = cache_frame + 1;
-            Self::decompress_continuation(
-                &self.data, self.vector_len, self.scale, new_cache_frame, current, frame_idx, next,
-            );
-            self.cache_frame = Some(new_cache_frame);
-            return next[vector_idx];
-        }
-
-        // The second half is the latest known frame; decode directly into the
-        // disjoint first half, then refill the look-ahead frame.
-        Self::decompress_continuation(
-            &self.data, self.vector_len, self.scale, cache_frame + 1, next, frame_idx, current,
-        );
-        self.cache_frame = Some(frame_idx);
-        if frame_idx != last_frame {
-            Self::decompress_continuation(
-                &self.data, self.vector_len, self.scale, frame_idx, current, frame_idx + 1, next,
-            );
-        }
-        current[vector_idx]
+        (a, b, frame - first as f32)
     }
-
-    /// Get a scalar vector value at the specified frame
-    /// Reference: motchan.cpp:1226-1239
-    ///
-    /// Panics for truncated data, a channel with no frames, or an empty output.
-    pub fn get_vector(&mut self, frame: f32, setvec: &mut [f32]) {
-        let frame1 = frame as u32;
-        let ratio = frame - frame1 as f32;
-
-        let value1 = self.getframe(frame1, 0);
-        let value2 = self.getframe(frame1.saturating_add(1), 0);
-
-        setvec[0] = value1 + (value2 - value1) * ratio; // WWMath::Lerp
+    pub fn get_vector(&self, frame: f32, out: &mut [f32]) {
+        let (a, b, t) = self.pair(frame);
+        for (i, value) in out.iter_mut().take(self.vector_len).enumerate() {
+            *value = a[i] + (b[i] - a[i]) * t;
+        }
     }
-
-    /// Get a quaternion vector at the specified frame with slerp
-    /// Reference: motchan.cpp:1245-1272
-    ///
-    /// Panics for truncated data, a channel with no frames, or fewer than four components.
-    pub fn get_quat_vector(&mut self, frame: f32) -> Quat {
-        assert!(self.vector_len >= 4, "quaternion channel has fewer than four components");
-        let frame1 = frame as u32;
-        let frame2 = frame1.saturating_add(1);
-        let ratio = frame - frame1 as f32;
-
-        let q1 = Quat::from_xyzw(
-            self.getframe(frame1, 0),
-            self.getframe(frame1, 1),
-            self.getframe(frame1, 2),
-            self.getframe(frame1, 3),
-        );
-
-        let q2 = Quat::from_xyzw(
-            self.getframe(frame2, 0),
-            self.getframe(frame2, 1),
-            self.getframe(frame2, 2),
-            self.getframe(frame2, 3),
-        );
-
-        fast_slerp(q1, q2, ratio)
+    pub fn get_quat_vector(&self, frame: f32) -> Quat {
+        assert_eq!(self.vector_len, 4);
+        let (a, b, t) = self.pair(frame);
+        fast_slerp(Quat::from_array(a), Quat::from_array(b), t)
     }
 }
 
-/// Time-coded bit channel for visibility data
-/// Reference: motchan.h:304-332, motchan.cpp:693-837
+/// Compressed visibility (`TimeCodedBitChannelClass`) holds the first key
+/// before its time and the final key afterward. Unlike raw bits, its header
+/// default is not sampled. Only `BIT_CHANNEL_VIS` channels are constructed;
+/// loaders skip other kinds exactly as `add_bit_channel` ignores them.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // C++ parity
 pub struct TimeCodedBitChannelClass {
     pivot_idx: u32,
-    channel_type: u16,
-    default_val: i32,
-    num_timecodes: u32,
-    cached_idx: u32,
-    /// Each u32 contains: [31 bits: timecode][1 bit: value (MSB)]
     bits: Vec<u32>,
 }
 
 impl TimeCodedBitChannelClass {
-    /// Create from W3D chunk data
-    /// Reference: motchan.cpp:754-788
-    pub fn new(
-        pivot_idx: u32,
-        channel_type: u16,
-        default_val: i32,
-        num_timecodes: u32,
-        bits: Vec<u32>,
-    ) -> Self {
-        Self {
-            pivot_idx,
-            channel_type,
-            default_val,
-            num_timecodes,
-            cached_idx: 0,
-            bits,
+    pub fn try_new(pivot_idx: u32, num_timecodes: u32, bits: Vec<u32>) -> Result<Self, &'static str> {
+        if num_timecodes == 0
+            || usize::try_from(num_timecodes) != Ok(bits.len())
+            || bits.windows(2).any(|p| (p[0] & !FLAG) > (p[1] & !FLAG))
+        {
+            return Err("invalid compressed bit channel");
         }
+        Ok(Self { pivot_idx, bits })
     }
 
-    pub fn get_type(&self) -> u16 {
-        self.channel_type
+    pub fn new(pivot_idx: u32, num_timecodes: u32, bits: Vec<u32>) -> Self {
+        Self::try_new(pivot_idx, num_timecodes, bits).expect("invalid compressed bit channel")
     }
 
     pub fn get_pivot(&self) -> u32 {
         self.pivot_idx
     }
 
-    /// Lookup a bit in the bit channel at the specified frame
-    /// Reference: motchan.cpp:803-837
-    pub fn get_bit(&mut self, frame: i32) -> i32 {
-        debug_assert!(frame >= 0);
-        debug_assert!(self.cached_idx < self.num_timecodes);
-
-        let mut time = (self.bits[self.cached_idx as usize] & !W3D_TIMECODED_BIT_MASK) as i32;
-        let mut idx = if frame >= time {
-            // Start from cached position
-            self.cached_idx as usize + 1
-        } else {
-            0
-        };
-
-        // Linear search from idx to find the right time bucket (motchan.cpp:821-827)
-        while idx < self.num_timecodes as usize {
-            time = (self.bits[idx] & !W3D_TIMECODED_BIT_MASK) as i32;
-            if frame < time {
-                break;
-            }
-            idx += 1;
-        }
-
-        idx = idx.saturating_sub(1);
-        self.cached_idx = idx as u32;
-
-        // Return the bit value (motchan.cpp:835)
-        if (self.bits[idx] & W3D_TIMECODED_BIT_MASK) == W3D_TIMECODED_BIT_MASK {
-            1
-        } else {
-            0
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_filter_table_generation() {
-        let table = get_filter_table();
-
-        // Check first hardcoded values
-        assert_eq!(table[0], 0.00000001);
-        assert_eq!(table[8], 1.0);
-        assert_eq!(table[15], 10000000.0);
-
-        // Check generated values are decreasing from 1.0
-        assert!(table[16] < 1.0);
-        assert!(table[16] > table[255]);
+    pub fn last_frame(&self) -> u32 {
+        self.bits[self.bits.len() - 1] & !FLAG
     }
 
-    #[test]
-    fn test_timecoded_channel_basic() {
-        // Create simple time-coded channel with 2 keyframes
-        // Packet format: [timecode, value]
-        let data = vec![
-            0,                 // timecode 0
-            0.0f32.to_bits(),  // value 0.0
-            10,                // timecode 10
-            10.0f32.to_bits(), // value 10.0
-        ];
-
-        let mut channel = TimeCodedMotionChannelClass::new(
-            0, // pivot_idx
-            ANIM_CHANNEL_X,
-            2, // num_timecodes
-            1, // vector_len
-            data,
-        );
-
-        let mut result = [0.0f32];
-
-        // Test at keyframe
-        channel.get_vector(0.0, &mut result);
-        assert_eq!(result[0], 0.0);
-
-        // Test interpolation
-        channel.get_vector(5.0, &mut result);
-        assert!((result[0] - 5.0).abs() < 0.001);
-
-        // Test at second keyframe
-        channel.get_vector(10.0, &mut result);
-        assert_eq!(result[0], 10.0);
-    }
-
-    #[test]
-    fn test_adaptive_delta_simple() {
-        // This is a minimal test - real data would be complex
-        // Just verify structure is correct
-        let channel = AdaptiveDeltaMotionChannelClass::new(
-            0, // pivot
-            ANIM_CHANNEL_X,
-            1,                      // vector_len
-            10,                     // num_frames
-            1.0,                    // scale
-            0.0f32.to_le_bytes().to_vec(), // minimal data
-        );
-
-        assert_eq!(channel.get_pivot(), 0);
-        assert_eq!(channel.get_type(), ANIM_CHANNEL_X);
+    pub fn get_bit(&self, frame: i32) -> i32 {
+        let frame = u32::try_from(frame).expect("invalid compressed sample frame");
+        let index = self.bits.partition_point(|key| (key & !FLAG) <= frame).saturating_sub(1);
+        i32::from(self.bits[index] & FLAG != 0)
     }
 }

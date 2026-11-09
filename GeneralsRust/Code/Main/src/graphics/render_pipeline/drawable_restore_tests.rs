@@ -1,3 +1,4 @@
+use crate::assets::models::test_animation::{motion, raw_animation, visibility};
 use super::*;
 use crate::assets::{
     AuthoredDrawAnimation, AuthoredDrawAnimationMode as Mode, W3DModel, W3dAnimation, W3dHierarchy,
@@ -43,17 +44,7 @@ fn fixture() -> (
         has_unrendered_aggregates: false,
         has_invalid_trailing_records: false,
     });
-    model.animations.push(W3dAnimation {
-        name: "MOVE".into(),
-        hierarchy_name: "TREE".into(),
-        num_frames: 4,
-        frame_rate: 30,
-        source_is_compressed: false,
-        channels: Vec::new(),
-        raw_visibility_channels: Vec::new(),
-        compressed_visibility_channels: Vec::new(),
-        unsupported_visibility_pivots: Vec::new(),
-    });
+    model.animations.push(raw_animation("MOVE", "TREE", 4, 30, Vec::new(), Vec::new()));
     let selected = crate::assets::AuthoredDrawModel {
         model_key: "RESTORE_MODEL".into(),
         animation_mode: Mode::LoopBackwards,

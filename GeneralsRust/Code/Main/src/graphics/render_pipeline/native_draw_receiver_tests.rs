@@ -1,7 +1,8 @@
 //! Actual GameClient → receiving RenderPipeline lifecycle regression.
 //! Synthetic immutable art; no rendered-match or whole-game parity claim.
+use crate::assets::models::test_animation::{motion, raw_animation, visibility};
 use super::*;
-use crate::assets::{W3dAnimChannel, W3dAnimation, W3dHierarchy, W3dPivot};
+use crate::assets::{W3dAnimation, W3dHierarchy, W3dPivot};
 use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
 use crate::presentation_frame::{PresentationFrame, UnitRenderInput};
 use game_client::core::game_client::{GameClient, PresentationDrawableSync};
@@ -70,24 +71,7 @@ fn model() -> W3DModel {
         has_unrendered_aggregates: false,
         has_invalid_trailing_records: false,
     });
-    model.animations.push(W3dAnimation {
-        name: "MOVE".into(),
-        hierarchy_name: "TREE".into(),
-        num_frames: 4,
-        frame_rate: 1,
-        source_is_compressed: false,
-        raw_visibility_channels: vec![],
-        compressed_visibility_channels: Vec::new(),
-        unsupported_visibility_pivots: vec![],
-        channels: vec![W3dAnimChannel {
-            first_frame: 0,
-            last_frame: 3,
-            vector_len: 1,
-            flags: 0,
-            pivot: 1,
-            data: vec![0., 10., 20., 30.],
-        }],
-    });
+    model.animations.push(raw_animation("MOVE", "TREE", 4, 1, vec![motion(1, 0, 0, 3, vec![0., 10., 20., 30.])], vec![]));
     model
 }
 // Only fixture payload construction. Admission and all mutable lifecycle state

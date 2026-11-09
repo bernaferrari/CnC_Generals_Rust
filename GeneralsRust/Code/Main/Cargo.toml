@@ -103,6 +103,7 @@ ww3d-gpu = { path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
 ww3d_engine = { package = "ww3d-engine", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine" }
 ww3d_assets = { package = "ww3d-assets", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
 ww3d_core = { package = "ww3d-core", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
+ww3d_animation = { package = "ww3d-animation", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
 pollster = {workspace = true}
 bytemuck = {workspace = true, features = ["derive"]}
 fastrand = {workspace = true}

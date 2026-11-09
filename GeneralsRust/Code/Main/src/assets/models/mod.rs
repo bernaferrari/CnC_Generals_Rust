@@ -39,12 +39,14 @@ pub use w3d_collection_aggregate::{
 pub use w3d_dazzle_loader::W3dDazzleProto;
 pub use w3d_emitter_loader::W3dEmitterProto;
 pub(crate) use w3d_format::split_w3d_draw_animation_identity;
+#[cfg(test)]
+pub(crate) use w3d_format::test_animation;
 pub use w3d_format::{
-    W3dAnimChannel, W3dAnimation, W3dAnimationBinding, W3dAnimationBindingKey,
-    W3dCompressedVisibilityChannel, W3dHierarchy,
+    W3dAnimation, W3dAnimationBinding, W3dAnimationBindingKey,
+    W3dHierarchy,
     W3dHlod, W3dHlodAggregatePose, W3dHlodAttachmentArray, W3dHlodLod, W3dHlodPrototypeBindPose,
     W3dHlodSubObject, W3dHmodel, W3dHmodelNode, W3dHmodelNodeKind, W3dHmodelNodePose,
-    W3dHmodelSkinNodeBinding, W3dHmodelSnapPoint, W3dPivot, W3dRawVisibilityChannel,
+    W3dHmodelSkinNodeBinding, W3dHmodelSnapPoint, W3dPivot, W3dAnimationMotion,
     W3dWeaponBarrelBinding, W3dWeaponBarrelTopology, W3dWeaponVisualControl,
 };
 pub use w3d_loader::{
