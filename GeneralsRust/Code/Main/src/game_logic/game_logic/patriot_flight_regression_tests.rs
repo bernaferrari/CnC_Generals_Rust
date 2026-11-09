@@ -67,21 +67,29 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 }
 
 fn launch(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
+    // C++ attack orders can specify a shot budget (Weapon::m_maxShotCount).
+    // A normal unlimited attack keeps firing while the missile is in flight.
+    world.objects.get_mut(&source).unwrap().set_max_shots_to_fire(1);
     assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Success);
+    assert_eq!(world.objects[&source].max_shots_to_fire, 0);
     world.drain_pending_projectiles_into_combat();
     let projectiles = world.combat_system.projectiles_snapshot();
     assert_eq!(projectiles.len(), 1);
     let shot = projectiles[0];
     assert_eq!(shot.projectile_object_name, "PatriotMissile");
     assert_eq!(shot.target_id, Some(target));
+    assert!(shot.missile_motion.is_some(), "retail missile must bind its owned physics and locomotor");
     assert_eq!(shot.damage, 30.0);
     assert_eq!(world.objects[&target].health.current, 1000.0);
 }
 
 fn advance_to_impact(world: &mut GameLogic, target: ObjectId) {
+    let first_id = world.combat_system.projectiles_snapshot()[0].id;
     for _ in 0..300 {
         if world.combat_system.projectile_count() == 0 { break; }
         let _ = world.update_with_dt(1.0 / 30.0);
+        assert!(world.combat_system.projectiles_snapshot().iter().all(|p| p.id == first_id),
+            "one-shot budget must not produce a second projectile");
     }
     assert_eq!(world.combat_system.projectile_count(), 0, "retail missile reaches its target");
     assert_eq!(world.objects[&target].health.current, 970.0, "retail warhead damages the target once");
@@ -98,6 +106,19 @@ fn retail_patriot_fires_flies_and_impacts() {
     assert_eq!(world.objects[&target].health.current, 1000.0);
     advance_to_impact(&mut world, target);
 }
+#[test]
+fn unlimited_attack_schedules_distinct_missiles_during_flight() {
+    let (mut world, source, target) = world();
+    assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Success);
+    world.drain_pending_projectiles_into_combat();
+    let mut ids = std::collections::HashSet::new();
+    for _ in 0..30 {
+        ids.extend(world.combat_system.projectiles_snapshot().iter().map(|p| p.id));
+        let _ = world.update_with_dt(1.0 / 30.0);
+    }
+    assert!(ids.len() > 1, "an unlimited attack continues firing separate missiles");
+}
+
 
 #[test]
 fn retail_patriot_continues_in_flight_after_encoded_world_save() {
