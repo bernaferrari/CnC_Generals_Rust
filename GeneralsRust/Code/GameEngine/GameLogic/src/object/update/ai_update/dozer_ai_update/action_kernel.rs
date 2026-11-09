@@ -69,6 +69,11 @@ impl<R, D> DozerTaskOwner<R, D> {
                 }
             }
             ActionState::MoveToPosition => {
+                // C++ checks for a missing goal before reading its claim.
+                if !f.target_exists {
+                    action.reset();
+                    return ActionStep::Continue;
+                }
                 if !f.claim_valid {
                     // internalTaskComplete callbacks must observe the old Move
                     // phase. Context completes first, then finish_claim_failure.
@@ -76,10 +81,6 @@ impl<R, D> DozerTaskOwner<R, D> {
                         task,
                         target: f.target,
                     };
-                }
-                if !f.target_exists {
-                    action.reset();
-                    return ActionStep::Continue;
                 }
                 let tolerance = 70.0_f32.max(f.actor_radius + 15.0);
                 if f.distance_squared <= tolerance * tolerance {
@@ -178,5 +179,25 @@ mod unmanned_tests {
         assert_eq!(o.current, DozerTask::Invalid);
         assert_eq!(o.requests[DozerTask::Build as usize], Some(5));
         assert_eq!(o.most_recent(|r| *r), DozerTask::Build);
+    }
+
+    #[test]
+    fn missing_build_or_repair_goal_fails_move_before_claim_check() {
+        for task in [DozerTask::Build, DozerTask::Repair] {
+            let mut owner = DozerTaskOwner::<Option<u32>, ()>::default();
+            owner.requests[task as usize] = Some(5);
+            owner.enter_primary_task(task);
+            owner.primary.actions[task as usize].state = ActionState::MoveToPosition;
+            let mut missing = facts(false);
+            missing.target_exists = false;
+            missing.claim_valid = false;
+
+            assert!(matches!(owner.prepare_action_phase(missing), ActionStep::Continue));
+            assert!(matches!(
+                owner.primary.actions[task as usize].state,
+                ActionState::PickPosition { .. }
+            ));
+            assert_eq!(owner.requests[task as usize], Some(5));
+        }
     }
 }
