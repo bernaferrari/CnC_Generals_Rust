@@ -11,12 +11,29 @@ pub(in crate::game_logic) struct ProjectileBehaviorDefinition {
     pub(in crate::game_logic) authored: BehaviorModuleDefinition,
     pub(in crate::game_logic) physics: Option<PhysicsBehaviorModuleData>,
 }
+/// An authored set and its members resolved only against the receiving store.
+#[derive(Debug, Clone)]
+pub(in crate::game_logic) struct ProjectileLocomotorSet {
+    pub(in crate::game_logic) name: String,
+    pub(in crate::game_logic) members: Box<[(String, Option<super::locomotor_bootstrap::HostLocomotorBinding>)]>,
+}
+#[derive(Debug, Clone, Copy)]
+pub(in crate::game_logic) struct ProjectileMissileLaunch {
+    pub(in crate::game_logic) initial_velocity_per_frame: f32,
+    pub(in crate::game_logic) use_weapon_speed: bool,
+    pub(in crate::game_logic) distance_before_turning: f32,
+    pub(in crate::game_logic) distance_before_diving: f32,
+}
 #[derive(Debug, Clone)]
 pub(in crate::game_logic) struct ProjectileProfile {
     pub(in crate::game_logic) is_small_missile: bool,
     pub(in crate::game_logic) flight: HostProjectileFlight,
     pub(in crate::game_logic) lifecycle: HostProjectileLifecycle,
     pub(in crate::game_logic) behaviors: Box<[ProjectileBehaviorDefinition]>,
+    pub(in crate::game_logic) locomotor_sets: Box<[ProjectileLocomotorSet]>,
+    pub(in crate::game_logic) locomotor: Option<super::locomotor_bootstrap::HostLocomotorBinding>,
+    pub(in crate::game_logic) missile_launch: Option<ProjectileMissileLaunch>,
+    pub(in crate::game_logic) gravity: f32,
 }
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ProjectileDefinitions {
@@ -45,6 +62,31 @@ impl ProjectileDefinitions {
         }
         Ok(definitions)
     }
+    /// Bind retained authored names to this session's effective locomotor content.
+    /// An absent store or unresolved name is deliberately not replaced by a global.
+    pub(in crate::game_logic) fn with_locomotors(
+        mut self,
+        store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    ) -> Self {
+        for profile in self.entries.values_mut() {
+            for set in &mut profile.locomotor_sets {
+                for (name, binding) in &mut set.members {
+                    *binding = store.and_then(|store| {
+                        super::locomotor_bootstrap::resolve_host_locomotor_binding_from_store(store, name)
+                    });
+                }
+            }
+            profile.locomotor = profile.locomotor_sets.iter()
+                .find(|set| set.name.eq_ignore_ascii_case("SET_NORMAL"))
+                .and_then(|set| {
+                    let bindings = || set.members.iter().filter_map(|(_, binding)| *binding);
+                    bindings().find(|binding| binding.locomotor_surfaces & super::object::LOCO_SURFACE_AIR != 0)
+                        .or_else(|| bindings().find(|binding| binding.locomotor_surfaces & super::object::LOCO_SURFACE_GROUND != 0))
+                        .or_else(|| bindings().next())
+                });
+        }
+        self
+    }
     /// Rebind only derived Physics module data from retained effective authored
     /// fields. The old catalog remains installed until every field validates.
     pub(in crate::game_logic) fn with_physics_gravity(&self, gravity: f32) -> Result<Self, String> {
@@ -53,6 +95,7 @@ impl ProjectileDefinitions {
         }
         let mut candidate = self.clone();
         for (name, profile) in &mut candidate.entries {
+            profile.gravity = gravity;
             for module in &mut profile.behaviors {
                 if module
                     .authored
@@ -90,6 +133,7 @@ impl ProjectileDefinitions {
         self.geometry.insert(name.to_owned(), geometry_template.geometry_info);
         let mut text = format!("Object {name}\n");
         let mut behaviors = Vec::new();
+        let mut missile_launch = None;
         if !definition
             .behavior_modules
             .iter()
@@ -115,6 +159,27 @@ impl ProjectileDefinitions {
                 authored: module.clone(),
                 physics,
             });
+            if missile_launch.is_none() && module.class_name.eq_ignore_ascii_case("MissileAIUpdate") {
+                let real = |field: &str| -> Result<f32, String> {
+                    let Some(value) = module.attribute(field) else { return Ok(0.0); };
+                    let parsed = value.trim().parse::<f32>()
+                        .map_err(|_| format!("{name}: invalid MissileAIUpdate {field}"))?;
+                    if !parsed.is_finite() { return Err(format!("{name}: invalid MissileAIUpdate {field}")); }
+                    Ok(parsed)
+                };
+                let use_weapon_speed = match module.attribute("UseWeaponSpeed").map(str::trim) {
+                    None => false,
+                    Some(value) if value.eq_ignore_ascii_case("yes") || value.eq_ignore_ascii_case("true") || value == "1" => true,
+                    Some(value) if value.eq_ignore_ascii_case("no") || value.eq_ignore_ascii_case("false") || value == "0" => false,
+                    Some(_) => return Err(format!("{name}: invalid MissileAIUpdate UseWeaponSpeed")),
+                };
+                missile_launch = Some(ProjectileMissileLaunch {
+                    initial_velocity_per_frame: real("InitialVelocity")? / 30.0,
+                    use_weapon_speed,
+                    distance_before_turning: real("DistanceToTravelBeforeTurning")?,
+                    distance_before_diving: real("DistanceToTargetBeforeDiving")?,
+                });
+            }
             if !is_flight(&module.class_name) {
                 continue;
             }
@@ -188,6 +253,13 @@ impl ProjectileDefinitions {
                 flight,
                 lifecycle,
                 behaviors: behaviors.into_boxed_slice(),
+                locomotor_sets: definition.locomotor_sets.iter().map(|set| ProjectileLocomotorSet {
+                    name: set.set_name.clone(),
+                    members: set.locomotor_names.iter().map(|name| (name.clone(), None)).collect(),
+                }).collect(),
+                locomotor: None,
+                missile_launch,
+                gravity,
             },
         );
         Ok(true)

@@ -334,6 +334,9 @@ pub struct ProjectileLaunchContext {
     pub source_veterancy: crate::game_logic::VeterancyLevel,
     pub source_orientation: f32,
     pub source_velocity: Vec3,
+    /// Exact firing barrel transform captured at acceptance, when available.
+    #[serde(skip)]
+    pub launch_transform: Option<glam::Mat4>,
     /// Launcher Object conditions captured by projectileLaunchAtObjectOrPosition.
     pub launcher_bonus_mask: u64,
 }
@@ -630,6 +633,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
                 source_veterancy: source.experience.level,
                 source_orientation: source.get_orientation(),
                 source_velocity: source.movement.velocity,
+                launch_transform: None,
                 launcher_bonus_mask: source.projectile_launch_bonus_mask(),
             })
     });
@@ -640,6 +644,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
         source_orientation: 0.0,
         source_velocity: Vec3::ZERO,
+        launch_transform: None,
         launcher_bonus_mask: 0,
     });
     let has_fire_fx =
@@ -859,6 +864,18 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.set_projectile_lifecycle(projectile_lifecycle);
         if let Some(profile) = profile {
             proj.flight = Some(profile.flight.clone());
+        }
+        if let (Some(profile), Some(transform)) = (profile, source_context.launch_transform) {
+            if matches!(profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)) {
+                proj.missile_motion = MissileMotion::launch(
+                    pid, profile, transform, source_context.source_velocity,
+                    target_pos, flight_speed_per_second,
+                );
+                if let Some(motion) = &proj.missile_motion {
+                    proj.position = motion.position();
+                    proj.velocity = motion.velocity();
+                }
+            }
         }
         if profile.is_some() {
             let flight_target = if matches!(

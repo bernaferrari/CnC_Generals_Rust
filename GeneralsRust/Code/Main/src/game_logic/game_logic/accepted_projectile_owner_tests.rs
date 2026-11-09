@@ -461,3 +461,9 @@ mod pending_combat_snapshot_tests;
 
 #[path = "authored_projectile_stream_tests.rs"]
 mod authored_projectile_stream_tests;
+
+#[path = "patriot_flight_regression_tests.rs"]
+mod patriot_flight_regression_tests;
+
+#[path = "patriot_retail_battery_tests.rs"]
+mod patriot_retail_battery_tests;

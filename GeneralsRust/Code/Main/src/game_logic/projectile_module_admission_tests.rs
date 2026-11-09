@@ -18,6 +18,36 @@ fn definitions(fields: &str) -> Vec<(String, ObjectDefinition)> {
 }
 
 #[test]
+fn missile_launch_uses_receiving_locomotor_and_physics_content() {
+    let text = "Object OwnedMissile\n Locomotor = SET_NORMAL OwnedMissileLoco\n Behavior = MissileAIUpdate Flight\n InitialVelocity = 90\n UseWeaponSpeed = Yes\n DistanceToTravelBeforeTurning = 25\n DistanceToTargetBeforeDiving = 40\n End\n Behavior = PhysicsBehavior Physics\n Mass = 7\n End\nEnd\n";
+    let mut parser = crate::assets::ini_parser::IniParser::new();
+    parser.parse_ini_content(text, "missile.ini").unwrap();
+    let rows: Vec<_> = parser.get_all_definitions().iter()
+        .map(|(name, row)| (name.clone(), row.clone())).collect();
+    let mut first = GameLogic::new();
+    let mut second = GameLogic::new();
+    for (world, speed) in [(&mut first, 60), (&mut second, 120)] {
+        let mut store = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+        store.apply_source(&format!("Locomotor OwnedMissileLoco\n Surfaces = AIR\n Speed = {speed}\n Appearance = THRUST\nEnd\n")).unwrap();
+        world.admit_locomotor_definitions(store).unwrap();
+        world.admit_weapon_content_snapshot(Vec::new(), &rows).unwrap();
+    }
+    let a = first.projectile_definitions.get("OwnedMissile").unwrap();
+    let b = second.projectile_definitions.get("OwnedMissile").unwrap();
+    assert_eq!(a.locomotor.unwrap().movement.max_speed, 60.0);
+    assert_eq!(b.locomotor.unwrap().movement.max_speed, 120.0);
+    assert_eq!(a.behaviors.iter().find_map(|module| module.physics.as_ref()).unwrap().mass, 7.0);
+    let launch = a.missile_launch.unwrap();
+    assert_eq!(launch.initial_velocity_per_frame, 3.0);
+    assert!(launch.use_weapon_speed);
+    assert_eq!(launch.distance_before_turning, 25.0);
+    assert_eq!(launch.distance_before_diving, 40.0);
+    let mut absent = GameLogic::new();
+    absent.admit_weapon_content_snapshot(Vec::new(), &rows).unwrap();
+    assert!(absent.projectile_definitions.get("OwnedMissile").unwrap().locomotor.is_none());
+}
+
+#[test]
 fn receiving_profile_keeps_all_authored_modules_tags_and_physics_after_flight() {
     let mut owner = GameLogic::new();
     let rows = definitions("Mass = 7\n ForwardFriction = 6\n AllowBouncing = Yes");

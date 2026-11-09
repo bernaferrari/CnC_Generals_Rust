@@ -156,6 +156,9 @@ pub struct Projectile {
     pub flight: Option<crate::game_logic::weapon_bootstrap::HostProjectileFlight>,
     /// Runtime Bezier / ignition / lock / layer state.
     pub flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime,
+    /// Live Object-owned THRUST and Physics continuation, framed by CPRJ.
+    #[serde(skip)]
+    pub(crate) missile_motion: Option<MissileMotion>,
     /// C++ MissileAIUpdate `m_framesTillDecoyed` (absolute frame, 0 = none).
     #[serde(default)]
     pub frames_till_decoyed: u32,
@@ -237,6 +240,7 @@ impl Projectile {
             die_on_detonate: false,
             flight: None,
             flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime::default(),
+            missile_motion: None,
             frames_till_decoyed: 0,
             no_damage: false,
             cm_reported: false,
@@ -547,13 +551,51 @@ impl Projectile {
         // C++ runs LAUNCH/IGNITION before airborneTargetGone (doAttackState).
         let frame = self.elapsed_logic_frames();
         let missile_was_armed = self.flight_runtime.missile_armed;
-        if !self.try_enter_missile_ignition(frame, runtime) {
+        let ignition_ready = self.try_enter_missile_ignition(frame, runtime);
+        if !ignition_ready {
+            if let Some(motion) = &mut self.missile_motion {
+                motion.advance(self.target_position, false, false, false, frame, terrain);
+                self.position = motion.position();
+                self.velocity = motion.velocity();
+            }
             return ProjectileStep::Alive;
         }
 
         let lifecycle_step = self.lifecycle_step(target_is_live);
         if lifecycle_step != ProjectileStep::Alive {
             return lifecycle_step;
+        }
+        if let Some(motion) = &mut self.missile_motion {
+            let mut goal = self.target_position;
+            let was_kill = self.flight_runtime.missile_phase
+                == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+            if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) = &self.flight {
+                if missile_was_armed && !was_kill
+                    && crate::game_logic::weapon_bootstrap::missile_inside_lock_distance(
+                        self.position, self.target_position, missile.lock_distance, self.is_homing)
+                {
+                    self.flight_runtime.missile_phase = crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+                }
+                if !self.is_homing && !was_kill && missile.lock_distance > 0.0 {
+                    goal.y += 10.0;
+                }
+            }
+            let expired = match self.projectile_lifecycle {
+                Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { fuel_lifetime_frames, .. }) =>
+                    fuel_lifetime_frames > 0 && frame >= fuel_lifetime_frames.saturating_add(
+                        match &self.flight {
+                            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(m)) => m.ignition_delay_frames,
+                            _ => 0,
+                        }),
+                _ => false,
+            };
+            motion.advance(goal, !expired, missile_was_armed && !expired, was_kill, frame, terrain);
+            self.position = motion.position();
+            self.velocity = motion.velocity();
+            if was_kill && self.position.distance_squared(goal) <= 0.001 * 0.001 {
+                return ProjectileStep::Detonate;
+            }
+            return self.finish_flight_step(terrain);
         }
 
         if self.speed <= 0.0 {

@@ -690,6 +690,8 @@ impl crate::game_logic::GameLogic {
         }
         self.locomotor_definition_base = Some(definitions.clone());
         self.locomotor_definitions = Some(definitions);
+        self.projectile_definitions = self.projectile_definitions.clone()
+            .with_locomotors(self.locomotor_definitions.as_ref());
         Ok(())
     }
 
@@ -710,6 +712,8 @@ impl crate::game_logic::GameLogic {
                 .map_err(|error| error.to_string())?;
         }
         self.locomotor_definitions = Some(candidate);
+        self.projectile_definitions = self.projectile_definitions.clone()
+            .with_locomotors(self.locomotor_definitions.as_ref());
         Ok(())
     }
 
