@@ -377,7 +377,7 @@ fn installed_factory_creation_uses_moved_owner_position_before_game_logic_admiss
 
     // The callback must resolve this canonical owner, use its current position,
     // and enter the same wrapper only after the owner's installation guard ends.
-    Object::invoke_on_object_created_after_install(&owner.object).unwrap();
+    Object::invoke_on_object_created_after_install(&owner.object, None).unwrap();
     assert_creation_state(&installed_creation_state(&owner), position);
 }
 
@@ -403,7 +403,7 @@ fn installed_factory_creation_origin_survives_version_three_xfer() {
         .unwrap()
         .set_position(&position)
         .unwrap();
-    Object::invoke_on_object_created_after_install(&saved_owner.object).unwrap();
+    Object::invoke_on_object_created_after_install(&saved_owner.object, None).unwrap();
     assert_creation_state(&installed_creation_state(&saved_owner), position);
     let mut bytes = Vec::new();
     installed_entry(&saved_owner).with_module(|module| {
@@ -431,7 +431,7 @@ fn installed_factory_creation_origin_survives_version_three_xfer() {
         .unwrap()
         .set_position(&different_position)
         .unwrap();
-    Object::invoke_on_object_created_after_install(&restored_owner.object).unwrap();
+    Object::invoke_on_object_created_after_install(&restored_owner.object, None).unwrap();
     assert_creation_state(
         &installed_creation_state(&restored_owner),
         different_position,

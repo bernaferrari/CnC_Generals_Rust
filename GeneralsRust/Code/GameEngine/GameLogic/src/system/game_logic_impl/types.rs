@@ -279,6 +279,8 @@ pub struct GameLogic {
     /// Explicit Core owner used by synchronous Object destruction cleanup.
     /// Constructors stay inert; runtime owners install their EngineStores.
     pathfinding_owner: Option<Arc<crate::system::engine_stores::EngineStores>>,
+    /// Main's service owner when there is no Core EngineStores owner.
+    world_services: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
 
     // Player/Team management (references only)
     // Actual player list is managed by player_list() singleton
@@ -310,7 +312,8 @@ pub struct GameLogic {
     show_behind_building_markers: Bool,
     draw_icon_ui: Bool,
     show_dynamic_lod: Bool,
-    rank_level_limit: Int,
+    /// Rank cap for a standalone logic without an EngineStores owner.
+    standalone_rank_level_limit: Int,
     buildable_status_overrides: HashMap<String, Int>,
     superweapon_restriction: UnsignedShort,
 
@@ -387,6 +390,7 @@ impl Default for GameLogic {
             dead_objects: Vec::new(),
             objects: HashMap::new(),
             pathfinding_owner: None,
+            world_services: None,
             partition_manager: PartitionManager::new(),
             physics_world: PhysicsWorld::new(),
             event_queue: Vec::new(),
@@ -407,7 +411,7 @@ impl Default for GameLogic {
             show_behind_building_markers: true,
             draw_icon_ui: true,
             show_dynamic_lod: true,
-            rank_level_limit: 1000,
+            standalone_rank_level_limit: crate::player::DEFAULT_RANK_LEVEL_LIMIT,
             buildable_status_overrides: HashMap::new(),
             superweapon_restriction: 0,
             sleepy_updates: SleepyUpdateQueue::default(),

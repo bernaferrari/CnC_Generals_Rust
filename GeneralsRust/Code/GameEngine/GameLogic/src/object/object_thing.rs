@@ -91,13 +91,22 @@ impl engine_module::Thing for Object {
 #[derive(Debug, Clone)]
 pub(crate) struct ObjectThingHandle {
     object: Weak<RwLock<Object>>,
+    cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
 }
 
 impl ObjectThingHandle {
     pub(crate) fn new(object: &Arc<RwLock<Object>>) -> Self {
         Self {
             object: Arc::downgrade(object),
+            cave_system: None,
         }
+    }
+
+    pub(crate) fn with_cave_system(
+        object: &Arc<RwLock<Object>>,
+        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+    ) -> Self {
+        Self { object: Arc::downgrade(object), cave_system }
     }
 
     fn with_object<F, R>(&self, f: F) -> Option<R>
@@ -213,6 +222,19 @@ pub(crate) fn supplied_module_owner(
         .object
         .upgrade()
         .ok_or("module Thing owner has retired".into())
+}
+
+/// Cave owner passed at Object assembly, if that assembly has a driving world.
+pub(crate) fn supplied_module_cave_system(
+    thing: &dyn ModuleThing,
+) -> Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>> {
+    let thing: &dyn std::any::Any = thing;
+    let handle = if let Some(handle) = thing.downcast_ref::<ObjectThingHandle>() {
+        handle
+    } else {
+        &thing.downcast_ref::<ObjectDrawableThingHandle>()?.object
+    };
+    handle.cave_system.clone()
 }
 
 pub(crate) fn make_drawable_module_thing_handle(

@@ -162,8 +162,6 @@ pub struct GameLogic {
     pub(super) players: HashMap<u32, Player>,
     /// The one client-local player selected for this receiving session.
     pub(super) local_player_id: Option<u32>,
-    /// C++ GameLogic::m_rankLevelLimit; awards and scripts use this match's cap.
-    pub(super) rank_level_limit: i32,
     // C++ GameLogic::m_rankPointsToAddAtGameStart, retained for restart/Xfer.
     pub(super) rank_points_to_add_at_game_start: i32,
     pub(super) buildable_status_overrides: HashMap<String, i32>,
@@ -1478,14 +1476,34 @@ impl GameLogic {
     pub(crate) fn set_rank_points_to_add_at_game_start(&mut self, points: i32) {
         self.rank_points_to_add_at_game_start = points;
     }
+    /// Core player roster owned by this match, used by legacy Core callbacks.
+    pub fn core_player_roster(&self) -> &std::sync::Arc<std::sync::RwLock<gamelogic::player::PlayerList>> {
+        self.world_services.players()
+    }
+    /// Rank definitions used by this match's Core player callbacks.
+    pub fn core_rank_info_store(&self) -> &std::sync::Arc<std::sync::RwLock<gamelogic::system::rank_info::RankInfoStore>> {
+        self.world_services.rank_info_store()
+    }
 
+
+    /// C++ GameLogic::m_rankLevelLimit of this match. It is held with this
+    /// world's player roster, so Core script actions and Main awards read the
+    /// one cap of the world they run in.
     pub fn rank_level_limit(&self) -> i32 {
-        self.rank_level_limit
+        self.world_services
+            .players()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .rank_level_limit()
     }
 
     /// C++ GameLogic.h:206-209; changing the cap does not reset player ranks.
     pub fn set_rank_level_limit(&mut self, limit: i32) {
-        self.rank_level_limit = limit.max(1);
+        self.world_services
+            .players()
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_rank_level_limit(limit);
     }
 
     /// Freeze a Send-safe W3DModelDraw identity for one admitted object
@@ -1513,7 +1531,7 @@ impl GameLogic {
     /// for the duration of `f` only. Nested restore is stack-based; a peer
     /// instance left alive on the same thread cannot observe these binds after
     /// return. Prefer this over leaving services published until Drop.
-    pub(crate) fn with_own_services<R>(&self, f: impl FnOnce() -> R) -> R {
+    pub fn with_own_services<R>(&self, f: impl FnOnce() -> R) -> R {
         let world = std::sync::Arc::clone(&self.world_services);
         let main = std::sync::Arc::clone(&self.main_services);
         crate::main_services::with_main_services(&main, || {

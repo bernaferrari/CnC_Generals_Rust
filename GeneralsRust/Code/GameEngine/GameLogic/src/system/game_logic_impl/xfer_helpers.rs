@@ -323,8 +323,9 @@ fn xfer_game_logic_state_with_campaign(
     }
 
     if version >= 5 {
-        xfer.xfer_int(&mut logic.rank_level_limit)?;
-        publish_rank_cap_if_live(logic);
+        let mut rank_level_limit = logic.get_rank_level_limit();
+        xfer.xfer_int(&mut rank_level_limit)?;
+        logic.set_rank_level_limit(rank_level_limit);
     }
 
     if version >= 6 {
@@ -371,9 +372,8 @@ fn xfer_cave_system_snapshot(logic: &GameLogic, xfer: &mut dyn Xfer) -> Result<(
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
     let cave = logic
-        .pathfinding_owner
-        .as_ref()
-        .map(|owner| Arc::clone(&owner.services().logic_managers().cave))
+        .owning_world_services()
+        .map(|services| Arc::clone(&services.logic_managers().cave))
         .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
     let mut guard = cave.lock().map_err(|_| XferStatus::InvalidData)?;
     guard.xfer_game_logic(xfer)

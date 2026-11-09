@@ -77,8 +77,11 @@ impl Object {
     pub fn get_controlling_player(&self) -> Option<Arc<RwLock<Player>>> {
         let team = self.get_team()?;
         let player_index = team.read().ok()?.get_controlling_player_id()? as Int;
-        let __player_list_arc = player_list();
-        let list = __player_list_arc.read().ok()?;
+        let players = match self.owner_roster.as_ref() {
+            Some(owner) => owner.upgrade()?,
+            None => crate::player::try_player_list()?,
+        };
+        let list = players.read().ok()?;
         list.get_player(player_index).cloned()
     }
 
@@ -89,7 +92,9 @@ impl Object {
     /// Returns `None` when the object has no controlling player or the
     /// player's lock is poisoned.
     pub fn with_controlling_player<R>(&self, f: impl FnOnce(&Player) -> R) -> Option<R> {
-        crate::player::with_player(self.get_controlling_player_id()? as Int, f)
+        let player = self.get_controlling_player()?;
+        let player = player.read().ok()?;
+        Some(f(&player))
     }
 
     /// Run `f` with exclusive access to this object's controlling player.
@@ -97,7 +102,39 @@ impl Object {
     /// Scoped counterpart of [`Object::with_controlling_player`]; see that
     /// method for the C++ mapping.
     pub fn with_controlling_player_mut<R>(&self, f: impl FnOnce(&mut Player) -> R) -> Option<R> {
-        crate::player::with_player_mut(self.get_controlling_player_id()? as Int, f)
+        let player = self.get_controlling_player()?;
+        let mut player = player.write().ok()?;
+        Some(f(&mut player))
+    }
+
+    /// Bind this object's rank awards to its receiving roster at admission.
+    pub(crate) fn bind_rank_roster(
+        &mut self,
+        roster: &Arc<RwLock<crate::player::PlayerList>>,
+    ) -> Result<(), String> {
+        if let Some(existing) = &self.owner_roster {
+            let existing = existing.upgrade().ok_or("object rank owner has expired")?;
+            if !Arc::ptr_eq(&existing, roster) {
+                return Err("object belongs to a different player roster".into());
+            }
+        } else {
+            self.owner_roster = Some(Arc::downgrade(roster));
+        }
+        Ok(())
+    }
+
+    /// Lend the controlling Player with the rank cap of the roster it was
+    /// resolved from (C++ `TheGameLogic->getRankLevelLimit()`).
+    pub fn with_controlling_player_rank_capped_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Player, Int) -> R,
+    ) -> Option<R> {
+        let index = Int::try_from(self.get_controlling_player_id()?).ok()?;
+        let players = match self.owner_roster.as_ref() {
+            Some(owner) => owner.upgrade()?,
+            None => crate::player::try_player_list()?,
+        };
+        crate::player::with_listed_player_mut(&players, index, f)
     }
 
     pub fn get_player_id(&self) -> Option<PlayerId> {

@@ -55,9 +55,11 @@ fn integer(value: i32) -> Parameter {
 fn rank_and_experience_actions_use_the_receiving_world() {
     let mut first = world("First");
     let mut peer = world("Peer");
+    // ScriptEngine.cpp:5555-5557 selects PlayerList::getNthPlayer(side).
+    // These fixtures admit player 1, so its side script belongs in slot 1.
     run(
         &mut first,
-        0,
+        1,
         vec![
             action(
                 ScriptActionType::PlayerSetRanklevellimit,
@@ -73,7 +75,7 @@ fn rank_and_experience_actions_use_the_receiving_world() {
     );
     run(
         &mut peer,
-        0,
+        1,
         vec![
             action(
                 ScriptActionType::PlayerSetRanklevellimit,
@@ -92,7 +94,7 @@ fn rank_and_experience_actions_use_the_receiving_world() {
 
     run(
         &mut first,
-        0,
+        1,
         vec![
             action(
                 ScriptActionType::PlayerAddRanklevel,
@@ -118,7 +120,7 @@ fn rank_and_experience_actions_use_the_receiving_world() {
 
     run(
         &mut first,
-        1,
+        0,
         vec![action(
             ScriptActionType::PlayerSetRanklevel,
             Some(THIS_PLAYER),
@@ -135,9 +137,9 @@ fn rank_and_experience_actions_use_the_receiving_world() {
 fn standalone_rank_action_cannot_leak_into_a_later_world() {
     // Standalone Core dispatch used to leave a request in TLS. An unrelated
     // Main action then drained that request into whichever world ran next.
-    let engine = ScriptEngine::new().unwrap();
+    let services = gamelogic::system::engine_stores::new_world_services();
+    let engine = ScriptEngine::new_with_services(&services).unwrap();
     let context = RefCell::new(ScriptContext::at_frame(0));
-    let old_core_limit = gamelogic::helpers::TheGameLogic::get_rank_level_limit();
     ScriptActionDispatcher::new(&engine, &context)
         .execute_action(&action(
             ScriptActionType::PlayerSetRanklevellimit,
@@ -145,7 +147,7 @@ fn standalone_rank_action_cannot_leak_into_a_later_world() {
             Some(integer(3)),
         ))
         .unwrap();
-    gamelogic::helpers::TheGameLogic::set_rank_level_limit(old_core_limit);
+    assert_eq!(services.players().read().unwrap().rank_level_limit(), 3);
 
     let mut recipient = world("Recipient");
     run(

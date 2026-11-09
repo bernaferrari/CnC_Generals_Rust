@@ -2212,6 +2212,8 @@ mod tests {
             ObjectStatusMaskType::none(),
             Some(team),
             false,
+            None,
+            None,
         )
         .unwrap()
     }

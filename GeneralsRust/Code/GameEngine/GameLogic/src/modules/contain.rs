@@ -255,6 +255,23 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Run the cave creation callback against the driving world's tracker.
+    /// `None` means this is not a cave module.
+    fn on_owner_created_with_cave(
+        &mut self,
+        _caves: &mut crate::system::cave_system::CaveSystem,
+    ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        None
+    }
+
+    /// Build-complete callback with the receiving cave tracker borrowed.
+    fn on_build_complete_with_cave(
+        &mut self,
+        _caves: &mut crate::system::cave_system::CaveSystem,
+    ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        None
+    }
+
     /// Containment reaction to owner damage.
     fn on_damage(
         &mut self,

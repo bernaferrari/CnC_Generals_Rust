@@ -511,18 +511,27 @@ fn with_local_player_mut<F>(f: F) -> bool
 where
     F: FnOnce(&mut gamelogic::player::Player),
 {
-    let Some(local_player) = ThePlayerList()
-        .read()
-        .ok()
-        .and_then(|list| list.get_local_player().cloned())
-    else {
+    with_local_player_rank_capped_mut(|player, _| f(player))
+}
+
+/// Lend the local Player with its roster's rank cap
+/// (C++ `TheGameLogic->getRankLevelLimit()` of the same world).
+fn with_local_player_rank_capped_mut<F>(f: F) -> bool
+where
+    F: FnOnce(&mut gamelogic::player::Player, i32),
+{
+    let Some((local_player, rank_level_limit)) = ThePlayerList().read().ok().and_then(|list| {
+        list.get_local_player()
+            .cloned()
+            .map(|player| (player, list.rank_level_limit()))
+    }) else {
         return false;
     };
 
     let Ok(mut local_guard) = local_player.write() else {
         return false;
     };
-    f(&mut local_guard);
+    f(&mut local_guard, rank_level_limit);
     true
 }
 

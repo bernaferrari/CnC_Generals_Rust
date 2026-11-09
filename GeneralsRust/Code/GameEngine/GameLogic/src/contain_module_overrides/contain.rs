@@ -596,21 +596,20 @@ pub(super) fn cave_contain_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let contain_data = contain_adapter_data::<CaveContainModuleData>("CaveContain", &module_data);
-    let owner_id = resolve_owner_id(&thing);
-    let cave_system = crate::system::cave_system::TheCaveSystem();
-    let contain = CaveContain::new(
-        owner_weak(owner_id),
+    let owner = match crate::object::supplied_module_owner(thing.as_ref()) {
+        Ok(owner) => owner,
+        Err(error) => return failed_initialization_module("CaveContain", module_data, error),
+    };
+    let cave_system = crate::object::supplied_module_cave_system(thing.as_ref())
+        .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
+    let contain = match CaveContain::new(
+        Arc::downgrade(&owner),
         contain_data,
-        Some(cave_system.clone()),
-    )
-    .unwrap_or_else(|_| {
-        CaveContain::new(
-            Weak::new(),
-            &CaveContainModuleData::default(),
-            Some(cave_system),
-        )
-        .expect("CaveContain default construction failed")
-    });
+        Some(cave_system),
+    ) {
+        Ok(contain) => contain,
+        Err(error) => return failed_initialization_module("CaveContain", module_data, error.to_string()),
+    };
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("CaveContain", thing, module_data, contain)
 }

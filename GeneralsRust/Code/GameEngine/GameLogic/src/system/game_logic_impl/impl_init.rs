@@ -1,33 +1,5 @@
 use std::sync::atomic::Ordering;
 
-pub fn rank_level_limit_now() -> i32 {
-    crate::system::engine_stores::active_services()
-        .session_flags()
-        .rank_level_limit
-        .load(Ordering::Relaxed)
-}
-
-pub fn publish_rank_level_limit(level: i32) {
-    crate::system::engine_stores::active_services()
-        .session_flags()
-        .rank_level_limit
-        .store(level, Ordering::Relaxed);
-}
-
-/// Publish the cap to the services of the EngineStores this logic was
-/// constructed with. No singleton lock is consulted, so a setter running while
-/// its own world is borrowed can no longer silently skip the publish.
-/// Logic created without an owner (`GameLogic::new`) publishes nothing.
-pub fn publish_rank_cap_if_live(logic: &GameLogic) {
-    if let Some(owner) = logic.pathfinding_owner.as_ref() {
-        owner
-            .services()
-            .session_flags()
-            .rank_level_limit
-            .store(logic.rank_level_limit, Ordering::Relaxed);
-    }
-}
-
 impl GameLogic {
     /// Create a new GameLogic instance
     pub fn new() -> Self {
@@ -45,20 +17,45 @@ impl GameLogic {
         logic
     }
 
+    /// Build the Main compatibility logic against its receiving services.
+    pub(crate) fn new_with_world_services(
+        services: Arc<crate::system::engine_stores::WorldServices>,
+    ) -> Self {
+        let mut logic = Self::new();
+        logic.world_services = Some(Arc::downgrade(&services));
+        logic
+    }
+
+    fn owning_world_services(&self) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
+        self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services()))
+            .or_else(|| self.world_services.as_ref().and_then(std::sync::Weak::upgrade))
+    }
+
+    pub(crate) fn owned_cave_system(
+        &self,
+    ) -> Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>> {
+        self.owning_world_services()
+            .map(|services| Arc::clone(&services.logic_managers().cave))
+    }
+
+    pub(crate) fn owned_player_list(&self) -> Option<Arc<RwLock<crate::player::PlayerList>>> {
+        self.owning_world_services().map(|services| Arc::clone(services.players()))
+    }
+
     /// This logic's script engine slot (C++ `TheScriptEngine` of the world
     /// this GameLogic belongs to). A logic built with an owner never consults
     /// the published world; an ownerless one falls back to it.
     pub(crate) fn script_engine_slot(&self) -> crate::scripting::engine::ScriptEngineHandle {
-        match self.pathfinding_owner.as_ref() {
-            Some(owner) => owner.services().scripts().engine().clone(),
+        match self.owning_world_services() {
+            Some(services) => services.scripts().engine().clone(),
             None => get_script_engine(),
         }
     }
 
     /// C++ `TheScriptEngine->init()` against this logic's own world.
     fn initialize_owned_script_engine(&self) -> crate::GameLogicResult<()> {
-        match self.pathfinding_owner.as_ref() {
-            Some(owner) => owner.services().scripts().initialize_engine(),
+        match self.owning_world_services() {
+            Some(services) => services.scripts().initialize_engine(&services),
             None => initialize_script_engine(),
         }
     }
@@ -103,10 +100,18 @@ impl GameLogic {
         self.is_scoring_enabled = enabled;
     }
 
-    /// Get the global map/script rank level cap.
+    /// Get the map/script rank level cap of this logic's world.
     /// C++ reference: GameLogic::getRankLevelLimit()
     pub fn get_rank_level_limit(&self) -> Int {
-        self.rank_level_limit
+        match self.owning_world_services() {
+            Some(services) => {
+                let cap = services.players().read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .rank_level_limit();
+                cap
+            }
+            None => self.standalone_rank_level_limit,
+        }
     }
 
     /// Set a runtime buildability override for a template name.
@@ -127,12 +132,15 @@ impl GameLogic {
 
     /// Set the global map/script rank level cap.
     /// C++ reference: GameLogic::setRankLevelLimit()
-    pub fn set_rank_level_limit(&mut self, mut level: Int) {
-        if level < 1 {
-            level = 1;
+    pub fn set_rank_level_limit(&mut self, level: Int) {
+        match self.owning_world_services() {
+            Some(services) => {
+                services.players().write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .set_rank_level_limit(level);
+            }
+            None => self.standalone_rank_level_limit = level.max(1),
         }
-        self.rank_level_limit = level;
-        publish_rank_cap_if_live(self);
     }
 
     /// Initialize the GameLogic system
@@ -207,8 +215,7 @@ impl GameLogic {
         self.show_behind_building_markers = true;
         self.draw_icon_ui = true;
         self.show_dynamic_lod = true;
-        self.rank_level_limit = 1000;
-        publish_rank_cap_if_live(self);
+        self.set_rank_level_limit(crate::player::DEFAULT_RANK_LEVEL_LIMIT);
         self.buildable_status_overrides.clear();
         self.partition_manager = PartitionManager::new();
         self.physics_world = PhysicsWorld::new();

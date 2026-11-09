@@ -29,7 +29,7 @@ impl GameLogic {
         if self.game_mode == GameMode::SinglePlayer {
             let mut slots: Vec<_> = self.players.keys().copied().collect();
             slots.sort_unstable();
-            let limit = self.rank_level_limit;
+            let limit = self.rank_level_limit();
             for slot in slots {
                 let player = self
                     .players

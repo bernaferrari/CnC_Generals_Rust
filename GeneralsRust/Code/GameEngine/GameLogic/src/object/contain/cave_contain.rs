@@ -23,14 +23,6 @@ use crate::tunnel_tracker::TunnelTracker;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
-/// Wave 279 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
-
 /// Configuration data for CaveContain module
 #[derive(Debug, Clone)]
 pub struct CaveContainModuleData {
@@ -103,6 +95,9 @@ pub struct CaveContain {
     contained_object_ids: Vec<ObjectID>,
     /// Reference to the owning object
     object_id: ObjectID,
+    /// Exact owner supplied at construction; an equal ID in another world
+    /// must never select a different cave entrance.
+    object: Weak<RwLock<Object>>,
     /// Reference to cave system
     cave_system: Option<Arc<Mutex<CaveSystem>>>,
 }
@@ -127,6 +122,7 @@ impl CaveContain {
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
+            object,
             cave_system,
         })
     }
@@ -195,35 +191,24 @@ impl CaveContain {
         self.object_id
     }
 
-    /// Borrow the owning object for one operation via ObjectID.
+    /// Borrow the exact owning object for one operation.
     fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+        self.object.upgrade().and_then(|owner| {
+            let owner = owner.read().ok()?;
+            Some(f(&owner))
+        })
     }
 
     fn with_owner_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
+        self.object.upgrade().and_then(|owner| {
+            let mut owner = owner.write().ok()?;
+            Some(f(&mut owner))
+        })
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 279: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        self.object.upgrade()
     }
 
     /// Check if this is a garrisonable unit
@@ -243,11 +228,6 @@ impl CaveContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 279: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -267,11 +247,6 @@ impl CaveContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 279: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -346,11 +321,6 @@ impl CaveContain {
 
     /// Add object to contain list
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 279: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let obj = crate::object::registry::OBJECT_REGISTRY
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
@@ -369,11 +339,6 @@ impl CaveContain {
 
     /// Add object to containment using CaveContain's tracker-backed storage.
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 279: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let obj = crate::object::registry::OBJECT_REGISTRY
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
@@ -467,11 +432,6 @@ impl CaveContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        // Wave 279: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let obj = crate::object::registry::OBJECT_REGISTRY
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
@@ -671,13 +631,26 @@ impl CaveContain {
             return Ok(());
         };
 
+        self.finish_tracker_creation(&tracker)
+    }
+
+    /// C++ onBuildComplete with the driving CaveSystem borrowed by the caller.
+    pub fn on_build_complete_in(&mut self, system: &mut CaveSystem) -> GameResult<()> {
+        if !self.should_do_on_build_complete() {
+            return Ok(());
+        }
+        self.need_to_run_on_build_complete = false;
+        let tracker = self.register_in(system)?;
+        self.finish_tracker_creation(&tracker)
+    }
+
+    fn finish_tracker_creation(&self, tracker: &Arc<RwLock<TunnelTracker>>) -> GameResult<()> {
         if let Ok(mut tunnel) = tracker.write() {
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
                 tunnel.on_tunnel_created_id(owner_id)?;
             }
         }
-
         Ok(())
     }
 
@@ -783,11 +756,6 @@ impl CaveContain {
 
     /// Recalculate apparent controlling player
     pub fn recalc_apparent_controlling_player(&mut self) -> GameResult<()> {
-        // Wave 279: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         // Record original team first time through
         if self.original_team.is_none() {
             if let Some(team) = self.with_owner_object(|owner| owner.get_team()).flatten() {
@@ -1091,6 +1059,21 @@ impl ContainModuleInterface for CaveContain {
 
     fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         CaveContain::on_owner_created(self).map_err(|e| e.into())
+    }
+
+    fn on_owner_created_with_cave(
+        &mut self,
+        system: &mut CaveSystem,
+    ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        let data = self.module_data.clone();
+        Some(self.on_create(&data).and_then(|()| self.on_build_complete_in(system)))
+    }
+
+    fn on_build_complete_with_cave(
+        &mut self,
+        system: &mut CaveSystem,
+    ) -> Option<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        Some(self.on_build_complete_in(system))
     }
 
     fn on_create(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1783,6 +1766,13 @@ mod tests {
 
             let mut cave_a = world_cave(&owner, &handle_a);
             let mut cave_b = world_cave(&owner, &handle_b);
+
+            // A same-ID registry entry from another world cannot replace the
+            // exact owner carried by the cave module.
+            let foreign_owner = Arc::new(RwLock::new(Object::new_test(93201, 100.0)));
+            OBJECT_REGISTRY.register_object(93201, &foreign_owner);
+            assert!(Arc::ptr_eq(&cave_a.get_object().expect("exact owner"), &owner));
+            OBJECT_REGISTRY.register_object(93201, &owner);
 
             // Interleave enters across the two worlds.
             ContainModuleInterface::contain_object(&mut cave_a, 93202).expect("a enter");

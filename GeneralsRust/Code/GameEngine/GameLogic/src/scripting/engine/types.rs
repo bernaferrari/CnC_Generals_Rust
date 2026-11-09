@@ -1023,6 +1023,11 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Core roster belonging to the receiving world, when the driver owns one.
+    fn player_rank_roster(&self) -> Option<Arc<RwLock<crate::player::PlayerList>>> {
+        None
+    }
+
     /// Apply rank/skill actions synchronously on the receiving match.
     /// `None` retains the standalone Core PlayerList implementation.
     fn player_rank(
@@ -2600,6 +2605,8 @@ pub struct ScriptEngine {
     /// raw pointer this is never dereferenced; it only prevents a nested,
     /// different `ScriptEngine` from borrowing the outer engine's lists.
     instance_id: u64,
+    /// Roster of the world that constructed this engine, for Core rank actions.
+    players: Arc<RwLock<crate::player::PlayerList>>,
     /// Synchronous re-entry budget for this engine, independent of its peers.
     /// The guard holds only this scalar, never an inner-state borrow across dispatch.
     subroutine_call_depth: Cell<u32>,
@@ -2870,12 +2877,15 @@ impl WorldScriptState {
 
     /// C++ `TheScriptEngine->init()` for this world. Idempotent: a live
     /// engine is never replaced (repeat init must not drop script state).
-    pub fn initialize_engine(&self) -> GameLogicResult<()> {
+    pub(crate) fn initialize_engine(
+        &self,
+        services: &Arc<crate::system::engine_stores::WorldServices>,
+    ) -> GameLogicResult<()> {
         let mut slot = self.engine.write().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire script engine lock: {}", e))
         })?;
         if slot.is_none() {
-            *slot = Some(ScriptEngine::new()?);
+            *slot = Some(ScriptEngine::new_with_services(services)?);
         }
         Ok(())
     }
@@ -3227,12 +3237,10 @@ pub fn with_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R
 
 /// Initialize the published world's script engine (C++ `TheScriptEngine->init`).
 pub fn initialize_script_engine() -> GameLogicResult<()> {
-    published_world_scripts()
-        .ok_or_else(|| {
-            GameLogicError::Threading("initialize_script_engine: no world published".to_string())
-        })?
-        .scripts()
-        .initialize_engine()
+    let services = published_world_scripts().ok_or_else(|| {
+        GameLogicError::Threading("initialize_script_engine: no world published".to_string())
+    })?;
+    services.scripts().initialize_engine(&services)
 }
 
 /// The published world's script engine slot.

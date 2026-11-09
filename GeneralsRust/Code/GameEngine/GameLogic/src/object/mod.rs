@@ -2256,6 +2256,11 @@ pub struct Object {
     // Team and ownership (ID-first; pin only when team is not factory-registered)
     team_id: Option<TeamID>,
     team_pin: Option<Arc<RwLock<Team>>>,
+    /// World roster retained at admission; expired owners never fall back to
+    /// an unrelated active world's same-index player.
+    owner_roster: Option<Weak<RwLock<crate::player::PlayerList>>>,
+    /// World cave tracker supplied at construction, borrowed for create hooks.
+    owner_cave: Option<Weak<Mutex<crate::system::cave_system::CaveSystem>>>,
     original_team_name: AsciiString,
     indicator_color: Color,
 
@@ -2503,7 +2508,7 @@ mod vision;
 
 pub use object_thing::ObjectArcExt;
 pub(crate) use object_thing::{
-    ObjectThingHandle, make_drawable_module_thing_handle, supplied_module_owner,
+    ObjectThingHandle, make_drawable_module_thing_handle, supplied_module_cave_system, supplied_module_owner,
 };
 pub use object_xfer::ObjectXferError;
 

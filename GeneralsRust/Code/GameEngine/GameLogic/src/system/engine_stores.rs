@@ -44,10 +44,6 @@ pub struct SessionLogicFlags {
     pub script_group_name_id: AtomicU32,
     /// 0 = not inside GameLogic::update; else frame.saturating_add(1).
     pub in_update_frame_plus_one: AtomicU32,
-    /// Pending SetRankLevelLimit while update holds &mut self; i32::MIN = none.
-    pub pending_rank_limit: AtomicI32,
-    /// Published rank level cap (was process RANK_LEVEL_LIMIT_ATOMIC).
-    pub rank_level_limit: AtomicI32,
     pub rogue_eva_disable_warned: AtomicBool,
     pub world_epoch: AtomicU32,
     pub next_formation_id: AtomicU32,
@@ -77,8 +73,6 @@ impl Default for SessionLogicFlags {
             script_temp_group_id: AtomicU32::new(1),
             script_group_name_id: AtomicU32::new(0),
             in_update_frame_plus_one: AtomicU32::new(0),
-            pending_rank_limit: AtomicI32::new(i32::MIN),
-            rank_level_limit: AtomicI32::new(1000),
             rogue_eva_disable_warned: AtomicBool::new(false),
             world_epoch: AtomicU32::new(0),
             next_formation_id: AtomicU32::new(1),
@@ -413,10 +407,10 @@ impl WorldServices {
     ) -> &std::sync::Arc<crate::locomotor::LocomotorStore> {
         &self.locomotor_store
     }
-    pub(crate) fn game_logic_mutex(&self) -> &'static Mutex<crate::system::game_logic::GameLogic> {
+    pub(crate) fn game_logic_mutex(self: &Arc<Self>) -> &'static Mutex<crate::system::game_logic::GameLogic> {
         *self.main_game_logic.get_or_init(|| {
             Box::leak(Box::new(Mutex::new(
-                crate::system::game_logic::GameLogic::new(),
+                crate::system::game_logic::GameLogic::new_with_world_services(Arc::clone(self)),
             )))
         })
     }
@@ -537,7 +531,8 @@ impl WorldServices {
     pub(crate) fn tech_tree(&self) -> &Arc<RwLock<crate::upgrade::prerequisites::TechTree>> {
         &self.tech_tree
     }
-    pub(crate) fn rank_info_store(
+    /// Rank definitions owned by this world.
+    pub fn rank_info_store(
         &self,
     ) -> &Arc<RwLock<crate::system::rank_info::RankInfoStore>> {
         &self.rank_info_store

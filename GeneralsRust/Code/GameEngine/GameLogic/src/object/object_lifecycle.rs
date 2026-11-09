@@ -96,7 +96,7 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
-        Self::new_with_id_preparing_ai(thing_template, object_id, object_status_mask, team, false)
+        Self::new_with_id_preparing_ai(thing_template, object_id, object_status_mask, team, false, None, None)
     }
 
     /// Factory units prepare their exact AI after module installation and before
@@ -107,6 +107,8 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
+        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
             thing_template,
@@ -118,6 +120,8 @@ impl Object {
             None,
             None,
             None,
+            cave_system,
+            owner_roster,
         )
     }
 
@@ -129,6 +133,8 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
+        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
             thing_template,
@@ -140,6 +146,8 @@ impl Object {
             None,
             None,
             None,
+            cave_system,
+            owner_roster,
         )
     }
 
@@ -152,6 +160,8 @@ impl Object {
         lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
         module_factory: &game_engine::common::thing::module_factory::ModuleFactory,
+        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
             thing_template,
@@ -163,6 +173,8 @@ impl Object {
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
+            cave_system,
+            owner_roster,
         )
     }
 
@@ -176,6 +188,8 @@ impl Object {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&game_engine::common::thing::module_factory::ModuleFactory>,
+        cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
@@ -186,6 +200,8 @@ impl Object {
             object_status_mask,
             if publish { None } else { team.clone() },
         );
+        obj.owner_roster = owner_roster.as_ref().map(Arc::downgrade);
+        obj.owner_cave = cave_system.as_ref().map(Arc::downgrade);
         obj.ambient_lifecycle_admitted = publish;
         if publish {
             obj.set_team(team)?;
@@ -228,6 +244,7 @@ impl Object {
             lookup,
             body_definitions.as_ref(),
             module_factory.or(local_catalog.as_ref()),
+            cave_system,
         ) {
             if publish && object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);
@@ -367,6 +384,8 @@ impl Object {
 
             team_id,
             team_pin: team,
+            owner_roster: None,
+            owner_cave: None,
             original_team_name: AsciiString::new(),
             indicator_color: Color::default(),
 
@@ -526,8 +545,27 @@ impl Object {
     fn run_create_hooks(&mut self, build_complete: bool) {
         let modules = self.modules_with_interface(ModuleInterfaceType::CREATE);
         let object_id = self.id;
+        let cave_bound = self.owner_cave.is_some();
+        let cave_system = self.owner_cave.as_ref().and_then(Weak::upgrade);
         for module in modules {
+            let is_cave = module.name().as_str().eq_ignore_ascii_case("CaveContain");
             module.with_module(|module| {
+                if build_complete && is_cave && cave_bound {
+                    if let Some(contain) = crate::contain_module_overrides::contain_handle_for_module(module) {
+                        let result: Result<(), String> = (|| {
+                            let system = cave_system.as_ref().ok_or_else(|| "cave owner expired".to_string())?;
+                            let mut contain = contain.lock().map_err(|_| "cave contain poisoned".to_string())?;
+                            let mut system = system.lock().map_err(|_| "cave system poisoned".to_string())?;
+                            contain.on_build_complete_with_cave(&mut system)
+                                .ok_or_else(|| "cave build callback absent".to_string())?
+                                .map_err(|error| error.to_string())
+                        })();
+                        if let Err(error) = result {
+                            log::warn!("CaveContain on_build_complete failed for object {}: {}", object_id, error);
+                        }
+                        return;
+                    }
+                }
                 if let Some(create) = module.get_create_interface() {
                     if build_complete {
                         if create.should_do_on_build_complete() {

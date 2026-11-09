@@ -399,11 +399,11 @@ impl Object {
         }
 
         // Record kill for controlling player
-        self.with_controlling_player_mut(|guard| {
+        self.with_controlling_player_rank_capped_mut(|guard, rank_level_limit| {
             guard
                 .get_score_keeper_mut()
                 .add_object_destroyed_obj(victim);
-            guard.add_skill_points_for_kill_obj(self, victim);
+            guard.add_skill_points_for_kill_obj(self, victim, rank_level_limit);
             guard.do_bounty_for_kill_obj(self, victim);
         });
 

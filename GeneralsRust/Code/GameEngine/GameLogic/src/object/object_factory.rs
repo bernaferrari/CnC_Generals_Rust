@@ -261,6 +261,8 @@ impl ObjectFactory {
             None,
             None,
             None,
+            None,
+            None,
         )
     }
 
@@ -287,6 +289,8 @@ impl ObjectFactory {
             None,
             None,
             None,
+            game_logic.owned_cave_system(),
+            game_logic.owned_player_list(),
         )?;
         let owner = self
             .get_object(id)
@@ -323,6 +327,8 @@ impl ObjectFactory {
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
+            game_logic.owned_cave_system(),
+            game_logic.owned_player_list(),
         )?;
         let owner = self
             .get_object(id)
@@ -362,6 +368,8 @@ impl ObjectFactory {
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
+            None,
+            None,
         )
     }
 
@@ -377,6 +385,8 @@ impl ObjectFactory {
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
+        mut cave_system: Option<Arc<Mutex<crate::system::cave_system::CaveSystem>>>,
+        mut owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
@@ -387,10 +397,18 @@ impl ObjectFactory {
         // Allocate object ID
         let object_id = match saved_id {
             Some(id) => id,
-            None => crate::system::game_logic::get_game_logic()
-                .lock()
-                .map_err(|_| "Object creation identity owner poisoned")?
-                .allocate_object_id(),
+            None => {
+                let mut logic = crate::system::game_logic::get_game_logic()
+                    .lock()
+                    .map_err(|_| "Object creation identity owner poisoned")?;
+                if cave_system.is_none() {
+                    cave_system = logic.owned_cave_system();
+                }
+                if owner_roster.is_none() {
+                    owner_roster = logic.owned_player_list();
+                }
+                logic.allocate_object_id()
+            }
         };
         if object_id == crate::common::INVALID_ID || self.object_registry.contains_key(&object_id) {
             return Err(format!("invalid or duplicate Object id {object_id}").into());
@@ -418,6 +436,8 @@ impl ObjectFactory {
                 lookup,
                 body_definitions.ok_or("native Object construction body definitions absent")?,
                 module_factory.ok_or("native Object construction module catalog absent")?,
+                cave_system,
+                owner_roster,
             )?
         } else {
             let assemble = if publish {
@@ -431,6 +451,8 @@ impl ObjectFactory {
                 status_mask,
                 team.clone(),
                 prepare_ai,
+                cave_system,
+                owner_roster,
             )?
         };
 

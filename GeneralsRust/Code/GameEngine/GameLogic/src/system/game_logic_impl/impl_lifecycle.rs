@@ -182,6 +182,13 @@ impl GameLogic {
                 .bind_pathfinding_owner(pathfinding_owner)
                 .map_err(GameLogicError::InvalidState)?;
         }
+        if let Some(roster) = self.owned_player_list() {
+            object
+                .write()
+                .map_err(|_| GameLogicError::Generic("Object lock poisoned".into()))?
+                .bind_rank_roster(&roster)
+                .map_err(GameLogicError::InvalidState)?;
+        }
         self.observe_object_id(object_id);
         // C++ GameLogic::registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
@@ -313,6 +320,13 @@ impl GameLogic {
             return Err(GameLogicError::InvalidState(format!(
                 "Object id {object_id} already admitted"
             )));
+        }
+        if let Some(roster) = self.owned_player_list() {
+            object
+                .write()
+                .map_err(|_| GameLogicError::Generic("Object lock poisoned".into()))?
+                .bind_rank_roster(&roster)
+                .map_err(GameLogicError::InvalidState)?;
         }
         self.observe_object_id(object_id);
         // C++ registerObject prepends (GameLogic.cpp:3866).
@@ -1193,8 +1207,7 @@ impl GameLogic {
             }
         }
 
-        self.rank_level_limit = 1000;
-        publish_rank_cap_if_live(self);
+        self.set_rank_level_limit(crate::player::DEFAULT_RANK_LEVEL_LIMIT);
         self.set_defaults(loading_save_game);
         self.show_behind_building_markers = true;
         self.draw_icon_ui = true;

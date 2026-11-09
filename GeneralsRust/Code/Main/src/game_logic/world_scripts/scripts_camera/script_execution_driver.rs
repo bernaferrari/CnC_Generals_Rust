@@ -1949,6 +1949,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
+    fn player_rank_roster(&self) -> Option<Arc<RwLock<gamelogic::player::PlayerList>>> {
+        Some(Arc::clone(self.world.world_services.players()))
+    }
+
     fn player_rank(
         &mut self,
         request: ScriptPlayerRankRequest,
@@ -3532,11 +3536,13 @@ impl GameLogic {
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> gamelogic::GameLogicResult<()> {
-        engine.update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
-                .with_session_world(self.host_trigger_world.clone()),
-            &mut HostScriptExecutionDriver::with_interpreter(self, engine),
-        )
+        self.with_own_services_mut(|world| {
+            engine.update_with_driver(
+                gamelogic::scripting::executor::ScriptContext::at_frame(world.frame)
+                    .with_session_world(world.host_trigger_world.clone()),
+                &mut HostScriptExecutionDriver::with_interpreter(world, engine),
+            )
+        })
     }
 }
 

@@ -60,7 +60,7 @@ impl Player {
     ///
     /// # Returns
     /// Returns true if the rank actually changed
-    pub fn set_rank_level_impl(&mut self, new_level: Int) -> Bool {
+    pub fn set_rank_level_impl(&mut self, new_level: Int, rank_level_limit: Int) -> Bool {
         use crate::system::rank_info::the_rank_info_store_arc;
 
         let mut new_level = new_level;
@@ -84,7 +84,6 @@ impl Player {
 
         // Check against game logic rank limit
         // In C++: if (newLevel > TheGameLogic->getRankLevelLimit())
-        let rank_level_limit = TheGameLogic::get_rank_level_limit();
         if new_level > rank_level_limit {
             new_level = rank_level_limit;
         }
@@ -168,7 +167,7 @@ impl Player {
     ///
     /// # Returns
     /// Returns true if the player gained or lost levels as a result
-    pub fn add_skill_points_impl(&mut self, delta: Int) -> Bool {
+    pub fn add_skill_points_impl(&mut self, delta: Int, rank_level_limit: Int) -> Bool {
         use crate::system::rank_info::the_rank_info_store_arc;
 
         // Apply skill points modifier (from upgrades, difficulty, etc.)
@@ -185,7 +184,7 @@ impl Player {
         let point_cap = if let Some(ref rank_store) = rank_store_guard {
             // Cap at the lowest point of cap level, not highest
             let rank_count = rank_store.get_rank_level_count() as Int;
-            let cap_level = rank_count.min(TheGameLogic::get_rank_level_limit());
+            let cap_level = rank_count.min(rank_level_limit);
 
             // Get the skill points needed for the cap level
             if let Some(cap_rank) = rank_store.get_rank_info(cap_level as usize) {
@@ -207,7 +206,7 @@ impl Player {
             if self.skill_points < self.level_up {
                 break;
             }
-            if !self.set_rank_level(self.rank_level + 1) {
+            if !self.set_rank_level(self.rank_level + 1, rank_level_limit) {
                 break;
             }
             level_gained = true;
@@ -232,6 +231,7 @@ impl Player {
         _killer: Option<ObjectID>,
         victim_under_construction: bool,
         victim_skill_value: Int,
+        rank_level_limit: Int,
     ) -> Bool {
         if _killer.is_none() || victim_under_construction {
             return false;
@@ -239,7 +239,7 @@ impl Player {
 
         // C++ Player.cpp:2471-2474
         // Int skillValue = victim->getTemplate()->getSkillPointValue(victimLevel);
-        self.add_skill_points(victim_skill_value)
+        self.add_skill_points(victim_skill_value, rank_level_limit)
     }
 
     /// Add science purchase points (matches C++ Player::addSciencePurchasePoints)
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(player.get_rank_level(), 1);
 
         // Add some skill points (not enough to level)
-        player.add_skill_points(50);
+        player.add_skill_points(50, crate::player::DEFAULT_RANK_LEVEL_LIMIT);
         assert_eq!(player.get_skill_points(), 50);
         assert_eq!(player.get_rank_level(), 1); // Should still be rank 1
     }
@@ -662,7 +662,7 @@ mod tests {
         // Set a 2x modifier
         player.skill_points_modifier = 2.0;
 
-        player.add_skill_points(100);
+        player.add_skill_points(100, crate::player::DEFAULT_RANK_LEVEL_LIMIT);
 
         // Should be doubled (and ceiled)
         assert_eq!(player.get_skill_points(), 200);
