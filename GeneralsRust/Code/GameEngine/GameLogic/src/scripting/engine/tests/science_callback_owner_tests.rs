@@ -5,10 +5,8 @@ use crate::player::{Player, PlayerTemplate};
 use crate::scripting::engine::get_script_engine;
 use crate::scripting::executor::ScriptContext;
 use crate::system::rank_info::{
-    RankDefinition, RankDefinitionMode, RankInfoStore as GameLogicRankInfoStore,
-    init_global_rank_info_store, the_rank_info_store_arc,
+    RankCatalog, RankDefinition, RankDefinitionMode, RankInfoStore as GameLogicRankInfoStore,
 };
-use game_engine::common::ini::RankInfoStore as CommonRankInfoStore;
 use game_engine::common::rts::player_template::PlayerTemplate as CommonPlayerTemplate;
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
 use std::sync::Arc;
@@ -32,56 +30,16 @@ impl Drop for ScriptEngineSlotRestore {
     }
 }
 
-/// Temporarily replace both rank catalogs without holding either lock while
-/// player lifecycle methods run. The GameLogic getter mirrors the Common INI
-/// catalog whenever that catalog is nonempty, so the Common catalog is emptied
-/// first and restored before the saved GameLogic value.
-struct RankCatalogRestore {
-    common: Option<CommonRankInfoStore>,
-    game_logic: Option<GameLogicRankInfoStore>,
-}
-
-impl RankCatalogRestore {
-    fn install(rank_sciences: &[Vec<ScienceType>]) -> Self {
-        let mut common_handle = game_engine::common::ini::get_rank_info_store_mut();
-        let previous_common = std::mem::replace(&mut *common_handle, CommonRankInfoStore::new());
-        drop(common_handle);
-
-        init_global_rank_info_store();
-        let logic_arc = the_rank_info_store_arc();
-        let mut logic_handle = logic_arc.write().expect("GameLogic rank store");
-        let previous_game_logic =
-            std::mem::replace(&mut *logic_handle, GameLogicRankInfoStore::new());
-        for (index, sciences_granted) in rank_sciences.iter().enumerate() {
-            let mut rank = RankDefinition::new(index + 1, RankDefinitionMode::Create);
-            rank.sciences_granted = sciences_granted.clone();
-            logic_handle
-                .apply_rank_definition(rank)
-                .expect("sequential authored rank");
-        }
-        drop(logic_handle);
-
-        Self {
-            common: Some(previous_common),
-            game_logic: Some(previous_game_logic),
-        }
+/// A rank catalog owned by the test's players alone; no process or published
+/// world catalog is touched.
+fn rank_catalog(rank_sciences: &[Vec<ScienceType>]) -> RankCatalog {
+    let mut rows = GameLogicRankInfoStore::new();
+    for (index, sciences_granted) in rank_sciences.iter().enumerate() {
+        let mut rank = RankDefinition::new(index + 1, RankDefinitionMode::Create);
+        rank.sciences_granted = sciences_granted.clone();
+        rows.apply_rank_definition(rank).expect("sequential authored rank");
     }
-}
-
-impl Drop for RankCatalogRestore {
-    fn drop(&mut self) {
-        let mut common_handle = game_engine::common::ini::get_rank_info_store_mut();
-        *common_handle = self.common.take().expect("saved Common rank catalog");
-        drop(common_handle);
-
-        // This getter first synchronizes from the just-restored Common store.
-        let logic_arc = the_rank_info_store_arc();
-        let mut logic_handle = logic_arc.write().expect("GameLogic rank store");
-        *logic_handle = self
-            .game_logic
-            .take()
-            .expect("saved GameLogic rank catalog");
-    }
+    RankCatalog::from_rows(rows)
 }
 
 fn science_test_engine(flag: &str) -> ScriptEngine {
@@ -133,13 +91,13 @@ fn acquired(engine: &ScriptEngine) -> Vec<ScienceType> {
 
 fn interleaved_science_updates(foreign_slot: bool) {
     let _guard = crate::test_sync::lock();
-    let _rank_catalog = RankCatalogRestore::install(&[Vec::new()]);
+    let ranks = rank_catalog(&[Vec::new()]);
     let _slot = ScriptEngineSlotRestore::install(
         foreign_slot.then(|| ScriptEngine::new_in_published_world().expect("foreign engine")),
     );
     let science = NameKeyGenerator::name_to_key("SCIENCE_OWNER_CALLBACK") as ScienceType;
-    let mut first_player = Player::new(0);
-    let mut second_player = Player::new(0);
+    let mut first_player = Player::with_rank_catalog(0, ranks.clone());
+    let mut second_player = Player::with_rank_catalog(0, ranks.clone());
     let first_engine = science_test_engine("First");
     let second_engine = science_test_engine("Second");
 
@@ -192,7 +150,7 @@ fn player_add_science_interleaves_owners_with_foreign_process_slot() {
 #[test]
 fn reset_sciences_routes_authored_intrinsic_science_to_owner_and_save_tail() {
     let _guard = crate::test_sync::lock();
-    let _rank_catalog = RankCatalogRestore::install(&[Vec::new()]);
+    let ranks = rank_catalog(&[Vec::new()]);
     let _empty_slot = ScriptEngineSlotRestore::install(None);
 
     // Common's authored intrinsic-science field is public. A unique template
@@ -203,7 +161,7 @@ fn reset_sciences_routes_authored_intrinsic_science_to_owner_and_save_tail() {
     let mut common = CommonPlayerTemplate::new("FactionScienceOwnerTest".into());
     common.intrinsic_sciences = vec![science_name.into()];
     let template = Arc::new(PlayerTemplate::from_common(&common));
-    let mut player = Player::new(0);
+    let mut player = Player::with_rank_catalog(0, ranks.clone());
     player.init(template);
     assert_eq!(player.get_sciences(), &[science]);
 
@@ -245,12 +203,12 @@ fn player_rank_up_and_down_callbacks_publish_exact_reset_science_sequence() {
     let intrinsic = NameKeyGenerator::name_to_key("SCIENCE_RANK_TEST_INTRINSIC") as ScienceType;
     let rank_one = NameKeyGenerator::name_to_key("SCIENCE_RANK_TEST_ONE") as ScienceType;
     let rank_two = NameKeyGenerator::name_to_key("SCIENCE_RANK_TEST_TWO") as ScienceType;
-    let _rank_catalog = RankCatalogRestore::install(&[vec![rank_one], vec![rank_two]]);
+    let ranks = rank_catalog(&[vec![rank_one], vec![rank_two]]);
 
     let mut common = CommonPlayerTemplate::new("FactionScienceRankOwnerTest".into());
     common.intrinsic_sciences = vec!["SCIENCE_RANK_TEST_INTRINSIC".into()];
     let template = Arc::new(PlayerTemplate::from_common(&common));
-    let mut player = Player::new(0);
+    let mut player = Player::with_rank_catalog(0, ranks.clone());
     player.init(template);
     assert_eq!(player.get_rank_level(), 1);
     assert_eq!(player.get_sciences(), &[intrinsic, rank_one]);
@@ -332,12 +290,12 @@ fn acquired_science_consumption_removes_first_match_after_saved_tail_snapshot() 
 fn standalone_player_add_science_still_notifies_the_process_engine() {
     let _guard = crate::test_sync::lock();
     let _empty_slot = ScriptEngineSlotRestore::install(None);
-    let _rank_catalog = RankCatalogRestore::install(&[Vec::new()]);
+    let ranks = rank_catalog(&[Vec::new()]);
     let science = NameKeyGenerator::name_to_key("SCIENCE_STANDALONE_OWNER") as ScienceType;
     let standalone = ScriptEngine::new_in_published_world().expect("standalone engine");
     let _standalone_slot = ScriptEngineSlotRestore::install(Some(standalone));
 
-    let mut player = Player::new(0);
+    let mut player = Player::with_rank_catalog(0, ranks.clone());
     assert!(player.add_science(science));
     let handle = get_script_engine();
     let slot = handle.read().expect("standalone slot");

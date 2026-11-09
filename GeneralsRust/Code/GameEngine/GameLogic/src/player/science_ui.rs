@@ -31,13 +31,12 @@ pub struct LevelUpNotification {
 impl LevelUpNotification {
     /// Create a level-up notification from rank info
     pub fn from_rank_level_change(
+        ranks: &crate::system::rank_info::RankCatalog,
         player_index: Int,
         old_level: Int,
         new_level: Int,
     ) -> Option<Self> {
-        use crate::system::rank_info::the_rank_info_store_arc;
-
-        let rank_arc = the_rank_info_store_arc();
+        let rank_arc = ranks.store();
         if let Ok(rank_store) = rank_arc.read() {
             if let Some(rank_info) = rank_store.get_rank_info(new_level as usize) {
                 return Some(Self {
@@ -143,9 +142,7 @@ pub struct RankProgressInfo {
 impl RankProgressInfo {
     /// Calculate from player state
     pub fn from_player(player: &Player) -> Option<Self> {
-        use crate::system::rank_info::the_rank_info_store_arc;
-
-        let rank_arc = the_rank_info_store_arc();
+        let rank_arc = player.rank_catalog().store();
         let rank_store = rank_arc.read().ok()?;
         let current_level = player.get_rank_level();
         let current_skill_points = player.get_skill_points();
@@ -274,6 +271,7 @@ impl Player {
     /// to display appropriate feedback to the player.
     pub fn get_level_up_notification(&self, old_level: Int) -> Option<LevelUpNotification> {
         LevelUpNotification::from_rank_level_change(
+            self.rank_catalog(),
             self.get_player_index(),
             old_level,
             self.get_rank_level(),

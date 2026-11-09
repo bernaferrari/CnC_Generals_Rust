@@ -781,27 +781,15 @@ impl ControlBar {
         if let Some(percent) = self.science_state.live_rank_progress_percent {
             return percent.clamp(0, 100);
         }
+        // C++ ControlBar.cpp:383 reads the Player's own m_levelDown/m_levelUp.
         let skill = player.get_skill_points();
-        let rank = player.get_rank_level();
-        let (down, up) = gamelogic::system::rank_info::the_rank_info_store()
-            .and_then(|store_arc| {
-                let store = store_arc.read().ok()?;
-                let down = store
-                    .get_rank_info(rank as usize)
-                    .map(|info| info.skill_points_needed)
-                    .unwrap_or(0);
-                let up = store
-                    .get_rank_info((rank + 1) as usize)
-                    .map(|info| info.skill_points_needed)
-                    .unwrap_or(down);
-                Some((down, up))
-            })
-            .unwrap_or((0, skill.max(1)));
-        let denom = up - down;
+        let down = player.get_skill_points_level_down();
+        let up = player.get_skill_points_level_up();
+        let denom = up.wrapping_sub(down);
         if denom == 0 {
             return 0;
         }
-        ((skill - down) * 100) / denom
+        skill.wrapping_sub(down).wrapping_mul(100) / denom
     }
 
     fn update_context_purchase_science(

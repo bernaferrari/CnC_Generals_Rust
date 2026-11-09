@@ -38,6 +38,8 @@ pub struct Player {
     pub(super) science_purchase_points: Int,
     pub(super) skill_points_modifier: Real,
     pub(super) general_name: String,
+    /// C++ `TheRankInfoStore` of the world that created this Player.
+    pub(super) rank_catalog: crate::system::rank_info::RankCatalog,
 
     // Team and relationships
     pub(super) default_team: Option<Arc<RwLock<Team>>>,
@@ -119,9 +121,27 @@ pub struct Player {
 }
 
 impl Player {
-    /// Create a new player with the given index
+    /// Create a player that belongs to no world: its rank catalog is empty,
+    /// so it never reads another world's `Rank.ini`.
     pub fn new(player_index: PlayerIndex) -> Self {
+        Self::with_rank_catalog(player_index, crate::system::rank_info::RankCatalog::default())
+    }
+
+    /// Create a player of `world`; rank math reads that world's `Rank.ini`
+    /// (C++ Player ctor -> init -> resetRank, Player.cpp:271/473/2637).
+    pub fn new_for_world(
+        player_index: PlayerIndex,
+        world: &crate::system::engine_stores::WorldServices,
+    ) -> Self {
+        Self::with_rank_catalog(player_index, crate::system::rank_info::RankCatalog::for_world(world))
+    }
+
+    pub fn with_rank_catalog(
+        player_index: PlayerIndex,
+        rank_catalog: crate::system::rank_info::RankCatalog,
+    ) -> Self {
         let mut player = Self {
+            rank_catalog,
             player_index,
             player_name_key: 0,
             player_display_name: String::new(),

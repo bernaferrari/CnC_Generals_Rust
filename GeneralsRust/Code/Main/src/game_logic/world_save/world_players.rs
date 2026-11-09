@@ -596,7 +596,7 @@ impl GameLogic {
                 template
             });
 
-            let mut player = LogicPlayer::new(host_id as i32);
+            let mut player = LogicPlayer::new_for_world(host_id as i32, &self.world_services);
             if !player_name.is_empty() {
                 player.set_player_name_key(NameKeyGenerator::name_to_key(&player_name));
             }

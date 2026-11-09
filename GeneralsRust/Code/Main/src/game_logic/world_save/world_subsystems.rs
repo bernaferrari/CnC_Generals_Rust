@@ -506,7 +506,7 @@ impl GameLogic {
                 player.set_colors(core_colors.0, core_colors.1);
             }
         } else {
-            let mut logic_player = LogicPlayer::new(host_id as i32);
+            let mut logic_player = LogicPlayer::new_for_world(host_id as i32, &self.world_services);
             logic_player.set_player_name_key(NameKeyGenerator::name_to_key("ReplayObserver"));
             logic_player.set_display_name("Observer");
             logic_player.set_side("Observer");

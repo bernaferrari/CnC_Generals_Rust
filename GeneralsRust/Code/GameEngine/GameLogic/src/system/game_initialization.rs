@@ -1087,9 +1087,12 @@ impl GameInitializer {
     ) {
         let mut logic_list = LogicPlayerList::new();
         let mut logic_players = Vec::new();
+        // This legacy initializer publishes its roster into the world bound
+        // around it (ThePlayerList below); its Players carry that world's ranks.
+        let world = crate::system::engine_stores::active_services();
 
         for system_player in system_list.get_all_players() {
-            let mut logic_player = LogicPlayer::new(system_player.index as i32);
+            let mut logic_player = LogicPlayer::new_for_world(system_player.index as i32, &world);
             let display_name = if system_player.template.display_name.is_empty() {
                 system_player.name.clone()
             } else {

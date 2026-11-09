@@ -17,14 +17,38 @@ use game_engine::common::rts::science::get_science_store;
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
 
 impl Player {
+    /// This Player's world rank catalog; a lending world, when supplied, wins.
+    fn rank_store_for(
+        &self,
+        world: Option<&crate::system::engine_stores::WorldServices>,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::system::rank_info::RankInfoStore>> {
+        match world {
+            Some(world) => crate::system::rank_info::rank_info_store_for_world(world),
+            None => self.rank_catalog.store(),
+        }
+    }
+
+    /// The rank catalog of the world that created this Player.
+    pub fn rank_catalog(&self) -> &crate::system::rank_info::RankCatalog {
+        &self.rank_catalog
+    }
+
+    /// C++ `Player::getSkillPointsLevelUp` (Player.h:653).
+    pub fn get_skill_points_level_up(&self) -> Int {
+        self.level_up
+    }
+
+    /// C++ `Player::getSkillPointsLevelDown` (Player.h:654).
+    pub fn get_skill_points_level_down(&self) -> Int {
+        self.level_down
+    }
+
     /// Reset rank state to defaults (matches C++ Player::resetRank)
     pub fn reset_rank_impl(&mut self) {
         self.reset_rank_impl_for_world(None, 0);
     }
 
     fn reset_rank_impl_for_world(&mut self, world: Option<&crate::system::engine_stores::WorldServices>, frame: u32) {
-        use crate::system::rank_info::the_rank_info_store_arc;
-
         self.rank_level = 1;
         self.skill_points = 0;
         self.level_down = 0;
@@ -36,8 +60,7 @@ impl Player {
             .unwrap_or(0);
         self.science_purchase_points = intrinsic_points;
 
-        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
-            .unwrap_or_else(the_rank_info_store_arc);
+        let rank_arc = self.rank_store_for(world);
         if let Ok(rank_store) = rank_arc.read() {
             if let Some(next_rank) = rank_store.get_rank_info(2) {
                 self.level_up = next_rank.skill_points_needed;
@@ -77,8 +100,6 @@ impl Player {
         world: Option<&crate::system::engine_stores::WorldServices>,
         frame: u32,
     ) -> Bool {
-        use crate::system::rank_info::the_rank_info_store_arc;
-
         let mut new_level = new_level;
         let old_spp = self.science_purchase_points;
         let old_level = self.rank_level;
@@ -89,8 +110,7 @@ impl Player {
         }
 
         // Get rank count from the rank info store
-        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
-            .unwrap_or_else(the_rank_info_store_arc);
+        let rank_arc = self.rank_store_for(world);
         if let Ok(rank_store) = rank_arc.read() {
             let rank_count = rank_store.get_rank_level_count() as Int;
             // Empty store (unit fixtures) must not clamp every rank to 0.
@@ -114,8 +134,7 @@ impl Player {
         }
 
         // Update level-up threshold for next level (C++ Player.cpp:2665-2681)
-        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
-            .unwrap_or_else(the_rank_info_store_arc);
+        let rank_arc = self.rank_store_for(world);
         if let Ok(rank_store) = rank_arc.read() {
             // Set m_levelUp to the skill points needed for the next rank
             // If we're at max rank, set to INT_MAX
@@ -199,8 +218,6 @@ impl Player {
     /// # Returns
     /// Returns true if the player gained or lost levels as a result
     pub fn add_skill_points_impl(&mut self, delta: Int, rank_level_limit: Int) -> Bool {
-        use crate::system::rank_info::the_rank_info_store_arc;
-
         // Apply skill points modifier (from upgrades, difficulty, etc.)
         // C++ Player.cpp:2439 - REAL_TO_INT_CEIL(m_skillPointsModifier * INT_TO_REAL(delta))
         let delta = ((delta as Real * self.skill_points_modifier).ceil()) as Int;
@@ -210,7 +227,9 @@ impl Player {
         }
 
         // Get level cap from rank info store and game logic (C++ Player.cpp:2444-2445)
-        let rank_arc = the_rank_info_store_arc();
+        // The read guard ends with this block: set_rank_level below refreshes
+        // the same catalog under a write lock.
+        let rank_arc = self.rank_catalog.store();
         let rank_store_guard = rank_arc.read().ok();
         let point_cap = if let Some(ref rank_store) = rank_store_guard {
             // Cap at the lowest point of cap level, not highest
@@ -226,6 +245,8 @@ impl Player {
         } else {
             Int::MAX
         };
+
+        drop(rank_store_guard);
 
         // Add skill points, clamped to cap (C++ Player.cpp:2448)
         let mut level_gained = false;
@@ -614,8 +635,6 @@ impl Player {
     }
 
     fn reset_sciences_impl_for_world(&mut self, world: Option<&crate::system::engine_stores::WorldServices>, frame: u32) {
-        use crate::system::rank_info::the_rank_info_store_arc;
-
         // C++ Player.cpp:2480 - clear all sciences
         self.sciences.clear();
 
@@ -626,8 +645,7 @@ impl Player {
 
         // C++ Player.cpp:2485-2495
         // Add sciences granted by all ranks up to current level
-        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
-            .unwrap_or_else(the_rank_info_store_arc);
+        let rank_arc = self.rank_store_for(world);
         if let Ok(rank_store) = rank_arc.read() {
             for level in 1..=self.rank_level {
                 if let Some(rank_info) = rank_store.get_rank_info(level as usize) {
@@ -752,6 +770,55 @@ mod tests {
 
         // Should be doubled (and ceiled)
         assert_eq!(player.get_skill_points(), 200);
+    }
+
+    fn world_with_ranks(skill_points: &[i32]) -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+        let world = crate::system::engine_stores::new_world_services();
+        {
+            let mut ranks = world.common().ini.rank.write();
+            ranks.init();
+            for &skill in skill_points {
+                let mut rank = game_engine::common::ini::ini_rank::RankInfo::new();
+                rank.skill_points_needed = skill;
+                rank.science_purchase_points_granted = 1;
+                ranks.add_rank(rank).unwrap();
+            }
+        }
+        world
+    }
+
+    #[test]
+    fn players_rank_against_their_own_worlds_rank_catalog() {
+        // Player.cpp:2437-2458 / 2637-2715 read TheRankInfoStore. Each world's
+        // Players read that world's Rank.ini; no world is published here, and
+        // the same award on the same player index ranks differently per world.
+        let first = world_with_ranks(&[0, 100, 200]);
+        let second = world_with_ranks(&[0, 1000]);
+        let mut a = Player::new_for_world(0, &first);
+        let mut b = Player::new_for_world(0, &second);
+        assert_eq!(a.get_skill_points_level_up(), 100);
+        assert_eq!(b.get_skill_points_level_up(), 1000);
+
+        assert!(a.add_skill_points(150, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
+        assert!(!b.add_skill_points(150, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
+        assert_eq!((a.get_rank_level(), a.get_skill_points_level_down(), a.get_skill_points_level_up()), (2, 100, 200));
+        assert_eq!((b.get_rank_level(), b.get_skill_points()), (1, 150));
+
+        // Second world caps at its last rank (Player.cpp:2444-2448).
+        assert!(b.add_skill_points(5000, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
+        assert_eq!((b.get_rank_level(), b.get_skill_points(), b.get_skill_points_level_up()), (2, 1000, Int::MAX));
+        assert!(a.add_skill_points(5000, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
+        assert_eq!((a.get_rank_level(), a.get_skill_points()), (3, 200));
+    }
+
+    #[test]
+    fn worldless_player_has_no_rank_catalog() {
+        let world = world_with_ranks(&[0, 10]);
+        let mut player = crate::system::engine_stores::with_world_services(&world, || Player::new(0));
+        // Even under a published world, a Player::new reads no catalog.
+        assert_eq!(player.get_skill_points_level_up(), Int::MAX);
+        assert!(!player.add_skill_points(50, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
+        assert_eq!(player.get_rank_level(), 1);
     }
 }
 

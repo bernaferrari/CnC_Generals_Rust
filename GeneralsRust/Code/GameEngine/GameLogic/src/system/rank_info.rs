@@ -15,36 +15,54 @@ use std::any::Any;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
-pub fn the_rank_info_store_arc() -> std::sync::Arc<RwLock<RankInfoStore>> {
-    sync_rank_store_from_ini();
-    std::sync::Arc::clone(crate::system::engine_stores::active_services().rank_info_store())
+/// One world's rank catalog (C++ `TheRankInfoStore`): the world's authored
+/// `Rank.ini` rows plus the GameLogic view derived from them. A Player holds
+/// the catalog of the world that created it, so rank math never resolves a
+/// catalog through whichever world is published on the current thread.
+#[derive(Clone, Default)]
+pub struct RankCatalog {
+    authored: std::sync::Arc<parking_lot::RwLock<game_engine::common::ini::ini_rank::RankInfoStore>>,
+    store: std::sync::Arc<RwLock<RankInfoStore>>,
 }
 
-pub fn the_rank_info_store() -> Option<std::sync::Arc<std::sync::RwLock<RankInfoStore>>> {
-    Some(the_rank_info_store_arc())
+impl std::fmt::Debug for RankCatalog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RankCatalog")
+            .field("authored_levels", &self.authored.read().get_rank_level_count())
+            .finish()
+    }
 }
 
-pub fn the_rank_info_store_mut() -> Option<std::sync::Arc<std::sync::RwLock<RankInfoStore>>> {
-    Some(the_rank_info_store_arc())
-}
+impl RankCatalog {
+    /// The catalog owned by `world`.
+    pub fn for_world(world: &crate::system::engine_stores::WorldServices) -> Self {
+        Self {
+            authored: std::sync::Arc::clone(&world.common().ini.rank),
+            store: std::sync::Arc::clone(world.rank_info_store()),
+        }
+    }
 
-pub fn init_global_rank_info_store() {
-    sync_rank_store_from_ini();
+    /// A catalog holding exactly `rows` and no authored `Rank.ini` source
+    /// (unit fixtures and players that belong to no world).
+    pub fn from_rows(rows: RankInfoStore) -> Self {
+        Self {
+            authored: Default::default(),
+            store: std::sync::Arc::new(RwLock::new(rows)),
+        }
+    }
+
+    /// The rank rows, refreshed from this world's authored `Rank.ini`.
+    pub fn store(&self) -> std::sync::Arc<RwLock<RankInfoStore>> {
+        sync_rank_store(&self.authored.read(), &self.store);
+        std::sync::Arc::clone(&self.store)
+    }
 }
 
 /// Synchronize the receiving world's effective INI rank definitions.
 pub fn rank_info_store_for_world(
     world: &crate::system::engine_stores::WorldServices,
 ) -> std::sync::Arc<RwLock<RankInfoStore>> {
-    let common = world.common().ini.rank.read();
-    let store = std::sync::Arc::clone(world.rank_info_store());
-    sync_rank_store(&common, &store);
-    store
-}
-
-fn sync_rank_store_from_ini() {
-    let world = crate::system::engine_stores::active_services();
-    let _ = rank_info_store_for_world(&world);
+    RankCatalog::for_world(world).store()
 }
 
 fn sync_rank_store(
