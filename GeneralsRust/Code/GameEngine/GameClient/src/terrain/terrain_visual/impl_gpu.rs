@@ -162,9 +162,8 @@ impl TerrainVisualImpl {
         let texture_slots_changed = refresh_texture_slots;
         let scene_lights = self.dynamic_lights.clone();
         let lights_active = scene_lights.iter().any(|light| light.enabled);
-        // C++ HeightMap::doTheDynamicLight rebakes every VB fill. Live GPU
-        // meshes only remesh on revision/texture change, so force one rebuild
-        // while pulses are live and one more after they expire.
+        // C++ HeightMap::doTheDynamicLight rebakes every VB fill. Refill
+        // existing meshes while pulses are live and once after they expire.
         let needs_light_rebake = lights_active || self.had_dynamic_lights;
 
         let mut shared_slot_map: HashMap<TextureId, usize> = HashMap::new();
@@ -174,6 +173,7 @@ impl TerrainVisualImpl {
 
         let mut binding_updates = 0usize;
         let mut mesh_uploads = 0usize;
+        let mut light_rebakes = 0usize;
         let mut vertices_uploaded = 0usize;
         let mut indices_uploaded = 0usize;
         let mut binding_prep_elapsed = std::time::Duration::ZERO;
@@ -207,14 +207,17 @@ impl TerrainVisualImpl {
                 binding_updates += 1;
             }
 
-            let needs_mesh_upload = match self.chunk_meshes.get(&chunk_id) {
-                Some(mesh) => {
-                    mesh.revision != chunk_revision
-                        || texture_slots_changed
-                        || needs_light_rebake
-                        || (mesh.uploaded_with_dynamic_lights && !lights_active)
+            let needs_mesh_upload = match self.chunk_meshes.get_mut(&chunk_id) {
+                Some(mesh) if mesh.revision == chunk_revision && !texture_slots_changed => {
+                    // Only the lighting changed: refill the existing vertex
+                    // buffer like C++ doTheDynamicLight refills its VB.
+                    if needs_light_rebake || (mesh.uploaded_with_dynamic_lights && !lights_active) {
+                        mesh.rebake_lights(queue.as_ref(), &scene_lights, lights_active);
+                        light_rebakes += 1;
+                    }
+                    false
                 }
-                None => true,
+                _ => true,
             };
 
             if needs_mesh_upload {
@@ -560,18 +563,23 @@ impl TerrainVisualImpl {
                     // C++ vbMirror / getStaticDiffuse, then doTheDynamicLight.
                     // Leftover chunk.vertices may already be pulse-lit; start
                     // from base_colors so a live remesh does not double-apply.
-                    let color = chunk_base_colors
+                    vertex.color = chunk_base_colors
                         .get(vert_index)
                         .copied()
                         .unwrap_or(vertex.color);
+                }
+                let static_colors: Vec<[f32; 4]> =
+                    gpu_vertices.iter().map(|vertex| vertex.color).collect();
+                for vertex in &mut gpu_vertices {
                     vertex.color = Self::bake_terrain_vertex_dynamic_light(
                         vertex.position,
                         vertex.normal,
-                        color,
+                        vertex.color,
                         &scene_lights,
                     );
                 }
 
+                vertices_uploaded += gpu_vertices.len();
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(&format!("Terrain Chunk {} Vertex Buffer", chunk_id)),
                     contents: cast_slice(&gpu_vertices),
@@ -605,11 +613,12 @@ impl TerrainVisualImpl {
                         batches,
                         revision: chunk_revision,
                         uploaded_with_dynamic_lights: lights_active,
+                        vertices: gpu_vertices,
+                        static_colors,
                     },
                 );
                 mesh_upload_elapsed += upload_started.elapsed();
                 mesh_uploads += 1;
-                vertices_uploaded += gpu_vertices.len();
                 indices_uploaded += chunk_indices.len();
             }
         }
@@ -620,7 +629,26 @@ impl TerrainVisualImpl {
         self.chunk_texture_bindings
             .retain(|id, _| self.chunk_manager.has_chunk(*id));
 
-        self.upload_extra_blend_overlay();
+        // The extra-blend overlay depends on the draw window, the bound
+        // classes, cell data (which bumps chunk revisions) and lighting.
+        let extra_blend_key = ExtraBlendUploadKey {
+            draw_origin: (self.draw_origin_x, self.draw_origin_y),
+            draw_size: (self.draw_width, self.draw_height),
+            texture_ids: self.active_chunk_texture_ids,
+        };
+        if mesh_uploads > 0
+            || light_rebakes > 0
+            || needs_light_rebake
+            || self.extra_blend_upload_key != Some(extra_blend_key)
+        {
+            self.upload_extra_blend_overlay();
+            if self.extra_blend_draw_mesh.is_empty()
+                || (self.extra_blend_vertex_buffer.is_some()
+                    && self.extra_blend_index_buffer.is_some())
+            {
+                self.extra_blend_upload_key = Some(extra_blend_key);
+            }
+        }
         self.had_dynamic_lights = lights_active;
 
         self.stats.rendered_chunks = visible_chunk_ids.len();
@@ -2582,6 +2610,7 @@ impl TerrainVisualImpl {
     /// Stage extra-blend overlay data and upload packed positions + draw verts
     /// when a GPU device is present. C++ draws these as a second 3-way blend pass.
     pub fn upload_extra_blend_overlay(&mut self) {
+        self.extra_blend_upload_key = None;
         self.rebuild_extra_blend_gpu_state();
         let positions = self.extra_blend_tile_positions.clone();
         let mesh = self.build_extra_blend_draw_mesh();
@@ -2608,15 +2637,14 @@ impl TerrainVisualImpl {
             self.extra_blend_index_buffer = None;
             return;
         }
-        self.extra_blend_position_buffer = Some(device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Terrain Extra Blend Positions"),
-                contents: cast_slice(&positions),
-                usage: wgpu::BufferUsages::VERTEX
-                    | wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST,
-            },
-        ));
+        Self::write_extra_blend_buffer(
+            &device,
+            self.queue.as_deref(),
+            &mut self.extra_blend_position_buffer,
+            "Terrain Extra Blend Positions",
+            cast_slice(&positions),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+        );
 
         if self.extra_blend_draw_mesh.is_empty() {
             self.extra_blend_vertex_buffer = None;
@@ -2685,20 +2713,43 @@ impl TerrainVisualImpl {
             &self.extra_blend_draw_mesh,
             (!tile_slots.is_empty()).then_some(tile_slots.as_slice()),
         );
-        self.extra_blend_vertex_buffer = Some(device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Terrain Extra Blend Vertices"),
-                contents: cast_slice(&gpu_vertices),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            },
-        ));
-        self.extra_blend_index_buffer = Some(device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Terrain Extra Blend Indices"),
-                contents: cast_slice(&self.extra_blend_draw_mesh.indices),
-                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            },
-        ));
+        Self::write_extra_blend_buffer(
+            &device,
+            self.queue.as_deref(),
+            &mut self.extra_blend_vertex_buffer,
+            "Terrain Extra Blend Vertices",
+            cast_slice(&gpu_vertices),
+            wgpu::BufferUsages::VERTEX,
+        );
+        Self::write_extra_blend_buffer(
+            &device,
+            self.queue.as_deref(),
+            &mut self.extra_blend_index_buffer,
+            "Terrain Extra Blend Indices",
+            cast_slice(&self.extra_blend_draw_mesh.indices),
+            wgpu::BufferUsages::INDEX,
+        );
+    }
+
+    fn write_extra_blend_buffer(
+        device: &wgpu::Device,
+        queue: Option<&wgpu::Queue>,
+        buffer: &mut Option<wgpu::Buffer>,
+        label: &str,
+        contents: &[u8],
+        usage: wgpu::BufferUsages,
+    ) {
+        if let (Some(queue), Some(existing)) = (queue, buffer.as_ref()) {
+            if existing.size() >= contents.len() as u64 {
+                queue.write_buffer(existing, 0, contents);
+                return;
+            }
+        }
+        *buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents,
+            usage: usage | wgpu::BufferUsages::COPY_DST,
+        }));
     }
 
     /// Increment the shipped extra-blend draw counter when overlay tiles exist.

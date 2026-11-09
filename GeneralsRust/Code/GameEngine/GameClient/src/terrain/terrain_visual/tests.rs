@@ -225,6 +225,8 @@ mod tests {
                 batches: Vec::new(),
                 revision: 7,
                 uploaded_with_dynamic_lights: false,
+                vertices: Vec::new(),
+                static_colors: Vec::new(),
             },
         );
 
@@ -248,6 +250,8 @@ mod tests {
         let mut scene = DisplayLightScene::default();
         let (device, queue) = terrain_test_gpu_device_and_queue();
         let mut visual = TerrainVisualImpl::new();
+        // Chunk uploads bind materials through the terrain layout.
+        visual.create_terrain_pipeline(&device).unwrap();
         visual.device = Some(Arc::new(device));
         visual.queue = Some(Arc::new(queue));
         visual.config.world_size = (11_000.0, 11_000.0);
@@ -286,6 +290,12 @@ mod tests {
             .vertex_buffer
             .clone();
         assert!(visual.had_dynamic_lights);
+        let lit = visual.chunk_meshes.get(&chunk_id).unwrap();
+        assert!(lit
+            .vertices
+            .iter()
+            .zip(&lit.static_colors)
+            .any(|(vertex, color)| vertex.color != *color));
 
         visual
             .chunk_manager
@@ -310,21 +320,22 @@ mod tests {
             .visible = true;
         visual.config.world_size = (11_000.0, 11_000.0);
         visual.update_chunk_meshes().unwrap();
-        let restored_buffer = visual
-            .chunk_meshes
-            .get(&chunk_id)
-            .unwrap()
-            .vertex_buffer
-            .clone();
-        assert_ne!(
-            restored_buffer, lit_buffer,
-            "returned lit mesh needs one static upload"
-        );
+        let mesh = visual.chunk_meshes.get(&chunk_id).unwrap();
+        // The returned lit mesh gets one static refill of its own buffer
+        // (renderer plan R6: no new buffer for a light-only change).
+        assert_eq!(mesh.vertex_buffer, lit_buffer);
+        assert!(!mesh.uploaded_with_dynamic_lights);
+        assert!(!mesh.vertices.is_empty());
+        assert!(mesh
+            .vertices
+            .iter()
+            .zip(&mesh.static_colors)
+            .all(|(vertex, color)| vertex.color == *color));
 
         visual.update_chunk_meshes().unwrap();
         assert_eq!(
             visual.chunk_meshes.get(&chunk_id).unwrap().vertex_buffer,
-            restored_buffer
+            lit_buffer
         );
     }
 

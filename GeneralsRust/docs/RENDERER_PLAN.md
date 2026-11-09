@@ -107,12 +107,12 @@ compile pass; browser runtime behavior remains an explicit verification gap.
 | R3 | done | `FramePhase` + `FRAME_SCHEDULE` replace the FIFO callback queues; first commit encodes the old runtime order. Golden-R identical (shell + Lone Eagle). |
 | R4 | done | Schedule in `RTS3DScene::Flush` order; sorting flush uses the tactical viewport. Lone Eagle: unit/building ground shadows become visible (2716 px in the base area); shell: 28 px. Ground overlays (selection circles, order lines) are no longer recorded before the terrain clear. |
 | R5 | done | Per-manager `MeshBindCache` (texture-stage / vertex-color groups reused across frames, shared samplers and views); `FrameUniformArena` staged in a CPU mirror with one `write_buffer` per page (`1eff7fead`). Model + lighting uniforms bound with dynamic offsets; one model bind group per (pipeline, arena page) instead of per draw (`37c4ea1fe`; shell created bind groups 168 -> 17 per frame). |
-| R6 | mostly done | Particle batches share one instance buffer; selection circles / order lines use grow-only buffers (`1eff7fead`); weather, tracer, heat-haze and decal geometry share a per-frame ring (`c3001b868`); the Display occlusion-overlay pass keeps its uniform buffer, bind group and a grow-only vertex buffer (`8b5f104ad`). Still per call: dynamic-light terrain chunk rebakes; ~40 `write_buffer` staging buffers per Lone Eagle frame. |
+| R6 | mostly done | Particle batches share one instance buffer; selection circles / order lines use grow-only buffers (`1eff7fead`); weather, tracer, heat-haze and decal geometry share a per-frame ring (`c3001b868`); the Display occlusion-overlay pass keeps its uniform buffer, bind group and a grow-only vertex buffer (`8b5f104ad`). Terrain light-only rebakes refill chunk vertex buffers and extra-blend buffers are reused when large enough. Golden-R and steady-state allocation measurements remain open. |
 | R7 | partial | The receiving archive manager owns compressed DDS blocks and C++-visible authored mips; mesh providers borrow them for a single cached GPU upload, using BC1/BC2/BC3 when enabled on the device and otherwise decoding each level with reusable scratch storage. Engine device creation requests BC only when advertised by the adapter. TGA mesh textures use generated box-filtered mips. The unified renderer-wide cache remains open. |
 | R8 | done | Gamma space like DX8 (`f5e2784da`): surface prefers `Bgra8Unorm`, every colour texture/target is `*Unorm`, `image_format_to_wgpu` and the mesh upload treat sRGB tags as Unorm. Visible: lit/modulated colours and UI fills are no longer washed out (the radar letterbox line, C++ 50/50/50, was 122/122/122 and is now 50/50/50). |
 | R9 | done | Live CSM deleted (`ecbfce083`). `Depth24PlusStencil8` + stencil volumes from welded-edge silhouettes for SHADOW_VOLUME objects, drawn in the mesh flush between opaque and blended meshes, then the 0x7fa0a0a0 multiply (`7772919c9`). The old shadow-pass box prisms read from `OBJECT_REGISTRY` are deleted (`8b5f104ad`). Skinned meshes are excluded from volume shadows, as in `W3DVolumetricShadow.cpp:630–633,699–701`. |
 | R10 | partial | Mesh sorting pools triangles by view-space centroid and emits sorted index runs per node. Skinned meshes now sort the posed vertices sampled from the same palette and influences as the live vertex shader; a WGPU readback confirms that reversing bone depth reverses translucent pixel composition. Particles and other sorting producers are not pooled with meshes, equal-depth ordering can differ from C++, and a C++ golden comparison remains open. |
-| R11 | partial | Consecutive UI draws with equal pipeline, texture and scissor merge into one draw (`cf92f27eb`). Open: glyph atlas (each string is still its own texture). |
+| R11 | partial | Consecutive UI draws with equal pipeline, texture and scissor merge into one draw (`cf92f27eb`). Rasterized sentences share bounded atlas pages (`9152b941e`); this is not the planned per-font/size glyph cache. Glyph reuse, mapped-image atlas pages, and visual/performance verification remain open. |
 | R12 | partial | A shared scene pass merges compatible terrain, water, mesh and effect draws. Shell and Lone Eagle captures match the pre-change images; reported passes fell from 4 to 2 and 6 to 2 respectively. Full pass-count coverage still needs verification. The integrated commit includes the required unseal justification. |
 | R13 | partial | `THE_RENDER_BRIDGE` is gone; published terrain visual remains on `CommonServices`; buffer-usage constants and shadow-pass inputs were migrated. Options texture LOD borrows the receiving renderer rather than publishing a type-erased renderer handle. No renderer module is sealed, and full instance isolation is not established. The workspace-wide mutable-global ratchet is now 19; this count also includes non-rendering subsystems. |
 
@@ -168,10 +168,10 @@ which is what C++ draws. The revealed patch, units and view trapezoid render
 correctly. The radar shroud revision now only moves on a real cell change,
 so the resident shroud texture is not re-uploaded every frame.
 
-Open render items: R7 unified texture cache, R10 sorting parity gaps, R11 glyph atlas,
-R12 full pass-count coverage, R13 sealing and remaining instance isolation,
-and R6 dynamic-light chunk rebakes. Skinned volumetric shadow casters are not a
-parity gap: C++ `W3DVolumetricShadow.cpp:631-633,699-701` explicitly excludes them.
+Open render items: R7 unified texture cache, R10 sorting parity gaps, R11 glyph
+and mapped-image atlases, R12 full pass-count coverage, R13 sealing and remaining
+instance isolation, and R6 golden/steady-state verification. Skinned volumetric
+shadow casters are not a parity gap: C++ `W3DVolumetricShadow.cpp:631-633,699-701` explicitly excludes them.
 
 ---
 

@@ -263,6 +263,7 @@ impl TerrainVisualImpl {
             extra_blend_index_buffer: None,
             extra_blend_index_count: 0,
             extra_blend_batches: Vec::new(),
+            extra_blend_upload_key: None,
             extra_blend_vertex_count: 0,
             extra_blend_pipeline: None,
             extra_blend_draw_count: AtomicU32::new(0),

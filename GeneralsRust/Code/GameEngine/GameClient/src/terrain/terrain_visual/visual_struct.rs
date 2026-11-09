@@ -308,6 +308,8 @@ pub struct TerrainVisualImpl {
     extra_blend_index_count: u32,
     extra_blend_batches: Vec<GpuTerrainBatch>,
     extra_blend_vertex_count: u32,
+    /// Draw window and classes of the current extra-blend upload.
+    extra_blend_upload_key: Option<ExtraBlendUploadKey>,
     /// Alpha-blend overlay pipeline (depth write off). Falls back to terrain.
     extra_blend_pipeline: Option<wgpu::RenderPipeline>,
     /// Shipped draw-counter incremented by `extra_blend_draw` / `record_extra_blend_pass`.
@@ -349,6 +351,44 @@ struct GpuChunkMesh {
     revision: u64,
     /// Preserve the final static restore if this mesh leaves the draw window.
     uploaded_with_dynamic_lights: bool,
+    /// CPU copy of `vertex_buffer`, refilled in place when only the dynamic
+    /// lights change (C++ `doTheDynamicLight` relocks the same VB).
+    vertices: Vec<TerrainVertex>,
+    /// Per-vertex static diffuse (`getStaticDiffuse`) before dynamic lights.
+    static_colors: Vec<[f32; 4]>,
+}
+
+impl GpuChunkMesh {
+    /// Rebake every vertex colour from its static diffuse and rewrite the
+    /// existing vertex buffer; geometry, UVs and materials are unchanged.
+    fn rebake_lights(
+        &mut self,
+        queue: &wgpu::Queue,
+        lights: &[DisplayDynamicLight],
+        lights_active: bool,
+    ) {
+        for (vertex, color) in self.vertices.iter_mut().zip(&self.static_colors) {
+            vertex.color = TerrainVisualImpl::bake_terrain_vertex_dynamic_light(
+                vertex.position,
+                vertex.normal,
+                *color,
+                lights,
+            );
+        }
+        if !self.vertices.is_empty() {
+            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
+        }
+        self.uploaded_with_dynamic_lights = lights_active;
+    }
+}
+
+/// Inputs of the last extra-blend overlay upload besides cell data and
+/// lighting, which force a rebuild on their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExtraBlendUploadKey {
+    draw_origin: (i32, i32),
+    draw_size: (i32, i32),
+    texture_ids: Option<[TextureId; MAX_TEXTURES_PER_CHUNK]>,
 }
 
 struct GpuTerrainBatch {
