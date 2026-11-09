@@ -65,9 +65,13 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         player.alliance_team = id as i32;
         world.add_player(player);
     }
-    let battery = definition(&base_ini("Object/FactionBuilding.ini"), "Object AmericaPatriotBattery");
+    let buildings = base_ini("Object/FactionBuilding.ini");
+    let battery = definition(&buildings, "Object AmericaPatriotBattery");
+    // The retail battery's Prerequisites block references this real template.
+    let power_plant = definition(&buildings, "Object AmericaPowerPlant");
     let target = "Object RetailPatriotTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n";
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+        ("AmericaPowerPlant.ini".into(), power_plant),
         ("FactionBuilding.ini".into(), battery),
         ("retail-patriot-target.ini".into(), target.into()),
     ]).unwrap()).unwrap();
