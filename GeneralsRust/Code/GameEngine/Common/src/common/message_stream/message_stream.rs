@@ -301,6 +301,24 @@ pub trait GameMessageTranslator: Send + Sync {
             drawable_owner,
         )
     }
+
+    /// Translate with the driving world's optional game-specific recipient.
+    fn translate_game_message_with_receiving_world(
+        &mut self,
+        msg: &GameMessage,
+        client: TranslatorClientObservation,
+        dispatch: &mut WindowInputDispatchFn<'_>,
+        emitted: &mut Vec<GameMessage>,
+        pick_view: Option<&TranslatorPickObjectView>,
+        client_ui: &mut dyn std::any::Any,
+        drawable_owner: Option<&mut dyn std::any::Any>,
+        eva: Option<&mut dyn ReceivingEvaFeedback>,
+        _world: Option<&dyn std::any::Any>,
+    ) -> GameMessageDisposition {
+        self.translate_game_message_with_receiving_eva(
+            msg, client, dispatch, emitted, pick_view, client_ui, drawable_owner, eva,
+        )
+    }
 }
 
 /// Narrow synchronous feedback requested by native placement confirmation.
@@ -593,6 +611,7 @@ impl MessageStream {
             drawable_owner,
             pick_view,
             None,
+            None,
         )
     }
 
@@ -606,6 +625,7 @@ impl MessageStream {
         mut drawable_owner: Option<&mut dyn std::any::Any>,
         pick_view: Option<&TranslatorPickObjectView>,
         mut eva: Option<&mut dyn ReceivingEvaFeedback>,
+        world: Option<&dyn std::any::Any>,
     ) -> Result<PropagationProgress, Box<dyn std::error::Error>> {
         // A missing standalone camera is a configuration error before any
         // translator can mutate its UI or consume input. Native-hosted clients
@@ -659,7 +679,7 @@ impl MessageStream {
                 })?;
                 let mut emitted = Vec::new();
                 let disposition = match translator.write() {
-                    Ok(mut translator) => translator.translate_game_message_with_receiving_eva(
+                    Ok(mut translator) => translator.translate_game_message_with_receiving_world(
                         &message,
                         client,
                         dispatch_window_input,
@@ -669,6 +689,7 @@ impl MessageStream {
                         drawable_owner.as_deref_mut(),
                         eva.as_mut()
                             .map(|receiver| &mut **receiver as &mut dyn ReceivingEvaFeedback),
+                        world,
                     ),
                     Err(e) => {
                         error!("Failed to acquire translator lock: {}", e);

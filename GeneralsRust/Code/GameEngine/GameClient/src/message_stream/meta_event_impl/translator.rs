@@ -34,6 +34,23 @@ impl GameMessageTranslator for MetaEventTranslator {
         client_ui: &mut dyn std::any::Any,
         drawable_owner: Option<&mut dyn std::any::Any>,
     ) -> GameMessageDisposition {
+        self.translate_game_message_with_receiving_world(
+            msg, client, _dispatch, _emitted, pick_view, client_ui, drawable_owner, None, None,
+        )
+    }
+
+    fn translate_game_message_with_receiving_world(
+        &mut self,
+        msg: &GameMessage,
+        client: game_engine::common::message_stream::TranslatorClientObservation,
+        _dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+        _emitted: &mut Vec<GameMessage>,
+        pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
+        client_ui: &mut dyn std::any::Any,
+        drawable_owner: Option<&mut dyn std::any::Any>,
+        _eva: Option<&mut dyn game_engine::common::message_stream::ReceivingEvaFeedback>,
+        world: Option<&dyn std::any::Any>,
+    ) -> GameMessageDisposition {
         let ui = &mut crate::message_stream::ReceivingUi::new_with_owner(
             client_ui,
             drawable_owner,
@@ -43,7 +60,7 @@ impl GameMessageTranslator for MetaEventTranslator {
         )
         .with_emitter(_emitted);
 
-        self.translate_receiving(msg, client, _dispatch, ui)
+        self.translate_receiving(msg, client, _dispatch, ui, world.and_then(|world| world.downcast_ref::<gamelogic::system::engine_stores::WorldServices>()))
     }
 }
 
@@ -55,7 +72,16 @@ impl MetaEventTranslator {
         display_dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
 
         ui: &mut crate::message_stream::ReceivingUi<'_>,
+        world: Option<&gamelogic::system::engine_stores::WorldServices>,
     ) -> GameMessageDisposition {
+        let receiving_multiplayer = if world.is_some() {
+            matches!(
+                client.game_mode,
+                gamelogic::system::game_logic::GAME_LAN | gamelogic::system::game_logic::GAME_INTERNET
+            )
+        } else {
+            TheGameLogic::is_in_multiplayer_game()
+        };
         let time_of_day = ui
             .state
             .requested_session_time_of_day
@@ -122,7 +148,7 @@ impl MetaEventTranslator {
                             || (map.transition == Transition::Down
                                 && map.mod_state == new_mod_state))
                     {
-                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
+                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, world, receiving_multiplayer, client.logic_frame, ui) {
                             disp = new_disp;
                             break;
                         }
@@ -142,7 +168,7 @@ impl MetaEventTranslator {
                             break;
                         }
 
-                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
+                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, world, receiving_multiplayer, client.logic_frame, ui) {
                             disp = new_disp;
                             break;
                         }

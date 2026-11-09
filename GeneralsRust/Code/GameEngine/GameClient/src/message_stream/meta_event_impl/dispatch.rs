@@ -4,6 +4,9 @@ fn dispatch_map_entry(
     record: &MetaMapRec,
     display_dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
 
+    world: Option<&gamelogic::system::engine_stores::WorldServices>,
+    receiving_multiplayer: bool,
+    logic_frame: u32,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<GameMessageDisposition> {
     if let Some(meta) = &record.meta {
@@ -290,11 +293,11 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("CHEAT_GIVE_SCIENCEPURCHASEPOINTS")
     {
-        if TheGameLogic::is_in_multiplayer_game() {
+        if receiving_multiplayer {
             return None;
         }
-        let _ = with_local_player_mut(|player| {
-            player.add_science_purchase_points(1);
+        let _ = with_local_player_rank_capped_mut(world, |player, _| {
+            player.add_science_purchase_points_impl_for_world(1, world);
         });
         ui.message("Adding a SciencePurchasePoint");
         return Some(GameMessageDisposition::DestroyMessage);
@@ -304,27 +307,20 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_GIVE_SCIENCEPURCHASEPOINTS")
     {
-        let _ = with_local_player_mut(|player| {
-            player.add_science_purchase_points(1);
+        let _ = with_local_player_rank_capped_mut(world, |player, _| {
+            player.add_science_purchase_points_impl_for_world(1, world);
         });
         ui.message("Adding a SciencePurchasePoint");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_GIVE_ALL_SCIENCES") {
-        if TheGameLogic::is_in_multiplayer_game() {
+        if receiving_multiplayer {
             return None;
         }
         {
-            let _ = with_local_player_mut(|player| {
-                if let Some(science_store) = get_science_store() {
-                    for (&science, _) in science_store.iter() {
-                        if science != SCIENCE_INVALID && science_store.is_science_grantable(science)
-                        {
-                            let _ = player.grant_science(science);
-                        }
-                    }
-                }
+            let _ = with_local_player_rank_capped_mut(world, |player, _| {
+                grant_all_sciences(player, world, logic_frame);
             });
             ui.message("Granting all sciences!");
             return Some(GameMessageDisposition::DestroyMessage);
@@ -343,30 +339,24 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_GIVE_ALL_SCIENCES") {
-        let _ = with_local_player_mut(|player| {
-            if let Some(science_store) = get_science_store() {
-                for (&science, _) in science_store.iter() {
-                    if science != SCIENCE_INVALID && science_store.is_science_grantable(science) {
-                        let _ = player.grant_science(science);
-                    }
-                }
-            }
+        let _ = with_local_player_rank_capped_mut(world, |player, _| {
+            grant_all_sciences(player, world, logic_frame);
         });
         ui.message("Granting all sciences!");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_GIVE_RANKLEVEL") {
-        let _ = with_local_player_rank_capped_mut(|player, rank_level_limit| {
-            let _ = player.set_rank_level(player.get_rank_level() + 1, rank_level_limit);
+        let _ = with_local_player_rank_capped_mut(world, |player, rank_level_limit| {
+            let _ = player.set_rank_level_impl_for_world(player.get_rank_level() + 1, rank_level_limit, world, logic_frame);
         });
         ui.message("Adding a RankLevel");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TAKE_RANKLEVEL") {
-        let _ = with_local_player_rank_capped_mut(|player, rank_level_limit| {
-            let _ = player.set_rank_level(player.get_rank_level() - 1, rank_level_limit);
+        let _ = with_local_player_rank_capped_mut(world, |player, rank_level_limit| {
+            let _ = player.set_rank_level_impl_for_world(player.get_rank_level() - 1, rank_level_limit, world, logic_frame);
         });
         ui.message("Subtracting a RankLevel");
         return Some(GameMessageDisposition::DestroyMessage);

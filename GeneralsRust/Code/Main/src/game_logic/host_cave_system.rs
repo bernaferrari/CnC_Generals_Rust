@@ -10,6 +10,25 @@ use super::{ObjectId, Team};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// Keep the existing serde map representation readable by older host saves,
+// but emit its index and identity keys in a stable order. The contained and
+// cave ID vectors retain their gameplay insertion order.
+fn serialize_ordered_map<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+    K: Ord + Serialize,
+    V: Serialize,
+{
+    use serde::ser::SerializeMap;
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    let mut output = serializer.serialize_map(Some(entries.len()))?;
+    for (key, value) in entries {
+        output.serialize_entry(key, value)?;
+    }
+    output.end()
+}
+
 /// Capacity of a world whose GameData was never admitted (synthetic fixtures).
 /// Production worlds always install the session's authored MaxTunnelCapacity.
 const UNADMITTED_GAMEDATA_CAPACITY: i32 = 10;
@@ -34,6 +53,7 @@ pub enum CaveCaptureEvent {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostCaveNetwork {
     pub contained: Vec<ObjectId>,
+    #[serde(serialize_with = "serialize_ordered_map")]
     pub entry_cave: HashMap<u32, ObjectId>,
     pub cave_ids: Vec<ObjectId>,
     pub controlling_team: Option<Team>,
@@ -53,8 +73,11 @@ pub struct HostCaveSystem {
     pub cave_in_kills: u32,
     pub captures: u32,
     pub index_switches: u32,
+    #[serde(serialize_with = "serialize_ordered_map")]
     networks: HashMap<i32, HostCaveNetwork>,
+    #[serde(serialize_with = "serialize_ordered_map")]
     cave_index_of: HashMap<u32, i32>,
+    #[serde(serialize_with = "serialize_ordered_map")]
     original_team: HashMap<u32, Team>,
 }
 
@@ -299,6 +322,145 @@ impl HostCaveSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+#[test]
+fn cave_saved_world_continues_in_receiving_capacity_without_touching_same_id_peer() {
+    use crate::game_logic::{AIState, ContainModuleKind, GameLogic, KindOf, ObjectAudio, Player, ThingTemplate};
+    use crate::save_load::snapshot::{ClientDrawableWorldSnapshot, SnapshotBuilder, WorldSnapshot};
+    use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, Snapshot, Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+    use glam::Vec3;
+    use std::time::{Duration, SystemTime};
+
+    fn world(capacity: i32) -> (GameLogic, ObjectId, ObjectId, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        logic.admit_tunnel_capacity_baseline(capacity);
+        for (id, team, name) in [(0, Team::USA, "CaveUSA"), (3, Team::Neutral, "CaveNeutral")] {
+            logic.add_player(Player::new(id, team, name, true).with_script_identity(name));
+        }
+        let mut cave = ThingTemplate::new("SavedCaveEntrance");
+        cave.add_kind_of(KindOf::Structure).add_kind_of(KindOf::Selectable).set_health(500.0);
+        cave.contain_module.kind = ContainModuleKind::Cave;
+        cave.contain_module.cave_index = 5;
+        logic.templates.insert("SavedCaveEntrance".into(), cave);
+        let mut infantry = ThingTemplate::new("SavedCaveInfantry");
+        infantry.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(100.0);
+        logic.templates.insert("SavedCaveInfantry".into(), infantry);
+        let first = logic.create_object("SavedCaveEntrance", Team::Neutral, Vec3::ZERO).unwrap();
+        let second = logic.create_object("SavedCaveEntrance", Team::Neutral, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+        let neutral = logic.host_default_team_id(3).unwrap();
+        assert!(logic.set_host_object_team(first, neutral));
+        assert!(logic.set_host_object_team(second, neutral));
+        let a = logic.create_object("SavedCaveInfantry", Team::USA, Vec3::ZERO).unwrap();
+        let b = logic.create_object("SavedCaveInfantry", Team::USA, Vec3::ZERO).unwrap();
+        (logic, first, second, a, b)
+    }
+
+    fn enter(logic: &mut GameLogic, rider: ObjectId, cave: ObjectId) {
+        let object = logic.host_object_mut(rider).unwrap();
+        object.target = Some(cave);
+        object.set_ai_state(AIState::Entering, 0, &mut ObjectAudio::record(&mut Vec::new()));
+        logic.try_physics_collide(rider, cave, 1.0).unwrap();
+        assert_eq!(logic.host_object(rider).unwrap().contained_by, Some(cave));
+    }
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "cave_saved_world_continues_in_receiving_capacity_without_touching_same_id_peer",
+        || {
+            let (mut source, first, second, a, b) = world(3);
+            let (mut receiving, rf, rs, ra, rb) = world(2);
+            let (mut peer, pf, ps, pa, pb) = world(1);
+            assert_eq!((first, second, a, b), (rf, rs, ra, rb));
+            assert_eq!((first, second, a, b), (pf, ps, pa, pb));
+            enter(&mut source, b, second);
+            enter(&mut source, a, first);
+            enter(&mut peer, a, first);
+
+            let dir = tempfile::TempDir::new().unwrap();
+            let mut manager = SaveFileManager::with_save_directory(dir.path());
+            manager.init().unwrap();
+            let info = SaveGameInfo {
+                pristine_map_name: None,
+                filename: "caves".into(),
+                display_name: "Caves".into(),
+                description: String::new(),
+                map_name: "CaveMap".into(),
+                campaign_side: None,
+                mission_number: None,
+                save_date: SystemTime::now(),
+                game_version: env!("CARGO_PKG_VERSION").into(),
+                play_time: Duration::ZERO,
+                difficulty: GameDifficulty::Medium,
+                save_type: SaveFileType::Normal,
+            };
+            manager.save_game_with_client_drawable_snapshot(
+                "caves", &source, ClientDrawableWorldSnapshot::default(), &info,
+            ).unwrap();
+            let mut snapshot = manager.load_game_snapshot("caves").unwrap().snapshot;
+            assert_eq!(snapshot.cave_system.cave_ids_for_index(5), vec![first, second]);
+            assert_eq!(snapshot.cave_system.contained_for_index(5), vec![b, a]);
+            assert!(snapshot.cave_system.network(4).is_none());
+            // The separate direct-Xfer route has the same host cave blob but
+            // different outer framing from the named-chunk .sav route.
+            let mut bytes = Cursor::new(Vec::new());
+            {
+                let mut writer = XferSave::new(&mut bytes);
+                snapshot.xfer(&mut writer).unwrap();
+                writer.xfer_u32(&mut 0xcafe_babe).unwrap();
+            }
+            let mut direct = WorldSnapshot::default();
+            let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+            direct.xfer(&mut reader).unwrap();
+            let mut following = 0;
+            reader.xfer_u32(&mut following).unwrap();
+            assert_eq!(following, 0xcafe_babe);
+            assert_eq!(direct.cave_system.cave_ids_for_index(5), vec![first, second]);
+            assert_eq!(direct.cave_system.contained_for_index(5), vec![b, a]);
+            SnapshotBuilder::new().restore_from_snapshot(&snapshot, &mut receiving).unwrap();
+            assert_eq!(receiving.cave_system_residual().contained_for_index(5), vec![b, a]);
+            assert!(!receiving.cave_system_residual().has_capacity(5));
+            assert!(!receiving.partition_manager.is_registered(a.0));
+            assert!(!receiving.partition_manager.is_registered(b.0));
+            assert!(receiving.exit_cave_unit(b, first));
+            assert!(receiving.cave_system_residual().has_capacity(5));
+            assert_eq!(receiving.cave_system_residual().contained_for_index(5), vec![a]);
+            assert_eq!(peer.cave_system_residual().contained_for_index(5), vec![a]);
+            assert!(!peer.cave_system_residual().has_capacity(5));
+            assert_eq!(peer.host_object(a).unwrap().contained_by, Some(first));
+            assert_eq!(peer.host_object(b).unwrap().contained_by, None);
+            assert_eq!(source.cave_system_residual().contained_for_index(5), vec![b, a]);
+        },
+    );
+}
+
+    #[test]
+    fn saved_cave_maps_are_ordered_without_reordering_tracker_lists() {
+        fn populated(reverse: bool) -> HostCaveSystem {
+            let mut system = HostCaveSystem::new();
+            let indices: Vec<i32> = if reverse { (0..32).rev().collect() } else { (0..32).collect() };
+            for index in indices {
+                let first = ObjectId(100 + index as u32 * 2);
+                let second = ObjectId(first.0 + 1);
+                system.register_cave(second, index * 2, Team::Neutral);
+                system.register_cave(first, index * 2, Team::Neutral);
+                assert!(system.record_enter(index * 2, ObjectId(1000 + index as u32), second, Team::USA).0);
+                assert!(system.record_enter(index * 2, ObjectId(2000 + index as u32), first, Team::USA).0);
+            }
+            system
+        }
+
+        let first = populated(false);
+        let second = populated(true);
+        let bytes = bincode_legacy::serialize(&first).unwrap();
+        assert_eq!(bytes, bincode_legacy::serialize(&second).unwrap());
+        let mut restored: HostCaveSystem = bincode_legacy::deserialize(&bytes).unwrap();
+        assert_eq!(restored.cave_ids_for_index(0), vec![ObjectId(101), ObjectId(100)]);
+        assert_eq!(restored.contained_for_index(0), vec![ObjectId(1000), ObjectId(2000)]);
+        assert!(restored.network(1).is_none());
+        let outcome = restored.on_cave_destroyed(ObjectId(101));
+        assert_eq!(outcome.remapped_to, Some(ObjectId(100)));
+        assert_eq!(restored.record_exit(0, ObjectId(1000), ObjectId(100)).0, Some(ObjectId(100)));
+    }
 
     #[test]
     fn first_occupant_captures_and_last_empty_uncaptures() {

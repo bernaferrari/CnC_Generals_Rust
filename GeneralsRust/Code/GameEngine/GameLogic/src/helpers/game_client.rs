@@ -350,6 +350,11 @@ impl ClientVisualHandle {
         Self { stores }
     }
 
+    /// World admitted to this client, shared by input and presentation.
+    pub fn world_services(&self) -> &Arc<crate::system::engine_stores::WorldServices> {
+        &self.stores
+    }
+
     pub(crate) fn downgrade(&self) -> DrawableVisualOwner {
         DrawableVisualOwner {
             stores: Arc::downgrade(&self.stores),

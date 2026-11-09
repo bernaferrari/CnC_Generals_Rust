@@ -1787,6 +1787,7 @@ impl GameClient {
             cursor,
             pick_view,
             None,
+            None,
         )
     }
 
@@ -1799,7 +1800,14 @@ impl GameClient {
         cursor: Option<game_engine::common::message_stream::PropagationCursor>,
         pick_view: Option<&game_engine::common::message_stream::TranslatorPickObjectView>,
         eva: Option<&mut dyn game_engine::common::message_stream::ReceivingEvaFeedback>,
+        world: Option<&gamelogic::system::engine_stores::WorldServices>,
     ) -> GameClientResult<game_engine::common::message_stream::PropagationProgress> {
+        let bound_world = if self.input_authority == ClientInputAuthority::StandaloneCore {
+            self.visual_world.as_ref().map(|handle| std::sync::Arc::clone(handle.world_services()))
+        } else {
+            None
+        };
+        let world = world.or(bound_world.as_deref());
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
         use game_engine::common::message_stream::PropagationProgress;
@@ -1891,6 +1899,7 @@ impl GameClient {
                 Some(&mut self.drawable_manager as &mut dyn std::any::Any),
                 receiving_pick_view.as_ref(),
                 eva,
+                world.map(|world| world as &dyn std::any::Any),
             )
             .map_err(|error| {
                 GameClientError::SubsystemError(format!("Message stream update failed: {error}"))

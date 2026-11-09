@@ -32,14 +32,28 @@ pub fn init_global_rank_info_store() {
     sync_rank_store_from_ini();
 }
 
+/// Synchronize the receiving world's effective INI rank definitions.
+pub fn rank_info_store_for_world(
+    world: &crate::system::engine_stores::WorldServices,
+) -> std::sync::Arc<RwLock<RankInfoStore>> {
+    let common = world.common().ini.rank.read();
+    let store = std::sync::Arc::clone(world.rank_info_store());
+    sync_rank_store(&common, &store);
+    store
+}
+
 fn sync_rank_store_from_ini() {
-    let common = game_engine::common::ini::get_rank_info_store();
+    let world = crate::system::engine_stores::active_services();
+    let _ = rank_info_store_for_world(&world);
+}
+
+fn sync_rank_store(
+    common: &game_engine::common::ini::ini_rank::RankInfoStore,
+    store: &std::sync::Arc<RwLock<RankInfoStore>>,
+) {
     if common.is_empty() {
         return;
     }
-    let store = std::sync::Arc::clone(
-        crate::system::engine_stores::active_services().rank_info_store(),
-    );
     let Ok(mut dest) = store.write() else {
         return;
     };

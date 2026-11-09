@@ -19,6 +19,10 @@ use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
 impl Player {
     /// Reset rank state to defaults (matches C++ Player::resetRank)
     pub fn reset_rank_impl(&mut self) {
+        self.reset_rank_impl_for_world(None, 0);
+    }
+
+    fn reset_rank_impl_for_world(&mut self, world: Option<&crate::system::engine_stores::WorldServices>, frame: u32) {
         use crate::system::rank_info::the_rank_info_store_arc;
 
         self.rank_level = 1;
@@ -32,7 +36,8 @@ impl Player {
             .unwrap_or(0);
         self.science_purchase_points = intrinsic_points;
 
-        let rank_arc = the_rank_info_store_arc();
+        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
+            .unwrap_or_else(the_rank_info_store_arc);
         if let Ok(rank_store) = rank_arc.read() {
             if let Some(next_rank) = rank_store.get_rank_info(2) {
                 self.level_up = next_rank.skill_points_needed;
@@ -43,7 +48,7 @@ impl Player {
         }
 
         self.general_name = TheGameText::fetch("SCIENCE:GeneralName");
-        self.reset_sciences_impl();
+        self.reset_sciences_impl_for_world(world, frame);
     }
 
     /// Set rank level and grant associated sciences (matches C++ Player::setRankLevel)
@@ -61,6 +66,17 @@ impl Player {
     /// # Returns
     /// Returns true if the rank actually changed
     pub fn set_rank_level_impl(&mut self, new_level: Int, rank_level_limit: Int) -> Bool {
+        self.set_rank_level_impl_for_world(new_level, rank_level_limit, None, 0)
+    }
+
+    /// Rank mutation against the explicitly receiving world's rank catalog.
+    pub fn set_rank_level_impl_for_world(
+        &mut self,
+        new_level: Int,
+        rank_level_limit: Int,
+        world: Option<&crate::system::engine_stores::WorldServices>,
+        frame: u32,
+    ) -> Bool {
         use crate::system::rank_info::the_rank_info_store_arc;
 
         let mut new_level = new_level;
@@ -73,7 +89,8 @@ impl Player {
         }
 
         // Get rank count from the rank info store
-        let rank_arc = the_rank_info_store_arc();
+        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
+            .unwrap_or_else(the_rank_info_store_arc);
         if let Ok(rank_store) = rank_arc.read() {
             let rank_count = rank_store.get_rank_level_count() as Int;
             // Empty store (unit fixtures) must not clamp every rank to 0.
@@ -93,11 +110,12 @@ impl Player {
         }
 
         if new_level < self.rank_level {
-            self.reset_rank_impl();
+            self.reset_rank_impl_for_world(world, frame);
         }
 
         // Update level-up threshold for next level (C++ Player.cpp:2665-2681)
-        let rank_arc = the_rank_info_store_arc();
+        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
+            .unwrap_or_else(the_rank_info_store_arc);
         if let Ok(rank_store) = rank_arc.read() {
             // Set m_levelUp to the skill points needed for the next rank
             // If we're at max rank, set to INT_MAX
@@ -125,7 +143,7 @@ impl Player {
 
                         // Grant all sciences for this rank (C++ Player.cpp:2685-2691)
                         for &science in &rank_info.sciences_granted {
-                            self.add_science(science);
+                            self.add_science_impl_for_world(science, world, frame);
                         }
                     }
                 }
@@ -133,21 +151,34 @@ impl Player {
         }
 
         self.rank_level = new_level;
-        if self.level_up != 0 && self.is_local_player() {
-            let _ =
-                crate::helpers::TheEva::set_should_play(crate::helpers::EvaEvent::GeneralLevelUp);
-        }
-        if self.is_local_player() {
-            crate::control_bar::notify_player_rank_changed(
-                self.player_index,
-                self.rank_level,
-                self.science_purchase_points,
-            );
-            if old_spp != self.science_purchase_points {
-                crate::control_bar::notify_science_purchase_points_changed(
-                    self.player_index,
-                    self.science_purchase_points,
+        if let Some(world) = world {
+            // This entry point is called with the exact local player lent by
+            // the receiving roster, not an identity inferred from an active world.
+            if self.level_up != 0 {
+                if let Ok(mut eva) = world.eva().lock() {
+                    eva.queued.push(crate::helpers::EvaEvent::GeneralLevelUp);
+                }
+            }
+            let hooks = world.control_bar_ui_hooks().lock().ok().and_then(|hooks| hooks.clone());
+            if let Some(hooks) = hooks {
+                hooks.on_player_rank_changed(self.player_index, self.rank_level, self.science_purchase_points);
+                if old_spp != self.science_purchase_points {
+                    hooks.on_player_science_purchase_points_changed(self.player_index, self.science_purchase_points);
+                }
+            }
+        } else {
+            if self.level_up != 0 && self.is_local_player() {
+                let _ = crate::helpers::TheEva::set_should_play(crate::helpers::EvaEvent::GeneralLevelUp);
+            }
+            if self.is_local_player() {
+                crate::control_bar::notify_player_rank_changed(
+                    self.player_index, self.rank_level, self.science_purchase_points,
                 );
+                if old_spp != self.science_purchase_points {
+                    crate::control_bar::notify_science_purchase_points_changed(
+                        self.player_index, self.science_purchase_points,
+                    );
+                }
             }
         }
         true
@@ -254,6 +285,15 @@ impl Player {
     /// # Parameters
     /// - `delta`: Points to add (can be negative when purchasing)
     pub fn add_science_purchase_points_impl(&mut self, delta: Int) {
+        self.add_science_purchase_points_impl_for_world(delta, None);
+    }
+
+    /// Add points to the local player lent by the receiving world.
+    pub fn add_science_purchase_points_impl_for_world(
+        &mut self,
+        delta: Int,
+        world: Option<&crate::system::engine_stores::WorldServices>,
+    ) {
         // C++ Player.cpp:2557-2561
         let old_spp = self.science_purchase_points;
         self.science_purchase_points += delta;
@@ -261,11 +301,17 @@ impl Player {
             self.science_purchase_points = 0;
         }
 
-        if old_spp != self.science_purchase_points && self.is_local_player() {
-            crate::control_bar::notify_science_purchase_points_changed(
-                self.player_index,
-                self.science_purchase_points,
-            );
+        if old_spp != self.science_purchase_points {
+            if let Some(world) = world {
+                let hooks = world.control_bar_ui_hooks().lock().ok().and_then(|hooks| hooks.clone());
+                if let Some(hooks) = hooks {
+                    hooks.on_player_science_purchase_points_changed(self.player_index, self.science_purchase_points);
+                }
+            } else if self.is_local_player() {
+                crate::control_bar::notify_science_purchase_points_changed(
+                    self.player_index, self.science_purchase_points,
+                );
+            }
         }
     }
 
@@ -299,6 +345,15 @@ impl Player {
     /// # Returns
     /// Returns true if the science was added (false if already had it)
     pub fn add_science_impl(&mut self, science: ScienceType) -> Bool {
+        self.add_science_impl_for_world(science, None, 0)
+    }
+
+    pub fn add_science_impl_for_world(
+        &mut self,
+        science: ScienceType,
+        world: Option<&crate::system::engine_stores::WorldServices>,
+        frame: u32,
+    ) -> Bool {
         if science == SCIENCE_INVALID {
             return false;
         }
@@ -325,8 +380,9 @@ impl Player {
             use crate::helpers::TheGameLogic;
             use crate::object_manager::get_object_manager;
 
-            let current_frame = TheGameLogic::get_frame();
-            let obj_mgr = get_object_manager();
+            let current_frame = if world.is_some() { frame } else { TheGameLogic::get_frame() };
+            let obj_mgr = world.map(|world| std::sync::Arc::clone(world.objects()))
+                .unwrap_or_else(get_object_manager);
             let obj_mgr_lock = &*obj_mgr;
             if let Ok(manager) = obj_mgr_lock.read() {
                 let owned_ids =
@@ -359,13 +415,28 @@ impl Player {
         }
 
         if !self.player_team_prototypes.is_empty() {
-            crate::control_bar::mark_ui_dirty();
+            if let Some(world) = world {
+                let hooks = world.control_bar_ui_hooks().lock().ok().and_then(|hooks| hooks.clone());
+                if let Some(hooks) = hooks {
+                    hooks.mark_ui_dirty();
+                }
+            } else {
+                crate::control_bar::mark_ui_dirty();
+            }
         }
 
         // Notify script engine
-        let _ = with_script_engine_mut(|engine| {
-            engine.notify_of_acquired_science(self.get_id() as usize, science);
-        });
+        if let Some(world) = world {
+            if let Ok(engine) = world.scripts().engine().read() {
+                if let Some(engine) = engine.as_ref() {
+                    engine.notify_of_acquired_science(self.get_id() as usize, science);
+                }
+            }
+        } else {
+            let _ = with_script_engine_mut(|engine| {
+                engine.notify_of_acquired_science(self.get_id() as usize, science);
+            });
+        }
 
         true
     }
@@ -539,6 +610,10 @@ impl Player {
     ///
     /// C++ implementation is in Player.cpp lines 2478-2499.
     pub fn reset_sciences_impl(&mut self) {
+        self.reset_sciences_impl_for_world(None, 0);
+    }
+
+    fn reset_sciences_impl_for_world(&mut self, world: Option<&crate::system::engine_stores::WorldServices>, frame: u32) {
         use crate::system::rank_info::the_rank_info_store_arc;
 
         // C++ Player.cpp:2480 - clear all sciences
@@ -551,12 +626,13 @@ impl Player {
 
         // C++ Player.cpp:2485-2495
         // Add sciences granted by all ranks up to current level
-        let rank_arc = the_rank_info_store_arc();
+        let rank_arc = world.map(crate::system::rank_info::rank_info_store_for_world)
+            .unwrap_or_else(the_rank_info_store_arc);
         if let Ok(rank_store) = rank_arc.read() {
             for level in 1..=self.rank_level {
                 if let Some(rank_info) = rank_store.get_rank_info(level as usize) {
                     for &science in &rank_info.sciences_granted {
-                        self.add_science(science);
+                        self.add_science_impl_for_world(science, world, frame);
                     }
                 }
             }
@@ -564,11 +640,21 @@ impl Player {
 
         // C++ Player.cpp:2497-2498
         // Notify script engine of all acquired sciences
-        let _ = with_script_engine_mut(|engine| {
-            for &science in &self.sciences {
-                engine.notify_of_acquired_science(self.get_id() as usize, science);
+        if let Some(world) = world {
+            if let Ok(engine) = world.scripts().engine().read() {
+                if let Some(engine) = engine.as_ref() {
+                    for &science in &self.sciences {
+                        engine.notify_of_acquired_science(self.get_id() as usize, science);
+                    }
+                }
             }
-        });
+        } else {
+            let _ = with_script_engine_mut(|engine| {
+                for &science in &self.sciences {
+                    engine.notify_of_acquired_science(self.get_id() as usize, science);
+                }
+            });
+        }
     }
 
     /// Get all sciences currently available to this player

@@ -94,7 +94,8 @@ mod tests {
         record: &MetaMapRec,
     ) -> Option<GameMessageDisposition> {
         let mut display = noop_display_dispatch;
-        dispatch_map_entry(record, &mut display, ui)
+        let world = gamelogic::system::engine_stores::active_services();
+        dispatch_map_entry(record, &mut display, Some(&world), TheGameLogic::is_in_multiplayer_game(), 0, ui)
     }
 
     fn dispatch_shared(
@@ -860,6 +861,117 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner())
             .clear();
     }
+    #[test]
+    fn rank_and_science_keys_use_receiving_roster_across_worlds_and_reset() {
+        crate::test_support::ensure_ambient_host();
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
+        #[derive(Default)]
+        struct Hooks(Mutex<Vec<&'static str>>);
+        impl gamelogic::control_bar::ControlBarUiHooks for Hooks {
+            fn mark_ui_dirty(&self) { self.0.lock().unwrap().push("dirty"); }
+            fn on_player_science_purchase_points_changed(&self, _: i32, _: i32) {
+                self.0.lock().unwrap().push("points");
+            }
+            fn on_player_rank_changed(&self, _: i32, _: i32, _: i32) {
+                self.0.lock().unwrap().push("rank");
+            }
+        }
+        let first = gamelogic::system::engine_stores::new_world_services();
+        let second = gamelogic::system::engine_stores::new_world_services();
+        let foreign = gamelogic::system::engine_stores::new_world_services();
+        let first_hooks = Arc::new(Hooks::default());
+        let second_hooks = Arc::new(Hooks::default());
+        let foreign_hooks = Arc::new(Hooks::default());
+        for (world, hooks) in [(&first, &first_hooks), (&second, &second_hooks), (&foreign, &foreign_hooks)] {
+            gamelogic::system::engine_stores::with_world_services(world, || {
+                gamelogic::control_bar::register_control_bar_ui_hooks(hooks.clone());
+            });
+        }
+        let make_player = |world: &std::sync::Arc<gamelogic::system::engine_stores::WorldServices>, cap| {
+            let player = Arc::new(RwLock::new(Player::new(0)));
+            let mut roster = world.players().write().unwrap();
+            roster.clear();
+            roster.set_rank_level_limit(cap);
+            roster.add_player(player.clone());
+            roster.set_local_player_index(0);
+            player
+        };
+        let a = make_player(&first, 1);
+        let b = make_player(&second, 3);
+        let other = make_player(&foreign, 5);
+        let first_points = a.read().unwrap().get_science_purchase_points();
+        let foreign_points = other.read().unwrap().get_science_purchase_points();
+        gamelogic::system::engine_stores::with_world_services(&foreign, || {
+            let mut stream = game_engine::common::message_stream::MessageStream::new();
+            stream.attach_translator(Arc::new(RwLock::new(MetaEventTranslator::new())), 0);
+            let saved = with_meta_map(|map| {
+                let saved = std::mem::take(&mut map.records);
+                for (name, key) in [
+                    ("DEMO_GIVE_RANKLEVEL", 201),
+                    ("DEMO_TAKE_RANKLEVEL", 202),
+                    ("DEMO_GIVE_SCIENCEPURCHASEPOINTS", 203),
+                ] {
+                    let mut record = alias_record(name);
+                    record.key = key;
+                    record.usable_in = COMMANDUSABLE_GAME;
+                    map.add_record(record);
+                }
+                saved
+            });
+            let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+            let mut send = |key, world: &gamelogic::system::engine_stores::WorldServices| {
+                let message = stream.append_message(GameMessageType::RawKeyDown(key));
+                message.append_integer_argument(key as i32);
+                message.append_integer_argument(KEY_STATE_DOWN as i32);
+                let result = stream.propagate_messages_until_host_boundary_with_receiving_eva(
+                    &mut noop_display_dispatch,
+                    None,
+                    &mut || false,
+                    &mut || Some(game_engine::common::message_stream::TranslatorClientObservation {
+                        frame: 1,
+                        ..Default::default()
+                    }),
+                    &mut ui,
+                    None,
+                    None,
+                    None,
+                    Some(world),
+                ).unwrap();
+                assert!(matches!(&result, game_engine::common::message_stream::PropagationProgress::Complete(messages) if messages.is_empty()));
+            };
+            send(201, &first);
+            send(201, &second);
+            send(201, &second);
+            send(203, &first);
+            assert_eq!(a.read().unwrap().get_rank_level(), 1);
+            assert_eq!(a.read().unwrap().get_science_purchase_points(), first_points + 1);
+            assert_eq!(b.read().unwrap().get_rank_level(), 3);
+            assert_eq!(other.read().unwrap().get_rank_level(), 1);
+            assert_eq!(other.read().unwrap().get_science_purchase_points(), foreign_points);
+            assert_eq!(*first_hooks.0.lock().unwrap(), vec!["points"]);
+            assert_eq!(second_hooks.0.lock().unwrap().iter().filter(|event| **event == "rank").count(), 2);
+            assert!(foreign_hooks.0.lock().unwrap().is_empty());
+            send(202, &second);
+            assert_eq!(b.read().unwrap().get_rank_level(), 2);
+            gamelogic::system::engine_stores::with_world_services(&first, || {
+                get_game_logic().lock().unwrap().reset();
+            });
+            assert_eq!(first.players().read().unwrap().rank_level_limit(), gamelogic::player::DEFAULT_RANK_LEVEL_LIMIT);
+            assert_eq!(second.players().read().unwrap().rank_level_limit(), 3);
+            let replacement = Arc::new(RwLock::new(Player::new(0)));
+            {
+                let mut roster = first.players().write().unwrap();
+                roster.clear();
+                roster.add_player(replacement.clone());
+                roster.set_local_player_index(0);
+            }
+            send(201, &first);
+            assert_eq!(replacement.read().unwrap().get_rank_level(), 2);
+            assert_eq!(a.read().unwrap().get_rank_level(), 1);
+            with_meta_map(|map| map.records = saved);
+        });
+    }
+
 
     #[test]
     fn test_demo_rank_level_aliases_adjust_local_player_rank() {

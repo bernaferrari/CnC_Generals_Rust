@@ -3269,4 +3269,14 @@ Saving a sparse Core CaveSystem rejects a missing tracker, matching C++
 `XferSave::xferSnapshot`'s null rejection. Main collision entry preserves the
 entrance's original team for later restoration, including an occupied network;
 dying cave passengers leave the receiving tracker before physical retirement.
+Host cave snapshot identity maps serialize in key order while tracker occupant
+and entrance lists retain their original order. This retains the Rust host's
+serde framing; it does not establish original C++ save interoperability.
+
+## Receiving rank and science keys
+
+Standalone Core clients use their bound world's roster, rank and science
+catalogs for rank/science key actions. Same-ID foreign-world roster mutation is
+avoided. Hosted Main still uses its legacy ambient path; Core GameText, control
+bar and EVA delivery are not yet fully instance-owned (hq-yac16).
 

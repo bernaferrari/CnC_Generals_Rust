@@ -233,7 +233,8 @@ pub struct WorldSnapshot {
     #[serde(default)]
     pub limit_superweapons: bool,
 
-    /// C++ `CaveSystem::xfer` v1 shared CaveIndex TunnelTracker pool.
+    /// Shared CaveIndex trackers. This is the Rust host continuation, not
+    /// the positional C++ `CaveSystem::xfer` v1 wire representation.
     #[serde(default)]
     pub cave_system: crate::game_logic::HostCaveSystem,
 

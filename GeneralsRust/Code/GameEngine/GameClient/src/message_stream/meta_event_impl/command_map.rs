@@ -511,16 +511,24 @@ fn with_local_player_mut<F>(f: F) -> bool
 where
     F: FnOnce(&mut gamelogic::player::Player),
 {
-    with_local_player_rank_capped_mut(|player, _| f(player))
+    let Some(local_player) = ThePlayerList().read().ok().and_then(|list| list.get_local_player().cloned()) else {
+        return false;
+    };
+    let Ok(mut player) = local_player.write() else {
+        return false;
+    };
+    f(&mut player);
+    true
 }
 
 /// Lend the local Player with its roster's rank cap
 /// (C++ `TheGameLogic->getRankLevelLimit()` of the same world).
-fn with_local_player_rank_capped_mut<F>(f: F) -> bool
+fn with_local_player_rank_capped_mut<F>(world: Option<&gamelogic::system::engine_stores::WorldServices>, f: F) -> bool
 where
     F: FnOnce(&mut gamelogic::player::Player, i32),
 {
-    let Some((local_player, rank_level_limit)) = ThePlayerList().read().ok().and_then(|list| {
+    let roster = world.map(|world| std::sync::Arc::clone(world.players())).unwrap_or_else(ThePlayerList);
+    let Some((local_player, rank_level_limit)) = roster.read().ok().and_then(|list| {
         list.get_local_player()
             .cloned()
             .map(|player| (player, list.rank_level_limit()))
@@ -533,6 +541,23 @@ where
     };
     f(&mut local_guard, rank_level_limit);
     true
+}
+
+fn grant_all_sciences(player: &mut gamelogic::player::Player, world: Option<&gamelogic::system::engine_stores::WorldServices>, frame: u32) {
+    if let Some(world) = world {
+        let store = world.common().ini.rts_science.read();
+        for (&science, _) in store.iter() {
+            if science != SCIENCE_INVALID && store.is_science_grantable(science) {
+                player.add_science_impl_for_world(science, Some(world), frame);
+            }
+        }
+    } else if let Some(store) = get_science_store() {
+        for (&science, _) in store.iter() {
+            if science != SCIENCE_INVALID && store.is_science_grantable(science) {
+                player.grant_science(science);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

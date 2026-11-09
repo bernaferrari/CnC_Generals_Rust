@@ -2,6 +2,58 @@
 use super::*;
 
 #[test]
+fn cave_blob_keeps_existing_little_endian_host_framing() {
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let mut empty = crate::game_logic::HostCaveSystem::new();
+    let mut empty_bytes = Cursor::new(Vec::new());
+    super::super::xfer_helpers::xfer_serde_blob(
+        &mut XferSave::new(&mut empty_bytes),
+        &mut empty,
+    ).unwrap();
+    let mut expected_empty = vec![56, 0, 0, 0];
+    expected_empty.extend_from_slice(&[0; 56]);
+    assert_eq!(empty_bytes.into_inner(), expected_empty);
+
+    let mut caves = crate::game_logic::HostCaveSystem::new();
+    caves.register_cave(ObjectId(0x1122_3344), 7, Team::Neutral);
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        super::super::xfer_helpers::xfer_serde_blob(&mut writer, &mut caves).unwrap();
+        writer.xfer_u32(&mut 0x89ab_cdef).unwrap();
+    }
+
+    // This is the existing Rust host blob, not C++ CaveSystem::xfer:
+    // counters, sorted index -> tracker, then the two identity maps.
+    let mut expected = vec![105, 0, 0, 0];
+    expected.extend_from_slice(&[0; 32]);
+    expected.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0]); // tracker map count
+    expected.extend_from_slice(&[7, 0, 0, 0]); // cave index
+    expected.extend_from_slice(&[0; 16]); // empty contained and entry lists
+    expected.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0]); // cave ID count
+    expected.extend_from_slice(&[0x44, 0x33, 0x22, 0x11]);
+    expected.push(0); // no controlling team
+    expected.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0]); // index map count
+    expected.extend_from_slice(&[0x44, 0x33, 0x22, 0x11, 7, 0, 0, 0]);
+    expected.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0]); // original team map count
+    expected.extend_from_slice(&[0x44, 0x33, 0x22, 0x11, 3, 0, 0, 0]);
+    expected.extend_from_slice(&[0xef, 0xcd, 0xab, 0x89]);
+    assert_eq!(bytes.get_ref(), &expected);
+
+    let mut restored = crate::game_logic::HostCaveSystem::new();
+    let mut reader = XferLoad::new(Cursor::new(expected));
+    super::super::xfer_helpers::xfer_serde_blob(&mut reader, &mut restored).unwrap();
+    let mut following = 0;
+    reader.xfer_u32(&mut following).unwrap();
+    assert_eq!(following, 0x89ab_cdef);
+    assert_eq!(restored.cave_ids_for_index(7), vec![ObjectId(0x1122_3344)]);
+    assert!(restored.network(6).is_none());
+}
+
+
+#[test]
 fn direct_xfer_rejects_old_rust_outer_versions() {
     use crate::save_load::{SaveLoadError, Xfer, XferLoad, XferSave};
     use std::io::Cursor;
