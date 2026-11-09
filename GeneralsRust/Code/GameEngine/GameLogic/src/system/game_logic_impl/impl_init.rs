@@ -55,7 +55,7 @@ impl GameLogic {
     /// C++ `TheScriptEngine->init()` against this logic's own world.
     fn initialize_owned_script_engine(&self) -> crate::GameLogicResult<()> {
         match self.owning_world_services() {
-            Some(services) => services.scripts().initialize_engine(),
+            Some(services) => services.scripts().initialize_engine(&services),
             None => initialize_script_engine(),
         }
     }

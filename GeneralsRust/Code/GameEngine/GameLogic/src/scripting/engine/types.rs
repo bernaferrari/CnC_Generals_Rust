@@ -2877,12 +2877,15 @@ impl WorldScriptState {
 
     /// C++ `TheScriptEngine->init()` for this world. Idempotent: a live
     /// engine is never replaced (repeat init must not drop script state).
-    pub fn initialize_engine(&self) -> GameLogicResult<()> {
+    pub(crate) fn initialize_engine(
+        &self,
+        services: &Arc<crate::system::engine_stores::WorldServices>,
+    ) -> GameLogicResult<()> {
         let mut slot = self.engine.write().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire script engine lock: {}", e))
         })?;
         if slot.is_none() {
-            *slot = Some(ScriptEngine::new()?);
+            *slot = Some(ScriptEngine::new_with_services(services)?);
         }
         Ok(())
     }
@@ -3234,12 +3237,10 @@ pub fn with_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R
 
 /// Initialize the published world's script engine (C++ `TheScriptEngine->init`).
 pub fn initialize_script_engine() -> GameLogicResult<()> {
-    published_world_scripts()
-        .ok_or_else(|| {
-            GameLogicError::Threading("initialize_script_engine: no world published".to_string())
-        })?
-        .scripts()
-        .initialize_engine()
+    let services = published_world_scripts().ok_or_else(|| {
+        GameLogicError::Threading("initialize_script_engine: no world published".to_string())
+    })?;
+    services.scripts().initialize_engine(&services)
 }
 
 /// The published world's script engine slot.

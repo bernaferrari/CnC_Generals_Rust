@@ -2624,6 +2624,10 @@ mod tests {
         };
         assert!(has_engine(&a));
         assert!(!has_engine(&b));
+        {
+            let engine = a.services().scripts().engine().read().unwrap();
+            assert!(Arc::ptr_eq(engine.as_ref().unwrap().players(), a.services().players()));
+        }
         with_active_stores(&a, || {
             crate::scripting::engine::get_named_object_tracker()
                 .register_named_object("Hero".to_string(), 7)
