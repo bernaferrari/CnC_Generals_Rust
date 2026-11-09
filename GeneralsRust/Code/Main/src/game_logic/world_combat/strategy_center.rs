@@ -379,7 +379,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
-            is_authored_gattling_building, is_patriot_battery_structure,
+            is_authored_gattling_building,
             preferred_dual_defense_slot,
         };
 
@@ -401,7 +401,7 @@ impl GameLogic {
         // its live spawns are the weapons (Object.cpp / SpawnBehavior).
         let is_stinger = attacker.is_kind_of(KindOf::SpawnsAreTheWeapons);
         let is_patriot = crate::game_logic::host_base_defense::authors_patriot_weapon_set(attacker);
-        let dual_slot = is_stinger || is_patriot_battery_structure(&template_name);
+        let dual_slot = is_stinger || is_patriot;
         // Retail Patriot WeaponSet: AA lives in TERTIARY (SECONDARY is the assist weapon).
         let air_slot: u8 = if is_patriot {
             crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT
@@ -916,7 +916,7 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_base_defense::{
             PATRIOT_ASSIST_LASER_AUDIO, PatriotAssistLaserKind, PendingPatriotAssist,
-            is_patriot_battery_structure, is_patriot_free_to_assist,
+            is_patriot_free_to_assist,
             is_within_patriot_request_assist_range,
             make_patriot_assist_lasers, patriot_request_assist_range_for_template,
         };
@@ -924,14 +924,11 @@ impl GameLogic {
         let Some(requester) = self.objects.get(&requester_id) else {
             return;
         };
-        if !is_patriot_battery_structure(&requester.template_name) {
-            return;
-        }
         let requester_team = requester.team;
         let requester_template = requester.template_name.clone();
         let requester_primary = requester.authored_weapon_name_for_slot(0).map(str::to_owned);
         let requester_slot_weapon = requester
-            .authored_weapon_name_for_slot(if slot == 1 { 1 } else { 0 })
+            .authored_weapon_name_for_slot(slot)
             .map(str::to_owned);
         let requester_pos = requester.get_position();
 
@@ -967,9 +964,6 @@ impl GameLogic {
             .registered()
             .filter_map(|(&id, obj)| {
                 if id == requester_id || obj.team != requester_team {
-                    return None;
-                }
-                if !is_patriot_battery_structure(&obj.template_name) {
                     return None;
                 }
                 // C++ Weapon.cpp:2874 requestOf->getTemplate()->isEquivalentTo(

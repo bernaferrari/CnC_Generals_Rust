@@ -2818,6 +2818,7 @@ fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
     ensure_host_weapon_store();
     for (name, primary, secondary, expected_laser) in [
         ("AmericaPatriotBattery", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
+        ("CustomAirDefense", LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, true),
         ("Lazr_AmericaPatriotBattery", PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON, false),
     ] {
         let mut game_logic = GameLogic::new();
@@ -2840,6 +2841,9 @@ fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
             .expect("enemy");
         for id in [requester, helper] {
             let o = game_logic.host_object_mut(id).unwrap();
+            // Programmatic templates do not carry an admitted Behavior block.
+            // Install the authored module explicitly rather than deriving it from the name.
+            o.assisted_targeting = Some(crate::game_logic::host_base_defense::HostAssistedTargetingData::RETAIL_PATRIOT);
             for slot in 0..3u8 {
                 if let Some(w) = o.weapon_slot_mut(slot) {
                     w.last_fire_time = -10.0;
@@ -2850,6 +2854,15 @@ fn patriot_assist_laser_family_keys_on_authored_weapon_not_template_name() {
             }
         }
         game_logic.frame = 1;
+        // The assist weapon has zero RequestAssistRange. It must not inherit
+        // the request range of the primary simply because that value is zero.
+        game_logic.process_patriot_assist_request(requester, enemy, 1);
+        assert!(game_logic.pending_patriot_assists.is_empty(), "{name}: assist weapon cannot recruit");
+        game_logic.host_object_mut(helper).unwrap().assisted_targeting = None;
+        game_logic.process_patriot_assist_request(requester, enemy, 0);
+        assert!(game_logic.pending_patriot_assists.is_empty(), "{name}: helper without module cannot assist");
+        game_logic.host_object_mut(helper).unwrap().assisted_targeting =
+            Some(crate::game_logic::host_base_defense::HostAssistedTargetingData::RETAIL_PATRIOT);
         game_logic.process_patriot_assist_request(requester, enemy, 0);
         let clip = game_logic
             .pending_patriot_assists

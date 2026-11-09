@@ -2298,18 +2298,15 @@ pub fn leftover_request_assist_range(weapon_name: &str) -> f32 {
     .unwrap_or(0.0)
 }
 
-/// Leftover RequestAssistRange for the Patriot slot that just fired.
-/// `authored_weapon` (the fired slot's authored weapon) wins over the template table.
+/// RequestAssistRange for the weapon that fired. An authored zero is
+/// authoritative; the residual template table is only for unbound weapons.
 pub fn patriot_request_assist_range_for_template(
     template_name: &str,
     air_slot: bool,
     authored_weapon: Option<&str>,
 ) -> f32 {
-    if let Some(r) = authored_weapon
-        .map(leftover_request_assist_range)
-        .filter(|r| *r > 0.0)
-    {
-        return r;
+    if let Some(weapon_name) = authored_weapon {
+        return leftover_request_assist_range(weapon_name);
     }
     let weapon_name = if air_slot {
         secondary_weapon_name_for_defense(template_name)
