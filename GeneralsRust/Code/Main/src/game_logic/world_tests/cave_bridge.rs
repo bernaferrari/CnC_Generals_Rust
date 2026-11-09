@@ -19,12 +19,15 @@ fn ensure_cave_template(logic: &mut GameLogic, name: &str) {
 
 fn create_cave(logic: &mut GameLogic, name: &str, pos: Vec3, index: i32) -> ObjectId {
     ensure_cave_template(logic, name);
-    let id = logic.create_object(name, Team::Neutral, pos).expect("cave");
-    if let Some(obj) = logic.host_object_mut(id) {
-        obj.install_cave_contain_residual(index, 10);
+    logic.templates.get_mut(name).unwrap().contain_module.cave_index = index;
+    let cave = logic.create_object(name, Team::Neutral, pos).expect("cave");
+    if logic.get_player(3).is_some() {
+        // The generic production factory rejects neutral players. Map-owned
+        // caves nevertheless have the neutral player's actual Team.
+        let neutral_team = logic.host_default_team_id(3).expect("neutral team");
+        assert!(logic.set_host_object_team(cave, neutral_team));
     }
-    logic.cave_system.register_cave(id, index, Team::Neutral);
-    id
+    cave
 }
 
 fn ensure_infantry(logic: &mut GameLogic) {
@@ -79,6 +82,131 @@ fn first_occupant_captures_network_ranger_capture_does_not_kick() {
     assert_eq!(logic.host_object(b).unwrap().team, Team::USA);
     logic.on_capture_kick_passengers(a, Team::USA, Team::China);
     assert!(logic.cave_system.is_in_network(4, unit));
+}
+
+#[test]
+fn controllerless_collision_entry_remembers_original_team_in_receiving_world() {
+    fn setup() -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::Neutral);
+        ensure_test_player_for_team(&mut logic, Team::China);
+        ensure_infantry(&mut logic);
+        let cave = create_cave(&mut logic, "ControllerlessCave", Vec3::ZERO, 4);
+        let rider = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let unit = logic.host_object_mut(rider).unwrap();
+        unit.owner_player_id = None;
+        unit.target = Some(cave);
+        unit.set_ai_state(
+            crate::game_logic::AIState::Entering,
+            0,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        (logic, cave, rider)
+    }
+
+    let (mut owner, cave, rider) = setup();
+    let (peer, peer_cave, peer_rider) = setup();
+    assert_eq!((cave, rider), (peer_cave, peer_rider));
+    owner.dispatch_host_collide_modules(rider, cave).unwrap();
+    assert_eq!(owner.host_object(rider).unwrap().contained_by, Some(cave));
+    assert_eq!(peer.host_object(rider).unwrap().contained_by, None);
+
+    let china = owner.host_default_team_id(1).unwrap();
+    assert!(owner.defect_host_object(cave, china, 0));
+    assert_eq!(owner.host_object(cave).unwrap().team, Team::China);
+    assert!(owner.exit_cave_unit(rider, cave));
+    assert_eq!(owner.host_object(cave).unwrap().team, Team::Neutral);
+    assert_eq!(peer.host_object(cave).unwrap().team, Team::Neutral);
+    assert_eq!(peer.cave_system_residual().contain_count(4), 0);
+}
+
+#[test]
+fn collision_capture_and_cross_exit_are_isolated_between_worlds() {
+    fn setup() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::Neutral);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_infantry(&mut logic);
+        let first = create_cave(&mut logic, "WorldCaveA", Vec3::ZERO, 5);
+        let second = create_cave(&mut logic, "WorldCaveB", Vec3::new(40.0, 0.0, 0.0), 5);
+        let rider = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let unit = logic.host_object_mut(rider).unwrap();
+        unit.target = Some(first);
+        unit.set_ai_state(
+            crate::game_logic::AIState::Entering,
+            0,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        (logic, first, second, rider)
+    }
+
+    let (mut owner, first, second, rider) = setup();
+    let (peer, peer_first, peer_second, peer_rider) = setup();
+    assert_eq!((first, second, rider), (peer_first, peer_second, peer_rider));
+    owner.dispatch_host_collide_modules(rider, first).unwrap();
+    assert_eq!(owner.host_object(first).unwrap().team, Team::USA);
+    assert_eq!(owner.host_object(second).unwrap().team, Team::USA);
+    assert_eq!(owner.cave_system_residual().contained_for_index(5), vec![rider]);
+    assert_eq!(peer.host_object(first).unwrap().team, Team::Neutral);
+    assert_eq!(peer.cave_system_residual().contain_count(5), 0);
+    assert!(owner.exit_cave_unit(rider, second));
+    assert_eq!(owner.host_object(rider).unwrap().get_position(), Vec3::new(40.0, 0.0, 0.0));
+    assert_eq!(owner.host_object(rider).unwrap().contained_by, None);
+    assert_eq!(owner.host_object(first).unwrap().team, Team::Neutral);
+    assert_eq!(owner.host_object(second).unwrap().team, Team::Neutral);
+    assert_eq!(peer.host_object(rider).unwrap().contained_by, None);
+}
+
+#[test]
+fn collision_into_new_entrance_of_occupied_network_restores_its_team() {
+    fn enter(logic: &mut GameLogic, rider: ObjectId, cave: ObjectId) {
+        let unit = logic.host_object_mut(rider).unwrap();
+        unit.target = Some(cave);
+        unit.set_ai_state(
+            crate::game_logic::AIState::Entering,
+            0,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        logic.dispatch_host_collide_modules(rider, cave).unwrap();
+        assert_eq!(logic.host_object(rider).unwrap().contained_by, Some(cave));
+    }
+
+    fn setup() -> (GameLogic, ObjectId, ObjectId, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::Neutral);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_infantry(&mut logic);
+        let first = create_cave(&mut logic, "OccupiedCaveA", Vec3::ZERO, 6);
+        let first_rider = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .unwrap();
+        enter(&mut logic, first_rider, first);
+        let second = create_cave(&mut logic, "OccupiedCaveB", Vec3::new(40.0, 0.0, 0.0), 6);
+        let second_rider = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        (logic, first, second, first_rider, second_rider)
+    }
+
+    let (mut owner, first, second, first_rider, second_rider) = setup();
+    let (peer, peer_first, peer_second, peer_first_rider, peer_second_rider) = setup();
+    assert_eq!(
+        (first, second, first_rider, second_rider),
+        (peer_first, peer_second, peer_first_rider, peer_second_rider),
+    );
+    enter(&mut owner, second_rider, second);
+    assert!(owner.exit_cave_unit(first_rider, first));
+    assert!(owner.exit_cave_unit(second_rider, second));
+    assert_eq!(owner.host_object(first).unwrap().team, Team::Neutral);
+    assert_eq!(owner.host_object(second).unwrap().team, Team::Neutral);
+    assert_eq!(peer.host_object(first).unwrap().team, Team::USA);
+    assert_eq!(peer.host_object(second).unwrap().team, Team::Neutral);
+    assert_eq!(peer.cave_system_residual().contained_for_index(6), vec![first_rider]);
+    assert_eq!(peer.host_object(second_rider).unwrap().contained_by, None);
 }
 
 #[test]
@@ -143,6 +271,46 @@ fn occupant_death_leaves_cave_system_pool_and_reverts_team() {
     assert_eq!(logic.cave_system.contain_count(7), 0);
     assert_eq!(logic.host_object(a).unwrap().team, Team::Neutral);
     assert_eq!(logic.host_object(b).unwrap().team, Team::Neutral);
+}
+
+#[test]
+fn collision_entered_rider_death_restores_only_receiving_world_caves() {
+    fn setup() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        ensure_test_player_for_team(&mut logic, Team::Neutral);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        ensure_infantry(&mut logic);
+        let first = create_cave(&mut logic, "DeathWorldCaveA", Vec3::ZERO, 8);
+        let second = create_cave(&mut logic, "DeathWorldCaveB", Vec3::new(40.0, 0.0, 0.0), 8);
+        let rider = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let unit = logic.host_object_mut(rider).unwrap();
+        unit.target = Some(first);
+        unit.set_ai_state(
+            crate::game_logic::AIState::Entering,
+            0,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        logic.dispatch_host_collide_modules(rider, first).unwrap();
+        assert_eq!(logic.host_object(rider).unwrap().contained_by, Some(first));
+        assert_eq!(logic.host_object(first).unwrap().team, Team::USA);
+        (logic, first, second, rider)
+    }
+
+    let (mut owner, first, second, rider) = setup();
+    let (peer, peer_first, peer_second, peer_rider) = setup();
+    assert_eq!((first, second, rider), (peer_first, peer_second, peer_rider));
+    owner.host_object_mut(rider).unwrap().health.current = 0.0;
+    owner.mark_object_for_destruction(rider, None).unwrap();
+    owner.process_destroy_list();
+    assert!(!owner.cave_system_residual().is_in_network(8, rider));
+    assert_eq!(owner.host_object(first).unwrap().team, Team::Neutral);
+    assert_eq!(owner.host_object(second).unwrap().team, Team::Neutral);
+    assert!(peer.cave_system_residual().is_in_network(8, rider));
+    assert_eq!(peer.host_object(rider).unwrap().contained_by, Some(first));
+    assert_eq!(peer.host_object(first).unwrap().team, Team::USA);
+    assert_eq!(peer.host_object(second).unwrap().team, Team::USA);
 }
 
 #[test]
@@ -263,7 +431,6 @@ fn bridge_rubble_restamps_and_splat_kills() {
 
 #[test]
 fn bridge_scaffold_pose_uses_receiving_world_after_same_id_attachment_mismatch() {
-    use crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_RISE_FRAMES;
     use gamelogic::common::{AsciiString, ICoord3D};
     use gamelogic::polygon_trigger::PolygonTrigger;
 
@@ -304,7 +471,7 @@ fn bridge_scaffold_pose_uses_receiving_world_after_same_id_attachment_mismatch()
             span.scaffold_anims
                 .iter()
                 .find(|anim| {
-                    anim.create_pos.x == -20.0 && (-15.0..-10.0).contains(&anim.build_pos.x)
+                    anim.create_pos.x == -20.0 && (-5.0..-3.0).contains(&anim.build_pos.x)
                 })
                 .map(|anim| anim.id)
         })
@@ -319,8 +486,11 @@ fn bridge_scaffold_pose_uses_receiving_world_after_same_id_attachment_mismatch()
         .unwrap()
         .attach_host_trigger_world(&foreign.host_trigger_world, &foreign.team_factory);
 
-    for _ in 0..(BRIDGE_SCAFFOLD_RISE_FRAMES + 5) {
+    for _ in 0..300 {
         receiving.sync_host_bridge_rubble_and_scaffolds();
+        if receiving.host_object(scaffold_id).unwrap().get_position().x > -19.0 {
+            break;
+        }
     }
     let moved = receiving.host_object(scaffold_id).unwrap().get_position();
     assert!(

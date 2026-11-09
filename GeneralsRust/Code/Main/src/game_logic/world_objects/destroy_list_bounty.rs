@@ -186,6 +186,27 @@ impl GameLogic {
                     return Err(gamelogic::GameLogicError::Configuration(error));
                 }
             }
+            // CaveContain::removeFromContain runs while the dying rider is
+            // still installed: onRemoving and onRemovedFrom need that object.
+            if self.cave_system.index_holding_unit(event.id).is_some() {
+                if let Some((entrance, birth)) = self.objects.get(&event.id).and_then(|rider| {
+                    rider.contained_by.map(|entrance| {
+                        (entrance, std::sync::Arc::downgrade(&rider.visual_draw_identity_token))
+                    })
+                }) {
+                    if let Err(error) =
+                        self.exit_cave_unit_with_effects(event.id, entrance, presentation_effects)
+                    {
+                        self.objects_to_destroy.push_front(event);
+                        return Err(error);
+                    }
+                    if !self.objects.get(&event.id).is_some_and(|rider| {
+                        birth.ptr_eq(&std::sync::Arc::downgrade(&rider.visual_draw_identity_token))
+                    }) {
+                        continue;
+                    }
+                }
+            }
             let retired =
                 match self.take_object_for_physical_retirement(event.id, presentation_effects) {
                     Ok(object) => object,
@@ -223,12 +244,6 @@ impl GameLogic {
                     let _ = self
                         .tunnel_network
                         .record_exit(player_id, event.id, exit_at);
-                }
-                // C++ CaveContain::removeFromContain (CaveContain.cpp:54-83) on
-                // occupant death: tracker remove then onRemoving (LastEmpty).
-                if self.cave_system.index_holding_unit(event.id).is_some() {
-                    let exit_at = obj.contained_by.unwrap_or(event.id);
-                    let _ = self.exit_cave_unit(event.id, exit_at);
                 }
                 #[cfg(test)]
                 crate::game_logic::host_destroy_log::record(event.id);

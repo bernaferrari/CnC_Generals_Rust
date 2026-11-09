@@ -197,6 +197,25 @@ impl super::super::GameLogic {
                 // immediately after adding the rider to its roster.
                 self.stamp_player_who_entered(other_id, self_id);
                 if let Some((index, event)) = cave_capture {
+                    // Recalculate the entering cave's original team before
+                    // the first-rider capture, even for later riders.
+                    if let Some(cave) = self.objects.get_mut(&other_id) {
+                        if let Some(building) = cave.building_data.as_mut() {
+                            if cave.team_instance_id.is_none() {
+                                building.original_team = None;
+                                building.original_garrison_player_id = None;
+                                building.original_team_instance_id = None;
+                                building.original_team_instance_name = None;
+                            } else if building.original_team_instance_id.is_none() {
+                                building.original_team = cave.team_instance_id.map(|_| cave.team);
+                                building.original_garrison_player_id =
+                                    cave.team_instance_id.and(cave.owner_player_id);
+                                building.original_team_instance_id = cave.team_instance_id;
+                                building.original_team_instance_name =
+                                    cave.team_instance_id.map(|_| cave.team_instance_name.clone());
+                            }
+                        }
+                    }
                     self.apply_cave_capture_event_with_effects(index, event, other_id, effects)?;
                 }
                 let state = self

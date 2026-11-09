@@ -3265,4 +3265,8 @@ snapshot restore retains cave entrances, passengers and original team identity.
 Core's separate containment lifecycle still retains ambient paths.
 Core TunnelTracker insertion preserves C++ list order, duplicates and forced
 over-capacity entries; removal erases the first matching occupant.
+Saving a sparse Core CaveSystem rejects a missing tracker, matching C++
+`XferSave::xferSnapshot`'s null rejection. Main collision entry preserves the
+entrance's original team for later restoration, including an occupied network;
+dying cave passengers leave the receiving tracker before physical retirement.
 
