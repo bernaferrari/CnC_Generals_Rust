@@ -119,7 +119,7 @@ impl GameClient {
             let _ = self.draw_live_ingame_hud(frames.logic_frame);
 
             self.update_display_string_manager()?;
-            self.update_post_draw_ui(None)?;
+            self.update_post_draw_ui(None, Some(frames.logic_frame))?;
             self.process_beacon_notifications(frames.logic_frame)?;
             self.pump_message_stream(frames.logic_frame, game_mode, Some(view))?;
             self.rendered_object_count = 0;
@@ -163,7 +163,7 @@ impl GameClient {
         self.update_display_string_manager()?;
 
         // C++ lines 744-751: Shell and InGameUI AFTER draw
-        self.update_post_draw_ui(None)?;
+        self.update_post_draw_ui(None, Some(frames.logic_frame))?;
 
         self.process_beacon_notifications(frames.logic_frame)?;
         self.pump_message_stream(frames.logic_frame, game_mode, Some(view))?;
@@ -2310,7 +2310,7 @@ impl GameClient {
         // C++ DisplayStringManager after drawable/effects residual.
         self.update_display_string_manager()?;
 
-        self.update_post_draw_ui(None)?;
+        self.update_post_draw_ui(None, None)?;
         self.process_beacon_notifications(prepared.frames.logic_frame)?;
         if let Some((recorder, receive)) = receive {
             self.pump_message_stream_to_receiving_owner(
@@ -2835,6 +2835,7 @@ impl GameClient {
     pub fn update_post_draw_ui(
         &mut self,
         menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
+        eva_logic_frame: Option<u32>,
     ) -> GameClientResult<()> {
         {
             let mut shell = self.window_manager_owner.shell_handle();
@@ -2891,13 +2892,18 @@ impl GameClient {
                 .as_ref()
                 .map(|handle| std::sync::Arc::clone(handle.world_services()));
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                // Eva.cpp:265-275 gates on this client's own logic frame.
+                if let Some(frame) = eva_logic_frame {
+                    ui.eva.set_host_frame(frame);
+                }
                 match world.as_deref() {
                     Some(world) => crate::eva::update_eva_system_for_world(
                         &mut ui.eva,
                         world,
                         &mut self.client_random,
                     ),
-                    None => crate::eva::update_eva_system(&mut ui.eva, &mut self.client_random),
+                    // No bound world: no logic EVA queue or roster to read.
+                    None => {}
                 }
             }
         }

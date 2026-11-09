@@ -368,7 +368,7 @@ impl CnCGameEngine {
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_post_draw_ui");
             }
-            let _ = gc.update_post_draw_ui(Some(post_draw_menu_world));
+            let _ = gc.update_post_draw_ui(Some(post_draw_menu_world), None);
             let _ = (t1, t2, t3);
         }
         if let Some(time_of_day) = requested_time_of_day {

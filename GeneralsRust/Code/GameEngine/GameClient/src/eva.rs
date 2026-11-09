@@ -5,8 +5,7 @@ use game_engine::common::ini::{
     FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
 };
 use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::{EvaEvent as LogicEvaEvent, TheAudio, TheEva as LogicEva, TheGameLogic};
-use gamelogic::player::ThePlayerList;
+use gamelogic::helpers::{EvaEvent as LogicEvaEvent, TheAudio, TheEva as LogicEva};
 
 const EVA_MESSAGE_NAMES: [&str; 53] = [
     "LOWPOWER",
@@ -614,18 +613,6 @@ impl Eva {
         )
     }
 
-    /// Standalone Core compatibility entry. Main supplies a context directly.
-    pub fn update(&mut self, client_random: &mut game_engine::common::random_value::RandomState) {
-        self.sync_enabled_from_logic();
-        let context = self.legacy_frame_context();
-        if self.enabled && context.frame >= 2 {
-            self.ingest_logic_events();
-        }
-        self.update_with_playback(&context, &mut CoreEvaPlayback, &mut |lo, hi| {
-            client_random.next_int(lo, hi)
-        });
-    }
-
     /// Advance this speaker with its receiving audio service and client RNG.
     pub fn update_with_playback(
         &mut self,
@@ -724,36 +711,6 @@ impl Eva {
         }
     }
 
-    pub fn legacy_frame_context(&self) -> EvaFrameContext {
-        let local_player = if let Some((side, index)) = self.host_local_player.clone() {
-            let sufficient_power = match self.host_sufficient_power {
-                Some(v) => v,
-                None => !self.should_play_low_power_static(),
-            };
-            Some(EvaLocalPlayerContext {
-                side,
-                index,
-                sufficient_power,
-            })
-        } else {
-            ThePlayerList()
-                .read()
-                .ok()
-                .and_then(|list| list.get_local_player().cloned())
-                .and_then(|player| {
-                    player.read().ok().map(|player| EvaLocalPlayerContext {
-                        side: player.get_side().to_string(),
-                        index: player.get_player_index() as u32,
-                        sufficient_power: player.get_energy().has_sufficient_power(),
-                    })
-                })
-        };
-        EvaFrameContext {
-            frame: self.logic_frame(),
-            local_player,
-        }
-    }
-
 
     pub fn set_host_frame(&mut self, frame: u32) {
         self.host_frame = frame;
@@ -761,12 +718,10 @@ impl Eva {
     pub fn host_frame(&self) -> u32 {
         self.host_frame
     }
+    /// Logic frame supplied by this Eva's owner (Main host or the standalone
+    /// client's own logic frame); 0 until the owner reports one.
     pub fn logic_frame(&self) -> u32 {
-        if self.host_frame != 0 {
-            self.host_frame
-        } else {
-            TheGameLogic::get_frame()
-        }
+        self.host_frame
     }
     pub fn set_host_sufficient_power(&mut self, sufficient: bool) {
         self.host_sufficient_power = Some(sufficient);
@@ -822,15 +777,6 @@ impl Eva {
         self.enabled = enabled;
     }
 
-    fn sync_enabled_from_logic(&mut self) {
-        let Ok(enabled) = LogicEva::is_enabled() else {
-            return;
-        };
-        if self.enabled != enabled {
-            self.set_enabled(enabled);
-        }
-    }
-
     pub fn new_eva_check_info(&mut self, name: &str) -> Option<&mut EvaCheckInfo> {
         let message = EvaMessage::from_name(name)?;
         if self
@@ -860,10 +806,6 @@ impl Eva {
         !self.checks.iter().any(|check| check.eva_info == message)
     }
 
-    fn message_should_play(&mut self, message: EvaMessage) -> bool {
-        self.message_should_play_with_local_player(message, self.has_local_player())
-    }
-
     fn message_should_play_with_local_player(
         &mut self,
         message: EvaMessage,
@@ -880,45 +822,10 @@ impl Eva {
         }
     }
 
-    fn has_local_player(&self) -> bool {
-        // C++ Eva.cpp:270 reads the same-process ThePlayerList; the live host
-        // players live in Main, so prefer the published local-player snapshot.
-        if self.host_local_player.is_some() {
-            return true;
-        }
-        ThePlayerList()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .is_some()
-    }
-
     fn should_play_low_power(&self) -> bool {
-        self.should_play_low_power_static_with(self.host_sufficient_power)
-    }
-
-    fn should_play_low_power_static(&self) -> bool {
-        self.should_play_low_power_static_with(None)
-    }
-
-    fn should_play_low_power_static_with(&self, host_power: Option<bool>) -> bool {
-        // C++ Eva.cpp:422 polls localPlayer->getEnergy()->hasSufficientPower().
-        // Live leftover ThePlayerList Energy is not host power_available.
-        if let Some(sufficient) = host_power {
-            return !sufficient;
-        }
-        let __arc_bind = ThePlayerList();
-
-        let Ok(list) = __arc_bind.read() else {
-            return false;
-        };
-        let Some(local_player) = list.get_local_player().cloned() else {
-            return false;
-        };
-        let Ok(local_player) = local_player.read() else {
-            return false;
-        };
-        !local_player.get_energy().has_sufficient_power()
+        // C++ Eva.cpp:408-422 polls the owning engine's local Energy. The
+        // owner supplies it (host power or its world's roster snapshot).
+        self.host_sufficient_power.is_some_and(|sufficient| !sufficient)
     }
 
     fn should_play_generic(&mut self) -> bool {
@@ -941,20 +848,6 @@ impl Eva {
             time_for_next_check: current_frame + info.frames_between_checks,
             already_played: false,
         });
-    }
-
-    fn process_playing_messages(
-        &mut self,
-        current_frame: u32,
-        client_random: &mut game_engine::common::random_value::RandomState,
-    ) {
-        let context = self.legacy_frame_context();
-        self.process_playing_messages_with_context(
-            current_frame,
-            &context,
-            &mut CoreEvaPlayback,
-            &mut |lo, hi| client_random.next_int(lo, hi),
-        );
     }
 
     fn process_playing_messages_with_context(
@@ -1045,16 +938,6 @@ impl Eva {
         self.eva_speech.set_playing_handle(handle);
     }
 
-    fn ingest_logic_events(&mut self) {
-        let Ok(events) = LogicEva::drain_events() else {
-            return;
-        };
-        for event in events {
-            if let Some(message) = map_logic_event(event) {
-                self.set_should_play(message);
-            }
-        }
-    }
 }
 
 impl game_engine::common::message_stream::ReceivingEvaFeedback for Eva {
@@ -1207,29 +1090,6 @@ pub fn eva_check_info_count(eva: &Eva) -> usize {
     eva.all_check_infos.len()
 }
 
-pub fn eva_check_snapshot(eva: &Eva) -> (usize, usize, Option<usize>, bool, bool, u32) {
-    let context = eva.legacy_frame_context();
-    eva.check_snapshot(&context)
-}
-
-pub fn reset_eva_system(eva: &mut Eva) {
-    eva.set_host_frame(0);
-    eva.clear_host_sufficient_power();
-    // C++ has one TheEva singleton: a shell-menu script
-    // EVA_SET_ENABLED_DISABLED(false) persists into the match until
-    // GameClient::reset (GameClient.cpp:450) runs Eva::reset (Eva.cpp:245-263)
-    // which re-enables it. The live port splits that singleton into this
-    // client Eva plus the gamelogic TheEva facade the script action writes;
-    // reset must re-arm both or sync_enabled_from_logic keeps re-applying the
-    // stale shell disable every frame.
-    let _ = LogicEva::set_enabled(true);
-    eva.reset();
-}
-
-pub fn update_eva_system(eva: &mut Eva, client_random: &mut game_engine::common::random_value::RandomState) {
-    eva.update(client_random);
-}
-
 /// Advance `eva` against the world its client is bound to.
 pub fn update_eva_system_for_world(
     eva: &mut Eva,
@@ -1289,12 +1149,6 @@ pub fn simulate_eva_reset(eva: &mut Eva) -> bool {
     eva.reset();
     eva.set_residual_last_message(None);
     eva.residual_store(ResidualEvaAction::Reset);
-    true
-}
-
-pub fn simulate_eva_update(eva: &mut Eva, client_random: &mut game_engine::common::random_value::RandomState) -> bool {
-    eva.update(client_random);
-    eva.residual_store(ResidualEvaAction::Update);
     true
 }
 
@@ -1472,20 +1326,30 @@ mod tests {
     }
 
     #[test]
-    fn eva_enabled_state_mirrors_logic_script_toggle() {
-        crate::test_support::ensure_ambient_host();
-        let _ = LogicEva::set_enabled(true);
+    fn eva_enabled_and_frame_gate_come_from_the_owning_world() {
+        use gamelogic::system::engine_stores::new_world_services;
+        // C++ Eva.cpp:275 returns before probing when frame < 2; the frame is
+        // the owner's, and EVA_SET_ENABLED_DISABLED is the owning world's.
+        let world = new_world_services();
         let mut eva = Eva::new();
         eva.set_should_play(EvaMessage::BuildingLost);
-
-        let _ = LogicEva::set_enabled(false);
-        eva.sync_enabled_from_logic();
-        assert!(!eva.enabled);
-        assert!(!eva.should_play[EvaMessage::BuildingLost.as_index()]);
-
-        let _ = LogicEva::set_enabled(true);
-        eva.sync_enabled_from_logic();
-        assert!(eva.enabled);
+        eva.update_for_world(&world, &mut Default::default());
+        assert!(
+            eva.should_play[EvaMessage::BuildingLost.as_index()],
+            "frame 0 must skip Eva.cpp:275 and leave shouldPlay latched"
+        );
+        eva.set_host_frame(5);
+        eva.update_for_world(&world, &mut Default::default());
+        assert!(
+            !eva.should_play[EvaMessage::BuildingLost.as_index()],
+            "owner frame >= 2 runs Eva::update and clears unprobed flags"
+        );
+        LogicEva::set_enabled_in(&world, false).unwrap();
+        eva.update_for_world(&world, &mut Default::default());
+        assert!(!eva.is_enabled());
+        LogicEva::set_enabled_in(&world, true).unwrap();
+        eva.update_for_world(&world, &mut Default::default());
+        assert!(eva.is_enabled());
     }
 
     #[test]
@@ -1497,30 +1361,6 @@ mod tests {
         assert!(!eva.message_should_play_with_local_player(EvaMessage::BuildingLost, false));
         assert!(eva.should_play[EvaMessage::BuildingLost.as_index()]);
         assert_eq!(eva.message_being_tested, EvaMessage::LowPower);
-    }
-
-    #[test]
-    fn eva_update_uses_host_frame_when_crate_clock_is_starved() {
-        crate::test_support::ensure_ambient_host();
-        // C++ Eva.cpp:275 returns before probing when frame < 2. A starved crate
-        // clock stays at 0; the live host frame must open that gate.
-        let mut eva = Eva::new();
-        eva.set_host_frame(0);
-        eva.set_should_play(EvaMessage::BuildingLost);
-        eva.update(&mut Default::default());
-        assert!(
-            eva.should_play[EvaMessage::BuildingLost.as_index()],
-            "frame 0 must skip Eva.cpp:275 and leave shouldPlay latched"
-        );
-
-        eva.set_host_frame(5);
-        assert_eq!(eva.logic_frame(), 5);
-        eva.update(&mut Default::default());
-        assert!(
-            !eva.should_play[EvaMessage::BuildingLost.as_index()],
-            "host frame >= 2 must run Eva::update and clear unprobed flags"
-        );
-        eva.set_host_frame(0);
     }
 
     #[test]

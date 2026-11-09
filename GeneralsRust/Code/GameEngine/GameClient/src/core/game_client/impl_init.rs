@@ -562,7 +562,12 @@ impl GameClient {
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
                 match world.as_deref() {
                     Some(world) => crate::eva::reset_eva_system_for_world(&mut ui.eva, world),
-                    None => crate::eva::reset_eva_system(&mut ui.eva),
+                    // No bound world: there is no logic EVA flag to re-arm.
+                    None => {
+                        ui.eva.set_host_frame(0);
+                        ui.eva.clear_host_sufficient_power();
+                        ui.eva.reset();
+                    }
                 }
             }
         }
