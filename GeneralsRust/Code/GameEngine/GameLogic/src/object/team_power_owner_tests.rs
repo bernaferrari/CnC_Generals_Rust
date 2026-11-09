@@ -182,7 +182,7 @@ fn prepared_object_rank_award_uses_its_own_roster_with_foreign_world_active() {
             &mut logic,
             Arc::new(DefaultThingTemplate::new("RankOwnerUnit".into())),
             Coord3D::ZERO,
-            Some(team),
+            Some(Arc::clone(&team)),
             ObjectCreationFlags::NO_AI,
         ).unwrap();
         let object = factory.get_object(id).unwrap().get_base_object().unwrap();
@@ -193,5 +193,16 @@ fn prepared_object_rank_award_uses_its_own_roster_with_foreign_world_active() {
         assert_eq!(cap, 2);
         assert_eq!(receiving_player.read().unwrap().get_money().get_money(), 777);
         assert_ne!(foreign_player.read().unwrap().get_money().get_money(), 777);
+        let restored = Arc::new(RwLock::new(Object::new_raw(
+            Arc::new(DefaultThingTemplate::new("RestoredRankOwner".into())),
+            88,
+            ObjectStatusMaskType::none(),
+            Some(team),
+        )));
+        logic.track_object_in_update_list(Arc::clone(&restored)).unwrap();
+        assert_eq!(
+            restored.read().unwrap().with_controlling_player_rank_capped_mut(|_, cap| cap),
+            Some(2)
+        );
     });
 }

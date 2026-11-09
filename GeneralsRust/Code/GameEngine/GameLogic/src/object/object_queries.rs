@@ -100,6 +100,22 @@ impl Object {
         crate::player::with_player_mut(self.get_controlling_player_id()? as Int, f)
     }
 
+    /// Bind this object's rank awards to its receiving roster at admission.
+    pub(crate) fn bind_rank_roster(
+        &mut self,
+        roster: &Arc<RwLock<crate::player::PlayerList>>,
+    ) -> Result<(), String> {
+        if let Some(existing) = &self.owner_roster {
+            let existing = existing.upgrade().ok_or("object rank owner has expired")?;
+            if !Arc::ptr_eq(&existing, roster) {
+                return Err("object belongs to a different player roster".into());
+            }
+        } else {
+            self.owner_roster = Some(Arc::downgrade(roster));
+        }
+        Ok(())
+    }
+
     /// Lend the controlling Player with the rank cap of the roster it was
     /// resolved from (C++ `TheGameLogic->getRankLevelLimit()`).
     pub fn with_controlling_player_rank_capped_mut<R>(
