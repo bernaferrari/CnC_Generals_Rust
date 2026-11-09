@@ -189,17 +189,8 @@ impl TunnelTracker {
     /// Matches C++ TunnelTracker::addToContainList (TunnelTracker.cpp:153-157)
     /// ID-first contain membership.
     pub fn add_to_contain_list(&mut self, object_id: ObjectID) -> GameResult<()> {
-        if object_id == INVALID_ID {
-            return Ok(());
-        }
-        if self.contained_ids.contains(&object_id) {
-            return Ok(());
-        }
-        if self.max_capacity > 0 && (self.contained_ids.len() as i32) >= self.max_capacity {
-            return Err("TunnelTracker capacity reached".into());
-        }
         self.contained_ids.push(object_id);
-        self.contain_list_size = self.contained_ids.len();
+        self.contain_list_size += 1;
         Ok(())
     }
 
@@ -214,10 +205,9 @@ impl TunnelTracker {
         object_id: ObjectID,
         _expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let initial_len = self.contained_ids.len();
-        self.contained_ids.retain(|&id| id != object_id);
-        if self.contained_ids.len() < initial_len {
-            self.contain_list_size = self.contained_ids.len();
+        if let Some(index) = self.contained_ids.iter().position(|&id| id == object_id) {
+            self.contained_ids.remove(index);
+            self.contain_list_size -= 1;
         }
         Ok(())
     }
@@ -743,6 +733,26 @@ mod tests {
             !(contain_count < contain_max),
             "MaxTunnelCapacity 0 must reject every enter, not treat the network as unlimited"
         );
+    }
+
+    #[test]
+    fn forced_insert_keeps_duplicates_and_ignores_capacity() {
+        let mut tracker = TunnelTracker::new();
+        tracker.set_max_capacity(1);
+        tracker.add_to_contain_list(7).unwrap();
+        tracker.add_to_contain_list(8).unwrap();
+        tracker.add_to_contain_list(7).unwrap();
+        assert_eq!(tracker.get_contained_item_ids(), &[7, 8, 7]);
+        assert_eq!(tracker.get_contain_count().unwrap(), 3);
+
+        tracker.remove_from_contain(7, false).unwrap();
+        assert_eq!(tracker.get_contained_item_ids(), &[8, 7]);
+        assert_eq!(tracker.get_contain_count().unwrap(), 2);
+        assert!(tracker.is_in_container(7));
+        tracker.remove_from_contain(7, false).unwrap();
+        tracker.remove_from_contain(7, false).unwrap();
+        assert_eq!(tracker.get_contained_item_ids(), &[8]);
+        assert_eq!(tracker.get_contain_count().unwrap(), 1);
     }
 
     #[test]
