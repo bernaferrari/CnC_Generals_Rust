@@ -112,6 +112,17 @@ pub trait AiWorld {
     }
 
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>>;
+    /// Resolve a cave tracker from this operation's driving world.
+    fn cave_tracker(
+        &self,
+        _index: i32,
+    ) -> Option<Arc<RwLock<crate::tunnel_tracker::TunnelTracker>>> {
+        None
+    }
+    /// Authored MaxTunnelCapacity from the same driving world.
+    fn cave_capacity(&self) -> Option<i32> {
+        None
+    }
     fn shorten_ai_queue_wake(&mut self, _owner: ObjectID, _frames: u32) -> Result<(), String> {
         Err("supplied AI world has no receiving AI queue schedule".into())
     }

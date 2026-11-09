@@ -952,6 +952,46 @@ impl Snapshotable for CaveContain {
 }
 
 impl ContainModuleInterface for CaveContain {
+    fn is_valid_container_for_with_world(
+        &self,
+        passenger: &Object,
+        owner: &Object,
+        check_capacity: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        if owner.get_id() != self.object_id {
+            return false;
+        }
+        let (Some(owner_handle), Some(actual)) = (self.object.upgrade(), world.object(self.object_id)) else {
+            return false;
+        };
+        if !Arc::ptr_eq(&owner_handle, &actual) {
+            return false;
+        }
+        let Ok(guard) = owner_handle.try_read() else {
+            return false;
+        };
+        if !std::ptr::eq(&*guard, owner) {
+            return false;
+        }
+        drop(guard);
+        let Some(tracker) = world.cave_tracker(self.cave_index) else {
+            return false;
+        };
+        let Ok(tracker) = tracker.try_read() else {
+            return false;
+        };
+        let capacity = if check_capacity {
+            let Some(capacity) = world.cave_capacity() else {
+                return false;
+            };
+            capacity
+        } else {
+            0
+        };
+        tracker.is_valid_container_for_with_capacity(passenger, check_capacity, capacity).unwrap_or(false)
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
         crate::object::registry::OBJECT_REGISTRY
             .with_object(object_id, |obj_guard| {

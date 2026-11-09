@@ -582,6 +582,57 @@ impl NativeMatch {
 }
 
 #[test]
+fn cave_admission_reads_the_driving_factory_world_not_the_retained_or_active_world() {
+    use crate::object::contain::{CaveContain, CaveContainModuleData};
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+    use std::sync::Mutex;
+
+    let first_stores = Arc::new(EngineStores::new_for_world());
+    let peer_stores = Arc::new(EngineStores::new_for_world());
+    let first_system = Arc::clone(&first_stores.services().logic_managers().cave);
+    let peer_system = Arc::clone(&peer_stores.services().logic_managers().cave);
+    for (stores, system, capacity) in [
+        (&first_stores, &first_system, 1),
+        (&peer_stores, &peer_system, 0),
+    ] {
+        let mut data = game_engine::common::ini::ini_game_data::GlobalData::new();
+        data.max_tunnel_capacity = capacity;
+        *stores.services().common().system.global_data.lock().unwrap() =
+            Some(Arc::new(parking_lot::RwLock::new(data)));
+        system.lock().unwrap().register_new_cave(0).unwrap();
+    }
+
+    let mut first = NativeMatch::new(50.0);
+    let mut peer = NativeMatch::new(50.0);
+    assert_eq!(first.target.read().unwrap().get_id(), peer.target.read().unwrap().get_id());
+    first.scheduler = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(&first_stores));
+    peer.scheduler = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(&peer_stores));
+    for (game, wrong_system) in [(&mut first, &peer_system), (&mut peer, &first_system)] {
+        let cave = CaveContain::new(
+            Arc::downgrade(&game.target),
+            &CaveContainModuleData::default(),
+            Some(Arc::clone(wrong_system)),
+        ).unwrap();
+        game.target.write().unwrap().set_contain(Some(Arc::new(Mutex::new(cave))));
+    }
+
+    let query = |game: &mut NativeMatch| {
+        let source = Arc::clone(&game.source);
+        let target = Arc::clone(&game.target);
+        game.operate(1, |world| {
+            world.can_enter(
+                &source.read().unwrap(),
+                &target.read().unwrap(),
+                CommandSourceType::FromAI,
+                crate::action_manager::CanEnterType::CheckCapacity,
+            )
+        })
+    };
+    with_active_stores(&peer_stores, || assert!(query(&mut first)));
+    with_active_stores(&first_stores, || assert!(!query(&mut peer)));
+}
+
+#[test]
 fn cached_native_enter_boards_only_its_factory_target() {
     let mut first = NativeMatch::new(50.0);
     let peer = NativeMatch::new(150.0);
