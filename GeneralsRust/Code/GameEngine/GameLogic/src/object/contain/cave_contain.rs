@@ -104,9 +104,6 @@ pub struct CaveContain {
     /// that built this entrance). Always present: a cave is never assembled
     /// without its receiving world.
     cave_system: Arc<Mutex<CaveSystem>>,
-    /// The receiving world (C++ the GameEngine owning this entrance): its
-    /// objects, players and GameData, never the published world's.
-    world: std::sync::Weak<crate::system::engine_stores::WorldServices>,
 }
 
 impl CaveContain {
@@ -137,7 +134,6 @@ impl CaveContain {
                 .unwrap_or(crate::common::INVALID_ID),
             object,
             cave_system: Arc::clone(world.cave()),
-            world: world.world().clone(),
         })
     }
 
@@ -348,6 +344,7 @@ impl CaveContain {
             .get_object(obj_id)
             .ok_or("Contain object not found")?;
         if super::should_cancel_containment_after_booby_trap(
+            &self.base.objects(),
             {
                 let id = self.get_object_id();
                 if id == crate::common::INVALID_ID {
@@ -762,21 +759,18 @@ impl CaveContain {
 
         // Handle the team color that is rendered.
         let has_local_player = {
-            self.world
-                .upgrade()
-                .and_then(|world| world.players().read().ok().and_then(|list| list.get_local_player().cloned()))
+            self.base
+                .players()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())
                 .is_some()
         };
         if has_local_player {
             if let Some(controller) = self.get_apparent_controlling_player(None) {
                 if let Ok(controller_guard) = controller.read() {
                     // C++ TheGlobalData->m_timeOfDay of the receiving world.
-                    let time_of_day = self
-                        .world
-                        .upgrade()
-                        .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
-                        .map(|data| crate::helpers::map_time_of_day(data.read().time_of_day))
-                        .unwrap_or(crate::common::audio::TimeOfDay::Day);
+                    let time_of_day = self.base.time_of_day();
                     let color = match time_of_day {
                         crate::common::audio::TimeOfDay::Night => {
                             controller_guard.get_player_night_color()

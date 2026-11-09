@@ -1467,7 +1467,7 @@ impl RiderChangeContain {
         } else {
             Some(self.object_id)
         };
-        if super::should_cancel_containment_after_booby_trap(owner_id, rider_id) {
+        if super::should_cancel_containment_after_booby_trap(&self.base.objects(), owner_id, rider_id) {
             return Ok(());
         }
 
@@ -1733,7 +1733,7 @@ impl RiderChangeContain {
             return;
         };
 
-        let __player_list_arc = crate::player::ThePlayerList();
+        let __player_list_arc = self.base.base.players();
             let local_player_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index())

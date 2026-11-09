@@ -948,6 +948,28 @@ impl OpenContain {
         }
     }
 
+    /// C++ `ThePlayerList` of the owning world.
+    pub(crate) fn players(&self) -> Arc<RwLock<crate::player::PlayerList>> {
+        match self.owning_world() {
+            Some(world) => Arc::clone(world.players()),
+            None => crate::player::ThePlayerList(),
+        }
+    }
+
+    /// C++ `TheGlobalData->m_timeOfDay` of the owning world.
+    pub(crate) fn time_of_day(&self) -> crate::common::audio::TimeOfDay {
+        match &self.world {
+            Some(world) => world
+                .upgrade()
+                .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
+                .map(|data| crate::helpers::map_time_of_day(data.read().time_of_day))
+                .unwrap_or(crate::common::audio::TimeOfDay::Day),
+            None => crate::helpers::TheGlobalData::get()
+                .map(|global| global.get_time_of_day())
+                .unwrap_or(crate::common::audio::TimeOfDay::Day),
+        }
+    }
+
     /// C++ `TheGameLogic->getFrame()` of the owning world.
     pub(crate) fn logic_frame(&self) -> UnsignedInt {
         match &self.world {
@@ -1213,7 +1235,7 @@ impl OpenContain {
         } else {
             Some(self.object_id)
         };
-        if super::should_cancel_containment_after_booby_trap(owner_id, obj_id) {
+        if super::should_cancel_containment_after_booby_trap(&self.objects(), owner_id, obj_id) {
             return Ok(());
         }
 

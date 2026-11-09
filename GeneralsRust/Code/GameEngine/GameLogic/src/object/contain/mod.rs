@@ -86,6 +86,7 @@ use serde_json::Value;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 pub(crate) fn should_cancel_containment_after_booby_trap(
+    objects: &crate::object::registry::ObjectLookup,
     owner_id: Option<ObjectID>,
     obj_id: ObjectID,
 ) -> bool {
@@ -95,9 +96,9 @@ pub(crate) fn should_cancel_containment_after_booby_trap(
     if owner_id == crate::common::INVALID_ID || obj_id == crate::common::INVALID_ID {
         return false;
     }
-    crate::object::registry::OBJECT_REGISTRY
+    objects
         .with_object(owner_id, |owner_guard| {
-            crate::object::registry::OBJECT_REGISTRY
+            objects
                 .with_object(obj_id, |obj_guard| {
                     owner_guard.check_and_detonate_booby_trap(Some(obj_guard))
                         && (owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead())

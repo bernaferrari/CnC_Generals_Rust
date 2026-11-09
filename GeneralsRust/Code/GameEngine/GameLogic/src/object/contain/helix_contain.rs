@@ -421,6 +421,7 @@ impl HelixContain {
         }
 
         if super::should_cancel_containment_after_booby_trap(
+            &self.base.objects(),
             {
                 let id = self.get_object_id();
                 if id == crate::common::INVALID_ID {

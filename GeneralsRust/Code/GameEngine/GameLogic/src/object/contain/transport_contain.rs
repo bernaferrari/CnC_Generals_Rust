@@ -1518,6 +1518,7 @@ impl TransportContain {
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
         if super::should_cancel_containment_after_booby_trap(
+            &self.objects(),
             {
                 let id = self.get_object_id();
                 if id == crate::common::INVALID_ID {
@@ -2385,6 +2386,10 @@ mod tests {
             for stores in [&world_a, &world_b] {
                 stores.services().session_flags().in_update_frame_plus_one.store(0, Relaxed);
             }
+            // Local-player / indicator reads use the owning world's roster.
+            with_active_stores(&world_b, || {
+                assert!(Arc::ptr_eq(&transport_a.base.players(), world_a.services().players()));
+            });
 
             for stores in [&world_a, &world_b] {
                 with_active_stores(stores, || {
