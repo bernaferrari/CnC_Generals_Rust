@@ -586,6 +586,13 @@ impl GameLogic {
             ) {
                 if turret_enabled { self.notify_turret_fired(defense_id); }
                 self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
+                if is_patriot {
+                    if target_is_air {
+                        self.patriot_residual_aa_fires = self.patriot_residual_aa_fires.saturating_add(1);
+                    } else {
+                        self.patriot_residual_ground_fires = self.patriot_residual_ground_fires.saturating_add(1);
+                    }
+                }
             }
             return Ok(());
         }

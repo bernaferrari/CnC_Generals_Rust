@@ -24,7 +24,7 @@ fn definition(source: &str, header: &str) -> String {
     panic!("unterminated retail definition: {header}");
 }
 
-fn world() -> (GameLogic, ObjectId, ObjectId) {
+pub(in crate::game_logic) fn world() -> (GameLogic, ObjectId, ObjectId) {
     use crate::assets::ini_template_loader::{parse_weapon_definitions_ini_into, WeaponDefinitionLoadType};
     let weapon_text = base_ini("Weapon.ini");
     let mut weapons = HashMap::new();

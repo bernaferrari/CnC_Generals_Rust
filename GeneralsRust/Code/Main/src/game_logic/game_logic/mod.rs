@@ -268,7 +268,7 @@ mod skirmish_starting_unit_residual_tests;
 /// Source-scan tests that previously `include_str!` the monolith use this.
 
 #[cfg(test)]
-mod accepted_projectile_owner_tests;
+pub(in crate::game_logic) mod accepted_projectile_owner_tests;
 
 #[cfg(test)]
 mod radius_decal_clock_owner_tests;

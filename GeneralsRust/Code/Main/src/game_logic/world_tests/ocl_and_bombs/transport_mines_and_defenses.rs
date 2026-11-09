@@ -1583,30 +1583,11 @@ fn stealth_residual_detection_expires() {
 
 #[test]
 fn base_defense_residual_patriot_auto_fires_without_attack_object() {
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    let _ = super::weapon_bootstrap::ensure_host_weapon_store();
-
-    // GameLogic::new does not load faction buildings; register residual template.
-    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
-    patriot_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(600.0)
-        .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(super::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
-    game_logic
-        .templates
-        .insert("USA_Patriot".to_string(), patriot_tpl);
-
-    let patriot_id = game_logic
-        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("patriot");
-    let enemy_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
-        .expect("enemy");
+    // Use the retail powered battery and missile content: a frame's combat
+    // phase launches a projectile, it does not apply the warhead immediately.
+    let (mut game_logic, patriot_id, enemy_id) =
+        crate::game_logic::game_logic::accepted_projectile_owner_tests::
+            patriot_retail_battery_tests::world();
 
     {
         let p = game_logic.host_object(patriot_id).expect("patriot obj");
@@ -1647,11 +1628,22 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
         .unwrap_or(0.0);
     game_logic.health_events.clear_damage();
 
-    // Several combat ticks (reload residual) without any AttackObject command.
-    for f in 0..80 {
-        game_logic.frame = f;
-        game_logic.update_combat(&[patriot_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+    // Drive whole logic frames with the receiving asset owner, including
+    // acquisition, projectile admission, physics and collision callbacks.
+    let assets = game_logic.application_assets().expect("retail W3D owner");
+    let mut observed_owned_flight = false;
+    for _ in 0..80 {
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(assets.as_ref()),
+            ..Default::default()
+        };
+        game_logic.tick_logic_frame_with_script_effects(
+            LOGIC_FRAME_TIMESTEP, None, None, effects, |_| {}, |_| {},
+        );
+        observed_owned_flight |= game_logic.combat_system.projectiles_snapshot()
+            .iter().any(|projectile| projectile.missile_motion.is_some());
     }
+    assert!(observed_owned_flight, "auto-fire must admit a real Patriot missile flight");
 
     let enemy_hp_after = game_logic
         .host_object(enemy_id)

@@ -466,4 +466,4 @@ mod authored_projectile_stream_tests;
 mod patriot_flight_regression_tests;
 
 #[path = "patriot_retail_battery_tests.rs"]
-mod patriot_retail_battery_tests;
+pub(in crate::game_logic) mod patriot_retail_battery_tests;
