@@ -72,7 +72,7 @@ impl ScriptEngine {
     }
 
     /// The world that built this engine, while it lives.
-    pub(crate) fn owning_world_services(
+    pub fn owning_world_services(
         &self,
     ) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
         self.owner_world.upgrade()

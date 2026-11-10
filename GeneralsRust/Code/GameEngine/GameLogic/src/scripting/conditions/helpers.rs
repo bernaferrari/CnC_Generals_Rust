@@ -1188,7 +1188,7 @@ impl HostScriptQuery {
         trigger: &crate::polygon_trigger::PolygonTrigger,
         which_to_consider: u32,
         now: u32,) -> bool {
-        if !host_team_did_enter_or_exit(world, team_name, now) {
+        if !host_team_did_enter_or_exit(self, world, team_name, now) {
             return false;
         }
         let members = self.host_team_area_members(team_name, which_to_consider);
@@ -1209,7 +1209,7 @@ impl HostScriptQuery {
         trigger: &crate::polygon_trigger::PolygonTrigger,
         which_to_consider: u32,
         now: u32,) -> bool {
-        if !host_team_did_enter_or_exit(world, team_name, now) {
+        if !host_team_did_enter_or_exit(self, world, team_name, now) {
             return false;
         }
         self.host_team_area_members(team_name, which_to_consider)
@@ -1222,7 +1222,7 @@ impl HostScriptQuery {
         trigger: &crate::polygon_trigger::PolygonTrigger,
         which_to_consider: u32,
         now: u32,) -> bool {
-        if !host_team_did_enter_or_exit(world, team_name, now) {
+        if !host_team_did_enter_or_exit(self, world, team_name, now) {
             return false;
         }
         let members = self.host_team_area_members(team_name, which_to_consider);
@@ -1245,7 +1245,7 @@ impl HostScriptQuery {
         trigger: &crate::polygon_trigger::PolygonTrigger,
         which_to_consider: u32,
         now: u32,) -> bool {
-        if !host_team_did_enter_or_exit(world, team_name, now) {
+        if !host_team_did_enter_or_exit(self, world, team_name, now) {
             return false;
         }
         self.host_team_area_members(team_name, which_to_consider)
@@ -1913,12 +1913,13 @@ impl HostTriggerWorld {
         })
     }
 
-    pub fn team_did_enter_or_exit(&self, team_name: &str, now: u32) -> bool {
+    /// `q`: the host facts of the world whose team members are tested.
+    pub fn team_did_enter_or_exit(&self, q: &HostScriptQuery, team_name: &str, now: u32) -> bool {
         self.team_entered_or_exited
             .get(team_name)
             .copied()
             .is_some_and(|frame| host_flag_window(frame, now))
-            || host_script_team_member_ids(team_name)
+            || q.host_script_team_member_ids(team_name)
                 .into_iter()
                 .any(|id| self.did_enter_or_exit(id, now))
     }
@@ -2391,8 +2392,13 @@ fn host_command_identity_token(name: &str) -> String {
         .to_ascii_lowercase()
 }
 
-pub fn host_team_did_enter_or_exit(world: &HostTriggerWorld, team_name: &str, now: u32) -> bool {
-    world.team_did_enter_or_exit(team_name, now)
+pub fn host_team_did_enter_or_exit(
+    q: &HostScriptQuery,
+    world: &HostTriggerWorld,
+    team_name: &str,
+    now: u32,
+) -> bool {
+    world.team_did_enter_or_exit(q, team_name, now)
 }
 
 
@@ -2915,6 +2921,30 @@ mod host_query_world_tests {
         });
         HostScriptQuery::of(&a).clear_host_script_query_snapshot();
         assert_eq!(HostScriptQuery::of(&a).host_script_named_unit_id("Hero"), None);
+    }
+
+    #[test]
+    fn trigger_team_edge_reads_members_of_the_querying_world_only() {
+        let a = new_world_services();
+        let b = new_world_services();
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.team_instance_ids
+            .insert("TriggerTeamTwoWorld".to_string(), vec![42]);
+        HostScriptQuery::of(&a).set_host_script_query_snapshot(snap);
+        let mut trig = HostTriggerWorld::default();
+        trig.objects.insert(
+            42,
+            HostObjectTriggerState {
+                i_x: 0,
+                i_y: 0,
+                entered_or_exited_frame: 9,
+                slots: Vec::new(),
+            },
+        );
+        with_world_services(&b, || {
+            assert!(trig.team_did_enter_or_exit(&HostScriptQuery::of(&a), "TriggerTeamTwoWorld", 9));
+            assert!(!trig.team_did_enter_or_exit(&HostScriptQuery::of(&b), "TriggerTeamTwoWorld", 9));
+        });
     }
 }
 

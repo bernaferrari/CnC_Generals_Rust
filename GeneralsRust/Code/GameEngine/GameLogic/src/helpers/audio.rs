@@ -52,7 +52,11 @@ pub fn set_audio_events_enabled_for_tests(enabled: bool) -> bool {
     AUDIO_EVENTS_ENABLED_FOR_TESTS.swap(enabled, std::sync::atomic::Ordering::SeqCst)
 }
 
-struct GameLogicAudioEventOwnerResolver;
+/// Registered per CommonServices by the world that owns it; host objects are
+/// that world's (C++ the engine's TheGameLogic), never the published one.
+struct GameLogicAudioEventOwnerResolver {
+    world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
+}
 
 impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
     fn resolve_object_position(&self, object_id: ObjectID) -> Option<EngineCoord3D> {
@@ -68,7 +72,11 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
         }
         // Live host objects are not in leftover TheGameLogic. Host snapshot is
         // Y-up (x, y_height, z_ground); C++ AudioEventRTS is Z-up (x, y_ground, z_height).
-        crate::scripting::host_script_query_object_by_id(object_id).map(|obj| EngineCoord3D {
+        crate::scripting::HostScriptQuery::from_world(
+            self.world.as_ref().and_then(std::sync::Weak::upgrade),
+        )
+        .host_script_query_object_by_id(object_id)
+        .map(|obj| EngineCoord3D {
             x: obj.x,
             y: obj.z,
             z: obj.y,
@@ -399,7 +407,10 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
 fn ensure_audio_event_resolvers_registered() {
     let services = game_engine::common::common_services::common_services();
     services.system.game_logic_audio_resolvers_installed.get_or_init(|| {
-        let _ = register_audio_event_owner_resolver(Arc::new(GameLogicAudioEventOwnerResolver));
+        let world = crate::system::engine_stores::try_active_services();
+        let _ = register_audio_event_owner_resolver(Arc::new(GameLogicAudioEventOwnerResolver {
+            world: world.as_ref().map(Arc::downgrade),
+        }));
         let _ = register_audio_shroud_resolver(Arc::new(GameLogicAudioShroudResolver));
         let _ = register_audio_locality_resolver(Arc::new(GameLogicAudioLocalityResolver));
         let _ = register_audio_view_resolver(Arc::new(GameLogicAudioViewResolver));
