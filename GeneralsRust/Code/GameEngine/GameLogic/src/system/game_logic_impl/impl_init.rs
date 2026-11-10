@@ -69,6 +69,19 @@ impl GameLogic {
     }
 
     /// C++ `TheScriptEngine->init()` against this logic's own world.
+    /// C++ `TheControlBar->init()`/`reset()` of this logic's own GameEngine:
+    /// rebuild the bridge of the world this logic belongs to. A logic bound to
+    /// no world rebuilds the world published on its thread.
+    fn refresh_owned_control_bar_bridge(&self) -> Result<(), String> {
+        match self.owning_world_services() {
+            Some(services) => crate::control_bar::refresh_control_bar_bridge_for_world(&services, None),
+            None => crate::control_bar::refresh_control_bar_bridge_for_world(
+                &crate::system::engine_stores::active_services(),
+                None,
+            ),
+        }
+    }
+
     fn initialize_owned_script_engine(&self) -> crate::GameLogicResult<()> {
         match self.owning_world_services() {
             Some(services) => services.scripts().initialize_engine(&services),
@@ -182,7 +195,7 @@ impl GameLogic {
 
         crate::special_power_module::initialize();
         crate::control_bar::register_academy_template_context_provider();
-        if let Err(e) = crate::control_bar::initialize_control_bar_bridge_from_common() {
+        if let Err(e) = self.refresh_owned_control_bar_bridge() {
             warn!("Control bar bridge initialization failed: {}", e);
         }
 
@@ -258,7 +271,7 @@ impl GameLogic {
         }
 
         crate::special_power_module::initialize();
-        if let Err(e) = crate::control_bar::refresh_control_bar_bridge_from_common() {
+        if let Err(e) = self.refresh_owned_control_bar_bridge() {
             warn!("Control bar bridge refresh failed during reset: {}", e);
         }
 

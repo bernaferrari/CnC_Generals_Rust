@@ -42,7 +42,7 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
             .new_command_set(SET.to_owned())
             .set_button_at_position(0, BUTTON.to_owned())
             .unwrap();
-        gamelogic::control_bar::refresh_control_bar_bridge_from_common().unwrap();
+        gamelogic::control_bar::refresh_control_bar_bridge_for_world(&gamelogic::system::engine_stores::active_services(), None).unwrap();
         {
             let bridge = gamelogic::control_bar::control_bar_bridge_in(&gamelogic::system::engine_stores::active_services()).unwrap();
             let button = bridge.find_command_button_by_name(BUTTON).unwrap();

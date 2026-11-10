@@ -34,7 +34,7 @@ fn install_global_button() {
         .new_command_set(COMMAND_SET.into())
         .set_button_at_position(0, BUTTON.into())
         .unwrap();
-    gamelogic::control_bar::refresh_control_bar_bridge_from_common().unwrap();
+    gamelogic::control_bar::refresh_control_bar_bridge_for_world(&gamelogic::system::engine_stores::active_services(), None).unwrap();
     assert!(gamelogic::control_bar::control_bar_bridge_in(&gamelogic::system::engine_stores::active_services())
         .unwrap()
         .find_command_button_by_name(BUTTON)

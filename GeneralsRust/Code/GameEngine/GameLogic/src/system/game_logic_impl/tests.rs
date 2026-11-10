@@ -2787,4 +2787,22 @@ mod tests {
         assert_eq!(lookup(&a), Some(7));
         assert_eq!(lookup(&b), None);
     }
+
+    /// C++ `TheControlBar->reset()` runs on the GameEngine that owns the
+    /// logic: an owned GameLogic rebuilds its own world's ControlBar while a
+    /// different world is published on the thread.
+    #[test]
+    fn owned_control_bar_refresh_targets_the_logic_world() {
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        let a = Arc::new(EngineStores::new_for_world());
+        let b = Arc::new(EngineStores::new_for_world());
+        let logic_a = GameLogic::new_with_engine_stores(Arc::clone(&a));
+        with_active_stores(&b, || logic_a.refresh_owned_control_bar_bridge())
+            .expect("owned ControlBar refresh");
+        let has_bridge = |s: &Arc<EngineStores>| {
+            crate::control_bar::control_bar_bridge_for_world(s.services()).is_some()
+        };
+        assert!(has_bridge(&a));
+        assert!(!has_bridge(&b));
+    }
 }

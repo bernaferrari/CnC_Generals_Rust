@@ -1159,7 +1159,14 @@ impl GameClient {
         crate::helpers::register_observer_audio_locality_hooks();
         crate::helpers::register_observer_audio_view_hooks();
         if self.input_authority == ClientInputAuthority::StandaloneCore {
-            crate::helpers::register_legacy_core_control_bar_ui_ingress();
+            // The hooks belong to this client's own world; an unbound
+            // standalone client still drives the world published for it.
+            let world = self
+                .visual_world
+                .as_ref()
+                .map(|handle| std::sync::Arc::clone(handle.world_services()))
+                .unwrap_or_else(gamelogic::system::engine_stores::active_services);
+            crate::helpers::register_legacy_core_control_bar_ui_ingress(&world);
         }
         self.install_core_nonwindow_script_services();
 

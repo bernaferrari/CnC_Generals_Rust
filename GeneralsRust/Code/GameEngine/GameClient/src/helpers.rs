@@ -163,8 +163,8 @@ impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
 }
 
 /// Transitional standalone Core dirty ingress; actual WND events borrow their UI.
-pub fn register_legacy_core_control_bar_ui_ingress() {
-    let _ = gamelogic::control_bar::register_control_bar_ui_hooks(Arc::new(LiveControlBarUiHooks));
+pub fn register_legacy_core_control_bar_ui_ingress(world: &gamelogic::system::engine_stores::WorldServices) {
+    gamelogic::control_bar::register_control_bar_ui_hooks_in(world, Arc::new(LiveControlBarUiHooks));
 }
 
 #[cfg(test)]

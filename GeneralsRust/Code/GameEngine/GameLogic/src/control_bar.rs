@@ -231,28 +231,10 @@ impl ControlBarBridge {
     }
 }
 
+#[cfg(any(test, feature = "internal"))]
 fn with_bridge_slot<R>(f: impl FnOnce(&RwLock<Option<Arc<ControlBarBridge>>>) -> R) -> R {
     let services = crate::system::engine_stores::active_services();
     f(services.control_bar_bridge())
-}
-
-pub fn initialize_control_bar_bridge_from_common() -> Result<(), String> {
-    refresh_control_bar_bridge_from_common()
-}
-
-/// Rebuild the published world's bridge from that same world's catalog.
-pub fn refresh_control_bar_bridge_from_common() -> Result<(), String> {
-    refresh_control_bar_bridge_for_world(&crate::system::engine_stores::active_services(), None)
-}
-
-/// Refresh from explicit receiving-session upgrade content without selecting Core AI.
-pub fn refresh_control_bar_bridge_from_common_with_upgrade_definitions(
-    upgrade_definitions: &UpgradeCenter,
-) -> Result<(), String> {
-    refresh_control_bar_bridge_for_world(
-        &crate::system::engine_stores::active_services(),
-        Some(upgrade_definitions),
-    )
 }
 
 /// Rebuild `world`'s bridge from the CommandButton/CommandSet catalog owned by
@@ -284,6 +266,7 @@ pub fn control_bar_bridge_for_world(
     world.control_bar_bridge().read().ok().and_then(|guard| guard.clone())
 }
 
+#[cfg(test)]
 fn replace_control_bar_bridge(bridge: ControlBarBridge) -> Result<(), String> {
     with_bridge_slot(|slot| {
         let mut guard = slot
@@ -536,13 +519,22 @@ pub trait ControlBarUiHooks: Send + Sync {
     fn on_player_rank_changed(&self, player_id: i32, rank_level: i32, points: i32);
 }
 
-pub fn register_control_bar_ui_hooks(hooks: Arc<dyn ControlBarUiHooks>) -> bool {
-    let services = crate::system::engine_stores::active_services();
-    let mut slot = services
+/// Install `world`'s live ControlBar UI hooks (C++ the GameEngine's own
+/// `TheControlBar`); no other world is touched.
+pub fn register_control_bar_ui_hooks_in(
+    world: &crate::system::engine_stores::WorldServices,
+    hooks: Arc<dyn ControlBarUiHooks>,
+) {
+    let mut slot = world
         .control_bar_ui_hooks()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     *slot = Some(hooks);
+}
+
+#[cfg(any(test, feature = "internal"))]
+pub fn register_control_bar_ui_hooks(hooks: Arc<dyn ControlBarUiHooks>) -> bool {
+    register_control_bar_ui_hooks_in(&crate::system::engine_stores::active_services(), hooks);
     true
 }
 

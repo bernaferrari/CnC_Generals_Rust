@@ -1730,8 +1730,9 @@ impl CnCGameEngine {
                         // CommandSet buttons shown to the player; Main's
                         // production authorization reads its typed UNIT_BUILD
                         // identities through the bridge as well.
-                        if let Err(err) = gamelogic::control_bar::refresh_control_bar_bridge_from_common_with_upgrade_definitions(
-                            simulation_rules.upgrade_definitions(),
+                        if let Err(err) = gamelogic::control_bar::refresh_control_bar_bridge_for_world(
+                            &_world_tls,
+                            Some(simulation_rules.upgrade_definitions()),
                         ) {
                             warn!(
                                 "Failed to refresh parsed ControlBar bridge; production catalog unavailable: {}",
