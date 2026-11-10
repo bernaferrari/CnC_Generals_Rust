@@ -400,17 +400,19 @@ fn hover_surface_relative_follows_preferred_height() {
     let mut tmpl = ThingTemplate::new("Comanche");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, id, Team::USA);
-    bind_fixture_locomotor(&mut heli, "ComancheLocomotor");
+    crate::fixture_content::locomote(
+        &mut heli,
+        &[
+            "Surfaces = AIR", "Speed = 30", "Acceleration = 10000", "Braking = 10000", "TurnRate = 360",
+            "Lift = 1000000", "Appearance = HOVER", "ZAxisBehavior = SURFACE_RELATIVE_HEIGHT",
+            "PreferredHeight = 10", "PreferredHeightDamping = 1",
+        ],
+    );
     heli.set_position(Vec3::new(0.0, 20.0, 0.0));
     heli.ground_height = 20.0;
-    heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
-    heli.loco_appearance = LocomotorAppearance::Hover;
-    heli.loco_preferred_height = 10.0;
-    heli.loco_preferred_height_damping = 1.0;
+    // C++ Locomotor::setMaxLift: the mutable runtime cap under the template.
     heli.max_lift = 5.0;
     heli.physics_mass = 1.0;
-    heli.movement.max_speed = 30.0;
-    heli.movement.acceleration = 10_000.0;
     heli.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
     heli.set_locomotor_goal_position_on_path();
     logic.objects.insert(id, heli);
@@ -778,10 +780,11 @@ fn desired_speed_caps_the_march() {
     let mut tmpl = ThingTemplate::new("SlowGroup");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9522), Team::USA);
-    unit.loco_appearance = LocomotorAppearance::WheelsFour;
+    crate::fixture_content::locomote(
+        &mut unit,
+        &["Surfaces = GROUND", "Speed = 40", "Acceleration = 1000000", "Braking = 1000000", "TurnRate = 360", "Appearance = FOUR_WHEELS"],
+    );
     unit.desired_speed = 5.0;
-    unit.movement.max_speed = 40.0;
-    unit.movement.acceleration = 1.0e6;
     unit.ground_height = 0.0;
     unit.set_position(Vec3::ZERO);
     unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));

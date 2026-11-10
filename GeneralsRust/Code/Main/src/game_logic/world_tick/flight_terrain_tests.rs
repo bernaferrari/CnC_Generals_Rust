@@ -26,7 +26,10 @@ fn world(wall: f32, raw_ground: f32) -> (GameLogic, ObjectId) {
         .get_active()
         .unwrap()
         .clone();
-    game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
+    // C++ GameEngine::init loads Locomotor.ini into the world's
+    // TheLocomotorStore before any Object template references it.
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source(
         r#"
 Locomotor HqFlightOwnerHover
   Surfaces = AIR
@@ -78,6 +81,7 @@ End
     )])
     .unwrap();
     let mut world = GameLogic::new();
+    world.admit_locomotor_definitions(locomotors).unwrap();
     world.admit_receiving_module_content(content).unwrap();
     world.set_ai_definition_base(data);
     world.override_world_size(200.0, 200.0);

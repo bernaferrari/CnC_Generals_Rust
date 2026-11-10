@@ -81,8 +81,10 @@ pub(in crate::game_logic) fn isolated_at(_: &str, _: &str, run: impl FnOnce()) {
 }
 
 pub(in crate::game_logic) fn authored_match() -> (GameLogic, ObjectId, ObjectId) {
-    use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
-    assert_eq!(load_locomotors_from_str(
+    // C++ GameEngine::init loads Locomotor.ini into the world's
+    // TheLocomotorStore before any Object template references it.
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    assert_eq!(locomotors.apply_source(
             r#"
 Locomotor HqO7b46HoverLocomotor
   Surfaces = AIR
@@ -137,6 +139,9 @@ Object HqO7b46Helicopter
 End
 "#;
     let mut logic = GameLogic::new();
+    logic
+        .admit_locomotor_definitions(locomotors)
+        .expect("authored locomotors admitted before Object content");
     logic
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
