@@ -2,8 +2,7 @@
 
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
-    get_player_arc, get_str_param, get_str_param_optional, host_eval_team_has_object_status,
-    lookup_named_object_id, parse_nested_condition, parse_object_status_mask, perform_comparison,
+    get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id, parse_nested_condition, parse_object_status_mask, perform_comparison,
     with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};

@@ -25,34 +25,11 @@ pub use registry::ConditionRegistry;
 pub use helpers::{
     HostObjectTriggerPersist, HostScriptPlayerCensus, HostScriptQuery, HostScriptQueryObject,
     HostScriptQuerySnapshot, HostTechBuildingCensus, HostTriggerSlotPersist, HostTriggerWorld,
-    clear_host_script_query_snapshot, host_bridge_broken, host_bridge_repaired,
-    host_building_entered_by_player, host_count_player_kind_in_area,
-    host_count_player_type_in_area, host_enemy_sighted, host_eval_skirmish_captured_count,
-    host_eval_skirmish_command_button_ready, host_eval_skirmish_garrisoned_count,
-    host_eval_skirmish_player_has_discovered_player,
-    host_eval_skirmish_player_has_prerequisite_to_build,
-    host_eval_skirmish_player_has_units_in_area, host_eval_skirmish_special_power_ready,
-    host_eval_skirmish_supplies_value_within_distance,
-    host_eval_skirmish_tech_building_within_distance,
-    host_eval_skirmish_unowned_faction_unit_count, host_eval_skirmish_value_in_area,
-    host_eval_team_has_object_status, host_eval_team_is_contained,
-    host_eval_unit_has_object_status, host_object_did_enter, host_object_did_exit,
-    host_object_has_kind, host_query_player_census, host_query_player_has_science,
-    host_query_player_science_purchase_points, host_query_player_template_count,
-    host_query_supply_source_attacked, host_query_supply_source_safe, host_script_area_bounds,
-    host_script_area_unit_ids, host_script_lookup_polygon_trigger, host_script_named_unit_alive,
-    host_script_named_unit_id, host_script_named_unit_in_area,
-    host_script_named_unit_in_named_area, host_script_named_unit_present,
-    host_script_named_unit_selected, host_script_query_has_any, host_script_query_object,
-    host_script_query_object_by_id, host_script_team_member_ids, host_script_team_unit_ids,
-    host_team_all_inside, host_team_did_all_enter, host_team_did_all_exit,
-    host_team_did_partial_enter, host_team_did_partial_exit, host_team_has_any_live_objects,
-    host_team_has_any_live_units, host_team_sequential_status, host_team_some_inside_some_outside,
-    host_team_was_fielded, host_type_sighted, merge_host_script_query_snapshot,
-    set_host_script_query_snapshot, sync_host_trigger_flags_from_snapshot,
+    host_object_did_enter, host_object_did_exit,
+    host_object_has_kind, host_script_lookup_polygon_trigger,
 };
 pub(crate) use helpers::{
-    get_player_arc, get_str_param, host_named_unit_point_in_trigger, lookup_named_object_id,
+    get_player_arc, get_str_param, lookup_named_object_id,
     perform_comparison,
 };
 
@@ -129,7 +106,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
-            host_query: crate::scripting::HostScriptQuery::published(),
+            host_query: crate::scripting::HostScriptQuery::published_for_test(),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -160,7 +137,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
-            host_query: crate::scripting::HostScriptQuery::published(),
+            host_query: crate::scripting::HostScriptQuery::published_for_test(),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -207,7 +184,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
-            host_query: crate::scripting::HostScriptQuery::published(),
+            host_query: crate::scripting::HostScriptQuery::published_for_test(),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -260,7 +237,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
-            host_query: crate::scripting::HostScriptQuery::published(),
+            host_query: crate::scripting::HostScriptQuery::published_for_test(),
         };
         let mut params = HashMap::new();
         params.insert("player".to_string(), ScriptValue::Int(0));
@@ -305,7 +282,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
-            host_query: crate::scripting::HostScriptQuery::published(),
+            host_query: crate::scripting::HostScriptQuery::published_for_test(),
         };
         let mut params = HashMap::new();
         params.insert(
@@ -340,7 +317,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
-            host_query: crate::scripting::HostScriptQuery::published(),
+            host_query: crate::scripting::HostScriptQuery::published_for_test(),
         };
         let mut params = HashMap::new();
         params.insert("player".to_string(), ScriptValue::Int(0));

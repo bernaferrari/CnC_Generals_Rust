@@ -258,7 +258,7 @@ mod tests {
         // compatibility registry is empty. Run in the bounded child to keep
         // this read-only precondition isolated from parallel simulation tests.
         assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![crate::scripting::HostScriptQueryObject {
                     id: 91,
@@ -296,7 +296,7 @@ mod tests {
         ));
         // The fallback snapshot is an ambient compatibility projection. Give
         // the second engine its own initial observation before interleaving.
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![crate::scripting::HostScriptQueryObject {
                     id: 91,
@@ -313,7 +313,7 @@ mod tests {
                 .unwrap()
         ));
 
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![crate::scripting::HostScriptQueryObject {
                     id: 91,

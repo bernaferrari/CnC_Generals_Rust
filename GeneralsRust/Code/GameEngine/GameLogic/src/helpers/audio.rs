@@ -755,7 +755,7 @@ mod leftover_the_audio_tests {
     }
 
     fn setup_observed_audio_world(index: i32) {
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![crate::scripting::HostScriptQueryObject {
                     id: 77,
@@ -912,8 +912,8 @@ mod leftover_the_audio_tests {
     #[test]
     fn host_snapshot_resolver_uses_host_height() {
         use super::AudioEventOwnerResolver;
-        crate::scripting::clear_host_script_query_snapshot();
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![crate::scripting::HostScriptQueryObject {
                     id: 77,
@@ -930,7 +930,7 @@ mod leftover_the_audio_tests {
         assert_eq!(pos.x, 10.0);
         assert_eq!(pos.y, 20.0);
         assert_eq!(pos.z, 42.0);
-        crate::scripting::clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 
     #[test]

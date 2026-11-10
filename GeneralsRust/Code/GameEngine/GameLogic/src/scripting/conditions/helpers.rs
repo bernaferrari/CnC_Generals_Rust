@@ -230,9 +230,10 @@ impl HostScriptQuery {
         Self { world }
     }
 
-    /// Transitional: the world published on this thread (callers still migrating).
-    pub(crate) fn published() -> Self {
-        Self { world: crate::system::engine_stores::try_active_services() }
+    /// Tests: the query of the world they published on this thread.
+    #[cfg(test)]
+    pub(crate) fn published_for_test() -> Self {
+        Self::from_world(crate::system::engine_stores::try_active_services())
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut HostScriptQuerySnapshot) -> R) -> R {
@@ -1254,128 +1255,8 @@ impl HostScriptQuery {
     }
 }
 
-/// Merge additional host-query rows into the current snapshot.
-pub fn merge_host_script_query_snapshot(f: impl FnOnce(&mut HostScriptQuerySnapshot)) {
-    HostScriptQuery::published().merge_host_script_query_snapshot(f)
-}
-
-/// Inject a read-only host name/team/area query map for crate conditions.
-pub fn set_host_script_query_snapshot(snap: HostScriptQuerySnapshot) {
-    HostScriptQuery::published().set_host_script_query_snapshot(snap)
-}
-
-pub fn clear_host_script_query_snapshot() {
-    HostScriptQuery::published().clear_host_script_query_snapshot()
-}
-
-pub fn host_bridge_broken(bridge_name: &str) -> bool {
-    HostScriptQuery::published().host_bridge_broken(bridge_name)
-}
-
-pub fn host_bridge_repaired(bridge_name: &str) -> bool {
-    HostScriptQuery::published().host_bridge_repaired(bridge_name)
-}
-
-pub fn host_script_named_unit_id(name: &str) -> Option<u32> {
-    HostScriptQuery::published().host_script_named_unit_id(name)
-}
-
-/// True when a host snapshot was injected (any named/team/object/area/tech row).
-pub fn host_script_query_has_any() -> bool {
-    HostScriptQuery::published().host_script_query_has_any()
-}
-
-/// Host named-unit aliveness from the snapshot (no crate Object).
-pub fn host_script_named_unit_alive(name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_script_named_unit_alive(name)
-}
-
-/// True when the host snapshot lists this named unit (alive or dying).
-pub fn host_script_named_unit_present(name: &str) -> bool {
-    HostScriptQuery::published().host_script_named_unit_present(name)
-}
-
-/// C++ evaluateNamedSelected: Object::getName() match on selected drawables.
-pub fn host_script_named_unit_selected(name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_script_named_unit_selected(name)
-}
-
-/// C++ AIGroup::isIdle / isGroupAiDead over host snapshot members.
-/// Empty group is idle and dead (vacuous C++ loops).
-pub fn host_team_sequential_status(team_name: &str) -> (bool, bool) {
-    HostScriptQuery::published().host_team_sequential_status(team_name)
-}
-
-pub fn host_script_query_object(name: &str) -> Option<HostScriptQueryObject> {
-    HostScriptQuery::published().host_script_query_object(name)
-}
-
-pub fn host_script_query_object_by_id(id: u32) -> Option<HostScriptQueryObject> {
-    HostScriptQuery::published().host_script_query_object_by_id(id)
-}
-
-/// C++ evaluateBuildingEntered on the host snapshot (no leftover contain).
-/// None = named building missing from snapshot.
-pub fn host_building_entered_by_player(building_name: &str, player_name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_building_entered_by_player(building_name, player_name)
-}
-
-/// C++ Team::hasAnyObjects over host snapshot members.
-pub fn host_team_has_any_live_objects(team_name: &str) -> bool {
-    HostScriptQuery::published().host_team_has_any_live_objects(team_name)
-}
-
-/// C++ Team::hasAnyUnits over host snapshot members.
-pub fn host_team_has_any_live_units(team_name: &str) -> bool {
-    HostScriptQuery::published().host_team_has_any_live_units(team_name)
-}
-
-/// True when the host snapshot lists any member ids for this team instance.
-pub fn host_team_was_fielded(team_name: &str) -> bool {
-    HostScriptQuery::published().host_team_was_fielded(team_name)
-}
-
-pub fn host_script_team_unit_ids(team: u32) -> Vec<u32> {
-    HostScriptQuery::published().host_script_team_unit_ids(team)
-}
-
 fn host_player_query_key(name: &str) -> String {
     name.trim().to_ascii_lowercase()
-}
-
-/// Live `AIPlayer::isSupplySourceAttacked` for leftover conditions.
-pub fn host_query_supply_source_attacked(player_name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_query_supply_source_attacked(player_name)
-}
-
-/// Live `AIPlayer::isSupplySourceSafe(min)` for leftover conditions.
-pub fn host_query_supply_source_safe(player_name: &str, min_supplies: i32) -> Option<bool> {
-    HostScriptQuery::published().host_query_supply_source_safe(player_name, min_supplies)
-}
-
-/// Live host Player census for leftover/live script player conditions.
-pub fn host_query_player_census(player_name: &str) -> Option<HostScriptPlayerCensus> {
-    HostScriptQuery::published().host_query_player_census(player_name)
-}
-
-/// C++ Player::countObjectsByThingTemplate from the live host census.
-/// `ignore_dead` matches C++ ignoreDead; under-construction is already excluded.
-pub fn host_query_player_template_count(
-    player_name: &str,
-    type_names: &[String],
-    ignore_dead: bool,
-) -> Option<i32> {
-    HostScriptQuery::published().host_query_player_template_count(player_name, type_names, ignore_dead)
-}
-
-/// C++ Player::getSciencePurchasePoints from the live host census.
-pub fn host_query_player_science_purchase_points(player_name: &str) -> Option<i32> {
-    HostScriptQuery::published().host_query_player_science_purchase_points(player_name)
-}
-
-/// C++ Player::hasScience against host unlocked names.
-pub fn host_query_player_has_science(player_name: &str, science_name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_query_player_has_science(player_name, science_name)
 }
 
 fn host_kind_token(name: &str) -> String {
@@ -1432,24 +1313,6 @@ fn host_unit_counts_in_area(obj: &HostScriptQueryObject, include_crate: bool) ->
     !dead_or_inert
 }
 
-/// C++ evaluatePlayerHasUnitTypeInArea count over host objects.
-pub fn host_count_player_type_in_area(
-    player_name: &str,
-    area_name: &str,
-    type_names: &[String],
-) -> Option<i32> {
-    HostScriptQuery::published().host_count_player_type_in_area(player_name, area_name, type_names)
-}
-
-/// C++ evaluatePlayerHasUnitKindInArea count over host objects.
-pub fn host_count_player_kind_in_area(
-    player_name: &str,
-    area_name: &str,
-    kind: crate::common::KindOf,
-) -> Option<i32> {
-    HostScriptQuery::published().host_count_player_kind_in_area(player_name, area_name, kind)
-}
-
 fn host_relationship(
     looker: &HostScriptQueryObject,
     candidate: &HostScriptQueryObject,
@@ -1504,38 +1367,6 @@ fn host_sighted_candidate_ok(
     dx * dx + dz * dz <= looker.vision_range * looker.vision_range
 }
 
-/// C++ evaluateEnemySighted over host snapshot objects.
-pub fn host_enemy_sighted(unit_name: &str, alliance: i32, player_name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_enemy_sighted(unit_name, alliance, player_name)
-}
-
-/// C++ evaluateTypeSighted over host snapshot objects.
-pub fn host_type_sighted(
-    unit_name: &str,
-    type_names: &[String],
-    player_name: &str,
-) -> Option<bool> {
-    HostScriptQuery::published().host_type_sighted(unit_name, type_names, player_name)
-}
-
-pub fn host_script_area_unit_ids(min_x: f32, min_z: f32, max_x: f32, max_z: f32) -> Vec<u32> {
-    HostScriptQuery::published().host_script_area_unit_ids(min_x, min_z, max_x, max_z)
-}
-
-pub fn host_script_named_unit_in_area(
-    name: &str,
-    min_x: f32,
-    min_z: f32,
-    max_x: f32,
-    max_z: f32,
-) -> bool {
-    HostScriptQuery::published().host_script_named_unit_in_area(name, min_x, min_z, max_x, max_z)
-}
-
-pub fn host_script_area_bounds(area_name: &str) -> Option<(f32, f32, f32, f32)> {
-    HostScriptQuery::published().host_script_area_bounds(area_name)
-}
-
 /// Host XZ → C++ trigger XY (`Object.cpp:2572-2574`, host Y-up).
 pub fn host_xz_to_trigger_point(x: f32, z: f32) -> crate::common::ICoord3D {
     crate::common::ICoord3D::new(x as i32, z as i32, 0)
@@ -1556,19 +1387,6 @@ pub fn host_script_lookup_polygon_trigger(
         .get_trigger_area_by_name(&resolved)
         .or_else(|| terrain.get_trigger_area_by_name(area_name))
         .cloned()
-}
-
-pub(crate) fn host_named_unit_point_in_trigger(
-    unit_name: &str,
-    trigger: &crate::polygon_trigger::PolygonTrigger,
-) -> bool {
-    HostScriptQuery::published().host_named_unit_point_in_trigger(unit_name, trigger)
-}
-
-/// `Some(true/false)` when leftover polygon or host AABB geometry exists.
-/// C++ `evaluateNamedInsideArea` uses `pointInTrigger` on current position.
-pub fn host_script_named_unit_in_named_area(unit_name: &str, area_name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_script_named_unit_in_named_area(unit_name, area_name)
 }
 
 const HOST_MAX_TRIGGER_INFOS: usize = 5;
@@ -1946,11 +1764,6 @@ pub struct HostObjectTriggerPersist {
     pub slots: Vec<HostTriggerSlotPersist>,
 }
 
-/// Sync this world's host-object trigger mirror from its current query census.
-pub fn sync_host_trigger_flags_from_snapshot(world: &mut HostTriggerWorld, frame: u32) {
-    HostScriptQuery::published().sync_host_trigger_flags_from_snapshot(world, frame)
-}
-
 pub fn host_object_did_enter_or_exit(world: &HostTriggerWorld, object_id: u32, now: u32) -> bool {
     world.did_enter_or_exit(object_id, now)
 }
@@ -2022,27 +1835,6 @@ fn host_object_counts_for_team_area(obj: &HostScriptQueryObject, which_to_consid
     true
 }
 
-pub fn host_script_team_member_ids(team_name: &str) -> Vec<u32> {
-    HostScriptQuery::published().host_script_team_member_ids(team_name)
-}
-
-/// C++ `ScriptConditions::evaluateTeamIsContained` over host snapshot members.
-/// `getContainedBy() != NULL`, plus leftover Exit-state pretend-contained.
-pub fn host_eval_team_is_contained(team_name: &str, all_contained: bool) -> bool {
-    HostScriptQuery::published().host_eval_team_is_contained(team_name, all_contained)
-}
-
-/// C++ ScriptConditions::evaluateSkirmishCommandButtonIsReady over the host
-/// snapshot. `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).
-pub fn host_eval_skirmish_command_button_ready(
-    team_name: &str,
-    command_button_name: &str,
-    all_ready: bool,
-    control_bar: Option<&crate::control_bar::ControlBarBridge>,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_command_button_ready(team_name, command_button_name, all_ready, control_bar)
-}
-
 fn host_compare_i32(comparison: i32, actual: i32, target: i32) -> bool {
     match comparison {
         0 => actual < target,
@@ -2060,42 +1852,6 @@ fn host_object_has_special_power(obj: &HostScriptQueryObject, power_name: &str) 
         owned.eq_ignore_ascii_case(power_name)
             || host_special_power_matches_button(owned, power_name)
     })
-}
-
-/// C++ ScriptConditions::evaluateSkirmishSpecialPowerIsReady over the host snapshot.
-pub fn host_eval_skirmish_special_power_ready(player_name: &str, power_name: &str) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_special_power_ready(player_name, power_name)
-}
-
-/// C++ ScriptConditions::evaluateSkirmishValueInArea over the host snapshot.
-pub fn host_eval_skirmish_value_in_area(
-    player_name: &str,
-    comparison: i32,
-    money: i32,
-    area_name: &str,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_value_in_area(player_name, comparison, money, area_name)
-}
-
-/// C++ evaluateSkirmishUnownedFactionUnitComparison count over host snapshot.
-pub fn host_eval_skirmish_unowned_faction_unit_count() -> Option<i32> {
-    HostScriptQuery::published().host_eval_skirmish_unowned_faction_unit_count()
-}
-
-/// C++ evaluateSkirmishPlayerHasDiscoveredPlayer over host discovered_by (shroud CLEAR|PARTIAL_CLEAR).
-pub fn host_eval_skirmish_player_has_discovered_player(
-    player_name: &str,
-    discovered_by_name: &str,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_player_has_discovered_player(player_name, discovered_by_name)
-}
-
-/// C++ evaluateSkirmishPlayerHasPrereqsToBuild / ObjectTypes::canBuildAny using host census.
-pub fn host_eval_skirmish_player_has_prerequisite_to_build(
-    player_name: &str,
-    type_name: &str,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_player_has_prerequisite_to_build(player_name, type_name)
 }
 
 fn host_census_can_build_type(
@@ -2172,37 +1928,6 @@ fn leftover_census_or_player_has_science(
     !census.unlocked_sciences.is_empty()
 }
 
-/// C++ evaluateSkirmishPlayerHasComparisonGarrisoned count over host snapshot.
-pub fn host_eval_skirmish_garrisoned_count(player_name: &str) -> Option<i32> {
-    HostScriptQuery::published().host_eval_skirmish_garrisoned_count(player_name)
-}
-
-/// C++ evaluateSkirmishPlayerHasComparisonCapturedUnits count over host snapshot.
-pub fn host_eval_skirmish_captured_count(player_name: &str) -> Option<i32> {
-    HostScriptQuery::published().host_eval_skirmish_captured_count(player_name)
-}
-
-/// C++ ScriptConditions::evaluateSkirmishPlayerHasUnitsInArea over the host snapshot.
-pub fn host_eval_skirmish_player_has_units_in_area(
-    player_name: &str,
-    area_name: &str,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_player_has_units_in_area(player_name, area_name)
-}
-
-/// C++ ScriptConditions::evaluateSkirmishSuppliesWithinDistancePerimeter over
-/// the host warehouse census. `None` when no snapshot is injected.
-pub fn host_eval_skirmish_supplies_value_within_distance(
-    player_name: &str,
-    extra_distance: f32,
-    area_name: &str,
-    compare_value: f32,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_supplies_value_within_distance(player_name, extra_distance, area_name, compare_value)
-}
-
-
-
 /// C++ PartitionFilterPlayerAffiliation(player, ALLOW_NEUTRAL, true).
 fn host_allow_neutral_affiliation(player_name: &str, obj: &HostScriptQueryObject) -> bool {
     if host_owner_matches(obj, player_name) {
@@ -2258,36 +1983,8 @@ fn host_allow_non_ally_tech_affiliation(player_name: &str, owner_player: &str) -
     true
 }
 
-/// C++ evaluateSkirmishPlayerTechBuildingWithinDistancePerimeter over the host
-/// tech census. `None` when no snapshot or trigger geometry (do not latch).
-pub fn host_eval_skirmish_tech_building_within_distance(
-    player_name: &str,
-    extra_distance: f32,
-    area_name: &str,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_skirmish_tech_building_within_distance(player_name, extra_distance, area_name)
-}
-
-
-
 fn host_object_has_status_bits(obj: &HostScriptQueryObject, mask: u64) -> bool {
     mask != 0 && (obj.status_bits & mask) != 0
-}
-
-/// C++ ScriptConditions::evaluateUnitHasObjectStatus over the host snapshot.
-/// `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).
-pub fn host_eval_unit_has_object_status(unit_name: &str, status_mask: u64) -> Option<bool> {
-    HostScriptQuery::published().host_eval_unit_has_object_status(unit_name, status_mask)
-}
-
-/// C++ ScriptConditions::evaluateTeamHasObjectStatus over the host snapshot.
-/// `None` when no snapshot is injected (leftover OBJECT_REGISTRY path).
-pub fn host_eval_team_has_object_status(
-    team_name: &str,
-    status_mask: u64,
-    entire_team: bool,
-) -> Option<bool> {
-    HostScriptQuery::published().host_eval_team_has_object_status(team_name, status_mask, entire_team)
 }
 
 fn leftover_named_team_exists(team_name: &str) -> bool {
@@ -2402,64 +2099,6 @@ pub fn host_team_did_enter_or_exit(
 }
 
 
-
-pub fn host_team_all_inside(
-    _world: &HostTriggerWorld,
-    team_name: &str,
-    trigger: &crate::polygon_trigger::PolygonTrigger,
-    which_to_consider: u32,
-) -> bool {
-    HostScriptQuery::published().host_team_all_inside(_world, team_name, trigger, which_to_consider)
-}
-
-pub fn host_team_some_inside_some_outside(
-    _world: &HostTriggerWorld,
-    team_name: &str,
-    trigger: &crate::polygon_trigger::PolygonTrigger,
-    which_to_consider: u32,
-) -> bool {
-    HostScriptQuery::published().host_team_some_inside_some_outside(_world, team_name, trigger, which_to_consider)
-}
-
-pub fn host_team_did_all_enter(
-    world: &HostTriggerWorld,
-    team_name: &str,
-    trigger: &crate::polygon_trigger::PolygonTrigger,
-    which_to_consider: u32,
-    now: u32,
-) -> bool {
-    HostScriptQuery::published().host_team_did_all_enter(world, team_name, trigger, which_to_consider, now)
-}
-
-pub fn host_team_did_partial_enter(
-    world: &HostTriggerWorld,
-    team_name: &str,
-    trigger: &crate::polygon_trigger::PolygonTrigger,
-    which_to_consider: u32,
-    now: u32,
-) -> bool {
-    HostScriptQuery::published().host_team_did_partial_enter(world, team_name, trigger, which_to_consider, now)
-}
-
-pub fn host_team_did_all_exit(
-    world: &HostTriggerWorld,
-    team_name: &str,
-    trigger: &crate::polygon_trigger::PolygonTrigger,
-    which_to_consider: u32,
-    now: u32,
-) -> bool {
-    HostScriptQuery::published().host_team_did_all_exit(world, team_name, trigger, which_to_consider, now)
-}
-
-pub fn host_team_did_partial_exit(
-    world: &HostTriggerWorld,
-    team_name: &str,
-    trigger: &crate::polygon_trigger::PolygonTrigger,
-    which_to_consider: u32,
-    now: u32,
-) -> bool {
-    HostScriptQuery::published().host_team_did_partial_exit(world, team_name, trigger, which_to_consider, now)
-}
 
 /// Wave 271: host-only path has no dual-world factory objects.
 #[inline]
@@ -2720,16 +2359,16 @@ mod tech_building_census_tests {
 
     #[test]
     fn host_census_tech_building_none_without_snapshot() {
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         assert_eq!(
-            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
             None
         );
     }
 
     #[test]
     fn host_census_tech_building_finds_neutral_derrick() {
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
         snap.areas.insert("HomeBase".into(), (0.0, 0.0, 20.0, 20.0));
         snap.tech_buildings.push(HostTechBuildingCensus {
@@ -2739,9 +2378,9 @@ mod tech_building_census_tests {
             team: 3,
             off_map: false,
         });
-        set_host_script_query_snapshot(snap);
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(snap);
         assert_eq!(
-            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
             Some(true)
         );
 
@@ -2754,29 +2393,29 @@ mod tech_building_census_tests {
             team: 0,
             off_map: false,
         });
-        set_host_script_query_snapshot(own);
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(own);
         assert_eq!(
-            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "HomeBase"),
             Some(false)
         );
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 
     #[test]
     fn host_census_tech_building_missing_area_is_none() {
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
         snap.tech_buildings.push(HostTechBuildingCensus {
             x: 10.0,
             z: 10.0,
             ..Default::default()
         });
-        set_host_script_query_snapshot(snap);
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(snap);
         assert_eq!(
-            host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "MissingPad"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_tech_building_within_distance("PlyrAmerica", 100.0, "MissingPad"),
             None
         );
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 }
 
@@ -2786,16 +2425,16 @@ mod host_skirmish_discovered_prereq_tests {
 
     #[test]
     fn host_skirmish_discovered_none_without_snapshot() {
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         assert_eq!(
-            host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrAmerica"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrAmerica"),
             None
         );
     }
 
     #[test]
     fn host_player_census_uses_exact_case_sensitive_player_name_key() {
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
         snap.player_census.insert(
             "AuthoredSide".into(),
@@ -2804,15 +2443,15 @@ mod host_skirmish_discovered_prereq_tests {
                 ..Default::default()
             },
         );
-        set_host_script_query_snapshot(snap);
-        assert_eq!(host_query_player_census("AuthoredSide").unwrap().money, 731);
-        assert!(host_query_player_census("authoredside").is_none());
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(snap);
+        assert_eq!(crate::scripting::HostScriptQuery::published_for_test().host_query_player_census("AuthoredSide").unwrap().money, 731);
+        assert!(crate::scripting::HostScriptQuery::published_for_test().host_query_player_census("authoredside").is_none());
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 
     #[test]
     fn host_skirmish_discovered_uses_discovered_by() {
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
         snap.objects.push(HostScriptQueryObject {
             id: 7,
@@ -2820,23 +2459,23 @@ mod host_skirmish_discovered_prereq_tests {
             discovered_by: vec!["PlyrAmerica".into()],
             ..Default::default()
         });
-        set_host_script_query_snapshot(snap);
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(snap);
         assert_eq!(
-            host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrAmerica"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrAmerica"),
             Some(true)
         );
         assert_eq!(
-            host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrGLA"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_player_has_discovered_player("PlyrChina", "PlyrGLA"),
             Some(false)
         );
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 
     #[test]
     fn host_skirmish_prereq_none_without_census() {
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         assert_eq!(
-            host_eval_skirmish_player_has_prerequisite_to_build("PlyrAmerica", "AmericaWarFactory"),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_player_has_prerequisite_to_build("PlyrAmerica", "AmericaWarFactory"),
             None
         );
     }
@@ -2847,19 +2486,19 @@ mod host_skirmish_discovered_prereq_tests {
         // exercises ObjectTypes::canBuildAny's genuinely missing-template path.
         const MISSING_TEMPLATE: &str = "NeverAuthoredPrerequisiteFixture";
         assert!(crate::helpers::TheThingFactory::find_template(MISSING_TEMPLATE).is_none());
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
         let mut census = HostScriptPlayerCensus::default();
         census
             .template_counts
             .insert("americacommandcenter".into(), 1);
         snap.player_census.insert("PlyrAmerica".into(), census);
-        set_host_script_query_snapshot(snap);
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(snap);
         assert_eq!(
-            host_eval_skirmish_player_has_prerequisite_to_build("PlyrAmerica", MISSING_TEMPLATE),
+            crate::scripting::HostScriptQuery::published_for_test().host_eval_skirmish_player_has_prerequisite_to_build("PlyrAmerica", MISSING_TEMPLATE),
             Some(false)
         );
-        clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 }
 
