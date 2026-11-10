@@ -195,12 +195,18 @@ fn contained_hero_query_uses_driving_main_roster_and_survives_save() {
                 .restore_from_snapshot(&saved, &mut receiving)
                 .unwrap();
             assert!(receiving.unit_is_hero(carrier_id));
-            {
-                let (object, ownership_events) = receiving
-                    .host_object_and_ownership_events_mut(carrier_id)
-                    .unwrap();
-                object.remove_occupant(hero_id, ownership_events)
-            };
+            // OpenContain::removeFromContain re-adds the rider's PartitionData.
+            assert!(
+                receiving
+                    .objects
+                    .get_mut(&carrier_id)
+                    .unwrap()
+                    .remove_occupant_with_partition_owner(
+                        hero_id,
+                        &mut receiving.ownership_events,
+                        &mut receiving.partition_manager,
+                    )
+            );
             assert!(!receiving.unit_is_hero(carrier_id));
             assert!(main.unit_is_hero(carrier_id));
             assert!(!peer.unit_is_hero(carrier_id));
