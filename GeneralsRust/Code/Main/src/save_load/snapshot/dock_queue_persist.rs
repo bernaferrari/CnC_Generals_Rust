@@ -232,30 +232,33 @@ mod tests {
 
     #[test]
     fn snapshot_builder_round_trips_production_dock_queue_and_isolates_same_ids() {
-        use crate::game_logic::{AIState, DockKind, KindOf, Team, ThingTemplate};
+        use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+        use crate::game_logic::{AIState, Team};
 
-        fn make_world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        fn admitted_world() -> GameLogic {
             let mut world = GameLogic::new();
             world.force_map_loaded_for_path_test(true);
 
-            let mut dock_template = ThingTemplate::new("SnapshotSupplyWarehouse");
-            dock_template
-                .add_kind_of(KindOf::Structure)
-                .add_kind_of(KindOf::SupplySource)
-                .set_health(1_000.0);
-            dock_template.dock_kind = DockKind::SupplyWarehouse;
+            // Warehouse and trucks come from authored INI admitted before
+            // the match, as GameEngine::init loads Object.ini before NewGame.
+            admit_fixture_objects(
+                &mut world,
+                &[
+                    FixtureObject::new("SnapshotSupplyWarehouse")
+                        .kind_of("STRUCTURE SUPPLY_SOURCE")
+                        .health(1_000.0)
+                        .module("Behavior = SupplyWarehouseDockUpdate Dock\nEnd"),
+                    FixtureObject::new("SnapshotSupplyTruck")
+                        .kind_of("VEHICLE HARVESTER SELECTABLE")
+                        .health(200.0)
+                        .module("Behavior = SupplyTruckAIUpdate TruckAI\nEnd"),
+                ],
+            );
             world
-                .templates
-                .insert(dock_template.name.clone(), dock_template);
+        }
 
-            let mut docker_template = ThingTemplate::new("SnapshotSupplyTruck");
-            docker_template
-                .add_kind_of(KindOf::Vehicle)
-                .set_health(200.0);
-            world
-                .templates
-                .insert(docker_template.name.clone(), docker_template);
-
+        fn make_world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+            let mut world = admitted_world();
             let dock = world
                 .create_object("SnapshotSupplyWarehouse", Team::USA, Vec3::ZERO)
                 .expect("warehouse");
@@ -336,11 +339,9 @@ mod tests {
         let snapshot = builder.create_world_snapshot(&source).expect("capture");
         assert!(find_dckq_suffix(&snapshot.lifecycle_tail).is_some());
 
-        // Templates are the authoritative static definitions used when saved
-        // object/module runtime state is rebuilt. SnapshotBuilder deliberately
-        // does not serialize them, so install those definitions before restore.
-        let mut restored = GameLogic::new();
-        restored.templates = source.templates.clone();
+        // Authored definitions are not serialized; the loading game admits
+        // the same INI before the save is applied.
+        let mut restored = admitted_world();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
