@@ -1235,7 +1235,10 @@ impl GameClient {
     fn install_core_nonwindow_script_services(&self) {
         if let Ok(mut engine_guard) = gamelogic::get_script_engine().write() {
             if let Some(engine) = engine_guard.as_mut() {
-                engine.set_action_handler(Some(Arc::new(GameClientScriptActionHandler::new())));
+                let world = engine.owning_world_services();
+                engine.set_action_handler(Some(Arc::new(GameClientScriptActionHandler::for_world(
+                    world.as_ref(),
+                ))));
             }
         }
     }

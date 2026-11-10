@@ -525,7 +525,10 @@ pub fn set_script_fps_limit(fps: i32) {
 
 mod music_audio;
 
-pub struct GameClientScriptActionHandler;
+pub struct GameClientScriptActionHandler {
+    /// The world whose ScriptEngine installed this handler (its host facts).
+    logic_world: Option<std::sync::Weak<gamelogic::system::engine_stores::WorldServices>>,
+}
 
 impl Default for GameClientScriptActionHandler {
     fn default() -> Self {
@@ -535,7 +538,22 @@ impl Default for GameClientScriptActionHandler {
 
 impl GameClientScriptActionHandler {
     pub fn new() -> Self {
-        Self
+        Self { logic_world: None }
+    }
+
+    /// A handler answering named-unit queries from `world`'s host facts.
+    pub fn for_world(
+        world: Option<&std::sync::Arc<gamelogic::system::engine_stores::WorldServices>>,
+    ) -> Self {
+        Self {
+            logic_world: world.map(std::sync::Arc::downgrade),
+        }
+    }
+
+    fn host_query(&self) -> gamelogic::scripting::HostScriptQuery {
+        gamelogic::scripting::HostScriptQuery::from_world(
+            self.logic_world.as_ref().and_then(std::sync::Weak::upgrade),
+        )
     }
 
     fn seconds_to_ms(seconds: f32) -> i32 {
@@ -1195,7 +1213,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn sound_play_named(&self, sound: &str, unit_name: &str) -> GameLogicResult<()> {
-        let object_id = gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(|| {
+        let object_id = self.host_query().host_script_named_unit_id(unit_name).or_else(|| {
             gamelogic::scripting::engine::get_named_object_tracker()
                 .get_object_id(unit_name)
                 .ok()
@@ -1215,7 +1233,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn enable_object_sound(&self, unit_name: &str, enable: bool) -> GameLogicResult<()> {
-        let object_id = gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(|| {
+        let object_id = self.host_query().host_script_named_unit_id(unit_name).or_else(|| {
             gamelogic::scripting::engine::get_named_object_tracker()
                 .get_object_id(unit_name)
                 .ok()
