@@ -532,7 +532,11 @@ pub(crate) fn isolated_at(module_path: &str, test: &str, run: impl FnOnce()) {
             bytes
         })
     });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    // A hang watchdog, not a speed assertion: a full parallel suite on a
+    // loaded machine can take well past 30 s to finish one child.
+    const CHILD_WATCHDOG_SECS: u64 = 120;
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(CHILD_WATCHDOG_SECS);
     let mut timed_out = false;
     let status = loop {
         if let Some(status) = child.try_wait().expect("poll pose owner child") {
@@ -550,7 +554,7 @@ pub(crate) fn isolated_at(module_path: &str, test: &str, run: impl FnOnce()) {
     });
     assert!(
         !timed_out,
-        "pose owner child {exact} exceeded 30 seconds: {output:?}"
+        "pose owner child {exact} exceeded {CHILD_WATCHDOG_SECS} seconds: {output:?}"
     );
     assert!(
         status.success(),
