@@ -242,7 +242,9 @@ fn queue_unit_and_special_power_round_trip() {
         .expect("playback must restore DoSpecialPower")
         .command_type
     {
-        CommandType::DoSpecialPower { power_type, target } => {
+        CommandType::DoSpecialPowerWithMetadata {
+            power_type, target, ..
+        } => {
             assert_eq!(power_type, SpecialPowerType::ParticleCannon);
             match target {
                 PowerTarget::Location(pos) => {
@@ -251,7 +253,7 @@ fn queue_unit_and_special_power_round_trip() {
                 other => panic!("expected location target, got {other:?}"),
             }
         }
-        other => panic!("expected DoSpecialPower, got {other:?}"),
+        other => panic!("expected DoSpecialPowerWithMetadata, got {other:?}"),
     }
 }
 
@@ -269,12 +271,14 @@ fn special_power_location_facing_round_trip() {
         .expect("playback must restore facing")
         .command_type
     {
-        CommandType::DoSpecialPower { power_type, target } => {
+        CommandType::DoSpecialPowerWithMetadata {
+            power_type, target, ..
+        } => {
             assert_eq!(power_type, SpecialPowerType::SneakAttack);
             assert!((target.location_pos().unwrap().x - 15.0).abs() < f32::EPSILON);
             assert!((target.location_angle() - 1.25).abs() < 1.0e-5);
         }
-        other => panic!("expected DoSpecialPower, got {other:?}"),
+        other => panic!("expected DoSpecialPowerWithMetadata, got {other:?}"),
     }
 }
 

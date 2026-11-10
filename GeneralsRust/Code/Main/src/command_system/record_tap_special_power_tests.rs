@@ -15,9 +15,10 @@ fn registered_special_power_decodes_without_prior_recording() {
             assert_eq!(command.player_id, 2);
             assert!(matches!(
                 command.command_type,
-                CommandType::DoSpecialPower {
+                CommandType::DoSpecialPowerWithMetadata {
                     power_type: SpecialPowerType::SpySatellite,
-                    target: PowerTarget::None
+                    target: PowerTarget::None,
+                    ..
                 }
             ));
             for name in [
@@ -61,9 +62,10 @@ fn special_power_ids_follow_name_registry_reset() {
                 game_message_to_host_command(&message).expect("current power must decode");
             assert!(matches!(
                 restored.command_type,
-                CommandType::DoSpecialPower {
+                CommandType::DoSpecialPowerWithMetadata {
                     power_type: SpecialPowerType::RadarScan,
-                    target: PowerTarget::Object(ObjectId(17))
+                    target: PowerTarget::Object(ObjectId(17)),
+                    ..
                 }
             ));
         },
