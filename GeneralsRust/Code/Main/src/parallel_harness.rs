@@ -53,7 +53,12 @@ impl std::fmt::Display for HarnessAssetError {
 impl SharedSkirmishAssets {
     /// Read the retail definition sources and resolve [`HARNESS_MAP`].
     pub fn load_retail() -> Result<Self, HarnessAssetError> {
-        let map_path = crate::game_logic::script_loader::find_map_file(HARNESS_MAP)
+        // Same retail discovery as the Lone Eagle gates: GENERALS_RETAIL_DIR /
+        // GENERALS_ASSETS_DIR or a known windows_game install, so the probe
+        // also runs from worktrees without a local windows_game.
+        let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
+        let map_path = crate::map_frame_scenario::lone_eagle_map_path()
+            .map(PathBuf::from)
             .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?;
         // Owned parse scope: these catalogs are built here, then handed to
         // every instance by value; no instance's services observe the parse.
@@ -130,6 +135,21 @@ pub struct SkirmishSpec {
     pub seed: u32,
     /// Logic frames to run after map load.
     pub frames: u32,
+    /// Issue the scripted human orders ([`HumanOrders`]) for the human slot.
+    pub human_orders: bool,
+}
+
+/// Real gameplay input for the golden config's human USA slot (player 0),
+/// issued through the same `GameLogic::queue_command` path the UI uses:
+/// before frame 1 the Command Center queues a Dozer (C++ MSG_QUEUE_UNIT_CREATE)
+/// and the starting Dozer is ordered to build a Power Plant beside it (C++
+/// MSG_DOZER_CONSTRUCT). The GLA slot is driven by its own skirmish AI.
+pub struct HumanOrders;
+
+impl HumanOrders {
+    pub const PLAYER: u32 = 0;
+    pub const PRODUCED_UNIT: &'static str = "AmericaVehicleDozer";
+    pub const STRUCTURE: &'static str = "AmericaPowerPlant";
 }
 
 /// A bounded observation of one world, not a complete simulation snapshot.
@@ -142,6 +162,9 @@ pub struct SkirmishObservation {
     /// Match seed and the Rust RNG backend's current state words.
     pub base_seed: u32,
     pub random_state: [u32; 6],
+    /// FNV-1a over every registered object's id, template, owner, quantized
+    /// position and health: catches gameplay divergence the CRC does not cover.
+    pub world_digest: u64,
 }
 
 /// Initial observation and one observation after each logic step.
@@ -229,7 +252,115 @@ impl HeadlessSkirmish {
             players: self.player_summary(),
             base_seed: self.logic.logic_base_seed,
             random_state: self.logic.logic_random.seed_words(),
+            world_digest: self.world_digest(),
         }
+    }
+
+    fn world_digest(&self) -> u64 {
+        fn mix(hash: &mut u64, bytes: &[u8]) {
+            for byte in bytes {
+                *hash ^= u64::from(*byte);
+                *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        let mut objects: Vec<_> = self.logic.host_objects().registered_values().collect();
+        objects.sort_unstable_by_key(|object| object.id.0);
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for object in objects {
+            let position = object.get_position();
+            mix(&mut hash, &object.id.0.to_le_bytes());
+            mix(&mut hash, object.get_template().name.as_bytes());
+            mix(&mut hash, &object.owner_player_id.unwrap_or(u32::MAX).to_le_bytes());
+            for axis in [position.x, position.y, position.z] {
+                mix(&mut hash, &((axis * 16.0).round() as i64).to_le_bytes());
+            }
+            mix(&mut hash, &((object.health_fraction() * 1024.0).round() as i32).to_le_bytes());
+        }
+        hash
+    }
+
+    /// Live objects of `player` whose template is `name`.
+    pub fn owned_ids(&self, player: u32, name: &str) -> Vec<crate::game_logic::ObjectId> {
+        let mut ids: Vec<_> = self
+            .logic
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.owner_player_id == Some(player))
+            .filter(|object| object.get_template().name.eq_ignore_ascii_case(name))
+            .map(|object| object.id)
+            .collect();
+        ids.sort_unstable_by_key(|id| id.0);
+        ids
+    }
+
+    /// Queue `command_type` for `player` from `selected` (deterministic id/time).
+    pub fn issue(
+        &mut self,
+        player: u32,
+        command_id: u32,
+        selected: Vec<crate::game_logic::ObjectId>,
+        command_type: crate::command_system::CommandType,
+    ) {
+        self.logic.queue_command(crate::command_system::GameCommand {
+            command_type,
+            player_id: player,
+            command_id,
+            timestamp: std::time::SystemTime::UNIX_EPOCH,
+            selected_units: selected,
+            modifier_keys: Default::default(),
+        });
+    }
+
+    /// Issue [`HumanOrders`]; errors when the map start lacks the units.
+    pub fn issue_human_orders(&mut self) -> Result<(), String> {
+        use crate::command_system::CommandType;
+        let player = HumanOrders::PLAYER;
+        let center = *self
+            .owned_ids(player, "AmericaCommandCenter")
+            .first()
+            .ok_or("human slot has no AmericaCommandCenter")?;
+        let dozer = *self
+            .owned_ids(player, HumanOrders::PRODUCED_UNIT)
+            .first()
+            .ok_or("human slot has no starting AmericaVehicleDozer")?;
+        let center_at = self
+            .logic
+            .host_objects()
+            .registered_values()
+            .find(|object| object.id == center)
+            .map(|object| object.get_position())
+            .ok_or("command center vanished")?;
+        self.issue(player, 1, vec![center], CommandType::QueueUnitCreate {
+            template_name: HumanOrders::PRODUCED_UNIT.into(),
+            quantity: 1,
+        });
+        // First legal pad on rings around the Command Center (ground plane is
+        // x/z), checked by the same C++ isLocationLegalToBuild residual the
+        // placement UI uses.
+        let site = (1..=8)
+            .flat_map(|ring| {
+                let distance = 40.0 + ring as f32 * 15.0;
+                (0..12).map(move |step| {
+                    let angle = step as f32 * std::f32::consts::TAU / 12.0;
+                    glam::Vec3::new(angle.cos() * distance, 0.0, angle.sin() * distance)
+                })
+            })
+            .map(|offset| center_at + offset)
+            .find(|site| {
+                self.logic.legal_build_code_at_for_builder(
+                    crate::game_logic::Team::USA,
+                    *site,
+                    HumanOrders::STRUCTURE,
+                    Some(dozer),
+                ) == crate::game_logic::host_production_buildable_command_residual::LBC_OK
+            })
+            .ok_or("no legal Power Plant pad near the human Command Center")?;
+        self.issue(player, 2, vec![dozer], CommandType::DozerConstruct {
+            template_name: HumanOrders::STRUCTURE.into(),
+            location: site,
+            orientation: 0.0,
+        });
+        Ok(())
     }
 }
 
@@ -240,6 +371,9 @@ pub fn run_headless_skirmish(
 ) -> Result<SkirmishTrace, String> {
     let mut game = HeadlessSkirmish::start(assets, spec.seed)?;
     let initial = game.observe();
+    if spec.human_orders {
+        game.issue_human_orders()?;
+    }
     let frames = (0..spec.frames)
         .map(|_| {
             game.advance();
