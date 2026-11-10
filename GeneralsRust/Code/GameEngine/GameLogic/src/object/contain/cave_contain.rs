@@ -18,7 +18,7 @@ use crate::object::{Object, ObjectId};
 use crate::player::{Player, ThePlayerList};
 use crate::system::cave_system::CaveSystem;
 use crate::system::game_logic::GameLogic;
-use crate::team::{TEAM_ID_INVALID, Team, TeamID, TheTeamFactory};
+use crate::team::{TEAM_ID_INVALID, Team, TeamID};
 use crate::tunnel_tracker::TunnelTracker;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
@@ -317,7 +317,8 @@ impl CaveContain {
         let tracker = self.tracker()?;
 
         if let Ok(tunnel) = tracker.read() {
-            return tunnel.is_valid_container_for(obj, check_capacity);
+            let capacity = if check_capacity { self.base.world_tunnel_capacity() } else { 0 };
+            return tunnel.is_valid_container_for_with_capacity(obj, check_capacity, capacity);
         }
         Ok(false)
     }
@@ -522,12 +523,9 @@ impl CaveContain {
 
     /// Get maximum containment capacity
     pub fn get_contain_max(&self) -> GameResult<i32> {
-        let tracker = self.tracker()?;
-
-        if let Ok(tunnel) = tracker.read() {
-            return tunnel.get_contain_max();
-        }
-        Ok(0)
+        self.tracker()?;
+        // C++ TunnelTracker::getContainMax reads this world's GameData.
+        Ok(self.base.world_tunnel_capacity())
     }
 
     /// Get list of contained items
@@ -696,9 +694,10 @@ impl CaveContain {
             return Ok(());
         }
 
-        let factory = TheTeamFactory().lock().map_err(|e| e.to_string())?;
-        let team = factory
-            .find_team_by_id(team_id)
+        // C++ CaveContain::xfer: TheTeamFactory->findTeamByID of this world.
+        let team = self
+            .base
+            .find_world_team(team_id)
             .ok_or_else(|| format!("CaveContain::xfer could not find original team {team_id}"))?;
         self.original_team = Some(Arc::downgrade(&team));
         Ok(())
@@ -2087,6 +2086,128 @@ mod tests {
                 });
             }
         });
+    }
+
+    /// C++ CaveContain::xfer resolves m_originalTeam with TheTeamFactory of
+    /// the engine that owns the cave. Two worlds take turns on ONE thread and
+    /// both hold a team with the same id: each cave restores its own world's
+    /// team even while the other world is published, and never the
+    /// process-wide factory.
+    #[test]
+    fn cave_original_team_resolves_on_its_own_world_factory_when_worlds_take_turns() {
+        use crate::system::engine_stores::{with_active_stores, EngineStores};
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let world_a = Arc::new(EngineStores::new_for_world());
+            let world_b = Arc::new(EngineStores::new_for_world());
+            const ENTRANCE: ObjectID = 93701;
+            const TEAM: TeamID = 0x7A11;
+            let build = |stores: &Arc<EngineStores>, tag: &str| {
+                let prototype = crate::team::TeamPrototype::new(format!("CaveTeam{tag}").into());
+                stores
+                    .services()
+                    .team_factory()
+                    .lock()
+                    .expect("world factory")
+                    .create_team_on_prototype_with_id(&prototype, TEAM)
+                    .expect("world team");
+                with_active_stores(stores, || {
+                    let entrance = test_object(&format!("TeamCaveEntrance{tag}"), ENTRANCE);
+                    let cave = CaveContain::new(
+                        Arc::downgrade(&entrance),
+                        ModuleDataHandle::new(ContainModuleDataAdapter::new(
+                            CaveContainModuleData::default(),
+                        )),
+                        crate::object::ObjectWorld::of(stores.services()),
+                    )
+                    .expect("cave");
+                    (entrance, cave)
+                })
+            };
+            let (_entrance_a, mut cave_a) = build(&world_a, "A");
+            let (_entrance_b, mut cave_b) = build(&world_b, "B");
+            let original_name = |cave: &CaveContain| {
+                cave.original_team
+                    .as_ref()
+                    .and_then(|team| team.upgrade())
+                    .map(|team| team.read().expect("team").get_name().to_string())
+            };
+
+            with_active_stores(&world_b, || cave_a.restore_original_team_by_id(TEAM))
+                .expect("A restores under B");
+            with_active_stores(&world_a, || cave_b.restore_original_team_by_id(TEAM))
+                .expect("B restores under A");
+            assert_eq!(original_name(&cave_a).as_deref(), Some("CaveTeamA"));
+            assert_eq!(original_name(&cave_b).as_deref(), Some("CaveTeamB"));
+            assert!(
+                crate::team::TheTeamFactory().lock().expect("process factory").find_team_by_id(TEAM).is_none(),
+                "world teams never land in the process-wide factory"
+            );
+
+            for stores in [&world_a, &world_b] {
+                with_active_stores(stores, || {
+                    OBJECT_REGISTRY.unregister_object(ENTRANCE);
+                });
+            }
+        });
+    }
+
+    /// C++ TunnelTracker::getContainMax returns TheGlobalData->m_maxTunnelCapacity
+    /// of the engine that owns the tunnel (TunnelTracker.cpp:81-84). Two worlds
+    /// with different GameData take turns on ONE thread: each cave reports and
+    /// admits by its own world's capacity, never the published world's.
+    #[test]
+    fn cave_capacity_reads_its_own_world_gamedata_when_worlds_take_turns() {
+        use crate::system::engine_stores::{with_active_stores, EngineStores};
+        let _lock = crate::test_sync::lock();
+        let world_a = Arc::new(EngineStores::new_for_world());
+        let world_b = Arc::new(EngineStores::new_for_world());
+        const ENTRANCE: ObjectID = 93801;
+        const RIDER: ObjectID = 93802;
+        let build = |stores: &Arc<EngineStores>, tag: &str, capacity: i32| {
+            let mut data = game_engine::common::ini::ini_game_data::GlobalData::new();
+            data.max_tunnel_capacity = capacity;
+            *stores.services().common().system.global_data.lock().expect("gamedata") =
+                Some(Arc::new(parking_lot::RwLock::new(data)));
+            with_active_stores(stores, || {
+                let entrance = test_object(&format!("CapacityCave{tag}"), ENTRANCE);
+                let rider = test_object(&format!("CapacityRider{tag}"), RIDER);
+                let mut data = CaveContainModuleData::default();
+                data.base.allow_neutral_inside = true;
+                let mut cave = CaveContain::new(
+                    Arc::downgrade(&entrance),
+                    ModuleDataHandle::new(ContainModuleDataAdapter::new(data)),
+                    crate::object::ObjectWorld::of(stores.services()),
+                )
+                .expect("cave");
+                ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
+                (entrance, rider, cave)
+            })
+        };
+        let (_entrance_a, rider_a, cave_a) = build(&world_a, "A", 1);
+        let (_entrance_b, rider_b, cave_b) = build(&world_b, "B", 0);
+
+        with_active_stores(&world_b, || {
+            assert_eq!(cave_a.get_contain_max().expect("A max"), 1, "A reads A's GameData");
+            let rider = rider_a.read().expect("rider A");
+            assert!(cave_a.is_valid_container_for(&rider, true).expect("A admits"));
+        });
+        with_active_stores(&world_a, || {
+            assert_eq!(cave_b.get_contain_max().expect("B max"), 0, "B reads B's GameData");
+            let rider = rider_b.read().expect("rider B");
+            assert!(
+                !cave_b.is_valid_container_for(&rider, true).expect("B rejects"),
+                "C++ capacity 0 admits nobody"
+            );
+        });
+
+        for stores in [&world_a, &world_b] {
+            with_active_stores(stores, || {
+                OBJECT_REGISTRY.unregister_object(ENTRANCE);
+                OBJECT_REGISTRY.unregister_object(RIDER);
+            });
+        }
     }
 
     #[test]

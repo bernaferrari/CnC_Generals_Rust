@@ -2611,6 +2611,8 @@ pub struct ScriptEngine {
     cave_system: Arc<Mutex<crate::system::cave_system::CaveSystem>>,
     cave_objects: Arc<crate::object::registry::ObjectRegistry>,
     cave_names: Arc<NamedObjectTracker>,
+    /// C++ GarrisonContain named evac dispositions of this engine's world.
+    named_evac: Arc<Mutex<std::collections::HashMap<String, u32>>>,
     /// Synchronous re-entry budget for this engine, independent of its peers.
     /// The guard holds only this scalar, never an inner-state borrow across dispatch.
     subroutine_call_depth: Cell<u32>,

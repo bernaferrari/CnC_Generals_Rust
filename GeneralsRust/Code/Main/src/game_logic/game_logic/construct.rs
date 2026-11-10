@@ -36,7 +36,6 @@ impl GameLogic {
 
         let host_trigger_world = Arc::new(Mutex::new(Default::default()));
         let mission_hooks = MissionScriptHooks::new();
-        let team_factory = gamelogic::team::TeamFactoryHandle::new();
 
         let ai_definitions = crate::game_logic::ai_definitions::AiDefinitions::from_base(
             game_engine::common::ini::ini_ai_data::AIData::default(),
@@ -45,6 +44,9 @@ impl GameLogic {
         // Hoisting this one allocation creates no additional identity owner.
         let live_draw_playback_world = std::sync::Arc::new(());
         let world_services = gamelogic::system::engine_stores::new_world_services();
+        // C++ TheTeamFactory belongs to this world: logic and its containers
+        // share the one factory the world owns.
+        let team_factory = world_services.team_factory().clone();
         let main_services = std::sync::Arc::new(crate::main_services::MainServices::new());
         // Temporarily bind World/Common/Main for UpgradeCenter::init / NameKey.
         // Do not leave them published until Drop: two instances on one thread

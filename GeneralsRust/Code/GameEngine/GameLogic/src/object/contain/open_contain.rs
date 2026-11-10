@@ -956,6 +956,31 @@ impl OpenContain {
         }
     }
 
+    /// C++ `TheTeamFactory->findTeamByID` on the owning world's factory.
+    pub(crate) fn find_world_team(
+        &self,
+        team_id: crate::team::TeamID,
+    ) -> Option<Arc<RwLock<crate::team::Team>>> {
+        match &self.world {
+            Some(world) => world.upgrade()?.team_factory().lock().ok()?.find_team_by_id(team_id),
+            None => crate::team::TheTeamFactory().lock().ok()?.find_team_by_id(team_id),
+        }
+    }
+
+    /// C++ `TheGlobalData->m_maxTunnelCapacity` of the owning world
+    /// (TunnelTracker::getContainMax, TunnelTracker.cpp:81-84). GameData's
+    /// default is 0, which admits nobody.
+    pub(crate) fn world_tunnel_capacity(&self) -> i32 {
+        match &self.world {
+            Some(world) => world
+                .upgrade()
+                .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
+                .map_or(0, |data| data.read().max_tunnel_capacity),
+            None => crate::helpers::TheGlobalData::get()
+                .map_or(0, |global| global.get_max_tunnel_capacity()),
+        }
+    }
+
     /// C++ `TheGlobalData->m_timeOfDay` of the owning world.
     pub(crate) fn time_of_day(&self) -> crate::common::audio::TimeOfDay {
         match &self.world {

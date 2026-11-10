@@ -1101,8 +1101,9 @@ impl ContainModuleInterface for TunnelContain {
         let Some(tunnel_system) = player_read.get_tunnel_system() else {
             return false;
         };
+        let capacity = if check_capacity { self.base.world_tunnel_capacity() } else { 0 };
         tunnel_system
-            .is_valid_container_for(obj, check_capacity)
+            .is_valid_container_for_with_capacity(obj, check_capacity, capacity)
             .unwrap_or(false)
     }
 
@@ -1191,7 +1192,11 @@ impl ContainerInterface for TunnelContain {
             if let Ok(player_read) = controlling_player.read() {
                 if let Some(tunnel_system) = player_read.get_tunnel_system() {
                     return tunnel_system
-                        .is_valid_container_for(obj, true)
+                        .is_valid_container_for_with_capacity(
+                            obj,
+                            true,
+                            self.base.world_tunnel_capacity(),
+                        )
                         .unwrap_or(false);
                 }
             }
@@ -1214,7 +1219,8 @@ impl ContainerInterface for TunnelContain {
             if let Ok(player_read) = controlling_player.read() {
                 if let Some(tunnel_system) = player_read.get_tunnel_system() {
                     let current = tunnel_system.get_contain_count().unwrap_or(0);
-                    let max = tunnel_system.get_contain_max().unwrap_or(-1);
+                    // C++ TunnelTracker::getContainMax: this world's GameData.
+                    let max = self.base.world_tunnel_capacity();
                     let max_u32 = if max < 0 { u32::MAX } else { max as u32 };
                     return (current, max_u32);
                 }

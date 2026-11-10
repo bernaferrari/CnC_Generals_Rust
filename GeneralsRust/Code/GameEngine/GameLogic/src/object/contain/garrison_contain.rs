@@ -372,19 +372,23 @@ pub enum EvacDisposition {
 /// Live-host bridge for `NAMED_SET_EVAC_LEFT_OR_RIGHT`. Leftover contain is
 /// never the player path; campaign scripts write this map so host evac can
 /// honor EVAC_TO_LEFT / EVAC_TO_RIGHT.
-fn named_evac_map() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
-    crate::system::engine_stores::active_services()
-}
-
-pub fn record_named_evac_disposition(name: &str, disposition: u32) {
-    if let Ok(mut map) = named_evac_map().named_evac_disposition().lock() {
+/// C++ ScriptActions SET_EVAC_LEFT_OR_RIGHT store on the driving world's
+/// map (`owner` comes from that world, never from the published one).
+pub fn record_named_evac_disposition(
+    owner: &std::sync::Mutex<std::collections::HashMap<String, u32>>,
+    name: &str,
+    disposition: u32,
+) {
+    if let Ok(mut map) = owner.lock() {
         map.insert(name.to_ascii_lowercase(), disposition);
     }
 }
 
-pub fn named_evac_disposition(name: &str) -> Option<u32> {
-    named_evac_map()
-        .named_evac_disposition()
+pub fn named_evac_disposition(
+    owner: &std::sync::Mutex<std::collections::HashMap<String, u32>>,
+    name: &str,
+) -> Option<u32> {
+    owner
         .lock()
         .ok()?
         .get(&name.to_ascii_lowercase())
@@ -2638,10 +2642,8 @@ impl GarrisonContain {
                 let team_id = u32::from_le_bytes(data[0..4].try_into().map_err(|_| "Invalid data")?)
                     as crate::team::TeamID;
                 if team_id != crate::team::TEAM_ID_INVALID {
-                    if let Ok(factory) = crate::team::TheTeamFactory().lock() {
-                        if let Some(team) = factory.find_team_by_id(team_id) {
-                            self.original_team = Some(Arc::downgrade(&team));
-                        }
+                    if let Some(team) = self.base.find_world_team(team_id) {
+                        self.original_team = Some(Arc::downgrade(&team));
                     }
                 } else {
                     self.original_team = None;
@@ -2775,10 +2777,9 @@ impl Snapshotable for GarrisonContain {
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Load {
             self.original_team = if original_team_id != crate::team::TEAM_ID_INVALID {
-                crate::team::TheTeamFactory()
-                    .lock()
-                    .ok()
-                    .and_then(|factory| factory.find_team_by_id(original_team_id))
+                // C++ GarrisonContain::xfer: TheTeamFactory of this world.
+                self.base
+                    .find_world_team(original_team_id)
                     .map(|team| Arc::downgrade(&team))
             } else {
                 None
@@ -3257,6 +3258,55 @@ mod tests {
 
     use super::*;
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType, WeaponBonusConditionFlags};
+
+    /// C++ GarrisonContain::xfer resolves m_originalTeam with TheTeamFactory
+    /// of the owning engine. Two worlds take turns on ONE thread with the same
+    /// team id: each garrison restores its own world's team.
+    #[test]
+    fn garrison_original_team_resolves_on_its_own_world_factory_when_worlds_take_turns() {
+        use crate::system::engine_stores::{with_active_stores, EngineStores};
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let world_a = Arc::new(EngineStores::new_for_world());
+            let world_b = Arc::new(EngineStores::new_for_world());
+            const TEAM: crate::team::TeamID = 0x7A12;
+            let build = |stores: &Arc<EngineStores>, tag: &str| {
+                let prototype = crate::team::TeamPrototype::new(format!("GarrisonTeam{tag}").into());
+                stores
+                    .services()
+                    .team_factory()
+                    .lock()
+                    .expect("world factory")
+                    .create_team_on_prototype_with_id(&prototype, TEAM)
+                    .expect("world team");
+                let mut contain = GarrisonContain::new(
+                    Weak::new(),
+                    ModuleDataHandle::new(ContainModuleDataAdapter::new(
+                        GarrisonContainModuleData::default(),
+                    )),
+                )
+                .expect("garrison constructs");
+                contain.base.bind_owning_world(&Arc::downgrade(stores.services()));
+                contain
+            };
+            let mut garrison_a = build(&world_a, "A");
+            let mut garrison_b = build(&world_b, "B");
+            let mut state = HashMap::new();
+            state.insert("original_team_id".to_string(), (TEAM as u32).to_le_bytes().to_vec());
+            with_active_stores(&world_b, || garrison_a.load_state(&state)).expect("A loads under B");
+            with_active_stores(&world_a, || garrison_b.load_state(&state)).expect("B loads under A");
+            let original_name = |contain: &GarrisonContain| {
+                contain
+                    .original_team
+                    .as_ref()
+                    .and_then(|team| team.upgrade())
+                    .map(|team| team.read().expect("team").get_name().to_string())
+            };
+            assert_eq!(original_name(&garrison_a).as_deref(), Some("GarrisonTeamA"));
+            assert_eq!(original_name(&garrison_b).as_deref(), Some("GarrisonTeamB"));
+        });
+    }
     use crate::object::drawable::{DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};

@@ -51,6 +51,11 @@ impl ScriptEngine {
         &self.players
     }
 
+    /// The named evac disposition map of the world that built this engine.
+    pub(crate) fn named_evac_owner(&self) -> &Mutex<std::collections::HashMap<String, u32>> {
+        &self.named_evac
+    }
+
     pub(crate) fn cave_action_owners(
         &self,
     ) -> (&NamedObjectTracker, &crate::object::registry::ObjectRegistry, &Mutex<crate::system::cave_system::CaveSystem>) {
@@ -102,6 +107,7 @@ impl ScriptEngine {
             cave_system: Arc::clone(&services.logic_managers().cave),
             cave_objects: Arc::clone(services.object_registry()),
             cave_names: Arc::clone(services.scripts().named_objects()),
+            named_evac: Arc::clone(services.named_evac_disposition()),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),

@@ -1617,3 +1617,35 @@ mod authored_metadata_tests;
 mod timed_audio_parity_tests;
 
 mod depth_owner_tests;
+
+/// C++ ScriptActions::doNamedSetEvacLeftOrRight stores on the engine's own
+/// world. Two worlds take turns on ONE thread: an action run by world A's
+/// engine while world B is published lands in A's map, and vice versa.
+#[test]
+fn named_evac_disposition_lands_in_the_dispatching_engines_world() {
+    let _lock = crate::test_sync::lock();
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    let world_a = new_world_services();
+    let world_b = new_world_services();
+    let engine_a = ScriptEngine::new_with_services(&world_a).expect("engine A");
+    let engine_b = ScriptEngine::new_with_services(&world_b).expect("engine B");
+    let set_evac = |engine: &ScriptEngine, side: i32| {
+        let state = std::cell::RefCell::new(ScriptContext::at_frame(1));
+        let mut dispatcher = ScriptActionDispatcher::new(engine, &state);
+        let mut action = ScriptAction::new(ScriptActionType::NamedSetEvacLeftOrRight);
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Unit, "EvacBunker".to_string()))
+            .expect("unit parameter");
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, side))
+            .expect("side parameter");
+        dispatcher.execute_action(&action).expect("evac action")
+    };
+    with_world_services(&world_b, || set_evac(&engine_a, 1));
+    with_world_services(&world_a, || set_evac(&engine_b, 2));
+    let read = |world: &std::sync::Arc<crate::system::engine_stores::WorldServices>| {
+        crate::object::contain::named_evac_disposition(world.named_evac_disposition(), "EvacBunker")
+    };
+    assert_eq!(read(&world_a), Some(1), "A's engine wrote A's map");
+    assert_eq!(read(&world_b), Some(2), "B's engine wrote B's map");
+}

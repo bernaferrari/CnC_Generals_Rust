@@ -140,7 +140,9 @@ pub struct WorldServices {
     taxi_to_takeoff: Mutex<Vec<crate::common::ObjectID>>,
     transport_statuses: Mutex<Vec<(u32, u32, i32)>>,
     pending_team_script_events: Mutex<Vec<crate::team::PendingTeamScriptEvent>>,
-    named_evac_disposition: Mutex<std::collections::HashMap<String, u32>>,
+    named_evac_disposition: Arc<Mutex<std::collections::HashMap<String, u32>>>,
+    /// C++ `TheTeamFactory` of this world (Main's GameLogic shares this handle).
+    team_factory: crate::team::TeamFactoryHandle,
     player_money: Arc<RwLock<crate::special_power_module::player_money::PlayerMoneyManager>>,
     player_science: Arc<RwLock<crate::special_power_module::player_science::PlayerScienceManager>>,
     special_power_integration: Arc<RwLock<crate::special_power_module::integration::SpecialPowerIntegrationContext>>,
@@ -255,7 +257,8 @@ impl WorldServices {
             taxi_to_takeoff: Mutex::new(Vec::new()),
             transport_statuses: Mutex::new(Vec::new()),
             pending_team_script_events: Mutex::new(Vec::new()),
-            named_evac_disposition: Mutex::new(std::collections::HashMap::new()),
+            named_evac_disposition: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            team_factory: crate::team::TeamFactoryHandle::new(),
             player_money: Arc::new(RwLock::new(crate::special_power_module::player_money::PlayerMoneyManager::new())),
             player_science: Arc::new(RwLock::new(crate::special_power_module::player_science::PlayerScienceManager::new())),
             special_power_integration: Arc::new(RwLock::new(crate::special_power_module::integration::SpecialPowerIntegrationContext::new())),
@@ -532,8 +535,12 @@ impl WorldServices {
     }
     pub(crate) fn named_evac_disposition(
         &self,
-    ) -> &Mutex<std::collections::HashMap<String, u32>> {
+    ) -> &Arc<Mutex<std::collections::HashMap<String, u32>>> {
         &self.named_evac_disposition
+    }
+    /// C++ `TheTeamFactory` owned by this world.
+    pub fn team_factory(&self) -> &crate::team::TeamFactoryHandle {
+        &self.team_factory
     }
     pub(crate) fn player_money(
         &self,
