@@ -282,7 +282,7 @@ mod save_owner_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, Player, Team};
     use glam::Vec3;
     pub(super) fn world(delay: u32) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
         world_with_kind(delay, "NONE")
@@ -305,35 +305,31 @@ mod tests {
         let mut enemy = Player::new(1, Team::GLA, "target", false);
         enemy.alliance_team = 2;
         game.add_player(enemy);
-        let text = format!(
-            "Object SameMissile\n KindOf = {kind}\n Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n FuelLifetime = {fuel}\n TryToFollowTarget = Yes\n End\nEnd"
+        use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
+        // C++ Objects come from authored INI: the launcher and its victim are
+        // AIUpdate vehicles, the missile carries MissileAIUpdate.
+        admit_fixture_content(
+            &mut game,
+            &[
+                FixtureObject::new("SameMissile").kind_of(kind).module(format!(
+                    "Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n FuelLifetime = {fuel}\n TryToFollowTarget = Yes\nEnd"
+                )),
+                FixtureObject::new("ProfileSource")
+                    .kind_of("VEHICLE")
+                    .walker()
+                    .armed("LocalProfileWeapon"),
+                FixtureObject::new("ProfileTarget").kind_of("VEHICLE").walker(),
+            ],
+            &[FixtureWeapon::new("LocalProfileWeapon")
+                .damage(20.0)
+                .radius(5.0)
+                .range(200.0)
+                .field("WeaponSpeed = 300")
+                .field("MinWeaponSpeed = 300")
+                .field("ProjectileObject = SameMissile")
+                .field("SuspendFXDelay = 233")
+                .delay_ms(0)],
         );
-        let mut parser = crate::assets::ini_parser::IniParser::new();
-        parser
-            .parse_ini_content(&text, "receiving-profile.ini")
-            .unwrap();
-        let definitions: Vec<_> = parser
-            .get_all_definitions()
-            .iter()
-            .map(|(name, row)| (name.clone(), row.clone()))
-            .collect();
-        let mut weapons = HashMap::new();
-        assert_eq!(
-            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
-                &mut weapons,
-                "Weapon LocalProfileWeapon\n PrimaryDamage = 20\n PrimaryDamageRadius = 5\n AttackRange = 200\n WeaponSpeed = 300\n MinWeaponSpeed = 300\n ProjectileObject = SameMissile\n SuspendFXDelay = 233\n DelayBetweenShots = 0\n End",
-                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
-            ),
-            1
-        );
-        let native = weapons.remove("localprofileweapon").unwrap();
-        let mut source = ThingTemplate::new("ProfileSource");
-        source
-            .add_kind_of(KindOf::Vehicle)
-            .add_kind_of(KindOf::Attackable);
-        source.set_primary_weapon_name(&native.name);
-        game.admit_weapon_content_snapshot(vec![(native.name.clone(), native)], &definitions)
-            .unwrap();
         // Invalid detached content cannot replace the admitted receiving owner.
         assert!(
             game.admit_weapon_content_snapshot(
@@ -341,16 +337,10 @@ mod tests {
                     " ".into(),
                     gamelogic::weapon::WeaponTemplate::new("bad".into())
                 )],
-                &definitions
+                &[]
             )
             .is_err()
         );
-        game.templates.insert(source.name.clone(), source);
-        let mut target = ThingTemplate::new("ProfileTarget");
-        target
-            .add_kind_of(KindOf::Vehicle)
-            .add_kind_of(KindOf::Attackable);
-        game.templates.insert(target.name.clone(), target);
         game.frame = 10;
         let source = game
             .create_object_for_player("ProfileSource", 0, Vec3::ZERO)
