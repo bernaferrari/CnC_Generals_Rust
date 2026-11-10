@@ -23,7 +23,6 @@
 //! - Requirements list generation (getRequiresList)
 //!
 //! ⏳ **Pending Dependencies (wired via callbacks where possible):**
-//! - Player object counting integration (set via `set_prereq_object_counter`)
 //! - GameText system integration for localized error messages
 //!
 //! ## Architecture Notes
@@ -37,7 +36,7 @@
 //! - Entry 1: WarFactory (OR flag set)
 //! - Entry 2: TechCenter (no flag)
 
-use super::{handles::ThingTemplateHandle, player::Player, science::ScienceType};
+use super::{handles::ThingTemplateHandle, science::ScienceType};
 use crate::common::{
     system::{Snapshotable, Xfer},
     thing::thing_factory::get_thing_factory,
@@ -157,31 +156,7 @@ pub struct ProductionPrerequisite {
     prereq_sciences: Vec<ScienceType>,
 }
 
-/// Callback interface for counting owned objects by template.
-///
-/// `Common` does not own the authoritative object list; `GameLogic` (or another runtime layer)
-/// should install an implementation at startup.
-pub trait PrereqObjectCounter: Send + Sync {
-    /// Count objects owned by `player` that match `templates` (index-aligned), writing counts into
-    /// `counts[0..templates.len()]`.
-    fn count_objects_by_thing_template(
-        &self,
-        player: &Player,
-        templates: &[ThingTemplateHandle],
-        ignore_dead: bool,
-        counts: &mut [i32],
-    );
-}
 
-pub fn set_prereq_object_counter(counter: Box<dyn PrereqObjectCounter>) -> Result<(), String> {
-    let services = crate::common::common_services::common_services();
-    let mut slot = services
-        .prereq_object_counter
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    *slot = Some(counter);
-    Ok(())
-}
 
 impl ProductionPrerequisite {
     /// Create a new ProductionPrerequisite
@@ -239,50 +214,6 @@ impl ProductionPrerequisite {
         Ok(())
     }
 
-    /// Calculate how many of each prerequisite unit the player owns
-    ///
-    /// Returns the number of prereq units processed
-    ///
-    /// Matches C++ ProductionPrerequisite.cpp lines 76-86: calcNumPrereqUnitsOwned
-    pub fn calc_num_prereq_units_owned(
-        &self,
-        player: &Player,
-        counts: &mut [i32; MAX_PREREQ],
-    ) -> usize {
-        // C++ lines 78-81: Limit count to MAX_PREREQ
-        let cnt = std::cmp::min(self.prereq_units.len(), MAX_PREREQ);
-
-        // C++ lines 82-83: Build array of ThingTemplate pointers
-        // const ThingTemplate *tmpls[MAX_PREREQ];
-        // for (int i = 0; i < cnt; i++)
-        //     tmpls[i] = m_prereqUnits[i].unit;
-
-        // C++ line 84: player->countObjectsByThingTemplate(cnt, tmpls, false, counts);
-        // This counts how many objects the player owns that match each template.
-        // The 'false' parameter means don't ignore dead objects.
-        //
-        // `Common` can't do this directly; it is provided by a runtime callback when available.
-        let templates: Vec<ThingTemplateHandle> = self.prereq_units[..cnt]
-            .iter()
-            .map(|rec| rec.unit.unwrap_or(ThingTemplateHandle::INVALID))
-            .collect();
-        let services = crate::common::common_services::common_services();
-        let slot = services
-            .prereq_object_counter
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if let Some(counter) = slot.as_ref() {
-            counter.count_objects_by_thing_template(player, &templates, false, &mut counts[..cnt]);
-            return cnt;
-        }
-
-        for i in 0..cnt {
-            counts[i] = 0;
-        }
-
-        // C++ line 85: Return the count
-        cnt
-    }
 
     /// Get all possible build facility templates (for OR requirements)
     ///
@@ -317,66 +248,7 @@ impl ProductionPrerequisite {
         templates
     }
 
-    /// Get an existing build facility template that the player owns
-    ///
-    /// Returns the first template from the OR group that the player has
-    ///
-    /// Matches C++ ProductionPrerequisite.cpp lines 104-120: getExistingBuildFacilityTemplate
-    pub fn get_existing_build_facility_template(
-        &self,
-        player: &Player,
-    ) -> Option<ThingTemplateHandle> {
-        // C++ line 106: Assert that player is not null
-        // DEBUG_ASSERTCRASH(player, ("player may not be null"));
 
-        // C++ line 107: Check if we have any prerequisites
-        if self.prereq_units.is_empty() {
-            return None;
-        }
-
-        // C++ lines 109-110: Calculate how many of each prereq unit the player owns
-        let mut own_count = [0i32; MAX_PREREQ];
-        let cnt = self.calc_num_prereq_units_owned(player, &mut own_count);
-
-        // C++ lines 111-117: Iterate through the OR group
-        for i in 0..cnt {
-            // C++ lines 113-114: Stop if this isn't OR'd with previous (new requirement group)
-            if i > 0 && !self.prereq_units[i].flags.has_or_with_prev() {
-                break;
-            }
-
-            // C++ lines 115-116: If the player owns at least one, return this template
-            if own_count[i] > 0 {
-                if let Some(handle) = self.prereq_units[i].unit {
-                    return Some(handle);
-                }
-            }
-        }
-
-        // C++ line 119: Return NULL if no matching facility found
-        None
-    }
-
-    /// Check if all prerequisites are satisfied by the player
-    ///
-    /// Matches C++ ProductionPrerequisite.cpp lines 123-160: isSatisfied
-    pub fn is_satisfied(&self, player: &Player) -> bool {
-        self.is_satisfied_with_counter(
-            |science| player.has_science(science),
-            |templates, ignore_dead, counts| {
-                let services = crate::common::common_services::common_services();
-                let slot = services
-                    .prereq_object_counter
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner());
-                if let Some(counter) = slot.as_ref() {
-                    counter.count_objects_by_thing_template(player, templates, ignore_dead, counts);
-                } else {
-                    counts.fill(0);
-                }
-            },
-        )
-    }
 
     /// Check whether prerequisites are satisfied using runtime-provided science and object-count
     /// hooks. This lets GameLogic evaluate the same data without downcasting to Common::Player.
@@ -507,85 +379,6 @@ impl ProductionPrerequisite {
         self.prereq_sciences.push(science);
     }
 
-    /// Get list of unfulfilled requirements as a formatted string
-    ///
-    /// Matches C++ ProductionPrerequisite.cpp lines 198-289: getRequiresList
-    pub fn get_requires_list(&self, player: &Player) -> String {
-        // C++ lines 201-203: If player is invalid, return empty string
-        // (In Rust we use references, so this is implicit)
-
-        let mut requires_list = String::new();
-
-        // C++ lines 207-209: Calculate how many of each prereq unit the player owns
-        let mut own_count = [0i32; MAX_PREREQ];
-        let cnt = self.calc_num_prereq_units_owned(player, &mut own_count);
-
-        // C++ lines 212-220: Initialize OR requirements tracking
-        let mut or_requirements = [false; MAX_PREREQ];
-
-        // C++ lines 221-230: Account for "or" unit cases, start loop at 1
-        for i in 1..cnt {
-            if self.prereq_units[i].flags.has_or_with_prev() {
-                // C++ line 226: Set the flag for this unit to be "ored" with previous
-                or_requirements[i] = true;
-                // C++ line 227: Lump 'em together for prereq purposes
-                own_count[i] += own_count[i - 1];
-                // C++ line 228: Flag for "ignore me"
-                own_count[i - 1] = -1;
-            }
-        }
-
-        // C++ lines 232-269: Check to see if anything is required
-        let mut first_requirement = true;
-        for i in 0..cnt {
-            // C++ line 239: We have an unfulfilled requirement
-            if own_count[i] == 0 {
-                // C++ lines 241-249: Handle OR requirement display
-                if or_requirements[i] {
-                    requires_list.push_str(" OR ");
-                }
-
-                // C++ lines 251-253: Get the requirement and then its name
-                let unit_name = self.prereq_units[i]
-                    .unit
-                    .and_then(display_name_for_template_handle)
-                    .unwrap_or_else(|| "<Building Required>".to_string());
-
-                // C++ lines 255-258: Get command button and translate name
-                // (Commented out in C++ too)
-
-                // C++ lines 260-264: Format name appropriately with 'returns' if necessary
-                if first_requirement {
-                    first_requirement = false;
-                } else {
-                    requires_list.push('\n');
-                }
-
-                // C++ line 267: Add it to the list
-                requires_list.push_str(&unit_name);
-            }
-        }
-
-        // C++ lines 271-286: Check for science requirements
-        let mut has_sciences = true;
-        for &science in &self.prereq_sciences {
-            if !player.has_science(science) {
-                has_sciences = false;
-                break;
-            }
-        }
-
-        if !has_sciences {
-            if !first_requirement {
-                requires_list.push('\n');
-            }
-            // In C++ this comes from TheGameText->fetch("CONTROLBAR:GeneralsPromotion").
-            requires_list.push_str("General's Promotion Required");
-        }
-
-        // C++ line 289: Return final list
-        requires_list
-    }
 
     /// Get all unit prerequisites
     pub fn get_unit_prereqs(&self) -> &[PrereqUnitRec] {

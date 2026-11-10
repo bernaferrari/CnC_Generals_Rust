@@ -20,7 +20,6 @@ use crate::common::rts::action_manager::ObjectDataProvider;
 use crate::common::rts::team::TeamCommandSink;
 use crate::common::system::build_assistant::BuildAssistantBackend;
 use crate::common::rts::energy::{EnergyObjectLookup, EnergyOwnerCallbacks};
-use crate::common::rts::production_prerequisite::PrereqObjectCounter;
 use crate::common::message_stream::message_stream::CommandListAppendFn;
 use crate::common::damage_fx::DamageFXStore;
 use crate::common::resource_manager::ResourceManager;
@@ -123,8 +122,6 @@ pub struct CommonServices {
     pub energy_object_lookup: Mutex<Option<Arc<dyn EnergyObjectLookup>>>,
     /// Energy brownout callbacks (was process ENERGY_OWNER_CALLBACKS).
     pub energy_owner_callbacks: Mutex<Option<Arc<dyn EnergyOwnerCallbacks>>>,
-    /// ProductionPrerequisite object counter (was process PREREQ_OBJECT_COUNTER).
-    pub prereq_object_counter: Mutex<Option<Box<dyn PrereqObjectCounter>>>,
     /// MessageStream → CommandList append sink (was process COMMAND_LIST_APPEND_FN).
     pub command_list_append: Mutex<Option<Box<CommandListAppendFn>>>,
     /// AudioEventRTS localization language (was process AUDIO_EVENT_LOCALIZATION_LANGUAGE).
@@ -166,7 +163,6 @@ impl Default for CommonServices {
             build_assistant_backend: Mutex::new(None),
             energy_object_lookup: Mutex::new(None),
             energy_owner_callbacks: Mutex::new(None),
-            prereq_object_counter: Mutex::new(None),
             command_list_append: Mutex::new(None),
             audio_event_localization_language: Mutex::new(String::from("English")),
             async_playback_handle_pool: AtomicU32::new(10_000_000),

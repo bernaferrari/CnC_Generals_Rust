@@ -180,7 +180,7 @@ pub use ini_locomotor::{
     parse_locomotor_template_definition,
 };
 pub use ini_rank::{
-    RankError, RankInfo, RankInfoStore, RankResult, get_rank_info_store, get_rank_info_store_mut,
+    RankError, RankInfo, RankInfoStore, RankResult, get_rank_info_store_mut,
     init_rank_info_store, parse_rank_definition,
 };
 pub use ini_road::{

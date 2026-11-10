@@ -11,7 +11,6 @@ pub mod perf_timer;
 pub mod result_ext;
 pub mod science;
 pub mod types;
-pub mod vec_ext;
 pub mod vector_ext;
 pub mod xfer;
 
@@ -25,7 +24,6 @@ pub use coord_ext::*;
 pub use option_ext::*;
 pub use result_ext::*;
 pub use types::*;
-pub use vec_ext::*;
 pub use vector_ext::*;
 
 #[derive(Debug, Clone, Copy)]

@@ -1329,7 +1329,9 @@ impl CnCGameEngine {
                             let mut ini = game_engine::common::ini::INI::new();
                             match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => {
-                                    let store = game_engine::common::ini::ini_rank::get_rank_info_store();
+                                    // The INI loader filled this CommonServices' catalog.
+                                    let loader = game_engine::common::common_services::common_services();
+                                    let store = loader.ini.rank.read();
                                     if store.is_empty() {
                                         warn!("Rank.ini loaded 0 rank definitions — continuing without rank data");
                                     }

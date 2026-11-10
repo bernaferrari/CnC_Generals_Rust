@@ -46,7 +46,6 @@ pub mod mission_stats;
 pub mod money;
 pub mod multiplayer_rankings;
 pub mod player;
-pub mod player_list;
 pub mod player_template;
 pub mod post_game_stats;
 pub mod production_prerequisite;
@@ -73,10 +72,8 @@ pub use mission_stats::MissionStats;
 pub use money::Money;
 pub use multiplayer_rankings::{ELOCalculator, GameMode, PlayerRanking, PlayerTier, RankingSystem};
 pub use player::{
-    Player, PlayerObjectSnapshot, PlayerObjectWorld, get_player_object_world,
-    set_player_object_world,
+    PlayerObjectSnapshot, PlayerObjectWorld, get_player_object_world, set_player_object_world,
 };
-pub use player_list::{MAX_PLAYER_COUNT, PlayerList};
 pub use player_template::{PlayerTemplate, PlayerTemplateStore};
 pub use post_game_stats::{GameResult, PlayerPostGameStats, PlayerSide, PostGameStatistics};
 pub use production_prerequisite::{PrereqUnitFlags, PrereqUnitRec, ProductionPrerequisite};

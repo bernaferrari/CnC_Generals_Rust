@@ -24,7 +24,7 @@
 //! };
 //! ```
 
-use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
+use crate::common::owned_lock::OwnedWriteGuard;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -410,19 +410,10 @@ impl Default for RankInfoStore {
     }
 }
 
-/// Get the global rank info store (read access)
-
-/// Get the global rank info store (write access)
-/// Initialize the global rank info store
-
+/// The Rank.ini catalog of the CommonServices the INI loader is filling.
+/// Rank math reads each world's own catalog (`WorldServices::common().ini.rank`).
 fn ini_rank_cell() -> std::sync::Arc<parking_lot::RwLock<RankInfoStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rank)
-}
-
-
-pub fn get_rank_info_store() -> OwnedReadGuard<RankInfoStore> {
-    let cell = ini_rank_cell();
-    cell.read_arc()
 }
 
 
@@ -626,11 +617,4 @@ mod tests {
         assert!(info.sciences_granted.is_empty());
     }
 
-    #[test]
-    fn test_global_store() {
-        init_rank_info_store();
-
-        let store = get_rank_info_store();
-        assert!(store.is_empty() || store.get_rank_level_count() >= 0);
-    }
 }
