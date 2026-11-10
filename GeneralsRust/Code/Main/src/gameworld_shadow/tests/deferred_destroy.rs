@@ -6,8 +6,9 @@ use super::*;
 fn destroy_marks_then_process_removes_in_lockstep() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DefDest");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object Victim\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "Victim", 80.0);
+    insert_fixture_template(&mut logic, "Victim", 80.0);
     let id = logic
         .create_object("Victim", Team::USA, Vec3::new(20.0, 0.0, 20.0))
         .expect("id");
@@ -36,8 +37,9 @@ fn destroy_marks_then_process_removes_in_lockstep() {
 fn host_to_entity_invalidates_on_deferred_destroy_events() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MapInv");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object Victim\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "Victim", 80.0);
+    insert_fixture_template(&mut logic, "Victim", 80.0);
     let id = logic
         .create_object("Victim", Team::USA, Vec3::new(20.0, 0.0, 20.0))
         .expect("id");
@@ -56,9 +58,10 @@ fn host_to_entity_invalidates_on_deferred_destroy_events() {
 fn phase0_probe_pose_target_weapon_contain_fields() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProbeExt");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object Scout\nEnd\nObject Mark\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "Scout", 50.0);
-    ensure_template(&mut logic, "Mark", 50.0);
+    insert_fixture_template(&mut logic, "Scout", 50.0);
+    insert_fixture_template(&mut logic, "Mark", 50.0);
     let a = logic
         .create_object("Scout", Team::USA, Vec3::new(10.0, 0.0, 10.0))
         .expect("a");

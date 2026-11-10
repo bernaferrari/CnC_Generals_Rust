@@ -546,11 +546,11 @@ fn typed_sparse_slot_names_resolve_in_live_script_sighting() {
         module_path!(),
         "typed_sparse_slot_names_resolve_in_live_script_sighting",
         || {
-            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
             let mut config =
                 crate::skirmish_config::golden_skirmish_config("OwnedSlotAdmission.map");
             config.slots[1].slot_index = 3;
-            let mut world = GameLogic::new();
+            let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+            let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
             crate::skirmish_config::apply_skirmish_config(&mut world, &config).unwrap();
             world.override_world_size(2000.0, 2000.0);
             let mut template = ThingTemplate::new(TYPE);

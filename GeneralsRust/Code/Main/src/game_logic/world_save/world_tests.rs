@@ -133,13 +133,12 @@ mod sides_host_apply_tests {
                 let map = path.to_str().unwrap();
                 // This admission witness supplies its immutable template inputs.
                 // It does not rely on another test having populated retail globals.
-                crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
-                let mut world = GameLogic::new();
-                crate::skirmish_config::apply_skirmish_config(
-                    &mut world,
+                let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+                let config = crate::skirmish_config::lobby_definition_tests::slot_config(
+                    &world,
                     &crate::skirmish_config::golden_skirmish_config(map),
-                )
-                .unwrap();
+                );
+                crate::skirmish_config::apply_skirmish_config(&mut world, &config).unwrap();
                 let mut marker = crate::game_logic::ThingTemplate::new("SlotAdmissionMarker");
                 marker.set_health(10.0);
                 world.templates.insert("SlotAdmissionMarker".into(), marker);

@@ -11,7 +11,6 @@ fn isolated(name: &str, run: impl FnOnce()) {
 }
 
 fn configured(observer_slot: bool, misleading_display: bool) -> GameLogic {
-    crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
     let mut config = golden_skirmish_config("OwnedRoleAdmission.map");
     config.slots[1].slot_index = 3;
     if misleading_display {
@@ -22,7 +21,8 @@ fn configured(observer_slot: bool, misleading_display: bool) -> GameLogic {
         config.slots[1].player_template =
             SkirmishPlayerTemplateSelection::exact_template_name("FactionObserver");
     }
-    let mut world = GameLogic::new();
+    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+    let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
     apply_skirmish_config(&mut world, &config).unwrap();
     world
 }

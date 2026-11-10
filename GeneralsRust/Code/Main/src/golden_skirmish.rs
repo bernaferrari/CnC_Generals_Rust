@@ -2909,6 +2909,7 @@ mod tests {
     fn golden_synthetic_dozer_authors_constructor_capability() {
         let mut logic = GameLogic::new();
         let config = golden_skirmish_config("CatalogCapability");
+        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &config).unwrap();
         install_templates(&mut logic);
         let dozer = logic

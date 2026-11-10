@@ -862,6 +862,7 @@ mod presentation_identity_tests {
         // Criterion 2: shipped legacy SelectionRenderer path prefers PresentationFrame.
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("LegacySelPres");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object LegacySelUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("LegacySelUnit");
         t.set_health(80.0);
@@ -933,6 +934,7 @@ mod presentation_identity_tests {
         use glam::Vec3;
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("CtrlGrpPres");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CtrlGrpUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
         let mut t = ThingTemplate::new("CtrlGrpUnit");
         t.add_kind_of(KindOf::Infantry);

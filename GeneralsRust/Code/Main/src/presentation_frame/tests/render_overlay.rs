@@ -746,6 +746,7 @@ fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records()
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
     let mut logic = GameLogic::new();
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DrawableShroudFreezeUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &golden_skirmish_config("DrawableShroudFreeze"))
         .expect("config");
     let mut template = ThingTemplate::new("DrawableShroudFreezeUnit");
@@ -872,6 +873,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
 
     let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
     let mut logic = GameLogic::new();
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DirectShroudMembershipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(
         &mut logic,
         &golden_skirmish_config("DirectShroudMembership"),
@@ -970,8 +972,9 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayShadowRes");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OvlU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("OvlU") {
+    {
         let mut t = ThingTemplate::new("OvlU");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Selectable);
@@ -1056,6 +1059,7 @@ fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayUnattackable");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object UnattackableVictim\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut template = ThingTemplate::new("UnattackableVictim");
     template.set_health(100.0);
@@ -1091,6 +1095,7 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayEconPower");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Host starting cash from golden config.
     let host_cash = logic

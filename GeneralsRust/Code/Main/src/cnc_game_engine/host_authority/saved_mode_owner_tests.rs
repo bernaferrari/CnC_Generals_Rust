@@ -79,20 +79,18 @@ fn real_archives_keep_receiving_modes_across_peer_decode_failure_reset_and_drop(
         module_path!(),
         "real_archives_keep_receiving_modes_across_peer_decode_failure_reset_and_drop",
         || {
-            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
             let a_dir = tempfile::tempdir().unwrap();
             let b_dir = tempfile::tempdir().unwrap();
             let mut saves_a = SaveFileManager::with_save_directory(a_dir.path());
             let mut saves_b = SaveFileManager::with_save_directory(b_dir.path());
             saves_a.init().unwrap();
             saves_b.init().unwrap();
-            let mut source_a = GameLogic::new();
-            source_a.admit_object_ini_sources(std::iter::empty()).unwrap();
+            let mut source_a = crate::skirmish_config::lobby_definition_tests::slot_world();
             source_a.start_new_game_for_restore(GameMode::SinglePlayer).unwrap();
             saves_a.save_game("a", &source_a, &info("a")).unwrap();
-            let mut source_b = GameLogic::new();
-            source_b.admit_object_ini_sources(std::iter::empty()).unwrap();
+            let mut source_b = crate::skirmish_config::lobby_definition_tests::slot_world();
             let config = crate::skirmish_config::golden_skirmish_config("ModeOwner.map");
+            let config = crate::skirmish_config::lobby_definition_tests::slot_config(&source_b, &config);
             crate::skirmish_config::apply_skirmish_config(&mut source_b, &config).unwrap();
             saves_b.save_game("b", &source_b, &info("b")).unwrap();
             let a = saves_a.load_game_snapshot("a").unwrap();

@@ -64,6 +64,7 @@ fn assert_radar_kept(logic: &GameLogic, local: u32, ctx: &str) {
 fn fresh_shadow_skirmish_coupled_session_keeps_local_radar() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MinimapSeamFresh");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_cc_template(&mut logic);
     let local = local_player_id(&logic);

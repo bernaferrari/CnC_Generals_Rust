@@ -26,9 +26,9 @@ fn actual_tick_records_receiving_crc_cadence_without_touching_global_command_lis
                 save_stats: false,
                 stats_directory: directory.path().join("Stats"),
             };
-            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
-            let mut world = GameLogic::new();
+            let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
             let config = crate::skirmish_config::golden_skirmish_config(&inputs.map);
+            let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
             crate::skirmish_config::apply_skirmish_config(&mut world, &config).unwrap();
             world.replay_pending.reset_recorder_owned(inputs.clone());
             let mut lobby = ReplayGameInfo::new();

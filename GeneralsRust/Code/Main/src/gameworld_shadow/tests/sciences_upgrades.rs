@@ -6,8 +6,9 @@ use super::*;
 fn sync_from_host_copies_entity_xp_status_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityXpStatus");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object XpUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "XpUnit", 100.0);
+    insert_fixture_template(&mut logic, "XpUnit", 100.0);
     let id = logic
         .create_object("XpUnit", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
         .expect("id");
@@ -42,8 +43,9 @@ fn sync_from_host_copies_entity_xp_status_residual() {
 fn sync_from_host_copies_entity_combat_intent_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityCombatIntent");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CbtIntentU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "CbtIntentU", 100.0);
+    insert_fixture_template(&mut logic, "CbtIntentU", 100.0);
     let id = logic
         .create_object("CbtIntentU", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
         .expect("id");
@@ -79,8 +81,9 @@ fn sync_from_host_copies_entity_combat_intent_residual() {
 fn sync_from_host_copies_entity_color_power_type() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityColorPower");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PwrBldg\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "PwrBldg", 200.0);
+    insert_fixture_template(&mut logic, "PwrBldg", 200.0);
     let id = logic
         .create_object("PwrBldg", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("id");
@@ -109,8 +112,9 @@ fn sync_from_host_copies_entity_color_power_type() {
 fn sync_from_host_copies_entity_team_status_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityTeamStatus");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object TeamStatU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "TeamStatU", 100.0);
+    insert_fixture_template(&mut logic, "TeamStatU", 100.0);
     let id = logic
         .create_object("TeamStatU", Team::China, glam::Vec3::new(2.0, 0.0, 2.0))
         .expect("id");
@@ -138,8 +142,9 @@ fn sync_from_host_copies_entity_team_status_residual() {
 fn sync_from_host_copies_entity_selection_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntitySelectResidual");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SelResU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "SelResU", 100.0);
+    insert_fixture_template(&mut logic, "SelResU", 100.0);
     let id = logic
         .create_object("SelResU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
@@ -166,6 +171,7 @@ fn sync_from_host_copies_entity_selection_residual() {
 fn sync_players_copies_alive_and_cash_bounty() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AliveBountyShadow");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let n_players = logic.get_players().len();
@@ -212,6 +218,7 @@ fn sync_players_copies_alive_and_cash_bounty() {
 fn sync_players_copies_radar_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RadarShadow");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     {
@@ -248,6 +255,7 @@ fn sync_players_copies_radar_residual() {
 fn sync_players_copies_rank_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RankShadow");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     {
@@ -296,6 +304,7 @@ fn sync_players_copies_shared_special_power_cooldowns() {
     use crate::command_system::SpecialPowerType;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SwCdShadow");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     {
@@ -357,6 +366,7 @@ fn sync_players_copies_shared_special_power_cooldowns() {
 fn sync_players_copies_power_produced_consumed() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PowerBarShadow");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     {
@@ -385,6 +395,7 @@ fn sync_players_copies_power_produced_consumed() {
 fn sync_players_copies_unlocked_sciences() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ScienceShadow");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     {
@@ -405,8 +416,9 @@ fn canonical_command_set_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CsCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CsU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("CsU") {
+    {
         let mut t = ThingTemplate::new("CsU");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Selectable);
@@ -449,8 +461,9 @@ fn canonical_selection_radius_projects_without_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SrCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SrU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("SrU") {
+    {
         let mut t = ThingTemplate::new("SrU");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Selectable);
@@ -490,8 +503,9 @@ fn canonical_ground_height_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GhCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GhU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("GhU") {
+    {
         let mut t = ThingTemplate::new("GhU");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Selectable);
@@ -535,8 +549,9 @@ fn canonical_effective_model_mesh_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MmCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerMesh\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerMesh") {
+    {
         let mut t = ThingTemplate::new("RangerMesh");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
@@ -564,8 +579,9 @@ fn canonical_fow_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerFow\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerFow") {
+    {
         let mut t = ThingTemplate::new("RangerFow");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
@@ -618,8 +634,9 @@ fn canonical_kind_of_projects_without_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("KoCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerKo\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerKo") {
+    {
         let mut t = ThingTemplate::new("RangerKo");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
@@ -656,8 +673,9 @@ fn canonical_identity_projects_without_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("IdCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object IdU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("IdU") {
+    {
         let mut t = ThingTemplate::new("IdU");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Selectable);
@@ -702,8 +720,9 @@ fn canonical_building_type_is_projected_from_receiving_owner() {
     use crate::game_logic::{BuildingData, BuildingType, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BtCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BtU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("BtU") {
+    {
         let mut t = ThingTemplate::new("BtU");
         t.set_health(400.0);
         t.add_kind_of(KindOf::Selectable);
@@ -749,8 +768,9 @@ fn canonical_crush_vision_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CvCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CvU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("CvU") {
+    {
         let mut t = ThingTemplate::new("CvU");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Selectable);
@@ -807,8 +827,9 @@ fn canonical_mine_cheer_is_projected_from_receiving_owner() {
     };
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmcCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DmcU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("DmcU") {
+    {
         let mut t = ThingTemplate::new("DmcU");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Selectable);
@@ -857,8 +878,9 @@ fn canonical_model_condition_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("McCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object McU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("McU") {
+    {
         let mut t = ThingTemplate::new("McU");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Selectable);

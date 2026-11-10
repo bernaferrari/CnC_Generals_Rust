@@ -108,7 +108,6 @@ fn world() -> (GameLogic, ObjectId) {
 }
 
 fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, ObjectId) {
-    crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
     let mut config = crate::skirmish_config::golden_skirmish_config("OwnedTechAdmission.map");
     config.slots[1].slot_index = 3;
     let mut closed_slot = config.slots[1].clone();
@@ -116,7 +115,8 @@ fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, Obj
     closed_slot.is_active = false;
     config.slots.insert(1, closed_slot);
 
-    let mut world = GameLogic::new();
+    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+    let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
     crate::skirmish_config::apply_skirmish_config_for_mode(&mut world, &config, mode).unwrap();
     assert_eq!(world.players[&0].map_side.map_player_name, "player0");
     assert_eq!(world.players[&3].map_side.map_player_name, "player3");

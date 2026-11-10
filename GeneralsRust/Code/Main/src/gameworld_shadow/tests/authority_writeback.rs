@@ -17,8 +17,9 @@ fn owner_heal(logic: &mut GameLogic, id: ObjectId, health: f32) {
 fn no_shadow_boundary_still_admits_projected_lethal_damage() {
     let mut logic = GameLogic::new();
 
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PendingLethalTarget\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &golden_skirmish_config("PendingLethal")).expect("config");
-    ensure_template(&mut logic, "PendingLethalTarget", 100.0);
+    insert_fixture_template(&mut logic, "PendingLethalTarget", 100.0);
     let id = logic
         .create_object("PendingLethalTarget", Team::USA, Vec3::ZERO)
         .expect("target");
@@ -41,8 +42,9 @@ fn gameworld_step_movement_advances_move_target() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("MvAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerMv\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerMv") {
+    {
         let mut t = ThingTemplate::new("RangerMv");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
@@ -105,8 +107,9 @@ fn damage_authority_defers_host_hp_until_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("DmgAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerDmg\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerDmg") {
+    {
         let mut t = ThingTemplate::new("RangerDmg");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Infantry);
@@ -161,8 +164,9 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("HealAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerHeal\nEnd\nObject HealthVictoryKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerHeal") {
+    {
         let mut t = ThingTemplate::new("RangerHeal");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Infantry);
@@ -269,8 +273,9 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
 
     // Session integrates then writebacks.
     let cfg = golden_skirmish_config("MvSkip");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerSk\nEnd\nObject VictoryKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerSk") {
+    {
         let mut t = crate::game_logic::ThingTemplate::new("RangerSk");
         t.add_kind_of(crate::game_logic::KindOf::Infantry);
         logic.templates.insert("RangerSk".into(), t);
@@ -305,7 +310,7 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
     // be marked destroyed mid-test. Retail skirmish starts with a
     // MpCountForVictory structure; seed a keep-alive (sell_heal.rs /
     // economy_construction.rs precedent).
-    if !logic.templates.contains_key("VictoryKeepAlive") {
+    {
         let mut t = ThingTemplate::new("VictoryKeepAlive");
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::MpCountForVictory);
@@ -347,8 +352,9 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DtCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerDt\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerDt") {
+    {
         let mut t = ThingTemplate::new("RangerDt");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
@@ -478,8 +484,9 @@ fn canonical_max_health_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MaxHealthCh");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MaxHU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("MaxHU") {
+    {
         let mut t = ThingTemplate::new("MaxHU");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Selectable);
@@ -527,8 +534,9 @@ fn apply_host_positions_uses_host_orientation_channel() {
     // same queue used when get_orientation returns a known value.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OrientPose");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OrientU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "OrientU", 100.0);
+    insert_fixture_template(&mut logic, "OrientU", 100.0);
     let id = logic
         .create_object("OrientU", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
         .expect("id");
@@ -573,8 +581,9 @@ fn apply_host_positions_uses_host_orientation_channel() {
 fn set_transform_mutation_moves_shadow_entity() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveMut");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MoveUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "MoveUnit", 50.0);
+    insert_fixture_template(&mut logic, "MoveUnit", 50.0);
     let id = logic
         .create_object("MoveUnit", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("u");
@@ -603,8 +612,9 @@ fn mark_for_destruction_logs_on_remove() {
     crate::game_logic::host_destroy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DesLog");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DesU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "DesU", 50.0);
+    insert_fixture_template(&mut logic, "DesU", 50.0);
     let id = logic
         .create_object("DesU", Team::USA, glam::Vec3::ZERO)
         .expect("id");
@@ -626,8 +636,9 @@ fn mark_for_destruction_logs_on_remove() {
 fn spawn_is_committed_to_receiving_host_before_shadow_observation() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpawnMut");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SpMut\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "SpMut", 80.0);
+    insert_fixture_template(&mut logic, "SpMut", 80.0);
     let id = logic
         .create_object("SpMut", Team::USA, glam::Vec3::new(3.0, 0.0, 4.0))
         .expect("id");
@@ -652,8 +663,9 @@ fn spawn_and_destroy_channel_maps_ids() {
     crate::game_logic::host_destroy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpawnDestroy");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SpawnUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "SpawnUnit", 80.0);
+    insert_fixture_template(&mut logic, "SpawnUnit", 80.0);
     let id = logic
         .create_object("SpawnUnit", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
         .expect("spawn");
@@ -701,9 +713,10 @@ fn production_authority_defaults_off_host_sole_writer() {
 fn attack_target_logs_host_attack_event() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkLog");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AtkA\nEnd\nObject AtkB\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "AtkA", 100.0);
-    ensure_template(&mut logic, "AtkB", 100.0);
+    insert_fixture_template(&mut logic, "AtkA", 100.0);
+    insert_fixture_template(&mut logic, "AtkB", 100.0);
     if let Some(t) = logic.templates.get_mut("AtkA") {
         t.add_kind_of(KindOf::Infantry);
     }
@@ -747,9 +760,10 @@ fn attack_target_logs_host_attack_event() {
 fn attack_log_feeds_set_attack_target_mutation() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkLog");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object LogA\nEnd\nObject LogB\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "LogA", 100.0);
-    ensure_template(&mut logic, "LogB", 100.0);
+    insert_fixture_template(&mut logic, "LogA", 100.0);
+    insert_fixture_template(&mut logic, "LogB", 100.0);
     let a = logic
         .create_object("LogA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -806,9 +820,10 @@ fn shadow_session_defaults_on() {
 fn attack_target_syncs_to_shadow_entity() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkTarget");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AtkA\nEnd\nObject AtkB\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "AtkA", 100.0);
-    ensure_template(&mut logic, "AtkB", 100.0);
+    insert_fixture_template(&mut logic, "AtkA", 100.0);
+    insert_fixture_template(&mut logic, "AtkB", 100.0);
     let a = logic
         .create_object("AtkA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -888,6 +903,7 @@ fn attack_target_writeback_updates_host() {
 fn probe_includes_host_victory_fields() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("VicProbe");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
@@ -905,8 +921,9 @@ fn probe_includes_host_victory_fields() {
 fn path_helpers_log_final_move_destination() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PathLog");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PathU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "PathU", 100.0);
+    insert_fixture_template(&mut logic, "PathU", 100.0);
     if let Some(t) = logic.templates.get_mut("PathU") {
         t.add_kind_of(KindOf::Infantry);
     }
@@ -938,8 +955,9 @@ fn path_helpers_log_final_move_destination() {
 fn move_to_logs_destination_for_mobile_unit() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveLog");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MoveLogU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "MoveLogU", 100.0);
+    insert_fixture_template(&mut logic, "MoveLogU", 100.0);
     if let Some(tmpl) = logic.templates.get_mut("MoveLogU") {
         tmpl.add_kind_of(KindOf::Infantry);
     }
@@ -967,8 +985,9 @@ fn move_to_logs_destination_for_mobile_unit() {
 fn move_target_writeback_updates_host() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveWb");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MoveWA\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "MoveWA", 100.0);
+    insert_fixture_template(&mut logic, "MoveWA", 100.0);
     logic
         .templates
         .get_mut("MoveWA")
@@ -1018,8 +1037,9 @@ fn production_complete_applies_spawn_map_when_missing() {
     use crate::game_logic::host_production_log::HostProductionEvent;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdMap");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PMapU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "PMapU", 90.0);
+    insert_fixture_template(&mut logic, "PMapU", 90.0);
     let id = logic
         .create_object("PMapU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("id");
@@ -1183,8 +1203,9 @@ fn stale_engine_id_does_not_skip_host_movement() {
     }
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveBridge");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object VictoryKeepAlive\nEnd\nObject MoveBrU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "MoveBrU", 100.0);
+    insert_fixture_template(&mut logic, "MoveBrU", 100.0);
     if let Some(t) = logic.templates.get_mut("MoveBrU") {
         t.add_kind_of(KindOf::Infantry);
     }
@@ -1193,7 +1214,7 @@ fn stale_engine_id_does_not_skip_host_movement() {
     // player is defeated on frame 0-1 and kill_player_for_victory destroys
     // its army — the unit under test disappears from host_objects. Seed the
     // retail-style MpCountForVictory keep-alive (sell_heal.rs precedent).
-    if !logic.templates.contains_key("VictoryKeepAlive") {
+    {
         let mut t = ThingTemplate::new("VictoryKeepAlive");
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::MpCountForVictory);
@@ -1239,8 +1260,9 @@ fn host_object_ignores_registry_when_bridge_off() {
     {}
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BridgeIgnore");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BridgeIgnU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "BridgeIgnU", 50.0);
+    insert_fixture_template(&mut logic, "BridgeIgnU", 50.0);
     let id = logic
         .create_object("BridgeIgnU", Team::USA, glam::Vec3::ZERO)
         .expect("id");
@@ -1267,8 +1289,9 @@ fn host_object_pose_hp_never_dual_read_registry() {
     // Even with a stamped engine_object_id, host properties stay local.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HostSolePose");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HostSoleU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "HostSoleU", 80.0);
+    insert_fixture_template(&mut logic, "HostSoleU", 80.0);
     let id = logic
         .create_object("HostSoleU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("id");
@@ -1297,8 +1320,9 @@ fn reset_skips_factory_when_bridge_off() {
     {}
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ResetBridge");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RstU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "RstU", 50.0);
+    insert_fixture_template(&mut logic, "RstU", 50.0);
     let _ = logic
         .create_object("RstU", Team::USA, glam::Vec3::ZERO)
         .expect("id");
@@ -1317,8 +1341,9 @@ fn engine_object_bridge_off_by_default() {
     {}
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BridgeOff");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BridgeUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "BridgeUnit", 50.0);
+    insert_fixture_template(&mut logic, "BridgeUnit", 50.0);
     let id = logic
         .create_object("BridgeUnit", Team::USA, glam::Vec3::ZERO)
         .expect("id");
@@ -1347,8 +1372,9 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("GwStore");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GwStoreU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "GwStoreU", 100.0);
+    insert_fixture_template(&mut logic, "GwStoreU", 100.0);
     let oid = logic
         .create_object("GwStoreU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -1416,8 +1442,9 @@ fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GwView");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GwViewU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "GwViewU", 80.0);
+    insert_fixture_template(&mut logic, "GwViewU", 80.0);
     let oid = logic
         .create_object("GwViewU", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("id");
@@ -1476,9 +1503,10 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GwFat");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GwFatU\nEnd\nObject GwFatPax\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "GwFatU", 90.0);
-    ensure_template(&mut logic, "GwFatPax", 40.0);
+    insert_fixture_template(&mut logic, "GwFatU", 90.0);
+    insert_fixture_template(&mut logic, "GwFatPax", 40.0);
     let carrier = logic
         .create_object("GwFatU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("carrier");
@@ -1603,8 +1631,9 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HostStore");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HostStoreU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "HostStoreU", 80.0);
+    insert_fixture_template(&mut logic, "HostStoreU", 80.0);
     let oid = logic
         .create_object("HostStoreU", Team::USA, glam::Vec3::new(2.0, 0.0, 3.0))
         .expect("id");
@@ -1681,8 +1710,9 @@ fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AliveAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AliveAuthU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "AliveAuthU", 100.0);
+    insert_fixture_template(&mut logic, "AliveAuthU", 100.0);
     let oid = logic
         .create_object("AliveAuthU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -1727,8 +1757,9 @@ fn snapshot_builder_uses_authoritative_health() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SnapAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SnapAuthU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "SnapAuthU", 100.0);
+    insert_fixture_template(&mut logic, "SnapAuthU", 100.0);
     let oid = logic
         .create_object("SnapAuthU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -1762,8 +1793,9 @@ fn snapshot_builder_uses_authoritative_health() {
 #[test]
 fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     let mut logic = GameLogic::new();
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object NoShadowDamageTarget\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &golden_skirmish_config("NoShadowDamage")).expect("config");
-    ensure_template(&mut logic, "NoShadowDamageTarget", 100.0);
+    insert_fixture_template(&mut logic, "NoShadowDamageTarget", 100.0);
     logic
         .templates
         .get_mut("NoShadowDamageTarget")
@@ -1876,8 +1908,9 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
 #[test]
 fn no_shadow_boundary_preserves_committed_heal_damage_order() {
     let mut logic = GameLogic::new();
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HealDamageOrderTarget\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &golden_skirmish_config("HealDamageOrder")).expect("config");
-    ensure_template(&mut logic, "HealDamageOrderTarget", 200.0);
+    insert_fixture_template(&mut logic, "HealDamageOrderTarget", 200.0);
     for heal_first in [true, false] {
         logic.health_events.clear_damage();
         logic.health_events.clear_heal();
@@ -1925,8 +1958,9 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
 fn no_shadow_boundary_preserves_completed_coupled_healing() {
     let mut logic = GameLogic::new();
 
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PendingHealingTarget\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &golden_skirmish_config("PendingHealing")).expect("config");
-    ensure_template(&mut logic, "PendingHealingTarget", 100.0);
+    insert_fixture_template(&mut logic, "PendingHealingTarget", 100.0);
     let id = logic
         .create_object("PendingHealingTarget", Team::USA, Vec3::ZERO)
         .expect("target");
@@ -2065,8 +2099,9 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
 #[test]
 fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner() {
     let mut logic = GameLogic::new();
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OwnerPhaseUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &golden_skirmish_config("OwnerPhase")).expect("config");
-    ensure_template(&mut logic, "OwnerPhaseUnit", 80.0);
+    insert_fixture_template(&mut logic, "OwnerPhaseUnit", 80.0);
 
     let source = logic
         .create_object("OwnerPhaseUnit", Team::USA, Vec3::new(1.0, 0.0, 2.0))

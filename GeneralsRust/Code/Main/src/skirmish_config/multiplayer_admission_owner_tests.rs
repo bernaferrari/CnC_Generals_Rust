@@ -19,7 +19,6 @@ fn receiving_palette_controls_actual_admission_and_retained_original_record() {
         module_path!(),
         "receiving_palette_controls_actual_admission_and_retained_original_record",
         || {
-            lobby_definition_tests::admit_slot_definitions();
             let first = palette(&[(0x010203, 0x111213), (0x040506, 0x141516)]);
             let second = palette(&[(0x212223, 0x313233), (0x242526, 0x343536)]);
             let mut config = golden_skirmish_config("OwnedPaletteAdmission.map");
@@ -41,9 +40,11 @@ fn receiving_palette_controls_actual_admission_and_retained_original_record() {
             }
             config.source_game_info = Some((source, 0));
 
-            let mut a = GameLogic::new();
-            let mut b = GameLogic::new();
+            let mut a = lobby_definition_tests::slot_world();
+            let mut b = lobby_definition_tests::slot_world();
+            let config = crate::skirmish_config::lobby_definition_tests::slot_config(&a, &config);
             apply_skirmish_config_with_multiplayer_settings(&mut a, &config, &first).unwrap();
+            let config = crate::skirmish_config::lobby_definition_tests::slot_config(&b, &config);
             apply_skirmish_config_with_multiplayer_settings(&mut b, &config, &second).unwrap();
             let saved_a = a.initial_skirmish_admission.as_ref().unwrap();
             let saved_b = b.initial_skirmish_admission.as_ref().unwrap();

@@ -10,9 +10,10 @@ use std::time::SystemTime;
 fn attack_command_lands_set_attack_target_same_tick() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("P6Atk");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object P6AtkA\nEnd\nObject P6AtkB\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["P6AtkA", "P6AtkB"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.set_health(120.0);
             t.add_kind_of(KindOf::Selectable);

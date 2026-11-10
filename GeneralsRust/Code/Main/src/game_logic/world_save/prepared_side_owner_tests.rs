@@ -8,10 +8,10 @@ fn isolated(name: &str, run: impl FnOnce()) {
 }
 
 fn configured() -> GameLogic {
-    crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
     let mut config = golden_skirmish_config("PreparedSideAdmission.map");
     config.slots[1].slot_index = 3;
-    let mut world = GameLogic::new();
+    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+    let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
     apply_skirmish_config(&mut world, &config).unwrap();
     world
 }

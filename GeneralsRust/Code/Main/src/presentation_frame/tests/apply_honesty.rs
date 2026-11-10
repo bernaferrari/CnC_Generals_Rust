@@ -6,6 +6,7 @@ fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
     // replace selection health + minimap dots with snapshot-owned values.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HudIdentity");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HudIdUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("HudIdUnit");
     t.set_health(100.0);
@@ -1058,6 +1059,7 @@ fn presentation_feeds_control_bar_selection_panel_health() {
     // (not stale/zero). Headless path — no WND window load required.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CbSelPanel");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CbPanelUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("CbPanelUnit");
     t.set_health(77.0);
@@ -1290,6 +1292,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
         .admit_promotion_definitions(definitions)
         .expect("inert definition admission");
     let cfg = golden_skirmish_config("FloatPres");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
 
     // Empty residual when host has no cash events.
@@ -1412,6 +1415,7 @@ fn presentation_frame_freezes_laser_line3d_segments() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("LaserPres");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
 
     // Empty lasers when host has none.
@@ -1493,6 +1497,7 @@ fn presentation_frame_freezes_laser_line3d_segments() {
 fn dual_tick_residual_counters_increment_on_apply() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DualTickCtr");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut hud = crate::ui::GameHUD::new();
     let mut ui = crate::ui::GameUIState::default();
@@ -1528,6 +1533,7 @@ fn spectre_orbit_decal_presentation_residual_wave73() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpectreDecalPres");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let snap = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(snap.spectre_orbit_decal_presentation_residual_ok());
@@ -1540,6 +1546,7 @@ fn presentation_dual_tick_residual_deepen_wave102() {
     assert!(honesty_presentation_residual_deepen_pack_wave102());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Pres102");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut hud = crate::ui::GameHUD::new();
     let mut ui = crate::ui::GameUIState::default();

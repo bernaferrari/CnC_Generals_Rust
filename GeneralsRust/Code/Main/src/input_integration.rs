@@ -756,8 +756,9 @@ mod tests {
     fn input_processor_pick_prefers_presentation_pose() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("InputIntegPresPick");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object IipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-        if !logic.templates.contains_key("IipUnit") {
+        {
             let mut tmpl = ThingTemplate::new("IipUnit");
             tmpl.set_health(100.0);
             tmpl.add_kind_of(KindOf::Selectable);

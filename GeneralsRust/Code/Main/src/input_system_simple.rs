@@ -618,8 +618,9 @@ mod tests {
     fn find_object_at_position_prefers_presentation_pose() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("SimpleInputPresPick");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-        if !logic.templates.contains_key("SipUnit") {
+        {
             let mut tmpl = ThingTemplate::new("SipUnit");
             tmpl.set_health(100.0);
             tmpl.add_kind_of(KindOf::Selectable);

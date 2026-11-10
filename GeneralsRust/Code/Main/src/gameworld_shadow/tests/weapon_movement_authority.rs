@@ -9,8 +9,9 @@ fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("WeapSlot");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object WeapU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("WeapU") {
+    {
         let mut t = ThingTemplate::new("WeapU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("WeapU".into(), t);
@@ -122,8 +123,9 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     let golden = {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvGold");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MvGoldU\nEnd\nObject MvGwU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-        if !logic.templates.contains_key("MvGoldU") {
+        {
             let mut t = ThingTemplate::new("MvGoldU");
             t.add_kind_of(KindOf::Infantry);
             logic.templates.insert("MvGoldU".into(), t);
@@ -157,7 +159,7 @@ fn movement_authority_path_follow_matches_host_only_golden() {
 
     let cfg = golden_skirmish_config("MvGw");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("MvGwU") {
+    {
         let mut t = ThingTemplate::new("MvGwU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("MvGwU".into(), t);

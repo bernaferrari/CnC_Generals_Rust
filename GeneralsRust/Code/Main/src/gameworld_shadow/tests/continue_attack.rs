@@ -16,8 +16,9 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiDec");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AdU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("AdU") {
+    {
         let mut t = ThingTemplate::new("AdU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("AdU".into(), t);
@@ -65,8 +66,9 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
     // Attack writeback must also be on for last-write.
 
     let cfg = golden_skirmish_config("AiDecAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AdaU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("AdaU") {
+    {
         let mut t = ThingTemplate::new("AdaU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("AdaU".into(), t);
@@ -112,8 +114,9 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiCmdAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AcU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("AcU") {
+    {
         let mut t = ThingTemplate::new("AcU");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
@@ -170,9 +173,10 @@ fn continue_attack_after_kill_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ContAtk");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CaA\nEnd\nObject CaD\nEnd\nObject CaN\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["CaA", "CaD", "CaN"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Infantry);
             t.add_kind_of(KindOf::Attackable);
@@ -223,9 +227,10 @@ fn assign_unit_attack_path_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AtkPath");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ApU\nEnd\nObject ApE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["ApU", "ApE"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Infantry);
             t.add_kind_of(KindOf::Attackable);
@@ -283,8 +288,9 @@ fn path_approach_with_state_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("PathSt");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PsU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("PsU") {
+    {
         let mut t = ThingTemplate::new("PsU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("PsU".into(), t);
@@ -325,10 +331,11 @@ fn troop_crawler_assault_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("TcAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object TcO\nEnd\nObject TcE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let crawler_name = "ChinaVehicleTroopCrawler";
     for name in [crawler_name, "TcO", "TcE"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             if name == crawler_name {
                 t.add_kind_of(KindOf::Vehicle);
@@ -398,16 +405,17 @@ fn missile_defender_laser_guided_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("MdAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MdE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Retail template name residual for missile defender.
     let md_name = "AmericaInfantryMissileDefender";
-    if !logic.templates.contains_key(md_name) {
+    {
         let mut t = ThingTemplate::new(md_name);
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
         logic.templates.insert(md_name.into(), t);
     }
-    if !logic.templates.contains_key("MdE") {
+    {
         let mut t = ThingTemplate::new("MdE");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
@@ -484,9 +492,10 @@ fn private_attack_object_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("PrivAtk");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PaU\nEnd\nObject PaE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["PaU", "PaE"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Infantry);
             t.add_kind_of(KindOf::Attackable);
@@ -543,9 +552,10 @@ fn transfer_attack_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("XferAtk");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object XaA\nEnd\nObject XaFrom\nEnd\nObject XaTo\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["XaA", "XaFrom", "XaTo"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Infantry);
             t.add_kind_of(KindOf::Attackable);
@@ -599,9 +609,10 @@ fn apply_engagement_decision_aware_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EngAw");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object EaU\nEnd\nObject EaE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["EaU", "EaE"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Infantry);
             t.add_kind_of(KindOf::Attackable);
@@ -654,8 +665,9 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     });
 
     let cfg = golden_skirmish_config("MoodAcq");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MaU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("MaU") {
+    {
         let mut t = ThingTemplate::new("MaU");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
@@ -752,8 +764,9 @@ fn support_guard_engage_uses_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("GuardEng");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GeU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("GeU") {
+    {
         let mut t = ThingTemplate::new("GeU");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
@@ -798,9 +811,10 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("FacAtk");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FacU\nEnd\nObject FacE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("FacU", Team::USA, 0.0f32), ("FacE", Team::GLA, 80.0)] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.set_health(100.0);
             t.add_kind_of(KindOf::Infantry);
@@ -880,9 +894,10 @@ fn stop_attack_decision_authority_clears_via_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("StopAtk");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object Su\nEnd\nObject Se\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["Su", "Se"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Infantry);
             t.add_kind_of(KindOf::Attackable);
@@ -1105,8 +1120,9 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiDecNoShadow");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AiUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "AiUnit", 100.0);
+    insert_fixture_template(&mut logic, "AiUnit", 100.0);
     if let Some(t) = logic.templates.get_mut("AiUnit") {
         t.add_kind_of(KindOf::Infantry);
     }
@@ -1156,8 +1172,9 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("MoveNoShadow");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object VictoryKeepAlive\nEnd\nObject MvU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "MvU", 100.0);
+    insert_fixture_template(&mut logic, "MvU", 100.0);
     if let Some(t) = logic.templates.get_mut("MvU") {
         t.add_kind_of(KindOf::Infantry);
     }
@@ -1165,7 +1182,7 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     // (C++ VictoryConditions.cpp:87-95/168-196): a structure-less playable
     // player is defeated on frame 0-1. Seed the MpCountForVictory keep-alive
     // (stale_engine_id_does_not_skip_host_movement precedent).
-    if !logic.templates.contains_key("VictoryKeepAlive") {
+    {
         let mut t = ThingTemplate::new("VictoryKeepAlive");
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::MpCountForVictory);
@@ -1209,8 +1226,9 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
 fn constructed_host_birth_has_completed_percent_without_shadow_admission() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstNoShadow");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HoleT\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "HoleT", 500.0);
+    insert_fixture_template(&mut logic, "HoleT", 500.0);
     if let Some(t) = logic.templates.get_mut("HoleT") {
         t.add_kind_of(KindOf::Structure);
     }
@@ -1236,8 +1254,9 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiAtkAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AaU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("AaU") {
+    {
         let mut t = ThingTemplate::new("AaU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("AaU".into(), t);

@@ -9,6 +9,7 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconRef");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object EconFac\nEnd\nObject EconUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Seed a local player with known cash.
     let pid = logic
@@ -21,13 +22,13 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
         let p = logic.get_player_mut(pid).expect("p");
         p.resources.supplies = 1000;
     }
-    if !logic.templates.contains_key("EconFac") {
+    {
         let mut t = ThingTemplate::new("EconFac");
         t.add_kind_of(KindOf::Structure);
         t.add_kind_of(KindOf::FSBarracks);
         logic.templates.insert("EconFac".into(), t);
     }
-    if !logic.templates.contains_key("EconUnit") {
+    {
         let mut t = ThingTemplate::new("EconUnit");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("EconUnit".into(), t);
@@ -101,8 +102,9 @@ fn start_sell_sets_construction_percent_under_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("SellPct");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SellPad\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("SellPad") {
+    {
         let mut t = ThingTemplate::new("SellPad");
         t.add_kind_of(KindOf::Structure);
         t.set_health(500.0);
@@ -144,8 +146,9 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("SellNegPct");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SellPad\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("SellPad") {
+    {
         let mut t = ThingTemplate::new("SellPad");
         // Retail sellable structures author KINDOF_MP_COUNT_FOR_VICTORY
         // (FactionBuilding.ini; synthesized structures must carry it too —
@@ -342,8 +345,9 @@ fn pending_absolute_health_record_waits_for_admission() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("HealAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HealU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("HealU") {
+    {
         let mut t = ThingTemplate::new("HealU");
         t.add_kind_of(KindOf::Infantry);
         t.set_health(100.0);

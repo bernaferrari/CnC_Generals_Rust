@@ -6,8 +6,9 @@ use super::*;
 fn shadow_stable_ids_across_sync() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StableIdMap");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ShadowUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "ShadowUnit", 100.0);
+    insert_fixture_template(&mut logic, "ShadowUnit", 100.0);
     let a = logic
         .create_object("ShadowUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -34,8 +35,9 @@ fn shadow_stable_ids_across_sync() {
 fn shadow_world_boundary_reset_clears_previous_identity_map() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WorldBoundaryReset");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BoundaryUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "BoundaryUnit", 100.0);
+    insert_fixture_template(&mut logic, "BoundaryUnit", 100.0);
     let id = logic
         .create_object("BoundaryUnit", Team::USA, Vec3::ZERO)
         .expect("unit");
@@ -61,8 +63,9 @@ fn shadow_world_boundary_reset_clears_previous_identity_map() {
 fn sync_grows_beyond_initial_entity_hint_without_dropping_lifecycle_mappings() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ShadowEntityGrowth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GrowthUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "GrowthUnit", 100.0);
+    insert_fixture_template(&mut logic, "GrowthUnit", 100.0);
 
     let ids: Vec<_> = (0..3)
         .map(|index| {
@@ -206,8 +209,9 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
 fn shadow_damage_mutation_matches_host() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DamageParity");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DmgUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "DmgUnit", 200.0);
+    insert_fixture_template(&mut logic, "DmgUnit", 200.0);
     let id = logic
         .create_object("DmgUnit", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("unit");
@@ -227,6 +231,7 @@ fn shadow_damage_mutation_matches_host() {
 fn shadow_counts_and_economy_match_after_skirmish_config() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GameWorldShadowMap");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let (shadow, probe) = probe_host_vs_gameworld(&mut logic);
     assert!(
@@ -247,8 +252,9 @@ fn presentation_overlay_uses_shadow_health() {
     use crate::presentation_frame::PresentationFrame;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresOverlay");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OverlayUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "OverlayUnit", 100.0);
+    insert_fixture_template(&mut logic, "OverlayUnit", 100.0);
     let id = logic
         .create_object("OverlayUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 0.0))
         .expect("u");
@@ -286,8 +292,9 @@ fn presentation_overlay_uses_shadow_health() {
 fn pose_writeback_is_last_writer() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PoseWB");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PoseU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "PoseU", 80.0);
+    insert_fixture_template(&mut logic, "PoseU", 80.0);
     let id = logic
         .create_object("PoseU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -319,8 +326,9 @@ fn pose_writeback_is_last_writer() {
 fn sync_from_host_copies_entity_engine_bridged_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityEngineBridged");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BrU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "BrU", 100.0);
+    insert_fixture_template(&mut logic, "BrU", 100.0);
     let id = logic
         .create_object("BrU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -800,8 +808,9 @@ fn sync_from_host_copies_entity_transport_residual() {
 fn sync_from_host_copies_entity_weapon_move_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityWeaponMove");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object WpnMoveU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "WpnMoveU", 100.0);
+    insert_fixture_template(&mut logic, "WpnMoveU", 100.0);
     let id = logic
         .create_object("WpnMoveU", Team::USA, glam::Vec3::new(7.0, 0.0, 7.0))
         .expect("id");
@@ -862,8 +871,9 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
 fn sync_from_host_copies_entity_building_residual() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EntityBuilding");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BarracksRes\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "BarracksRes", 500.0);
+    insert_fixture_template(&mut logic, "BarracksRes", 500.0);
     let id = logic
         .create_object("BarracksRes", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
         .expect("id");
@@ -925,8 +935,9 @@ fn writeback_production_and_rally_to_host() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ProdRallyWb");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object WarFact\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("WarFact") {
+    {
         let mut t = ThingTemplate::new("WarFact");
         t.set_health(1000.0);
         t.add_kind_of(KindOf::Structure);
@@ -1076,13 +1087,14 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("DoorGateProduction");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AmericaBarracks\nEnd\nObject DoorGateRanger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Isolate authored door behavior from the genuine low-power build penalty.
     for player in logic.get_players_mut().values_mut() {
         player.power_produced = 1;
         player.power_consumed = 0;
     }
-    ensure_template(&mut logic, "DoorGateRanger", 100.0);
+    insert_fixture_template(&mut logic, "DoorGateRanger", 100.0);
     logic
         .templates
         .get_mut("DoorGateRanger")
@@ -1194,13 +1206,14 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("DoorBatchProduction");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DoorBatchBarracks\nEnd\nObject DoorBatchRanger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Isolate authored door behavior from the genuine low-power build penalty.
     for player in logic.get_players_mut().values_mut() {
         player.power_produced = 1;
         player.power_consumed = 0;
     }
-    ensure_template(&mut logic, "DoorBatchRanger", 100.0);
+    insert_fixture_template(&mut logic, "DoorBatchRanger", 100.0);
     logic
         .templates
         .get_mut("DoorBatchRanger")
@@ -1319,8 +1332,9 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("QueueSoleTickProduction");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object QueueSoleProducer\nEnd\nObject QueueSoleRanger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "QueueSoleRanger", 100.0);
+    insert_fixture_template(&mut logic, "QueueSoleRanger", 100.0);
     let mut producer = ThingTemplate::new("QueueSoleProducer");
     producer
         .set_health(500.0)
@@ -1561,8 +1575,9 @@ fn construction_shadow_disagreement_cannot_mutate_live_host() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstrWb");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BuildPad\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("BuildPad") {
+    {
         let mut t = ThingTemplate::new("BuildPad");
         t.set_health(500.0);
         t.add_kind_of(KindOf::Structure);

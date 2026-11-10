@@ -1402,6 +1402,7 @@ mod presentation_selection_tests {
         // Criterion 2: production consumer identity from PresentationFrame.
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("SelPresMap");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SelUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("SelUnit");
         t.set_health(100.0);
@@ -1515,6 +1516,7 @@ mod presentation_selection_tests {
     fn airborne_blob_discs_project_to_terrain() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("AirBlobMap");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AirBlobJet\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("AirBlobJet");
         t.set_health(100.0);
@@ -1560,6 +1562,7 @@ mod presentation_selection_tests {
 
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("FogBlobMap");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FogBlobUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("FogBlobUnit");
         t.set_health(100.0);
@@ -1627,6 +1630,7 @@ mod presentation_selection_tests {
     fn blob_discs_hidden_when_use_shadow_decals_off() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("DecalOffBlobMap");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DecalOffUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("DecalOffUnit");
         t.set_health(100.0);
@@ -1671,6 +1675,7 @@ mod presentation_selection_tests {
         // volume): a volume caster with 3D shadows on, a blob disc without.
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("VolBlobMap");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object VolBlobTank\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("VolBlobTank");
         t.set_health(100.0);

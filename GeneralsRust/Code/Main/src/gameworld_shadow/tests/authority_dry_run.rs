@@ -7,8 +7,9 @@ use crate::gameworld_shadow::probe_host_vs_gameworld;
 fn ordinary_owner_frames_keep_observation_metrics_consistent() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AuthDry");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AuthDryRanger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_template(&mut logic, "AuthDryRanger", 80.0);
+    insert_fixture_template(&mut logic, "AuthDryRanger", 80.0);
     let _id = logic
         .create_object("AuthDryRanger", Team::USA, Vec3::new(6.0, 0.0, 6.0))
         .expect("id");

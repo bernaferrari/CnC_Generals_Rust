@@ -14,9 +14,10 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiSm");
 
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AiSmU\nEnd\nObject AiSmE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("AiSmU", Team::USA, 0.0f32), ("AiSmE", Team::GLA, 80.0)] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut tmpl = ThingTemplate::new(name);
             tmpl.set_health(100.0);
             if team == Team::GLA {

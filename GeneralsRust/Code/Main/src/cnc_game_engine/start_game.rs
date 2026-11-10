@@ -2939,6 +2939,7 @@ End
         assert_eq!(config.rules.starting_cash, 10_000);
 
         let mut logic = crate::game_logic::GameLogic::new();
+        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
         crate::skirmish_config::apply_skirmish_config(&mut logic, &config)
             .expect("synthesized config applies through the skirmish authority");
 

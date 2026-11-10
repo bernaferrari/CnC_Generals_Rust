@@ -11,8 +11,9 @@ fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() 
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("P4Fact");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object P4Fact\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("P4Fact") {
+    {
         let mut t = ThingTemplate::new("P4Fact");
         t.add_kind_of(KindOf::Structure);
         t.add_kind_of(KindOf::FSBarracks);
@@ -73,8 +74,9 @@ fn production_door_advances_opening_to_waiting_open() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("P4Door");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object P4Door\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("P4Door") {
+    {
         let mut t = ThingTemplate::new("P4Door");
         t.add_kind_of(KindOf::Structure);
         logic.templates.insert("P4Door".into(), t);
@@ -106,8 +108,9 @@ fn construction_observation_does_not_complete_host_or_projection() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("P4Ctor");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object P4Ctor\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("P4Ctor") {
+    {
         let mut t = ThingTemplate::new("P4Ctor");
         t.set_health(400.0);
         t.build_time = 10.0;
@@ -143,9 +146,10 @@ fn construction_observation_does_not_complete_host_or_projection() {
 fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("P5Cont");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object P5Bunker\nEnd\nObject P5Inf\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["P5Bunker", "P5Inf"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.set_health(200.0);
             t.add_kind_of(KindOf::Selectable);

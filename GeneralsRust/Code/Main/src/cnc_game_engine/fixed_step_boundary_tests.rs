@@ -8,6 +8,12 @@ mod owned_frames;
 fn fixture(name: &str, health: f32) -> (GameLogic, ObjectId, GameWorldShadow) {
     let mut logic = GameLogic::new();
     let config = crate::skirmish_config::golden_skirmish_config(name);
+    logic
+        .admit_object_ini_sources([(
+            "fixture-objects.ini".into(),
+            format!("Object BoundaryKeepAlive\nEnd\nObject {name}\nEnd\n"),
+        )])
+        .expect("fixture Object content admitted before NewGame");
     crate::skirmish_config::apply_skirmish_config(&mut logic, &config).expect("content admission");
     // Retail short-game rules defeat structure-less players and remove their
     // armies. Admit both players' real victory-counting structures so these

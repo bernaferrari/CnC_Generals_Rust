@@ -755,6 +755,7 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("UnitMeshPres");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PresMeshUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("PresMeshUnit");
     t.set_health(55.0);
@@ -807,6 +808,7 @@ fn presentation_fow_never_explored_skip_is_snapshot_owned() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowSnapSkip");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FowSkipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("FowSkipUnit");
     t.set_health(40.0);

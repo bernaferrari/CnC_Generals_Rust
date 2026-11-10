@@ -1496,6 +1496,7 @@ mod tests {
         };
 
         let mut logic = GameLogic::new();
+        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &config).expect("exact General config must apply");
 
         assert_eq!(logic.game_mode(), GameMode::Skirmish);
@@ -1665,6 +1666,7 @@ mod tests {
         };
 
         let mut logic = GameLogic::new();
+        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &config).expect("Random config must resolve");
         assert_eq!(logic.logic_base_seed, config.random_seed);
         let selected_before_rebind = [0, 1].map(|player_id| {
@@ -1739,6 +1741,7 @@ mod tests {
                 },
             ],
         };
+        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &config).expect("cfg");
         let usa = logic.get_player(0).expect("usa");
         assert!(usa.has_unlocked_science("SCIENCE_AMERICA"));
@@ -1759,6 +1762,7 @@ mod tests {
     fn apply_skirmish_config_sets_cash_and_ai_from_slots() {
         let cfg = golden_skirmish_config("SmokeTestMap");
         let mut logic = GameLogic::new();
+        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("apply");
         let p0 = logic.get_player(0).expect("human");
         assert!(logic.is_local_player(p0.id) || p0.resources.supplies == 10_000);
@@ -1819,6 +1823,7 @@ mod tests {
 
         let cfg = golden_skirmish_config(map_identity);
         let mut logic = GameLogic::new();
+        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("apply skirmish");
         logic.ensure_ai_faction_templates(Team::USA);
         logic.ensure_ai_faction_templates(Team::GLA);
@@ -2295,9 +2300,9 @@ mod resolved_player_identity_tests {
             module_path!(),
             "actual_resolved_lobby_creates_observer_after_real_slots_without_bootstrap_prototype",
             || {
-                super::lobby_definition_tests::admit_slot_definitions();
-                let mut world = GameLogic::new();
+                let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
                 let config = golden_skirmish_config("ObserverIdentity.map");
+                let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
                 apply_skirmish_config(&mut world, &config).unwrap();
                 let observer = world.replay_observer_player_id().unwrap();
                 assert_eq!(observer, 2);

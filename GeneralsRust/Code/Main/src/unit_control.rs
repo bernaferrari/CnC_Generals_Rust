@@ -1183,8 +1183,9 @@ mod tests {
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("SelCenterPres");
+        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SelC\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-        if !logic.templates.contains_key("SelC") {
+        {
             let mut t = ThingTemplate::new("SelC");
             t.set_health(100.0);
             t.add_kind_of(KindOf::Selectable);

@@ -79,7 +79,6 @@ fn occupied_observer_precedes_synthetic_replay_observer_and_never_takes_a_start(
     isolated(
         "occupied_observer_precedes_synthetic_replay_observer_and_never_takes_a_start",
         || {
-            lobby_definition_tests::admit_slot_definitions();
             let mut config = golden_skirmish_config("OwnedObserverAdmission.map");
             config.slots.truncate(1);
             config.slots.push(observer_slot(3));
@@ -88,7 +87,8 @@ fn occupied_observer_precedes_synthetic_replay_observer_and_never_takes_a_start(
                 1,
                 "occupied observer is not a gameplay team"
             );
-            let mut world = GameLogic::new();
+            let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+            let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
             apply_skirmish_config_for_mode(&mut world, &config, GameMode::Replay).unwrap();
             let observer = world.get_player(3).expect("original occupied player3");
             assert_eq!(observer.map_side.map_player_name, "player3");

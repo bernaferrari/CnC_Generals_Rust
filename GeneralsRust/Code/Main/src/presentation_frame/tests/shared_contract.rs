@@ -8,6 +8,7 @@ fn shared_hud_contract_borrows_frozen_values_and_updates_live_ui() {
     // ControlBarCommand.cpp resource/objective-facing HUD updates.
     let mut logic = GameLogic::new();
     let config = golden_skirmish_config("PresentationContract");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &config).expect("skirmish config");
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
 

@@ -8,6 +8,16 @@ pub(super) use glam::Vec3;
 pub(super) mod harness;
 pub(super) use harness::{perform_owner_damage, perform_owner_health};
 
+/// Programmatic shape for an Object the fixture declared in its admitted
+/// ordered content; replaces the bare declaration's host template.
+pub(super) fn insert_fixture_template(logic: &mut GameLogic, name: &str, hp: f32) {
+    let mut t = ThingTemplate::new(name);
+    t.set_health(hp);
+    t.add_kind_of(KindOf::Selectable);
+    t.add_kind_of(KindOf::Attackable);
+    logic.templates.insert(name.into(), t);
+}
+
 pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
     if logic.templates.contains_key(name) {
         return;

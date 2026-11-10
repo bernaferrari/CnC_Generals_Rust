@@ -93,6 +93,7 @@ fn money_crate_identity_freezes_for_click_routing() {
 fn player_roster_frozen_from_host() {
     let mut logic = GameLogic::new();
     let cfg = crate::skirmish_config::golden_skirmish_config("PlayerRosterFreeze");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let (host_name, host_team) = {
@@ -116,6 +117,7 @@ fn player_roster_frozen_from_host() {
 fn local_team_frozen_from_host_player() {
     let mut logic = GameLogic::new();
     let cfg = crate::skirmish_config::golden_skirmish_config("LocalTeamFreeze");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let host_team = logic.get_player(pid).expect("p").team;

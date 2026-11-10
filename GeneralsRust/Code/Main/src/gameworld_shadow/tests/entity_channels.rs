@@ -8,9 +8,10 @@ fn canonical_sole_healing_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SoleHeal");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HealTgt\nEnd\nObject DozerA\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["HealTgt", "DozerA"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Vehicle);
             logic.templates.insert(name.into(), t);
@@ -48,8 +49,9 @@ fn ai_mood_is_canonical_and_shadow_only_observes() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiMood");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MoodU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("MoodU") {
+    {
         let mut t = ThingTemplate::new("MoodU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("MoodU".into(), t);
@@ -95,8 +97,9 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GuardR");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GuardU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("GuardU") {
+    {
         let mut t = ThingTemplate::new("GuardU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("GuardU".into(), t);
@@ -145,8 +148,9 @@ fn canonical_production_door_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdDoor");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DoorFact\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("DoorFact") {
+    {
         let mut t = ThingTemplate::new("DoorFact");
         t.add_kind_of(KindOf::Structure);
         t.add_kind_of(KindOf::FSBarracks);
@@ -184,8 +188,9 @@ fn physics_motive_channel_via_set_physics_motive() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PhysMot");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PhysU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("PhysU") {
+    {
         let mut t = ThingTemplate::new("PhysU");
         t.add_kind_of(KindOf::Vehicle);
         logic.templates.insert("PhysU".into(), t);
@@ -248,8 +253,9 @@ fn canonical_bounce_land_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BounceL");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BounceU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("BounceU") {
+    {
         let mut t = ThingTemplate::new("BounceU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("BounceU".into(), t);
@@ -303,8 +309,9 @@ fn turret_extended_channel_via_set_turret() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("TurretX");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object TurU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("TurU") {
+    {
         let mut t = ThingTemplate::new("TurU");
         t.add_kind_of(KindOf::Vehicle);
         logic.templates.insert("TurU".into(), t);
@@ -406,8 +413,9 @@ fn combat_attack_channel_via_set_combat_attack() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CbtAtk");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CbtU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("CbtU") {
+    {
         let mut t = ThingTemplate::new("CbtU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("CbtU".into(), t);
@@ -473,8 +481,9 @@ fn locomotor_channel_via_set_locomotor() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Loco");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object LocoU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("LocoU") {
+    {
         let mut t = ThingTemplate::new("LocoU");
         t.add_kind_of(KindOf::Vehicle);
         logic.templates.insert("LocoU".into(), t);
@@ -543,8 +552,9 @@ fn canonical_ai_request_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiReq");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AiU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("AiU") {
+    {
         let mut t = ThingTemplate::new("AiU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("AiU".into(), t);
@@ -604,8 +614,9 @@ fn canonical_hijacker_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Hijack");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HjU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("HjU") {
+    {
         let mut t = ThingTemplate::new("HjU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("HjU".into(), t);
@@ -656,8 +667,9 @@ fn leech_range_channel_via_set_weapon_stats() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Leech");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object LchU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("LchU") {
+    {
         let mut t = ThingTemplate::new("LchU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("LchU".into(), t);
@@ -697,8 +709,9 @@ fn fire_intent_channel_via_set_fire_intent() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("FireInt");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FiU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("FiU") {
+    {
         let mut t = ThingTemplate::new("FiU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("FiU".into(), t);

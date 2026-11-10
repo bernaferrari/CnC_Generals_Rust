@@ -6,6 +6,7 @@ use super::*;
 fn host_resource_tick_logs_power_for_shadow() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PowerLog");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Advance one host frame so update_player_resources runs.
     logic.update_with_dt(1.0 / 30.0);
@@ -30,6 +31,7 @@ fn host_resource_tick_logs_power_for_shadow() {
 fn steal_cash_logs_economy_for_both_sides() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StealLog");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Ensure two teams with cash.
     let mut usa = None;
@@ -70,6 +72,7 @@ fn steal_cash_logs_economy_for_both_sides() {
 fn credit_supplies_logs_economy_channel() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CreditLog");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = *logic.get_players().keys().next().expect("player");
 
@@ -97,6 +100,7 @@ fn credit_supplies_logs_economy_channel() {
 fn economy_authority_applies_logged_spend() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconSpend");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
     ids.sort_unstable();
@@ -148,6 +152,7 @@ fn economy_authority_applies_logged_spend() {
 fn economy_authority_writeback_supplies() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconAuth");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -183,6 +188,7 @@ fn economy_authority_pending_blocks_double_spend() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EconDbl");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object EconKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
     ids.sort_unstable();
@@ -197,7 +203,7 @@ fn economy_authority_pending_blocks_double_spend() {
     // victory-counting structure so the assertion observes the deferred-spend
     // materialization rather than the defeat wipe.
     use crate::game_logic::{KindOf, ThingTemplate};
-    if !logic.templates.contains_key("EconKeepAlive") {
+    {
         let mut t = ThingTemplate::new("EconKeepAlive");
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::MpCountForVictory);
@@ -241,6 +247,7 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EconNoShadow");
+    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
     ids.sort_unstable();
@@ -275,6 +282,7 @@ fn credit_supplies_defers_under_economy_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EconCredit");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object EconKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
     ids.sort_unstable();
@@ -289,7 +297,7 @@ fn credit_supplies_defers_under_economy_authority() {
     // victory-counting structure so the assertion observes economy
     // materialization rather than the defeat wipe.
     use crate::game_logic::{KindOf, ThingTemplate};
-    if !logic.templates.contains_key("EconKeepAlive") {
+    {
         let mut t = ThingTemplate::new("EconKeepAlive");
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::MpCountForVictory);
@@ -316,8 +324,9 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ConstHp");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PadHp\nEnd\nObject HealthVictoryKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("PadHp") {
+    {
         let mut t = ThingTemplate::new("PadHp");
         t.set_health(500.0);
         t.add_kind_of(KindOf::Structure);
@@ -381,8 +390,9 @@ fn construction_shadow_reports_disagreement_without_rewriting_percent() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ConstAuth");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PadAuth\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("PadAuth") {
+    {
         let mut t = ThingTemplate::new("PadAuth");
         t.set_health(400.0);
         t.build_time = 10.0;
@@ -439,8 +449,9 @@ fn owned_construction_observation_never_advances_simulation_percent() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("RateOnlyUc");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PadRateUc\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("PadRateUc") {
+    {
         let mut t = ThingTemplate::new("PadRateUc");
         t.set_health(400.0);
         t.build_time = 10.0;
@@ -488,8 +499,9 @@ fn production_progress_log_drives_set_production_queue() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdProg");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FactProg\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("FactProg") {
+    {
         let mut t = ThingTemplate::new("FactProg");
         t.add_kind_of(KindOf::Structure);
         t.add_kind_of(KindOf::FSBarracks);
@@ -546,8 +558,9 @@ fn exit_delay_remaining_channel_via_production_progress() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ExitDel");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FactExit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("FactExit") {
+    {
         let mut t = ThingTemplate::new("FactExit");
         t.add_kind_of(KindOf::Structure);
         t.add_kind_of(KindOf::FSBarracks);
@@ -588,8 +601,9 @@ fn body_damage_state_channel_via_set_body_damage() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BodyDmg");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object TankBd\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("TankBd") {
+    {
         let mut t = ThingTemplate::new("TankBd");
         t.add_kind_of(KindOf::Vehicle);
         logic.templates.insert("TankBd".into(), t);
@@ -629,8 +643,9 @@ fn weapon_last_fire_time_channel_via_set_weapon_stats() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WepFire");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object WepFireU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("WepFireU") {
+    {
         let mut t = ThingTemplate::new("WepFireU");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
@@ -670,8 +685,9 @@ fn weapon_clip_size_channel_via_set_weapon_stats() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WpnClip");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ClipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("ClipUnit") {
+    {
         let mut t = ThingTemplate::new("ClipUnit");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("ClipUnit".into(), t);
@@ -707,8 +723,9 @@ fn canonical_front_crushed_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CrushFl");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CrushMe\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("CrushMe") {
+    {
         let mut t = ThingTemplate::new("CrushMe");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("CrushMe".into(), t);
@@ -746,8 +763,9 @@ fn waiting_for_path_channel_via_set_movement() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WaitPath");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object WaitUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("WaitUnit") {
+    {
         let mut t = ThingTemplate::new("WaitUnit");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("WaitUnit".into(), t);
@@ -781,8 +799,9 @@ fn locomotor_path_flags_channel_via_set_movement() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("LocoPath");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object LocoU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("LocoU") {
+    {
         let mut t = ThingTemplate::new("LocoU");
         t.add_kind_of(KindOf::Vehicle);
         logic.templates.insert("LocoU".into(), t);
@@ -831,8 +850,9 @@ fn canonical_shock_stun_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ShockSt");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ShockU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("ShockU") {
+    {
         let mut t = ThingTemplate::new("ShockU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("ShockU".into(), t);
@@ -882,8 +902,9 @@ fn blocked_path_channel_via_set_movement() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BlockP");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BlockU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("BlockU") {
+    {
         let mut t = ThingTemplate::new("BlockU");
         t.add_kind_of(KindOf::Infantry);
         logic.templates.insert("BlockU".into(), t);
@@ -931,9 +952,10 @@ fn canonical_rebuild_producer_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RebuildP");
+    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HoleA\nEnd\nObject BldA\nEnd\nObject WorkerA\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["HoleA", "BldA", "WorkerA"] {
-        if !logic.templates.contains_key(name) {
+        {
             let mut t = ThingTemplate::new(name);
             t.add_kind_of(KindOf::Structure);
             logic.templates.insert(name.into(), t);
