@@ -1649,3 +1649,39 @@ fn named_evac_disposition_lands_in_the_dispatching_engines_world() {
     assert_eq!(read(&world_a), Some(1), "A's engine wrote A's map");
     assert_eq!(read(&world_b), Some(2), "B's engine wrote B's map");
 }
+
+/// C++ ScriptActions::doEvaEnabledDisabled toggles the dispatching engine's
+/// TheEva. Two worlds take turns on ONE thread, each engine dispatching while
+/// the peer world is published; only the dispatching world's Eva changes.
+#[test]
+fn eva_set_enabled_lands_in_the_dispatching_engines_world() {
+    let _lock = crate::test_sync::lock();
+    use crate::helpers::{EvaEvent, TheEva};
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    let world_a = new_world_services();
+    let world_b = new_world_services();
+    let engine_a = ScriptEngine::new_with_services(&world_a).expect("engine A");
+    let engine_b = ScriptEngine::new_with_services(&world_b).expect("engine B");
+    let set_eva = |engine: &ScriptEngine, enabled: bool| {
+        let state = std::cell::RefCell::new(ScriptContext::at_frame(1));
+        let mut dispatcher = ScriptActionDispatcher::new(engine, &state);
+        let mut action = ScriptAction::new(ScriptActionType::EvaSetEnabledDisabled);
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Boolean, i32::from(enabled)))
+            .expect("enabled parameter");
+        dispatcher.execute_action(&action).expect("eva action")
+    };
+    TheEva::set_should_play_in(&world_a, EvaEvent::LowPower).unwrap();
+    TheEva::set_should_play_in(&world_b, EvaEvent::LowPower).unwrap();
+    // Turn 1: A disables while B is published.
+    with_world_services(&world_b, || set_eva(&engine_a, false));
+    assert!(!TheEva::is_enabled_in(&world_a).unwrap());
+    assert!(TheEva::is_enabled_in(&world_b).unwrap());
+    assert!(TheEva::drain_events_in(&world_a).unwrap().is_empty(), "disable clears A's queue");
+    assert_eq!(TheEva::drain_events_in(&world_b).unwrap(), vec![EvaEvent::LowPower]);
+    // Turn 2: B disables while A is published; turn 3: A re-enables under B.
+    with_world_services(&world_a, || set_eva(&engine_b, false));
+    with_world_services(&world_b, || set_eva(&engine_a, true));
+    assert!(TheEva::is_enabled_in(&world_a).unwrap());
+    assert!(!TheEva::is_enabled_in(&world_b).unwrap());
+}

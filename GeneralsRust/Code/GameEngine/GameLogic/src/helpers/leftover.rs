@@ -983,7 +983,16 @@ impl TheEva {
         world: &crate::system::engine_stores::WorldServices,
         enabled: bool,
     ) -> Result<(), GameError> {
-        let mut guard = world.eva().lock().map_err(|_| GameError::LockError)?;
+        Self::set_enabled_on(world.eva(), enabled)
+    }
+
+    /// C++ `Eva::setEnabled` on one Eva owner (a world's, or the one its
+    /// script engine was built with).
+    pub(crate) fn set_enabled_on(
+        eva: &std::sync::Mutex<EvaState>,
+        enabled: bool,
+    ) -> Result<(), GameError> {
+        let mut guard = eva.lock().map_err(|_| GameError::LockError)?;
         guard.enabled = enabled;
         if !enabled {
             guard.queued.clear();
@@ -1013,15 +1022,6 @@ impl TheEva {
         Ok(())
     }
 
-    pub fn set_enabled(enabled: bool) -> Result<(), GameError> {
-        let state = Self::state_arc();
-        let mut guard = state.lock().map_err(|_| GameError::LockError)?;
-        guard.enabled = enabled;
-        if !enabled {
-            guard.queued.clear();
-        }
-        Ok(())
-    }
 
 }
 

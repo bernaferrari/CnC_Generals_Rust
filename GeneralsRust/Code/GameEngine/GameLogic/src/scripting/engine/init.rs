@@ -51,6 +51,11 @@ impl ScriptEngine {
         &self.players
     }
 
+    /// The Eva of the world that built this engine.
+    pub(crate) fn eva_owner(&self) -> &Mutex<crate::helpers::EvaState> {
+        &self.eva
+    }
+
     /// The named evac disposition map of the world that built this engine.
     pub(crate) fn named_evac_owner(&self) -> &Mutex<std::collections::HashMap<String, u32>> {
         &self.named_evac
@@ -108,6 +113,7 @@ impl ScriptEngine {
             cave_objects: Arc::clone(services.object_registry()),
             cave_names: Arc::clone(services.scripts().named_objects()),
             named_evac: Arc::clone(services.named_evac_disposition()),
+            eva: Arc::clone(services.eva()),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),

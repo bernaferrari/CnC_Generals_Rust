@@ -1054,8 +1054,14 @@ impl ScriptActionDispatcher<'_> {
             }
         }
         log::debug!("EVA enabled: {}", enabled);
-        if let Err(err) = crate::helpers::TheEva::set_enabled(enabled) {
-            log::warn!("Failed to update EVA enabled state: {}", err);
+        // C++ ScriptActions::doEvaEnabledDisabled -> the dispatching engine's TheEva.
+        match self
+            .context
+            .with_engine_ref(|engine| crate::helpers::TheEva::set_enabled_on(engine.eva_owner(), enabled))
+        {
+            Some(Ok(())) => {}
+            Some(Err(err)) => log::warn!("Failed to update EVA enabled state: {}", err),
+            None => log::warn!("EVA_SET_ENABLED_DISABLED: no dispatching script engine"),
         }
         Ok(ScriptActionResult::Success)
     }
