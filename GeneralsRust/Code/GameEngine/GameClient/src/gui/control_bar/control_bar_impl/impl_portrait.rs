@@ -157,7 +157,12 @@ impl ControlBar {
         &mut self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        if gamelogic::helpers::TheControlBar::take_radar_attack_glow() {
+        let glow = self
+            .logic_world
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .is_some_and(|world| gamelogic::helpers::TheControlBar::take_radar_attack_glow_in(&world));
+        if glow {
             self.trigger_radar_attack_glow(receiving_manager);
         }
         if !self.radar_attack_glow_on {

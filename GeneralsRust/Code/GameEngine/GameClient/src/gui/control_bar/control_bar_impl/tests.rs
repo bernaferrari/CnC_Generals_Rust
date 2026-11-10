@@ -1047,4 +1047,36 @@ if let Ok(mut list) = __arc_bind.write() {
             );
         }
     }
+
+    #[test]
+    fn radar_glow_reaches_only_the_bar_of_its_own_world() {
+        use std::sync::atomic::Ordering;
+        crate::test_support::ensure_ambient_host();
+        let a = gamelogic::system::engine_stores::new_world_services();
+        let b = gamelogic::system::engine_stores::new_world_services();
+        let pending = |w: &gamelogic::system::engine_stores::WorldServices| {
+            w.session_flags().radar_attack_glow.load(Ordering::SeqCst)
+        };
+        gamelogic::helpers::TheControlBar::trigger_radar_attack_glow_in(&a);
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let mut bar_b = ControlBar::new();
+        bar_b.bind_logic_world(Some(&b));
+        let mut unbound = ControlBar::new();
+        // Even with `a` published, neither b's bar nor an unbound bar takes it.
+        gamelogic::system::engine_stores::with_world_services(&a, || {
+            bar_b.update_radar_attack_glow(&mut wm);
+            unbound.update_radar_attack_glow(&mut wm);
+        });
+        assert!(!bar_b.radar_attack_glow_on);
+        assert!(!unbound.radar_attack_glow_on);
+        assert!(pending(&a));
+        let mut bar_a = ControlBar::new();
+        bar_a.bind_logic_world(Some(&a));
+        gamelogic::system::engine_stores::with_world_services(&b, || {
+            bar_a.update_radar_attack_glow(&mut wm);
+        });
+        assert!(bar_a.radar_attack_glow_on);
+        assert!(!pending(&a));
+        assert!(!pending(&b));
+    }
 }

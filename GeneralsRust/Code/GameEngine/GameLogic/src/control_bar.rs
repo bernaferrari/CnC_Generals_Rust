@@ -165,6 +165,11 @@ impl ControlBarBridge {
             .find(|button| button.name.eq_ignore_ascii_case(name))
     }
 
+    /// Whether this ControlBar parsed any CommandButton.
+    pub fn has_command_buttons(&self) -> bool {
+        !self.buttons_by_id.is_empty()
+    }
+
     pub fn find_command_set_by_name(&self, name: &str) -> Option<&CommandSet> {
         self.command_sets.get(name)
     }

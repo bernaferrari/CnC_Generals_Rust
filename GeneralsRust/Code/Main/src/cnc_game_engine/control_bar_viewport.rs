@@ -61,6 +61,8 @@ impl CnCGameEngine {
                 Some(self.game_logic.command_definitions()),
                 self.game_logic.control_bar_bridge(),
             );
+        self.control_bar
+            .bind_logic_world(Some(&self.game_logic.world_services));
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let window_manager_owner = self.game_client.window_manager_owner();
@@ -249,6 +251,8 @@ impl CnCGameEngine {
                 Some(self.game_logic.command_definitions()),
                 self.game_logic.control_bar_bridge(),
             );
+        self.control_bar
+            .bind_logic_world(Some(&self.game_logic.world_services));
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let replay = matches!(
@@ -328,6 +332,8 @@ impl CnCGameEngine {
                 Some(self.game_logic.command_definitions()),
                 self.game_logic.control_bar_bridge(),
             );
+        self.control_bar
+            .bind_logic_world(Some(&self.game_logic.world_services));
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let replay = matches!(

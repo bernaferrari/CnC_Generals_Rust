@@ -1892,24 +1892,12 @@ fn leftover_command_button_kind(
             }
             return LeftoverCommandButtonKind::Other;
         }
-    }
-    // Same world as the bridge above and the host query snapshot: its own catalog.
-    let world = crate::system::engine_stores::active_services();
-    {
-        let bar = world.common().ini.control_bar.read();
-        if let Some(button) = bar.find_command_button_resolved(command_button_name) {
-            if let Some(template) = button.get_special_power_template() {
-                return LeftoverCommandButtonKind::SpecialPower(template.clone());
-            }
-            if !button.upgrade.is_empty() {
-                return LeftoverCommandButtonKind::Upgrade;
-            }
-            return LeftoverCommandButtonKind::Other;
-        }
-        if !bar.get_button_names().is_empty() {
+        // C++ findCommandButton over a populated ControlBar: absent is false.
+        if bridge.has_command_buttons() {
             return LeftoverCommandButtonKind::Missing;
         }
     }
+    // No ControlBar of the evaluating engine: nothing to resolve against.
     LeftoverCommandButtonKind::Unknown
 }
 
@@ -2506,5 +2494,42 @@ mod host_skirmish_discovered_prereq_tests {
             Some(false)
         );
         clear_host_script_query_snapshot();
+    }
+}
+
+#[cfg(test)]
+mod command_button_kind_world_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+
+    #[test]
+    fn command_button_kind_reads_only_the_evaluating_engines_control_bar() {
+        let a = new_world_services();
+        let b = new_world_services();
+        with_world_services(&b, || {
+            let mut parsed = game_engine::common::ini::ini_command_button::CommandButton::new(
+                "Command_OnlyInB".to_string(),
+            );
+            parsed.command = "SPECIAL_POWER".to_string();
+            let button = crate::command_button::CommandButton::from_common(7, &parsed);
+            crate::control_bar::install_test_command_button(button, "Set_B", 0).unwrap();
+        });
+        let bridge_b = crate::control_bar::control_bar_bridge_in(&b).expect("b's ControlBar");
+        assert!(crate::control_bar::control_bar_bridge_in(&a).is_none());
+        // Evaluated for world `a` while `b` is published: `a` has no ControlBar.
+        with_world_services(&b, || {
+            assert!(matches!(
+                leftover_command_button_kind("Command_OnlyInB", None),
+                LeftoverCommandButtonKind::Unknown
+            ));
+            assert!(!matches!(
+                leftover_command_button_kind("Command_OnlyInB", Some(&bridge_b)),
+                LeftoverCommandButtonKind::Unknown | LeftoverCommandButtonKind::Missing
+            ));
+            assert!(matches!(
+                leftover_command_button_kind("Command_Absent", Some(&bridge_b)),
+                LeftoverCommandButtonKind::Missing
+            ));
+        });
     }
 }

@@ -75,10 +75,8 @@ impl GameLogic {
     fn refresh_owned_control_bar_bridge(&self) -> Result<(), String> {
         match self.owning_world_services() {
             Some(services) => crate::control_bar::refresh_control_bar_bridge_for_world(&services, None),
-            None => crate::control_bar::refresh_control_bar_bridge_for_world(
-                &crate::system::engine_stores::active_services(),
-                None,
-            ),
+            // A GameLogic of no world has no ControlBar to rebuild.
+            None => Ok(()),
         }
     }
 

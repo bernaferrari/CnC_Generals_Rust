@@ -378,6 +378,12 @@ impl GameClient {
     /// Bind the committed logic world's presentation queues to this client.
     /// A staged candidate does not call this until its world is installed.
     pub fn bind_visual_world(&mut self, visual_world: gamelogic::helpers::ClientVisualHandle) {
+        if self.initialized && self.input_authority == ClientInputAuthority::StandaloneCore {
+            // The standalone core's ControlBar hooks follow its bound world.
+            crate::helpers::register_legacy_core_control_bar_ui_ingress(
+                visual_world.world_services(),
+            );
+        }
         self.visual_world = Some(visual_world);
     }
 
@@ -1164,13 +1170,12 @@ impl GameClient {
         crate::helpers::register_observer_audio_view_hooks();
         if self.input_authority == ClientInputAuthority::StandaloneCore {
             // The hooks belong to this client's own world; an unbound
-            // standalone client still drives the world published for it.
-            let world = self
-                .visual_world
-                .as_ref()
-                .map(|handle| std::sync::Arc::clone(handle.world_services()))
-                .unwrap_or_else(gamelogic::system::engine_stores::active_services);
-            crate::helpers::register_legacy_core_control_bar_ui_ingress(&world);
+            // client has no world to install them in (fails closed).
+            if let Some(handle) = self.visual_world.as_ref() {
+                crate::helpers::register_legacy_core_control_bar_ui_ingress(
+                    handle.world_services(),
+                );
+            }
         }
         self.install_core_nonwindow_script_services();
 

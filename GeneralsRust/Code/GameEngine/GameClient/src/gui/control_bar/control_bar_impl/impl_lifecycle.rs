@@ -39,6 +39,14 @@ impl ControlBar {
         self.control_bar_bridge = bridge;
     }
 
+    /// Bind the world whose logic drives this bar; `None` unbinds it.
+    pub fn bind_logic_world(
+        &mut self,
+        world: Option<&std::sync::Arc<gamelogic::system::engine_stores::WorldServices>>,
+    ) {
+        self.logic_world = world.map(std::sync::Arc::downgrade);
+    }
+
     /// The owning world's resolved ControlBar catalog; an unbound bar has none.
     pub fn control_bar_bridge(&self) -> Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>> {
         self.control_bar_bridge.clone()
@@ -62,6 +70,7 @@ impl ControlBar {
             receiving_upgrade_actions: None,
             command_definitions: None,
             control_bar_bridge: None,
+            logic_world: None,
             tooltip: Default::default(),
             context: ControlBarContext::default(),
             is_animating: false,

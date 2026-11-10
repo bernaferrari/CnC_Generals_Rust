@@ -286,6 +286,9 @@ pub struct ControlBar {
     /// The owning world's resolved ControlBar catalog (C++ that engine's
     /// TheControlBar command buttons/sets with resolved templates).
     pub(crate) control_bar_bridge: Option<std::sync::Arc<gamelogic::control_bar::ControlBarBridge>>,
+    /// The world whose logic drives this bar (C++ its engine's TheGameLogic);
+    /// an unbound bar receives no radar glow from any world.
+    pub(crate) logic_world: Option<std::sync::Weak<gamelogic::system::engine_stores::WorldServices>>,
 
     pub(crate) tooltip: crate::gui::gui_callbacks::control_bar_popup_description::TooltipState,
     context: ControlBarContext,

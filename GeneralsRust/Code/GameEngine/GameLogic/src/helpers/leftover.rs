@@ -602,9 +602,9 @@ impl TheControlBar {
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Consume a pending glow request (ControlBar::update).
-    pub fn take_radar_attack_glow() -> bool {
-        crate::system::engine_stores::active_services()
+    /// Consume `world`'s pending glow request (its ControlBar::update).
+    pub fn take_radar_attack_glow_in(world: &crate::system::engine_stores::WorldServices) -> bool {
+        world
             .session_flags()
             .radar_attack_glow
             .swap(false, std::sync::atomic::Ordering::SeqCst)
