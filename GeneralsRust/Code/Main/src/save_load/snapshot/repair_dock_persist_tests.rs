@@ -228,7 +228,7 @@ fn repair_cache_structural_decoder_rejects_truncation_version_and_duplicates() {
 fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate() {
     use crate::game_logic::{AIState, Player};
     let mut parser = crate::assets::IniParser::new();
-    let source_text = "Object SavedRepairDock\n KindOf = VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = RepairDockUpdate RepairTag\n TimeForFullHeal = 100\n End\nEnd\n";
+    let source_text = "Object SavedRepairDock\n KindOf = VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = RepairDockUpdate RepairTag\n TimeForFullHeal = 100\n End\nEnd\nObject SavedRepairPatient\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = AIUpdateInterface PatientAI\n End\nEnd\n";
     parser
         .parse_ini_content(source_text, "saved-repair-dock.ini")
         .unwrap();
@@ -240,7 +240,6 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
     assert_eq!(template.repair_dock_frames_for_full_heal, Some(3.0));
     let mut source = GameLogic::new();
     source.add_player(Player::new(1, Team::USA, "SavedRepairOwner", true));
-    source.templates.insert(template.name.clone(), template);
     source
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
@@ -253,8 +252,9 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
     let dock = source
         .create_object_for_player("SavedRepairDock", 1, glam::Vec3::ZERO)
         .unwrap();
+    // C++ only an AIUpdateInterface owner can be in a dock-seeking AI state.
     let master = source
-        .create_object_for_player("SavedRepairDock", 1, glam::Vec3::ZERO)
+        .create_object_for_player("SavedRepairPatient", 1, glam::Vec3::ZERO)
         .unwrap();
     let frame = source.frame;
     {
@@ -281,14 +281,6 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
     restored.add_player(Player::new(1, Team::USA, "SavedRepairOwner", true));
     // GameLogic::xfer resolves Object TOC names through loaded ThingFactory
     // definitions. Supply the same immutable receiving content as C++.
-    restored.templates.insert(
-        "SavedRepairDock".into(),
-        GameLogic::build_template_from_object_definition(
-            "SavedRepairDock",
-            parser.get_definition("SavedRepairDock").unwrap(),
-            None,
-        ),
-    );
     restored
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
