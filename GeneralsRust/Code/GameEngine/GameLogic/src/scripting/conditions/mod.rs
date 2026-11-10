@@ -23,7 +23,7 @@ pub use super::{ScriptContext, ScriptValue};
 pub use registry::ConditionRegistry;
 
 pub use helpers::{
-    HostObjectTriggerPersist, HostScriptPlayerCensus, HostScriptQueryObject,
+    HostObjectTriggerPersist, HostScriptPlayerCensus, HostScriptQuery, HostScriptQueryObject,
     HostScriptQuerySnapshot, HostTechBuildingCensus, HostTriggerSlotPersist, HostTriggerWorld,
     clear_host_script_query_snapshot, host_bridge_broken, host_bridge_repaired,
     host_building_entered_by_player, host_count_player_kind_in_area,
