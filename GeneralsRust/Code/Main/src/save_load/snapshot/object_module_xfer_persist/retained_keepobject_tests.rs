@@ -15,8 +15,26 @@ struct Fixture {
     bridge: ObjectId,
 }
 
+/// Both the saving and the loading world admit the same authored content;
+/// C++ load starts a NewGame over the INI the engine already loaded.
+fn keep_content(world: &mut GameLogic) {
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+    admit_fixture_objects(
+        world,
+        &[
+            FixtureObject::new("TechOilDerrick")
+                .kind_of("STRUCTURE")
+                .health(500.0)
+                .module("Behavior = KeepObjectDie FixtureKeepDie\nEnd"),
+            FixtureObject::new("KeptSaveLive").health(100.0),
+            FixtureObject::new("KeptSaveBridge").kind_of("BRIDGE").health(100.0),
+        ],
+    );
+}
+
 fn fixture() -> Fixture {
     let mut logic = GameLogic::new();
+    keep_content(&mut logic);
     logic.set_current_frame(37);
     logic.add_player(Player::new(0, Team::USA, "Keep save owner", true));
     let mut kept_template = ThingTemplate::new("TechOilDerrick");
@@ -105,6 +123,9 @@ fn save_and_load(source: &GameLogic, target: &mut GameLogic) {
         .unwrap();
     assert!(manager.get_save_path("kept_rubble").is_file());
     // Catalog installation is the same restored-map prerequisite used by existing save tests.
+    if target.receiving_module_content.is_none() {
+        keep_content(target);
+    }
     target.templates = source.templates.clone();
     if target.get_player(0).is_none() {
         target.add_player(Player::new(0, Team::USA, "Keep save owner", true));

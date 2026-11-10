@@ -29,7 +29,9 @@ fn save_file_roundtrip_preserves_lifecycle_envelope() {
     let mut manager = SaveFileManager::with_save_directory(save_dir.path());
     manager.init().expect("init");
 
+    let content = [crate::fixture_content::FixtureObject::new("LifecycleRanger").kind_of("INFANTRY").health(100.0)];
     let mut source = GameLogic::new();
+    crate::fixture_content::admit_fixture_objects(&mut source, &content);
     let mut template = ThingTemplate::new("LifecycleRanger");
     template.add_kind_of(KindOf::Infantry);
     source
@@ -55,6 +57,7 @@ fn save_file_roundtrip_preserves_lifecycle_envelope() {
         .expect("save");
 
     let mut loaded = GameLogic::new();
+    crate::fixture_content::admit_fixture_objects(&mut loaded, &content);
     loaded.templates = source.templates.clone();
     manager
         .load_game("lifecycle_tail_rt", &mut loaded)
@@ -87,7 +90,9 @@ fn save_file_roundtrip_survives_unpaused_cooldown_and_keeps_weapon_clip() {
     let mut manager = SaveFileManager::with_save_directory(save_dir.path());
     manager.init().expect("init");
 
+    let content = [crate::fixture_content::FixtureObject::new("LifecycleCannon").health(100.0)];
     let mut source = GameLogic::new();
+    crate::fixture_content::admit_fixture_objects(&mut source, &content);
     source.templates.insert(
         "LifecycleCannon".to_string(),
         ThingTemplate::new("LifecycleCannon"),
@@ -119,6 +124,7 @@ fn save_file_roundtrip_survives_unpaused_cooldown_and_keeps_weapon_clip() {
         .expect("save");
 
     let mut loaded = GameLogic::new();
+    crate::fixture_content::admit_fixture_objects(&mut loaded, &content);
     loaded.templates = source.templates.clone();
     manager
         .load_game("lifecycle_clip_rt", &mut loaded)

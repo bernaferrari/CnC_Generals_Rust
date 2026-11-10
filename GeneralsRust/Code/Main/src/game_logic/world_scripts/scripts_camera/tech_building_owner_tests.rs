@@ -115,7 +115,11 @@ fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, Obj
     closed_slot.is_active = false;
     config.slots.insert(1, closed_slot);
 
-    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("OwnedTech")
+            .kind_of("TECH_BUILDING STRUCTURE")
+            .health(100.0),
+    ]);
     let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
     crate::skirmish_config::apply_skirmish_config_for_mode(&mut world, &config, mode).unwrap();
     assert_eq!(world.players[&0].map_side.map_player_name, "player0");
@@ -165,12 +169,6 @@ fn admitted_world(mode: GameMode, relationship: Relationship) -> (GameLogic, Obj
     assert_eq!(world.prepared_map_sides.find_side_info("player0"), Some(1));
     assert_eq!(world.prepared_map_sides.find_side_info("player3"), Some(2));
 
-    let mut template = ThingTemplate::new("OwnedTech");
-    template
-        .add_kind_of(KindOf::TechBuilding)
-        .add_kind_of(KindOf::Structure)
-        .set_health(100.0);
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("OwnedTech", 3, Vec3::new(10.0, 0.0, 10.0))
         .unwrap();

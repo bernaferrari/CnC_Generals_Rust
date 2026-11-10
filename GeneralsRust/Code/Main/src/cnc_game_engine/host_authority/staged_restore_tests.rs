@@ -14,6 +14,15 @@ fn retail_map_path_for_test() -> String {
 // Admit a real native configuration once instead of guessing a source roster
 // after map creation (which fabricates unmatched default team prototypes).
 fn admit_skirmish_fixture(source: &mut GameLogic, map_name: &str, human: &str, china_ai: bool) {
+    // The retail map's Objects and the China AI's PlayerTemplate are the
+    // application boot's definitions (GameEngine.cpp:428-458), admitted once.
+    if source.receiving_module_content.is_none() {
+        let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
+            .expect("retail boot definitions for staged restore");
+        source
+            .with_own_services_mut(|source| definitions.admit(source))
+            .expect("admit retail boot definitions");
+    }
     // Real staged-map fixtures include the app's admitted retail grid policy.
     let rules = source
         .session_view

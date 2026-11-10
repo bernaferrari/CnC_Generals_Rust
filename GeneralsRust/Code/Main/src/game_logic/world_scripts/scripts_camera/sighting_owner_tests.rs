@@ -549,13 +549,12 @@ fn typed_sparse_slot_names_resolve_in_live_script_sighting() {
             let mut config =
                 crate::skirmish_config::golden_skirmish_config("OwnedSlotAdmission.map");
             config.slots[1].slot_index = 3;
-            let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+            let mut world = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(
+                &[crate::fixture_content::FixtureObject::new(TYPE).kind_of("INFANTRY").health(100.0)],
+            );
             let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
             crate::skirmish_config::apply_skirmish_config(&mut world, &config).unwrap();
             world.override_world_size(2000.0, 2000.0);
-            let mut template = ThingTemplate::new(TYPE);
-            template.add_kind_of(KindOf::Infantry).set_health(100.0);
-            world.templates.insert(TYPE.into(), template);
             let observer = world
                 .create_object_for_player(TYPE, 0, Vec3::new(50.0, 0.0, 50.0))
                 .unwrap();

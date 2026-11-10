@@ -23,8 +23,30 @@ pub(crate) fn slot_definitions() -> game_engine::common::rts::player_template::P
 /// A fresh world that owns the slot PlayerTemplate catalog and the ordered
 /// Object content its StartingBuildings name, as the application boot does.
 pub(crate) fn slot_world() -> crate::game_logic::GameLogic {
+    slot_world_with("")
+}
+
+/// A slot world whose ordered content also authors `objects`.
+pub(crate) fn slot_world_with_objects(
+    objects: &[crate::fixture_content::FixtureObject],
+) -> crate::game_logic::GameLogic {
     let mut world = crate::game_logic::GameLogic::new();
-    admit_slot_world(&mut world, &slot_definitions());
+    admit_slot_world_with_objects(&mut world, &slot_definitions(), objects);
+    world
+}
+
+/// A slot world whose own PlayerTemplate catalog also applies `overrides`
+/// (later INI blocks overwrite earlier ones, as C++ INI_LOAD_OVERWRITE).
+/// Fixtures author template fields here, never in the process-wide store.
+pub(crate) fn slot_world_with(overrides: &str) -> crate::game_logic::GameLogic {
+    let mut definitions = slot_definitions();
+    if !overrides.is_empty() {
+        definitions
+            .apply_source(overrides, game_engine::common::ini::INILoadType::Overwrite)
+            .expect("admit slot PlayerTemplate overrides");
+    }
+    let mut world = crate::game_logic::GameLogic::new();
+    admit_slot_world(&mut world, &definitions);
     world
 }
 
@@ -92,10 +114,22 @@ pub(crate) fn admit_slot_world(
     world: &mut crate::game_logic::GameLogic,
     definitions: &game_engine::common::rts::player_template::PlayerTemplateStore,
 ) {
+    admit_slot_world_with_objects(world, definitions, &[]);
+}
+
+/// The slot catalog plus its StartingBuildings and any other Objects the
+/// fixture creates or its map places, admitted as one ordered content.
+pub(crate) fn admit_slot_world_with_objects(
+    world: &mut crate::game_logic::GameLogic,
+    definitions: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    objects: &[crate::fixture_content::FixtureObject],
+) {
+    use crate::fixture_content::FixtureObject;
     world.admit_player_template_definitions(definitions.clone()).unwrap();
-    world.admit_object_ini_sources([(
-        "slot-owner-objects.ini".into(),
-        "Object AmericaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER\n Body = ActiveBody CommandCenterBody\n  MaxHealth = 5000\n  InitialHealth = 5000\n End\nEnd\n\
-         Object GLACommandCenter\n KindOf = STRUCTURE COMMANDCENTER\n Body = ActiveBody CommandCenterBody\n  MaxHealth = 5000\n  InitialHealth = 5000\n End\nEnd\n".into(),
-    )]).unwrap();
+    let mut content = vec![
+        FixtureObject::new("AmericaCommandCenter").kind_of("STRUCTURE COMMANDCENTER").health(5000.0),
+        FixtureObject::new("GLACommandCenter").kind_of("STRUCTURE COMMANDCENTER").health(5000.0),
+    ];
+    content.extend_from_slice(objects);
+    crate::fixture_content::admit_fixture_objects(world, &content);
 }

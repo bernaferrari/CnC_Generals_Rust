@@ -159,6 +159,10 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("MvGw");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("MvGwU").kind_of("INFANTRY").health(100.0).walker()],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let oid = logic.create_object("MvGwU", Team::USA, start).expect("id");
     {

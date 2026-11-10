@@ -8,10 +8,14 @@ fn isolated(name: &str, run: impl FnOnce()) {
 }
 
 fn configured(cash: i32) -> GameLogic {
+    configured_with(cash, "")
+}
+
+fn configured_with(cash: i32, templates: &str) -> GameLogic {
     let mut config = golden_skirmish_config("StartingCashAdmission.map");
     config.rules.starting_cash = cash;
     config.slots[1].slot_index = 3;
-    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world_with(templates);
     let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
     apply_skirmish_config(&mut world, &config).unwrap();
     world
@@ -302,9 +306,10 @@ fn authored_negative_money_is_an_unsigned_deposit() {
 #[test]
 fn template_money_precedes_authored_money_and_color() {
     isolated("template_money_precedes_authored_money_and_color", || {
-        let mut world = configured(12_500);
-        let mut ini = game_engine::common::ini::INI::new();
-        ini.with_inline_source("PlayerTemplate FactionCivilian\n Side = Civilian\n BaseSide = Civilian\n StartMoney = 4500\n PreferredColor = R:1 G:2 B:3\nEnd\n", |ini| ini.parse_current_file()).unwrap();
+        let mut world = configured_with(
+            12_500,
+            "PlayerTemplate FactionCivilian\n Side = Civilian\n BaseSide = Civilian\n StartMoney = 4500\n PreferredColor = R:1 G:2 B:3\nEnd\n",
+        );
         let mut input = rows("Civilian", Some(2_500));
         input[1].set_int(key_player_color(), 0x00aa_3311);
         input[1].set_int(key_player_night_color(), 0x0011_3355);
