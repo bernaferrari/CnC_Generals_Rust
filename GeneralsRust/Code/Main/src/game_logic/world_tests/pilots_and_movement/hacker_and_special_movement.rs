@@ -2398,6 +2398,8 @@ fn supply_warehouse_create_seeds_starting_boxes() {
 fn china_mines_upgrade_places_structure_minefield() {
     use crate::game_logic::{HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_ChinaMines", "PLAYER", 0, 1);
     let mut t = ThingTemplate::new("ChinaBarracks");
     t.set_health(1000.0);
     t.add_kind_of(KindOf::Structure);
@@ -2439,12 +2441,23 @@ fn china_mines_upgrade_places_structure_minefield() {
 
 #[test]
 fn sub_objects_upgrade_bomb_truck_bio_load() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("GLAVehicleBombTruck");
-    t.set_health(200.0);
-    t.add_kind_of(KindOf::Vehicle);
-    logic.templates.insert("GLAVehicleBombTruck".into(), t);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_GLABombTruckBioBomb", "OBJECT", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("GLAVehicleBombTruck")
+            .kind_of("VEHICLE")
+            .health(200.0)
+            .module(
+                "Behavior = SubObjectsUpgrade FixtureBioBomb\n TriggeredBy = Upgrade_GLABombTruckBioBomb\n ShowSubObjects = Bombload02\n HideSubObjects = Bombload01\nEnd",
+            )
+            .module(
+                "Behavior = SubObjectsUpgrade FixtureHEBomb\n TriggeredBy = Upgrade_GLABombTruckHighExplosiveBomb\n ShowSubObjects = Bombload04\n HideSubObjects = Bombload01\nEnd",
+            )],
+    );
     let id = logic
         .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::ZERO)
         .unwrap();
@@ -2459,12 +2472,20 @@ fn sub_objects_upgrade_bomb_truck_bio_load() {
 
 #[test]
 fn sub_objects_upgrade_helix_bomb_wing() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("ChinaVehicleHelix");
-    t.set_health(500.0);
-    t.add_kind_of(KindOf::Aircraft);
-    logic.templates.insert("ChinaVehicleHelix".into(), t);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_HelixNapalmBomb", "OBJECT", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("ChinaVehicleHelix")
+            .kind_of("AIRCRAFT")
+            .health(500.0)
+            .module(
+                "Behavior = SubObjectsUpgrade FixtureNapalmBomb\n TriggeredBy = Upgrade_HelixNapalmBomb\n ShowSubObjects = BombWing\nEnd",
+            )],
+    );
     let id = logic
         .create_object("ChinaVehicleHelix", Team::China, glam::Vec3::ZERO)
         .unwrap();
@@ -2481,12 +2502,24 @@ fn sub_objects_upgrade_helix_bomb_wing() {
 
 #[test]
 fn sub_objects_upgrade_bomb_truck_both_loads() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("GLAVehicleBombTruck");
-    t.set_health(200.0);
-    t.add_kind_of(KindOf::Vehicle);
-    logic.templates.insert("GLAVehicleBombTruck".into(), t);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_GLABombTruckBioBomb", "OBJECT", 0, 1);
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_GLABombTruckHighExplosiveBomb", "OBJECT", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("GLAVehicleBombTruck")
+            .kind_of("VEHICLE")
+            .health(200.0)
+            .module(
+                "Behavior = SubObjectsUpgrade FixtureBioBomb\n TriggeredBy = Upgrade_GLABombTruckBioBomb\n ShowSubObjects = Bombload02\n HideSubObjects = Bombload01\nEnd",
+            )
+            .module(
+                "Behavior = SubObjectsUpgrade FixtureHEBomb\n TriggeredBy = Upgrade_GLABombTruckHighExplosiveBomb\n ShowSubObjects = Bombload04\n HideSubObjects = Bombload01\nEnd",
+            )],
+    );
     let id = logic
         .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::ZERO)
         .unwrap();
@@ -2504,17 +2537,26 @@ fn sub_objects_upgrade_bomb_truck_both_loads() {
 
 #[test]
 fn replace_object_upgrade_fake_gla_becomes_real() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(1, Team::GLA, "GLA", true));
-    let mut fake = ThingTemplate::new("FakeGLABarracks");
-    fake.set_health(500.0);
-    fake.add_kind_of(KindOf::Structure);
-    logic.templates.insert("FakeGLABarracks".into(), fake);
-    let mut real = ThingTemplate::new("GLABarracks");
-    real.set_health(1000.0);
-    real.add_kind_of(KindOf::Structure);
-    logic.templates.insert("GLABarracks".into(), real);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_BecomeRealGLABarracks", "OBJECT", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[
+            FixtureObject::new("FakeGLABarracks")
+                .kind_of("STRUCTURE")
+                .health(500.0)
+                .module(
+                    "Behavior = ReplaceObjectUpgrade FixtureBecomeReal\n TriggeredBy = Upgrade_BecomeRealGLABarracks\n ReplaceObject = GLABarracks\nEnd",
+                ),
+            FixtureObject::new("GLABarracks")
+                .kind_of("STRUCTURE")
+                .health(1000.0),
+        ],
+    );
 
     let id = logic
         .create_object(
@@ -2562,13 +2604,21 @@ fn replace_object_upgrade_fake_gla_becomes_real() {
 
 #[test]
 fn grant_science_upgrade_moab() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_AmericaMOAB", "PLAYER", 0, 1);
     logic.add_player(Player::new(1, Team::USA, "USA", true));
-    let mut t = ThingTemplate::new("AmericaCommandCenter");
-    t.set_health(1000.0);
-    t.add_kind_of(KindOf::Structure);
-    logic.templates.insert("AmericaCommandCenter".into(), t);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("AmericaCommandCenter")
+            .kind_of("STRUCTURE")
+            .health(1000.0)
+            .module(
+                "Behavior = GrantScienceUpgrade FixtureMOAB\n TriggeredBy = Upgrade_AmericaMOAB\n GrantScience = SCIENCE_MOAB\nEnd",
+            )],
+    );
     let id = logic
         .create_object("AmericaCommandCenter", Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -2586,12 +2636,20 @@ fn grant_science_upgrade_moab() {
 
 #[test]
 fn command_set_upgrade_emp_mines_on_cc() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("ChinaCommandCenter");
-    t.set_health(1000.0);
-    t.add_kind_of(KindOf::Structure);
-    logic.templates.insert("ChinaCommandCenter".into(), t);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_ChinaEMPMines", "PLAYER", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("ChinaCommandCenter")
+            .kind_of("STRUCTURE")
+            .health(1000.0)
+            .module(
+                "Behavior = CommandSetUpgrade FixtureEMPMines\n TriggeredBy = Upgrade_ChinaEMPMines\n CommandSet = ChinaCommandCenterCommandSetUpgrade\nEnd",
+            )],
+    );
     let id = logic
         .create_object("ChinaCommandCenter", Team::China, glam::Vec3::ZERO)
         .unwrap();
@@ -2605,12 +2663,20 @@ fn command_set_upgrade_emp_mines_on_cc() {
 
 #[test]
 fn weapon_set_upgrade_sets_player_upgrade_flag() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("AmericaInfantryRanger");
-    t.set_health(100.0);
-    t.add_kind_of(KindOf::Infantry);
-    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_AmericaRangerFlashBangGrenade", "PLAYER", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("AmericaInfantryRanger")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .module(
+                "Behavior = WeaponSetUpgrade FixtureFlashBang\n TriggeredBy = Upgrade_AmericaRangerFlashBangGrenade\nEnd",
+            )],
+    );
     let id = logic
         .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -2622,12 +2688,20 @@ fn weapon_set_upgrade_sets_player_upgrade_flag() {
 
 #[test]
 fn armor_upgrade_sets_armor_set_and_chemsuit_decal() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("AmericaInfantryRanger");
-    t.set_health(100.0);
-    t.add_kind_of(KindOf::Infantry);
-    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_AmericaChemicalSuits", "PLAYER", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("AmericaInfantryRanger")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .module(
+                "Behavior = ArmorUpgrade FixtureChemSuits\n TriggeredBy = Upgrade_AmericaChemicalSuits\nEnd",
+            )],
+    );
     let id = logic
         .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -2641,6 +2715,8 @@ fn armor_upgrade_sets_armor_set_and_chemsuit_decal() {
 fn locomotor_set_upgrade_worker_shoes_speed() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_GLAWorkerShoes", "PLAYER", 0, 1);
     let mut t = ThingTemplate::new("GLAInfantryWorker");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Infantry);
@@ -2691,12 +2767,20 @@ fn cost_modifier_upgrade_name_alone_does_not_change_vehicle_cost() {
 
 #[test]
 fn weapon_bonus_upgrade_sets_player_upgrade_condition() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("GLATankScorpion");
-    t.set_health(200.0);
-    t.add_kind_of(KindOf::Vehicle);
-    logic.templates.insert("GLATankScorpion".into(), t);
+    // Object::giveUpgrade needs the authored UpgradeTemplate (Object.cpp:3559-3567).
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut logic, "Upgrade_GLAAPRockets", "PLAYER", 0, 1);
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("GLATankScorpion")
+            .kind_of("VEHICLE")
+            .health(200.0)
+            .module(
+                "Behavior = WeaponBonusUpgrade FixtureAPRockets\n TriggeredBy = Upgrade_GLAAPRockets\nEnd",
+            )],
+    );
     let id = logic
         .create_object("GLATankScorpion", Team::GLA, glam::Vec3::ZERO)
         .unwrap();
