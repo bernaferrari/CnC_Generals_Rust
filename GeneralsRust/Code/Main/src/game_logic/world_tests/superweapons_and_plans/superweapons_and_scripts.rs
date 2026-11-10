@@ -3008,7 +3008,7 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
     }
     logic.inject_host_script_query_snapshot();
     assert_eq!(
-        gamelogic::scripting::host_script_query_object_by_id(rider.0).map(|o| o.contained_by),
+        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_script_query_object_by_id(rider.0).map(|o| o.contained_by),
         Some(99)
     );
 

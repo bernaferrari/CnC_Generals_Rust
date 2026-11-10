@@ -74,7 +74,7 @@ fn supply_source_queries_for_a_player_without_ai_match_cpp_defaults() {
         || {
             // C++ Player::isSupplySourceSafe returns TRUE and isSupplySourceAttacked
             // FALSE when the player has no AI (Player.cpp:1576-1593).
-            gamelogic::scripting::clear_host_script_query_snapshot();
+            gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
             let mut logic = crate::game_logic::GameLogic::new();
             logic.add_player(
                 crate::game_logic::Player::new(0, Team::USA, "Display Label", true)
@@ -84,19 +84,19 @@ fn supply_source_queries_for_a_player_without_ai_match_cpp_defaults() {
             // The snapshot lives in the receiving world's own services.
             logic.with_own_services(|| {
                 assert_eq!(
-                    gamelogic::scripting::host_query_supply_source_safe("PlyrHuman", 1_000),
+                    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("PlyrHuman", 1_000),
                     Some(true)
                 );
                 assert_eq!(
-                    gamelogic::scripting::host_query_supply_source_attacked("PlyrHuman"),
+                    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_attacked("PlyrHuman"),
                     Some(false)
                 );
                 assert_eq!(
-                    gamelogic::scripting::host_query_supply_source_safe("NoSuchPlayer", 1_000),
+                    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("NoSuchPlayer", 1_000),
                     None
                 );
             });
-            gamelogic::scripting::clear_host_script_query_snapshot();
+            gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
         },
     );
 }
@@ -157,7 +157,7 @@ fn supply_source_queries_use_canonical_map_player_identity() {
                 evaluator.evaluate_condition(&mut condition).unwrap()
             }
 
-            gamelogic::scripting::clear_host_script_query_snapshot();
+            gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
             assert!(gamelogic::object::registry::OBJECT_REGISTRY.is_empty());
             let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("ScriptEngine");
             let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
@@ -197,17 +197,17 @@ fn supply_source_queries_use_canonical_map_player_identity() {
             first.with_own_services(|| {
         let _players = PlayerListRestore::install(&["AuthoredSideA", "AuthoredSideB"]);
     assert_eq!(
-        gamelogic::scripting::host_query_supply_source_safe("AuthoredSideA", 1_000),
+        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("AuthoredSideA", 1_000),
         Some(true),
         "the actual receiving AI reports safe when no source exists"
     );
     assert_eq!(
-        gamelogic::scripting::host_query_supply_source_attacked("AuthoredSideA"),
+        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_attacked("AuthoredSideA"),
         Some(true),
         "the actual receiving AI attack scan is published under the canonical side"
     );
     assert_eq!(
-        gamelogic::scripting::host_query_supply_source_safe("Shared Display", 1_000),
+        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("Shared Display", 1_000),
         None,
         "the mutable display label is not an alias for the authored side"
     );
@@ -246,12 +246,12 @@ fn supply_source_queries_use_canonical_map_player_identity() {
             peer.with_own_services(|| {
                 let _players = PlayerListRestore::install(&["AuthoredSideA", "AuthoredSideB"]);
                 assert_eq!(
-                    gamelogic::scripting::host_query_supply_source_safe("AuthoredSideA", 1_000),
+                    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("AuthoredSideA", 1_000),
                     None,
                     "same display labels in separate worlds do not merge player identities"
                 );
                 assert_eq!(
-                    gamelogic::scripting::host_query_supply_source_safe("AuthoredSideB", 1_000),
+                    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("AuthoredSideB", 1_000),
                     Some(true)
                 );
                 assert_eq!(
@@ -289,7 +289,7 @@ fn supply_source_queries_use_canonical_map_player_identity() {
                     "the second world's same-ID player cannot inherit the first world's attack scan"
                 );
             });
-            gamelogic::scripting::clear_host_script_query_snapshot();
+            gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
         },
     );
 }

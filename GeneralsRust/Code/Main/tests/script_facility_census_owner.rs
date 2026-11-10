@@ -1,16 +1,16 @@
 use game_engine::common::rts::{ProductionPrerequisite, ThingTemplateHandle};
 use game_engine::common::thing::thing_factory::{ThingFactory, get_thing_factory};
-use gamelogic::scripting::{clear_host_script_query_snapshot, merge_host_script_query_snapshot};
+
 use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
 fn has_facility(world: &GameLogic) -> bool {
     world.inject_host_script_query_snapshot();
     let mut found = false;
-    merge_host_script_query_snapshot(|snapshot| {
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).merge_host_script_query_snapshot(|snapshot| {
         found = snapshot.player_census["Alpha"].has_any_build_facility
     });
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     found
 }
 

@@ -2737,13 +2737,11 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
 fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
     use gamelogic::common::ObjectShroudStatus;
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        clear_host_script_query_snapshot, host_script_query_object, host_script_query_object_by_id,
-    };
+
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
     OBJECT_REGISTRY.clear();
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
@@ -2765,7 +2763,7 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
         shroud.set_host_object_shroud_status(2, id.0, ObjectShroudStatus::Clear);
     }
     logic.inject_host_script_query_snapshot();
-    let obj = host_script_query_object("MapNamedScout").expect("snapshot");
+    let obj = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_script_query_object("MapNamedScout").expect("snapshot");
     assert_eq!(obj.waypoint_labels, vec!["HeroPath".to_string()]);
     assert!(
         obj.discovered_by
@@ -2780,11 +2778,11 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
         "shrouded player must not discover"
     );
     assert_eq!(
-        host_script_query_object_by_id(id.0).map(|o| o.id),
+        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_script_query_object_by_id(id.0).map(|o| o.id),
         Some(id.0)
     );
     assert!(OBJECT_REGISTRY.is_empty());
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
 
 #[test]

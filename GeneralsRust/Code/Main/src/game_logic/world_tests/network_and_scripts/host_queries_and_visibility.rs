@@ -166,7 +166,6 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::clear_host_script_query_snapshot;
     use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
     use gamelogic::scripting::engine::get_named_object_tracker;
     use gamelogic::scripting::executor::{
@@ -175,7 +174,7 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     use std::sync::{Arc, RwLock};
 
     assert!(OBJECT_REGISTRY.is_empty());
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     get_named_object_tracker().clear().unwrap();
 
     let mut logic = GameLogic::new();
@@ -249,7 +248,7 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
         ScriptConditionResult::True
     );
 
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     get_named_object_tracker().clear().unwrap();
 }
 
@@ -300,10 +299,10 @@ fn unit_health_injects_leftover_initial_health_not_current_max() {
 #[test]
 fn host_player_census_injected_for_script_player_conditions() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{clear_host_script_query_snapshot, host_query_player_census};
+
 
     assert!(OBJECT_REGISTRY.is_empty());
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
     let mut player =
@@ -326,7 +325,7 @@ fn host_player_census_injected_for_script_player_conditions() {
     assert!(logic.host_object(id).is_some());
 
     logic.inject_host_script_query_snapshot();
-    let census = host_query_player_census("PlyrAmerica").expect("host census");
+    let census = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrAmerica").expect("host census");
     assert_eq!(census.money, 4_000);
     assert!(census.has_sufficient_power());
     assert!(census.has_any_objects);
@@ -356,20 +355,20 @@ fn host_player_census_injected_for_script_player_conditions() {
     player.power_consumed = 8;
     logic.add_player(player);
     logic.inject_host_script_query_snapshot();
-    let china = host_query_player_census("PlyrChina").expect("china census");
+    let china = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrChina").expect("china census");
     assert_eq!(china.money, 0);
     assert!(!china.has_sufficient_power());
     assert!(!china.has_any_objects);
     assert!(!china.has_any_build_facility);
     assert_eq!(china.building_count, 0);
 
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
 
 #[test]
 fn host_player_census_keeps_same_faction_players_distinct() {
-    use gamelogic::scripting::{clear_host_script_query_snapshot, host_query_player_census};
-    clear_host_script_query_snapshot();
+
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
     logic.add_player(
@@ -407,8 +406,8 @@ fn host_player_census_keeps_same_faction_players_distinct() {
     }
 
     logic.inject_host_script_query_snapshot();
-    let a = host_query_player_census("PlyrChinaA").expect("census A");
-    let b = host_query_player_census("PlyrChinaB").expect("census B");
+    let a = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrChinaA").expect("census A");
+    let b = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrChinaB").expect("census B");
     assert!(a.has_any_objects);
     assert!(
         a.has_any_build_facility,
@@ -421,7 +420,7 @@ fn host_player_census_keeps_same_faction_players_distinct() {
     );
     assert!(!b.has_any_build_facility);
     assert_eq!(b.building_count, 0);
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
 
 #[test]
@@ -3252,9 +3251,8 @@ fn capture_command_rejects_under_construction_building() {
 }
 #[test]
 fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
-    use gamelogic::scripting::clear_host_script_query_snapshot;
 
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     let trigger_a = gamelogic::polygon_trigger::PolygonTrigger::new(
         19021,
         gamelogic::common::AsciiString::from("OwnerProbeAreaA"),
@@ -3403,5 +3401,5 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
     restored_trigger_world.update_object_flags(id_a.0, 110.0, 110.0, world_a.frame, false, None);
     assert!(restored_trigger_world.did_enter(id_a.0, &trigger_a, world_a.frame));
 
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }

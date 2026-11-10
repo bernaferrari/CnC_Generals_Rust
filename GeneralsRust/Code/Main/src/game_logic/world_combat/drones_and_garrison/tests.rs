@@ -2578,8 +2578,8 @@ fn occupant_death_recalcs_hide_garrisoned_state() {
 #[test]
 fn player_who_entered_pulses_one_frame() {
     // hq-5yuxu: C++ OpenContain::update zeros the mask; BUILDING_ENTERED is not sticky.
-    use gamelogic::scripting::{clear_host_script_query_snapshot, host_building_entered_by_player};
-    clear_host_script_query_snapshot();
+
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     let mut logic = GameLogic::new();
     logic
         .players
@@ -2615,7 +2615,7 @@ fn player_who_entered_pulses_one_frame() {
     logic.stamp_player_who_entered(bunker, ranger_id);
     logic.inject_host_script_query_snapshot();
     assert_eq!(
-        host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
+        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
         Some(true),
         "enter frame must pulse BUILDING_ENTERED"
     );
@@ -2623,9 +2623,9 @@ fn player_who_entered_pulses_one_frame() {
     logic.update_support_states(&[bunker, ranger_id], 1.0 / 30.0);
     logic.inject_host_script_query_snapshot();
     assert_eq!(
-        host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
+        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
         Some(false),
         "next OpenContain::update must clear the pulse even while occupied"
     );
-    clear_host_script_query_snapshot();
+    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
