@@ -3,18 +3,18 @@
 // Split from `team.rs` for module-size parity.
 // Observable behavior is unchanged.
 
-fn host_hook_member_ids(team_name: &str) -> Vec<u32> {
-    crate::scripting::host_script_team_member_ids(team_name)
+fn host_hook_member_ids(q: &crate::scripting::HostScriptQuery, team_name: &str) -> Vec<u32> {
+    q.host_script_team_member_ids(team_name)
 }
 
-fn host_hook_member_count(team_name: &str) -> Int {
-    host_hook_member_ids(team_name).len() as Int
+fn host_hook_member_count(q: &crate::scripting::HostScriptQuery, team_name: &str) -> Int {
+    host_hook_member_ids(q, team_name).len() as Int
 }
 
-fn host_hook_live_count(team_name: &str) -> Int {
-    host_hook_member_ids(team_name)
+fn host_hook_live_count(q: &crate::scripting::HostScriptQuery, team_name: &str) -> Int {
+    host_hook_member_ids(q, team_name)
         .into_iter()
-        .filter_map(crate::scripting::host_script_query_object_by_id)
+        .filter_map(|id| q.host_script_query_object_by_id(id))
         .filter(|obj| obj.alive && !obj.effectively_dead)
         .count() as Int
 }
@@ -24,11 +24,11 @@ fn host_object_counts_as_team_ai(obj: &crate::scripting::HostScriptQueryObject) 
     !obj.kind_structure && !obj.kind_projectile && !obj.kind_inert && !obj.kind_mine
 }
 
-fn host_hook_idle_state(team_name: &str) -> (bool, bool) {
+fn host_hook_idle_state(q: &crate::scripting::HostScriptQuery, team_name: &str) -> (bool, bool) {
     let mut is_idle = true;
     let mut any_alive = false;
-    for id in host_hook_member_ids(team_name) {
-        let Some(obj) = crate::scripting::host_script_query_object_by_id(id) else {
+    for id in host_hook_member_ids(q, team_name) {
+        let Some(obj) = q.host_script_query_object_by_id(id) else {
             continue;
         };
         if !obj.alive || obj.effectively_dead {
@@ -61,18 +61,18 @@ fn host_hook_is_enemy(
     looker.team != cand.team
 }
 
-fn host_hook_enemy_sighted(team_name: &str) -> (bool, bool) {
-    let members = host_hook_member_ids(team_name);
+fn host_hook_enemy_sighted(q: &crate::scripting::HostScriptQuery, team_name: &str) -> (bool, bool) {
+    let members = host_hook_member_ids(q, team_name);
     let mut candidates = members.clone();
     for faction in 0..4 {
-        candidates.extend(crate::scripting::host_script_team_unit_ids(faction));
+        candidates.extend(q.host_script_team_unit_ids(faction));
     }
     candidates.sort_unstable();
     candidates.dedup();
 
     let mut any_alive = false;
     for mid in &members {
-        let Some(looker) = crate::scripting::host_script_query_object_by_id(*mid) else {
+        let Some(looker) = q.host_script_query_object_by_id(*mid) else {
             continue;
         };
         if !looker.alive || looker.effectively_dead {
@@ -84,7 +84,7 @@ fn host_hook_enemy_sighted(team_name: &str) -> (bool, bool) {
             if *cid == looker.id {
                 continue;
             }
-            let Some(cand) = crate::scripting::host_script_query_object_by_id(*cid) else {
+            let Some(cand) = q.host_script_query_object_by_id(*cid) else {
                 continue;
             };
             if !cand.alive || cand.effectively_dead {
@@ -174,7 +174,8 @@ impl Team {
     }
 
     /// Update team state (called each frame)
-    pub fn update_state(&mut self) {
+    /// `q`: the host facts of the world whose teams are updating.
+    pub fn update_state(&mut self, q: &crate::scripting::HostScriptQuery) {
         // C++ Team.cpp:1785 — no dual-world registry skip.
         self.entered_or_exited = false;
         if !self.active {
@@ -182,7 +183,7 @@ impl Team {
         }
 
         let host_census =
-            OBJECT_REGISTRY.is_empty() && crate::scripting::host_script_query_has_any();
+            OBJECT_REGISTRY.is_empty() && q.host_script_query_has_any();
 
         if self.created {
             self.created = false;
@@ -193,7 +194,7 @@ impl Team {
 
             if !self.script_on_destroyed.is_empty() {
                 self.cur_units = if host_census {
-                    host_hook_member_count(self.name.as_str())
+                    host_hook_member_count(q, self.name.as_str())
                 } else {
                     self.members.len() as Int
                 };
@@ -212,7 +213,7 @@ impl Team {
         if self.check_enemy_sighted {
             self.prev_see_enemy = self.see_enemy;
             let (see_enemy_now, any_alive_in_team) = if host_census {
-                host_hook_enemy_sighted(self.name.as_str())
+                host_hook_enemy_sighted(q, self.name.as_str())
             } else {
                 self.compute_enemy_sighted_state()
             };
@@ -230,7 +231,7 @@ impl Team {
         if !self.script_on_destroyed.is_empty() {
             let prev_units = self.cur_units;
             self.cur_units = if host_census {
-                host_hook_live_count(self.name.as_str())
+                host_hook_live_count(q, self.name.as_str())
             } else if OBJECT_REGISTRY.is_empty() {
                 // No host snapshot: listed members stay counted so OnDestroyed
                 // does not fire at activation (C++ only drops live units).
@@ -258,7 +259,7 @@ impl Team {
 
         if !self.script_on_idle.is_empty() {
             let (is_idle, any_alive_in_team) = if host_census {
-                host_hook_idle_state(self.name.as_str())
+                host_hook_idle_state(q, self.name.as_str())
             } else {
                 let mut is_idle = true;
                 let mut any_alive_in_team = false;
@@ -497,5 +498,32 @@ impl Team {
             .as_ref()
             .map(|relations| relations.iter().map(|(&idx, &rel)| (idx, rel)).collect())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod host_query_team_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+
+    #[test]
+    fn team_host_census_reads_the_updating_worlds_snapshot_only() {
+        let a = new_world_services();
+        let b = new_world_services();
+        let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+        snap.team_instance_ids
+            .insert("HostQueryTeamTwoWorld".to_string(), vec![11, 12]);
+        crate::scripting::HostScriptQuery::of(&a).set_host_script_query_snapshot(snap);
+        let engine = crate::scripting::engine::ScriptEngine::new_with_services(&a).unwrap();
+        with_world_services(&b, || {
+            assert_eq!(host_hook_member_count(&engine.host_query(), "HostQueryTeamTwoWorld"), 2);
+            assert_eq!(
+                host_hook_member_count(
+                    &crate::scripting::HostScriptQuery::of(&b),
+                    "HostQueryTeamTwoWorld"
+                ),
+                0
+            );
+        });
     }
 }

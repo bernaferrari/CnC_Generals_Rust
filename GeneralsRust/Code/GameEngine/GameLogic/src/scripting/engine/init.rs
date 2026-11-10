@@ -78,6 +78,11 @@ impl ScriptEngine {
         self.owner_world.upgrade()
     }
 
+    /// C++ this engine's host facts: the snapshot of the world that built it.
+    pub(crate) fn host_query(&self) -> crate::scripting::HostScriptQuery {
+        crate::scripting::HostScriptQuery::from_world(self.owning_world_services())
+    }
+
     /// The Eva of the world that built this engine.
     pub(crate) fn eva_owner(&self) -> &Mutex<crate::helpers::EvaState> {
         &self.eva

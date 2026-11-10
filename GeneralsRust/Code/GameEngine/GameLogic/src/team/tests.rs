@@ -543,7 +543,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("team write lock");
-            guard.update_state();
+            guard.update_state(&crate::scripting::HostScriptQuery::published());
             guard.notify_team_of_object_death();
         }
 
@@ -585,7 +585,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("team write lock");
-            guard.update_state();
+            guard.update_state(&crate::scripting::HostScriptQuery::published());
         }
 
         let queued = drain_pending_team_script_events();
@@ -664,7 +664,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("write");
-            guard.update_state();
+            guard.update_state(&crate::scripting::HostScriptQuery::published());
         }
         let first = drain_pending_team_script_events();
         assert_eq!(
@@ -693,7 +693,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("write");
-            guard.update_state();
+            guard.update_state(&crate::scripting::HostScriptQuery::published());
         }
         let second = drain_pending_team_script_events();
         assert!(
@@ -720,7 +720,7 @@ mod tests {
         );
         {
             let mut guard = team.write().expect("write");
-            guard.update_state();
+            guard.update_state(&crate::scripting::HostScriptQuery::published());
         }
         let third = drain_pending_team_script_events();
         assert!(
@@ -758,7 +758,7 @@ mod tests {
             let mut guard = team.write().expect("write");
             guard.add_member(7);
             guard.add_member(8);
-            guard.update_state();
+            guard.update_state(&crate::scripting::HostScriptQuery::published());
         }
         let queued = drain_pending_team_script_events();
         assert!(
@@ -788,7 +788,7 @@ mod tests {
             .expect("team should be created");
         assert_eq!(factory.get_all_teams().len(), 1);
 
-        factory.update();
+        factory.update(&crate::scripting::HostScriptQuery::published());
         assert!(factory.get_all_teams().is_empty());
     }
 

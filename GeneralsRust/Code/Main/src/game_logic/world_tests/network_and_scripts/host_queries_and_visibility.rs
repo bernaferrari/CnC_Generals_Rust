@@ -731,7 +731,7 @@ fn live_host_team_hooks_add_member_and_notify_death_once() {
         let team = factory.find_team("HostHookSquad").expect("leftover team");
         {
             let mut guard = team.write().expect("write");
-            guard.update_state();
+            guard.update_state(&gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()));
         }
         let guard = team.read().expect("read");
         assert!(guard.has_member(id.0), "live host must DLINK the member");

@@ -152,7 +152,7 @@ impl ScriptEngine {
             result?;
         } else {
             if let Ok(mut team_factory) = crate::team::get_team_factory().lock() {
-                team_factory.update();
+                team_factory.update(&self.host_query());
             }
             crate::team::flush_pending_team_script_events();
         }
@@ -805,7 +805,7 @@ impl ScriptEngine {
                 && object_arc.is_none()
                 && object_id != INVALID_ID
             {
-                crate::scripting::host_script_query_object_by_id(object_id)
+                self.host_query().host_script_query_object_by_id(object_id)
             } else {
                 None
             };
@@ -858,7 +858,7 @@ impl ScriptEngine {
                     team_arc
                         .as_ref()
                         .map(|team| {
-                            let (idle, dead) = Self::team_ai_status(team);
+                            let (idle, dead) = Self::team_ai_status(&self.host_query(), team);
                             (true, idle, dead)
                         })
                         .unwrap_or((false, false, false))
@@ -967,7 +967,7 @@ impl ScriptEngine {
                                 } else {
                                     team_arc
                                         .as_ref()
-                                        .map(|team| Self::team_ai_status(team).0)
+                                        .map(|team| Self::team_ai_status(&self.host_query(), team).0)
                                         .unwrap_or(false)
                                 }
                             }
@@ -997,7 +997,7 @@ impl ScriptEngine {
                                 ScriptOwnerQuery::Missing => team_has_group,
                                 ScriptOwnerQuery::Unavailable => team_arc
                                     .as_ref()
-                                    .map(|team| Self::team_ai_status(team).1)
+                                    .map(|team| Self::team_ai_status(&self.host_query(), team).1)
                                     .unwrap_or(false),
                             };
                             if obj_dead_now || team_dead_now {
@@ -1061,14 +1061,17 @@ impl ScriptEngine {
         (has_ai, idle, dead)
     }
 
-    fn team_ai_status(team_arc: &Arc<RwLock<crate::team::Team>>) -> (bool, bool) {
+    fn team_ai_status(
+        q: &crate::scripting::HostScriptQuery,
+        team_arc: &Arc<RwLock<crate::team::Team>>,
+    ) -> (bool, bool) {
         if dual_world_registry_unavailable() {
             let name = team_arc
                 .read()
                 .ok()
                 .map(|team| team.get_name().to_string())
                 .unwrap_or_default();
-            return crate::scripting::host_team_sequential_status(&name);
+            return q.host_team_sequential_status(&name);
         }
 
         let Ok(team) = team_arc.read() else {

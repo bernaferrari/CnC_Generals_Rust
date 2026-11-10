@@ -204,11 +204,11 @@ impl TeamFactory {
     }
 
     /// Update team factory (called each frame)
-    pub fn update(&mut self) {
+    pub fn update(&mut self, q: &crate::scripting::HostScriptQuery) {
         // Update all teams
         for team_arc in self.teams.values() {
             if let Ok(mut team) = team_arc.write() {
-                team.update_state();
+                team.update_state(q);
             }
         }
 

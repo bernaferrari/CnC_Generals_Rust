@@ -70,7 +70,7 @@ impl Local {
         }
     }
     fn update(&mut self) {
-        self.factory.update();
+        self.factory.update(&crate::scripting::HostScriptQuery::published());
         execute_pending_team_generic_script_evals_with_engine(
             self.factory.drain_pending_generic_script_evals(),
             &self.engine,

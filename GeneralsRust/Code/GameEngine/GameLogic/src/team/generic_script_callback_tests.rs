@@ -98,8 +98,8 @@ fn run_callback_case(one_shot: bool, condition_true: bool) {
     factory.admit_team_instance(41, team.clone());
     // Two real collection visits before unlock model records already collected
     // before a preceding callback consumes the eligibility latch.
-    factory.update();
-    factory.update();
+    factory.update(&crate::scripting::HostScriptQuery::published());
+    factory.update(&crate::scripting::HostScriptQuery::published());
     let collected = factory.drain_pending_generic_script_evals();
     assert_eq!(collected.len(), 2);
     execute_pending_team_generic_script_evals_with_engine(collected, &engine);
@@ -119,7 +119,7 @@ fn run_callback_case(one_shot: bool, condition_true: bool) {
         peer.read().unwrap().should_attempt_generic_script(0),
         "same-ID peer is untouched"
     );
-    factory.update();
+    factory.update(&crate::scripting::HostScriptQuery::published());
     execute_pending_team_generic_script_evals_with_engine(
         factory.drain_pending_generic_script_evals(),
         &engine,
@@ -204,7 +204,7 @@ fn generic_local_absent_interpreter_returns_cached_runtime_without_consuming_lat
     drop(cached);
     let saved_engine = engine.write().unwrap().take().unwrap();
     let mut factory = factory_for(&pending);
-    factory.update();
+    factory.update(&crate::scripting::HostScriptQuery::published());
     execute_pending_team_generic_script_evals_with_engine(
         factory.drain_pending_generic_script_evals(),
         &engine,
@@ -222,7 +222,7 @@ fn generic_local_absent_interpreter_returns_cached_runtime_without_consuming_lat
     assert_eq!(returned.comment, "runtime-only marker");
     drop(returned);
     *engine.write().unwrap() = Some(saved_engine);
-    factory.update();
+    factory.update(&crate::scripting::HostScriptQuery::published());
     execute_pending_team_generic_script_evals_with_engine(
         factory.drain_pending_generic_script_evals(),
         &engine,
@@ -267,7 +267,7 @@ fn generic_local_condition_error_restores_context_and_returns_runtime() {
         .unwrap()
         .set_external_eval_context(Some("outer-player".into()), Some(29));
     let mut factory = factory_for(&pending);
-    factory.update();
+    factory.update(&crate::scripting::HostScriptQuery::published());
     execute_pending_team_generic_script_evals_with_engine(
         factory.drain_pending_generic_script_evals(),
         &engine,
