@@ -10,7 +10,7 @@
 //! Matches C++ Player.cpp lines 2430-2700 (science and rank management)
 
 use crate::common::*;
-use crate::helpers::{TheGameLogic, TheGameText};
+use crate::helpers::TheGameLogic;
 use crate::player::{Player, ScienceVec};
 use crate::scripting::engine::with_script_engine_mut;
 use game_engine::common::rts::science::get_science_store;
@@ -48,8 +48,9 @@ impl Player {
         self.reset_rank_impl_for_world(None, 0, None);
     }
 
-    /// `general_name` is the receiving client's `SCIENCE:GeneralName`; `None`
-    /// (legacy owner-less callers) still reads the ambient catalog.
+    /// `general_name` is the receiving client's `SCIENCE:GeneralName`. A world
+    /// reset with no client catalog lent (`None`) takes C++ Player.cpp:2648's
+    /// no-TheGameText branch: the empty string. Never the ambient catalog.
     fn reset_rank_impl_for_world(
         &mut self,
         world: Option<&crate::system::engine_stores::WorldServices>,
@@ -79,7 +80,7 @@ impl Player {
 
         self.general_name = match general_name {
             Some(name) => name.to_string(),
-            None => TheGameText::fetch("SCIENCE:GeneralName"),
+            None => String::new(),
         };
         self.reset_sciences_impl_for_world(world, frame);
     }
@@ -708,6 +709,20 @@ impl Player {
 mod tests {
     use super::*;
     use crate::player::{Player, PlayerIndex};
+
+    #[test]
+    fn rank_reset_general_name_comes_only_from_the_lent_client_text() {
+        let mut player = Player::new(0 as PlayerIndex);
+        assert_eq!(player.get_general_name(), "", "no client catalog: C++ empty-string branch");
+
+        player.set_general_name("Stale".into());
+        let _ = player.set_rank_level_impl_for_world(3, 5, None, 0, None);
+        assert!(player.set_rank_level_impl_for_world(2, 5, None, 0, Some("Owned General")));
+        assert_eq!(player.get_general_name(), "Owned General");
+
+        assert!(player.set_rank_level_impl_for_world(1, 5, None, 0, None));
+        assert_eq!(player.get_general_name(), "");
+    }
 
     #[test]
     fn test_skill_points_addition() {
