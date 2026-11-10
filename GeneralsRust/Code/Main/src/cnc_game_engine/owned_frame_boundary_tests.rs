@@ -274,35 +274,26 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
 }
 
 fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentation_case() {
-    let (mut logic, _, mut shadow) = fixture("OwnedFrameBuilder", 100.0);
+    use crate::fixture_content::FixtureObject;
+    let (mut logic, _, mut shadow) = fixture_with(
+        "OwnedFrameBuilder",
+        100.0,
+        &[
+            FixtureObject::new("OwnedFramePower").kind_of("STRUCTURE").energy(10).health(1000.0),
+            FixtureObject::new("OwnedFrameBuilding").kind_of("STRUCTURE").build_time(1.0).health(500.0),
+            FixtureObject::new("OwnedFrameDozer").kind_of("VEHICLE DOZER").health(200.0).dozer(),
+        ],
+    );
     // C++ Energy returns zero production for an unpowered player even when
     // consumption is zero. Supply a real plant for this full-frame witness.
-    let mut power = ThingTemplate::new("OwnedFramePower");
-    power.add_kind_of(KindOf::Structure);
-    power.energy_production = Some(10);
-    logic.templates.insert(power.name.clone(), power);
     logic
         .create_object("OwnedFramePower", Team::USA, Vec3::new(40.0, 0.0, 40.0))
         .expect("actual power admission");
-    let mut template = ThingTemplate::new("OwnedFrameBuilding");
-    template.add_kind_of(KindOf::Structure).set_health(500.0);
-    template.build_time = 1.0;
-    logic
-        .templates
-        .insert("OwnedFrameBuilding".into(), template);
     let id = logic
         .create_object("OwnedFrameBuilding", Team::USA, Vec3::new(80.0, 0.0, 80.0))
         .unwrap();
     // Admit a real exclusive builder at the ACTION dock. C++ DozerAIUpdate
     // advances construction only from this task; no ghost builder is permitted.
-    let mut dozer_template = ThingTemplate::new("OwnedFrameDozer");
-    dozer_template
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("OwnedFrameDozer".into(), dozer_template);
     let dozer = logic
         .create_object("OwnedFrameDozer", Team::USA, Vec3::new(80.0, 0.0, 80.0))
         .expect("actual docked builder");
@@ -348,22 +339,15 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
 }
 
 fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {
-    let (mut logic, _, mut shadow) = fixture("OwnedDisableClock", 100.0);
-    let mut factory = ThingTemplate::new("OwnedDisableBarracks");
-    factory
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSBarracks)
-        .set_health(1000.0);
-    factory.energy_production = Some(0);
-    logic
-        .templates
-        .insert("OwnedDisableBarracks".into(), factory);
-    let mut unit = ThingTemplate::new("OwnedDisableInfantry");
-    unit.add_kind_of(KindOf::Infantry)
-        .set_health(100.0)
-        .set_cost(0, 0);
-    unit.build_time = 10.0;
-    logic.templates.insert("OwnedDisableInfantry".into(), unit);
+    use crate::fixture_content::FixtureObject;
+    let (mut logic, _, mut shadow) = fixture_with(
+        "OwnedDisableClock",
+        100.0,
+        &[
+            FixtureObject::new("OwnedDisableBarracks").kind_of("STRUCTURE FS_BARRACKS").energy(0).health(1000.0),
+            FixtureObject::new("OwnedDisableInfantry").kind_of("INFANTRY").build_cost(0).build_time(10.0).health(100.0),
+        ],
+    );
     let producer = logic
         .create_object(
             "OwnedDisableBarracks",
@@ -428,42 +412,30 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
     let mut audio_manager = crate::subsystem_manager::SubsystemManager::new();
     AudioManagerSubsystem::install_test_queue(&mut audio_manager);
     for disable_generator in [false, true] {
-        let (mut logic, _, mut shadow) = fixture("OwnedExpiryEffects", 100.0);
+        use crate::fixture_content::FixtureObject;
+        let (mut logic, _, mut shadow) = fixture_with(
+            "OwnedExpiryEffects",
+            100.0,
+            &[
+                FixtureObject::new("AmericaCommandCenter").kind_of("STRUCTURE COMMANDCENTER").energy(-3).health(1000.0).radar_provider(),
+                FixtureObject::new("OwnedExpiryPowerPlant").kind_of("STRUCTURE").energy(10).health(1000.0),
+                FixtureObject::new("OwnedExpiryPoweredConsumer").kind_of("STRUCTURE POWERED").energy(-5).health(1000.0),
+            ],
+        );
         let owner = logic.get_player_by_team(Team::USA).unwrap().id;
         let other = logic
             .get_player(1)
             .expect("actual foreign skirmish slot")
             .id;
-        let mut cc = ThingTemplate::new("AmericaCommandCenter");
-        cc.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::CommandCenter)
-            .set_health(1000.0);
-        cc.energy_production = Some(-3);
-        logic.templates.insert("AmericaCommandCenter".into(), cc);
         let cc = logic
             .create_object_for_player("AmericaCommandCenter", owner, Vec3::new(90.0, 0.0, 90.0))
             .unwrap();
-        let mut plant = ThingTemplate::new("OwnedExpiryPowerPlant");
-        plant.add_kind_of(KindOf::Structure).set_health(1000.0);
-        plant.energy_production = Some(10);
-        logic
-            .templates
-            .insert("OwnedExpiryPowerPlant".into(), plant);
         let plant = logic
             .create_object_for_player("OwnedExpiryPowerPlant", owner, Vec3::new(110.0, 0.0, 90.0))
             .unwrap();
         logic
             .create_object_for_player("OwnedExpiryPowerPlant", other, Vec3::new(190.0, 0.0, 190.0))
             .unwrap();
-        let mut consumer = ThingTemplate::new("OwnedExpiryPoweredConsumer");
-        consumer
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Powered)
-            .set_health(1000.0);
-        consumer.energy_production = Some(-5);
-        logic
-            .templates
-            .insert("OwnedExpiryPoweredConsumer".into(), consumer);
         let consumer = logic
             .create_object_for_player(
                 "OwnedExpiryPoweredConsumer",
@@ -574,13 +546,15 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame() {
 
 fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
     let make = || {
-        let (mut logic, _, _) = fixture("OwnedRadarCallbackCanary", 100.0);
-        let mut cc = ThingTemplate::new("AmericaCommandCenter");
-        cc.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::CommandCenter)
-            .set_health(1000.0);
-        cc.energy_production = Some(-3);
-        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        use crate::fixture_content::FixtureObject;
+        let (mut logic, _, _) = fixture_with(
+            "OwnedRadarCallbackCanary",
+            100.0,
+            &[
+                FixtureObject::new("AmericaCommandCenter").kind_of("STRUCTURE COMMANDCENTER").energy(-3).health(1000.0).radar_provider(),
+                FixtureObject::new("OwnedRadarCallbackPower").kind_of("STRUCTURE").energy(10).health(1000.0),
+            ],
+        );
         let id = logic
             .create_object(
                 "AmericaCommandCenter",
@@ -588,12 +562,6 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
                 Vec3::new(90.0, 0.0, 90.0),
             )
             .unwrap();
-        let mut plant = ThingTemplate::new("OwnedRadarCallbackPower");
-        plant.add_kind_of(KindOf::Structure).set_health(1000.0);
-        plant.energy_production = Some(10);
-        logic
-            .templates
-            .insert("OwnedRadarCallbackPower".into(), plant);
         logic
             .create_object(
                 "OwnedRadarCallbackPower",

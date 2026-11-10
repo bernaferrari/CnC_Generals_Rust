@@ -6,26 +6,37 @@ use crate::gameworld_shadow::{self, GameWorldShadow};
 mod owned_frames;
 
 fn fixture(name: &str, health: f32) -> (GameLogic, ObjectId, GameWorldShadow) {
+    fixture_with(name, health, &[])
+}
+
+/// A started skirmish whose admitted content authors the witness walker,
+/// both players' victory-counting keep-alives and `extra` (C++ loads every
+/// Object INI before NewGame).
+fn fixture_with(
+    name: &str,
+    health: f32,
+    extra: &[crate::fixture_content::FixtureObject],
+) -> (GameLogic, ObjectId, GameWorldShadow) {
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
     let mut logic = GameLogic::new();
     let config = crate::skirmish_config::golden_skirmish_config(name);
-    logic
-        .admit_object_ini_sources([(
-            "fixture-objects.ini".into(),
-            format!("Object BoundaryKeepAlive\nEnd\nObject {name}\nEnd\n"),
-        )])
-        .expect("fixture Object content admitted before NewGame");
+    let mut objects = vec![
+        FixtureObject::new("BoundaryKeepAlive")
+            .kind_of("STRUCTURE MP_COUNT_FOR_VICTORY")
+            .energy(0)
+            .health(1000.0),
+        FixtureObject::new(name)
+            .kind_of("INFANTRY")
+            .health(health)
+            .walker()
+            .instant_death(),
+    ];
+    objects.extend_from_slice(extra);
+    admit_fixture_objects(&mut logic, &objects);
     crate::skirmish_config::apply_skirmish_config(&mut logic, &config).expect("content admission");
     // Retail short-game rules defeat structure-less players and remove their
     // armies. Admit both players' real victory-counting structures so these
     // fixed-step witnesses survive ordinary victory processing.
-    let mut keep_alive = ThingTemplate::new("BoundaryKeepAlive");
-    keep_alive
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::MpCountForVictory);
-    keep_alive.energy_production = Some(0);
-    logic
-        .templates
-        .insert("BoundaryKeepAlive".into(), keep_alive);
     for (team, position) in [
         (Team::USA, Vec3::new(60.0, 0.0, 60.0)),
         (Team::GLA, Vec3::new(160.0, 0.0, 160.0)),
@@ -34,11 +45,6 @@ fn fixture(name: &str, health: f32) -> (GameLogic, ObjectId, GameWorldShadow) {
             .create_object("BoundaryKeepAlive", team, position)
             .expect("retail victory fixture");
     }
-    let mut template = ThingTemplate::new(name);
-    template.set_health(health);
-    template.authored_instant_death = Some(vec![Default::default()]);
-    template.add_kind_of(KindOf::Infantry);
-    logic.templates.insert(name.into(), template);
     let id = logic
         .create_object(name, Team::USA, Vec3::new(3.0, 0.0, 4.0))
         .expect("object admission");
@@ -242,26 +248,28 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership() {
 fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case() {
     let make_world = || {
         let mut logic = GameLogic::new();
-        logic.admit_object_ini_sources([(
-            "RadarOwnership.ini".into(),
-            "Object AmericaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\nObject AmericaBarracks\n KindOf = STRUCTURE MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\nObject OwnedRadarPowerPlant\n KindOf = STRUCTURE\n EnergyProduction = 10\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n".into(),
-        )]).unwrap();
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+        // The provider's radar is its authored RadarUpgrade (RadarUpgrade.cpp:72-96).
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("AmericaCommandCenter")
+                    .kind_of("STRUCTURE COMMANDCENTER MP_COUNT_FOR_VICTORY")
+                    .health(1000.0)
+                    .radar_provider(),
+                FixtureObject::new("AmericaBarracks")
+                    .kind_of("STRUCTURE MP_COUNT_FOR_VICTORY")
+                    .health(1000.0),
+                FixtureObject::new("OwnedRadarPowerPlant")
+                    .kind_of("STRUCTURE")
+                    .energy(10)
+                    .health(1000.0),
+            ],
+        );
         logic.start_new_game(GameMode::Skirmish).unwrap();
         logic.clear_all_players();
         logic.add_player(Player::new(0, Team::USA, "USA provider owner", true));
         logic.add_player(Player::new(1, Team::USA, "USA without radar", true));
-        let mut cc = ThingTemplate::new("AmericaCommandCenter");
-        cc.set_health(1000.0);
-        cc.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::CommandCenter)
-            .add_kind_of(KindOf::MpCountForVictory);
-        logic.templates.insert("AmericaCommandCenter".into(), cc);
-        let mut barracks = ThingTemplate::new("AmericaBarracks");
-        barracks.set_health(1000.0);
-        barracks
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::MpCountForVictory);
-        logic.templates.insert("AmericaBarracks".into(), barracks);
         let provider = logic
             .create_object_for_player("AmericaCommandCenter", 0, Vec3::new(60.0, 0.0, 60.0))
             .expect("completed radar provider belongs to slot 0");
@@ -274,10 +282,6 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
             .expect("slot 1 has a real victory-counting building, but no provider");
         // Real radar providers lose availability during a brownout. Keep this
         // owner-identity witness powered, using an actual authored plant per slot.
-        let mut power = ThingTemplate::new("OwnedRadarPowerPlant");
-        power.add_kind_of(KindOf::Structure).set_health(1000.0);
-        power.energy_production = Some(10);
-        logic.templates.insert("OwnedRadarPowerPlant".into(), power);
         for (player, position) in [
             (0, Vec3::new(80.0, 0.0, 60.0)),
             (1, Vec3::new(180.0, 0.0, 160.0)),
