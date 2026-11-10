@@ -1846,7 +1846,7 @@ fn queue_upgrade_refuses_command_set_without_upgrade_button() {
 
 #[test]
 fn queued_upgrade_completes_during_simulation_update() {
-    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use crate::game_logic::{Player, Team};
 
     let system = CommandSystem::new();
     let mut game_logic = GameLogic::new();
@@ -1863,22 +1863,18 @@ fn queued_upgrade_completes_during_simulation_update() {
     player.resources.supplies = 3000;
     game_logic.add_player(player);
 
-    let mut template = ThingTemplate::new("AmericaSupplyCenter");
-    template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    let mut producer = Object::new(template, ObjectId(401), Team::USA);
-    // C++ ProductionUpdate advances upgrade research on producers that carry
-    // a ProductionUpdate module; the host models that via building_data
-    // (retail AmericaSupplyCenter authors it).  Without the module data the
-    // production tick skips the producer and the queued upgrade never
-    // completes during the simulation update.
-    producer.construction_percent = 1.0;
-    producer.building_data = Some(crate::game_logic::buildings::BuildingData::new(
-        crate::game_logic::buildings::BuildingType::SupplyCenter,
-    ));
-    game_logic.add_object(producer);
+    // Retail AmericaSupplyCenter authors ProductionUpdate; C++ advances
+    // upgrade research only through that module (ProductionUpdate.cpp:687-702).
+    crate::fixture_content::admit_fixture_objects(
+        &mut game_logic,
+        &[crate::fixture_content::FixtureObject::new("AmericaSupplyCenter")
+            .kind_of("STRUCTURE SELECTABLE")
+            .health(100.0)
+            .module("Behavior = ProductionUpdate FixtureProduction\nEnd")],
+    );
+    let producer = game_logic
+        .create_object("AmericaSupplyCenter", Team::USA, glam::Vec3::ZERO)
+        .expect("authored producer");
 
     let command = GameCommand {
         command_type: CommandType::QueueUpgrade {
@@ -1887,7 +1883,7 @@ fn queued_upgrade_completes_during_simulation_update() {
         player_id: 0,
         command_id: 20,
         timestamp: SystemTime::now(),
-        selected_units: vec![ObjectId(401)],
+        selected_units: vec![producer],
         modifier_keys: ModifierKeys::default(),
     };
     assert!(
