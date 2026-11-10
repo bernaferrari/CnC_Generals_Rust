@@ -1530,8 +1530,8 @@ impl ScriptActionDispatcher<'_> {
             .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_members().to_vec()))
             .unwrap_or_default();
         if members.is_empty() {
-            if crate::scripting::host_script_query_has_any() {
-                return crate::scripting::host_eval_team_is_contained(team_name, all_contained);
+            if self.host_query().host_script_query_has_any() {
+                return self.host_query().host_eval_team_is_contained(team_name, all_contained);
             }
             return false;
         }
@@ -1573,8 +1573,8 @@ impl ScriptActionDispatcher<'_> {
         // Leftover TeamFactory members are live host ids, but leftover
         // OBJECT_REGISTRY is empty so find_object_by_id misses. Use the
         // host snapshot census (contained_by / ai_exiting).
-        if crate::scripting::host_script_query_has_any() {
-            return crate::scripting::host_eval_team_is_contained(team_name, all_contained);
+        if self.host_query().host_script_query_has_any() {
+            return self.host_query().host_eval_team_is_contained(team_name, all_contained);
         }
         false
     }

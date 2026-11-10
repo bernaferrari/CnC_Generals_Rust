@@ -2031,7 +2031,7 @@ impl ScriptActionDispatcher<'_> {
                 let tracker = get_named_object_tracker();
                 match tracker.get_object_id(&unit_name) {
                     Ok(Some(id)) => id,
-                    _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
+                    _ => match self.host_query().host_script_named_unit_id(&unit_name) {
                         Some(id) => id,
                         None => return Ok(ScriptActionResult::Success),
                     },
@@ -2082,7 +2082,7 @@ impl ScriptActionDispatcher<'_> {
                 let tracker = get_named_object_tracker();
                 match tracker.get_object_id(&unit_name) {
                     Ok(Some(id)) => id,
-                    _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
+                    _ => match self.host_query().host_script_named_unit_id(&unit_name) {
                         Some(id) => id,
                         None => return Ok(ScriptActionResult::Success),
                     },
@@ -2126,7 +2126,7 @@ impl ScriptActionDispatcher<'_> {
                 let tracker = get_named_object_tracker();
                 match tracker.get_object_id(&unit_name) {
                     Ok(Some(id)) => id,
-                    _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
+                    _ => match self.host_query().host_script_named_unit_id(&unit_name) {
                         Some(id) => id,
                         None => return Ok(ScriptActionResult::Success),
                     },
@@ -2439,7 +2439,7 @@ impl ScriptActionDispatcher<'_> {
 
         if super::dual_world_registry_unavailable() {
             if let Some(name) = unit_name_opt {
-                if crate::scripting::host_script_named_unit_alive(name) == Some(true) {
+                if self.host_query().host_script_named_unit_alive(name) == Some(true) {
                     log::warn!(
                         "WARNING - Object with name '{}' already exists. Failed Create.",
                         name

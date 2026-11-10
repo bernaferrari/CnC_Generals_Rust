@@ -894,7 +894,7 @@ impl ScriptConditionEvaluator<'_> {
 
         let __player_list_arc = player_list();
         let all_destroyed =
-            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+            if let Some(census) = self.host_query().host_query_player_census(&player_name) {
                 // Live host: leftover OBJECT_REGISTRY is empty so Player::hasAnyObjects is false.
                 !census.has_any_objects
             } else if let Ok(players) = __player_list_arc.read() {
@@ -929,7 +929,7 @@ impl ScriptConditionEvaluator<'_> {
             player_name
         );
 
-        if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+        if let Some(census) = self.host_query().host_query_player_census(&player_name) {
             return Ok(bool_result(!census.has_any_build_facility));
         }
 
@@ -964,7 +964,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         let current_credits =
-            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+            if let Some(census) = self.host_query().host_query_player_census(&player_name) {
                 census.money
             } else {
                 // C++ returns false when playerFromParam cannot resolve the Side.
@@ -1007,7 +1007,7 @@ impl ScriptConditionEvaluator<'_> {
 
         // C++ parity: ScriptConditions::evaluatePlayerHasNOrFewerBuildings
         let building_count =
-            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+            if let Some(census) = self.host_query().host_query_player_census(&player_name) {
                 census.building_count
             } else {
                 let __player_list_arc = player_list();
@@ -1033,7 +1033,7 @@ impl ScriptConditionEvaluator<'_> {
         let player_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if player '{}' has power", player_name);
 
-        if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+        if let Some(census) = self.host_query().host_query_player_census(&player_name) {
             return Ok(bool_result(census.has_sufficient_power()));
         }
 
@@ -1081,7 +1081,7 @@ impl ScriptConditionEvaluator<'_> {
         // C++ parity: ScriptConditions::evaluatePlayerHasNOrFewerFactionBuildings
         // Uses KINDOF_MP_COUNT_FOR_VICTORY + KINDOF_STRUCTURE.
         let building_count =
-            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+            if let Some(census) = self.host_query().host_query_player_census(&player_name) {
                 census.faction_building_count
             } else {
                 let __player_list_arc = player_list();
@@ -1117,7 +1117,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         let power_ratio =
-            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+            if let Some(census) = self.host_query().host_query_player_census(&player_name) {
                 census.supply_ratio()
             } else {
                 let __player_list_arc = player_list();
@@ -1155,7 +1155,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         let actual_excess =
-            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+            if let Some(census) = self.host_query().host_query_player_census(&player_name) {
                 census.excess_power()
             } else {
                 let __player_list_arc = player_list();
@@ -1248,7 +1248,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         let current_points =
-            crate::scripting::host_query_player_science_purchase_points(&player_name)
+            self.host_query().host_query_player_science_purchase_points(&player_name)
                 .or_else(|| {
                     let __player_list_arc = player_list();
         let players = __player_list_arc.read().ok()?;
@@ -1309,8 +1309,8 @@ impl ScriptConditionEvaluator<'_> {
         }
 
         // Live host leftover Player SPP/sciences are stale until rank-up sync.
-        if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
-            if crate::scripting::host_query_player_has_science(&player_name, &science_name)
+        if let Some(census) = self.host_query().host_query_player_census(&player_name) {
+            if self.host_query().host_query_player_has_science(&player_name, &science_name)
                 .unwrap_or(false)
             {
                 return Ok(ScriptConditionResult::False);
@@ -1549,13 +1549,13 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if team '{}' is destroyed", team_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty()
-            && crate::scripting::host_script_query_has_any()
+            && self.host_query().host_script_query_has_any()
         {
-            if !crate::scripting::host_team_was_fielded(&team_name) {
+            if !self.host_query().host_team_was_fielded(&team_name) {
                 return Ok(ScriptConditionResult::False);
             }
             return Ok(bool_result(
-                !crate::scripting::host_team_has_any_live_objects(&team_name),
+                !self.host_query().host_team_has_any_live_objects(&team_name),
             ));
         }
 
@@ -1576,7 +1576,7 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if team '{}' has units", team_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(crate::scripting::host_team_has_any_live_units(
+            return Ok(bool_result(self.host_query().host_team_has_any_live_units(
                 &team_name,
             )));
         }
@@ -1671,7 +1671,7 @@ impl ScriptConditionEvaluator<'_> {
 
         let types = self.resolve_object_types_param(&types_param);
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(host_team_attacked_by_object_types(
+            return Ok(bool_result(host_team_attacked_by_object_types(&self.host_query(), 
                 &team_name, &types,
             )));
         }
@@ -1705,7 +1705,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(host_team_attacked_by_player(
+            return Ok(bool_result(host_team_attacked_by_player(&self.host_query(), 
                 &team_name,
                 &player_name,
             )));
@@ -1774,9 +1774,9 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if team '{}' was created", team_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty()
-            && crate::scripting::host_script_query_has_any()
+            && self.host_query().host_script_query_has_any()
         {
-            return Ok(bool_result(crate::scripting::host_team_was_fielded(
+            return Ok(bool_result(self.host_query().host_team_was_fielded(
                 &team_name,
             )));
         }
@@ -1803,7 +1803,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(host_team_discovered_by_player(
+            return Ok(bool_result(host_team_discovered_by_player(&self.host_query(), 
                 &team_name,
                 &player_name,
             )));
@@ -1899,9 +1899,9 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            let any = crate::scripting::host_script_team_member_ids(&team_name)
+            let any = self.host_query().host_script_team_member_ids(&team_name)
                 .into_iter()
-                .filter_map(crate::scripting::host_script_query_object_by_id)
+                .filter_map(|id| self.host_query().host_script_query_object_by_id(id))
                 .any(|obj| {
                     obj.waypoint_labels
                         .iter()
@@ -1977,7 +1977,7 @@ impl ScriptConditionEvaluator<'_> {
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(self.with_host_trigger_world(|world, now| {
-                crate::scripting::conditions::host_team_did_all_enter(
+                self.host_query().host_team_did_all_enter(
                     world,
                     &team_name,
                     &trigger,
@@ -2012,7 +2012,7 @@ impl ScriptConditionEvaluator<'_> {
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(self.with_host_trigger_world(|world, now| {
-                crate::scripting::conditions::host_team_did_partial_enter(
+                self.host_query().host_team_did_partial_enter(
                     world,
                     &team_name,
                     &trigger,
@@ -2047,7 +2047,7 @@ impl ScriptConditionEvaluator<'_> {
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(self.with_host_trigger_world(|world, now| {
-                crate::scripting::conditions::host_team_did_all_exit(
+                self.host_query().host_team_did_all_exit(
                     world,
                     &team_name,
                     &trigger,
@@ -2082,7 +2082,7 @@ impl ScriptConditionEvaluator<'_> {
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(self.with_host_trigger_world(|world, now| {
-                crate::scripting::conditions::host_team_did_partial_exit(
+                self.host_query().host_team_did_partial_exit(
                     world,
                     &team_name,
                     &trigger,
@@ -2133,7 +2133,7 @@ impl ScriptConditionEvaluator<'_> {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(
-                crate::scripting::host_eval_team_has_object_status(
+                self.host_query().host_eval_team_has_object_status(
                     &team_name,
                     status_mask.bits(),
                     true,
@@ -2184,7 +2184,7 @@ impl ScriptConditionEvaluator<'_> {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(
-                crate::scripting::host_eval_team_has_object_status(
+                self.host_query().host_eval_team_has_object_status(
                     &team_name,
                     status_mask.bits(),
                     false,
@@ -2248,7 +2248,7 @@ impl ScriptConditionEvaluator<'_> {
         type_or_list: &str,
         ignore_dead: bool,
     ) -> Option<i32> {
-        let census = crate::scripting::host_query_player_census(player_name)?;
+        let census = self.host_query().host_query_player_census(player_name)?;
         let types = self.resolve_object_types_param(type_or_list);
         let (templates, _) = types.prep_for_player_counting();
         let mut names: Vec<String> = templates
@@ -2367,13 +2367,13 @@ impl ScriptConditionEvaluator<'_> {
             };
             let (all_inside, mixed) = self.with_host_trigger_world(|world, _| {
                 (
-                    crate::scripting::conditions::host_team_all_inside(
+                    self.host_query().host_team_all_inside(
                         world,
                         &team_name,
                         &trigger,
                         which_to_consider,
                     ),
-                    crate::scripting::conditions::host_team_some_inside_some_outside(
+                    self.host_query().host_team_some_inside_some_outside(
                         world,
                         &team_name,
                         &trigger,
@@ -2544,12 +2544,12 @@ fn object_is_discovered_by_player(obj: &crate::object::Object, player_index: i32
 }
 
 /// C++ evaluateTeamAttackedByType over host team_instance_ids + last_damage_*.
-fn host_team_attacked_by_object_types(
+fn host_team_attacked_by_object_types(q: &crate::scripting::HostScriptQuery, 
     team_name: &str,
     types: &crate::object::object_types::ObjectTypes,
 ) -> bool {
-    for id in crate::scripting::host_script_team_member_ids(team_name) {
-        let Some(obj) = crate::scripting::host_script_query_object_by_id(id) else {
+    for id in q.host_script_team_member_ids(team_name) {
+        let Some(obj) = q.host_script_query_object_by_id(id) else {
             continue;
         };
         if !obj.last_damage_template.is_empty() {
@@ -2563,7 +2563,7 @@ fn host_team_attacked_by_object_types(
         if obj.last_damage_source_id == 0 {
             continue;
         }
-        let Some(src) = crate::scripting::host_script_query_object_by_id(obj.last_damage_source_id)
+        let Some(src) = q.host_script_query_object_by_id(obj.last_damage_source_id)
         else {
             continue;
         };
@@ -2577,10 +2577,10 @@ fn host_team_attacked_by_object_types(
 }
 
 /// C++ evaluateTeamAttackedByPlayer over host last_damage_player (live attacker owner).
-fn host_team_attacked_by_player(team_name: &str, player_name: &str) -> bool {
-    crate::scripting::host_script_team_member_ids(team_name)
+fn host_team_attacked_by_player(q: &crate::scripting::HostScriptQuery, team_name: &str, player_name: &str) -> bool {
+    q.host_script_team_member_ids(team_name)
         .into_iter()
-        .filter_map(crate::scripting::host_script_query_object_by_id)
+        .filter_map(|id| q.host_script_query_object_by_id(id))
         .any(|obj| {
             !obj.last_damage_player.is_empty()
                 && obj.last_damage_player.eq_ignore_ascii_case(player_name)
@@ -2588,10 +2588,10 @@ fn host_team_attacked_by_player(team_name: &str, player_name: &str) -> bool {
 }
 
 /// C++ evaluateTeamDiscovered over host discovered_by (CLEAR|PARTIAL_CLEAR census).
-fn host_team_discovered_by_player(team_name: &str, player_name: &str) -> bool {
-    crate::scripting::host_script_team_member_ids(team_name)
+fn host_team_discovered_by_player(q: &crate::scripting::HostScriptQuery, team_name: &str, player_name: &str) -> bool {
+    q.host_script_team_member_ids(team_name)
         .into_iter()
-        .filter_map(crate::scripting::host_script_query_object_by_id)
+        .filter_map(|id| q.host_script_query_object_by_id(id))
         .any(|obj| {
             if obj.held || obj.stealthed_hidden {
                 return false;

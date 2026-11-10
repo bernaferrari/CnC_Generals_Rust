@@ -19,12 +19,12 @@ fn receiving_script_audio(
     })
 }
 
-fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
+fn resolve_script_named_object_id(q: &crate::scripting::HostScriptQuery, unit_name: &str) -> Option<u32> {
     get_named_object_tracker()
         .get_object_id(unit_name)
         .ok()
         .flatten()
-        .or_else(|| crate::scripting::host_script_named_unit_id(unit_name))
+        .or_else(|| q.host_script_named_unit_id(unit_name))
 }
 
 fn apply_map_visibility_for_player(
@@ -61,7 +61,7 @@ impl ScriptActionDispatcher<'_> {
                 );
             }
         }
-        let Some(object_id) = resolve_script_named_object_id(object_name) else {
+        let Some(object_id) = resolve_script_named_object_id(&self.host_query(), object_name) else {
             return;
         };
         if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
@@ -100,7 +100,7 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let Some(object_id) = resolve_script_named_object_id(&unit_name) else {
+        let Some(object_id) = resolve_script_named_object_id(&self.host_query(), &unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
 

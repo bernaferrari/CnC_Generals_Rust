@@ -1393,6 +1393,14 @@ pub struct ScriptActionDispatcher<'engine> {
 }
 
 impl<'engine> ScriptActionDispatcher<'engine> {
+    /// C++ the host facts of the engine running this script (its own
+    /// world's snapshot), never the world published on the thread.
+    fn host_query(&self) -> crate::scripting::HostScriptQuery {
+        crate::scripting::HostScriptQuery::from_world(
+            self.context.borrowed_engine().owning_world_services(),
+        )
+    }
+
     /// C++ TheControlBar of the engine dispatching this script (its world's
     /// resolved catalog), never the world published on the thread.
     fn owning_control_bar_bridge(&self) -> Option<Arc<crate::control_bar::ControlBarBridge>> {
@@ -1463,6 +1471,14 @@ pub struct ScriptConditionEvaluator<'engine> {
 }
 
 impl<'engine> ScriptConditionEvaluator<'engine> {
+    /// C++ the host facts of the engine running this script (its own
+    /// world's snapshot), never the world published on the thread.
+    fn host_query(&self) -> crate::scripting::HostScriptQuery {
+        crate::scripting::HostScriptQuery::from_world(
+            self.context.borrowed_engine().owning_world_services(),
+        )
+    }
+
     /// C++ TheControlBar of the engine dispatching this script (its world's
     /// resolved catalog), never the world published on the thread.
     fn owning_control_bar_bridge(&self) -> Option<Arc<crate::control_bar::ControlBarBridge>> {
@@ -1526,3 +1542,25 @@ mod eval_skirmish;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod host_query_owner_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+
+    #[test]
+    fn evaluator_host_query_is_its_engines_world_not_the_published_one() {
+        let a = new_world_services();
+        let b = new_world_services();
+        let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+        snap.named.insert("Hero".to_string(), 7);
+        crate::scripting::HostScriptQuery::of(&a).set_host_script_query_snapshot(snap);
+        let engine = crate::scripting::engine::ScriptEngine::new_with_services(&a).unwrap();
+        let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+        with_world_services(&b, || {
+            let evaluator = ScriptConditionEvaluator::new(&engine, &state);
+            assert_eq!(evaluator.host_query().host_script_named_unit_id("Hero"), Some(7));
+            assert!(!crate::scripting::HostScriptQuery::of(&b).host_script_query_has_any());
+        });
+    }
+}

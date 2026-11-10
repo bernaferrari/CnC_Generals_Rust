@@ -2981,7 +2981,7 @@ impl ScriptActionDispatcher<'_> {
 
         if super::dual_world_registry_unavailable() {
             if let Some(unit_name) = unit_name {
-                if crate::scripting::host_script_named_unit_alive(unit_name) == Some(true) {
+                if self.host_query().host_script_named_unit_alive(unit_name) == Some(true) {
                     log::warn!(
                         "WARNING - Object with name '{}' already exists. Failed Create.",
                         unit_name
@@ -3263,7 +3263,7 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<bool, ScriptError> {
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             let control_bar = self.owning_control_bar_bridge();
-            if let Some(ready) = crate::scripting::host_eval_skirmish_command_button_ready(
+            if let Some(ready) = self.host_query().host_eval_skirmish_command_button_ready(
                 team_name,
                 command_button_name,
                 all_ready,

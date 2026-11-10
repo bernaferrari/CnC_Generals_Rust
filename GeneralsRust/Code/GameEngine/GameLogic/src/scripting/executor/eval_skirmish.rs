@@ -25,7 +25,7 @@ impl ScriptConditionEvaluator<'_> {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             if let Some(ready) =
-                crate::scripting::host_eval_skirmish_special_power_ready(&player_name, &power_name)
+                self.host_query().host_eval_skirmish_special_power_ready(&player_name, &power_name)
             {
                 return Ok(if ready {
                     ScriptConditionResult::True
@@ -102,7 +102,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(ok) = crate::scripting::host_eval_skirmish_value_in_area(
+            if let Some(ok) = self.host_query().host_eval_skirmish_value_in_area(
                 &player_name,
                 comparison as i32,
                 compare_value,
@@ -217,7 +217,7 @@ impl ScriptConditionEvaluator<'_> {
         let compare_value = self.get_condition_real_param(condition, 3)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(ok) = crate::scripting::host_eval_skirmish_supplies_value_within_distance(
+            if let Some(ok) = self.host_query().host_eval_skirmish_supplies_value_within_distance(
                 &player_name,
                 distance,
                 &area_name,
@@ -392,7 +392,7 @@ impl ScriptConditionEvaluator<'_> {
         let area_name = self.get_condition_string_param(condition, 2)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(found) = crate::scripting::host_eval_skirmish_tech_building_within_distance(
+            if let Some(found) = self.host_query().host_eval_skirmish_tech_building_within_distance(
                 &player_name,
                 distance,
                 &area_name,
@@ -507,7 +507,7 @@ impl ScriptConditionEvaluator<'_> {
     ) -> Result<bool, ScriptError> {
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             let control_bar = self.owning_control_bar_bridge();
-            if let Some(ready) = crate::scripting::host_eval_skirmish_command_button_ready(
+            if let Some(ready) = self.host_query().host_eval_skirmish_command_button_ready(
                 team_name,
                 command_button_name,
                 all_ready,
@@ -571,7 +571,7 @@ impl ScriptConditionEvaluator<'_> {
         let target_count = self.get_condition_int_param(condition, 2)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(count) = crate::scripting::host_eval_skirmish_unowned_faction_unit_count() {
+            if let Some(count) = self.host_query().host_eval_skirmish_unowned_faction_unit_count() {
                 let result = Self::compare_i32(comparison, count, target_count);
                 return Ok(if result {
                     ScriptConditionResult::True
@@ -672,7 +672,7 @@ impl ScriptConditionEvaluator<'_> {
         let player_name = self.get_condition_string_param(condition, 0)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_prerequisite_to_build(
+            if let Some(ok) = self.host_query().host_eval_skirmish_player_has_prerequisite_to_build(
                 &player_name,
                 object_type.get_string(),
             ) {
@@ -712,7 +712,7 @@ impl ScriptConditionEvaluator<'_> {
         let target_count = self.get_condition_int_param(condition, 2)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(count) = crate::scripting::host_eval_skirmish_garrisoned_count(&player_name)
+            if let Some(count) = self.host_query().host_eval_skirmish_garrisoned_count(&player_name)
             {
                 let result = Self::compare_i32(comparison, count, target_count);
                 return Ok(if result {
@@ -787,7 +787,7 @@ impl ScriptConditionEvaluator<'_> {
         let target_count = self.get_condition_int_param(condition, 2)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(count) = crate::scripting::host_eval_skirmish_captured_count(&player_name) {
+            if let Some(count) = self.host_query().host_eval_skirmish_captured_count(&player_name) {
                 let result = Self::compare_i32(comparison, count, target_count);
                 return Ok(if result {
                     ScriptConditionResult::True
@@ -881,7 +881,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
+            if let Some(ok) = self.host_query().host_eval_skirmish_player_has_units_in_area(
                 &player_name,
                 &area_name,
             ) {
@@ -1083,7 +1083,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_discovered_player(
+            if let Some(ok) = self.host_query().host_eval_skirmish_player_has_discovered_player(
                 &player_name,
                 &discovered_by_name,
             ) {
@@ -1181,7 +1181,7 @@ impl ScriptConditionEvaluator<'_> {
                 names
             }
         };
-        if let Some(count) = crate::scripting::host_count_player_type_in_area(
+        if let Some(count) = self.host_query().host_count_player_type_in_area(
             &player_name,
             &trigger_name,
             &type_names,
@@ -1338,7 +1338,7 @@ impl ScriptConditionEvaluator<'_> {
         // Live host never registers crate objects, so Player::get_all_objects is empty.
         // C++ evaluatePlayerHasUnitKindInArea walks live Team member lists.
         if let Some(count) =
-            crate::scripting::host_count_player_kind_in_area(&player_name, &trigger_name, kind)
+            self.host_query().host_count_player_kind_in_area(&player_name, &trigger_name, kind)
         {
             let comparison_result = Self::compare_i32(comparison, count, target_count);
             // Match C++: this writes frame object count into custom_data (legacy quirk).

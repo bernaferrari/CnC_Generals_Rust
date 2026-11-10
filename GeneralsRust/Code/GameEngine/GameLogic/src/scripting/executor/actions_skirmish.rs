@@ -1178,7 +1178,7 @@ impl ScriptActionDispatcher<'_> {
         let tracker = get_named_object_tracker();
         let leftover_id = tracker.get_object_id(&loco_name).ok().flatten();
         let object_id =
-            leftover_id.or_else(|| crate::scripting::host_script_named_unit_id(&loco_name));
+            leftover_id.or_else(|| self.host_query().host_script_named_unit_id(&loco_name));
         if let Some(object_id) = object_id {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(obj_guard) = obj_arc.read() {

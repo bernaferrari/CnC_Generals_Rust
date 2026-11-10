@@ -36,7 +36,7 @@ impl ScriptConditionEvaluator<'_> {
                 // CPP ScriptConditions.cpp397-415: integer current position,
                 // with no inert/dead filter or another world's area geometry.
                 return Ok(Self::bool_result(
-                    crate::scripting::conditions::host_named_unit_point_in_trigger(
+                    self.host_query().host_named_unit_point_in_trigger(
                         &object_name,
                         &trigger,
                     ),
@@ -66,7 +66,7 @@ impl ScriptConditionEvaluator<'_> {
             // Match named.rs: existence is not inside-area. Missing host AABB
             // is False (do not fall through to NamedObjectTracker).
             return Ok(
-                if crate::scripting::host_script_named_unit_in_named_area(&object_name, &area_name)
+                if self.host_query().host_script_named_unit_in_named_area(&object_name, &area_name)
                     .unwrap_or(false)
                 {
                     ScriptConditionResult::True
@@ -120,14 +120,14 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if '{}' is destroyed", object_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 return Ok(if obj.effectively_dead || !obj.alive {
                     ScriptConditionResult::True
                 } else {
                     ScriptConditionResult::False
                 });
             }
-            if let Some(alive) = crate::scripting::host_script_named_unit_alive(&object_name) {
+            if let Some(alive) = self.host_query().host_script_named_unit_alive(&object_name) {
                 return Ok(if alive {
                     ScriptConditionResult::False
                 } else {
@@ -171,7 +171,7 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if '{}' is not destroyed", object_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(alive) = crate::scripting::host_script_named_unit_alive(&object_name) {
+            if let Some(alive) = self.host_query().host_script_named_unit_alive(&object_name) {
                 return Ok(if alive {
                     ScriptConditionResult::True
                 } else {
@@ -217,7 +217,7 @@ impl ScriptConditionEvaluator<'_> {
         }
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 if !obj.last_damage_template.is_empty()
                     && types.is_in_set(&crate::common::AsciiString::from(
                         obj.last_damage_template.as_str(),
@@ -227,7 +227,7 @@ impl ScriptConditionEvaluator<'_> {
                 }
                 if obj.last_damage_source_id != 0 {
                     if let Some(src) =
-                        crate::scripting::host_script_query_object_by_id(obj.last_damage_source_id)
+                        self.host_query().host_script_query_object_by_id(obj.last_damage_source_id)
                     {
                         return Ok(Self::bool_result(types.is_in_set(
                             &crate::common::AsciiString::from(src.template_name.as_str()),
@@ -261,7 +261,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 return Ok(Self::bool_result(
                     !obj.last_damage_player.is_empty()
                         && obj.last_damage_player.eq_ignore_ascii_case(&player_name),
@@ -347,7 +347,7 @@ impl ScriptConditionEvaluator<'_> {
         // C++: return (TheScriptEngine->getUnitNamed(pUnitParm->getString()) != NULL);
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(Self::bool_result(
-                crate::scripting::host_script_named_unit_present(&object_name),
+                self.host_query().host_script_named_unit_present(&object_name),
             ));
         }
 
@@ -374,7 +374,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 if obj.held || obj.stealthed_hidden {
                     return Ok(ScriptConditionResult::False);
                 }
@@ -429,7 +429,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 return Ok(Self::bool_result(
                     !obj.owner_player.is_empty()
                         && obj.owner_player.eq_ignore_ascii_case(&player_name),
@@ -477,7 +477,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 return Ok(Self::bool_result(
                     obj.waypoint_labels
                         .iter()
@@ -548,7 +548,7 @@ impl ScriptConditionEvaluator<'_> {
         // mirrors objects into OBJECT_REGISTRY, so consult the host snapshot.
         if dual_world_registry_unavailable() {
             let is_selected =
-                crate::scripting::host_script_named_unit_selected(&object_name).unwrap_or(false);
+                self.host_query().host_script_named_unit_selected(&object_name).unwrap_or(false);
             condition.custom_data = if is_selected { 1 } else { -1 };
             return Ok(if is_selected {
                 ScriptConditionResult::True
@@ -630,12 +630,12 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if crate::scripting::host_script_query_object(&object_name)
+            if self.host_query().host_script_query_object(&object_name)
                 .is_some_and(|obj| obj.kind_inert)
             {
                 return Ok(ScriptConditionResult::False);
             }
-            let Some(object_id) = crate::scripting::host_script_named_unit_id(&object_name) else {
+            let Some(object_id) = self.host_query().host_script_named_unit_id(&object_name) else {
                 return Ok(ScriptConditionResult::False);
             };
             return Ok(Self::bool_result(self.with_host_trigger_world(
@@ -681,7 +681,7 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            let Some(object_id) = crate::scripting::host_script_named_unit_id(&object_name) else {
+            let Some(object_id) = self.host_query().host_script_named_unit_id(&object_name) else {
                 return Ok(ScriptConditionResult::False);
             };
             return Ok(Self::bool_result(self.with_host_trigger_world(
@@ -715,7 +715,7 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if '{}' is dying", object_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 return Ok(Self::bool_result(obj.effectively_dead || !obj.alive));
             }
             return Ok(ScriptConditionResult::False);
@@ -745,10 +745,10 @@ impl ScriptConditionEvaluator<'_> {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             // C++ getUnitNamed: host snapshot lists this name (alive or dying) → not totally dead.
-            if crate::scripting::host_script_named_unit_alive(&object_name).is_some() {
+            if self.host_query().host_script_named_unit_alive(&object_name).is_some() {
                 return Ok(ScriptConditionResult::False);
             }
-            if crate::scripting::host_script_query_has_any() {
+            if self.host_query().host_script_query_has_any() {
                 let tracker = get_named_object_tracker();
                 let existed = tracker.did_object_exist(&object_name).unwrap_or(false)
                     || self
@@ -784,7 +784,7 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if '{}' building is empty", object_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 if !obj.has_contain {
                     return Ok(ScriptConditionResult::False);
                 }
@@ -826,7 +826,7 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if '{}' has free container slots", object_name);
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&object_name) {
                 if !obj.has_contain {
                     return Ok(ScriptConditionResult::False);
                 }
@@ -880,7 +880,7 @@ impl ScriptConditionEvaluator<'_> {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(obj) = crate::scripting::host_script_query_object(&unit_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(&unit_name) {
                 if obj.initial_health <= 0.0 {
                     return Ok(ScriptConditionResult::False);
                 }
@@ -945,7 +945,7 @@ impl ScriptConditionEvaluator<'_> {
         log::debug!("Evaluating if unit '{}' emptied", unit_name);
 
         let (object_id, num_peeps) = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            let Some(obj) = crate::scripting::host_script_query_object(&unit_name) else {
+            let Some(obj) = self.host_query().host_script_query_object(&unit_name) else {
                 return Ok(ScriptConditionResult::False);
             };
             (obj.id, obj.contain_count as usize)
@@ -996,7 +996,7 @@ impl ScriptConditionEvaluator<'_> {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(
-                if crate::scripting::host_eval_unit_has_object_status(
+                if self.host_query().host_eval_unit_has_object_status(
                     &unit_name,
                     status_mask.bits(),
                 )
@@ -1096,7 +1096,7 @@ impl ScriptConditionEvaluator<'_> {
         if crate::helpers::TheThingFactory::find_template(&type_or_list_name).is_none() {
             let key = type_or_list_name.to_ascii_lowercase();
             let host_has =
-                crate::scripting::host_query_player_census(&player_name).is_some_and(|c| {
+                self.host_query().host_query_player_census(&player_name).is_some_and(|c| {
                     c.template_counts.contains_key(&key)
                         || c.template_counts_ignore_dead.contains_key(&key)
                 });
@@ -1156,7 +1156,7 @@ impl ScriptConditionEvaluator<'_> {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(Self::bool_result(
-                crate::scripting::host_building_entered_by_player(&building_name, &player_name)
+                self.host_query().host_building_entered_by_player(&building_name, &player_name)
                     .unwrap_or(false),
             ));
         }
@@ -1220,7 +1220,7 @@ impl ScriptConditionEvaluator<'_> {
             ScriptOwnerQuery::Unavailable => {}
         }
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(Self::bool_result(crate::scripting::host_bridge_repaired(
+            return Ok(Self::bool_result(self.host_query().host_bridge_repaired(
                 &bridge_name,
             )));
         }
@@ -1259,7 +1259,7 @@ impl ScriptConditionEvaluator<'_> {
             ScriptOwnerQuery::Unavailable => {}
         }
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(Self::bool_result(crate::scripting::host_bridge_broken(
+            return Ok(Self::bool_result(self.host_query().host_bridge_broken(
                 &bridge_name,
             )));
         }
@@ -1471,7 +1471,7 @@ impl ScriptConditionEvaluator<'_> {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(Self::bool_result(
-                crate::scripting::host_enemy_sighted(&unit_name, alliance, &player_name)
+                self.host_query().host_enemy_sighted(&unit_name, alliance, &player_name)
                     .unwrap_or(false),
             ));
         }
@@ -1597,7 +1597,7 @@ impl ScriptConditionEvaluator<'_> {
                 .map(|t| t.as_str().to_string())
                 .collect();
             return Ok(Self::bool_result(
-                crate::scripting::host_type_sighted(&unit_name, &type_names, &player_name)
+                self.host_query().host_type_sighted(&unit_name, &type_names, &player_name)
                     .unwrap_or(false),
             ));
         }
@@ -1722,7 +1722,7 @@ impl ScriptConditionEvaluator<'_> {
         drop(players);
 
         let is_safe = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            crate::scripting::host_query_supply_source_safe(&player_name, min_supply_amount)
+            self.host_query().host_query_supply_source_safe(&player_name, min_supply_amount)
                 .unwrap_or(false)
         } else {
             with_ai_integration_mut(|manager| {
@@ -1769,7 +1769,7 @@ impl ScriptConditionEvaluator<'_> {
         drop(players);
 
         let attacked = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            crate::scripting::host_query_supply_source_attacked(&player_name).unwrap_or(false)
+            self.host_query().host_query_supply_source_attacked(&player_name).unwrap_or(false)
         } else {
             with_ai_integration_mut(|manager| {
                 manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
