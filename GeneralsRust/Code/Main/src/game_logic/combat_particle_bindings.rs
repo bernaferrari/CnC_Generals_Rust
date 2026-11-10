@@ -228,25 +228,6 @@ pub(super) fn can_retire_bindings(bindings: &HashMap<u32, ClientParticleBinding>
 }
 
 impl CombatParticleRegistry {
-    /// Canonical owner operation, before presentation freeze. Events and
-    /// rebuilt snapshots cannot independently create another client system.
-    #[cfg(feature = "game_client")]
-    pub(crate) fn backfill_client_systems(
-        &mut self,
-        manager: &mut game_client::effects::ParticleSystemManager,
-    ) -> usize {
-        let owner = manager.runtime_owner();
-        for (id, binding) in &self.client_bindings {
-            if binding.owner.is_live() && binding.owner != owner {
-                log::error!("particle frame has a peer namespace receipt");
-                return 0;
-            }
-            let _ = id;
-        }
-        // Creation occurs only at the immediate authored source point.
-        0
-    }
-
     pub(super) fn update_client_position(
         &mut self,
         id: u32,

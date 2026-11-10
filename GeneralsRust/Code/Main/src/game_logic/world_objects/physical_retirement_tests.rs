@@ -542,27 +542,6 @@ fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
             assert_eq!(id, peer_id, "fixture exercises same numeric ObjectId");
             owner.require_native_drawable_owner();
             let old_epoch = owner.visual_world_epoch;
-            owner
-                .combat_particles_mut()
-                .restore_from_snapshot(
-                    2,
-                    [crate::game_logic::CombatParticleSystemEntry {
-                        id: 1,
-                        kind: crate::game_logic::CombatParticleKind::DeathExplosion,
-                        template_name: "ResetOwnedParticle".into(),
-                        position: Vec3::ZERO,
-                        source_object: None,
-                        target_object: None,
-                        spawned_frame: 0,
-                        active: true,
-                        client_system_id: None,
-                        fx_list_name: String::new(),
-                        ocl_list_name: String::new(),
-                        attach_offset: Vec3::ZERO,
-                        attachment: None,
-                    }],
-                )
-                .unwrap();
             let particle_manager = |name: &str| {
                 let mut manager = ParticleSystemManager::new();
                 let mut template = ParticleSystemTemplate::new(name.into());
@@ -571,15 +550,19 @@ fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
                 manager
             };
             let mut actual_particles = particle_manager("ResetOwnedParticle");
-            assert_eq!(
-                owner
-                    .combat_particles_mut()
-                    .backfill_client_systems(&mut actual_particles),
-                1
+            // FXList.cpp:580-584 creates the client system at the source point.
+            let host = owner.combat_particles_mut().spawn_named(
+                crate::game_logic::CombatParticleKind::DeathExplosion,
+                "ResetOwnedParticle",
+                Vec3::ZERO,
+                0,
+                None,
+                None,
+                &mut actual_particles,
             );
             let particle_id = owner
                 .combat_particles()
-                .get(1)
+                .get(host)
                 .unwrap()
                 .client_system_id
                 .unwrap();

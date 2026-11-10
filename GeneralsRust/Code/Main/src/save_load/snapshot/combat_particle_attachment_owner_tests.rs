@@ -15,6 +15,13 @@ fn world_and_manager(delay: u32) -> (GameLogic, ParticleSystemManager, ObjectId,
     let owner = world
         .create_object("CPATOwner486", Team::USA, Vec3::new(71., 0., 83.))
         .unwrap();
+    let mut manager = ParticleSystemManager::new();
+    let mut definition = ParticleSystemTemplate::new(PARTICLE.to_string());
+    definition.info_mut().burst_count = GameClientRandomVariable::new(0., 0.);
+    definition.info_mut().initial_delay = GameClientRandomVariable::new(delay as f32, delay as f32);
+    definition.info_mut().system_lifetime = 0;
+    manager.register_template(Arc::new(definition));
+    // The client system is created at the attach source point (FXList.cpp:580-584).
     let host = world
         .combat_particles_mut()
         .attach_named_to_object_local(
@@ -26,21 +33,9 @@ fn world_and_manager(delay: u32) -> (GameLogic, ParticleSystemManager, ObjectId,
             PARTICLE,
             CombatParticleKind::ParticleSysBone,
             None,
-            &mut (),
+            &mut manager,
         )
         .unwrap();
-    let mut manager = ParticleSystemManager::new();
-    let mut definition = ParticleSystemTemplate::new(PARTICLE.to_string());
-    definition.info_mut().burst_count = GameClientRandomVariable::new(0., 0.);
-    definition.info_mut().initial_delay = GameClientRandomVariable::new(delay as f32, delay as f32);
-    definition.info_mut().system_lifetime = 0;
-    manager.register_template(Arc::new(definition));
-    assert_eq!(
-        world
-            .combat_particles_mut()
-            .backfill_client_systems(&mut manager),
-        1
-    );
     let client = world
         .combat_particles()
         .get(host)
@@ -75,6 +70,8 @@ fn raw_missing_owner_save_roundtrip_preserves_pending_descriptor_before_actual_u
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&world)
         .unwrap();
+    // The client manager saves its own systems beside the logic snapshot.
+    let client_bytes = manager.capture_xfer_bytes().unwrap();
     assert_eq!(decode_and_validate(&snapshot).unwrap()[&host].owner, owner);
     let decoded: WorldSnapshot =
         bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
@@ -99,10 +96,15 @@ fn raw_missing_owner_save_roundtrip_preserves_pending_descriptor_before_actual_u
     let mut definition = ParticleSystemTemplate::new(PARTICLE.to_string());
     definition.info_mut().burst_count = GameClientRandomVariable::new(0., 0.);
     restored_manager.register_template(Arc::new(definition));
+    let receipt = restored_manager
+        .restore_xfer_bytes(&client_bytes)
+        .unwrap()
+        .expect("client particle receipt");
     assert_eq!(
         restored
             .combat_particles_mut()
-            .backfill_client_systems(&mut restored_manager),
+            .adopt_loaded_client_systems(&restored_manager, &receipt)
+            .unwrap(),
         1
     );
     update(&mut world, &mut manager, 1);

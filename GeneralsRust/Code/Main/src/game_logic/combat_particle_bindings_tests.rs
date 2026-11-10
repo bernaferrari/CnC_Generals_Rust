@@ -34,109 +34,121 @@ fn manager(name: &str) -> ParticleSystemManager {
     manager
 }
 
+/// C++ FXList ParticleSystemFXNugget::doFXPos (FXList.cpp:580-584) creates the
+/// client system at the authored source point, or nothing when the template
+/// is missing. A system is never backfilled later from logic rows.
+fn source(
+    registry: &mut CombatParticleRegistry,
+    template: &str,
+    particles: &mut ParticleSystemManager,
+) -> u32 {
+    registry.spawn_named(
+        CombatParticleKind::DeathExplosion,
+        template,
+        Vec3::new(2.0, 3.0, 4.0),
+        0,
+        None,
+        None,
+        particles,
+    )
+}
+fn client_id(registry: &CombatParticleRegistry, id: u32) -> u32 {
+    registry
+        .get(id)
+        .unwrap()
+        .client_system_id
+        .expect("source point created the client system")
+}
+
 #[test]
-fn receiving_particle_backfill_repeated_frames_preserve_exact_distinct_ids() {
-    let mut particles = manager("ReceivingBackfill");
-    let mut registry = make_registry(vec![
-        entry(1, "ReceivingBackfill"),
-        entry(2, "ReceivingBackfill"),
-    ]);
-    assert_eq!(registry.backfill_client_systems(&mut particles), 2);
-    let ids = [
-        registry.get(1).unwrap().client_system_id.unwrap(),
-        registry.get(2).unwrap().client_system_id.unwrap(),
+fn source_point_systems_keep_distinct_ids_across_observation_frames() {
+    let mut particles = manager("ReceivingSource");
+    let mut registry = CombatParticleRegistry::new();
+    let hosts = [
+        source(&mut registry, "ReceivingSource", &mut particles),
+        source(&mut registry, "ReceivingSource", &mut particles),
     ];
+    let ids = hosts.map(|host| client_id(&registry, host));
     assert_ne!(
         ids[0], ids[1],
         "same name and position are two distinct canonical systems"
     );
     for _ in 0..3 {
-        let old_frame_rows: Vec<_> = registry
+        let frame_rows: Vec<_> = registry
             .active_systems()
             .map(crate::presentation_frame::PresentationParticleSystem::from_combat_entry)
             .collect();
-        assert_eq!(old_frame_rows.len(), 2);
-        assert_eq!(registry.backfill_client_systems(&mut particles), 0);
+        assert_eq!(frame_rows.len(), 2);
         assert_eq!(particles.active_system_count(), 2);
-        assert_eq!(registry.get(1).unwrap().client_system_id, Some(ids[0]));
-        assert_eq!(registry.get(2).unwrap().client_system_id, Some(ids[1]));
+        assert_eq!(client_id(&registry, hosts[0]), ids[0]);
+        assert_eq!(client_id(&registry, hosts[1]), ids[1]);
     }
 }
 
 #[test]
 fn receiving_particle_actual_frames_are_observations_after_canonical_admission() {
     let mut world = crate::game_logic::GameLogic::new();
-    world
-        .combat_particles_mut()
-        .restore_from_snapshot(2, [entry(1, "FrameOwnedParticle")])
-        .unwrap();
     let mut particles = manager("FrameOwnedParticle");
-    assert_eq!(
-        world
-            .combat_particles_mut()
-            .backfill_client_systems(&mut particles),
-        1
-    );
-    let client_id = world.combat_particles().get(1).unwrap().client_system_id;
+    let host = source(world.combat_particles_mut(), "FrameOwnedParticle", &mut particles);
+    let client = world.combat_particles().get(host).unwrap().client_system_id;
+    assert!(client.is_some());
     let first = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
     let second = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
-    assert_eq!(first.particle_systems[0].client_system_id, client_id);
-    assert_eq!(second.particle_systems[0].client_system_id, client_id);
+    assert_eq!(first.particle_systems[0].client_system_id, client);
+    assert_eq!(second.particle_systems[0].client_system_id, client);
     assert_eq!(
-        world
-            .combat_particles_mut()
-            .backfill_client_systems(&mut particles),
-        0
+        particles.active_system_count(),
+        1,
+        "observation frames never emit systems"
     );
-    assert_eq!(particles.active_system_count(), 1);
     world
         .combat_particles_mut()
         .clear_with_client_manager(&mut particles);
-    world
-        .combat_particles_mut()
-        .restore_from_snapshot(2, [entry(1, "FrameOwnedParticle")])
-        .unwrap();
-    assert_eq!(
-        world
-            .combat_particles_mut()
-            .backfill_client_systems(&mut particles),
-        1
-    );
-    let new_id = world.combat_particles().get(1).unwrap().client_system_id;
-    assert_ne!(new_id, client_id);
+    let host = source(world.combat_particles_mut(), "FrameOwnedParticle", &mut particles);
+    let new_id = world.combat_particles().get(host).unwrap().client_system_id;
+    assert_ne!(new_id, client);
     // Reading the earlier same-host-ID snapshot cannot admit its old binding.
-    assert_eq!(first.particle_systems[0].client_system_id, client_id);
+    assert_eq!(first.particle_systems[0].client_system_id, client);
     assert_eq!(
-        world.combat_particles().get(1).unwrap().client_system_id,
+        world.combat_particles().get(host).unwrap().client_system_id,
         new_id
     );
 }
 
 #[test]
-fn receiving_particle_backfill_failure_retries_once_and_keeps_attached_descriptor() {
+fn attached_source_point_without_template_creates_nothing_and_never_retries() {
     let mut particles = ParticleSystemManager::new();
-    let mut attached = entry(1, "DelayedAttached");
-    attached.kind = CombatParticleKind::ParticleSysBone;
-    attached.attachment = Some(CombatParticleAttachment {
-        owner: ObjectId(77),
-        local_offset: Vec3::new(1.0, 2.0, 3.0),
-        lifetime: Some(3),
-        local_z_rotation: 0.4,
-    });
-    let mut registry = make_registry(vec![attached]);
-    assert_eq!(registry.backfill_client_systems(&mut particles), 0);
-    assert!(registry.get(1).unwrap().client_system_id.is_none());
+    let mut registry = CombatParticleRegistry::new();
+    let attach = |registry: &mut CombatParticleRegistry, particles: &mut ParticleSystemManager| {
+        registry
+            .attach_named_to_object_local(
+                ObjectId(77),
+                Vec3::ZERO,
+                0.0,
+                Vec3::new(1.0, 2.0, 3.0),
+                0,
+                "DelayedAttached",
+                CombatParticleKind::ParticleSysBone,
+                Some(3),
+                particles,
+            )
+            .expect("attached host entry")
+    };
+    let missing = attach(&mut registry, &mut particles);
+    assert!(registry.get(missing).unwrap().client_system_id.is_none());
     let mut template = ParticleSystemTemplate::new("DelayedAttached".into());
     template.info_mut().system_lifetime = 10;
     particles.register_template(Arc::new(template));
-    assert_eq!(registry.backfill_client_systems(&mut particles), 1);
-    let id = registry.get(1).unwrap().client_system_id.unwrap();
+    assert!(
+        registry.get(missing).unwrap().client_system_id.is_none(),
+        "a later template never retroactively creates the missed system"
+    );
+    assert_eq!(particles.active_system_count(), 0);
+    let host = attach(&mut registry, &mut particles);
+    let id = client_id(&registry, host);
     let actual = particles.find_particle_system(id).unwrap();
     assert_eq!(actual.attached_object(), Some(77));
     assert_eq!(actual.position(), Vec3::new(1.0, 3.0, 2.0));
-    let expected = glam::Mat3::from_rotation_z(0.4);
-    assert!(actual.local_transform().abs_diff_eq(expected, 0.00001));
-    assert_eq!(registry.backfill_client_systems(&mut particles), 0);
     assert_eq!(particles.active_system_count(), 1);
     assert!(!particles.find_particle_system(id).unwrap().should_remove());
     for frame in 1..=3 {
@@ -152,9 +164,9 @@ fn receiving_particle_backfill_failure_retries_once_and_keeps_attached_descripto
 fn receiving_particle_bindings_reject_peer_reset_clone_and_historical_ownership() {
     let mut first = manager("OwnedNamespace");
     let mut peer = manager("OwnedNamespace");
-    let mut registry = make_registry(vec![entry(1, "OwnedNamespace")]);
-    assert_eq!(registry.backfill_client_systems(&mut first), 1);
-    let first_id = registry.get(1).unwrap().client_system_id.unwrap();
+    let mut registry = CombatParticleRegistry::new();
+    let host = source(&mut registry, "OwnedNamespace", &mut first);
+    let first_id = client_id(&registry, host);
     let peer_id = peer
         .create_preset_system_at("OwnedNamespace", Vec3::ZERO)
         .unwrap();
@@ -163,47 +175,26 @@ fn receiving_particle_bindings_reject_peer_reset_clone_and_historical_ownership(
     query.clear_with_client_manager(&mut first);
     assert!(!first.find_particle_system(first_id).unwrap().is_destroyed());
     let saved = registry.systems_snapshot();
-    let mut restored = make_registry(saved.clone());
-    restored.deactivate_with_client_manager(1, &mut peer);
-    assert!(!peer.find_particle_system(peer_id).unwrap().is_destroyed());
-    let mut rebound = make_registry(saved);
-    assert_eq!(rebound.backfill_client_systems(&mut peer), 1);
-    let rebound_id = rebound.get(1).unwrap().client_system_id.unwrap();
-    assert_ne!(
-        rebound_id, peer_id,
+    let mut restored = make_registry(saved);
+    restored.deactivate_with_client_manager(host, &mut peer);
+    assert!(
+        !peer.find_particle_system(peer_id).unwrap().is_destroyed(),
         "historical numeric ID cannot claim an unrelated receiving system"
     );
-    assert_eq!(rebound.backfill_client_systems(&mut peer), 0);
-    rebound.clear_with_client_manager(&mut peer);
-    assert!(
-        peer.find_particle_system(rebound_id)
-            .unwrap()
-            .is_destroyed()
-    );
-    assert!(!peer.find_particle_system(peer_id).unwrap().is_destroyed());
-    registry.deactivate_with_client_manager(1, &mut peer);
+    registry.deactivate_with_client_manager(host, &mut peer);
     assert!(!peer.find_particle_system(peer_id).unwrap().is_destroyed());
     assert!(!first.find_particle_system(first_id).unwrap().is_destroyed());
-    assert!(registry.get(1).unwrap().active);
-    assert_eq!(registry.get(1).unwrap().client_system_id, Some(first_id));
-    registry.systems.insert(2, entry(2, "OwnedNamespace"));
-    assert_eq!(
-        registry.backfill_client_systems(&mut peer),
-        0,
-        "live peer mismatch preserves the original receipt"
-    );
+    assert!(registry.get(host).unwrap().active);
+    assert_eq!(registry.get(host).unwrap().client_system_id, Some(first_id));
+    let second = source(&mut registry, "OwnedNamespace", &mut peer);
     assert!(
-        registry.get(2).unwrap().client_system_id.is_none(),
-        "a wrong peer cannot split unbound rows into another live manager"
+        registry.get(second).unwrap().client_system_id.is_none(),
+        "a wrong peer cannot split source rows into another live manager"
     );
-    assert_eq!(
-        peer.active_system_count(),
-        2,
-        "only original peer and already-retired historical rebound exist"
-    );
+    assert_eq!(peer.active_system_count(), 1, "only the peer's own system exists");
     registry.clear_with_client_manager(&mut peer);
     assert!(
-        registry.get(1).unwrap().active,
+        registry.get(host).unwrap().active,
         "clear preflight rejects the wrong live owner without partial mutation"
     );
     registry.clear_with_client_manager(&mut first);
@@ -215,8 +206,8 @@ fn receiving_particle_bindings_reject_peer_reset_clone_and_historical_ownership(
     assert!(!peer.find_particle_system(peer_id).unwrap().is_destroyed());
 
     first.reset().unwrap();
-    let mut live = make_registry(vec![entry(1, "OwnedNamespace")]);
-    live.backfill_client_systems(&mut first);
+    let mut live = CombatParticleRegistry::new();
+    let live_host = source(&mut live, "OwnedNamespace", &mut first);
     let old_owner = first.runtime_owner();
     first.reset().unwrap();
     assert_ne!(old_owner, first.runtime_owner());
@@ -227,30 +218,24 @@ fn receiving_particle_bindings_reject_peer_reset_clone_and_historical_ownership(
     let reused = first
         .create_preset_system_at("OwnedNamespace", Vec3::ZERO)
         .unwrap();
-    live.deactivate_with_client_manager(1, &mut first);
+    live.deactivate_with_client_manager(live_host, &mut first);
     assert!(!first.find_particle_system(reused).unwrap().is_destroyed());
-    assert_eq!(
-        live.backfill_client_systems(&mut first),
-        0,
-        "deactivated entries never resurrect"
-    );
 }
 
 #[test]
-fn receiving_particle_manager_reset_rebinds_once_without_claiming_reused_id() {
+fn receiving_particle_manager_reset_stale_receipt_never_claims_reused_id() {
     let mut particles = manager("ResetActual");
-    let mut registry = make_registry(vec![entry(1, "ResetActual")]);
-    registry.backfill_client_systems(&mut particles);
-    let old_id = registry.get(1).unwrap().client_system_id.unwrap();
+    let mut registry = CombatParticleRegistry::new();
+    let host = source(&mut registry, "ResetActual", &mut particles);
+    let old_id = client_id(&registry, host);
     particles.reset().unwrap();
     let occupant = particles
         .create_preset_system_at("ResetActual", Vec3::ZERO)
         .unwrap();
     assert_eq!(occupant, old_id);
-    assert_eq!(registry.backfill_client_systems(&mut particles), 1);
-    let admitted = registry.get(1).unwrap().client_system_id.unwrap();
+    let next = source(&mut registry, "ResetActual", &mut particles);
+    let admitted = client_id(&registry, next);
     assert_ne!(admitted, occupant);
-    assert_eq!(registry.backfill_client_systems(&mut particles), 0);
     registry.clear_with_client_manager(&mut particles);
     assert!(
         !particles
@@ -269,15 +254,15 @@ fn receiving_particle_manager_reset_rebinds_once_without_claiming_reused_id() {
 #[test]
 fn receiving_particle_retirement_keeps_existing_particles_until_normal_fade() {
     let mut particles = manager("RetiringActual");
-    let mut registry = make_registry(vec![entry(1, "RetiringActual")]);
-    registry.backfill_client_systems(&mut particles);
-    let id = registry.get(1).unwrap().client_system_id.unwrap();
+    let mut registry = CombatParticleRegistry::new();
+    let host = source(&mut registry, "RetiringActual", &mut particles);
+    let id = client_id(&registry, host);
     let mut info = ParticleInfo::default();
     info.lifetime = 3;
     particles
         .admit_particle(id, Particle::new(&info, 0, 0))
         .unwrap();
-    registry.deactivate_with_client_manager(1, &mut particles);
+    registry.deactivate_with_client_manager(host, &mut particles);
     let actual = particles.find_particle_system(id).unwrap();
     assert!(actual.is_destroyed());
     assert_eq!(actual.particle_count(), 1);
@@ -285,12 +270,12 @@ fn receiving_particle_retirement_keeps_existing_particles_until_normal_fade() {
         particles.update(0, frame);
     }
     assert!(particles.find_particle_system(id).is_none());
-    assert!(registry.get(1).unwrap().client_system_id.is_none());
+    assert!(registry.get(host).unwrap().client_system_id.is_none());
 }
 
 #[test]
 fn receiving_particle_fx_notification_does_not_fabricate_a_system() {
-    let mut particles = manager("OnlyFxListNotification");
+    let particles = manager("OnlyFxListNotification");
     let mut registry = CombatParticleRegistry::new();
     let id = registry.spawn_fx_list_marker(
         CombatParticleKind::WeaponMuzzleFlash,
@@ -300,7 +285,6 @@ fn receiving_particle_fx_notification_does_not_fabricate_a_system() {
         None,
         None,
     );
-    assert_eq!(registry.backfill_client_systems(&mut particles), 0);
     assert!(registry.get(id).unwrap().client_system_id.is_none());
     assert_eq!(particles.active_system_count(), 0);
 }
@@ -311,9 +295,9 @@ fn receiving_particle_retirement_cascades_to_the_actual_slave() {
     let mut master_template = ParticleSystemTemplate::new("ReceivingMaster".into());
     master_template.info_mut().slave_system_name = "ReceivingSlave".into();
     particles.register_template(Arc::new(master_template));
-    let mut registry = make_registry(vec![entry(1, "ReceivingMaster")]);
-    assert_eq!(registry.backfill_client_systems(&mut particles), 1);
-    let master_id = registry.get(1).unwrap().client_system_id.unwrap();
+    let mut registry = CombatParticleRegistry::new();
+    let host = source(&mut registry, "ReceivingMaster", &mut particles);
+    let master_id = client_id(&registry, host);
     // Exercise retirement of a real linked pair. Automatic authored slave
     // construction is an independent factory gap, not assumed by this test.
     let slave_id = particles
@@ -328,7 +312,7 @@ fn receiving_particle_retirement_cascades_to_the_actual_slave() {
         .unwrap()
         .set_master(Some(master_id));
     assert_ne!(master_id, slave_id);
-    registry.deactivate_with_client_manager(1, &mut particles);
+    registry.deactivate_with_client_manager(host, &mut particles);
     assert!(
         particles
             .find_particle_system(master_id)
@@ -346,9 +330,9 @@ fn receiving_particle_retirement_cascades_to_the_actual_slave() {
 #[test]
 fn receiving_particle_wrong_owner_restore_rejects_before_mutating_registry() {
     let mut particles = manager("RestoreOwner");
-    let mut registry = make_registry(vec![entry(1, "RestoreOwner")]);
-    registry.backfill_client_systems(&mut particles);
-    let actual_id = registry.get(1).unwrap().client_system_id.unwrap();
+    let mut registry = CombatParticleRegistry::new();
+    let host = source(&mut registry, "RestoreOwner", &mut particles);
+    let actual_id = client_id(&registry, host);
     let before = registry.systems_snapshot();
     let next = registry.next_id();
     assert!(
@@ -358,7 +342,7 @@ fn receiving_particle_wrong_owner_restore_rejects_before_mutating_registry() {
     );
     assert_eq!(registry.systems_snapshot(), before);
     assert_eq!(registry.next_id(), next);
-    assert!(registry.client_bindings.contains_key(&1));
+    assert!(registry.client_bindings.contains_key(&host));
     assert!(
         !particles
             .find_particle_system(actual_id)
@@ -375,7 +359,7 @@ fn receiving_particle_wrong_owner_restore_rejects_before_mutating_registry() {
     registry
         .restore_from_snapshot(100, [entry(99, "Replacement")])
         .unwrap();
-    assert!(registry.get(1).is_none());
+    assert!(registry.get(host).is_none());
     assert!(registry.get(99).is_some());
     assert_eq!(registry.next_id(), 100);
 }
@@ -390,13 +374,7 @@ fn receiving_particle_wrong_owner_world_reset_rejects_before_world_mutation() {
         Team::USA,
     ));
     world.frame = 123;
-    world
-        .combat_particles_mut()
-        .restore_from_snapshot(2, [entry(1, "ResetGuardOwner")])
-        .unwrap();
-    world
-        .combat_particles_mut()
-        .backfill_client_systems(&mut particles);
+    source(world.combat_particles_mut(), "ResetGuardOwner", &mut particles);
     let before = world.combat_particles().systems_snapshot();
     let actual_id = before[0].client_system_id.unwrap();
     let empty = crate::game_logic::GameLogic::new();
@@ -466,7 +444,6 @@ fn receiving_particle_loaded_receipt_rejects_peer_without_mutating_host_bindings
             .unwrap(),
         1
     );
-    assert_eq!(registry.backfill_client_systems(&mut first), 0);
     registry.clear_with_client_manager(&mut first);
     assert!(first.find_particle_system(id).unwrap().is_destroyed());
     assert!(!peer.find_particle_system(id).unwrap().is_destroyed());
@@ -482,17 +459,6 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
     let mut saves = SaveFileManager::with_save_directory(directory.path());
     saves.init().unwrap();
     let mut world = crate::game_logic::GameLogic::new();
-    world
-        .combat_particles_mut()
-        .restore_from_snapshot(
-            4,
-            [
-                entry(1, "PairedArchiveParticle"),
-                entry(2, "PairedArchiveParticle"),
-                entry(3, "PairedArchiveParticle"),
-            ],
-        )
-        .unwrap();
     let mut client = GameClient::new().expect("CPU-only GameClient");
     let manager = client.particle_systems_mut();
     let mut template = ParticleSystemTemplate::new("PairedArchiveParticle".into());
@@ -512,10 +478,9 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
     }
     info.alpha_keys[1].frame = 100;
     manager.register_template(Arc::new(template));
-    assert_eq!(
-        world.combat_particles_mut().backfill_client_systems(manager),
-        3
-    );
+    for _ in 0..3 {
+        source(world.combat_particles_mut(), "PairedArchiveParticle", &mut *manager);
+    }
     let saved_ids: Vec<_> = (1..=3)
         .map(|id| {
             world
@@ -595,16 +560,6 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
     let next = &system.particles()[1];
     assert_eq!((next.size, next.personality), (7.0, 2));
     assert_eq!(next.create_timestamp, 2);
-    let count = manager.active_system_count();
-    for _ in 0..3 {
-        assert_eq!(
-            restored
-                .combat_particles_mut()
-                .backfill_client_systems(manager),
-            0
-        );
-        assert_eq!(manager.active_system_count(), count);
-    }
     restored
         .combat_particles_mut()
         .deactivate_with_client_manager(1, manager);
@@ -620,12 +575,10 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
 #[test]
 fn receiving_particle_native_companion_adopts_exact_loaded_namespace_and_omissions() {
     let mut source = manager("OwnedNativeCompanion");
-    let mut registry = make_registry(vec![
-        entry(1, "OwnedNativeCompanion"),
-        entry(2, "OwnedNativeCompanion"),
-        entry(3, "OwnedNativeCompanion"),
-    ]);
-    registry.backfill_client_systems(&mut source);
+    let mut registry = CombatParticleRegistry::new();
+    for _ in 0..3 {
+        self::source(&mut registry, "OwnedNativeCompanion", &mut source);
+    }
     let ids: Vec<_> = (1..=3)
         .map(|id| registry.get(id).unwrap().client_system_id.unwrap())
         .collect();
@@ -670,10 +623,7 @@ fn receiving_particle_native_companion_adopts_exact_loaded_namespace_and_omissio
     assert!(!restored.get(2).unwrap().active);
     assert!(!restored.get(3).unwrap().active);
     assert_eq!(receiving.active_system_count(), 1);
-    for _ in 0..3 {
-        assert_eq!(restored.backfill_client_systems(&mut receiving), 0);
-        assert_eq!(receiving.active_system_count(), 1);
-    }
+    assert_eq!(receiving.active_system_count(), 1);
     assert_eq!(
         receiving
             .find_particle_system(ids[0])
@@ -702,11 +652,10 @@ fn receiving_particle_native_companion_adopts_exact_loaded_namespace_and_omissio
 #[test]
 fn receiving_particle_companion_receipt_rejects_later_created_omitted_id() {
     let mut source = manager("ReceiptMembership");
-    let mut registry = make_registry(vec![
-        entry(1, "ReceiptMembership"),
-        entry(2, "ReceiptMembership"),
-    ]);
-    registry.backfill_client_systems(&mut source);
+    let mut registry = CombatParticleRegistry::new();
+    for _ in 0..2 {
+        self::source(&mut registry, "ReceiptMembership", &mut source);
+    }
     let first_id = registry.get(1).unwrap().client_system_id.unwrap();
     let omitted_id = registry.get(2).unwrap().client_system_id.unwrap();
     source
@@ -730,7 +679,6 @@ fn receiving_particle_companion_receipt_rejects_later_created_omitted_id() {
         1
     );
     assert!(!restored.get(2).unwrap().active);
-    assert_eq!(restored.backfill_client_systems(&mut receiving), 0);
     assert_eq!(receiving.active_system_count(), 2);
     restored.clear_with_client_manager(&mut receiving);
     assert!(
@@ -751,9 +699,10 @@ fn receiving_particle_companion_receipt_rejects_later_created_omitted_id() {
 #[test]
 fn receiving_particle_companion_rejects_same_id_wrong_template_before_mutation() {
     let mut source = manager("LoadedEffect");
-    let mut source_registry =
-        make_registry(vec![entry(1, "LoadedEffect"), entry(2, "LoadedEffect")]);
-    assert_eq!(source_registry.backfill_client_systems(&mut source), 2);
+    let mut source_registry = CombatParticleRegistry::new();
+    for _ in 0..2 {
+        self::source(&mut source_registry, "LoadedEffect", &mut source);
+    }
     let id = source_registry.get(1).unwrap().client_system_id.unwrap();
     let bytes = source.capture_xfer_bytes().unwrap();
     let mut receiving = manager("LoadedEffect");
@@ -811,7 +760,6 @@ fn receiving_particle_companion_rejects_same_id_wrong_template_before_mutation()
     assert_eq!(valid.systems_snapshot(), before);
     assert_eq!(valid.client_bindings.len(), 2);
     valid.systems.get_mut(&2).unwrap().template_name = "LoadedEffect".into();
-    assert_eq!(valid.backfill_client_systems(&mut receiving), 0);
     assert_eq!(receiving.active_system_count(), 2);
     valid.deactivate_with_client_manager(1, &mut receiving);
     assert!(receiving.find_particle_system(id).unwrap().is_destroyed());

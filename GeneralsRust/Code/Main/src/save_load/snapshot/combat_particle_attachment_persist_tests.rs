@@ -64,68 +64,9 @@ fn combat_particle_attachment_native_and_serde_round_trip_preserve_exact_descrip
         Vec3::new(91.0, 92.0, 93.0),
         "world XYZ is independent from the saved local attachment"
     );
-    #[cfg(feature = "game_client")]
-    {
-        use game_client::effects::{ParticleSystemManager, ParticleSystemTemplate};
-        use std::sync::Arc;
-        let mut manager = ParticleSystemManager::new();
-        let mut template = ParticleSystemTemplate::new(entry.template_name.clone());
-        template.info_mut().system_lifetime = 1000;
-        manager.register_template(Arc::new(template));
-        assert_eq!(
-            restored
-                .combat_particles_mut()
-                .backfill_client_systems(&mut manager),
-            1
-        );
-        let client_id = restored
-            .combat_particles()
-            .get(id)
-            .unwrap()
-            .client_system_id
-            .unwrap();
-        let actual = manager.find_particle_system(client_id).unwrap();
-        assert_eq!(actual.attached_object(), Some(expected.owner.0));
-        assert_eq!(
-            actual.position(),
-            Vec3::new(
-                expected.local_offset.x,
-                expected.local_offset.z,
-                expected.local_offset.y
-            )
-        );
-        assert_eq!(
-            actual.local_transform(),
-            glam::Mat3::from_rotation_z(expected.local_z_rotation)
-        );
-        assert_eq!(
-            restored
-                .combat_particles_mut()
-                .backfill_client_systems(&mut manager),
-            0
-        );
-        assert_eq!(manager.active_system_count(), 1);
-        for frame in 1..expected.lifetime.unwrap() {
-            manager.integrate_particle_system(client_id, frame).unwrap();
-        }
-        assert!(
-            !manager
-                .find_particle_system(client_id)
-                .unwrap()
-                .should_remove(),
-            "explicit attachment lifetime has not elapsed"
-        );
-        manager
-            .integrate_particle_system(client_id, expected.lifetime.unwrap())
-            .unwrap();
-        assert!(
-            manager
-                .find_particle_system(client_id)
-                .unwrap()
-                .should_remove(),
-            "saved explicit lifetime overrides the thousand-frame template"
-        );
-    }
+    // Logic never recreates client systems after a load: the client's
+    // ParticleSystemManager::xfer restores its own systems (ParticleSys.cpp),
+    // adopted through adopt_loaded_client_systems.
 }
 
 #[test]
