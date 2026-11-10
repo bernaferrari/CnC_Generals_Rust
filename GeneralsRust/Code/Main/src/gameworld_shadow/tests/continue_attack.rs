@@ -16,13 +16,13 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiDec");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AdU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("AdU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("AdU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("AdU".into(), t);
-    }
     let oid = logic
         .create_object("AdU", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
         .expect("id");
@@ -114,14 +114,13 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiCmdAuth");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AcU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("AcU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("AcU");
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("AcU".into(), t);
-    }
     let oid = logic
         .create_object("AcU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -173,16 +172,15 @@ fn continue_attack_after_kill_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ContAtk");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CaA\nEnd\nObject CaD\nEnd\nObject CaN\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("CaA").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("CaD").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("CaN").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    for name in ["CaA", "CaD", "CaN"] {
-        {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Infantry);
-            t.add_kind_of(KindOf::Attackable);
-            logic.templates.insert(name.into(), t);
-        }
-    }
     let attacker = logic
         .create_object("CaA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -227,17 +225,14 @@ fn assign_unit_attack_path_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AtkPath");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object ApU\nEnd\nObject ApE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("ApU").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("ApE").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    for name in ["ApU", "ApE"] {
-        {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Infantry);
-            t.add_kind_of(KindOf::Attackable);
-            t.set_health(100.0);
-            logic.templates.insert(name.into(), t);
-        }
-    }
     let uid = logic
         .create_object("ApU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("u");
@@ -331,7 +326,13 @@ fn troop_crawler_assault_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("TcAuth");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object TcO\nEnd\nObject TcE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("TcO").kind_of("VEHICLE INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("TcE").kind_of("VEHICLE INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let crawler_name = "ChinaVehicleTroopCrawler";
     for name in [crawler_name, "TcO", "TcE"] {
@@ -405,7 +406,12 @@ fn missile_defender_laser_guided_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("MdAuth");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MdE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("MdE").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Retail template name residual for missile defender.
     let md_name = "AmericaInfantryMissileDefender";
@@ -414,12 +420,6 @@ fn missile_defender_laser_guided_decision_authority() {
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
         logic.templates.insert(md_name.into(), t);
-    }
-    {
-        let mut t = ThingTemplate::new("MdE");
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("MdE".into(), t);
     }
     let mid = logic
         .create_object(md_name, Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -492,17 +492,14 @@ fn private_attack_object_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("PrivAtk");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PaU\nEnd\nObject PaE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("PaU").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("PaE").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    for name in ["PaU", "PaE"] {
-        {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Infantry);
-            t.add_kind_of(KindOf::Attackable);
-            t.set_health(100.0);
-            logic.templates.insert(name.into(), t);
-        }
-    }
     let uid = logic
         .create_object("PaU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("u");
@@ -609,16 +606,14 @@ fn apply_engagement_decision_aware_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EngAw");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object EaU\nEnd\nObject EaE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("EaU").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("EaE").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    for name in ["EaU", "EaE"] {
-        {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Infantry);
-            t.add_kind_of(KindOf::Attackable);
-            logic.templates.insert(name.into(), t);
-        }
-    }
     let uid = logic
         .create_object("EaU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("u");
@@ -665,7 +660,12 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     });
 
     let cfg = golden_skirmish_config("MoodAcq");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MaU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("MaU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     {
         let mut t = ThingTemplate::new("MaU");
@@ -764,14 +764,13 @@ fn support_guard_engage_uses_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("GuardEng");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GeU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("GeU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("GeU");
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("GeU".into(), t);
-    }
     let oid = logic
         .create_object("GeU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -1172,9 +1171,14 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("MoveNoShadow");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object VictoryKeepAlive\nEnd\nObject MvU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("VictoryKeepAlive").kind_of("STRUCTURE MP_COUNT_FOR_VICTORY").health(100.0),
+            crate::fixture_content::FixtureObject::new("MvU").kind_of("SELECTABLE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "MvU", 100.0);
     if let Some(t) = logic.templates.get_mut("MvU") {
         t.add_kind_of(KindOf::Infantry);
     }
@@ -1182,12 +1186,6 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     // (C++ VictoryConditions.cpp:87-95/168-196): a structure-less playable
     // player is defeated on frame 0-1. Seed the MpCountForVictory keep-alive
     // (stale_engine_id_does_not_skip_host_movement precedent).
-    {
-        let mut t = ThingTemplate::new("VictoryKeepAlive");
-        t.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::MpCountForVictory);
-        logic.templates.insert("VictoryKeepAlive".into(), t);
-    }
     let _keep_alive = logic
         .create_object("VictoryKeepAlive", Team::USA, Vec3::new(300.0, 0.0, 300.0))
         .expect("keep-alive structure");
@@ -1254,13 +1252,13 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiAtkAuth");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AaU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("AaU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("AaU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("AaU".into(), t);
-    }
     let oid = logic
         .create_object("AaU", Team::USA, glam::Vec3::new(250.0, 0.0, 250.0))
         .expect("id");

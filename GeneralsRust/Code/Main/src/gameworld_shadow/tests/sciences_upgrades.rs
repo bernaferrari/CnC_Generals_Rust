@@ -549,7 +549,12 @@ fn canonical_effective_model_mesh_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MmCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerMesh\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("RangerMesh").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     {
         let mut t = ThingTemplate::new("RangerMesh");
@@ -634,16 +639,13 @@ fn canonical_kind_of_projects_without_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("KoCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RangerKo\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("RangerKo").kind_of("INFANTRY SELECTABLE HERO").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("RangerKo");
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        t.add_kind_of(KindOf::Attackable);
-        t.add_kind_of(KindOf::Hero);
-        logic.templates.insert("RangerKo".into(), t);
-    }
     let oid = logic
         .create_object("RangerKo", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("id");

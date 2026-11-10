@@ -7,14 +7,13 @@ fn set_combat_status_mutation_channel_updates_shadow_entity() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CombatStatusMut");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CbtU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("CbtU").kind_of("SELECTABLE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("CbtU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("CbtU".into(), t);
-    }
     let id = logic
         .create_object("CbtU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
@@ -61,14 +60,13 @@ fn host_selection_status_log_drives_set_combat_status_channel() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SelStatusCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SelU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("SelU").kind_of("SELECTABLE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("SelU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("SelU".into(), t);
-    }
     let id = logic
         .create_object("SelU", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("id");
@@ -467,7 +465,13 @@ fn canonical_containment_projects_without_writeback() {
     use crate::game_logic::{BuildingData, BuildingType, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ContainCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object BunkC\nEnd\nObject InfC\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("BunkC").kind_of("SELECTABLE STRUCTURE").health(200.0),
+            crate::fixture_content::FixtureObject::new("InfC").kind_of("SELECTABLE STRUCTURE").health(200.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["BunkC", "InfC"] {
         {
@@ -1091,7 +1095,12 @@ fn host_veterancy_is_canonical_and_shadow_only_observes() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("VetStatusCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object VetU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("VetU").kind_of("SELECTABLE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     {
         let mut t = ThingTemplate::new("VetU");

@@ -74,13 +74,13 @@ fn production_door_advances_opening_to_waiting_open() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("P4Door");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object P4Door\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("P4Door").kind_of("STRUCTURE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("P4Door");
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("P4Door".into(), t);
-    }
     let oid = logic
         .create_object("P4Door", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("id");
@@ -146,7 +146,13 @@ fn construction_observation_does_not_complete_host_or_projection() {
 fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("P5Cont");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object P5Bunker\nEnd\nObject P5Inf\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("P5Bunker").kind_of("SELECTABLE STRUCTURE").health(200.0),
+            crate::fixture_content::FixtureObject::new("P5Inf").kind_of("SELECTABLE STRUCTURE").health(200.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["P5Bunker", "P5Inf"] {
         {

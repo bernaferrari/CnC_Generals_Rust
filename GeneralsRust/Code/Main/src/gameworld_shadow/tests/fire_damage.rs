@@ -15,14 +15,14 @@ fn fire_at_records_fire_intent_residual() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("FireAtRec");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FrU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("FrU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     logic.set_current_frame(77);
-    {
-        let mut t = ThingTemplate::new("FrU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("FrU".into(), t);
-    }
     let oid = logic
         .create_object("FrU", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
         .expect("id");
@@ -104,14 +104,13 @@ fn assign_unit_path_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("PathMv");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PmU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("PmU").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("PmU");
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("PmU".into(), t);
-    }
     let oid = logic
         .create_object("PmU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -258,13 +257,13 @@ fn append_unit_waypoint_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("WpAuth");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object WpU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("WpU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("WpU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("WpU".into(), t);
-    }
     let oid = logic
         .create_object("WpU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -673,9 +672,13 @@ fn host_heal_log_feeds_set_health_mutation() {
 fn actual_damage_is_copied_into_projection() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgLogChannel");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object LogUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("LogUnit").kind_of("SELECTABLE").health(150.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "LogUnit", 150.0);
     let id = logic
         .create_object("LogUnit", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .expect("unit");

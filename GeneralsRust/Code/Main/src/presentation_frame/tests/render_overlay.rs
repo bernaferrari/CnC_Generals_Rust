@@ -1059,17 +1059,13 @@ fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayUnattackable");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object UnattackableVictim\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("UnattackableVictim").kind_of("INFANTRY UNATTACKABLE").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let mut template = ThingTemplate::new("UnattackableVictim");
-    template.set_health(100.0);
-    template
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Unattackable);
-    logic
-        .templates
-        .insert("UnattackableVictim".into(), template);
     let id = logic
         .create_object(
             "UnattackableVictim",

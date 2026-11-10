@@ -209,9 +209,13 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
 fn shadow_damage_mutation_matches_host() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DamageParity");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DmgUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("DmgUnit").kind_of("SELECTABLE").health(200.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "DmgUnit", 200.0);
     let id = logic
         .create_object("DmgUnit", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("unit");
@@ -1332,9 +1336,14 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("QueueSoleTickProduction");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object QueueSoleProducer\nEnd\nObject QueueSoleRanger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("QueueSoleProducer").kind_of("STRUCTURE FS_BARRACKS").health(500.0),
+            crate::fixture_content::FixtureObject::new("QueueSoleRanger").kind_of("SELECTABLE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    insert_fixture_template(&mut logic, "QueueSoleRanger", 100.0);
     let mut producer = ThingTemplate::new("QueueSoleProducer");
     producer
         .set_health(500.0)

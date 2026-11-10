@@ -755,7 +755,12 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("UnitMeshPres");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PresMeshUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("PresMeshUnit").kind_of("VEHICLE SELECTABLE").health(55.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("PresMeshUnit");
     t.set_health(55.0);

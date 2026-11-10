@@ -123,13 +123,14 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     let golden = {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvGold");
-        logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MvGoldU\nEnd\nObject MvGwU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+        crate::fixture_content::admit_fixture_objects(
+            &mut logic,
+            &[
+                crate::fixture_content::FixtureObject::new("MvGoldU").kind_of("INFANTRY").health(100.0).walker(),
+                crate::fixture_content::FixtureObject::new("MvGwU").kind_of("INFANTRY").health(100.0).walker(),
+            ],
+        );
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-        {
-            let mut t = ThingTemplate::new("MvGoldU");
-            t.add_kind_of(KindOf::Infantry);
-            logic.templates.insert("MvGoldU".into(), t);
-        }
         let oid = logic
             .create_object("MvGoldU", Team::USA, start)
             .expect("id");
@@ -159,11 +160,6 @@ fn movement_authority_path_follow_matches_host_only_golden() {
 
     let cfg = golden_skirmish_config("MvGw");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("MvGwU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("MvGwU".into(), t);
-    }
     let oid = logic.create_object("MvGwU", Team::USA, start).expect("id");
     {
         let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");

@@ -148,14 +148,13 @@ fn canonical_production_door_is_projected_from_receiving_owner() {
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdDoor");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DoorFact\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("DoorFact").kind_of("STRUCTURE FS_BARRACKS").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("DoorFact");
-        t.add_kind_of(KindOf::Structure);
-        t.add_kind_of(KindOf::FSBarracks);
-        logic.templates.insert("DoorFact".into(), t);
-    }
     let oid = logic
         .create_object("DoorFact", Team::USA, glam::Vec3::new(60.0, 0.0, 60.0))
         .expect("id");
@@ -709,13 +708,13 @@ fn fire_intent_channel_via_set_fire_intent() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("FireInt");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FiU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("FiU").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("FiU");
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("FiU".into(), t);
-    }
     let oid = logic
         .create_object("FiU", Team::USA, glam::Vec3::new(220.0, 0.0, 220.0))
         .expect("id");

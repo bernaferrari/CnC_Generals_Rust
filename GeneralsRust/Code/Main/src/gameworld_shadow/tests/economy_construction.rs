@@ -324,14 +324,14 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ConstHp");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PadHp\nEnd\nObject HealthVictoryKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("PadHp").kind_of("STRUCTURE").health(500.0),
+            crate::fixture_content::FixtureObject::new("HealthVictoryKeepAlive").kind_of("STRUCTURE MP_COUNT_FOR_VICTORY").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("PadHp");
-        t.set_health(500.0);
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("PadHp".into(), t);
-    }
     let oid = logic
         .create_object("PadHp", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
         .expect("id");
@@ -344,13 +344,6 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     // CPP VictoryConditions87–95/168–196: skirmish requires a live
     // victory-counting structure. Otherwise the session defeats this player
     // and kills its army while this control is checking health writeback.
-    let mut keep_alive = ThingTemplate::new("HealthVictoryKeepAlive");
-    keep_alive
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::MpCountForVictory);
-    logic
-        .templates
-        .insert("HealthVictoryKeepAlive".into(), keep_alive);
     logic
         .create_object("HealthVictoryKeepAlive", Team::USA, glam::Vec3::ZERO)
         .unwrap();

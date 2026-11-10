@@ -257,7 +257,13 @@ fn canonical_overlord_projects_without_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OlCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OlU\nEnd\nObject ShadowPortableBunker\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("OlU").kind_of("SELECTABLE VEHICLE").health(400.0).walker(),
+            crate::fixture_content::FixtureObject::new("ShadowPortableBunker").kind_of("PORTABLE_STRUCTURE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     {
         let mut t = ThingTemplate::new("OlU");
@@ -659,14 +665,13 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GuardCh");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object GU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("GU").kind_of("SELECTABLE").health(100.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("GU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("GU".into(), t);
-    }
     let oid = logic
         .create_object("GU", Team::USA, glam::Vec3::new(12.0, 0.0, 12.0))
         .expect("id");

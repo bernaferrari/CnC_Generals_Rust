@@ -116,13 +116,15 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
     // id/transform/health/team/selection/model — not a live re-borrow.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HudFields");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HudUnit\nEnd\nObject VictoryKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("HudUnit").kind_of("INFANTRY").health(75.0).walker(),
+            crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     seed_victory_keep_alive(&mut logic);
-    let mut t = ThingTemplate::new("HudUnit");
-    t.set_health(75.0);
-    t.add_kind_of(KindOf::Infantry);
-    logic.templates.insert("HudUnit".into(), t);
     let id = logic
         .create_object("HudUnit", Team::USA, glam::Vec3::new(9.0, 0.0, -4.0))
         .expect("unit");
@@ -184,14 +186,15 @@ fn dual_tick_build_and_apply_after_logic_step_seeds_hud() {
     // seed HUD resources + selection without re-borrowing live objects later.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DualTickHud");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DualUnit\nEnd\nObject VictoryKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("DualUnit").kind_of("INFANTRY SELECTABLE").health(88.0).walker(),
+            crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     seed_victory_keep_alive(&mut logic);
-    let mut t = ThingTemplate::new("DualUnit");
-    t.set_health(88.0);
-    t.add_kind_of(KindOf::Infantry);
-    t.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("DualUnit".into(), t);
     let id = logic
         .create_object("DualUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("unit");
@@ -229,14 +232,15 @@ fn dual_tick_applies_selection_panel_to_shell_ui_consumers() {
     // command panel from one dual-tick apply (no live re-read).
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DualTickConsumers");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MultiUiUnit\nEnd\nObject VictoryKeepAlive\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("MultiUiUnit").kind_of("INFANTRY SELECTABLE").health(64.0).walker(),
+            crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     seed_victory_keep_alive(&mut logic);
-    let mut t = ThingTemplate::new("MultiUiUnit");
-    t.set_health(64.0);
-    t.add_kind_of(KindOf::Infantry);
-    t.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("MultiUiUnit".into(), t);
     let id = logic
         .create_object("MultiUiUnit", Team::USA, glam::Vec3::new(2.0, 0.0, 3.0))
         .expect("unit");
@@ -304,7 +308,12 @@ fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
     // so mesh_asset_resolve can target AIRngr_SKN (or honestly skip it).
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RangerMeshKey");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object USA_Ranger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("USA_Ranger").kind_of("INFANTRY").health(60.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     // Prefer host setup template when present; otherwise inject retail-like key.
     {
@@ -413,7 +422,12 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
     // main unit pass can iterate PresentationFrame without GameLogic.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("UnitRenderFields");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object MeshUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("MeshUnit").kind_of("VEHICLE SELECTABLE").health(60.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("MeshUnit");
     t.set_health(60.0);

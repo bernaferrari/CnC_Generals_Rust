@@ -1059,13 +1059,13 @@ fn presentation_feeds_control_bar_selection_panel_health() {
     // (not stale/zero). Headless path — no WND window load required.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CbSelPanel");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object CbPanelUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("CbPanelUnit").kind_of("INFANTRY SELECTABLE").health(77.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
-    let mut t = ThingTemplate::new("CbPanelUnit");
-    t.set_health(77.0);
-    t.add_kind_of(KindOf::Infantry);
-    t.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("CbPanelUnit".into(), t);
     let id = logic
         .create_object("CbPanelUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 5.0))
         .expect("unit");

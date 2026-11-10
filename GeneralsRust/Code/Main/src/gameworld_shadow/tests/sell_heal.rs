@@ -102,14 +102,13 @@ fn start_sell_sets_construction_percent_under_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("SellPct");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SellPad\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("SellPad").kind_of("STRUCTURE").health(500.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("SellPad");
-        t.add_kind_of(KindOf::Structure);
-        t.set_health(500.0);
-        logic.templates.insert("SellPad".into(), t);
-    }
     let oid = logic
         .create_object("SellPad", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("id");
@@ -146,7 +145,12 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("SellNegPct");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SellPad\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("SellPad").kind_of("STRUCTURE MP_COUNT_FOR_VICTORY").health(500.0),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     {
         let mut t = ThingTemplate::new("SellPad");
