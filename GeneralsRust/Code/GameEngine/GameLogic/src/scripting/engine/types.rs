@@ -2618,6 +2618,7 @@ pub struct ScriptEngine {
     eva: Arc<Mutex<crate::helpers::EvaState>>,
     /// The resolved ControlBar catalog slot of the world that built this engine.
     control_bar_bridge: Arc<RwLock<Option<Arc<crate::control_bar::ControlBarBridge>>>>,
+    control_bar_ui_hooks: Arc<Mutex<Option<Arc<dyn crate::control_bar::ControlBarUiHooks>>>>,
     /// Synchronous re-entry budget for this engine, independent of its peers.
     /// The guard holds only this scalar, never an inner-state borrow across dispatch.
     subroutine_call_depth: Cell<u32>,

@@ -109,6 +109,9 @@ pub struct CommandButton {
 pub struct CommandSet {
     pub name: String,
     pub buttons: Vec<Option<CommandButton>>,
+    /// The owning world's GameLogic override table (see
+    /// `control_bar::ControlBarOverrides`); `None` for an unbound set.
+    pub(crate) overrides: Option<crate::control_bar::ControlBarOverrides>,
 }
 
 impl CommandSet {
@@ -116,6 +119,30 @@ impl CommandSet {
         Self {
             name,
             buttons: vec![None; MAX_COMMANDS_PER_SET],
+            overrides: None,
+        }
+    }
+
+    pub(crate) fn with_overrides(
+        mut self,
+        overrides: Option<crate::control_bar::ControlBarOverrides>,
+    ) -> Self {
+        self.overrides = overrides;
+        self
+    }
+
+    /// C++ `GameLogic::findControlBarOverride` on this set's own world.
+    fn slot_override(&self, slot: i32) -> SlotOverride {
+        let Some(overrides) = self.overrides.as_ref() else {
+            return SlotOverride::None;
+        };
+        let Some(key) = crate::control_bar::control_bar_override_key(&self.name, slot) else {
+            return SlotOverride::None;
+        };
+        match overrides.read().unwrap_or_else(|e| e.into_inner()).get(&key) {
+            None => SlotOverride::None,
+            Some(None) => SlotOverride::Removed,
+            Some(Some(name)) => SlotOverride::Replaced(name.clone()),
         }
     }
 
@@ -136,7 +163,7 @@ impl CommandSet {
         if index >= MAX_COMMANDS_PER_SET {
             return None;
         }
-        match control_bar_slot_override(&self.name, index as i32) {
+        match self.slot_override(index as i32) {
             SlotOverride::Removed => None,
             SlotOverride::Replaced(name) => self
                 .buttons
@@ -575,17 +602,6 @@ enum SlotOverride {
     Replaced(String),
 }
 
-/// C++ `GameLogic::findControlBarOverride` — key is `'0'+slot` + command-set name.
-fn control_bar_slot_override(command_set_name: &str, slot: i32) -> SlotOverride {
-    let Ok(logic) = crate::system::game_logic::lock_game_logic() else {
-        return SlotOverride::None;
-    };
-    match logic.find_control_bar_override(command_set_name, slot) {
-        None => SlotOverride::None,
-        Some(None) => SlotOverride::Removed,
-        Some(Some(name)) => SlotOverride::Replaced(name.to_string()),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -639,18 +655,19 @@ mod tests {
         assert!(set.set_command_button(0, Some(button)));
         assert!(set.get_command_button(0).is_some());
 
-        if let Ok(mut logic) = crate::system::game_logic::lock_game_logic() {
-            logic.set_control_bar_override("OverrideSet", 0, None);
-            drop(logic);
-            assert!(
-                set.get_command_button(0).is_none(),
-                "script-nulled slot must not return the INI button"
-            );
-            if let Ok(mut logic) = crate::system::game_logic::lock_game_logic() {
-                logic.set_control_bar_override("OverrideSet", 0, Some("Command_Stay"));
-            }
-            assert!(set.get_command_button(0).is_some());
-        }
+        // Unbound sets have no world override table: INI buttons only.
+        let overrides = crate::control_bar::ControlBarOverrides::default();
+        let mut logic = crate::system::game_logic::GameLogic::new();
+        logic.control_bar_overrides = std::sync::Arc::clone(&overrides);
+        logic.set_control_bar_override("OverrideSet", 0, None);
+        assert!(set.get_command_button(0).is_some(), "unbound set ignores world overrides");
+        let set = set.with_overrides(Some(overrides));
+        assert!(
+            set.get_command_button(0).is_none(),
+            "script-nulled slot must not return the INI button"
+        );
+        logic.set_control_bar_override("OverrideSet", 0, Some("Command_Stay"));
+        assert!(set.get_command_button(0).is_some());
     }
 }
 

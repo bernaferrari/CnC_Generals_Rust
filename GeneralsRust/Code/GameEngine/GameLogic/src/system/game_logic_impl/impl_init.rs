@@ -13,6 +13,8 @@ impl GameLogic {
         engine_stores: Arc<crate::system::engine_stores::EngineStores>,
     ) -> Self {
         let mut logic = Self::new();
+        // C++ m_controlBarOverrides: shared with this world's ControlBar.
+        logic.control_bar_overrides = Arc::clone(engine_stores.services().control_bar_overrides());
         logic.pathfinding_owner = Some(engine_stores);
         logic
     }
@@ -22,6 +24,7 @@ impl GameLogic {
         services: Arc<crate::system::engine_stores::WorldServices>,
     ) -> Self {
         let mut logic = Self::new();
+        logic.control_bar_overrides = Arc::clone(services.control_bar_overrides());
         logic.world_services = Some(Arc::downgrade(&services));
         logic
     }
@@ -266,7 +269,7 @@ impl GameLogic {
         }
 
         // C++ line 413: m_controlBarOverrides.clear()
-        self.control_bar_overrides.clear();
+        self.control_bar_overrides.write().unwrap_or_else(|e| e.into_inner()).clear();
 
         // C++ line 462: m_scriptHulkMaxLifetimeOverride = -1
         crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);

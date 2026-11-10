@@ -323,7 +323,7 @@ pub struct GameLogic {
     global_weapon_bonus_set: WeaponBonusSet,
 
     // Control bar button overrides (C++ GameLogic.h line 266: ControlBarOverrideMap)
-    control_bar_overrides: HashMap<String, Option<String>>,
+    pub(crate) control_bar_overrides: crate::control_bar::ControlBarOverrides,
 
     // C++ parity: m_objectTOC — compact thing-template name→id map for save/load
     object_toc: Vec<ObjectTOCEntry>,
@@ -415,7 +415,7 @@ impl Default for GameLogic {
             normal_updates: Vec::new(),
             module_lookup: HashMap::new(),
             global_weapon_bonus_set: WeaponBonusSet::new(),
-            control_bar_overrides: HashMap::new(),
+            control_bar_overrides: Default::default(),
             object_toc: Vec::new(),
             last_update_was_empty_noop: false,
             empty_world_tick: 0,

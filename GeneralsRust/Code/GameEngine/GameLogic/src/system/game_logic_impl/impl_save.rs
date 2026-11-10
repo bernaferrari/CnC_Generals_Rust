@@ -104,6 +104,8 @@ impl GameLogic {
             return;
         };
         self.control_bar_overrides
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(key, command_button_name.map(str::to_string));
     }
 
@@ -112,11 +114,13 @@ impl GameLogic {
         &self,
         command_set_name: &str,
         slot: i32,
-    ) -> Option<Option<&str>> {
+    ) -> Option<Option<String>> {
         let key = control_bar_override_key(command_set_name, slot)?;
         self.control_bar_overrides
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&key)
-            .map(|value| value.as_deref())
+            .cloned()
     }
 
     // =========================================================================
@@ -148,6 +152,8 @@ impl GameLogic {
     pub fn snapshot_control_bar_overrides_raw(&self) -> Vec<(String, Option<String>)> {
         let mut entries: Vec<(String, Option<String>)> = self
             .control_bar_overrides
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
@@ -156,7 +162,8 @@ impl GameLogic {
     }
 
     pub fn restore_control_bar_overrides_raw(&mut self, entries: Vec<(String, Option<String>)>) {
-        self.control_bar_overrides = entries.into_iter().collect();
+        *self.control_bar_overrides.write().unwrap_or_else(|e| e.into_inner()) =
+            entries.into_iter().collect();
     }
 
     // =========================================================================

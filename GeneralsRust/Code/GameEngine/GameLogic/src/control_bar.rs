@@ -19,6 +19,22 @@ use std::sync::Arc;
 pub struct ControlBarBridge {
     buttons_by_id: HashMap<CommandButtonId, CommandButton>,
     command_sets: HashMap<String, CommandSet>,
+    /// The owning world's `GameLogic::m_controlBarOverrides` (bound when the
+    /// bridge is installed in that world's slot); unbound bridges have none.
+    overrides: Option<ControlBarOverrides>,
+}
+
+/// C++ `GameLogic::m_controlBarOverrides`, shared by a world's GameLogic and
+/// the CommandSets of that world's ControlBar (key: `'0'+slot` + set name).
+pub type ControlBarOverrides = Arc<RwLock<HashMap<String, Option<String>>>>;
+
+/// C++ `GameLogic` override key: `'0'+slot` followed by the CommandSet name.
+pub(crate) fn control_bar_override_key(command_set_name: &str, slot: i32) -> Option<String> {
+    if !(0..MAX_COMMANDS_PER_SET as i32).contains(&slot) {
+        return None;
+    }
+    let slot_prefix = char::from_u32('0' as u32 + slot as u32)?;
+    Some(format!("{}{}", slot_prefix, command_set_name))
 }
 
 /// Result of resolving a `UNIT_BUILD` authorization through the live parsed
@@ -51,6 +67,15 @@ fn is_exact_unit_build_identity(
 }
 
 impl ControlBarBridge {
+    /// Bind this catalog to its world's GameLogic override table (C++
+    /// `CommandSet::getCommandButton` consults that world's TheGameLogic).
+    pub(crate) fn bind_overrides(&mut self, overrides: ControlBarOverrides) {
+        for set in self.command_sets.values_mut() {
+            set.overrides = Some(Arc::clone(&overrides));
+        }
+        self.overrides = Some(overrides);
+    }
+
     /// Build from the CommandButton/CommandSet catalog owned by `common`
     /// (C++ ControlBar.cpp:1060-1120: the engine's own ControlBar parses them).
     pub fn build_from_common(
@@ -120,6 +145,7 @@ impl ControlBarBridge {
         Ok(Self {
             buttons_by_id,
             command_sets,
+            overrides: None,
         })
     }
 
@@ -231,6 +257,8 @@ pub fn refresh_control_bar_bridge_for_world(
         }
         None => ControlBarBridge::build_from_common(world.common())?,
     };
+    let mut bridge = bridge;
+    bridge.bind_overrides(Arc::clone(world.control_bar_overrides()));
     let mut guard = world
         .control_bar_bridge()
         .write()
@@ -342,15 +370,17 @@ pub fn install_test_command_button(
             Arc::new(ControlBarBridge {
                 buttons_by_id: HashMap::new(),
                 command_sets: HashMap::new(),
+                overrides: None,
             })
         });
         let bridge = Arc::make_mut(bridge);
         let id = button.get_id();
         bridge.buttons_by_id.insert(id, button.clone());
+        let overrides = bridge.overrides.clone();
         let set = bridge
             .command_sets
             .entry(command_set_name.to_string())
-            .or_insert_with(|| CommandSet::new(command_set_name.to_string()));
+            .or_insert_with(|| CommandSet::new(command_set_name.to_string()).with_overrides(overrides));
         if !set.set_command_button(slot, Some(button)) {
             return Err(format!("Failed to set command button at slot {}", slot));
         }
@@ -438,32 +468,42 @@ fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplate
 }
 
 /// C++ `doRemove/AddCommandBarButton`: the dispatching world's ControlBar
-/// slot and its own `GameLogic::setControlBarOverride`, never the world
-/// published on the thread.
+/// slot and its `GameLogic::setControlBarOverride` table (shared with that
+/// ControlBar), never the world published on the thread.
 pub fn set_command_set_slot_override_in(
     bridge_slot: &RwLock<Option<Arc<ControlBarBridge>>>,
-    owning_logic: Option<&std::sync::Mutex<crate::system::game_logic::GameLogic>>,
     command_set_name: &str,
     slot: usize,
     button_name: Option<&str>,
 ) -> Result<(), String> {
-    {
-        let mut guard = bridge_slot
+    let mut guard = bridge_slot
+        .write()
+        .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
+    let Some(bridge) = guard.as_mut() else {
+        return Err("ControlBarBridge not initialized".to_string());
+    };
+    let bridge = Arc::make_mut(bridge);
+    bridge.set_command_set_slot_override(command_set_name, slot, button_name)?;
+    if let (Some(overrides), Some(key)) = (
+        bridge.overrides.as_ref(),
+        control_bar_override_key(command_set_name, slot as i32),
+    ) {
+        overrides
             .write()
-            .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
-        let Some(bridge) = guard.as_mut() else {
-            return Err("ControlBarBridge not initialized".to_string());
-        };
-        Arc::make_mut(bridge).set_command_set_slot_override(
-            command_set_name,
-            slot,
-            button_name,
-        )?;
-    }
-    if let Some(Ok(mut logic)) = owning_logic.map(|logic| logic.lock()) {
-        logic.set_control_bar_override(command_set_name, slot as i32, button_name);
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, button_name.map(str::to_string));
     }
     Ok(())
+}
+
+/// Notify `world`'s ControlBar UI that its state needs a refresh.
+pub fn mark_ui_dirty_in(
+    hooks: &std::sync::Mutex<Option<Arc<dyn ControlBarUiHooks>>>,
+) {
+    let hooks = hooks.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(hooks) = hooks {
+        hooks.mark_ui_dirty();
+    }
 }
 
 /// Hooks for notifying the live UI to refresh control bar state.
@@ -581,6 +621,7 @@ mod tests {
         let bridge = ControlBarBridge {
             buttons_by_id: HashMap::from([(ranger.get_id(), ranger)]),
             command_sets: HashMap::from([("AmericaBarracksCommandSet".to_string(), command_set)]),
+            overrides: None,
         };
 
         assert_eq!(
@@ -617,6 +658,7 @@ mod tests {
                     let mut bridge = ControlBarBridge {
                         buttons_by_id: HashMap::new(),
                         command_sets: HashMap::new(),
+                        overrides: None,
                     };
                     bridge.command_sets.insert(
                         format!("Seed{seed}Set"),

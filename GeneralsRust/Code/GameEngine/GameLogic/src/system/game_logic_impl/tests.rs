@@ -395,7 +395,7 @@ mod tests {
 
         assert_eq!(
             logic.find_control_bar_override("AmericaVehicleCommandSet", 0),
-            Some(Some("Command_Construct"))
+            Some(Some("Command_Construct".to_string()))
         );
         assert_eq!(
             logic.find_control_bar_override("AmericaVehicleCommandSet", 17),

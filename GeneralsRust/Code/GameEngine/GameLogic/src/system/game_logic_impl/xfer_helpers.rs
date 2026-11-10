@@ -79,12 +79,7 @@ fn xfer_control_bar_overrides(
 }
 
 fn control_bar_override_key(command_set_name: &str, slot: i32) -> Option<String> {
-    if !(0..crate::command_button::MAX_COMMANDS_PER_SET as i32).contains(&slot) {
-        return None;
-    }
-
-    let slot_prefix = char::from_u32('0' as u32 + slot as u32)?;
-    Some(format!("{}{}", slot_prefix, command_set_name))
+    crate::control_bar::control_bar_override_key(command_set_name, slot)
 }
 
 /// Bridges GameLogic's `game_engine::Xfer` (System::Xfer) onto Common's
@@ -345,7 +340,10 @@ fn xfer_game_logic_state_with_campaign(
         if xfer.get_xfer_mode() == XferMode::Load {
             crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(hulk_max_lifetime);
         }
-        xfer_control_bar_overrides(xfer, &mut logic.control_bar_overrides)?;
+        xfer_control_bar_overrides(
+            xfer,
+            &mut logic.control_bar_overrides.write().unwrap_or_else(|e| e.into_inner()),
+        )?;
     }
 
     if version >= 9 {

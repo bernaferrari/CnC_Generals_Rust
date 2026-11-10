@@ -104,7 +104,9 @@ pub struct WorldServices {
     objects: Arc<RwLock<crate::object_manager::ObjectManager>>,
     in_game_ui: RwLock<InGameUIState>,
     eva: Arc<Mutex<EvaState>>,
-    control_bar_ui_hooks: Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>>,
+    control_bar_ui_hooks: Arc<Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>>>,
+    /// C++ GameLogic::m_controlBarOverrides of this world (shared with its ControlBar).
+    control_bar_overrides: crate::control_bar::ControlBarOverrides,
     game_pause_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::GamePauseHooks>>>,
     observer_audio_locality_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioLocalityHooks>>>,
     observer_audio_view_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioViewHooks>>>,
@@ -220,7 +222,8 @@ impl WorldServices {
             objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
             in_game_ui: RwLock::new(InGameUIState::default()),
             eva: Arc::new(Mutex::new(EvaState::new_enabled())),
-            control_bar_ui_hooks: Mutex::new(None),
+            control_bar_ui_hooks: Arc::new(Mutex::new(None)),
+            control_bar_overrides: Default::default(),
             game_pause_hooks: Mutex::new(None),
             observer_audio_locality_hooks: Mutex::new(None),
             observer_audio_view_hooks: Mutex::new(None),
@@ -371,8 +374,11 @@ impl WorldServices {
     }
     pub(crate) fn control_bar_ui_hooks(
         &self,
-    ) -> &Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>> {
+    ) -> &Arc<Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>>> {
         &self.control_bar_ui_hooks
+    }
+    pub(crate) fn control_bar_overrides(&self) -> &crate::control_bar::ControlBarOverrides {
+        &self.control_bar_overrides
     }
     pub(crate) fn game_pause_hooks(
         &self,

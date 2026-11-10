@@ -64,11 +64,11 @@ impl ScriptEngine {
         Arc::clone(&self.control_bar_bridge)
     }
 
-    /// The GameLogic owning this engine's world (its object registry's owner).
-    pub(crate) fn owning_game_logic(
+    /// This world's ControlBar UI hooks (C++ TheControlBar->markUIDirty).
+    pub(crate) fn control_bar_ui_hooks(
         &self,
-    ) -> Option<&'static std::sync::Mutex<crate::system::game_logic::GameLogic>> {
-        self.cave_objects.owning_logic()
+    ) -> Arc<Mutex<Option<Arc<dyn crate::control_bar::ControlBarUiHooks>>>> {
+        Arc::clone(&self.control_bar_ui_hooks)
     }
 
     /// The Eva of the world that built this engine.
@@ -135,6 +135,7 @@ impl ScriptEngine {
             named_evac: Arc::clone(services.named_evac_disposition()),
             eva: Arc::clone(services.eva()),
             control_bar_bridge: Arc::clone(services.control_bar_bridge()),
+            control_bar_ui_hooks: Arc::clone(services.control_bar_ui_hooks()),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),

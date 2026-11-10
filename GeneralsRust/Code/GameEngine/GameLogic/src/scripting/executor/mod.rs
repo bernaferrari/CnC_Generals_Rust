@@ -1399,26 +1399,27 @@ impl<'engine> ScriptActionDispatcher<'engine> {
         self.context.with_engine_ref(|engine| engine.control_bar_bridge()).flatten()
     }
 
-    /// Script command-bar override on the dispatching engine's own world
-    /// (its ControlBar slot and GameLogic); no engine borrow is held while
-    /// the GameLogic is locked.
+    /// Script command-bar override on the dispatching engine's own world (its
+    /// ControlBar slot and that world's GameLogic override table), followed by
+    /// C++ `TheControlBar->markUIDirty()` on the same world.
     pub(crate) fn set_owning_command_set_slot_override(
         &self,
         command_set_name: &str,
         slot: usize,
         button_name: Option<&str>,
     ) -> Result<(), String> {
-        let (bridge_slot, owning_logic) = self
+        let (bridge_slot, ui_hooks) = self
             .context
-            .with_engine_ref(|engine| (engine.control_bar_bridge_slot(), engine.owning_game_logic()))
+            .with_engine_ref(|engine| (engine.control_bar_bridge_slot(), engine.control_bar_ui_hooks()))
             .ok_or_else(|| "script command-bar override has no dispatching engine".to_string())?;
-        crate::control_bar::set_command_set_slot_override_in(
+        let result = crate::control_bar::set_command_set_slot_override_in(
             &bridge_slot,
-            owning_logic,
             command_set_name,
             slot,
             button_name,
-        )
+        );
+        crate::control_bar::mark_ui_dirty_in(&ui_hooks);
+        result
     }
 
     fn current_script_player_name(&self) -> String {

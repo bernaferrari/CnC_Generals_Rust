@@ -1601,7 +1601,6 @@ impl ScriptActionDispatcher<'_> {
 
         if let Some(slot) = slot {
             let _ = self.set_owning_command_set_slot_override(command_set_name.as_str(), slot, None);
-            crate::control_bar::mark_ui_dirty();
         }
 
         log::debug!(
@@ -1642,7 +1641,6 @@ impl ScriptActionDispatcher<'_> {
             slot as usize,
             Some(button_name.as_str()),
         );
-        crate::control_bar::mark_ui_dirty();
 
         log::debug!(
             "Adding command bar button '{}' for '{}' at slot {}",

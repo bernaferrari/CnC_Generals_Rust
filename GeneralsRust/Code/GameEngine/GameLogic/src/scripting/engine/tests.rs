@@ -1719,20 +1719,46 @@ fn script_engine_control_bar_follows_its_own_world_slot() {
 }
 
 /// C++ doAdd/RemoveCommandBarButton write the dispatching world's ControlBar
-/// and its GameLogic::setControlBarOverride. Two worlds take turns on ONE
-/// thread, each engine dispatching while the peer world is published.
+/// and its GameLogic::setControlBarOverride, then markUIDirty that world's
+/// bar; CommandSet::getCommandButton consults only its own world's table.
+/// Two worlds take turns on ONE thread, each dispatching while the peer is
+/// published.
 #[test]
 fn script_command_bar_override_lands_in_the_dispatching_engines_world() {
     let _lock = crate::test_sync::lock();
     use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct DirtyHooks(Arc<AtomicUsize>);
+    impl crate::control_bar::ControlBarUiHooks for DirtyHooks {
+        fn mark_ui_dirty(&self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+        fn on_player_science_purchase_points_changed(&self, _: i32, _: i32) {}
+        fn on_player_rank_changed(&self, _: i32, _: i32, _: i32) {}
+    }
     const SET: &str = "EngineOwnedOverrideSet";
     const BUTTON: &str = "Command_EngineOwnedOverride";
+    const INI_BUTTON: &str = "Command_EngineOwnedIni";
     let world_a = new_world_services();
     let world_b = new_world_services();
-    for world in [&world_a, &world_b] {
-        world.common().ini.control_bar.write().new_command_button(BUTTON.into()).command = "STOP".into();
-        world.common().ini.command_set.write().new_command_set(SET.into());
+    let dirty_a = Arc::new(AtomicUsize::new(0));
+    let dirty_b = Arc::new(AtomicUsize::new(0));
+    for (world, dirty) in [(&world_a, &dirty_a), (&world_b, &dirty_b)] {
+        {
+            let mut bar = world.common().ini.control_bar.write();
+            bar.new_command_button(BUTTON.into()).command = "STOP".into();
+            bar.new_command_button(INI_BUTTON.into()).command = "STOP".into();
+        }
+        world
+            .common()
+            .ini
+            .command_set
+            .write()
+            .new_command_set(SET.into())
+            .set_button_at_position(3, INI_BUTTON.into())
+            .unwrap();
         crate::control_bar::refresh_control_bar_bridge_for_world(world, None).unwrap();
+        *world.control_bar_ui_hooks().lock().unwrap() = Some(Arc::new(DirtyHooks(Arc::clone(dirty))));
     }
     let logic_a = world_a.game_logic_mutex();
     let logic_b = world_b.game_logic_mutex();
@@ -1745,8 +1771,12 @@ fn script_command_bar_override_lands_in_the_dispatching_engines_world() {
             .expect("override")
     };
     let slot_button = |engine: &ScriptEngine, slot: usize| {
-        engine.control_bar_bridge().unwrap().find_command_set_by_name(SET).unwrap().buttons[slot]
-            .as_ref()
+        engine
+            .control_bar_bridge()
+            .unwrap()
+            .find_command_set_by_name(SET)
+            .unwrap()
+            .get_command_button(slot)
             .map(|button| button.name.clone())
     };
     // Turn 1: A adds slot 2 while B is published.
@@ -1755,12 +1785,22 @@ fn script_command_bar_override_lands_in_the_dispatching_engines_world() {
     assert_eq!(slot_button(&engine_b, 2), None);
     assert_eq!(
         logic_a.lock().unwrap().find_control_bar_override(SET, 2),
-        Some(Some(BUTTON))
+        Some(Some(BUTTON.to_string()))
     );
     assert_eq!(logic_b.lock().unwrap().find_control_bar_override(SET, 2), None);
-    // Turn 2: B removes slot 3 while A is published; A's world is untouched.
+    assert_eq!((dirty_a.load(Ordering::Relaxed), dirty_b.load(Ordering::Relaxed)), (1, 0));
+    // Turn 2: B removes its INI slot 3 while A is published; A keeps its button.
     with_world_services(&world_a, || set_override(&engine_b, 3, None));
     assert_eq!(logic_b.lock().unwrap().find_control_bar_override(SET, 3), Some(None));
     assert_eq!(logic_a.lock().unwrap().find_control_bar_override(SET, 3), None);
-    assert_eq!(slot_button(&engine_a, 2).as_deref(), Some(BUTTON));
+    assert_eq!(slot_button(&engine_b, 3), None);
+    assert_eq!(slot_button(&engine_a, 3).as_deref(), Some(INI_BUTTON));
+    assert_eq!((dirty_a.load(Ordering::Relaxed), dirty_b.load(Ordering::Relaxed)), (1, 1));
+    // Turn 3: B's world reloads its catalog while A is published: the rebuilt
+    // bar still consults B's own GameLogic table (removed slot stays removed).
+    with_world_services(&world_a, || {
+        crate::control_bar::refresh_control_bar_bridge_for_world(&world_b, None).unwrap()
+    });
+    assert_eq!(slot_button(&engine_b, 3), None);
+    assert_eq!(slot_button(&engine_a, 3).as_deref(), Some(INI_BUTTON));
 }
