@@ -16,11 +16,12 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiDec");
-    crate::fixture_content::admit_fixture_objects(
+    crate::fixture_content::admit_fixture_content(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("AdU").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("AdU").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
         ],
+        &[crate::fixture_content::FixtureWeapon::new("ShadowFixtureGun").damage(10.0).range(100.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let oid = logic
@@ -114,11 +115,12 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiCmdAuth");
-    crate::fixture_content::admit_fixture_objects(
+    crate::fixture_content::admit_fixture_content(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("AcU").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("AcU").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
         ],
+        &[crate::fixture_content::FixtureWeapon::new("ShadowFixtureGun").damage(10.0).range(100.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let oid = logic
@@ -172,13 +174,14 @@ fn continue_attack_after_kill_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ContAtk");
-    crate::fixture_content::admit_fixture_objects(
+    crate::fixture_content::admit_fixture_content(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("CaA").kind_of("INFANTRY").health(100.0).walker(),
-            crate::fixture_content::FixtureObject::new("CaD").kind_of("INFANTRY").health(100.0).walker(),
-            crate::fixture_content::FixtureObject::new("CaN").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("CaA").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
+            crate::fixture_content::FixtureObject::new("CaD").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
+            crate::fixture_content::FixtureObject::new("CaN").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
         ],
+        &[crate::fixture_content::FixtureWeapon::new("ShadowFixtureGun").damage(10.0).range(100.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let attacker = logic
@@ -240,11 +243,15 @@ fn assign_unit_attack_path_decision_authority() {
         .create_object("ApE", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
         .expect("e");
     if let Some(o) = logic.host_object_mut(uid) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 25.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 25.0,
+                ..Weapon::default()
+            },
+        );
     }
     let tpos = glam::Vec3::new(80.0, 0.0, 0.0);
     let ok = logic.assign_unit_attack_path_for_test(uid, Some(vid), tpos);
@@ -326,27 +333,17 @@ fn troop_crawler_assault_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("TcAuth");
-    crate::fixture_content::admit_fixture_objects(
+    crate::fixture_content::admit_fixture_content(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("TcO").kind_of("VEHICLE INFANTRY").health(100.0).walker(),
-            crate::fixture_content::FixtureObject::new("TcE").kind_of("VEHICLE INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("ChinaVehicleTroopCrawler").kind_of("VEHICLE").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("TcO").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
+            crate::fixture_content::FixtureObject::new("TcE").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
         ],
+        &[crate::fixture_content::FixtureWeapon::new("ShadowFixtureGun").damage(10.0).range(100.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let crawler_name = "ChinaVehicleTroopCrawler";
-    for name in [crawler_name, "TcO", "TcE"] {
-        {
-            let mut t = ThingTemplate::new(name);
-            if name == crawler_name {
-                t.add_kind_of(KindOf::Vehicle);
-            } else {
-                t.add_kind_of(KindOf::Infantry);
-            }
-            t.add_kind_of(KindOf::Attackable);
-            logic.templates.insert(name.into(), t);
-        }
-    }
     let crawler = logic
         .create_object(crawler_name, Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("c");
@@ -409,18 +406,13 @@ fn missile_defender_laser_guided_decision_authority() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
+            crate::fixture_content::FixtureObject::new("AmericaInfantryMissileDefender").kind_of("INFANTRY").health(100.0).walker(),
             crate::fixture_content::FixtureObject::new("MdE").kind_of("INFANTRY").health(100.0).walker(),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Retail template name residual for missile defender.
     let md_name = "AmericaInfantryMissileDefender";
-    {
-        let mut t = ThingTemplate::new(md_name);
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Attackable);
-        logic.templates.insert(md_name.into(), t);
-    }
     let mid = logic
         .create_object(md_name, Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("md");
@@ -428,16 +420,24 @@ fn missile_defender_laser_guided_decision_authority() {
         .create_object("MdE", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
         .expect("e");
     if let Some(o) = logic.host_object_mut(mid) {
-        o.secondary_weapon = Some(Weapon {
-            damage: 20.0,
-            range: 250.0,
-            ..Weapon::default()
-        });
-        o.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            1,
+            Weapon {
+                damage: 20.0,
+                range: 250.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 5.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
     }
     let ok = logic.activate_missile_defender_laser_guided_for_test(mid, eid);
     assert!(ok, "laser guided should activate");
@@ -507,11 +507,15 @@ fn private_attack_object_decision_authority() {
         .create_object("PaE", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
         .expect("e");
     if let Some(o) = logic.host_object_mut(uid) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 50.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 50.0,
+                ..Weapon::default()
+            },
+        );
     }
     let ok = logic.private_attack_object_for_test(uid, vid, -1);
     assert!(ok, "private_attack_object should enter attack SM");
@@ -606,12 +610,13 @@ fn apply_engagement_decision_aware_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EngAw");
-    crate::fixture_content::admit_fixture_objects(
+    crate::fixture_content::admit_fixture_content(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("EaU").kind_of("INFANTRY").health(100.0).walker(),
-            crate::fixture_content::FixtureObject::new("EaE").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("EaU").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
+            crate::fixture_content::FixtureObject::new("EaE").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
         ],
+        &[crate::fixture_content::FixtureWeapon::new("ShadowFixtureGun").damage(10.0).range(100.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let uid = logic
@@ -667,13 +672,6 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("MaU");
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Attackable);
-        t.set_authored_ai_update_interface(Some(true));
-        logic.templates.insert("MaU".into(), t);
-    }
     let oid = logic
         .create_object("MaU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -723,12 +721,16 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         // slot and AIAttackState::chooseWeapon refuses the enter (the
         // try_mood_auto_acquire_enters_attack precedent authors
         // last_fire_time -10 for the same reason).
-        o.weapon = Some(crate::game_logic::Weapon {
-            damage: 10.0,
-            range: 100.0,
-            last_fire_time: -10.0,
-            ..crate::game_logic::Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            },
+        );
     }
     // Drive one mood tick.
     logic.tick_mood_auto_acquire_for_test(&[oid]);
@@ -764,11 +766,12 @@ fn support_guard_engage_uses_decision_authority() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("GuardEng");
-    crate::fixture_content::admit_fixture_objects(
+    crate::fixture_content::admit_fixture_content(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("GeU").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("GeU").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
         ],
+        &[crate::fixture_content::FixtureWeapon::new("ShadowFixtureGun").damage(10.0).range(100.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let oid = logic
@@ -810,16 +813,15 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("FacAtk");
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FacU\nEnd\nObject FacE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("FacU").kind_of("INFANTRY").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("FacE").kind_of("INFANTRY").health(100.0).walker(),
+        ],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("FacU", Team::USA, 0.0f32), ("FacE", Team::GLA, 80.0)] {
-        {
-            let mut t = ThingTemplate::new(name);
-            t.set_health(100.0);
-            t.add_kind_of(KindOf::Infantry);
-            t.add_kind_of(KindOf::Attackable);
-            logic.templates.insert(name.into(), t);
-        }
         let _ = match logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::Create {
             template: name.to_string(),
             team: team,
@@ -853,10 +855,14 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
         .map(|(id, _)| *id)
         .expect("usa");
     if let Some(o) = logic.host_object_mut(usa_unit) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            },
+        );
     }
     let mut ai = AIPlayer::new(usa_id, Team::USA, AIDifficulty::Medium);
     ai.enemy_player_id = gla_id;
@@ -1175,13 +1181,10 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
         &mut logic,
         &[
             crate::fixture_content::FixtureObject::new("VictoryKeepAlive").kind_of("STRUCTURE MP_COUNT_FOR_VICTORY").health(100.0),
-            crate::fixture_content::FixtureObject::new("MvU").kind_of("SELECTABLE").health(100.0),
+            crate::fixture_content::FixtureObject::new("MvU").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if let Some(t) = logic.templates.get_mut("MvU") {
-        t.add_kind_of(KindOf::Infantry);
-    }
     // update_with_dt evaluates the skirmish NO_BUILDINGS victory rule
     // (C++ VictoryConditions.cpp:87-95/168-196): a structure-less playable
     // player is defeated on frame 0-1. Seed the MpCountForVictory keep-alive

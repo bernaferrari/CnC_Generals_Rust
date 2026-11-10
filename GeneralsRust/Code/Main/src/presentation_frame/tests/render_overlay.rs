@@ -994,29 +994,33 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
         obj.status.detected = false;
         obj.command_set_override = Some("Command_ShadowOvl".into());
         obj.is_detector = true;
-        obj.weapon = Some(Weapon {
-            damage: 15.0,
-            range: 120.0,
-            min_range: 0.0,
-            reload_time: 1.0,
-            last_fire_time: 0.0,
-            last_fire_frame: 0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: false,
-            can_target_ground: true,
-            projectile_speed: 0.0,
-            pre_attack_delay: 0.0,
-            splash_radius: 0.0,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-            next_fire_frame: 0,
-            reload_started_frame: 0,
-            frame_clock_active: false,
-            frame_clock_status: Default::default(),
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            obj,
+            0,
+            Weapon {
+                damage: 15.0,
+                range: 120.0,
+                min_range: 0.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                last_fire_frame: 0,
+                ammo: None,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+                suspend_fx_frame: 0,
+                reloading_clip: false,
+                last_bonus_rof: 0.0,
+                next_fire_frame: 0,
+                reload_started_frame: 0,
+                frame_clock_active: false,
+                frame_clock_status: Default::default(),
+            },
+        );
         obj.force_attack = true;
         obj.show_health_bar = false;
     }

@@ -677,13 +677,17 @@ mod tests {
             .expect("aa");
         if let Some(o) = game_logic.host_object_mut(aa) {
             o.owner_player_id = Some(1);
-            o.weapon = Some(Weapon {
-                range: 200.0,
-                damage: 10.0,
-                can_target_air: true,
-                can_target_ground: true,
-                ..Default::default()
-            });
+            crate::fixture_content::arm_slot_with_stats(
+                o,
+                0,
+                Weapon {
+                    range: 200.0,
+                    damage: 10.0,
+                    can_target_air: true,
+                    can_target_ground: true,
+                    ..Default::default()
+                },
+            );
         }
         let jet = game_logic
             .create_object("Raptor", Team::GLA, Vec3::new(25.0, 20.0, 0.0))

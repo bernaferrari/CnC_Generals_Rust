@@ -52,10 +52,14 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
         .map(|(id, _)| *id)
         .expect("usa unit");
     if let Some(o) = logic.host_object_mut(usa_unit) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            },
+        );
     }
 
     let destination = ai.find_enemy_base_center(&logic, gla_id.expect("GLA player"));

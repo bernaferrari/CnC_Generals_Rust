@@ -711,17 +711,19 @@ fn production_authority_defaults_off_host_sole_writer() {
 fn attack_target_logs_host_attack_event() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkLog");
-    crate::fixture_content::admit_fixture_objects(
+    // C++ AIUpdate attack needs an authored WeaponSet weapon (WeaponSet.cpp).
+    crate::fixture_content::admit_fixture_content(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("AtkA").kind_of("SELECTABLE").health(100.0),
+            crate::fixture_content::FixtureObject::new("AtkA")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0)
+                .armed("AtkGun"),
             crate::fixture_content::FixtureObject::new("AtkB").kind_of("SELECTABLE").health(100.0),
         ],
+        &[crate::fixture_content::FixtureWeapon::new("AtkGun").damage(10.0).range(100.0)],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if let Some(t) = logic.templates.get_mut("AtkA") {
-        t.add_kind_of(KindOf::Infantry);
-    }
     let a = logic
         .create_object("AtkA", Team::USA, glam::Vec3::ZERO)
         .expect("a");
@@ -1221,13 +1223,11 @@ fn stale_engine_id_does_not_skip_host_movement() {
         &mut logic,
         &[
             crate::fixture_content::FixtureObject::new("VictoryKeepAlive").kind_of("STRUCTURE MP_COUNT_FOR_VICTORY").health(100.0),
-            crate::fixture_content::FixtureObject::new("MoveBrU").kind_of("SELECTABLE").health(100.0),
+            // C++ moves only through m_curLocomotor (AIUpdate.cpp doLocomotor).
+            crate::fixture_content::FixtureObject::new("MoveBrU").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if let Some(t) = logic.templates.get_mut("MoveBrU") {
-        t.add_kind_of(KindOf::Infantry);
-    }
     // update_with_dt evaluates the skirmish NO_BUILDINGS victory rule
     // (C++ VictoryConditions.cpp:87-95/168-196): a structure-less playable
     // player is defeated on frame 0-1 and kill_player_for_victory destroys
@@ -1813,15 +1813,13 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("NoShadowDamageTarget").kind_of("SELECTABLE").health(100.0),
+            crate::fixture_content::FixtureObject::new("NoShadowDamageTarget")
+                .kind_of("SELECTABLE")
+                .health(100.0)
+                .instant_death(),
         ],
     );
     apply_skirmish_config(&mut logic, &golden_skirmish_config("NoShadowDamage")).expect("config");
-    logic
-        .templates
-        .get_mut("NoShadowDamageTarget")
-        .unwrap()
-        .authored_instant_death = Some(vec![Default::default()]);
 
     let ordinary = logic
         .create_object("NoShadowDamageTarget", Team::USA, Vec3::new(1.0, 0.0, 1.0))

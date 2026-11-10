@@ -6,24 +6,26 @@ pub use super::*;
 fn presentation_carries_transform_health_team_model() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresFields");
+    // Retail skirmish runs VICTORY_NOBUILDINGS (C++ GameLogic.cpp:1606) and
+    // kills a structure-less player's army on the first frame
+    // (VictoryConditions.cpp hasSinglePlayerBeenDefeated -> Player::killPlayer).
+    // Real players start with a victory-counting structure, so author one to
+    // keep the pinned unit under test alive across logic.update().
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("SmokeUnit")
+                .kind_of("INFANTRY")
+                .health(50.0),
+            crate::fixture_content::FixtureObject::new("SmokeHQ")
+                .kind_of("STRUCTURE MP_COUNT_FOR_VICTORY")
+                .health(100.0),
+        ],
+    );
     assert!(apply_skirmish_config(&mut logic, &cfg).is_ok());
-    let mut t = ThingTemplate::new("SmokeUnit");
-    t.set_health(50.0);
-    t.add_kind_of(KindOf::Infantry);
-    logic.templates.insert("SmokeUnit".into(), t);
     let id = logic
         .create_object("SmokeUnit", Team::USA, Vec3::new(3.0, 0.0, 4.0))
         .expect("unit");
-    // Retail skirmish runs VICTORY_NOBUILDINGS (C++ GameLogic.cpp:1606) and
-    // kills a structure-less player's army on the first frame
-    // (VictoryConditions.cpp hasSinglePlayerBeenDefeated → Player::killPlayer).
-    // Real players start with a victory-counting structure, so seed one to
-    // keep the pinned unit under test alive across logic.update().
-    let mut hq = ThingTemplate::new("SmokeHQ");
-    hq.set_health(100.0);
-    hq.add_kind_of(KindOf::Structure);
-    hq.add_kind_of(KindOf::MpCountForVictory);
-    logic.templates.insert("SmokeHQ".into(), hq);
     let _hq_id = logic
         .create_object("SmokeHQ", Team::USA, Vec3::new(30.0, 0.0, 40.0))
         .expect("hq");

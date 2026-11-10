@@ -32,12 +32,16 @@ fn fire_at_records_fire_intent_residual() {
     {
         let _ = logic.host_object_mut(oid).expect("o");
         let o = logic.objects.get_mut(&oid).expect("o");
-        o.weapon = Some(Weapon {
-            damage: 15.0,
-            range: 200.0,
-            reload_time: 0.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 15.0,
+                range: 200.0,
+                reload_time: 0.0,
+                ..Weapon::default()
+            },
+        );
         o.status.weapons_jammed = false;
         let fired = o.fire_at(
             vid,

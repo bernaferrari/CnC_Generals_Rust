@@ -99,12 +99,16 @@ mod ai_engagement_owner_tests {
             .create_object("AiDecisionVictim", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .expect("Main host victim");
         let source = logic.host_object_mut(attacker).expect("attacker");
-        source.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            source,
+            0,
+            Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Weapon::default()
+            },
+        );
         (attacker, victim)
     }
 
@@ -168,17 +172,21 @@ mod ai_fire_owner_tests {
             .unwrap();
         {
             let unit = logic.host_object_mut(source).unwrap();
-            unit.weapon = Some(Weapon {
-                damage: 10.0,
-                range: 100.0,
-                reload_time: 0.0,
-                last_fire_time: -10.0,
-                ammo: Some(4),
-                clip_size: 4,
-                pre_attack_delay: 1.0,
-                can_target_ground: true,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_slot_with_stats(
+                unit,
+                0,
+                Weapon {
+                    damage: 10.0,
+                    range: 100.0,
+                    reload_time: 0.0,
+                    last_fire_time: -10.0,
+                    ammo: Some(4),
+                    clip_size: 4,
+                    pre_attack_delay: 1.0,
+                    can_target_ground: true,
+                    ..Weapon::default()
+                },
+            );
             unit.set_prev_victim_pos(Some(Vec3::new(20.0, 0.0, 0.0)));
         }
         (logic, source, victim)

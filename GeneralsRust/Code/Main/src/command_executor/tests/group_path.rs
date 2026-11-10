@@ -56,11 +56,15 @@ fn attack_move_uses_identical_destination() {
         .unwrap();
     for id in [a, b] {
         let o = logic.host_object_mut(id).unwrap();
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 150.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            },
+        );
         o.selection_radius = 15.0;
     }
     let dest = Vec3::new(200.0, 0.0, 0.0);
@@ -867,11 +871,15 @@ fn object_attack_orders_passenger_fire() {
         h.is_humvee_transport = true;
         h.max_transport = 5;
         let _ = h.add_occupant(rider);
-        h.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            h,
+            0,
+            Weapon {
+                damage: 5.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     let frame = logic.frame;
     {
@@ -882,11 +890,15 @@ fn object_attack_orders_passenger_fire() {
             frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        r.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            r,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -937,11 +949,15 @@ fn object_attack_skips_vehicle_transport_riders() {
         let h = logic.host_object_mut(chinook).unwrap();
         h.install_combat_chinook_transport(frame);
         let _ = h.add_occupant(rider);
-        h.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            h,
+            0,
+            Weapon {
+                damage: 5.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     let frame = logic.frame;
     {
@@ -952,11 +968,15 @@ fn object_attack_skips_vehicle_transport_riders() {
             frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        r.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            r,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1119,11 +1139,15 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
         u.set_auto_acquire_when_idle(true);
         u.status.stealthed = false;
         u.status.detected = false;
-        u.weapon = Some(crate::game_logic::Weapon {
-            damage: 10.0,
-            range: 80.0,
-            ..crate::game_logic::Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 80.0,
+                ..crate::game_logic::Weapon::default()
+            },
+        );
         u.next_mood_check_time = 0;
     }
     assert!(

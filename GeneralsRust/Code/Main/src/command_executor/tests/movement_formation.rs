@@ -528,11 +528,15 @@ fn guard_uses_vision_radius_and_skips_inert_structures() {
     {
         let turret = logic.host_object_mut(t).unwrap();
         turret.vision_range = 200.0;
-        turret.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            turret,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
     }
     let pos = Vec3::new(50.0, 0.0, 0.0);
     {
@@ -670,11 +674,15 @@ fn script_team_guard_includes_turret_and_stunned() {
     }
     {
         let t = logic.host_object_mut(turret).unwrap();
-        t.weapon = Some(crate::game_logic::Weapon {
-            damage: 10.0,
-            range: 150.0,
-            ..crate::game_logic::Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            t,
+            0,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..crate::game_logic::Weapon::default()
+            },
+        );
     }
     logic.execute_team_guard_script_for_test("W29GuardTeam");
     assert_eq!(
@@ -1222,11 +1230,15 @@ fn attack_position_own_location_and_max_shots() {
         .unwrap();
     {
         let u = logic.host_object_mut(id).unwrap();
-        u.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1356,12 +1368,16 @@ fn attack_ground_does_not_order_synthetic_hive_without_spawn_roster() {
         let s = logic.host_object_mut(site).unwrap();
         s.hive_slaves = init_stinger_hive_slave_roster();
         s.hive_slave_count = 3;
-        s.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 225.0,
-            can_target_ground: true,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            s,
+            0,
+            Weapon {
+                damage: 20.0,
+                range: 225.0,
+                can_target_ground: true,
+                ..Weapon::default()
+            },
+        );
     }
     let dest = Vec3::new(40.0, 0.0, 12.0);
     let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1454,12 +1470,16 @@ End
         for id in [children[0], children[1], locked, free] {
             let actor = world.host_object_mut(id).unwrap();
             actor.set_status_disabled_held(false);
-            actor.weapon = Some(Weapon {
-                damage: 10.0,
-                range: 200.0,
-                can_target_ground: true,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_slot_with_stats(
+                actor,
+                0,
+                Weapon {
+                    damage: 10.0,
+                    range: 200.0,
+                    can_target_ground: true,
+                    ..Weapon::default()
+                },
+            );
         }
         (world, victim, [locked, free], children)
     }
@@ -1748,11 +1768,15 @@ fn special_power_and_command_button_source_object() {
         .unwrap();
     {
         let a = logic.host_object_mut(attacker).unwrap();
-        a.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            a,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
         a.special_power_cooldowns
             .insert(SpecialPowerType::SpySatellite, 0.0);
     }
@@ -1803,11 +1827,15 @@ fn attack_move_sets_max_shots_and_path_flag() {
     let id = logic.create_object("AM_V", Team::USA, Vec3::ZERO).unwrap();
     {
         let o = logic.host_object_mut(id).unwrap();
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 150.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -2068,11 +2096,15 @@ fn attack_follow_waypoint_uses_move_path_until_combat_acquisition() {
     let id = logic.create_object("AF_V", Team::USA, Vec3::ZERO).unwrap();
     {
         let u = logic.host_object_mut(id).unwrap();
-        u.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 150.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            },
+        );
     }
     let wps = vec![Vec3::new(20.0, 0.0, 0.0), Vec3::new(60.0, 0.0, 0.0)];
     {

@@ -15,11 +15,15 @@ fn attack_move_sets_is_attack_path_flag() {
     let id = logic.create_object("AM_V", Team::USA, Vec3::ZERO).unwrap();
     {
         let u = logic.host_object_mut(id).unwrap();
-        u.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 150.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -247,11 +251,15 @@ fn attack_team_engages_member_of_team() {
     {
         use crate::game_logic::Weapon;
         let uo = logic.host_object_mut(u).unwrap();
-        uo.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            uo,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -292,16 +300,24 @@ fn weapon_lock_forces_slot_and_release() {
     let id = logic.create_object("WL_V", Team::USA, Vec3::ZERO).unwrap();
     {
         let u = logic.host_object_mut(id).unwrap();
-        u.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        u.secondary_weapon = Some(Weapon {
-            damage: 5.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            1,
+            Weapon {
+                damage: 5.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -341,16 +357,24 @@ fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
     let id = logic.create_object("WL_MV", Team::USA, Vec3::ZERO).unwrap();
     {
         let u = logic.host_object_mut(id).unwrap();
-        u.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        u.secondary_weapon = Some(Weapon {
-            damage: 5.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            1,
+            Weapon {
+                damage: 5.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
         assert!(u.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -392,16 +416,24 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
         .expect("unit");
     {
         let unit = logic.host_object_mut(unit_id).expect("unit");
-        unit.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        unit.secondary_weapon = Some(Weapon {
-            damage: 50.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            unit,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            unit,
+            1,
+            Weapon {
+                damage: 50.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
     }
 
     let target = Vec3::new(75.0, 0.0, 25.0);
@@ -443,22 +475,34 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     {
         let _ = logic.host_object_mut(unit_id).expect("unit");
         let unit = logic.objects.get_mut(&unit_id).expect("unit");
-        unit.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        unit.secondary_weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        unit.tertiary_weapon = Some(Weapon {
-            damage: 73.0,
-            range: 300.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            unit,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            unit,
+            1,
+            Weapon {
+                damage: 20.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            unit,
+            2,
+            Weapon {
+                damage: 73.0,
+                range: 300.0,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            },
+        );
     }
 
     let target = ObjectId(999);
@@ -1752,11 +1796,15 @@ fn attack_team_reacquires_after_victim_dies() {
         .unwrap();
     {
         let uo = logic.host_object_mut(u).unwrap();
-        uo.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            uo,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1831,11 +1879,15 @@ fn attack_team_sleep_ai_picks_no_victim() {
         let o = logic.host_object_mut(u).unwrap();
         o.owner_player_id = Some(1);
         o.set_ai_attitude(HostAiAttitude::Sleep);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
     }
     assert_eq!(
         logic.choose_attack_team_victim(u, "teamGLA", false),
@@ -1883,11 +1935,15 @@ fn attack_team_passive_ai_uses_last_attacker() {
         o.owner_player_id = Some(1);
         o.set_ai_attitude(HostAiAttitude::Passive);
         o.last_damage_source = Some(far);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
     }
     assert_eq!(
         logic.choose_attack_team_victim(u, "teamGLA", false),
@@ -1938,11 +1994,15 @@ fn attack_team_persist_never_bleeds_into_same_faction_team() {
     let frame = logic.frame;
     {
         let unit = logic.host_object_mut(attacker).unwrap();
-        unit.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            unit,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
         unit.target = Some(first);
         unit.set_ai_state(
             AIState::Attacking,

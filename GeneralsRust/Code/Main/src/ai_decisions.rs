@@ -780,13 +780,17 @@ mod tests {
         game_logic.objects.insert(rpg_id, {
             let mut o = Object::new(rpg_tpl, rpg_id, Team::GLA);
             o.set_position(Vec3::new(5.0, 0.0, 0.0));
-            o.weapon = Some(Weapon {
-                range: 150.0,
-                damage: 20.0,
-                can_target_air: false,
-                can_target_ground: true,
-                ..Default::default()
-            });
+            crate::fixture_content::arm_slot_with_stats(
+                &mut o,
+                0,
+                Weapon {
+                    range: 150.0,
+                    damage: 20.0,
+                    can_target_air: false,
+                    can_target_ground: true,
+                    ..Default::default()
+                },
+            );
             o
         });
 
@@ -853,13 +857,17 @@ mod tests {
         game_logic.objects.insert(attacker_id, {
             let mut attacker = Object::new(attacker_template, attacker_id, Team::USA);
             attacker.set_position(Vec3::ZERO);
-            attacker.weapon = Some(Weapon {
-                range: 200.0,
-                damage: 10.0,
-                can_target_air: true,
-                can_target_ground: false,
-                ..Default::default()
-            });
+            crate::fixture_content::arm_slot_with_stats(
+                &mut attacker,
+                0,
+                Weapon {
+                    range: 200.0,
+                    damage: 10.0,
+                    can_target_air: true,
+                    can_target_ground: false,
+                    ..Default::default()
+                },
+            );
             attacker
         });
 
@@ -951,13 +959,17 @@ mod tests {
             .expect("aa");
         if let Some(o) = game_logic.host_object_mut(aa) {
             o.owner_player_id = Some(1);
-            o.weapon = Some(Weapon {
-                range: 200.0,
-                damage: 10.0,
-                can_target_air: true,
-                can_target_ground: true,
-                ..Default::default()
-            });
+            crate::fixture_content::arm_slot_with_stats(
+                o,
+                0,
+                Weapon {
+                    range: 200.0,
+                    damage: 10.0,
+                    can_target_air: true,
+                    can_target_ground: true,
+                    ..Default::default()
+                },
+            );
         }
         let jet = game_logic
             .create_object("Raptor", Team::GLA, Vec3::new(25.0, 20.0, 0.0))

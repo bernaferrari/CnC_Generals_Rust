@@ -8,37 +8,24 @@ fn dual_tick_after_map_load_seeds_hud_selection_health() {
     // dual-tick presentation must put selection health on GameHUD.
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ShellHudSel");
+    // Retail skirmish runs VICTORY_NOBUILDINGS (C++ GameLogic.cpp:1606); a
+    // structure-less player is defeated on the first logic frame and
+    // Player::killPlayer destroys its army (VictoryConditions.cpp). Like a
+    // real starting base, author a victory-counting HQ so the selection under
+    // test survives the dual tick. Content is admitted before NewGame
+    // (GameEngine.cpp:428-458).
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("ShellSelUnit")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(64.0),
+            crate::fixture_content::FixtureObject::new("ShellSelHQ")
+                .kind_of("STRUCTURE MP_COUNT_FOR_VICTORY")
+                .health(100.0),
+        ],
+    );
     assert!(apply_skirmish_config(&mut logic, &cfg).is_ok());
-    // Retail skirmish runs short-game rules (C++ GameLogic.cpp:1606
-    // setVictoryConditions(VICTORY_NOBUILDINGS)) and a structure-less playable
-    // player is defeated on the first tick (VictoryConditions.cpp:262-276,
-    // Player::killPlayer destroys the army). Seed the established
-    // MpCountForVictory keep-alive (continue_attack.rs / sell_heal.rs
-    // precedent) so the selection-health residual is what's under test.
-    if !logic.templates.contains_key("VictoryKeepAlive") {
-        let mut t = ThingTemplate::new("VictoryKeepAlive");
-        t.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::MpCountForVictory);
-        logic.templates.insert("VictoryKeepAlive".into(), t);
-    }
-    let _keep_alive = logic
-        .create_object("VictoryKeepAlive", Team::USA, Vec3::new(6.0, 0.0, 6.0))
-        .expect("keep-alive");
-    let mut t = ThingTemplate::new("ShellSelUnit");
-    t.set_health(64.0);
-    t.add_kind_of(KindOf::Infantry);
-    t.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("ShellSelUnit".into(), t);
-    // Retail skirmish runs VICTORY_NOBUILDINGS (C++ GameLogic.cpp:1606);
-    // a structure-less player is defeated on the first logic frame and
-    // Player::killPlayer destroys its army (VictoryConditions.cpp). Seed a
-    // victory-counting HQ like a real starting base so the selection under
-    // test survives the dual tick.
-    let mut hq = ThingTemplate::new("ShellSelHQ");
-    hq.set_health(100.0);
-    hq.add_kind_of(KindOf::Structure);
-    hq.add_kind_of(KindOf::MpCountForVictory);
-    logic.templates.insert("ShellSelHQ".into(), hq);
     let _hq_id = logic
         .create_object("ShellSelHQ", Team::USA, Vec3::new(20.0, 0.0, 20.0))
         .expect("hq");

@@ -2473,10 +2473,14 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         .map(|(id, _)| *id)
         .expect("usa unit");
     if let Some(o) = logic.host_object_mut(usa_unit) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            },
+        );
     }
     ai.launch_attack(&mut logic, 1000.0);
     logic.attack_events.complete_boundary();
@@ -2547,10 +2551,14 @@ fn second_attack_starts_after_first_raid_finishes() {
         .expect("usa unit");
     let _ = logic.create_object("Ai2Infantry", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0));
     if let Some(o) = logic.host_object_mut(usa_unit) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            },
+        );
     }
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -2779,10 +2787,14 @@ fn evaluate_attack_opportunities_moves_scriptless_ready_team_on_known_enemy() {
         .create_object("Ai4Hut", Team::GLA, Vec3::new(300.0, 0.0, 0.0))
         .expect("gla base");
     if let Some(o) = logic.host_object_mut(usa_unit) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            },
+        );
     }
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -2827,10 +2839,14 @@ fn evaluate_attack_opportunities_stays_noop_without_team_or_enemy() {
         .create_object("Ai5Infantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("usa unit");
     if let Some(o) = logic.host_object_mut(usa_unit) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            },
+        );
     }
 
     // Known enemy but no ready team → no-op.

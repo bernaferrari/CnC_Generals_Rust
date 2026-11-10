@@ -83,22 +83,30 @@ fn canonical_weapon_stats_is_projected_from_receiving_owner() {
 
     {
         let o = logic.host_object_mut(oid).expect("o");
-        o.weapon = Some(Weapon {
-            damage: 33.0,
-            range: 140.0,
-            min_range: 4.0,
-            reload_time: 0.75,
-            ammo: Some(12),
-            can_target_air: true,
-            can_target_ground: true,
-            projectile_speed: 90.0,
-            ..Weapon::default()
-        });
-        o.secondary_weapon = Some(Weapon {
-            damage: 9.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 33.0,
+                range: 140.0,
+                min_range: 4.0,
+                reload_time: 0.75,
+                ammo: Some(12),
+                can_target_air: true,
+                can_target_ground: true,
+                projectile_speed: 90.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            1,
+            Weapon {
+                damage: 9.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

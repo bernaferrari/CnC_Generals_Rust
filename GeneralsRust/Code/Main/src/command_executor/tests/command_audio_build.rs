@@ -32,21 +32,33 @@ fn switch_weapons_locks_button_slot_not_cycle() {
     {
         let obj = logic.host_object_mut(id).expect("obj");
         obj.owner_player_id = Some(0);
-        obj.weapon = Some(Weapon {
-            damage: 1.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        obj.secondary_weapon = Some(Weapon {
-            damage: 2.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        obj.tertiary_weapon = Some(Weapon {
-            damage: 3.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            obj,
+            0,
+            Weapon {
+                damage: 1.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            obj,
+            1,
+            Weapon {
+                damage: 2.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            obj,
+            2,
+            Weapon {
+                damage: 3.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
         obj.active_weapon_slot = 0;
     }
 
@@ -808,11 +820,15 @@ fn context_attack_plays_voice_attack_and_air() {
         .unwrap();
     {
         let u = logic.host_object_mut(ranger).unwrap();
-        u.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     {
         let j = logic.host_object_mut(jet).unwrap();
@@ -1209,16 +1225,24 @@ fn specialty_attack_voices_replace_voice_attack() {
         .unwrap();
     {
         let u = logic.host_object_mut(ranger_id).unwrap();
-        u.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 150.0,
-            ..Weapon::default()
-        });
-        u.secondary_weapon = Some(Weapon {
-            damage: 35.0,
-            range: 175.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            0,
+            Weapon {
+                damage: 5.0,
+                range: 150.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            1,
+            Weapon {
+                damage: 35.0,
+                range: 175.0,
+                ..Weapon::default()
+            },
+        );
         // This unlocked current weapon must be observed before the new
         // command's AI is allowed to choose a different weapon.
         u.set_active_weapon_slot(1);
@@ -1323,11 +1347,15 @@ fn specialty_attack_voices_replace_voice_attack() {
         .unwrap();
     {
         let u = logic.host_object_mut(com_id).unwrap();
-        u.tertiary_weapon = Some(Weapon {
-            damage: 30.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            2,
+            Weapon {
+                damage: 30.0,
+                range: 200.0,
+                ..Weapon::default()
+            },
+        );
     }
     logic.queued_audio_events.clear();
     {
@@ -1353,11 +1381,15 @@ fn specialty_attack_voices_replace_voice_attack() {
         .unwrap();
     {
         let u = logic.host_object_mut(dragon_id).unwrap();
-        u.secondary_weapon = Some(Weapon {
-            damage: 20.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            1,
+            Weapon {
+                damage: 20.0,
+                range: 80.0,
+                ..Weapon::default()
+            },
+        );
     }
     logic.queued_audio_events.clear();
     {
@@ -1383,11 +1415,15 @@ fn specialty_attack_voices_replace_voice_attack() {
         .unwrap();
     {
         let u = logic.host_object_mut(burton_id).unwrap();
-        u.tertiary_weapon = Some(Weapon {
-            damage: 40.0,
-            range: 10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            u,
+            2,
+            Weapon {
+                damage: 40.0,
+                range: 10.0,
+                ..Weapon::default()
+            },
+        );
     }
     logic.queued_audio_events.clear();
     {
@@ -1508,11 +1544,15 @@ fn attack_move_includes_immobile_attacker() {
         .unwrap();
     for id in [tur, tk] {
         let o = logic.host_object_mut(id).unwrap();
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 150.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            o,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            },
+        );
     }
     assert!(
         !logic.host_object(tur).unwrap().can_move(),
