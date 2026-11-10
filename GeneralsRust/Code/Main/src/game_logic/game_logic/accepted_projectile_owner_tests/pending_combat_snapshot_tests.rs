@@ -455,43 +455,43 @@ fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
-    assert_eq!(
-        snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION,
-        "current Rust envelope advertises admission and projectile continuation capabilities; body schema stays 23"
-    );
+    assert_eq!(snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION);
     let wire = bincode_legacy::serialize(&snapshot).unwrap();
-    // types.rs and world_codec.rs explicitly define an identical positional
-    // body for envelopes 23 through 28. Their differing admission and projectile
-    // continuation capabilities belong to the complete save bundle, not this typed world
-    // body. Pin body admission only; this is not an old-bundle restore claim.
-    for version in 23u32..=28 {
-        let mut supported = wire.clone();
-        supported[..4].copy_from_slice(&version.to_le_bytes());
-        let decoded =
-            crate::save_load::snapshot::decode_bincode_world_snapshot(&supported).unwrap();
-        assert_eq!(decoded.version, version);
-        let mut decoded_combat = crate::game_logic::combat::CombatSystem::new();
-        decoded_combat.restore_pending_combat(&decoded.pending_combat);
-        assert_eq!(
-            live_projectileless_delayed_count_for_test(&decoded_combat),
-            1
+    // Only the current envelope is readable; older Rust-only envelopes are
+    // rejected before the body (types.rs validate_direct_world_snapshot_version).
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&wire).unwrap();
+    assert_eq!(decoded.version, WORLD_SNAPSHOT_BINCODE_VERSION);
+    let mut decoded_combat = crate::game_logic::combat::CombatSystem::new();
+    decoded_combat.restore_pending_combat(&decoded.pending_combat);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&decoded_combat),
+        1
+    );
+    assert_eq!(
+        bincode_legacy::serialize(&decoded.pending_combat).unwrap(),
+        bincode_legacy::serialize(&snapshot.pending_combat).unwrap(),
+        "typed queues retain their body"
+    );
+    for cut in [0, 3, 4, wire.len() - 1] {
+        assert!(
+            crate::save_load::snapshot::decode_bincode_world_snapshot(&wire[..cut]).is_err(),
+            "truncated positional record {cut}"
         );
-        assert_eq!(
-            bincode_legacy::serialize(&decoded.pending_combat).unwrap(),
-            bincode_legacy::serialize(&snapshot.pending_combat).unwrap(),
-            "typed queues retain their body under envelope {version}"
-        );
-        for cut in [0, 3, 4, supported.len() - 1] {
-            assert!(
-                crate::save_load::snapshot::decode_bincode_world_snapshot(&supported[..cut])
-                    .is_err(),
-                "truncated positional record {cut}, envelope {version}"
-            );
-        }
-        supported.extend_from_slice(b"unframed data");
-        assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&supported).is_err());
     }
-    for version in [0u32, 1, 22, 29, u32::MAX] {
+    let mut trailing = wire.clone();
+    trailing.extend_from_slice(b"unframed data");
+    assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&trailing).is_err());
+    for version in [
+        0u32,
+        1,
+        22,
+        23,
+        28,
+        29,
+        WORLD_SNAPSHOT_BINCODE_VERSION - 1,
+        WORLD_SNAPSHOT_BINCODE_VERSION + 1,
+        u32::MAX,
+    ] {
         let mut incompatible = wire.clone();
         incompatible[..4].copy_from_slice(&version.to_le_bytes());
         assert!(matches!(
