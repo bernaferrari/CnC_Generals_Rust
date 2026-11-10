@@ -538,11 +538,15 @@ fn is_supported_command_map_name(name: &str) -> bool {
         || is_unimplemented_cpp_command_name(name)
 }
 
-fn with_local_player_mut<F>(f: F) -> bool
+/// The receiving world's local Player; no process-wide roster fallback.
+fn with_local_player_mut<F>(world: Option<&gamelogic::system::engine_stores::WorldServices>, f: F) -> bool
 where
     F: FnOnce(&mut gamelogic::player::Player),
 {
-    let Some(local_player) = ThePlayerList().read().ok().and_then(|list| list.get_local_player().cloned()) else {
+    let Some(world) = world else {
+        return false;
+    };
+    let Some(local_player) = world.players().read().ok().and_then(|list| list.get_local_player().cloned()) else {
         return false;
     };
     let Ok(mut player) = local_player.write() else {
@@ -554,11 +558,16 @@ where
 
 /// Lend the local Player with its roster's rank cap
 /// (C++ `TheGameLogic->getRankLevelLimit()` of the same world).
+/// C++ `ThePlayerList->getLocalPlayer()` of the receiving world only; with no
+/// world bound there is no player to change (no process-wide roster fallback).
 fn with_local_player_rank_capped_mut<F>(world: Option<&gamelogic::system::engine_stores::WorldServices>, f: F) -> bool
 where
     F: FnOnce(&mut gamelogic::player::Player, i32),
 {
-    let roster = world.map(|world| std::sync::Arc::clone(world.players())).unwrap_or_else(ThePlayerList);
+    let Some(world) = world else {
+        return false;
+    };
+    let roster = std::sync::Arc::clone(world.players());
     let Some((local_player, rank_level_limit)) = roster.read().ok().and_then(|list| {
         list.get_local_player()
             .cloned()

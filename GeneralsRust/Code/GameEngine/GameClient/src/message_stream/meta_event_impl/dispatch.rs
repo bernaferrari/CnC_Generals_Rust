@@ -260,7 +260,7 @@ fn dispatch_map_entry(
         if TheGameLogic::is_in_multiplayer_game() {
             return None;
         }
-        let _ = with_local_player_mut(|player| {
+        let _ = with_local_player_mut(world, |player| {
             player.get_money_mut().deposit_money(10_000);
         });
         return None;
@@ -271,7 +271,7 @@ fn dispatch_map_entry(
         if TheGameLogic::is_in_multiplayer_game() {
             return None;
         }
-        let _ = with_local_player_mut(|player| {
+        let _ = with_local_player_mut(world, |player| {
             player.get_money_mut().deposit_money(10_000);
         });
         return None;
@@ -283,7 +283,7 @@ fn dispatch_map_entry(
         }
         #[cfg(any(debug_assertions, feature = "internal"))]
         {
-            let _ = with_local_player_mut(|player| {
+            let _ = with_local_player_mut(world, |player| {
                 player.toggle_instant_build();
             });
         }
@@ -293,7 +293,7 @@ fn dispatch_map_entry(
     if record.name.eq_ignore_ascii_case("DEMO_INSTANT_BUILD") {
         #[cfg(any(debug_assertions, feature = "internal"))]
         {
-            let _ = with_local_player_mut(|player| {
+            let _ = with_local_player_mut(world, |player| {
                 player.toggle_instant_build();
             });
         }
@@ -303,7 +303,7 @@ fn dispatch_map_entry(
     if record.name.eq_ignore_ascii_case("DEMO_FREE_BUILD") {
         #[cfg(any(debug_assertions, feature = "internal"))]
         {
-            let _ = with_local_player_mut(|player| {
+            let _ = with_local_player_mut(world, |player| {
                 player.toggle_free_build();
             });
         }
@@ -313,7 +313,7 @@ fn dispatch_map_entry(
     if record.name.eq_ignore_ascii_case("DEMO_REMOVE_PREREQ") {
         #[cfg(any(debug_assertions, feature = "internal"))]
         {
-            let _ = with_local_player_mut(|player| {
+            let _ = with_local_player_mut(world, |player| {
                 player.toggle_ignore_prereqs();
             });
         }
