@@ -23,7 +23,7 @@ impl GameLogic {
         source_id: Option<ObjectId>,
     ) -> Vec3 {
         use crate::game_logic::host_repair::{
-            DOZER_FIND_POSITION_OVERLAP_SPHERE, DozerFindPositionQuery,
+            DozerFindPositionQuery,
             find_good_build_or_repair_position as snap,
         };
         use gamelogic::ai::pathfind_astar::PathfindCellType;
@@ -53,20 +53,17 @@ impl GameLogic {
                 PathfindCellType::Impassable
             )
         };
+        // C++ tryPosition object check: real geometry against a 5-unit
+        // sphere; only ignoreObject and sourceToPathToDest are skipped. A
+        // scaffold under construction still blocks its own dock seed.
+        let skip: Vec<ObjectId> = ignore_object.into_iter().chain(source_id).collect();
         let overlaps_object = |p: Vec3| {
-            self.objects.registered_values().any(|o| {
-                if !o.is_alive() {
-                    return false;
-                }
-                if Some(o.id) == ignore_object || Some(o.id) == source_id {
-                    return false;
-                }
-                let r = o.selection_radius.max(0.0) + DOZER_FIND_POSITION_OVERLAP_SPHERE;
-                let d = o.get_position();
-                let dx = d.x - p.x;
-                let dz = d.z - p.z;
-                dx * dx + dz * dz <= r * r
-            })
+            self.cpp_try_position_hits_object(
+                p,
+                0.0,
+                self.objects.registered_values().map(|o| o.id),
+                &skip,
+            )
         };
         let path_exists = |from: Vec3, to: Vec3| {
             if !grid_live {

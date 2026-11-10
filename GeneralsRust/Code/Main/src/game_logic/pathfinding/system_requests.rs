@@ -15,6 +15,7 @@ impl PathfindingSystem {
             map_ready: false,
             logic_frame: 0,
             dynamic_obstacle_frame: u64::MAX,
+            next_frame_to_calculate_zones: u64::MAX,
             crate_astar: None,
             pending_paths: VecDeque::new(),
             seeker_player: None,
@@ -218,6 +219,31 @@ impl PathfindingSystem {
     #[inline]
     pub fn note_logic_frame(&mut self, frame: u64) {
         self.logic_frame = frame;
+    }
+
+    /// C++ `PathfindZoneManager::markZonesDirty` (AIPathfind.cpp:2245-2256).
+    pub(crate) fn mark_zones_dirty(&mut self) {
+        const ZONE_UPDATE_FREQUENCY: u64 = 300;
+        if self.logic_frame < 2 {
+            self.next_frame_to_calculate_zones = 2;
+            return;
+        }
+        self.next_frame_to_calculate_zones = self
+            .next_frame_to_calculate_zones
+            .min(self.logic_frame + ZONE_UPDATE_FREQUENCY);
+    }
+
+    /// C++ processPathfindQueue head (AIPathfind.cpp:5881-5884): when
+    /// `needToCalculateZones`, calculateZones and report that this frame's
+    /// queue is skipped.
+    pub(crate) fn calculate_zones_if_due(&mut self) -> bool {
+        if self.next_frame_to_calculate_zones > self.logic_frame {
+            return false;
+        }
+        self.grid.rebuild_path_zones();
+        // C++ calculateZones ends with m_nextFrameToCalculateZones = 0xffffffff.
+        self.next_frame_to_calculate_zones = u64::MAX;
+        true
     }
 
     /// Rebuild vehicle/structure dynamic blocks at most once per logic frame.
@@ -932,9 +958,9 @@ impl PathfindingSystem {
     pub fn stamp_rubble_at_world(&mut self, world: Vec3, radius_cells: i32) {
         let cell = self.grid.world_to_grid(world);
         self.grid.stamp_rubble_footprint(cell, radius_cells);
-        // Destroy path stamps after sync_structure_path_blocks; rebuild so
-        // rubble is not left in the previous Clear zone (hq-0r5xs).
-        self.grid.rebuild_path_zones();
+        // C++ classifyObjectFootprint marks zones dirty; processPathfindQueue
+        // recalculates them (rubble keeps its old zone until then).
+        self.mark_zones_dirty();
     }
 
     pub fn block_structure_at_world(&mut self, pos: Vec3, radius_cells: i32) {
@@ -1289,7 +1315,9 @@ impl PathfindingSystem {
         if did {
             self.grid.refresh_pinched_bounds(lo, hi);
         }
+        // C++ newMap/classifyMap: calculateZones now, clearing any pending recalculation.
         self.grid.rebuild_path_zones();
+        self.next_frame_to_calculate_zones = u64::MAX;
         self.sync_wall_pieces_from_objects(objects, wall_height);
     }
 
@@ -1306,7 +1334,7 @@ impl PathfindingSystem {
             false,
         ) {
             self.grid.refresh_pinched_bounds(lo, hi);
-            self.grid.rebuild_path_zones();
+            self.mark_zones_dirty();
         }
         self.classify_and_pinch_object(object, ground_source);
     }
@@ -1323,21 +1351,23 @@ impl PathfindingSystem {
             ground_source,
         ) {
             self.grid.refresh_pinched_bounds(lo, hi);
-            self.grid.rebuild_path_zones();
+            // C++ internal_classifyObjectFootprint: markZonesDirty; existing
+            // cells keep their zone until processPathfindQueue recalculates.
+            self.mark_zones_dirty();
         }
     }
 
     /// C++ `Pathfinder::createAWallFromMyFootprint` — trains are mobile vehicles.
     pub fn create_wall_from_object(&mut self, obj: &Object) {
         if self.grid.create_wall_from_object(obj).is_some() {
-            self.grid.rebuild_path_zones();
+            self.mark_zones_dirty();
         }
     }
 
     /// C++ `Pathfinder::removeWallFromMyFootprint`.
     pub fn remove_wall_from_object(&mut self, obj: &Object) {
         if self.grid.remove_wall_from_object(obj).is_some() {
-            self.grid.rebuild_path_zones();
+            self.mark_zones_dirty();
         }
     }
 

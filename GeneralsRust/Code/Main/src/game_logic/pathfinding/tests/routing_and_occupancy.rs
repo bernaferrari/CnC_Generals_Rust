@@ -611,9 +611,17 @@ fn path_zones_rubble_and_impassable_are_not_ground() {
         sys.grid.cell_type(GridPos::new(4, 4)),
         PathfindCellType::Rubble
     );
+    // C++ classifyObjectFootprint only marks zones dirty (frame < 2: due on
+    // frame 2); processPathfindQueue then recalculates them.
+    assert!(
+        sys.grid.quick_path_exists(s_from, s_to),
+        "rubble keeps its old zone until the scheduled recalculation"
+    );
+    sys.note_logic_frame(2);
+    assert!(sys.calculate_zones_if_due());
     assert!(
         !sys.grid.quick_path_exists(s_from, s_to),
-        "stamp_rubble_at_world must rebuild zones so rubble splits GROUND"
+        "recalculated zones let rubble split GROUND"
     );
 }
 

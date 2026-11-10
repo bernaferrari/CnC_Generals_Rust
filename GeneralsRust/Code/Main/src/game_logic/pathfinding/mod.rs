@@ -837,6 +837,10 @@ pub struct PathfindingSystem {
     logic_frame: u64,
     /// Frame stamp of last dynamic obstacle rebuild.
     dynamic_obstacle_frame: u64,
+    /// C++ `PathfindZoneManager::m_nextFrameToCalculateZones`: footprint
+    /// changes only mark zones dirty; processPathfindQueue recalculates them
+    /// once this frame arrives (AIPathfind.cpp:2245-2256, 5881-5884).
+    next_frame_to_calculate_zones: u64,
     /// Live crate A* (AIPathfind.cpp internalFindPath).
     crate_astar: Option<HostCrateAStar>,
     /// C++ Pathfinder::queueForPath residual (AIPathfind.h:418).
@@ -888,6 +892,9 @@ mod owned_ground_cpp_tests;
 
 #[cfg(test)]
 mod offmap_extent_owner_tests;
+
+#[cfg(test)]
+mod zone_schedule_cpp_tests;
 
 #[cfg(test)]
 fn standalone_path_fixture() -> HostObjectStore {

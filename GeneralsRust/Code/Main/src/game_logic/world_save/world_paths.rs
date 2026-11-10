@@ -1647,6 +1647,11 @@ impl GameLogic {
 
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
     pub(crate) fn process_pathfind_queue(&mut self) -> gamelogic::GameLogicResult<()> {
+        // C++ AIPathfind.cpp:5881-5884: a due zone recalculation consumes
+        // this frame's queue.
+        if self.pathfinding_system.calculate_zones_if_due() {
+            return Ok(());
+        }
         // C++ queue5887-5897 refreshes the driving terrain's active boundary.
         let extent = self
             .world_services

@@ -9,7 +9,6 @@ impl GameLogic {
         target: ObjectId,
     ) -> gamelogic::GameLogicResult<Vec3> {
         use gamelogic::ai::pathfind_astar::PathfindCellType;
-        use gamelogic::object::collide::{CollideInfo, Coord3D, GeometryInfo, collide_test_dispatch};
         let fail = |s: &str| gamelogic::GameLogicError::Configuration(s.into());
         let actor = self
             .objects
@@ -44,7 +43,6 @@ impl GameLogic {
         }
         let start = (source.z - center.z).atan2(source.x - center.x);
         let cpp_center = Vec3::new(center.x, center.z, center.y);
-        let probe = GeometryInfo::new_sphere(5.0, true);
         let picked =
             gamelogic::object::update::ai_update::dozer_ai_update::phase::sample_action_position(
                 cpp_center,
@@ -66,71 +64,85 @@ impl GameLogic {
                     {
                         return None;
                     }
-                    let probe_info = CollideInfo::new(
-                        Coord3D::new(position.x, position.z, position.y),
-                        probe,
-                        angle,
-                    );
                     // Original flags NONE: both actor and target remain collision participants.
-                    for raw in self
-                        .partition_manager
-                        .neighbor_object_ids(position.x, position.z)
-                    {
-                        let Some(object) = self.objects.get(&ObjectId(raw)) else {
-                            continue;
-                        };
-                        let pose = object.get_position();
-                        let shape = object.geometry_info();
-                        let sphere = shape.bounding_sphere_radius();
-                        let horizontal =
-                            ((pose.x - position.x).powi(2) + (pose.z - position.z).powi(2)).sqrt();
-                        if (horizontal - sphere).max(0.0).powi(2) >= 5.5 * 5.5 {
-                            continue;
-                        }
-                        let geometry = match shape.geom_type {
-                            crate::game_logic::HostGeometryType::Sphere => {
-                                GeometryInfo::new_sphere(shape.major_radius, shape.is_small)
-                            }
-                            crate::game_logic::HostGeometryType::Cylinder => {
-                                GeometryInfo::new_cylinder(
-                                    shape.major_radius,
-                                    shape.height,
-                                    shape.is_small,
-                                )
-                            }
-                            crate::game_logic::HostGeometryType::Box => {
-                                let mut g = GeometryInfo::new_box(
-                                    shape.major_radius * 2.0,
-                                    shape.minor_radius * 2.0,
-                                    shape.is_small,
-                                );
-                                g.set_height(shape.height);
-                                g
-                            }
-                        };
-                        if position.y + probe.get_max_height_above_position() < pose.y
-                            || position.y > pose.y + geometry.get_max_height_above_position()
-                        {
-                            continue;
-                        }
-                        let other = CollideInfo::new(
-                            Coord3D::new(pose.x, pose.z, pose.y),
-                            geometry,
-                            object.get_orientation(),
-                        );
-                        if collide_test_dispatch(
-                            probe.get_geom_type(),
-                            geometry.get_geom_type(),
-                            &probe_info,
-                            &other,
-                            None,
-                        ) {
-                            return None;
-                        }
+                    let neighbors = self.partition_manager.neighbor_object_ids(position.x, position.z);
+                    if self.cpp_try_position_hits_object(
+                        position,
+                        angle,
+                        neighbors.into_iter().map(ObjectId),
+                        &[],
+                    ) {
+                        return None;
                     }
                     Some(Vec3::new(position.x, position.z, position.y))
                 },
             );
         Ok(picked.map(|p| Vec3::new(p.x, p.z, p.y)).unwrap_or(center))
+    }
+
+    /// C++ `PartitionManager::tryPosition` object check (PartitionManager.cpp
+    /// 3748-3812): a 5-unit sphere at `position` (Main x/z ground plane)
+    /// overlapping any candidate's real geometry rejects the spot, except
+    /// for the ids in `skip` (ignoreObject / sourceToPathToDest).
+    pub(crate) fn cpp_try_position_hits_object(
+        &self,
+        position: Vec3,
+        angle: f32,
+        candidates: impl IntoIterator<Item = ObjectId>,
+        skip: &[ObjectId],
+    ) -> bool {
+        use gamelogic::object::collide::{CollideInfo, Coord3D, GeometryInfo, collide_test_dispatch};
+        let probe = GeometryInfo::new_sphere(5.0, true);
+        let probe_info = CollideInfo::new(Coord3D::new(position.x, position.z, position.y), probe, angle);
+        for id in candidates {
+            if skip.contains(&id) {
+                continue;
+            }
+            let Some(object) = self.objects.get(&id) else {
+                continue;
+            };
+            // Contained objects are out of the partition in C++.
+            if object.contained_by.is_some() {
+                continue;
+            }
+            let pose = object.get_position();
+            let shape = object.geometry_info();
+            let sphere = shape.bounding_sphere_radius();
+            let horizontal = ((pose.x - position.x).powi(2) + (pose.z - position.z).powi(2)).sqrt();
+            if (horizontal - sphere).max(0.0).powi(2) >= 5.5 * 5.5 {
+                continue;
+            }
+            let geometry = match shape.geom_type {
+                crate::game_logic::HostGeometryType::Sphere => {
+                    GeometryInfo::new_sphere(shape.major_radius, shape.is_small)
+                }
+                crate::game_logic::HostGeometryType::Cylinder => {
+                    GeometryInfo::new_cylinder(shape.major_radius, shape.height, shape.is_small)
+                }
+                crate::game_logic::HostGeometryType::Box => {
+                    let mut g = GeometryInfo::new_box(
+                        shape.major_radius * 2.0,
+                        shape.minor_radius * 2.0,
+                        shape.is_small,
+                    );
+                    g.set_height(shape.height);
+                    g
+                }
+            };
+            if position.y + probe.get_max_height_above_position() < pose.y
+                || position.y > pose.y + geometry.get_max_height_above_position()
+            {
+                continue;
+            }
+            let other = CollideInfo::new(
+                Coord3D::new(pose.x, pose.z, pose.y),
+                geometry,
+                object.get_orientation(),
+            );
+            if collide_test_dispatch(probe.get_geom_type(), geometry.get_geom_type(), &probe_info, &other, None) {
+                return true;
+            }
+        }
+        false
     }
 }

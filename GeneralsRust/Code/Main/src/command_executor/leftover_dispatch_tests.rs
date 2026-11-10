@@ -1095,6 +1095,13 @@ fn new_task_snaps_action_dock_off_pad_via_find_position_around() {
         p.selection_radius = 80.0;
         p.status.under_construction = true;
     }
+    // C++ tryPosition collides against the pad's real geometry.
+    let mut shape = *logic.host_object(pad).expect("pad").geometry_info();
+    shape.geom_type = crate::game_logic::HostGeometryType::Cylinder;
+    shape.major_radius = 80.0;
+    shape.minor_radius = 80.0;
+    shape.height = 30.0;
+    logic.set_fixture_object_geometry(pad, shape.to_host_geometry());
     if let Some(d) = logic.host_object_mut(dozer) {
         d.selection_radius = 8.0;
     }
