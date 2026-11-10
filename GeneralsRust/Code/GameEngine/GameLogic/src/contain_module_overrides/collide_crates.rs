@@ -305,7 +305,8 @@ pub(super) fn convert_to_hijacked_vehicle_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("ConvertToHijackedVehicleCrateCollide", &module_data);
     };
-    let collide = ConvertToHijackedVehicleCrateCollide::new(&object, module_data.clone());
+    let mut collide = ConvertToHijackedVehicleCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToHijackedVehicleCrateCollide",
         module_data,
@@ -367,7 +368,8 @@ pub(super) fn sabotage_command_center_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageCommandCenterCrateCollide", &module_data);
     };
-    let collide = SabotageCommandCenterCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotageCommandCenterCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotageCommandCenterCrateCollide",
         module_data,
@@ -401,7 +403,8 @@ pub(super) fn sabotage_fake_building_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageFakeBuildingCrateCollide", &module_data);
     };
-    let collide = SabotageFakeBuildingCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotageFakeBuildingCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotageFakeBuildingCrateCollide",
         module_data,
@@ -435,7 +438,8 @@ pub(super) fn sabotage_internet_center_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageInternetCenterCrateCollide", &module_data);
     };
-    let collide = SabotageInternetCenterCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotageInternetCenterCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotageInternetCenterCrateCollide",
         module_data,
@@ -469,7 +473,8 @@ pub(super) fn sabotage_military_factory_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageMilitaryFactoryCrateCollide", &module_data);
     };
-    let collide = SabotageMilitaryFactoryCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotageMilitaryFactoryCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotageMilitaryFactoryCrateCollide",
         module_data,
@@ -503,7 +508,8 @@ pub(super) fn sabotage_power_plant_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotagePowerPlantCrateCollide", &module_data);
     };
-    let collide = SabotagePowerPlantCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotagePowerPlantCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotagePowerPlantCrateCollide",
         module_data,
@@ -537,7 +543,8 @@ pub(super) fn sabotage_superweapon_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageSuperweaponCrateCollide", &module_data);
     };
-    let collide = SabotageSuperweaponCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotageSuperweaponCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSuperweaponCrateCollide",
         module_data,
@@ -571,7 +578,8 @@ pub(super) fn sabotage_supply_center_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageSupplyCenterCrateCollide", &module_data);
     };
-    let collide = SabotageSupplyCenterCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotageSupplyCenterCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyCenterCrateCollide",
         module_data,
@@ -606,7 +614,8 @@ pub(super) fn sabotage_supply_dropzone_crate_collide_module_factory(
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageSupplyDropzoneCrateCollide", &module_data);
     };
-    let collide = SabotageSupplyDropzoneCrateCollide::new(&object, module_data.clone());
+    let mut collide = SabotageSupplyDropzoneCrateCollide::new(&object, module_data.clone());
+    collide.base.bind_owning_world(crate::object::supplied_module_world(thing.as_ref()));
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyDropzoneCrateCollide",
         module_data,

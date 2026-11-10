@@ -150,6 +150,9 @@ pub struct CrateCollide {
     module_data: ModuleDataView<CrateCollideModuleData>,
     /// State owned by this crate collision module.
     state: CrateCollideState,
+    /// World the crate's Object was assembled in (C++ the owning GameEngine's
+    /// TheEva). Unbound legacy assembly keeps the published world's Eva.
+    owning_world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
     // Identity is object_id only; resolve via registry/TheGameLogic on demand.
 }
 
@@ -162,6 +165,23 @@ impl fmt::Debug for CrateCollide {
 }
 
 impl CrateCollide {
+    /// Binds the world supplied at Object assembly.
+    pub(crate) fn bind_owning_world(&mut self, world: Option<crate::object::ObjectWorld>) {
+        self.owning_world = world.map(|world| world.world().clone());
+    }
+
+    /// C++ `TheEva->setShouldPlay` on the Eva of the world that owns this crate.
+    /// Eva calls are void side effects in C++; a failed queue never stops the crate.
+    pub(crate) fn play_eva(&self, event: crate::helpers::EvaEvent) {
+        let _ = match &self.owning_world {
+            Some(world) => match world.upgrade() {
+                Some(world) => crate::helpers::TheEva::set_should_play_in(&world, event),
+                None => Ok(()),
+            },
+            None => crate::helpers::TheEva::set_should_play(event),
+        };
+    }
+
     pub fn new(object_id: ObjectId, module_data: ModuleDataView<CrateCollideModuleData>) -> Self {
         let base_module = CollideModule::new(object_id, module_data.read().base.clone());
         Self {
@@ -171,6 +191,7 @@ impl CrateCollide {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
             },
+            owning_world: None,
         }
     }
 
@@ -195,6 +216,7 @@ impl CrateCollide {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
             },
+            owning_world: None,
         }
     }
 
@@ -691,6 +713,42 @@ mod tests {
         ModuleDataView::new(ModuleDataHandle::new(CrateCollideDataAdapter::new(data)), |data| {
             &data.as_any().downcast_ref::<CrateCollideDataAdapter<CrateCollideModuleData>>().expect("crate data").data
         })
+    }
+
+    #[test]
+    fn crate_eva_lands_in_the_world_the_crate_was_assembled_in() {
+        // Two worlds on one thread. C++ sabotage/hijack crates call TheEva of
+        // the GameEngine that owns the crate, never whichever one is published.
+        use crate::helpers::{EvaEvent, TheEva};
+        use crate::system::engine_stores::{new_world_services, with_world_services};
+        let _guard = crate_collide_test_guard();
+        let a = new_world_services();
+        let b = new_world_services();
+        let mut in_b = CrateCollide::new(41, crate_data_view(CrateCollideModuleData::default()));
+        in_b.bind_owning_world(Some(crate::object::ObjectWorld::of(&b)));
+        let mut in_a = CrateCollide::new(42, crate_data_view(CrateCollideModuleData::default()));
+        in_a.bind_owning_world(Some(crate::object::ObjectWorld::of(&a)));
+        let unbound = CrateCollide::new(43, crate_data_view(CrateCollideModuleData::default()));
+
+        with_world_services(&a, || {
+            in_b.play_eva(EvaEvent::BuildingSabotaged);
+            in_b.play_eva(EvaEvent::CashStolen);
+        });
+        with_world_services(&b, || {
+            in_a.play_eva(EvaEvent::VehicleStolen);
+            // Legacy assembly without a supplied world keeps the published Eva.
+            unbound.play_eva(EvaEvent::UnitLost);
+        });
+        assert_eq!(TheEva::drain_events_in(&a).unwrap(), vec![EvaEvent::VehicleStolen]);
+        assert_eq!(
+            TheEva::drain_events_in(&b).unwrap(),
+            vec![EvaEvent::BuildingSabotaged, EvaEvent::CashStolen, EvaEvent::UnitLost]
+        );
+
+        // A crate whose world has retired plays nothing anywhere.
+        drop(b);
+        with_world_services(&a, || in_b.play_eva(EvaEvent::BuildingSabotaged));
+        assert!(TheEva::drain_events_in(&a).unwrap().is_empty());
     }
 
     #[test]

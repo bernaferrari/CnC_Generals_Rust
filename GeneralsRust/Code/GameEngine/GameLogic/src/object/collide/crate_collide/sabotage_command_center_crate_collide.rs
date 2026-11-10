@@ -324,7 +324,7 @@ impl SabotageCommandCenterCrateCollide {
         {
             if let Ok(other_lock) = other.read() {
                 if other_lock.is_locally_controlled() {
-                    let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
+                    self.base.play_eva(EvaEvent::BuildingSabotaged);
                 }
             }
         }

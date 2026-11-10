@@ -20,7 +20,7 @@ use crate::common::{
     CommandSourceType, FieldParse, KindOf, ObjectStatusMaskType, ObjectStatusTypes,
     kindof_from_name,
 };
-use crate::helpers::{EvaEvent, TheAudio, TheEva, TheGameLogic, TheRadar};
+use crate::helpers::{EvaEvent, TheAudio, TheGameLogic, TheRadar};
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::Object;
 use crate::object::collide::world_collision_manager;
@@ -337,7 +337,7 @@ impl ConvertToHijackedVehicleCrateCollide {
         {
             if let Ok(other_lock) = other.read() {
                 if other_lock.is_locally_controlled() {
-                    let _ = TheEva::set_should_play(EvaEvent::VehicleStolen);
+                    self.base.play_eva(EvaEvent::VehicleStolen);
                 }
             }
         }

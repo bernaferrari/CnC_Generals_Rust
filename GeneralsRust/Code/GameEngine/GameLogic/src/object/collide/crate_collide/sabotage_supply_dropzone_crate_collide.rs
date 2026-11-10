@@ -358,14 +358,14 @@ impl SabotageSupplyDropzoneCrateCollide {
         if cash_stolen > 0 {
             if let Ok(other_lock) = other.read() {
                 if other_lock.is_locally_controlled() {
-                    let _ = TheEva::set_should_play(EvaEvent::CashStolen);
+                    self.base.play_eva(EvaEvent::CashStolen);
                 }
             }
 
             let _ = self.display_cash_floating_text(other.clone(), cash_stolen);
         } else if let Ok(other_lock) = other.read() {
             if other_lock.is_locally_controlled() {
-                let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
+                self.base.play_eva(EvaEvent::BuildingSabotaged);
             }
         }
 
