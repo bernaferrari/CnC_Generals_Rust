@@ -1519,6 +1519,7 @@ fn radar_delivery_is_once_per_hud_world_and_logic_frame() {
     frame.events = vec![PresentationEvent::RadarMessage {
         team: crate::game_logic::Team::Neutral,
         text: "test radar".into(),
+        args: Vec::new(),
         position: glam::Vec3::ZERO,
         kind: 1,
     }];
@@ -1568,6 +1569,7 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
     frame.events.push(PresentationEvent::RadarMessage {
         team: crate::game_logic::Team::Neutral,
         text: "RADAR:UnitUnderAttack".into(),
+        args: Vec::new(),
         position: glam::Vec3::ZERO,
         kind: 1,
     });

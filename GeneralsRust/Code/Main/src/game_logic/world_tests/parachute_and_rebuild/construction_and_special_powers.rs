@@ -79,7 +79,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
         if let Some(t) = logic.host_object(sid) {
             if t.health.current >= t.health.maximum - 0.01 {
                 let pos = t.get_position();
-                let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
+                let msg = "DOZER:RepairComplete";
                 logic.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                 logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
                 let ai_entry_frame = logic.frame;

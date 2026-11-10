@@ -4,7 +4,10 @@ use glam::Vec3;
 
 #[derive(Debug, Clone)]
 pub struct RadarEntry {
+    /// GameText label or final text (see `PresentationEvent::RadarMessage`).
     pub text: String,
+    /// Format arguments for a label's `%s`/`%d`.
+    pub args: Vec<generals_presentation::events::TextArg>,
     pub position: Vec3,
     pub timestamp: f32,
     /// Optional tag for audio throttling (e.g., Attack/Ally/Generic)

@@ -67,13 +67,20 @@ impl GameLogic {
             })
             .unwrap_or(glam::Vec3::ZERO);
 
-        let msg = localization::localize(
-            "UPGRADE:UpgradeComplete",
-            &format!("Upgrade complete: {upgrade_name}"),
-        );
+        // C++ ProductionUpdate.cpp:891-894: format(fetch("UPGRADE:UpgradeComplete"),
+        // fetch(upgrade->getDisplayNameLabel())).
+        let upgrade_label = self
+            .upgrade_template(upgrade_name)
+            .map(|template| template.get_display_name().as_str().to_string())
+            .unwrap_or_else(|| upgrade_name.to_string());
         // C++ TheRadar->createEvent(..., RADAR_EVENT_UPGRADE) residual.
         // Host maps upgrade events as Generic radar kind with upgrade honesty.
-        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        self.queue_radar_label_at(
+            "UPGRADE:UpgradeComplete",
+            vec![generals_presentation::events::TextArg::Label(upgrade_label)],
+            pos,
+            radar_notifications::RadarKind::Generic,
+        );
         self.host_create_radar_event(
             pos,
             game_engine::common::system::radar::RadarEventType::Upgrade,
@@ -240,34 +247,30 @@ impl GameLogic {
         }
         self.under_attack_events = self.under_attack_events.saturating_add(1);
 
-        let (msg_key, msg_fallback, audio) = if is_infantry || is_vehicle {
+        let (msg_key, audio) = if is_infantry || is_vehicle {
             if is_harvester {
                 (
                     RADAR_MSG_HARVESTER_UNDER_ATTACK,
-                    "Harvester under attack",
                     RADAR_AUDIO_HARVESTER_UNDER_ATTACK,
                 )
             } else {
                 (
                     RADAR_MSG_UNIT_UNDER_ATTACK,
-                    "Unit under attack",
                     RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
                 )
             }
         } else if is_structure && is_mp_count {
             (
                 RADAR_MSG_STRUCTURE_UNDER_ATTACK,
-                "Structure under attack",
                 RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
             )
         } else {
             (
                 RADAR_MSG_UNDER_ATTACK,
-                "Under attack",
                 RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
             )
         };
-        let msg = localization::localize(msg_key, msg_fallback);
+        let msg = msg_key;
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
         // C++ Radar.cpp:1155 tryEvent(UNDER_ATTACK) — minimap blip + last-event.
         {
@@ -519,7 +522,7 @@ impl GameLogic {
         if !local_victim {
             return;
         }
-        let msg = localization::localize("RADAR:Infiltration", "Infiltration event");
+        let msg = "RADAR:Infiltration";
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
         {
             let radar = self.radar_mut();

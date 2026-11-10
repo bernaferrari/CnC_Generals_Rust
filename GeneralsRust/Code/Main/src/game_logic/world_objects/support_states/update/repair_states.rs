@@ -129,7 +129,7 @@ impl GameLogic {
         if self.objects.get(&repair_target_id).is_some_and(|target| {
             target.health.maximum > 0.0 && target.health.current >= target.health.maximum
         }) {
-            let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
+            let msg = "DOZER:RepairComplete";
             self.queue_radar_message_at(
                 msg,
                 repair_target_pos,
@@ -190,7 +190,7 @@ impl GameLogic {
         }
         if target_full {
             // C++ DOZER:RepairComplete residual.
-            let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
+            let msg = "DOZER:RepairComplete";
             self.queue_radar_message_at(msg, repair_pos, radar_notifications::RadarKind::Generic);
             self.repair_complete_events = self.repair_complete_events.saturating_add(1);
             self.release_dozer_repair_order(object_id)?;

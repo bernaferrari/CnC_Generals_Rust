@@ -137,6 +137,18 @@ impl GameLogic {
         position: Vec3,
         kind: radar_notifications::RadarKind,
     ) {
+        self.queue_radar_label_at(message, Vec::new(), position, kind);
+    }
+
+    /// Queue a retail GameText label with its format arguments; the receiving
+    /// HUD fetches and formats it from its own client's catalog.
+    pub fn queue_radar_label_at<S: Into<String>>(
+        &mut self,
+        label: S,
+        args: Vec<generals_presentation::events::TextArg>,
+        position: Vec3,
+        kind: radar_notifications::RadarKind,
+    ) {
         let kind_index = match kind {
             radar_notifications::RadarKind::Generic => 0,
             radar_notifications::RadarKind::Attack => 1,
@@ -148,7 +160,8 @@ impl GameLogic {
             return;
         }
         let entry = RadarEntry {
-            text: message.into(),
+            text: label.into(),
+            args,
             position,
             timestamp: self.sim_time_seconds,
             kind,
@@ -1428,9 +1441,11 @@ impl GameLogic {
                 // onDelete and is not an exhaustion message at the 0% default.
                 self.overcharge_exhaustions = self.overcharge_exhaustions.saturating_add(1);
                 if local {
-                    let msg =
-                        localization::localize("GUI:OverchargeExhausted", "Overcharge exhausted");
-                    self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+                    self.queue_radar_message_at(
+                        "GUI:OverchargeExhausted",
+                        pos,
+                        radar_notifications::RadarKind::Generic,
+                    );
                     self.host_create_radar_event(
                         pos,
                         game_engine::common::system::radar::RadarEventType::Information,
@@ -1973,8 +1988,13 @@ impl GameLogic {
         let (team, pos, name) = (
             object.team,
             object.get_position(),
-            object.template_name.clone(),
+            // C++ getTemplate()->getDisplayName(); the unauthored default
+            // (the template name) counts as empty.
+            Some(object.get_template().display_name.clone())
+                .filter(|label| !label.is_empty() && label != &object.template_name)
+                .unwrap_or_default(),
         );
+        let template_name = object.template_name.clone();
         let local = builder
             .as_ref()
             .map(|(id, _)| self.is_object_locally_controlled(*id))
@@ -1989,11 +2009,22 @@ impl GameLogic {
         }
         // C++ DozerAIUpdate complete residual: DOZER:ConstructionComplete +
         // VoiceTaskComplete on dozer + RADAR_EVENT_CONSTRUCTION.
-        let msg = localization::localize(
+        // C++ DozerAIUpdate.cpp:601-611: format(fetch("DOZER:ConstructionComplete"),
+        // displayName), or INI:MissingDisplayName formatted with the template name.
+        let object_name = if name.is_empty() {
+            generals_presentation::events::TextArg::Format(
+                "INI:MissingDisplayName".to_string(),
+                vec![generals_presentation::events::TextArg::Literal(template_name)],
+            )
+        } else {
+            generals_presentation::events::TextArg::Label(name)
+        };
+        self.queue_radar_label_at(
             "DOZER:ConstructionComplete",
-            &format!("Construction complete: {name}"),
+            vec![object_name],
+            pos,
+            radar_notifications::RadarKind::Generic,
         );
-        self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
         // CPP607 VoiceTaskComplete belongs to this exact builder, never a proximity scan.
         if let Some((did, _)) = builder.as_ref() {
             if let Some(object) = self.objects.get(did) {

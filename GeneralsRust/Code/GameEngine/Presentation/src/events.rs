@@ -23,6 +23,18 @@ impl PartialEq for MovementSessionId {
 
 impl Eq for MovementSessionId {}
 
+/// `UnicodeString::format` argument of a GameText label message; the
+/// receiving client resolves labels through its own catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextArg {
+    /// Final text (player names, numbers).
+    Literal(String),
+    /// Authored label such as a `DisplayName` (`OBJECT:Barracks`).
+    Label(String),
+    /// Nested `format(fetch(label), args)` (e.g. `INI:MissingDisplayName`).
+    Format(String, Vec<TextArg>),
+}
+
 /// Ordered gameplay event for audio/FX/UI (presentation side only).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PresentationEvent {
@@ -81,7 +93,12 @@ pub enum PresentationEvent {
     },
     RadarMessage {
         team: Team,
+        /// Retail GameText label (e.g. `GUI:BeaconPlaced`) or already-final text;
+        /// the receiving HUD translates labels through its client's catalog.
         text: String,
+        /// C++ `UnicodeString::format` arguments for a label's `%s`/`%d`.
+        #[serde(default)]
+        args: Vec<TextArg>,
         position: Vec3,
         kind: u8,
     },

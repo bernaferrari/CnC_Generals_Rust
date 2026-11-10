@@ -606,6 +606,7 @@ impl PresentationFrame {
             match ev {
                 PresentationEvent::RadarMessage {
                     text,
+                    args,
                     position,
                     kind,
                     ..
@@ -621,7 +622,7 @@ impl PresentationFrame {
                     } else {
                         None
                     };
-                    hud.add_radar_message(text, pos, ping_kind);
+                    hud.add_radar_label(text, args, pos, ping_kind);
                 }
                 // C++: VoiceCreated / getVoiceTaskComplete / Eva SideSounds only.
                 PresentationEvent::ConstructionComplete { .. }

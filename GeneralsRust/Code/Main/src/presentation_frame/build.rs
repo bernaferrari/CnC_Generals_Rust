@@ -1641,6 +1641,7 @@ impl PresentationFrame {
             events.push(PresentationEvent::RadarMessage {
                 team: Team::Neutral, // host residual: text is global/team-agnostic here
                 text: entry.text,
+                args: entry.args,
                 position: entry.position,
                 kind,
             });

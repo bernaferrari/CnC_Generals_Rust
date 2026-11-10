@@ -250,6 +250,30 @@ fn command_button_hotkey(
     hotkey_char_from_ampersand(source).and_then(keycode_from_hotkey_char)
 }
 
+/// C++ `UnicodeString::format`: substitute `%s`/`%d`/`%ls` in order.
+fn format_game_text_args(template: &str, args: &[String]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut args = args.iter();
+    let mut rest = template;
+    while let Some(index) = rest.find('%') {
+        out.push_str(&rest[..index]);
+        let tail = &rest[index..];
+        let spec = ["%ls", "%s", "%d", "%i"].into_iter().find(|spec| tail.starts_with(spec));
+        match (spec, spec.and_then(|_| args.next())) {
+            (Some(spec), Some(arg)) => {
+                out.push_str(arg);
+                rest = &tail[spec.len()..];
+            }
+            _ => {
+                out.push('%');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Resource display component
 pub struct ResourceDisplay {
     position: (i32, i32),
@@ -1303,9 +1327,53 @@ impl GameHUD {
     }
 
     /// Push a radar/beacon event with optional world position and kind for display/focus.
+    /// Translate a label through the owning client's catalog (labels carry a
+    /// `:`); with no catalog bound the label itself is shown.
+    fn translate_label(&self, label: &str) -> String {
+        match self.game_text.as_deref() {
+            Some(game_text) => crate::assets::ini_parser::display_label_text(label, |key| {
+                game_text
+                    .write()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .fetch_owned(key)
+            }),
+            None => label.to_string(),
+        }
+    }
+
+    fn format_label_message(
+        &self,
+        label: &str,
+        args: &[generals_presentation::events::TextArg],
+    ) -> String {
+        use generals_presentation::events::TextArg;
+        let args: Vec<String> = args
+            .iter()
+            .map(|arg| match arg {
+                TextArg::Literal(text) => text.clone(),
+                TextArg::Label(label) => self.translate_label(label),
+                TextArg::Format(label, args) => self.format_label_message(label, args),
+            })
+            .collect();
+        format_game_text_args(&self.translate_label(label), &args)
+    }
+
     pub fn add_radar_message(&mut self, text: &str, position: Option<Vec3>, kind: RadarPingKind) {
+        self.add_radar_label(text, &[], position, kind);
+    }
+
+    /// C++ `TheInGameUI->message(TheGameText->fetch(label).format(args))`
+    /// against this HUD's owning client catalog; plain text is shown as is.
+    pub fn add_radar_label(
+        &mut self,
+        label: &str,
+        args: &[generals_presentation::events::TextArg],
+        position: Option<Vec3>,
+        kind: RadarPingKind,
+    ) {
+        let text = self.format_label_message(label, args);
         let entry = GameMessage {
-            text: text.to_string(),
+            text,
             spawn_time: self.game_time.as_secs_f32(),
             message_type: MessageType::Radar,
             position,
@@ -2299,6 +2367,58 @@ mod tests {
             }
             other => panic!("expected CancelUpgradeProduction, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn radar_labels_are_formatted_from_the_owning_client_catalog() {
+        use generals_presentation::events::TextArg;
+        let mut unbound = GameHUD::new();
+        unbound.add_radar_label(
+            "GUI:BeaconPlaced",
+            &[TextArg::Literal("Ana".into())],
+            None,
+            RadarPingKind::Generic,
+        );
+        assert_eq!(unbound.messages.last().map(|m| m.text.as_str()), Some("GUI:BeaconPlaced"));
+
+        let path = std::env::temp_dir().join(format!("hud_radar_labels_{}.str", std::process::id()));
+        std::fs::write(
+            &path,
+            "GUI:BeaconPlaced\n\"%s has placed a beacon.\"\nEND\n\
+             DOZER:ConstructionComplete\n\"%s complete.\"\nEND\n\
+             INI:MissingDisplayName\n\"Missing (%s)\"\nEND\n\
+             OBJECT:Barracks\n\"Barracks\"\nEND\n",
+        )
+        .expect("write str");
+        let mut catalog = game_client::game_text::GameText::default();
+        catalog.load_map_strings(&path).expect("load str");
+        let _ = std::fs::remove_file(&path);
+        let mut hud = GameHUD::new();
+        hud.admit_game_text(std::sync::Arc::new(std::sync::RwLock::new(catalog)));
+        let mut last = |label: &str, args: &[TextArg]| {
+            hud.add_radar_label(label, args, None, RadarPingKind::Generic);
+            hud.messages.last().map(|m| m.text.clone()).unwrap_or_default()
+        };
+        assert_eq!(
+            last("GUI:BeaconPlaced", &[TextArg::Literal("Ana".into())]),
+            "Ana has placed a beacon."
+        );
+        assert_eq!(
+            last("DOZER:ConstructionComplete", &[TextArg::Label("OBJECT:Barracks".into())]),
+            "Barracks complete."
+        );
+        assert_eq!(
+            last(
+                "DOZER:ConstructionComplete",
+                &[TextArg::Format(
+                    "INI:MissingDisplayName".into(),
+                    vec![TextArg::Literal("AmericaBarracks".into())],
+                )],
+            ),
+            "Missing (AmericaBarracks) complete."
+        );
+        assert_eq!(last("GUI:TooManyBeacons", &[]), "MISSING: 'GUI:TooManyBeacons'");
+        assert_eq!(last("plain text", &[]), "plain text");
     }
 
     #[test]

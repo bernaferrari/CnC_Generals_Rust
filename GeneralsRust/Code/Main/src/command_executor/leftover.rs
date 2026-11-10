@@ -10,7 +10,6 @@ use crate::game_logic::{
     AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
     radar_notifications::RadarKind,
 };
-use crate::localization;
 use crate::ui::audio::translate_audio_event;
 use glam::Vec3;
 use log::{debug, warn};
@@ -950,9 +949,8 @@ impl<'a> CommandExecutor<'a> {
         let existing = host_count_player_beacons(self.game_logic, player_id, &template_name);
         if template_name.is_empty() || existing >= max_beacons {
             if local_id == Some(player_id) {
-                let alert = localization::localize("GUI:TooManyBeacons", "Too many beacons");
                 self.game_logic
-                    .queue_radar_message_at(alert, location, RadarKind::Generic);
+                    .queue_radar_message_at("GUI:TooManyBeacons", location, RadarKind::Generic);
                 self.game_logic
                     .queue_audio_event(AudioEventRequest::new(translate_audio_event(
                         "BeaconPlacementFailed",
@@ -1006,15 +1004,14 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .get_player(player_id)
                 .map(|p| p.name.clone())
-                .unwrap_or_else(|| "Player".to_string());
-            let alert = localization::localize_with_args(
+                .unwrap_or_default();
+            // C++ format(TheGameText->fetch("GUI:BeaconPlaced"), displayName).
+            self.game_logic.queue_radar_label_at(
                 "GUI:BeaconPlaced",
-                "{player} placed a beacon",
-                &[("player", placer_name.as_str())],
-            )
-            .replace("%s", &placer_name);
-            self.game_logic
-                .queue_radar_message_at(alert, pos, RadarKind::Generic);
+                vec![generals_presentation::events::TextArg::Literal(placer_name)],
+                pos,
+                RadarKind::Generic,
+            );
             self.game_logic
                 .queue_audio_event(AudioEventRequest::new(translate_audio_event(
                     "BeaconPlaced",
@@ -1142,9 +1139,11 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn notify_beacon_placement_failed(&mut self, location: Vec3) {
-        let alert = localization::localize("GUI:BeaconPlacementFailed", "Beacon placement failed");
-        self.game_logic
-            .queue_radar_message_at(alert, location, RadarKind::Generic);
+        self.game_logic.queue_radar_message_at(
+            "GUI:BeaconPlacementFailed",
+            location,
+            RadarKind::Generic,
+        );
         self.game_logic
             .queue_audio_event(AudioEventRequest::new(translate_audio_event(
                 "BeaconPlacementFailed",
