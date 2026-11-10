@@ -78,6 +78,12 @@ impl GameLogic {
                 let Some(u) = self.objects.get(&unit_id) else {
                     return Ok(AttackMachineResult::Failure);
                 };
+                // C++ AIAttackState::onEnter (AIStates.cpp:5477-5479): a mood
+                // without MAA_Action_Ok (sleep) "will not attack" and the
+                // state succeeds at once, before any other entry check.
+                if !self.mood_allows_attack(unit_id) {
+                    return Ok(AttackMachineResult::Success);
+                }
                 if !u.is_alive() || u.status.under_construction {
                     return Ok(AttackMachineResult::Failure);
                 }
@@ -96,11 +102,6 @@ impl GameLogic {
                 if !v.is_alive() || v.status.destroyed {
                     return Ok(AttackMachineResult::Failure);
                 }
-            }
-            // C++ getMoodMatrixActionAdjustment(MM_Action_Attack) residual.
-            // AI-controlled sleep mood refuses attack (→ idle).
-            if !self.mood_allows_attack(unit_id) {
-                return Ok(AttackMachineResult::Failure);
             }
             // C++ cannotPossiblyAttackObject residual on enter.
             if self.cannot_possibly_attack_object(unit_id, victim_id, false) {
@@ -3163,7 +3164,9 @@ impl GameLogic {
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_max_shots_to_fire(max_shots);
         }
-        if entered == AttackMachineResult::Failure {
+        // STATE_SUCCESS from onEnter (sleep mood) takes the machine's success
+        // transition at once; only a continuing attack installs a path.
+        if entered != AttackMachineResult::Continue {
             return Ok(false);
         }
         // AIUpdate.cpp:3395-3417 only installs the attack state/goal. An

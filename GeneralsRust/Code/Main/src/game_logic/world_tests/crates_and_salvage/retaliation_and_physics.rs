@@ -1261,8 +1261,10 @@ fn mood_matrix_aggressive_move_to_attack_move() {
     );
 }
 
+/// C++ AIAttackState::onEnter (AIStates.cpp:5477-5479): sleep mood returns
+/// STATE_SUCCESS without attacking, not failure.
 #[test]
-fn attack_state_enter_fails_when_sleep_mood() {
+fn attack_state_enter_succeeds_without_attacking_when_sleep_mood() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
     // AIUpdate.cpp:4287-4325: only an AI controlling player carries mood bits.
@@ -1294,8 +1296,9 @@ fn attack_state_enter_fails_when_sleep_mood() {
     });
     assert_eq!(
         logic.attack_state_enter(aid, vid),
-        AttackMachineResult::Failure
+        AttackMachineResult::Success
     );
+    assert_eq!(logic.objects[&aid].target, None, "sleep mood never targets");
 }
 
 #[test]
