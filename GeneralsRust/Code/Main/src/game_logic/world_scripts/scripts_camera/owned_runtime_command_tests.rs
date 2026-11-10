@@ -985,3 +985,40 @@ fn team_move_admits_roster_order_before_waypoint_and_keeps_membership_when_missi
     }
 }
 
+
+#[test]
+fn two_worlds_taking_turns_on_one_thread_read_only_their_own_control_bar() {
+    // C++ each engine's TheControlBar owns its CommandButtons. Two worlds on
+    // one thread alternate; each answer comes from the asking world even while
+    // the peer is the published world.
+    const SHARED: &str = "Command_TurnTakingShared";
+    const ONLY_A: &str = "Command_TurnTakingOnlyA";
+    let (a, _, _) = world();
+    let (b, _, _) = world();
+    a.load_own_command_ini_for_test(&format!(
+        "CommandButton {SHARED}\n Command = FIRE_WEAPON\nEnd\nCommandButton {ONLY_A}\n Command = STOP\nEnd\n"
+    ));
+    b.load_own_command_ini_for_test(&format!("CommandButton {SHARED}\n Command = STOP\nEnd\n"));
+    let a_bridge = a.control_bar_bridge().expect("a's bridge");
+    let b_bridge = b.control_bar_bridge().expect("b's bridge");
+    assert!(!std::sync::Arc::ptr_eq(&a_bridge, &b_bridge));
+
+    for _turn in 0..3 {
+        assert!(a.leftover_command_button_is_hunt_capable(SHARED));
+        assert!(!b.leftover_command_button_is_hunt_capable(SHARED));
+        assert!(a.leftover_skirmish_command_button_exists(ONLY_A));
+        assert!(!b.leftover_skirmish_command_button_exists(ONLY_A));
+        // The peer published on this thread does not redirect the asker.
+        b.with_own_services(|| {
+            assert!(a.leftover_command_button_is_hunt_capable(SHARED));
+            assert!(a.leftover_skirmish_command_button_exists(ONLY_A));
+        });
+        a.with_own_services(|| {
+            assert!(!b.leftover_command_button_is_hunt_capable(SHARED));
+            assert!(!b.leftover_skirmish_command_button_exists(ONLY_A));
+        });
+    }
+    // The bridges are the ones each world built, not rebuilt by the turns.
+    assert!(std::sync::Arc::ptr_eq(&a_bridge, &a.control_bar_bridge().unwrap()));
+    assert!(std::sync::Arc::ptr_eq(&b_bridge, &b.control_bar_bridge().unwrap()));
+}

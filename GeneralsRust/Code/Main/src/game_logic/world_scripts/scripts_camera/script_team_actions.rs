@@ -745,7 +745,7 @@ impl GameLogic {
 
     /// C++ `TheControlBar->findCommandButton` / leftover host-queue payload.
     /// Admitted action definitions belong to this receiving GameLogic. Only
-    /// fixtures without an admitted catalog use the standalone compatibility lookup.
+    /// fixtures without an admitted catalog read this world's own bridge and INI catalog.
     pub(super) fn leftover_skirmish_command_button_exists(&self, ability: &str) -> bool {
         use crate::command_system::command_type_from_button_name;
         if ability.trim().is_empty() {
@@ -761,7 +761,7 @@ impl GameLogic {
                 .find_command_button_resolved(ability)
                 .is_some();
         }
-        if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
+        if let Some(bar) = self.control_bar_bridge() {
             if bar.find_command_button_by_name(ability).is_some() {
                 return true;
             }
@@ -793,7 +793,7 @@ impl GameLogic {
                 .map(|button| SpecialPowerCommandOption::from_bits_truncate(button.options_bits))
                 .unwrap_or_else(|| SpecialPowerCommandOption::from_bits_truncate(0));
         }
-        if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
+        if let Some(bar) = self.control_bar_bridge() {
             if let Some(btn) = bar.find_command_button_by_name(ability) {
                 return SpecialPowerCommandOption::from_bits_truncate(btn.get_options_bits());
             }
@@ -2014,7 +2014,7 @@ impl GameLogic {
                 btn.options_bits,
             );
         }
-        if let Some(bar) = gamelogic::control_bar::get_control_bar_bridge() {
+        if let Some(bar) = self.control_bar_bridge() {
             if let Some(btn) = bar.find_command_button_by_name(ability) {
                 return Self::leftover_command_type_is_hunt_capable(
                     btn.get_command_type(),

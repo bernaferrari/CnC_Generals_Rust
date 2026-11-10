@@ -181,6 +181,7 @@ pub fn upgrade_mux_target_ids<T: Copy>(
 /// keep working.
 pub fn object_can_produce_upgrade(
     definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
+    bridge: Option<&gamelogic::control_bar::ControlBarBridge>,
     overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
     object: &Object,
     upgrade_name: &str,
@@ -189,7 +190,7 @@ pub fn object_can_produce_upgrade(
     if upgrade_name.is_empty() {
         return false;
     }
-    match command_set_has_upgrade_button(definitions, overrides, object, upgrade_name) {
+    match command_set_has_upgrade_button(definitions, bridge, overrides, object, upgrade_name) {
         Some(ok) => ok,
         None => residual_command_set_allows_upgrade(object, upgrade_name),
     }
@@ -267,11 +268,12 @@ fn upgrade_names_match(button_upgrade: &str, requested: &str) -> bool {
 
 fn leftover_command_set_has_upgrade(
     definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
+    bridge: Option<&gamelogic::control_bar::ControlBarBridge>,
     overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
     set_name: &str,
     upgrade_name: &str,
 ) -> Option<bool> {
-    let bridge = gamelogic::control_bar::get_control_bar_bridge()?;
+    let bridge = bridge?;
     let set = bridge.find_command_set_by_name(set_name)?;
     for index in 0..gamelogic::command_button::MAX_COMMANDS_PER_SET {
         let base = set.buttons.get(index).and_then(|slot| slot.as_ref());
@@ -345,12 +347,13 @@ fn ini_command_set_has_upgrade(
 
 fn command_set_has_upgrade_button(
     definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
+    bridge: Option<&gamelogic::control_bar::ControlBarBridge>,
     overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
     object: &Object,
     upgrade_name: &str,
 ) -> Option<bool> {
     let set_name = host_object_command_set_name(object)?;
-    if let Some(ok) = leftover_command_set_has_upgrade(definitions, overrides, &set_name, upgrade_name) {
+    if let Some(ok) = leftover_command_set_has_upgrade(definitions, bridge, overrides, &set_name, upgrade_name) {
         if ok {
             return Some(true);
         }
@@ -2022,7 +2025,7 @@ mod can_produce_upgrade_tests {
     fn supply_center_can_produce_supply_lines_residual() {
         let producer = structure("AmericaSupplyCenter", 1);
         assert!(object_can_produce_upgrade(
-            &no_catalog(),
+            &no_catalog(), None,
             &Default::default(),
             &producer,
             UPGRADE_AMERICA_SUPPLY_LINES
@@ -2034,7 +2037,7 @@ mod can_produce_upgrade_tests {
         let barracks = structure("AmericaBarracks", 2);
         assert!(
             !object_can_produce_upgrade(
-                &no_catalog(),
+                &no_catalog(), None,
                 &Default::default(),
                 &barracks,
                 UPGRADE_AMERICA_SUPPLY_LINES
@@ -2047,7 +2050,7 @@ mod can_produce_upgrade_tests {
     fn barracks_can_produce_capture_residual() {
         let barracks = structure("AmericaBarracks", 3);
         assert!(object_can_produce_upgrade(
-            &no_catalog(),
+            &no_catalog(), None,
             &Default::default(),
             &barracks,
             UPGRADE_AMERICA_RANGER_CAPTURE
@@ -2058,7 +2061,7 @@ mod can_produce_upgrade_tests {
     fn unmapped_test_upgrade_fails_open_without_catalog() {
         let barracks = structure("TestBarracks", 4);
         assert!(
-            object_can_produce_upgrade(&no_catalog(), &Default::default(), &barracks, UPGRADE_AMERICA_FLASHBANG),
+            object_can_produce_upgrade(&no_catalog(), None, &Default::default(), &barracks, UPGRADE_AMERICA_FLASHBANG),
             "headless TestBarracks + unmapped FlashBang keeps existing harnesses"
         );
     }
