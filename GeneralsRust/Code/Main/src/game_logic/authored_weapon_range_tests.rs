@@ -4,22 +4,7 @@ use super::*;
 use crate::game_logic::{GameLogic, Team};
 use glam::Vec3;
 
-struct RestoreInputs {
-    store: Option<gamelogic::weapon::WeaponStore>,
-}
-
-impl RestoreInputs {
-    fn install() -> Self {
-        let saved = Self {
-            store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
-        };
-
-        // A prior fixture may remove the store while the independent seed flag survives.
-        gamelogic::weapon::initialize_weapon_store().expect("actual native WeaponStore");
-        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-        assert_eq!(
-            crate::assets::ini_template_loader::register_weapons_from_ini_text(
-                r#"
+const AUTHORED_RANGE_WEAPONS: &str = r#"
 Weapon AuthoredRangeShort
   PrimaryDamage = 11
   AttackRange = 5
@@ -36,41 +21,75 @@ Weapon AuthoredRangeBonus
   MinimumAttackRange = 0
   WeaponBonus = PLAYER_UPGRADE RANGE 200%
 End
-"#
+"#;
+
+const AUTHORED_SLOT_WEAPONS: &str = r#"
+Weapon AuthoredSlotRangeA
+  PrimaryDamage = 13
+  AttackRange = 100
+  WeaponBonus = PLAYER_UPGRADE RANGE 50%
+End
+Weapon AuthoredSlotRangeB
+  PrimaryDamage = 17
+  AttackRange = 100
+  WeaponBonus = PLAYER_UPGRADE RANGE 300%
+End
+"#;
+
+/// Authored Weapon rules parsed through the ordinary Weapon.ini loader and
+/// owned by the receiving world (C++ loads TheWeaponStore before any Object,
+/// GameEngine.cpp:428-458); no ambient store is installed or restored.
+pub(super) struct AuthoredRules(Vec<(String, gamelogic::weapon::WeaponTemplate)>);
+
+impl AuthoredRules {
+    pub(super) fn parse() -> Self {
+        let mut rows = std::collections::HashMap::new();
+        assert_eq!(
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut rows,
+                &format!("{AUTHORED_RANGE_WEAPONS}{AUTHORED_SLOT_WEAPONS}"),
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
             ),
-            3
+            5
         );
-        gamelogic::weapon::with_weapon_store(|store| {
-            for (name, damage, range, min) in [
-                ("AuthoredRangeShort", 11.0, 5.0, 0.0),
-                ("AuthoredRangeMinimum", 12.0, 100.0, 10.0),
-                ("AuthoredRangeBonus", 13.0, 100.0, 0.0),
-            ] {
-                let rules = store
-                    .find_weapon_template(name)
-                    .expect("parsed exact named rules");
-                assert_eq!(rules.primary_damage, damage);
-                assert_eq!(rules.attack_range, range);
-                assert_eq!(rules.minimum_attack_range, min);
-            }
-        })
-        .expect("inspect actual rules");
-        saved
+        Self(rows.into_values().map(|rule| (rule.name.clone(), rule)).collect())
+    }
+
+    pub(super) fn find_weapon_template(
+        &self,
+        name: &str,
+    ) -> Option<&gamelogic::weapon::WeaponTemplate> {
+        self.0.iter().find(|(row, _)| row == name).map(|(_, rule)| rule)
+    }
+
+    /// Admit the rules to `logic` before any Object exists.
+    pub(super) fn admit(self, logic: &mut GameLogic) {
+        logic
+            .admit_receiving_weapon_snapshot(self.0)
+            .expect("authored Weapon content admitted before Objects");
     }
 }
 
-impl Drop for RestoreInputs {
-    fn drop(&mut self) {
-        if let Some(previous) = self.store.take() {
-            let _ = gamelogic::weapon::with_weapon_store_mut(|store| *store = previous);
-        } else {
-            let _ = gamelogic::weapon::shutdown_weapon_store();
-        }
+#[test]
+fn authored_rules_parse_exact_named_rows() {
+    let store = AuthoredRules::parse();
+    for (name, damage, range, min) in [
+        ("AuthoredRangeShort", 11.0, 5.0, 0.0),
+        ("AuthoredRangeMinimum", 12.0, 100.0, 10.0),
+        ("AuthoredRangeBonus", 13.0, 100.0, 0.0),
+    ] {
+        let rules = store
+            .find_weapon_template(name)
+            .expect("parsed exact named rules");
+        assert_eq!(rules.primary_damage, damage);
+        assert_eq!(rules.attack_range, range);
+        assert_eq!(rules.minimum_attack_range, min);
     }
 }
 
 fn admit(name: &str) -> (GameLogic, crate::game_logic::ObjectId) {
     let mut logic = GameLogic::new();
+    AuthoredRules::parse().admit(&mut logic);
     let mut template = ThingTemplate::new("AuthoredRangeShooter");
     template.set_primary_weapon_name(name);
     template.set_health(100.0);
@@ -98,15 +117,13 @@ fn admit(name: &str) -> (GameLogic, crate::game_logic::ObjectId) {
 
 #[test]
 fn authored_short_range_survives_one_runtime_deduction() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let expected = gamelogic::weapon::with_weapon_store(|store| {
+    let expected = {
+        let store = &AuthoredRules::parse();
         store
             .find_weapon_template("AuthoredRangeShort")
             .unwrap()
             .get_attack_range(&gamelogic::weapon::WeaponBonus::new())
-    })
-    .unwrap();
+    };
     assert_eq!(expected, 2.5, "unchanged native C++ yardstick");
     let (logic, id) = admit("AuthoredRangeShort");
     let object = &logic.objects[&id];
@@ -132,16 +149,14 @@ fn authored_short_range_survives_one_runtime_deduction() {
 
 #[test]
 fn authored_minimum_range_is_rationalized_once_at_runtime() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let (maximum, minimum) = gamelogic::weapon::with_weapon_store(|store| {
+    let (maximum, minimum) = {
+        let store = &AuthoredRules::parse();
         let rules = store.find_weapon_template("AuthoredRangeMinimum").unwrap();
         (
             rules.get_attack_range(&gamelogic::weapon::WeaponBonus::new()),
             rules.get_minimum_attack_range(),
         )
-    })
-    .unwrap();
+    };
     assert_eq!(
         (maximum, minimum),
         (97.5, 7.5),
@@ -168,8 +183,6 @@ fn authored_minimum_range_is_rationalized_once_at_runtime() {
 
 #[test]
 fn authored_range_bonus_precedes_one_runtime_deduction() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, id) = admit("AuthoredRangeBonus");
     logic
         .objects
@@ -183,7 +196,8 @@ fn authored_range_bonus_precedes_one_runtime_deduction() {
         2.0,
         "actual parsed extra RANGE 200% is active"
     );
-    let expected = gamelogic::weapon::with_weapon_store(|store| {
+    let expected = {
+        let store = &AuthoredRules::parse();
         let rules = store.find_weapon_template("AuthoredRangeBonus").unwrap();
         let authored_bonus = rules
             .extra_bonus
@@ -196,8 +210,7 @@ fn authored_range_bonus_precedes_one_runtime_deduction() {
             2.0
         );
         rules.get_attack_range(authored_bonus)
-    })
-    .unwrap();
+    };
     assert_eq!(expected, 197.5, "100 * 2 - 2.5, not (100 - 2.5) * 2 - 2.5");
     assert!(
         object.is_within_attack_range_at_distance(0, expected),
@@ -209,8 +222,6 @@ fn authored_range_bonus_precedes_one_runtime_deduction() {
 
 #[test]
 fn explicit_raw_weapon_admission_keeps_existing_runtime_boundaries() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let mut logic = GameLogic::new();
     let mut template = ThingTemplate::new("ExplicitRawRangeShooter");
     template.set_primary_weapon(Weapon {
@@ -244,8 +255,6 @@ fn explicit_raw_weapon_admission_keeps_existing_runtime_boundaries() {
 
 #[test]
 fn named_weapon_pursuit_keeps_native_minimum_boundary() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, source) = admit("AuthoredRangeMinimum");
     let mut template = ThingTemplate::new("AuthoredRangeMovingVictim");
     template.set_health(100.0);

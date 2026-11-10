@@ -765,5 +765,6 @@ mod tests {
     }
 
 
+#[cfg(test)]
 #[path = "weapon_discharge_owner_tests.rs"]
 mod accepted_discharge_owner_boundary_tests;

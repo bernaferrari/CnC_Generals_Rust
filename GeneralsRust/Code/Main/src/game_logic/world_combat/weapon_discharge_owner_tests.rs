@@ -17,16 +17,20 @@ fn admitted_world(start_barrel: u8) -> GameLogic {
     let mut source = Object::new(source_template, SOURCE, Team::USA);
     source.owner_player_id = Some(0);
     source.set_position(Vec3::ZERO);
-    source.weapon = Some(Weapon {
-        damage: 1.0,
-        range: 500.0,
-        reload_time: 0.0,
-        last_fire_time: -1.0,
-        ammo: Some(8),
-        clip_size: 8,
-        projectile_speed: 0.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut source,
+        0,
+        Weapon {
+            damage: 1.0,
+            range: 500.0,
+            reload_time: 0.0,
+            last_fire_time: -1.0,
+            ammo: Some(8),
+            clip_size: 8,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        },
+    );
     assert!(source.set_weapon_barrel_count_for_slot(0, 3));
     source.weapon_barrel_states[0].current_barrel = start_barrel;
     source.weapon_barrel_states[0].shots_left_on_barrel = 1;

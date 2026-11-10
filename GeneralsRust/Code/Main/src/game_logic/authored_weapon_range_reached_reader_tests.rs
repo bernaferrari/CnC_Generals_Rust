@@ -11,10 +11,7 @@ fn garrison_world(
     crate::game_logic::ObjectId,
 ) {
     let mut logic = GameLogic::new();
-    let weapon = gamelogic::weapon::with_weapon_store(|store| {
-        store.find_weapon_template("AuthoredRangeBonus").unwrap().as_ref().clone()
-    }).unwrap();
-    logic.admit_receiving_weapon_snapshot(vec![("AuthoredRangeBonus".into(), weapon)]).unwrap();
+    AuthoredRules::parse().admit(&mut logic);
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.add_player(Player::new(1, Team::GLA, "GLA", true));
     let mut bunker = ThingTemplate::new("AuthoredRangeBunker");
@@ -128,17 +125,15 @@ fn garrison_world(
 
 #[test]
 fn garrison_named_range_admits_exact_native_bonus_boundary() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let expected = gamelogic::weapon::with_weapon_store(|store| {
+    let expected = {
+        let store = &AuthoredRules::parse();
         let mut bonus = gamelogic::weapon::WeaponBonus::new();
         bonus.set_field(gamelogic::weapon::WeaponBonusField::Range, 1.33);
         store
             .find_weapon_template("AuthoredRangeBonus")
             .unwrap()
             .get_attack_range(&bonus)
-    })
-    .unwrap();
+    };
     assert_eq!(expected, 130.5);
     let (mut logic, source, victim) = garrison_world(expected);
     // This is the live production garrison fire seam, after the real enter path;
@@ -154,8 +149,6 @@ fn garrison_named_range_admits_exact_native_bonus_boundary() {
 
 #[test]
 fn garrison_named_range_rejects_beyond_native_bonus_boundary() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, source, victim) = garrison_world(130.51);
     logic.try_garrison_residual_fire(source);
     assert_eq!(
@@ -168,8 +161,6 @@ fn garrison_named_range_rejects_beyond_native_bonus_boundary() {
 
 #[test]
 fn garrison_fire_does_not_target_enemy_inside_enclosing_garrison() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, source, _) = garrison_world(1000.0);
 
     let mut infantry = ThingTemplate::new("EnclosedEnemyInfantry");
@@ -213,6 +204,7 @@ fn base_defense_world(
     crate::game_logic::ObjectId,
 ) {
     let mut logic = GameLogic::new();
+    AuthoredRules::parse().admit(&mut logic);
     let mut defense = ThingTemplate::new("AuthoredRangeCustomDefense");
     defense.set_health(100.0);
     defense
@@ -271,8 +263,6 @@ fn base_defense_world(
 
 #[test]
 fn custom_authored_base_defense_admits_exact_native_range_boundary() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, source, victim) = base_defense_world(97.5);
     logic.update_combat(&[source], 1.0 / 30.0);
     assert_eq!(
@@ -283,8 +273,6 @@ fn custom_authored_base_defense_admits_exact_native_range_boundary() {
 
 #[test]
 fn custom_authored_base_defense_rejects_beyond_native_range_boundary() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, source, victim) = base_defense_world(97.51);
     logic.update_combat(&[source], 1.0 / 30.0);
     assert_eq!(

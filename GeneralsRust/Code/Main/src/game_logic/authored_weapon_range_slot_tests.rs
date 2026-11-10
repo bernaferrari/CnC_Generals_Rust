@@ -9,24 +9,8 @@ fn slot_range_world(
     crate::game_logic::ObjectId,
     crate::game_logic::ObjectId,
 ) {
-    assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(
-            r#"
-Weapon AuthoredSlotRangeA
-  PrimaryDamage = 13
-  AttackRange = 100
-  WeaponBonus = PLAYER_UPGRADE RANGE 50%
-End
-Weapon AuthoredSlotRangeB
-  PrimaryDamage = 17
-  AttackRange = 100
-  WeaponBonus = PLAYER_UPGRADE RANGE 300%
-End
-"#
-        ),
-        2
-    );
-    gamelogic::weapon::with_weapon_store(|store| {
+    {
+        let store = &AuthoredRules::parse();
         for (name, multiplier, native_range) in [
             ("AuthoredSlotRangeA", 0.5, 47.5),
             ("AuthoredSlotRangeB", 3.0, 297.5),
@@ -44,9 +28,9 @@ End
             );
             assert_eq!(rules.get_attack_range(extra), native_range);
         }
-    })
-    .unwrap();
+    }
     let mut logic = GameLogic::new();
+    AuthoredRules::parse().admit(&mut logic);
     let mut defense = ThingTemplate::new("AuthoredSlotRangeDefense");
     defense.set_health(100.0);
     defense
@@ -113,8 +97,6 @@ End
 
 #[test]
 fn custom_authored_primary_range_uses_its_parsed_bonus_at_exact_boundary() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, source, victim) = slot_range_world(0, 47.5);
     assert_eq!(
         logic.objects[&source].weapon_bonus_fields_for_slot(0).1,
@@ -134,8 +116,6 @@ fn custom_authored_primary_range_uses_its_parsed_bonus_at_exact_boundary() {
 
 #[test]
 fn custom_authored_primary_acquisition_does_not_use_selected_secondary_bonus() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut logic, source, victim) = slot_range_world(1, 60.0);
     assert_eq!(
         logic.objects[&source].weapon_bonus_fields_for_slot(0).1,
@@ -163,11 +143,8 @@ fn custom_authored_primary_acquisition_does_not_use_selected_secondary_bonus() {
 
 #[test]
 fn unnamed_secondary_range_has_no_primary_extra_but_legacy_fallback_is_kept() {
-    let _serial = crate::game_logic::combat::tests::combat_test_guard();
-    let _restore = RestoreInputs::install();
-    // Register the genuine A/B rows through the same live parser/admission seam.
-    let (_registered_world, _, _) = slot_range_world(0, 47.5);
     let mut logic = GameLogic::new();
+    AuthoredRules::parse().admit(&mut logic);
     let mut definition = ThingTemplate::new("AuthoredUnnamedSecondaryRange");
     definition.set_primary_weapon_name("AuthoredSlotRangeA");
     definition.set_secondary_weapon(Weapon {

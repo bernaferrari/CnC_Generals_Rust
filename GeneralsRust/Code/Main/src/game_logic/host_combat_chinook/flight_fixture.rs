@@ -7,8 +7,14 @@ use crate::game_logic::{AIState, GameLogic, ObjectId, Player, Team};
 use glam::Vec3;
 
 pub(super) fn authored_match() -> (GameLogic, ObjectId, ObjectId) {
-    use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
-    assert_eq!(load_locomotors_from_str(
+    // C++ loads Locomotor.ini and Object INI as ordered startup content
+    // (GameEngine.cpp:428-458) before any Object is created.
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "FlightOwner", true));
+    logic.add_player(Player::new(1, Team::GLA, "Opponent", false));
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors
+        .apply_source(
             r#"
 Locomotor Hq46k12ChinookLocomotor
   Surfaces = AIR
@@ -27,14 +33,15 @@ Locomotor Hq46k12ChinookLocomotor
   AllowAirborneMotiveForce = Yes
   ZAxisBehavior = SURFACE_RELATIVE_HEIGHT
 End
-"#
+"#,
         )
-        .expect("authored locomotor"),
-        1
-    );
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
+        .expect("authored locomotor");
+    logic
+        .admit_locomotor_definitions(locomotors)
+        .expect("authored locomotor admitted before Object content");
+    logic
+        .admit_object_ini_sources([(
+            "hq46k12_chinook.ini".to_string(),
             r#"
 Object Hq46k12CombatChinook
   KindOf = PRELOAD SELECTABLE CAN_ATTACK VEHICLE AIRCRAFT TRANSPORT
@@ -62,21 +69,10 @@ Object Hq46k12Rappeller
     InitialHealth = 100
   End
 End
-"#,
-            "hq46k12_chinook.ini",
-        )
-        .expect("authored object definitions");
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::USA, "FlightOwner", true));
-    logic.add_player(Player::new(1, Team::GLA, "Opponent", false));
-    for name in ["Hq46k12CombatChinook", "Hq46k12Rappeller"] {
-        let template = GameLogic::build_template_from_object_definition(
-            name,
-            parser.get_definition(name).expect("authored definition"),
-            None,
-        );
-        logic.templates.insert(name.to_owned(), template);
-    }
+"#
+                .to_string(),
+        )])
+        .expect("authored Object content admitted before NewGame");
     let transport = logic
         .create_object(
             "Hq46k12CombatChinook",
