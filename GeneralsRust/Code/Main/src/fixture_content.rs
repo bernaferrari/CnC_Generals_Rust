@@ -123,7 +123,9 @@ impl FixtureObject {
             text.push_str(&format!(" {field}\n"));
         }
         if self.walker {
-            text.push_str(&format!(" Locomotor = SET_NORMAL {FIXTURE_WALK_LOCOMOTOR}\n"));
+            text.push_str(&format!(
+                " Locomotor = SET_NORMAL {FIXTURE_WALK_LOCOMOTOR}\n"
+            ));
         }
         if let Some(health) = self.health {
             text.push_str(&format!(
@@ -174,7 +176,12 @@ pub(crate) fn admit_fixture_content(
             .admit_locomotor_definitions(locomotors)
             .expect("fixture locomotor admitted before Object content");
     }
-    if objects.iter().any(|object| object.modules.iter().any(|m| m.contains(FIXTURE_RADAR_UPGRADE))) {
+    if objects.iter().any(|object| {
+        object
+            .modules
+            .iter()
+            .any(|m| m.contains(FIXTURE_RADAR_UPGRADE))
+    }) {
         crate::game_logic::host_upgrade_rules::register_test_upgrade(
             world,
             FIXTURE_RADAR_UPGRADE,
@@ -254,6 +261,50 @@ impl FixtureWeapon {
             .field("AntiAirborneInfantry = Yes")
     }
 
+    /// Author the stat fields a test states as a host `Weapon` as Weapon.ini
+    /// lines (seconds become msec, the C++ INI unit); runtime fire state is
+    /// not authored content and stays the caller's to set on the instance.
+    pub(crate) fn from_stats(name: impl Into<String>, stats: &crate::game_logic::Weapon) -> Self {
+        fn yes(flag: bool) -> &'static str {
+            if flag { "Yes" } else { "No" }
+        }
+        fn msec(seconds: f32) -> u32 {
+            (seconds.max(0.0) * 1000.0).round() as u32
+        }
+        let mut weapon = Self::new(name)
+            .damage(stats.damage)
+            .range(stats.range)
+            .delay_ms(msec(stats.reload_time))
+            .field(format!("AntiGround = {}", yes(stats.can_target_ground)))
+            .field(format!(
+                "AntiAirborneVehicle = {}",
+                yes(stats.can_target_air)
+            ))
+            .field(format!(
+                "AntiAirborneInfantry = {}",
+                yes(stats.can_target_air)
+            ));
+        // C++ WeaponSpeed 999999 is the instant-hit sentinel.
+        weapon = weapon.field(if stats.projectile_speed > 0.0 {
+            format!("WeaponSpeed = {}", stats.projectile_speed)
+        } else {
+            "WeaponSpeed = 999999".to_string()
+        });
+        if stats.min_range > 0.0 {
+            weapon = weapon.min_range(stats.min_range);
+        }
+        if stats.splash_radius > 0.0 {
+            weapon = weapon.radius(stats.splash_radius);
+        }
+        if stats.pre_attack_delay > 0.0 {
+            weapon = weapon.field(format!("PreAttackDelay = {}", msec(stats.pre_attack_delay)));
+        }
+        if stats.clip_size > 0 {
+            weapon = weapon.clip(stats.clip_size, msec(stats.clip_reload_time));
+        }
+        weapon
+    }
+
     pub(crate) fn ini(&self) -> String {
         let mut text = format!("Weapon {}\n", self.name);
         for field in &self.fields {
@@ -275,13 +326,135 @@ pub(crate) fn fixture_weapon_rules(
         &text,
         crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
-    assert_eq!(parsed, weapons.len(), "every fixture Weapon parses:\n{text}");
+    assert_eq!(
+        parsed,
+        weapons.len(),
+        "every fixture Weapon parses:\n{text}"
+    );
     let mut rules: Vec<_> = rules
         .into_values()
         .map(|rule| (rule.name.clone(), rule))
         .collect();
     rules.sort_by(|a, b| a.0.cmp(&b.0));
     rules
+}
+
+/// Author a hand-built template's default WeaponSet (`Weapon = PRIMARY/
+/// SECONDARY/TERTIARY` from `weapons` in slot order) bound to the fixture
+/// Weapons parsed as Weapon.ini, as C++ ThingTemplate WeaponSets name
+/// TheWeaponStore templates.
+pub(crate) fn arm_template(
+    template: &mut crate::game_logic::ThingTemplate,
+    slots: [Option<FixtureWeapon>; 3],
+) {
+    let names = slots.each_ref().map(|slot| slot.as_ref().map(|weapon| weapon.name.clone()));
+    assert!(names.iter().any(Option::is_some), "a WeaponSet authors a slot");
+    template.primary_weapon_name = names[0].clone();
+    template.secondary_weapon_name = names[1].clone();
+    template.tertiary_weapon_name = names[2].clone();
+    let weapons: Vec<_> = slots.into_iter().flatten().collect();
+    let catalog = fixture_weapon_rules(&weapons)
+        .into_iter()
+        .map(|(name, rule)| (name.to_ascii_lowercase(), std::sync::Arc::new(rule)))
+        .collect();
+    template.bind_receiving_weapon_sets(&catalog);
+}
+
+/// Give an Object a fixture-authored default WeaponSet (PRIMARY, SECONDARY,
+/// TERTIARY) and instantiate it, as C++ WeaponSet::updateWeaponSet does when
+/// an Object's set is (re)selected.
+pub(crate) fn arm_slots(object: &mut crate::game_logic::Object, slots: [Option<FixtureWeapon>; 3]) {
+    arm_template(object.template_mut(), slots);
+    assert!(
+        object.rebind_receiving_weapon_row_if_changed(None, 0),
+        "authored WeaponSet row binds"
+    );
+}
+
+/// [`arm_slots`] filling PRIMARY.. in order.
+pub(crate) fn arm(object: &mut crate::game_logic::Object, weapons: &[FixtureWeapon]) {
+    assert!(weapons.len() <= 3, "a WeaponSet has three slots");
+    arm_slots(object, std::array::from_fn(|slot| weapons.get(slot).cloned()));
+}
+
+/// [`arm`] with one PRIMARY authored from a test's stated stats.
+pub(crate) fn arm_with_stats(object: &mut crate::game_logic::Object, stats: crate::game_logic::Weapon) {
+    arm_with_slot_stats(object, [Some(stats), None, None]);
+}
+
+/// [`arm_slots`] authored from a test's stated stats (plus its stated fire
+/// state on the instance). A slot keeps the Weapon
+/// name its template already authors (name-keyed rules such as Jarmen Kell's
+/// rifle read it), else gets a per-slot fixture name.
+pub(crate) fn arm_with_slot_stats(
+    object: &mut crate::game_logic::Object,
+    slots: [Option<crate::game_logic::Weapon>; 3],
+) {
+    let template = &object.thing().template;
+    let authored = [
+        template.primary_weapon_name.clone(),
+        template.secondary_weapon_name.clone(),
+        template.tertiary_weapon_name.clone(),
+    ];
+    let mut slot = 0;
+    let weapons = slots.each_ref().map(|stats| {
+        let name = authored[slot]
+            .clone()
+            .unwrap_or_else(|| format!("FixtureWeapon{slot}"));
+        slot += 1;
+        stats.as_ref().map(|stats| FixtureWeapon::from_stats(name, stats))
+    });
+    arm_slots(object, weapons);
+    // Fire state the test states is instance state, not authored content.
+    for (slot, stats) in (0u8..).zip(slots) {
+        if let (Some(stats), Some(weapon)) = (stats, object.weapon_slot_mut(slot)) {
+            weapon.last_fire_time = stats.last_fire_time;
+            weapon.last_fire_frame = stats.last_fire_frame;
+            if stats.ammo.is_some() {
+                weapon.ammo = stats.ammo;
+            }
+            weapon.reloading_clip |= stats.reloading_clip;
+            if stats.last_bonus_rof != 0.0 {
+                weapon.last_bonus_rof = stats.last_bonus_rof;
+            }
+            if stats.next_fire_frame != 0 {
+                weapon.next_fire_frame = stats.next_fire_frame;
+            }
+        }
+    }
+}
+
+/// Re-author one WeaponSet slot from a test's stated stats, keeping the
+/// Object's other current slots, as a test that swaps one weapon intends.
+pub(crate) fn arm_slot_with_stats(
+    object: &mut crate::game_logic::Object,
+    slot: u8,
+    stats: crate::game_logic::Weapon,
+) {
+    let mut slots: [Option<crate::game_logic::Weapon>; 3] =
+        std::array::from_fn(|index| object.weapon_slot(index as u8).cloned());
+    slots[usize::from(slot)] = Some(stats);
+    arm_with_slot_stats(object, slots);
+}
+
+/// Give a hand-built Object an authored current Locomotor parsed from
+/// Locomotor.ini `fields` (C++ AIUpdateInterface `m_curLocomotor`): movement,
+/// turning and lift run only `if (m_curLocomotor)` (AIUpdate.cpp doLocomotor).
+/// Fields the test then assigns on the instance override the authored ones.
+pub(crate) fn locomote(object: &mut crate::game_logic::Object, fields: &[&str]) {
+    let mut text = String::from("Locomotor FixtureHandLocomotor\n");
+    for field in fields {
+        text.push_str(&format!(" {field}\n"));
+    }
+    text.push_str("End\n");
+    let mut store = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    store.apply_source(&text).expect("fixture Locomotor parses");
+    let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(
+        Some(&store),
+        "FixtureHandLocomotor",
+    )
+    .expect("fixture Locomotor resolves");
+    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(object, &binding);
 }
 
 /// Declare named Objects with no authored modules (content-only witnesses).
@@ -328,5 +501,25 @@ mod tests {
             .create_object_for_player("FixtureUnarmed", 0, glam::Vec3::ZERO)
             .expect("unarmed fixture object");
         assert!(world.host_object(unarmed).unwrap().weapon.is_none());
+    }
+
+    #[test]
+    fn arm_instantiates_its_authored_weapon_set() {
+        use crate::game_logic::{ObjectId, ThingTemplate};
+        let mut object =
+            crate::game_logic::Object::new(ThingTemplate::new("FixtureHandGunner"), ObjectId(7), Team::USA);
+        arm(
+            &mut object,
+            &[
+                FixtureWeapon::new("FixtureHandGun").damage(9.0).range(80.0),
+                FixtureWeapon::new("FixtureHandRocket")
+                    .damage(30.0)
+                    .anti_air(),
+            ],
+        );
+        let primary = object.weapon_slot(0).expect("PRIMARY");
+        assert_eq!((primary.damage, primary.range), (9.0, 80.0));
+        assert_eq!(object.weapon_slot(1).expect("SECONDARY").damage, 30.0);
+        assert!(object.weapon_slot(2).is_none());
     }
 }

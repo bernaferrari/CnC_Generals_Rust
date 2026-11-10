@@ -121,13 +121,9 @@ fn accepted_healing_timestamp_uses_driving_frame_after_foreign_normal_drain() {
     accept(&mut first, source, target, 10.0);
     first.drain_pending_projectiles_into_combat();
     assert_eq!(first.objects[&target].health.current, 83.0);
-    let healer = admit(
-        &mut first,
-        "AcceptedImpactFrameHealer",
-        Some("AcceptedImpactFrameHealing"),
-        Team::USA,
-        Vec3::ZERO,
-    );
+    let healer = first
+        .create_object(&shooter_name("AcceptedImpactFrameHealing"), Team::USA, Vec3::ZERO)
+        .expect("authored healer");
     let target_pos = first.objects[&target].get_position();
     first
         .objects

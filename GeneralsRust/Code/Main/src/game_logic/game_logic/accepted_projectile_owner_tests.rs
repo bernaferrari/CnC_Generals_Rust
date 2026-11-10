@@ -88,6 +88,28 @@ fn new_owned_world() -> GameLogic {
             "OCL_AcceptedQueueSecond",
         ),
     ];
+    // C++ Objects fire only what their authored WeaponSet names and are
+    // commanded through an authored AIUpdate (WeaponSet.cpp, AIUpdate.cpp):
+    // one shooter Object per tested Weapon, admitted before any Object.
+    let mut objects: Vec<_> = names
+        .iter()
+        .map(|(name, ..)| {
+            crate::fixture_content::FixtureObject::new(shooter_name(name))
+                .kind_of("INFANTRY CAN_ATTACK")
+                .health(100.0)
+                .walker()
+                .armed(name)
+        })
+        .collect();
+    objects.push(
+        crate::fixture_content::FixtureObject::new("AcceptedQueueVictim")
+            .kind_of("INFANTRY")
+            .health(100.0),
+    );
+    for child in ["AcceptedFireFirstChild", "AcceptedFireSecondChild"] {
+        objects.push(crate::fixture_content::FixtureObject::new(child));
+    }
+    crate::fixture_content::admit_fixture_objects(&mut world, &objects);
     for (name, damage, kind, projectile, speed, ocl) in names {
         let text = format!(
             "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 0\n AttackRange = 200\n DamageType = {kind}\n ProjectileObject = {projectile}\n WeaponSpeed = {speed}\n MinWeaponSpeed = {speed}\n DelayBetweenShots = 1000\n ClipSize = 8\n ClipReloadTime = 1000\n PreAttackDelay = 0\n AntiGround = Yes\n FireOCL = {ocl}\nEnd\n"
@@ -148,48 +170,28 @@ fn new_owned_world() -> GameLogic {
         world
             .admit_weapon_ocl_definition(ocl_name, definition)
             .unwrap();
-        world
-            .templates
-            .insert(child.into(), ThingTemplate::new(child));
     }
     world
 }
 
-fn admit(
-    world: &mut GameLogic,
-    name: &str,
-    weapon_name: Option<&str>,
-    team: Team,
-    pos: Vec3,
-) -> ObjectId {
-    let mut template = ThingTemplate::new(name);
-    template.set_health(100.0);
-    template.add_kind_of(KindOf::Infantry);
-    template.add_kind_of(KindOf::Attackable);
-    if let Some(weapon_name) = weapon_name {
-        template.set_primary_weapon_name(weapon_name);
-    }
-    world.templates.insert(name.to_string(), template);
+fn shooter_name(weapon_name: &str) -> String {
+    format!("AcceptedQueueShooter_{weapon_name}")
+}
+
+/// Another live shooter of the authored Object armed with `weapon_name`.
+fn armed_shooter(world: &mut GameLogic, weapon_name: &str, team: Team, pos: Vec3) -> ObjectId {
     world
-        .create_object(name, team, pos)
-        .expect("actual driving world admission")
+        .create_object(&shooter_name(weapon_name), team, pos)
+        .expect("authored shooter")
 }
 
 fn populate(world: &mut GameLogic, weapon_name: &str) -> (ObjectId, ObjectId) {
-    let source = admit(
-        world,
-        "AcceptedQueueShooter",
-        Some(weapon_name),
-        Team::USA,
-        Vec3::ZERO,
-    );
-    let target = admit(
-        world,
-        "AcceptedQueueVictim",
-        None,
-        Team::China,
-        Vec3::new(30.0, 0.0, 0.0),
-    );
+    let source = world
+        .create_object(&shooter_name(weapon_name), Team::USA, Vec3::ZERO)
+        .expect("authored shooter");
+    let target = world
+        .create_object("AcceptedQueueVictim", Team::China, Vec3::new(30.0, 0.0, 0.0))
+        .expect("authored victim");
     world.frame = 100;
     // The actual Object flight helper uses this live victim pose, consistent
     // with the real roster/range check in attack_fire_weapon_update.
@@ -329,10 +331,9 @@ fn accepted_queue_reset_reuse_discards_only_reset_worlds_unmaterialized_shot() {
 #[test]
 fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
     let (mut world, source, target) = world(FLIGHT_FIRST);
-    let other_source = admit(
+    let other_source = armed_shooter(
         &mut world,
-        "AcceptedQueueOtherShooter",
-        Some(FLIGHT_SECOND),
+        FLIGHT_SECOND,
         Team::USA,
         Vec3::new(0.0, 0.0, 1.0),
     );

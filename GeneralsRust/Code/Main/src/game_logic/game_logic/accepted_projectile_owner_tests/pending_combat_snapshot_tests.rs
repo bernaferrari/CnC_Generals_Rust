@@ -59,10 +59,9 @@ fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retir
         source_object.set_orientation_with_partition_owner(1.25, fixture_partition_source_object);
         source_object.movement.velocity = Vec3::new(2.0, 0.0, 3.0);
     }
-    let other = admit(
+    let other = armed_shooter(
         &mut source_world,
-        "SnapshotOtherShooter",
-        Some(FLIGHT_SECOND),
+        FLIGHT_SECOND,
         Team::USA,
         Vec3::new(0.0, 0.0, 1.0),
     );
@@ -306,10 +305,9 @@ fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
         live_projectileless_delayed_count_for_test(&source.combat_system),
         1
     );
-    let fast = admit(
+    let fast = armed_shooter(
         &mut source,
-        "SnapshotFastShooter",
-        Some(FLIGHT_SECOND),
+        FLIGHT_SECOND,
         Team::USA,
         Vec3::ZERO,
     );
