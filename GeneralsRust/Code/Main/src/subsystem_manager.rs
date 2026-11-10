@@ -2535,8 +2535,12 @@ mod tests {
             }
         }
 
+        // Probe-only managers: the ordered engine roster (FileSystem, ...) is
+        // not under test, and initialize_all fails closed on a missing entry.
         let mut first = SubsystemManager::new();
         let mut second = SubsystemManager::new();
+        first.initialization_order.clear();
+        second.initialization_order.clear();
         first.add_subsystem(ProbeSubsystem::default());
         second.add_subsystem(ProbeSubsystem::default());
         first.initialize_all().unwrap();
