@@ -1,19 +1,16 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
-/// C++ `TheGameText->fetch("GUI:MaxSelectionSize").format(count)`.
-fn format_max_selection_size_message(max: i32) -> String {
-    #[cfg(feature = "game_client")]
-    {
-        let template = game_client::game_text::GameText::fetch("GUI:MaxSelectionSize");
-        if template.contains("%d") || template.contains("%i") {
-            return template
-                .replace("%d", &max.to_string())
-                .replace("%i", &max.to_string());
-        }
-        if !template.is_empty() && !template.starts_with("MISSING:") {
-            return template;
-        }
+/// C++ `TheGameText->fetch("GUI:MaxSelectionSize").format(count)`; the caller
+/// fetches `template` from its receiving GameClient's catalog.
+fn format_max_selection_size_message(template: &str, max: i32) -> String {
+    if template.contains("%d") || template.contains("%i") {
+        return template
+            .replace("%d", &max.to_string())
+            .replace("%i", &max.to_string());
+    }
+    if !template.is_empty() && !template.starts_with("MISSING:") {
+        return template.to_owned();
     }
     format!("You cannot select more than {max} units.")
 }
@@ -1087,7 +1084,8 @@ impl CnCGameEngine {
             ids.truncate(max as usize);
             if !self.displayed_max_selection_warning {
                 self.displayed_max_selection_warning = true;
-                let msg = format_max_selection_size_message(max);
+                let template = self.receiving_game_text("GUI:MaxSelectionSize").0;
+                let msg = format_max_selection_size_message(&template, max);
                 self.host_push_info_message(&msg);
             }
         } else if max > 0 {
@@ -3284,7 +3282,11 @@ mod tests {
     fn max_selection_warning_substitutes_count_not_raw_key() {
         // C++ SelectionXlat.cpp:283-290 / InGameUI.cpp:120-127
         // TheGameText->fetch("GUI:MaxSelectionSize").format(count)
-        let msg = format_max_selection_size_message(25);
+        assert_eq!(
+            format_max_selection_size_message("You may only select %d units.", 25),
+            "You may only select 25 units."
+        );
+        let msg = format_max_selection_size_message("MISSING: 'GUI:MaxSelectionSize'", 25);
         assert!(
             !msg.starts_with("GUI:MaxSelectionSize"),
             "live warning must not show the raw GameText key, got {msg:?}"

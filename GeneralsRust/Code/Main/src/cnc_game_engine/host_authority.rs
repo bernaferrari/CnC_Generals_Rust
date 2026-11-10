@@ -2088,19 +2088,19 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         match result {
             Ok(()) => {
-                let message = game_client::game_text::GameText::fetch("GUI:GameSaveComplete");
+                let message = self.receiving_game_text("GUI:GameSaveComplete").0;
                 self.game_client
                     .push_hud_message_at(message, self.game_logic.get_frame());
             }
             Err(_) => {
                 let filepath = save_path.display().to_string();
-                let template = game_client::game_text::GameText::fetch("GUI:ErrorSavingGame");
+                let template = self.receiving_game_text("GUI:ErrorSavingGame").0;
                 let body = if template.contains("%s") {
                     template.replacen("%s", &filepath, 1)
                 } else {
                     format!("{template} {filepath}")
                 };
-                let title = game_client::game_text::GameText::fetch("GUI:Error");
+                let title = self.receiving_game_text("GUI:Error").0;
                 let facts = self.receiving_menu_world_facts();
                 self.game_client
                     .with_window_event_effects(Some(facts), |effects| {
@@ -3282,7 +3282,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             let filepath = save_path.display().to_string();
-            let (title, body) = crate::save_load::format_error_loading_game(&filepath);
+            let (title, body) = crate::save_load::format_error_loading_game(&filepath, |key| {
+                self.receiving_game_text(key).0
+            });
             let facts = self.receiving_menu_world_facts();
             self.game_client
                 .with_window_event_effects(Some(facts), |effects| {
@@ -3586,7 +3588,7 @@ impl CnCGameEngine {
 
     /// Empty UI names: `GUI:MissionSave` while a campaign is live, else
     /// C++ `setEditDescription` map-leaf / campaign+number.
-    fn default_ui_save_description(&self, map_name: &str) -> String {
+    fn default_ui_save_description(&mut self, map_name: &str) -> String {
         #[cfg(feature = "game_client")]
         let campaign_state = Some(
             self.game_client
@@ -3595,7 +3597,10 @@ impl CnCGameEngine {
         );
         #[cfg(not(feature = "game_client"))]
         let campaign_state = None;
-        let mission = crate::save_load::current_mission_save_description(campaign_state.as_ref());
+        let mission = crate::save_load::current_mission_save_description(
+            campaign_state.as_ref(),
+            |key| self.receiving_game_text(key),
+        );
         if !mission.is_empty() && !mission.contains("MISSING:") {
             return mission;
         }

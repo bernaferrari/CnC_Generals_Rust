@@ -4,6 +4,8 @@ impl CnCGameEngine {
     pub(super) fn receiving_mouseover_facts(
         &self,
         hover: Option<crate::game_logic::ObjectId>,
+        // C++ TheGameText: the receiving GameClient's own catalog.
+        game_text: &std::sync::RwLock<game_client::game_text::GameText>,
     ) -> Result<game_client::gui::ingame_ui::ReceivingMouseoverFacts, String> {
         use game_client::gui::ingame_ui::{
             MouseoverObjectObservation, MouseoverPlayerObservation, ReceivingMouseoverFacts,
@@ -129,7 +131,10 @@ impl CnCGameEngine {
             };
             let raw = &template.display_name;
             let name = if raw.contains(':') {
-                game_client::game_text::GameText::fetch(raw)
+                game_text
+                    .write()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .fetch_owned(raw)
             } else {
                 raw.clone()
             };

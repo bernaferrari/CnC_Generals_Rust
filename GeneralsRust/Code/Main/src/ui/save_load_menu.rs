@@ -47,6 +47,8 @@ pub struct SaveGameEntry {
 
 /// Save/Load Menu implementation
 pub struct SaveLoadMenu {
+    /// The owning engine's GameClient text catalog (C++ `TheGameText`).
+    game_text: Option<std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>>,
     /// Current mode (save or load)
     mode: SaveLoadMode,
     /// List of available save games
@@ -86,6 +88,7 @@ impl SaveLoadMenu {
 
     pub fn new(mode: SaveLoadMode) -> Self {
         Self {
+            game_text: None,
             mode,
             save_files: Vec::new(),
             selected_entry: None,
@@ -369,7 +372,9 @@ impl SaveLoadMenu {
         // C++ setEditDescription pre-fills campaign+mission (or map leaf).
         // Mission/auto names use GUI:MissionSave when a campaign is live.
         if self.save_name_input.trim().is_empty() {
-            let mission = crate::save_load::current_mission_save_description(None);
+            let mission = crate::save_load::current_mission_save_description(None, |key| {
+                (format!("MISSING: '{key}'"), false)
+            });
             self.save_name_input = if !mission.is_empty() {
                 mission
             } else {
@@ -666,13 +671,19 @@ impl SaveLoadMenu {
         );
     }
 
+    /// Bind the owning engine's GameClient text catalog.
+    pub(crate) fn admit_game_text(&mut self, text: std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>) {
+        self.game_text = Some(text);
+    }
+
     fn add_save_entries_from_manager(&mut self, manager: &SaveLoadManager) {
+        let game_text = self.game_text.clone();
         for entry in manager.get_available_saves() {
             let save = &entry.save_info;
             self.save_files.push(SaveGameEntry {
                 filename: save.filename.clone(),
                 // C++ populateSaveGameListbox uses description, then mapLabel.
-                display_name: Self::list_display_label(save),
+                display_name: Self::list_display_label(game_text.as_deref(), save),
                 timestamp: save.save_date,
                 map_name: save.map_name.clone(),
                 faction: save.campaign_side.clone().unwrap_or_default(),
@@ -684,13 +695,18 @@ impl SaveLoadMenu {
     }
 
     /// C++ `populateSaveGameListbox` (`GameState.cpp:1182-1191`).
-    fn list_display_label(save: &crate::save_load::SaveGameInfo) -> String {
+    fn list_display_label(
+        game_text: Option<&std::sync::RwLock<game_client::game_text::GameText>>,
+        save: &crate::save_load::SaveGameInfo,
+    ) -> String {
         if !save.description.trim().is_empty() {
             return save.description.clone();
         }
-        if !save.map_name.trim().is_empty() {
-            let (text, exists) =
-                game_client::game_text::GameText::fetch_with_exists(&save.map_name);
+        if let Some(game_text) = game_text.filter(|_| !save.map_name.trim().is_empty()) {
+            let (text, exists) = game_text
+                .write()
+                .unwrap_or_else(|error| error.into_inner())
+                .fetch_with_exists_owned(&save.map_name);
             if exists && !text.is_empty() {
                 return text;
             }
@@ -1087,7 +1103,9 @@ mod tests {
         assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
         assert_eq!(menu.dialog_state(), SaveLoadDialogState::SaveDescription);
         let expected = {
-            let mission = crate::save_load::current_mission_save_description(None);
+            let mission = crate::save_load::current_mission_save_description(None, |key| {
+                (format!("MISSING: '{key}'"), false)
+            });
             if !mission.is_empty() {
                 mission
             } else {

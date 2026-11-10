@@ -109,11 +109,13 @@ impl ReplayMenuReceiver for CnCGameEngine {
         Ok(())
     }
     fn no_selection(&mut self) -> Result<(), String> {
+        let title = self.receiving_game_text("GUI:NoFileSelected").0;
+        let body = self.receiving_game_text("GUI:PleaseSelectAFile").0;
         self.with_receiving_menu_effects(|effects| {
             effects.with_manager(|manager, effects| {
                 let _ = game_client::gui::callbacks::message_box::message_box_ok(
-                    &game_client::game_text::GameText::fetch("GUI:NoFileSelected"),
-                    &game_client::game_text::GameText::fetch("GUI:PleaseSelectAFile"),
+                    &title,
+                    &body,
                     None,
                     manager,
                     effects,

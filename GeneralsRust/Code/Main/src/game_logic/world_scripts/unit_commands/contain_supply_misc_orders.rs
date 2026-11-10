@@ -190,20 +190,24 @@ impl GameLogic {
             .grid
             .quick_path_exists(from, location)
         {
+            // C++ `TheInGameUI->message("GUI:RallyPointNoPath")` fetches the
+            // label from the receiving client's GameText.
             if let Some(ui) = effects.ui.as_deref_mut() {
-                ui.hud_message("GUI:RallyPointNoPath", self.get_frame());
+                match ui.game_text("GUI:RallyPointNoPath") {
+                    Ok(text) => ui.hud_message(&text, self.get_frame()),
+                    Err(error) => log::warn!("rally point feedback: {error}"),
+                }
             }
             self.play_ui_sound("UnableToSetRallyPoint");
             return false;
         }
-        #[cfg(feature = "game_client")]
-        {
-            let formatted = format_rally_point_set_message(
-                &game_client::game_text::GameText::fetch("GUI:RallyPointSet"),
-                &display_name,
-            );
-            if let Some(ui) = effects.ui.as_deref_mut() {
-                ui.hud_message(&formatted, self.get_frame());
+        if let Some(ui) = effects.ui.as_deref_mut() {
+            match ui.game_text("GUI:RallyPointSet") {
+                Ok(template) => {
+                    let formatted = format_rally_point_set_message(&template, &display_name);
+                    ui.hud_message(&formatted, self.get_frame());
+                }
+                Err(error) => log::warn!("rally point feedback: {error}"),
             }
         }
         self.play_ui_sound("RallyPointSet");

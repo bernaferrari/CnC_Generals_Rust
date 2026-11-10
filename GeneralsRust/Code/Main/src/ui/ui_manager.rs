@@ -161,6 +161,13 @@ pub struct UIManager {
 }
 
 impl UIManager {
+    /// Lend the owning engine's GameClient text catalog to the HUD and the
+    /// save/load list (C++ `TheGameText` belongs to that one application).
+    pub(crate) fn admit_game_text(&mut self, text: std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>) {
+        self.game_hud.admit_game_text(text.clone());
+        self.save_load_menu.admit_game_text(text);
+    }
+
     pub(crate) fn admit_options_preferences(
         &mut self,
         preferences: game_engine::common::user_preferences::UserPreferences,

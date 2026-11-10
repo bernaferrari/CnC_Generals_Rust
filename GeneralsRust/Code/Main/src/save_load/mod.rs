@@ -166,8 +166,10 @@ pub fn normalize_default_save_description_from_map_name(mut default_desc: String
 }
 
 /// Localized between-mission save description (`GameState.cpp:616-618`).
+/// `fetch` is the receiving GameClient's `TheGameText->fetch(key, &exists)`.
 pub fn current_mission_save_description(
     state: Option<&game_engine::System::CampaignManagerXferState>,
+    fetch: impl FnOnce(&str) -> (String, bool),
 ) -> String {
     let Some(state) = state.filter(|state| !state.campaign.trim().is_empty()) else {
         return String::new();
@@ -177,27 +179,13 @@ pub fn current_mission_save_description(
     } else {
         state.campaign_label.as_str()
     };
-    #[cfg(feature = "game_client")]
-    {
-        let (format, exists) =
-            game_client::game_text::GameText::fetch_with_exists("GUI:MissionSave");
-        let format = if exists && format.contains('%') {
-            format
-        } else {
-            "%s Mission %d".to_string()
-        };
-        return format_mission_save_description(
-            &format,
-            label,
-            state.mission_number.unwrap_or(0).max(0) + 1,
-        );
-    }
-    #[cfg(not(feature = "game_client"))]
-    format!(
-        "{} Mission {}",
-        label,
-        state.mission_number.unwrap_or(0).max(0) + 1
-    )
+    let (format, exists) = fetch("GUI:MissionSave");
+    let format = if exists && format.contains('%') {
+        format
+    } else {
+        "%s Mission %d".to_string()
+    };
+    format_mission_save_description(&format, label, state.mission_number.unwrap_or(0).max(0) + 1)
 }
 
 /// C++ `setEditDescription` (`PopupSaveLoad.cpp:422-457`): campaign +
@@ -242,25 +230,20 @@ pub fn format_save_list_date_time(time: SystemTime) -> (String, String) {
 }
 
 /// C++ `MessageBoxOk(GUI:Error, format(GUI:ErrorLoadingGame, filepath))`.
-pub fn format_error_loading_game(filepath: &str) -> (String, String) {
-    #[cfg(feature = "game_client")]
-    {
-        let template = game_client::game_text::GameText::fetch("GUI:ErrorLoadingGame");
-        let body = if template.contains("%s") {
-            template.replacen("%s", filepath, 1)
-        } else if template.is_empty() {
-            filepath.to_string()
-        } else {
-            format!("{template} {filepath}")
-        };
-        let title = game_client::game_text::GameText::fetch("GUI:Error");
-        return (title, body);
-    }
-    #[cfg(not(feature = "game_client"))]
-    (
-        "GUI:Error".to_string(),
-        format!("GUI:ErrorLoadingGame {filepath}"),
-    )
+/// `fetch` is the receiving GameClient's `TheGameText->fetch(key)`.
+pub fn format_error_loading_game(
+    filepath: &str,
+    mut fetch: impl FnMut(&str) -> String,
+) -> (String, String) {
+    let template = fetch("GUI:ErrorLoadingGame");
+    let body = if template.contains("%s") {
+        template.replacen("%s", filepath, 1)
+    } else if template.is_empty() {
+        filepath.to_string()
+    } else {
+        format!("{template} {filepath}")
+    };
+    (fetch("GUI:Error"), body)
 }
 
 /// Available save game information
@@ -631,11 +614,12 @@ mod tests {
         let (time, date) = format_save_list_date_time(UNIX_EPOCH);
         assert!(time.contains(':'), "list time column: {time}");
         assert!(date.contains('-'), "list date column: {date}");
-        let (title, body) = format_error_loading_game("Save\\00000001.sav");
-        assert!(title.contains("Error") || title == "GUI:Error", "{title}");
-        assert!(
-            body.contains("00000001.sav") || body.contains("ErrorLoadingGame"),
-            "{body}"
-        );
+        let (title, body) = format_error_loading_game("Save\\00000001.sav", |key| match key {
+            "GUI:Error" => "Error".to_string(),
+            "GUI:ErrorLoadingGame" => "Error loading %s".to_string(),
+            other => format!("MISSING: '{other}'"),
+        });
+        assert_eq!(title, "Error");
+        assert_eq!(body, "Error loading Save\\00000001.sav");
     }
 }

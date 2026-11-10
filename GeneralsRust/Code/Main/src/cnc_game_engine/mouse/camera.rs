@@ -527,7 +527,8 @@ impl CnCGameEngine {
         );
         // C++ SelectionXlat.cpp:429 hardcodes getPickTypesForContext(true).
         let hover = self.host_pick_hover_object_at_cursor();
-        let facts = self.receiving_mouseover_facts(hover)?;
+        let game_text = self.game_client.ensure_game_text_store();
+        let facts = self.receiving_mouseover_facts(hover, &game_text)?;
         match hover {
             Some(id) => self.game_client.create_mouseover_hint(
                 Some(id.0),
@@ -1111,7 +1112,8 @@ impl CnCGameEngine {
             };
             self.look_at_modes.views[slot] = Some(loc);
             self.camera_view_bookmarks[slot] = Some(loc.pos);
-            let msg = lookat_bookmark_message(slot + 1);
+            let template = self.receiving_game_text("GUI:BookmarkXSet").0;
+            let msg = lookat_bookmark_message(&template, slot + 1);
             self.host_push_info_message(&msg);
         } else if let Some(loc) = self.look_at_modes.views[slot] {
             if let Err(error) =

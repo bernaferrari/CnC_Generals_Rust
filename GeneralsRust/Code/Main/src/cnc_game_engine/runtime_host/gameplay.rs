@@ -117,12 +117,15 @@ impl CnCGameEngine {
                                 description.clone()
                             } else if matches!(save_file_type, ::game_engine::SaveFileType::Mission)
                             {
-                                crate::save_load::current_mission_save_description(Some(
-                                    &self
-                                        .game_client
-                                        .campaign_manager()
-                                        .capture_logic_chunk_state(),
-                                ))
+                                crate::save_load::current_mission_save_description(
+                                    Some(
+                                        &self
+                                            .game_client
+                                            .campaign_manager()
+                                            .capture_logic_chunk_state(),
+                                    ),
+                                    |key| self.receiving_game_text(key),
+                                )
                             } else {
                                 crate::save_load::default_save_edit_description(
                                     &self.presentation_or_boot_map_name(),
@@ -137,12 +140,15 @@ impl CnCGameEngine {
                         });
                     let description = if description.trim().is_empty() {
                         if matches!(save_file_type, ::game_engine::SaveFileType::Mission) {
-                            crate::save_load::current_mission_save_description(Some(
-                                &self
-                                    .game_client
-                                    .campaign_manager()
-                                    .capture_logic_chunk_state(),
-                            ))
+                            crate::save_load::current_mission_save_description(
+                                Some(
+                                    &self
+                                        .game_client
+                                        .campaign_manager()
+                                        .capture_logic_chunk_state(),
+                                ),
+                                |key| self.receiving_game_text(key),
+                            )
                         } else if !display_name.trim().is_empty() {
                             display_name.clone()
                         } else {

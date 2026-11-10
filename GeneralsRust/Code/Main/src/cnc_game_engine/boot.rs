@@ -1208,6 +1208,12 @@ impl CnCGameEngine {
 
         Self::initialize_cpp_startup_masks();
 
+        #[cfg(feature = "game_client")]
+        {
+            let text = engine.game_client.ensure_game_text_store();
+            engine.ui_manager.admit_game_text(text);
+        }
+
         // C++ parity: GameClient::init() creates WindowManager, Shell, FontLibrary, etc.
         // BUT it also tries to create a PlatformContext (new window + OpenGL context)
         // which deadlocks on macOS when called inside the winit event loop.

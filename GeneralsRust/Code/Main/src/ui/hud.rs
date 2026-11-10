@@ -229,13 +229,23 @@ fn keycode_from_hotkey_char(ch: char) -> Option<KeyCode> {
 /// Live HUD hotkeys come from CommandButton TextLabel `&` markers, not a
 /// hardcoded command-name table. C++ `ControlBar.cpp:2472-2476` calls
 /// `TheHotKeyManager->searchHotKey(commandButton->getTextLabel())`.
-fn command_button_hotkey(definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>, command_name: &str) -> Option<KeyCode> {
+fn command_button_hotkey(
+    definitions: Option<&game_engine::common::ini::command_definitions::CommandDefinitions>,
+    game_text: Option<&std::sync::RwLock<game_client::game_text::GameText>>,
+    command_name: &str,
+) -> Option<KeyCode> {
     let button = definitions?.find_command_button(command_name)?;
     let label = button.text_label.trim();
     if label.is_empty() {
         return None;
     }
-    let (localized, exists) = game_client::game_text::GameText::fetch_with_exists(label);
+    let (localized, exists) = game_text
+        .map(|text| {
+            text.write()
+                .unwrap_or_else(|error| error.into_inner())
+                .fetch_with_exists_owned(label)
+        })
+        .unwrap_or_default();
     let source = if exists { localized.as_str() } else { label };
     hotkey_char_from_ampersand(source).and_then(keycode_from_hotkey_char)
 }
@@ -597,6 +607,9 @@ pub struct PresentationSwTimer {
 
 /// Main HUD implementation
 pub struct GameHUD {
+    /// The owning engine's GameClient text catalog (C++ `TheGameText` of that
+    /// instance), lent by the application once its client exists.
+    game_text: Option<std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>>,
     /// Resource display
     resource_display: ResourceDisplay,
     /// Mini-map component
@@ -680,6 +693,11 @@ impl Default for GameHUD {
 }
 
 impl GameHUD {
+    /// Bind the owning engine's GameClient text catalog.
+    pub(crate) fn admit_game_text(&mut self, text: std::sync::Arc<std::sync::RwLock<game_client::game_text::GameText>>) {
+        self.game_text = Some(text);
+    }
+
     /// Apply presentation ControlBar unit-command residual (Command_* names).
     pub fn apply_presentation_unit_commands(&mut self, commands: &[crate::ui::UnitCommandButton]) {
         self.apply_presentation_unit_commands_with(None, commands);
@@ -736,11 +754,12 @@ impl GameHUD {
             return;
         }
         self.command_buttons.clear();
+        let game_text = self.game_text.clone();
         for (i, cmd) in commands.iter().enumerate() {
             let hotkey = if cmd.command_name.is_empty() {
                 None
             } else {
-                command_button_hotkey(definitions, &cmd.command_name)
+                command_button_hotkey(definitions, game_text.as_deref(), &cmd.command_name)
             };
             let icon = if !cmd.button_image.is_empty() {
                 cmd.button_image.clone()
@@ -836,6 +855,7 @@ impl GameHUD {
         let (minimap_x, minimap_y) = minimap_position(screen_size.0, screen_size.1);
 
         Self {
+            game_text: None,
             resource_display: ResourceDisplay::new(10, 10),
             minimap: MiniMap::new(minimap_x, minimap_y, minimap_w, minimap_h),
             construction_panel: ConstructionPanel::new(

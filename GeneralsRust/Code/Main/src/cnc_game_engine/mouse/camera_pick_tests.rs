@@ -399,7 +399,8 @@ fn lookat_view_location_stores_full_pose() {
     assert!((loc.zoom - 1.25).abs() < f32::EPSILON);
     assert_eq!(lookat_view_slot(NamedKey::F1), Some(0));
     assert_eq!(lookat_view_slot(NamedKey::F8), Some(7));
-    assert!(lookat_bookmark_message(3).contains("3"));
+    assert!(lookat_bookmark_message("MISSING: 'GUI:BookmarkXSet'", 3).contains("3"));
+    assert_eq!(lookat_bookmark_message("Bookmark %d set", 3), "Bookmark 3 set");
 }
 
 #[test]

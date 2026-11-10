@@ -1275,7 +1275,7 @@ impl CnCGameEngine {
         } else {
             "GUI:FF_OFF"
         };
-        let msg = host_localized_gui_label(key);
+        let msg = host_localized_gui_label(key, self.receiving_game_text(key));
         self.host_push_info_message(&msg);
         info!("{msg}");
     }
@@ -1300,7 +1300,7 @@ impl CnCGameEngine {
             } else {
                 "GUI:ReturnGraphicsToPreviousSettings"
             };
-            let msg = host_localized_gui_label(key);
+            let msg = host_localized_gui_label(key, self.receiving_game_text(key));
             self.host_push_info_message(&msg);
         }
     }
@@ -1711,13 +1711,11 @@ fn command_map_view_slot(prefix: &str, name: &str) -> Option<usize> {
     (1..=8).contains(&slot).then_some(slot - 1)
 }
 
-fn host_localized_gui_label(key: &str) -> String {
-    #[cfg(feature = "game_client")]
-    {
-        let (text, exists) = game_client::game_text::GameText::fetch_with_exists(key);
-        if exists {
-            return text;
-        }
+/// `fetched` is the receiving GameClient's `(text, exists)` for `key`.
+fn host_localized_gui_label(key: &str, fetched: (String, bool)) -> String {
+    let (text, exists) = fetched;
+    if exists {
+        return text;
     }
     crate::localization::localize(key, key)
 }

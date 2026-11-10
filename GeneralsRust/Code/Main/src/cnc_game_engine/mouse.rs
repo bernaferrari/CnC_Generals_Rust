@@ -528,19 +528,16 @@ impl CnCGameEngine {
     }
 }
 
-fn lookat_bookmark_message(slot_one_based: usize) -> String {
-    #[cfg(feature = "game_client")]
-    {
-        let template = game_client::game_text::GameText::fetch("GUI:BookmarkXSet");
-        if template.contains("%d") {
-            return template.replacen("%d", &slot_one_based.to_string(), 1);
-        }
-        if template.contains("%s") {
-            return template.replacen("%s", &slot_one_based.to_string(), 1);
-        }
-        if !template.is_empty() && !template.starts_with("MISSING:") {
-            return format!("{template} {slot_one_based}");
-        }
+/// `template` is the receiving GameClient's `GUI:BookmarkXSet` text.
+fn lookat_bookmark_message(template: &str, slot_one_based: usize) -> String {
+    if template.contains("%d") {
+        return template.replacen("%d", &slot_one_based.to_string(), 1);
+    }
+    if template.contains("%s") {
+        return template.replacen("%s", &slot_one_based.to_string(), 1);
+    }
+    if !template.is_empty() && !template.starts_with("MISSING:") {
+        return format!("{template} {slot_one_based}");
     }
     format!("GUI:BookmarkXSet {slot_one_based}")
 }

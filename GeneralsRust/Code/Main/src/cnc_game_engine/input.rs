@@ -153,6 +153,23 @@ impl CnCGameEngine {
         self.game_hud_mut().push_info_message(text);
     }
 
+    /// C++ `TheGameText->fetch(key, &exists)` against this engine's receiving
+    /// GameClient catalog (CSF plus the admitted map.str), never the ambient one.
+    pub(super) fn receiving_game_text(&mut self, key: &str) -> (String, bool) {
+        #[cfg(feature = "game_client")]
+        {
+            self.game_client
+                .game_text_store()
+                .write()
+                .unwrap_or_else(|error| error.into_inner())
+                .fetch_with_exists_owned(key)
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            (format!("MISSING: '{}'", key.trim()), false)
+        }
+    }
+
     pub(super) fn game_hud_mut(&mut self) -> &mut GameHUD {
         self.ui_manager.game_hud_mut()
     }

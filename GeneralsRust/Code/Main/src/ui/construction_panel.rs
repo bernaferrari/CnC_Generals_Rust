@@ -17,22 +17,6 @@ use crate::ui::utils;
 
 use game_engine::common::thing::thing_template::BuildableStatus;
 
-/// C++ `HotKeyManager::searchHotKey` (`HotKey.cpp:182-201`): first `&` marker.
-pub fn hotkey_from_text_label(label: &str) -> Option<KeyCode> {
-    let label = label.trim();
-    if label.is_empty() {
-        return None;
-    }
-    let (localized, exists) = game_client::game_text::GameText::fetch_with_exists(label);
-    let source = if exists { localized.as_str() } else { label };
-    let mut chars = source.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '&' {
-            return chars.next().and_then(keycode_from_hotkey_char);
-        }
-    }
-    None
-}
 
 fn keycode_from_hotkey_char(ch: char) -> Option<KeyCode> {
     match ch.to_ascii_uppercase() {
@@ -487,113 +471,7 @@ impl ConstructionPanel {
 
     // ---- population from INI data -----------------------------------------
 
-    /// Populate the construction panel for the given building's command set.
-    ///
-    /// This is the primary INI-driven entry point.  It looks up the command set
-    /// string from the building's thing template, resolves every referenced
-    /// command button, and builds a `BuildableItem` list from those that have an
-    /// `Object` field and a `Command` of type `"OBJECT_BUILD"` or similar.
-    pub fn populate_from_command_set(
-        &mut self,
-        definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
-        command_set_name: &str,
-        faction_side: &str,
-        credits: i32,
-    ) {
-        self.selected_building = Some(command_set_name.to_string());
-        self.items.clear();
-        self.tab_order.clear();
 
-        // 1. Resolve the command set.
-        let resolved_buttons: Vec<String> = definitions
-            .find_command_set(command_set_name)
-            .map(|cs| cs.get_all_buttons().iter().map(|s| (*s).clone()).collect())
-            .unwrap_or_default();
-
-        // 2. For each button name in the set, resolve via the ControlBar and
-        //    inspect the `Object` field.
-        let buttons: Vec<_> = definitions.with_buttons(|cb| {
-            resolved_buttons
-                .iter()
-                .filter_map(|name| cb.find_command_button_resolved(name).cloned())
-                .collect()
-        });
-        {
-            for btn in &buttons {
-
-                // Skip buttons without an object (upgrade buttons, action
-                // buttons, etc.).
-                if btn.object.is_empty() {
-                    continue;
-                }
-
-                // Determine the construction tab from the command type or object
-                // kind-of.  We try the command field first, then fall back to a
-                // heuristic based on the object template.
-                let tab = classify_button_tab(&btn.command, &btn.object, faction_side);
-                if !self.tab_order.contains(&tab) {
-                    self.tab_order.push(tab);
-                }
-
-                // Derive cost & build time from the thing template when
-                // available.  Fall back to `purchase_cost` on the command button.
-                let (cost, build_time, display_name) =
-                    resolve_build_info(&btn.object, btn.purchase_cost);
-
-                let item = BuildableItem {
-                    template_name: btn.object.clone(),
-                    display_name,
-                    cost,
-                    build_time,
-                    button_image: btn.button_image.clone(),
-                    hotkey: hotkey_from_text_label(&btn.text_label),
-                    button_border_type: btn.button_border_type.clone(),
-                    radius_cursor_type: btn.radius_cursor_type.clone(),
-                    command: btn.command.clone(),
-                    object_name: btn.object.clone(),
-                    can_make: 0,
-                    available: true,
-                    help_status: None,
-                };
-
-                self.items.push(item);
-            }
-        }
-
-        // Pick the first available tab.
-        if let Some(&first) = self.tab_order.first() {
-            self.current_tab = first;
-        }
-
-        self.visible = true;
-    }
-
-    /// Populate from a known building name by looking up its command set.
-    pub fn show_for_building(
-        &mut self,
-        definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
-        building_name: &str,
-        faction_side: &str,
-        credits: i32,
-        command_set_override: Option<&str>,
-    ) {
-        // Prefer presentation/host command_set_override residual when provided;
-        // fall back to ThingTemplate CommandSet string.
-        let command_set = command_set_override
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .or_else(|| find_command_set_for_object(building_name));
-        if let Some(ref cs_name) = command_set {
-            self.populate_from_command_set(definitions, cs_name, faction_side, credits);
-        } else {
-            // Fallback: show an empty panel.
-            self.selected_building = Some(building_name.to_string());
-            self.items.clear();
-            self.tab_order.clear();
-            self.visible = true;
-        }
-    }
 
     // ---- tab / item access -------------------------------------------------
 
@@ -909,60 +787,8 @@ pub fn resolve_command_set_name(
         .or_else(|| find_command_set_for_object(building_name))
 }
 
-/// CommandSet.ini construct/build objects — never invented faction cameos.
-#[derive(Debug, Clone)]
-pub struct CommandSetBuildableCameo {
-    pub template_name: String,
-    pub display_name: String,
-    pub cost: i32,
-    pub hotkey: Option<KeyCode>,
-    pub command: String,
-}
 
-/// Resolve OBJECT_BUILD / UNIT_BUILD / DOZER_CONSTRUCT objects from CommandSet slots.
-pub fn command_set_buildable_cameos(
-    definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
-    command_set_name: &str,
-) -> Vec<CommandSetBuildableCameo> {
-    if command_set_name.trim().is_empty() {
-        return Vec::new();
-    }
-    let Some(cs) = definitions.find_command_set_nocase(command_set_name) else {
-        return Vec::new();
-    };
-    definitions.with_buttons(|cb| buildable_cameos_from(&cs, cb))
-}
 
-fn buildable_cameos_from(
-    cs: &game_engine::common::ini::ini_command_set::CommandSet,
-    cb: &game_engine::common::ini::ini_command_button::ControlBar,
-) -> Vec<CommandSetBuildableCameo> {
-    let mut out = Vec::new();
-    for slot in cs.buttons.iter().take(14) {
-        let Some(btn_name) = slot else {
-            continue;
-        };
-        let Some(btn) = cb.find_command_button_resolved(btn_name) else {
-            continue;
-        };
-        if btn.object.is_empty() {
-            continue;
-        }
-        let cmd = btn.command.to_ascii_uppercase();
-        if !(cmd.contains("BUILD") || cmd.contains("CONSTRUCT") || cmd.contains("UNIT")) {
-            continue;
-        }
-        let (cost, _, display_name) = resolve_build_info(&btn.object, btn.purchase_cost);
-        out.push(CommandSetBuildableCameo {
-            template_name: btn.object.clone(),
-            display_name,
-            cost,
-            hotkey: hotkey_from_text_label(&btn.text_label),
-            command: btn.command.clone(),
-        });
-    }
-    out
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1261,19 +1087,6 @@ mod tests {
         assert_eq!(resolve_command_set_name("NoSuchTemplateXYZ", None), None);
     }
 
-    #[test]
-    fn text_label_ampersand_hotkey_matches_cpp_search_hot_key() {
-        // C++ HotKey.cpp:182-201 / ControlBar.cpp:2472-2476.
-        use super::{KeyCode, hotkey_from_text_label};
-        assert_eq!(hotkey_from_text_label("S&top"), Some(KeyCode::T));
-        assert_eq!(hotkey_from_text_label("&Guard"), Some(KeyCode::G));
-        assert_eq!(
-            hotkey_from_text_label("CONTROLBAR:&Ranger"),
-            Some(KeyCode::R)
-        );
-        assert_eq!(hotkey_from_text_label("Stop"), None);
-        assert_eq!(hotkey_from_text_label(""), None);
-    }
 
     fn test_tab_label() {
         assert_eq!(ConstructionTab::Buildings.label(), "Buildings");
