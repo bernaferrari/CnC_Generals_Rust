@@ -1057,18 +1057,21 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{AIState, KindOf, Player, Team, ThingTemplate};
+    use crate::game_logic::{AIState, Player, Team};
     use crate::save_load::snapshot::{ObjectTypeSnapshot, SnapshotBuilder};
 
+    /// An AI-driven Ranger and a depot authored as INI before NewGame; a
+    /// loading game admits the same content before the save is applied.
     fn ranger_logic() -> GameLogic {
+        use crate::fixture_content::{admit_fixture_objects, FixtureObject};
         let mut logic = GameLogic::new();
-        let mut ranger = ThingTemplate::new("Ranger");
-        ranger.set_health(100.0);
-        ranger.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("Ranger".into(), ranger);
-        let mut depot = ThingTemplate::new("USASupplyDepot");
-        depot.set_health(400.0);
-        logic.templates.insert("USASupplyDepot".into(), depot);
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("Ranger").kind_of("INFANTRY").health(100.0).walker(),
+                FixtureObject::new("USASupplyDepot").health(400.0),
+            ],
+        );
         logic.add_player(Player::new(0, Team::USA, "USA", false));
         logic
     }
@@ -1109,7 +1112,6 @@ mod tests {
         );
 
         let mut restored = ranger_logic();
-        restored.templates = source.templates.clone();
         let restored_victim = restored
             .create_object("USASupplyDepot", Team::China, Vec3::new(80.0, 0.0, 20.0))
             .expect("victim fixture");
@@ -1177,7 +1179,6 @@ mod tests {
         }
 
         let mut restored = ranger_logic();
-        restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
@@ -1240,7 +1241,6 @@ mod tests {
         let builder = SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         let mut restored = ranger_logic();
-        restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
@@ -1268,7 +1268,6 @@ mod tests {
         let builder = SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         let mut restored = ranger_logic();
-        restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
@@ -1320,7 +1319,6 @@ mod tests {
         );
 
         let mut restored = ranger_logic();
-        restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
