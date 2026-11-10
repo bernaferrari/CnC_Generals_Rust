@@ -485,10 +485,19 @@ fn snapshot_round_trips_object_instance_name() {
 
 #[test]
 fn snapshot_round_trips_guard_anchors() {
-    let mut source = GameLogic::new();
-    source
-        .templates
-        .insert("TestTank".to_string(), ThingTemplate::new("TestTank"));
+    // Guarding is an AIUpdateInterface state: the tank is authored with AI.
+    let guard_tank_world = || {
+        let mut world = GameLogic::new();
+        crate::fixture_content::admit_fixture_objects(
+            &mut world,
+            &[crate::fixture_content::FixtureObject::new("TestTank")
+                .kind_of("VEHICLE")
+                .health(100.0)
+                .walker()],
+        );
+        world
+    };
+    let mut source = guard_tank_world();
     let tank_id = source
         .create_object("TestTank", Team::USA, Vec3::new(1.0, 0.0, 2.0))
         .expect("tank");
@@ -506,8 +515,7 @@ fn snapshot_round_trips_guard_anchors() {
 
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+    let mut restored = guard_tank_world();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore");
@@ -974,8 +982,11 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
                 Some(ObjectId(60))
             );
 
+            // C++ loads the map's sides (and their team prototypes) before
+            // TeamFactory::xfer, so the loading game owns the same player.
             let mut restored = GameLogic::new();
             restored.templates = source.templates.clone();
+            restored.add_player(Player::new(1, Team::USA, "USA", true));
             builder
                 .restore_from_snapshot(&snapshot, &mut restored)
                 .expect("restore");

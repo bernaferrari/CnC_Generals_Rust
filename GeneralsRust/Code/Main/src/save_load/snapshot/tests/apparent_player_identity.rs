@@ -11,7 +11,9 @@ fn wire_roundtrip(mut snapshot: WorldSnapshot) -> WorldSnapshot {
     restored.xfer(&mut load).unwrap();
     restored
 }
-fn identity_world() -> (GameLogic, ObjectId) {
+/// The loading game: the same definitions and map sides (C++ loads the map's
+/// players and team prototypes before TeamFactory/Object xfer), no Objects.
+fn identity_receiver() -> GameLogic {
     let mut world = GameLogic::new();
     let mut truck = ThingTemplate::new("IdentityTruck");
     truck.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
@@ -27,6 +29,10 @@ fn identity_world() -> (GameLogic, ObjectId) {
         .insert("IdentityTank".into(), ThingTemplate::new("IdentityTank"));
     world.add_player(Player::new(1, Team::USA, "First USA", true));
     world.add_player(Player::new(7, Team::USA, "Second USA", false));
+    world
+}
+fn identity_world() -> (GameLogic, ObjectId) {
+    let mut world = identity_receiver();
     let id = world
         .create_object("IdentityTruck", Team::USA, Vec3::new(8., 0., 8.))
         .unwrap();
@@ -45,8 +51,7 @@ fn exact_disguise_player_survives_halfpoint_and_actual_world_roundtrip() {
     );
     let builder = SnapshotBuilder::new();
     let snapshot = wire_roundtrip(builder.create_world_snapshot(&world).unwrap());
-    let mut peer = GameLogic::new();
-    peer.templates.insert("IdentityTruck".into(), world.templates["IdentityTruck"].clone());
+    let mut peer = identity_receiver();
     builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
     for _ in 0..crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES {
         peer.host_object_mut(id).unwrap().tick_disguise_transition();
@@ -101,7 +106,7 @@ fn exact_original_garrison_player_roundtrips_independent_of_faction() {
     data.original_garrison_player_id = Some(7);
     let builder = SnapshotBuilder::new();
     let snapshot = wire_roundtrip(builder.create_world_snapshot(&world).unwrap());
-    let mut peer = GameLogic::new();
+    let mut peer = identity_receiver();
     builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
     let data = peer
         .host_object(id)
