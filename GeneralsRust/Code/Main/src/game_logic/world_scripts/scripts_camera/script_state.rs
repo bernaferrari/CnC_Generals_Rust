@@ -528,7 +528,7 @@ impl GameLogic {
             }
         }
         merge_host_bridge_states(self, &mut snap);
-        gamelogic::scripting::set_host_script_query_snapshot(snap);
+        gamelogic::scripting::HostScriptQuery::of(&self.world_services).set_host_script_query_snapshot(snap);
         self.merge_host_player_census_into_snapshot();
     }
 
@@ -583,7 +583,7 @@ impl GameLogic {
             safe_map.insert(key, location_safe);
         }
         self.ai_manager = ai_mgr;
-        gamelogic::scripting::merge_host_script_query_snapshot(|snap| {
+        gamelogic::scripting::HostScriptQuery::of(&self.world_services).merge_host_script_query_snapshot(|snap| {
             snap.supply_source_attacked = attacked;
             snap.supply_center_cash = cash_map;
             snap.supply_center_location_safe = safe_map;
@@ -716,7 +716,7 @@ impl GameLogic {
                 ),
             });
         }
-        gamelogic::scripting::merge_host_script_query_snapshot(|snap| {
+        gamelogic::scripting::HostScriptQuery::of(&self.world_services).merge_host_script_query_snapshot(|snap| {
             snap.player_census = player_census;
             snap.tech_buildings = tech_buildings;
         });

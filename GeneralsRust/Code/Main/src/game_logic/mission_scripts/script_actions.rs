@@ -2,11 +2,25 @@
 
 pub struct MissionScriptActionHandler {
     hooks: Arc<MissionScriptHooks>,
+    /// The GameLogic world that installed this handler (its host facts).
+    world: Option<std::sync::Weak<gamelogic::system::engine_stores::WorldServices>>,
 }
 
 impl MissionScriptActionHandler {
     pub fn new(hooks: Arc<MissionScriptHooks>) -> Self {
-        Self { hooks }
+        Self { hooks, world: None }
+    }
+
+    /// This handler answers named-unit queries from `world`'s host facts.
+    pub fn in_world(mut self, world: &Arc<gamelogic::system::engine_stores::WorldServices>) -> Self {
+        self.world = Some(Arc::downgrade(world));
+        self
+    }
+
+    fn host_query(&self) -> gamelogic::scripting::HostScriptQuery {
+        gamelogic::scripting::HostScriptQuery::from_world(
+            self.world.as_ref().and_then(std::sync::Weak::upgrade),
+        )
     }
 
     pub fn hooks(&self) -> Arc<MissionScriptHooks> {
@@ -689,7 +703,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     fn sound_play_named(&self, sound: &str, unit_name: &str) -> GameLogicResult<()> {
         // Live Main executes SoundPlayNamed through its supplied driver;
         // this adapter may use its explicit host snapshot, never a Core peer.
-        let Some(object_id) = gamelogic::scripting::host_script_named_unit_id(unit_name) else {
+        let Some(object_id) = self.host_query().host_script_named_unit_id(unit_name) else {
             return Ok(());
         };
         let handle = Self::play_named_sound_through_the_audio(sound, object_id);

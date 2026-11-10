@@ -1705,9 +1705,10 @@ impl GameLogic {
             return;
         }
         if let Some(engine) = self.owned_script_engine.as_mut() {
-            engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
-                self.mission_scripts.clone(),
-            ))));
+            engine.set_action_handler(Some(Arc::new(
+                MissionScriptActionHandler::new(self.mission_scripts.clone())
+                    .in_world(&self.world_services),
+            )));
         }
         self.finish_map_script_foundation();
     }
@@ -1769,9 +1770,10 @@ impl GameLogic {
             log::error!("Too many map script lists for '{}'", map_name);
             return false;
         }
-        let handler = Arc::new(MissionScriptActionHandler::new(
-            self.mission_scripts.clone(),
-        ));
+        let handler = Arc::new(
+            MissionScriptActionHandler::new(self.mission_scripts.clone())
+                .in_world(&self.world_services),
+        );
         let engine = self
             .owned_script_engine
             .as_mut()
