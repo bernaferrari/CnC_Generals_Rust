@@ -2294,7 +2294,7 @@ mod tests {
             slot_capacity: slots,
             ..Default::default()
         };
-        TransportContain::new(Arc::downgrade(owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("transport contain")
+        crate::object::contain::bound_to_test_world(TransportContain::new(Arc::downgrade(owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("transport contain"))
     }
 
     #[test]
@@ -2388,7 +2388,7 @@ mod tests {
             }
             // Local-player / indicator reads use the owning world's roster.
             with_active_stores(&world_b, || {
-                assert!(Arc::ptr_eq(&transport_a.base.players(), world_a.services().players()));
+                assert!(Arc::ptr_eq(&transport_a.base.players().expect("bound"), world_a.services().players()));
             });
 
             for stores in [&world_a, &world_b] {
@@ -2448,7 +2448,7 @@ mod tests {
             contain_max: 20,
             ..Default::default()
         };
-        let contain = OpenContain::new(Arc::downgrade(&building), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("building contain");
+        let contain = crate::object::contain::bound_to_test_world(OpenContain::new(Arc::downgrade(&building), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("building contain"));
         building
             .write()
             .expect("building write")
@@ -2472,13 +2472,13 @@ mod tests {
         reset_players();
 
         let chute_owner = owned_object("ParachuteContainer", 95007, 0);
-        let chute = super::super::ParachuteContain::new(
+        let chute = crate::object::contain::bound_to_test_world(super::super::ParachuteContain::new(
             Arc::downgrade(&chute_owner),
             ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(
                 super::super::ParachuteContainModuleData::default(),
             )),
         )
-        .expect("chute contain");
+        .expect("chute contain"));
         let chute: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(chute));
         chute_owner
             .write()
@@ -2581,7 +2581,7 @@ mod tests {
             reset_mood_check_time_on_exit: false,
             ..Default::default()
         };
-        TransportContain::new(Arc::downgrade(owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("velocity transport")
+        crate::object::contain::bound_to_test_world(TransportContain::new(Arc::downgrade(owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("velocity transport"))
     }
 
     #[test]
@@ -2653,7 +2653,7 @@ mod tests {
             reset_mood_check_time_on_exit: false,
             ..Default::default()
         };
-        let mut contain = TransportContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("transport");
+        let mut contain = crate::object::contain::bound_to_test_world(TransportContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("transport"));
 
         contain.on_removing(95142).expect("missing bone removal");
 

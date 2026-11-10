@@ -70,17 +70,17 @@ fn trait_query_returns_real_eligibility_and_capacity_without_changing_roster() {
     let owner = owned_object("QueryGarrison", 96101, 0);
     let passenger = infantry("QueryPassenger", 96102, 0);
     let waiting = infantry("QueryWaiting", 96103, 0);
-    let default = GarrisonContain::new(
+    let default = crate::object::contain::bound_to_test_world(GarrisonContain::new(
         Arc::downgrade(&owner),
         ModuleDataHandle::new(ContainModuleDataAdapter::new(GarrisonContainModuleData::default())),
     )
-    .unwrap();
+    .unwrap());
     assert!(
         !ContainModuleInterface::can_contain(&default, 96102),
         "CPP strict capacity does not treat unknown -1 as unlimited for Garrison"
     );
     let mut contain =
-        GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false)))).unwrap();
+        crate::object::contain::bound_to_test_world(GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false)))).unwrap());
     assert!(ContainModuleInterface::can_contain(&contain, 96102));
     assert!(ContainModuleInterface::can_contain(&contain, 96103));
     assert!(!ContainModuleInterface::can_contain(&contain, INVALID_ID));

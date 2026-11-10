@@ -40,7 +40,7 @@ fn redirected(hull: &Arc<RwLock<Object>>) -> OverlordContain {
     let data = ModuleDataHandle::new(
         crate::contain_module_overrides::ContainModuleDataAdapter::new(definition),
     );
-    let mut module = OverlordContain::new(Arc::downgrade(hull), data).unwrap();
+    let mut module = crate::object::contain::bound_to_test_world(OverlordContain::new(Arc::downgrade(hull), data).unwrap());
     let mut saved = module.save_state().unwrap();
     saved.insert("redirection_activated".into(), vec![1]);
     module.load_state(&saved).unwrap();

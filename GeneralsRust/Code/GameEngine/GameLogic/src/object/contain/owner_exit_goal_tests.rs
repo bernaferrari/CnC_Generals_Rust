@@ -137,8 +137,8 @@ fn owner_exit_goal_releases_object_borrow_and_preserves_cpp_gates() {
                 rider.write().unwrap().set_ai_update_interface(Some(ai));
             }
             let mut contain =
-                OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(OpenContainModuleData::default())))
-                    .unwrap();
+                crate::object::contain::bound_to_test_world(OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(OpenContainModuleData::default())))
+                    .unwrap());
             ContainModuleInterface::contain_object(&mut contain, rider_id).unwrap();
             if hurry {
                 contain.exit_object_in_a_hurry(rider_id).unwrap();
@@ -243,11 +243,11 @@ fn death_scatter_releases_object_write_before_ai_move() {
             rider.write().unwrap().set_ai_update_interface(Some(
                 witness.clone() as Arc<Mutex<dyn AIUpdateInterface>>
             ));
-            let contain = OpenContain::new(
+            let contain = crate::object::contain::bound_to_test_world(OpenContain::new(
                 Arc::downgrade(&owner),
                 ModuleDataHandle::new(ContainModuleDataAdapter::new(OpenContainModuleData::default())),
             )
-            .unwrap();
+            .unwrap());
             let followup = {
                 let mut rider_guard = rider.write().unwrap();
                 contain

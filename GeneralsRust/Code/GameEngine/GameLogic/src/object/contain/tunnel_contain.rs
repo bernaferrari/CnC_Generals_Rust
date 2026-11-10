@@ -1274,8 +1274,8 @@ mod tests {
     }
 
     fn tunnel_for(owner: &Arc<RwLock<Object>>) -> TunnelContain {
-        TunnelContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(TunnelContainModuleData::default())))
-            .expect("tunnel contain")
+        crate::object::contain::bound_to_test_world(TunnelContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(TunnelContainModuleData::default())))
+            .expect("tunnel contain"))
     }
 
     #[test]

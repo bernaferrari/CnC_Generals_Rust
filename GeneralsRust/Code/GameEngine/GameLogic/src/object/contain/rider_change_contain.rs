@@ -405,7 +405,7 @@ mod tests {
         let mut data = RiderChangeContainModuleData::default();
         data.riders[0].template_name = "BorrowedBikeRider".into();
         let handle = ModuleDataHandle::new(ContainModuleDataAdapter::new(data.clone()));
-        let mut contain = RiderChangeContain::new(Weak::new(), handle.clone()).unwrap();
+        let mut contain = crate::object::contain::bound_to_test_world(RiderChangeContain::new(Weak::new(), handle.clone()).unwrap());
         assert!(ContainModuleInterface::is_valid_container_for_with_owner(
             &contain, &rider, &owner, true
         ));
@@ -687,7 +687,7 @@ mod tests {
             locomotor_set: LocomotorSetType::Normal,
         };
         configure(&mut data);
-        RiderChangeContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("rider change contain")
+        crate::object::contain::bound_to_test_world(RiderChangeContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("rider change contain"))
     }
 
     fn rider_change_for(owner: &Arc<RwLock<Object>>) -> RiderChangeContain {
@@ -1733,10 +1733,11 @@ impl RiderChangeContain {
             return;
         };
 
-        let __player_list_arc = self.base.base.players();
-            let local_player_index = __player_list_arc.read()
-            .ok()
-            .map(|list| list.get_local_player_index())
+        let local_player_index = self
+            .base
+            .base
+            .players()
+            .and_then(|list| list.read().ok().map(|list| list.get_local_player_index()))
             .unwrap_or(crate::player::PLAYER_INDEX_INVALID);
         if local_player_index == crate::player::PLAYER_INDEX_INVALID {
             return;

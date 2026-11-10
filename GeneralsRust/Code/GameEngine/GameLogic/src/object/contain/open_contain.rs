@@ -937,23 +937,17 @@ impl OpenContain {
         self.world.as_ref().and_then(std::sync::Weak::upgrade)
     }
 
-    /// Object lookups for this container: the bound world's registry, never
-    /// the published world once bound.
+    /// Object lookups for this container: the bound world's registry only.
+    /// An unbound container (no world assembled it) resolves nothing.
     pub(crate) fn objects(&self) -> crate::object::registry::ObjectLookup {
-        match &self.world {
-            Some(world) => crate::object::registry::ObjectLookup::World(
-                world.upgrade().map(|services| Arc::clone(services.object_registry())),
-            ),
-            None => crate::object::registry::ObjectLookup::Published,
-        }
+        crate::object::registry::ObjectLookup::World(
+            self.owning_world().map(|services| Arc::clone(services.object_registry())),
+        )
     }
 
-    /// C++ `ThePlayerList` of the owning world.
-    pub(crate) fn players(&self) -> Arc<RwLock<crate::player::PlayerList>> {
-        match self.owning_world() {
-            Some(world) => Arc::clone(world.players()),
-            None => crate::player::ThePlayerList(),
-        }
+    /// C++ `ThePlayerList` of the owning world; `None` when unbound.
+    pub(crate) fn players(&self) -> Option<Arc<RwLock<crate::player::PlayerList>>> {
+        self.owning_world().map(|world| Arc::clone(world.players()))
     }
 
     /// C++ `TheTeamFactory->findTeamByID` on the owning world's factory.
@@ -961,46 +955,29 @@ impl OpenContain {
         &self,
         team_id: crate::team::TeamID,
     ) -> Option<Arc<RwLock<crate::team::Team>>> {
-        match &self.world {
-            Some(world) => world.upgrade()?.team_factory().lock().ok()?.find_team_by_id(team_id),
-            None => crate::team::TheTeamFactory().lock().ok()?.find_team_by_id(team_id),
-        }
+        self.owning_world()?.team_factory().lock().ok()?.find_team_by_id(team_id)
     }
 
     /// C++ `TheGlobalData->m_maxTunnelCapacity` of the owning world
     /// (TunnelTracker::getContainMax, TunnelTracker.cpp:81-84). GameData's
     /// default is 0, which admits nobody.
     pub(crate) fn world_tunnel_capacity(&self) -> i32 {
-        match &self.world {
-            Some(world) => world
-                .upgrade()
-                .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
-                .map_or(0, |data| data.read().max_tunnel_capacity),
-            None => crate::helpers::TheGlobalData::get()
-                .map_or(0, |global| global.get_max_tunnel_capacity()),
-        }
+        self.owning_world()
+            .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
+            .map_or(0, |data| data.read().max_tunnel_capacity)
     }
 
     /// C++ `TheGlobalData->m_timeOfDay` of the owning world.
     pub(crate) fn time_of_day(&self) -> crate::common::audio::TimeOfDay {
-        match &self.world {
-            Some(world) => world
-                .upgrade()
-                .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
-                .map(|data| crate::helpers::map_time_of_day(data.read().time_of_day))
-                .unwrap_or(crate::common::audio::TimeOfDay::Day),
-            None => crate::helpers::TheGlobalData::get()
-                .map(|global| global.get_time_of_day())
-                .unwrap_or(crate::common::audio::TimeOfDay::Day),
-        }
+        self.owning_world()
+            .and_then(|world| world.common().system.global_data.lock().ok()?.clone())
+            .map(|data| crate::helpers::map_time_of_day(data.read().time_of_day))
+            .unwrap_or(crate::common::audio::TimeOfDay::Day)
     }
 
     /// C++ `TheGameLogic->getFrame()` of the owning world.
     pub(crate) fn logic_frame(&self) -> UnsignedInt {
-        match &self.world {
-            Some(world) => world.upgrade().map_or(0, |world| world.logic_frame()),
-            None => TheGameLogic::get_frame(),
-        }
+        self.owning_world().map_or(0, |world| world.logic_frame())
     }
 
     /// C++ `TheGameLogic->destroyObject` on the owning world.
@@ -1008,13 +985,9 @@ impl OpenContain {
         &self,
         object_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        match &self.world {
-            Some(world) => world
-                .upgrade()
-                .ok_or("OpenContain's world has retired")?
-                .destroy_logic_object(object_id),
-            None => TheGameLogic::destroy_object_by_id(object_id),
-        }
+        self.owning_world()
+            .ok_or("OpenContain has no live owning world")?
+            .destroy_logic_object(object_id)
     }
 
     /// Create a new OpenContain module
@@ -3338,6 +3311,32 @@ mod tests {
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
+    /// C++ every OpenContain belongs to the engine that built its Object;
+    /// there is no "whatever world is current" lookup. A container no world
+    /// assembled resolves nothing, even while a published world holds the id.
+    #[test]
+    fn unbound_container_never_reads_the_published_world() {
+        let _lock = crate::test_sync::lock();
+        let published = test_object("UnboundProbeTarget", 92901);
+        assert!(OBJECT_REGISTRY.get_object(92901).is_some(), "published world holds the id");
+        let contain = OpenContain::new(
+            Weak::new(),
+            ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(
+                OpenContainModuleData::default(),
+            )),
+        )
+        .expect("contain");
+        assert!(contain.objects().get_object(92901).is_none());
+        assert!(contain.players().is_none());
+        assert!(contain.find_world_team(1).is_none());
+        assert_eq!(contain.logic_frame(), 0);
+        assert_eq!(contain.world_tunnel_capacity(), 0);
+        assert!(contain.destroy_world_object(92901).is_err());
+        assert!(OBJECT_REGISTRY.get_object(92901).is_some(), "published object untouched");
+        OBJECT_REGISTRY.unregister_object(92901);
+        drop(published);
+    }
+
     /// An INFANTRY rider: C++ `isAnyKindOf(AllowInsideKindOf)` rejects a
     /// kindless entrant (OpenContain.cpp:862).
     fn test_infantry(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
@@ -3420,7 +3419,7 @@ mod tests {
     #[test]
     fn xfer_preserves_cpp_open_contain_runtime_fields() {
         let mut saved =
-            OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain");
+            crate::object::contain::bound_to_test_world(OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain"));
         saved.next_call_frame_and_phase = 0x5511;
         saved.contained_object_ids = vec![101, 202];
         saved.player_who_entered = PlayerMaskType::PLAYER_1 | PlayerMaskType::PLAYER_3;
@@ -3453,7 +3452,7 @@ mod tests {
 
         bytes.set_position(0);
         let mut loaded =
-            OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain");
+            crate::object::contain::bound_to_test_world(OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain"));
         loaded.last_unload_sound_frame = 1;
         loaded.last_load_sound_frame = 2;
         {
@@ -3511,11 +3510,11 @@ mod tests {
             "contained_objects".to_string(),
             92002_u32.to_le_bytes().to_vec(),
         );
-        let mut contain = OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData {
+        let mut contain = crate::object::contain::bound_to_test_world(OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData {
             contain_max: 1,
             ..Default::default()
         })))
-        .expect("contain");
+        .expect("contain"));
 
         contain.load_state(&state).expect("load state");
 
@@ -3538,7 +3537,7 @@ mod tests {
     #[test]
     fn contain_interface_routes_rally_point_to_open_contain() {
         let mut contain =
-            OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain");
+            crate::object::contain::bound_to_test_world(OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default()))).expect("contain"));
         let rally = Coord3D::new(11.0, 22.0, 33.0);
 
         ContainModuleInterface::set_rally_point(&mut contain, rally);
@@ -3555,7 +3554,7 @@ mod tests {
             number_of_exit_paths: 3,
             ..OpenContainModuleData::default()
         };
-        let mut contain = OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("contain");
+        let mut contain = crate::object::contain::bound_to_test_world(OpenContain::new(Weak::new(), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(data))).expect("contain"));
 
         let (_, start_1, end_1) = contain.exit_bone_names_for_next_path();
         let (_, start_2, end_2) = contain.exit_bone_names_for_next_path();
@@ -3603,8 +3602,8 @@ mod tests {
         let rider = test_infantry("AirborneRider", 92006);
 
         let mut contain =
-            OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())))
-                .expect("airborne contain");
+            crate::object::contain::bound_to_test_world(OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())))
+                .expect("airborne contain"));
         ContainModuleInterface::contain_object(&mut contain, 92006).expect("contain rider");
 
         // C++ OpenContain::exitObjectInAHurry (OpenContain.cpp:1076-1086)
@@ -3785,8 +3784,8 @@ mod tests {
         }
 
         let mut contain =
-            OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())))
-                .expect("door contain");
+            crate::object::contain::bound_to_test_world(OpenContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(OpenContainModuleData::default())))
+                .expect("door contain"));
         contain.set_rally_point(rally);
         ContainModuleInterface::contain_object(&mut contain, rider_id).expect("contain rider");
         if hurry {

@@ -490,3 +490,13 @@ mod tests {
         assert_eq!(parse_duration_frames_real("1.5s").expect("duration"), 45.0);
     }
 }
+
+/// Tests assemble containers outside an Object factory; bind them to the
+/// world the test published, explicitly, the way assembly binds production
+/// containers (OpenContain has no unbound fallback).
+#[cfg(test)]
+pub(crate) fn bound_to_test_world<C: crate::modules::ContainModuleInterface>(mut contain: C) -> C {
+    let services = crate::system::engine_stores::active_services();
+    contain.bind_owning_world(&std::sync::Arc::downgrade(&services));
+    contain
+}

@@ -1224,10 +1224,9 @@ impl GarrisonContain {
             .with_owner_object(|owner| owner.get_controlling_player())
             .flatten();
         self.apparent_player_for_controller(my_player, observing_player, |index| {
-            self.base.players()
-                .read()
-                .ok()
-                .and_then(|players| players.get_player(index).cloned())
+            self.base
+                .players()
+                .and_then(|players| players.read().ok()?.get_player(index).cloned())
         })
     }
     fn apparent_player_for_controller(
@@ -1343,10 +1342,10 @@ impl GarrisonContain {
                         occupant.test_status(ObjectStatusTypes::Detected)
                     })
                     .unwrap_or(false);
-                let __player_list_arc = self.base.players();
-                    let local_player = __player_list_arc.read()
-                    .ok()
-                    .and_then(|list| list.get_local_player().cloned());
+                let local_player = self
+                    .base
+                    .players()
+                    .and_then(|list| list.read().ok()?.get_local_player().cloned());
                 let apparent = local_player
                     .as_ref()
                     .and_then(|local| local.read().ok())
@@ -1372,10 +1371,10 @@ impl GarrisonContain {
                     drawable.clear_model_condition_state(ModelConditionFlags::GARRISONED);
                 }
 
-                if let Some(local_player) = self.base.players()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_local_player().cloned())
+                if let Some(local_player) = self
+                    .base
+                    .players()
+                    .and_then(|list| list.read().ok()?.get_local_player().cloned())
                 {
                     if let Ok(local_guard) = local_player.read() {
                         if let Some(controller) =
@@ -3280,13 +3279,13 @@ mod tests {
                     .expect("world factory")
                     .create_team_on_prototype_with_id(&prototype, TEAM)
                     .expect("world team");
-                let mut contain = GarrisonContain::new(
+                let mut contain = crate::object::contain::bound_to_test_world(GarrisonContain::new(
                     Weak::new(),
                     ModuleDataHandle::new(ContainModuleDataAdapter::new(
                         GarrisonContainModuleData::default(),
                     )),
                 )
-                .expect("garrison constructs");
+                .expect("garrison constructs"));
                 contain.base.bind_owning_world(&Arc::downgrade(stores.services()));
                 contain
             };
@@ -3457,8 +3456,8 @@ mod tests {
 
     #[test]
     fn trait_snapshot_xfer_writes_garrison_version_and_open_contain_state_like_cpp() {
-        let mut contain = GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(GarrisonContainModuleData::default())))
-            .expect("garrison contain");
+        let mut contain = crate::object::contain::bound_to_test_world(GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(GarrisonContainModuleData::default())))
+            .expect("garrison contain"));
         contain.hide_garrisoned_state_from_non_allies = true;
         contain.garrison_points_in_use = 2;
         contain.rally_valid = true;
@@ -3512,7 +3511,7 @@ mod tests {
     #[test]
     fn garrison_defaults_to_cpp_burst_evac_disposition() {
         let data = GarrisonContainModuleData::default();
-        let contain = GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs");
+        let contain = crate::object::contain::bound_to_test_world(GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs"));
 
         assert!(matches!(
             contain.evac_disposition,
@@ -3523,7 +3522,7 @@ mod tests {
     #[test]
     fn garrison_save_state_omits_station_garrison_state_like_cpp() {
         let data = GarrisonContainModuleData::default();
-        let contain = GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs");
+        let contain = crate::object::contain::bound_to_test_world(GarrisonContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs"));
         let state = contain.save_state().expect("garrison saves");
 
         assert!(!state.contains_key("station_garrison_points_initialized"));
@@ -3550,7 +3549,7 @@ mod tests {
             ..Default::default()
         };
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs");
+            crate::object::contain::bound_to_test_world(GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("garrison constructs"));
 
         contain
             .load_station_garrison_points()
@@ -3695,8 +3694,8 @@ mod tests {
         let owner = owned_object("GarrisonOwner", 96001, 0);
         let passenger = infantry("GarrisonPassenger", 96002, 0);
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false))))
-                .expect("garrison contain");
+            crate::object::contain::bound_to_test_world(GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false))))
+                .expect("garrison contain"));
 
         ContainModuleInterface::contain_object(&mut contain, 96002).expect("contain passenger");
 
@@ -3740,8 +3739,8 @@ mod tests {
         let owner = owned_object("GarrisonReleaseOwner", 96003, 0);
         let passenger = infantry("GarrisonReleasePassenger", 96004, 0);
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false))))
-                .expect("garrison contain");
+            crate::object::contain::bound_to_test_world(GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(authored_capacity_one(false))))
+                .expect("garrison contain"));
 
         ContainModuleInterface::contain_object(&mut contain, 96004).expect("contain passenger");
         contain.hide_garrisoned_state_from_non_allies = true;
@@ -3789,7 +3788,7 @@ mod tests {
         let passenger = infantry("MobileGarrisonPassenger", 96006, 0);
         let data = authored_capacity_one(true);
         let mut contain =
-            GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("mobile garrison contain");
+            crate::object::contain::bound_to_test_world(GarrisonContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("mobile garrison contain"));
 
         ContainModuleInterface::contain_object(&mut contain, 96006).expect("contain passenger");
         let new_pos = Coord3D::new(123.0, 456.0, 7.0);

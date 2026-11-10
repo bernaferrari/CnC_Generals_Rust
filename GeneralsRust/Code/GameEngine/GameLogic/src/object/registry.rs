@@ -357,28 +357,24 @@ impl ObjectRegistry {
     }
 }
 
-/// Object lookup for a module: its owning world's registry when the module
-/// was assembled with one (C++ `TheGameLogic->findObjectByID` of that engine),
-/// otherwise the legacy published-world proxy for not-yet-bound callers.
+/// Object lookup for a module: its owning world's registry (C++
+/// `TheGameLogic->findObjectByID` of that engine). There is no
+/// published-world variant; an unbound module resolves nothing.
 pub enum ObjectLookup {
-    /// The owning world's registry; `None` once that world has retired.
+    /// The owning world's registry; `None` when unbound or retired.
     World(Option<Arc<ObjectRegistry>>),
-    /// Unbound legacy module: the thread's published world.
-    Published,
 }
 
 impl ObjectLookup {
     pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         match self {
             Self::World(registry) => registry.as_ref()?.get_object(id),
-            Self::Published => OBJECT_REGISTRY.get_object(id),
         }
     }
 
     pub fn contains(&self, id: ObjectID) -> bool {
         match self {
             Self::World(registry) => registry.as_ref().is_some_and(|r| r.contains(id)),
-            Self::Published => OBJECT_REGISTRY.contains(id),
         }
     }
 

@@ -760,9 +760,7 @@ impl CaveContain {
         let has_local_player = {
             self.base
                 .players()
-                .read()
-                .ok()
-                .and_then(|list| list.get_local_player().cloned())
+                .and_then(|players| players.read().ok()?.get_local_player().cloned())
                 .is_some()
         };
         if has_local_player {

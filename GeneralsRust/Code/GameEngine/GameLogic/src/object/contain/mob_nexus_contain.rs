@@ -1152,7 +1152,7 @@ mod tests {
         let mut data = MobNexusContainModuleData::default();
         data.exit_pitch_rate = pitch;
         data.keep_container_velocity_on_exit = true;
-        MobNexusContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("nexus")
+        crate::object::contain::bound_to_test_world(MobNexusContain::new(Arc::downgrade(owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("nexus"))
     }
 
     fn attach_physics(
@@ -1223,7 +1223,7 @@ mod tests {
         data.exit_bone = "ExitStart".to_string();
         // Isolate the ExitBone step from the scatter move that follows it.
         data.scatter_nearby_on_exit = false;
-        let mut nexus = MobNexusContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("nexus");
+        let mut nexus = crate::object::contain::bound_to_test_world(MobNexusContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(data))).expect("nexus"));
 
         nexus.on_removing(rider_id).expect("missing bone removal");
 

@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn trait_snapshot_xfer_writes_heal_version_and_open_contain_state_like_cpp() {
         let mut contain =
-            HealContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default()))).expect("heal contain");
+            crate::object::contain::bound_to_test_world(HealContain::new(Weak::new(), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default()))).expect("heal contain"));
 
         let mut xfer = RecordingXfer::new();
         ContainModuleInterface::snapshot_xfer(&mut contain, &mut xfer).expect("heal snapshot xfer");
@@ -683,8 +683,8 @@ mod tests {
         attach_active_body(&patient, 100.0, 25.0);
 
         let mut contain =
-            HealContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default())))
-                .expect("heal contain");
+            crate::object::contain::bound_to_test_world(HealContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default())))
+                .expect("heal contain"));
 
         assert!(
             contain
@@ -715,8 +715,8 @@ mod tests {
         attach_active_body(&patient, 100.0, 25.0);
 
         let mut contain =
-            HealContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default())))
-                .expect("heal contain");
+            crate::object::contain::bound_to_test_world(HealContain::new(Arc::downgrade(&owner), ModuleDataHandle::new(ContainModuleDataAdapter::new(HealContainModuleData::default())))
+                .expect("heal contain"));
 
         assert!(
             !contain
