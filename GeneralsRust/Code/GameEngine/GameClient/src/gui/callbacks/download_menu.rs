@@ -18,7 +18,6 @@ use game_network::download_manager::{
     set_download_manager,
 };
 use gamelogic::helpers::TheGameLogic;
-use gamelogic::helpers::TheGameText;
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -193,8 +192,8 @@ fn handle_download_error(
             .map(|manager| manager.error_key().to_string())
             .unwrap_or_else(|| "FTP:UnknownError".to_string())
     };
-    let title = TheGameText::fetch("GUI:DownloadErrorTitle");
-    let body = TheGameText::fetch(&error_key);
+    let title = receiving_manager.fetch_game_text("GUI:DownloadErrorTitle");
+    let body = receiving_manager.fetch_game_text(&error_key);
     message_box_ok(
         &title,
         &body,
@@ -211,13 +210,13 @@ fn handle_download_success(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let title = TheGameText::fetch("GUI:DownloadSuccessTitle");
+    let title = receiving_manager.fetch_game_text("GUI:DownloadSuccessTitle");
     let body_key = if should_quit {
         "GUI:DownloadSuccessMustQuit"
     } else {
         "GUI:DownloadSuccess"
     };
-    let body = TheGameText::fetch(body_key);
+    let body = receiving_manager.fetch_game_text(body_key);
     message_box_ok(
         &title,
         &body,
@@ -238,7 +237,10 @@ fn handle_download_success(
     );
 }
 
-fn update_time_text(state: &mut DownloadMenuState) {
+fn update_time_text(
+    state: &mut DownloadMenuState,
+    manager: &crate::gui::window_manager::WindowManager,
+) {
     let Some(last_update) = state.last_update else {
         return;
     };
@@ -247,12 +249,12 @@ fn update_time_text(state: &mut DownloadMenuState) {
     }
     state.last_update = Some(Instant::now());
     if let Some(window) = state.static_text_time.as_ref() {
-        let time_text = format_time_left(state.time_left);
+        let time_text = format_time_left(state.time_left, manager);
         let _ = window.borrow_mut().set_text(&time_text);
     }
 }
 
-fn format_time_left(time_left: i64) -> String {
+fn format_time_left(time_left: i64, manager: &crate::gui::window_manager::WindowManager) -> String {
     if time_left > 0 {
         let taken_hour = time_left / 3600;
         let taken_min = time_left / 60;
@@ -266,7 +268,7 @@ fn format_time_left(time_left: i64) -> String {
             ],
         )
     } else {
-        TheGameText::fetch("GUI:DownloadUnknownTime")
+        manager.fetch_game_text("GUI:DownloadUnknownTime")
     }
 }
 
@@ -292,7 +294,7 @@ fn update_from_event(
                     .map(|manager| manager.status_key().to_string())
                     .unwrap_or_else(|| "FTP:StatusNone".to_string())
             };
-            let status = TheGameText::fetch(&status_key);
+            let status = receiving_manager.fetch_game_text(&status_key);
             update_static_text(&state.static_text_status, &status);
         }
         DownloadEvent::Progress(progress) => {
@@ -308,7 +310,7 @@ fn update_from_event(
             state.time_left = progress.time_left;
             if let Some(time_window) = state.static_text_time.as_ref() {
                 if time_window.borrow().get_text().is_empty() {
-                    let time_text = format_time_left(state.time_left);
+                    let time_text = format_time_left(state.time_left, receiving_manager);
                     let _ = time_window.borrow_mut().set_text(&time_text);
                     state.last_update = Some(Instant::now());
                 }
@@ -425,7 +427,7 @@ pub fn download_menu_update(
     for event in events {
         update_from_event(&mut state, event, receiving_manager, effects);
     }
-    update_time_text(&mut state);
+    update_time_text(&mut state, receiving_manager);
 }
 
 pub fn download_menu_input(

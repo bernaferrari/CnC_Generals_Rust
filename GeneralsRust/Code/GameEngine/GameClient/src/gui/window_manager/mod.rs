@@ -180,6 +180,8 @@ pub struct WindowManager {
     /// Non-owning C++ `ScriptActions::m_messageWindow` equivalent. The actual
     /// target remains owned by this manager's window registry/layout.
     script_message_window: Option<Weak<RefCell<GameWindow>>>,
+    /// C++ `TheGameText` of the GameClient that owns this manager.
+    game_text: Option<std::sync::Arc<std::sync::RwLock<GameText>>>,
     /// C++ W3DTextEntry `static Byte drawCnt` caret-blink phase, per manager.
     text_entry_draw_cnt: Cell<u8>,
     // Window lists
@@ -267,11 +269,29 @@ impl WindowManager {
         contains(&self.root_windows, target)
     }
 
+    /// Bind the owning client's text catalog (C++ `TheGameText`).
+    pub fn admit_game_text(&mut self, store: std::sync::Arc<std::sync::RwLock<GameText>>) {
+        self.game_text = Some(store);
+    }
+
+    /// C++ `TheGameText->fetch(key)` of the owning client; a manager bound to
+    /// no client has no strings (GameText.cpp missing-label text).
+    pub fn fetch_game_text(&self, key: &str) -> String {
+        match self.game_text.as_deref() {
+            Some(store) => store
+                .write()
+                .unwrap_or_else(|error| error.into_inner())
+                .fetch_owned(key),
+            None => format!("MISSING: '{}'", key.trim()),
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             hot_keys: Default::default(),
             replay_menu: None,
             script_message_window: None,
+            game_text: None,
             text_entry_draw_cnt: Cell::new(0),
             root_windows: Vec::new(),
             window_by_id: HashMap::new(),

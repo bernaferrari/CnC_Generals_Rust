@@ -14,7 +14,6 @@ use crate::gui::{
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{LanApi, LanConfig, ensure_the_lan, the_lan};
-use gamelogic::helpers::TheGameText;
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -368,7 +367,10 @@ pub fn network_direct_connect_init(
     state.combobox_remote_ip_id = name_to_id("NetworkDirectConnect.wnd:ComboboxRemoteIP");
     state.static_local_ip_id = name_to_id("NetworkDirectConnect.wnd:StaticLocalIP");
 
+    // C++ TheGameText of the client that owns this menu tree.
+    let mut player_label = String::new();
     effects.with_manager(|manager, effects| {
+        player_label = manager.fetch_game_text("GUI:Player");
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_host = manager.get_window_by_id(state.button_host_id);
@@ -385,7 +387,7 @@ pub fn network_direct_connect_init(
     let prefs = LanPreferences::new();
     let mut name = prefs.get_user_name();
     if name.trim().is_empty() {
-        name = TheGameText::fetch("GUI:Player");
+        name = player_label;
     }
     set_player_name_text(&state, &name);
 

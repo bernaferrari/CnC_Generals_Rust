@@ -2385,3 +2385,59 @@ fn layout_load_adds_only_top_level_windows_like_cpp() {
 }
 
 // Removed ambient-global test `combo_field_click_opens_list_and_claims_lone_window`.
+
+/// C++ `TheGameText` belongs to one GameClient: two managers on one thread,
+/// each bound to its own client's catalog, never read the other's strings.
+#[test]
+fn window_manager_text_reads_only_its_owning_client_catalog() {
+    let catalog = |tag: &str| {
+        let path = std::env::temp_dir().join(format!(
+            "wm_owned_text_{}_{}.str",
+            tag,
+            std::process::id()
+        ));
+        std::fs::write(&path, format!("GUI:Player\n\"{tag}\"\nEND\n")).expect("write str");
+        let mut text = crate::game_text::GameText::default();
+        text.load_map_strings(&path).expect("load str");
+        let _ = std::fs::remove_file(&path);
+        std::sync::Arc::new(std::sync::RwLock::new(text))
+    };
+    let mut alpha = WindowManager::new();
+    alpha.admit_game_text(catalog("Alpha"));
+    let mut bravo = WindowManager::new();
+    bravo.admit_game_text(catalog("Bravo"));
+    let unbound = WindowManager::new();
+    assert_eq!(alpha.fetch_game_text("GUI:Player"), "Alpha");
+    assert_eq!(bravo.fetch_game_text("GUI:Player"), "Bravo");
+    assert_eq!(unbound.fetch_game_text("GUI:Player"), "MISSING: 'GUI:Player'");
+}
+
+/// Each GameClient's own window callbacks read that client's TheGameText.
+#[test]
+fn each_game_client_window_manager_reads_its_own_text() {
+    crate::test_support::ensure_ambient_host();
+    let mut first = crate::core::game_client::GameClient::new().unwrap();
+    let mut second = crate::core::game_client::GameClient::new().unwrap();
+    for (client, tag) in [(&mut first, "First"), (&mut second, "Second")] {
+        let path = std::env::temp_dir().join(format!(
+            "client_wm_text_{}_{}.str",
+            tag,
+            std::process::id()
+        ));
+        std::fs::write(&path, format!("GUI:Player\n\"{tag}\"\nEND\n")).expect("write str");
+        client
+            .ensure_game_text_store()
+            .write()
+            .unwrap()
+            .load_map_strings(&path)
+            .expect("load str");
+        let _ = std::fs::remove_file(&path);
+    }
+    let read = |client: &crate::core::game_client::GameClient| {
+        client
+            .window_manager_owner()
+            .with_manager_ref(|wm| wm.fetch_game_text("GUI:Player"))
+    };
+    assert_eq!(read(&first), "First");
+    assert_eq!(read(&second), "Second");
+}

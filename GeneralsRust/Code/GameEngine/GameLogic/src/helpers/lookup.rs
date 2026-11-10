@@ -1069,13 +1069,6 @@ fn unescape_map_string_value(value: &str) -> String {
 }
 
 impl TheGameText {
-    /// Bridge for module code that is not yet lent its world: resolves the
-    /// published world and reads its own text owners. Callers holding a
-    /// `WorldServices` use [`WorldServices::fetch_game_text`] instead.
-    pub fn fetch(key: &str) -> String {
-        crate::system::engine_stores::active_services().fetch_game_text(key)
-    }
-
     /// C++ `TheGameText->fetch` of the GameEngine that owns `object`.
     pub fn fetch_for(object: &crate::object::Object, key: &str) -> String {
         Self::fetch_from(object.owning_world_services().as_ref(), key)

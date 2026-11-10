@@ -5,7 +5,6 @@
 //! displays connection progress information.
 
 use crate::gui::{GameWindow, WindowManager, WindowMessage, WindowMsgData, WindowMsgHandled};
-use gamelogic::helpers::TheGameText;
 use log::{debug, error, warn};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -198,6 +197,7 @@ impl EstablishConnectionsMenu {
         &mut self,
         slot: i32,
         state: NATConnectionState,
+        manager: &crate::gui::window_manager::WindowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if slot < 0 || slot as usize >= MAX_SLOTS {
             error!("Invalid slot number {} for setPlayerStatus", slot);
@@ -214,16 +214,16 @@ impl EstablishConnectionsMenu {
 
         let status_text = match state {
             NATConnectionState::WaitingForManglerResponse => {
-                TheGameText::fetch("GUI:WaitingForManglerResponse")
+                manager.fetch_game_text("GUI:WaitingForManglerResponse")
             }
             NATConnectionState::WaitingForMangledPort => {
-                TheGameText::fetch("GUI:WaitingForMangledPort")
+                manager.fetch_game_text("GUI:WaitingForMangledPort")
             }
-            NATConnectionState::WaitingForResponse => TheGameText::fetch("GUI:WaitingForResponse"),
-            NATConnectionState::Done => TheGameText::fetch("GUI:ConnectionDone"),
-            NATConnectionState::Failed => TheGameText::fetch("GUI:ConnectionFailed"),
+            NATConnectionState::WaitingForResponse => manager.fetch_game_text("GUI:WaitingForResponse"),
+            NATConnectionState::Done => manager.fetch_game_text("GUI:ConnectionDone"),
+            NATConnectionState::Failed => manager.fetch_game_text("GUI:ConnectionFailed"),
             NATConnectionState::WaitingToBegin => {
-                TheGameText::fetch("GUI:WaitingToBeginConnection")
+                manager.fetch_game_text("GUI:WaitingToBeginConnection")
             }
         };
 
@@ -506,7 +506,7 @@ mod tests {
     fn test_set_player_status_valid_slot() {
         crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
-        let result = menu.set_player_status(0, NATConnectionState::Done);
+        let result = menu.set_player_status(0, NATConnectionState::Done, &crate::gui::window_manager::WindowManager::new());
         assert!(result.is_ok());
     }
 
@@ -514,10 +514,10 @@ mod tests {
     fn test_set_player_status_invalid_slot() {
         crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
-        let result = menu.set_player_status(-1, NATConnectionState::Done);
+        let result = menu.set_player_status(-1, NATConnectionState::Done, &crate::gui::window_manager::WindowManager::new());
         assert!(result.is_err());
 
-        let result = menu.set_player_status(MAX_SLOTS as i32, NATConnectionState::Done);
+        let result = menu.set_player_status(MAX_SLOTS as i32, NATConnectionState::Done, &crate::gui::window_manager::WindowManager::new());
         assert!(result.is_err());
     }
 
@@ -554,7 +554,7 @@ mod tests {
         );
 
         menu.set_player_name(0, "Tester").unwrap();
-        menu.set_player_status(0, NATConnectionState::Done).unwrap();
+        menu.set_player_status(0, NATConnectionState::Done, &crate::gui::window_manager::WindowManager::new()).unwrap();
 
         assert_eq!(menu.get_player_name(0), Some("Tester"));
         assert_eq!(menu.get_player_status(0), Some(&NATConnectionState::Done));
@@ -592,7 +592,7 @@ mod tests {
 
         for state in states {
             let mut menu = EstablishConnectionsMenu::new();
-            assert!(menu.set_player_status(0, state).is_ok());
+            assert!(menu.set_player_status(0, state, &crate::gui::window_manager::WindowManager::new()).is_ok());
         }
     }
 

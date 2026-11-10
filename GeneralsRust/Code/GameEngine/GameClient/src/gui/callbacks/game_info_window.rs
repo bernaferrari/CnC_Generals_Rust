@@ -14,7 +14,6 @@ use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_network::{GameInfo, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, SlotState};
-use gamelogic::helpers::TheGameText;
 
 #[derive(Default)]
 pub(crate) struct GameInfoWindowState {
@@ -198,9 +197,9 @@ owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
             }
             let text = match slot.get_state() {
                 SlotState::Player => slot.get_name().to_string(),
-                SlotState::EasyAI => TheGameText::fetch("GUI:EasyAI"),
-                SlotState::MedAI => TheGameText::fetch("GUI:MediumAI"),
-                SlotState::BrutalAI => TheGameText::fetch("GUI:HardAI"),
+                SlotState::EasyAI => receiving_manager.fetch_game_text("GUI:EasyAI"),
+                SlotState::MedAI => receiving_manager.fetch_game_text("GUI:MediumAI"),
+                SlotState::BrutalAI => receiving_manager.fetch_game_text("GUI:HardAI"),
                 _ => slot.get_name().to_string(),
             };
 

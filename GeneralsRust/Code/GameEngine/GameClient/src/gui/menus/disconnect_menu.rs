@@ -8,7 +8,6 @@
 use crate::gui::game_window::WindowWidget;
 use crate::gui::{GameWindow, WindowManager, WindowMessage, WindowMsgData, WindowMsgHandled};
 use game_network::get_network;
-use gamelogic::helpers::TheGameText;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -292,7 +291,7 @@ impl DisconnectMenu {
             let mut list = list.borrow_mut();
             if let Some(list_box) = list.list_box_mut() {
                 list_box.clear();
-                let text = TheGameText::fetch("GUI:InternetDisconnectionMenuBody1");
+                let text = manager.fetch_game_text("GUI:InternetDisconnectionMenuBody1");
                 list_box.add_item(&text);
             }
         }
@@ -760,7 +759,7 @@ impl DisconnectMenu {
         manager: &mut WindowManager,
     ) {
         self.hide_player_controls(slot, manager);
-        let template = TheGameText::fetch("Network:PlayerLeftGame");
+        let template = manager.fetch_game_text("Network:PlayerLeftGame");
         let message = format!("{} {}", template, player_name);
         self.show_chat(&message);
     }

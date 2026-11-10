@@ -91,6 +91,10 @@ impl GameClient {
         #[cfg(test)]
         crate::test_support::ensure_ambient_host();
         let window_manager_owner = WindowManagerOwner::new();
+        // C++ TheGameText of this client, read by its own window callbacks.
+        let game_text_store =
+            std::sync::Arc::new(std::sync::RwLock::new(crate::game_text::GameText::default()));
+        window_manager_owner.with_manager(|wm| wm.admit_game_text(std::sync::Arc::clone(&game_text_store)));
         let client = Self {
             window_manager_owner,
             prepare_background_layout: None,
@@ -124,7 +128,7 @@ impl GameClient {
             weather_setting: None,
             snow_manager: None,
             draw_group_info: None,
-            game_text_store: None,
+            game_text_store: Some(game_text_store),
             global_language_data: None,
             language_filter: None,
             smudge_manager: None,
