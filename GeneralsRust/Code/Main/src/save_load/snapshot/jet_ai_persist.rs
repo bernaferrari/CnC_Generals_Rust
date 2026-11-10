@@ -106,21 +106,27 @@ fn find_jtai_suffix(bytes: &[u8]) -> Option<&[u8]> {
         .enumerate()
         .filter_map(|(index, window)| (window == JTAI_MAGIC).then_some(index + 4))
         .collect();
-    // An authored cursor name may itself contain "JTAI". Select a complete
-    // header before treating a data string as a suffix; malformed real tails
-    // still reach the decoder and retain its checked truncation/version error.
+    // An authored cursor name inside the payload may itself contain "JTAI"
+    // (e.g. a lock-on drawable template). The real header precedes its own
+    // payload, so take the first marker whose version, length and payload
+    // all check out; a malformed real tail still reaches the decoder through
+    // the first marker and keeps its checked version/truncation error.
     markers
         .iter()
-        .rev()
         .copied()
-        .find(|index| {
-            let rest = &bytes[*index..];
-            rest.get(4..8).is_some_and(|length| {
-                u32::from_le_bytes(length.try_into().unwrap()) as usize <= rest.len() - 8
-            })
-        })
-        .or_else(|| markers.last().copied())
+        .find(|index| is_complete_jtai_suffix(&bytes[*index..]))
+        .or_else(|| markers.first().copied())
         .map(|index| &bytes[index..])
+}
+
+fn is_complete_jtai_suffix(mut rest: &[u8]) -> bool {
+    let (Ok(version), Ok(length)) = (take_u32(&mut rest), take_u32(&mut rest)) else {
+        return false;
+    };
+    version == JTAI_VERSION
+        && rest
+            .get(..length as usize)
+            .is_some_and(|payload| bincode_legacy::deserialize::<JetAiPersistPayload>(payload).is_ok())
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
