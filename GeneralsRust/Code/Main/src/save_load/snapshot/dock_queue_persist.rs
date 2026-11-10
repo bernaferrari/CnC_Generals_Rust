@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn snapshot_builder_round_trips_production_dock_queue_and_isolates_same_ids() {
         use crate::fixture_content::{admit_fixture_objects, FixtureObject};
-        use crate::game_logic::{AIState, Team};
+        use crate::game_logic::{AIState, DockKind, Team};
 
         fn admitted_world() -> GameLogic {
             let mut world = GameLogic::new();
