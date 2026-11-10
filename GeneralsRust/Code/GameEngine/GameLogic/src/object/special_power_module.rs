@@ -688,14 +688,17 @@ impl SpecialPowerModule {
                     (false, Relationship::Neutral)
                 };
 
+                // C++ TheEva of the GameEngine that owns the launching Object.
+                let owner_world = owner.read().ok().and_then(|guard| guard.owning_world_services());
                 let launched = |own_evt, ally_evt, enemy_evt| {
-                    if is_own {
-                        let _ = TheEva::set_should_play(own_evt);
+                    let event = if is_own {
+                        own_evt
                     } else if relation != Relationship::Enemies {
-                        let _ = TheEva::set_should_play(ally_evt);
+                        ally_evt
                     } else {
-                        let _ = TheEva::set_should_play(enemy_evt);
-                    }
+                        enemy_evt
+                    };
+                    let _ = TheEva::set_should_play_from(owner_world.as_ref(), event);
                 };
 
                 match power_type {

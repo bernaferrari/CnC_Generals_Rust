@@ -108,7 +108,7 @@ fn emit_first_detection_feedback(
             if let Ok(stealth_guard) = stealth.lock() {
                 if let Some(name) = stealth_guard.enemy_detection_eva_event() {
                     if let Some(event) = eva_event_from_name(&name) {
-                        let _ = TheEva::set_should_play(event);
+                        let _ = TheEva::set_should_play_for(detector, event);
                     }
                 }
             }
@@ -138,7 +138,7 @@ fn emit_first_detection_feedback(
             if let Ok(stealth_guard) = stealth.lock() {
                 if let Some(name) = stealth_guard.own_detection_eva_event() {
                     if let Some(event) = eva_event_from_name(&name) {
-                        let _ = TheEva::set_should_play(event);
+                        let _ = TheEva::set_should_play_for(target, event);
                     }
                 }
             }

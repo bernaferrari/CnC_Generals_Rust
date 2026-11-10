@@ -978,6 +978,26 @@ impl TheEva {
         Ok(())
     }
 
+    /// C++ `TheEva->setShouldPlay` from code running for `object`: the Eva of
+    /// the world that admitted it. Objects no world admitted keep the published Eva.
+    pub fn set_should_play_for(
+        object: &crate::object::Object,
+        event: EvaEvent,
+    ) -> Result<(), GameError> {
+        Self::set_should_play_from(object.owning_world_services().as_ref(), event)
+    }
+
+    /// `world`'s Eva when there is an owning world, else the published one.
+    pub fn set_should_play_from(
+        world: Option<&std::sync::Arc<crate::system::engine_stores::WorldServices>>,
+        event: EvaEvent,
+    ) -> Result<(), GameError> {
+        match world {
+            Some(world) => Self::set_should_play_in(world, event),
+            None => Self::set_should_play(event),
+        }
+    }
+
     /// C++ `Eva::setEnabled` (Eva.cpp:371-377) on `world`'s Eva.
     pub fn set_enabled_in(
         world: &crate::system::engine_stores::WorldServices,

@@ -88,6 +88,16 @@ impl engine_module::Thing for Object {
     }
 }
 
+impl Object {
+    /// The world whose GameLogic admitted this Object (C++ the GameEngine that
+    /// owns it), if a world runtime admitted it.
+    pub(crate) fn owning_world_services(
+        &self,
+    ) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
+        self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services()))
+    }
+}
+
 /// The receiving world an Object is assembled in: C++ resolves its
 /// `TheGameLogic`, `TheCaveSystem` and `ThePlayerList` from the GameEngine that
 /// owns the Object. Modules keep this instead of consulting the published world.
@@ -508,5 +518,54 @@ impl game_engine::common::rts::player::SkillPointObject for Object {
 
     fn is_under_construction(&self) -> bool {
         self.test_status(crate::common::ObjectStatusTypes::UnderConstruction)
+    }
+}
+
+#[cfg(test)]
+mod owning_world_eva_tests {
+    use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::helpers::{EvaEvent, TheEva};
+    use crate::system::engine_stores::{with_world_services, EngineStores};
+
+    fn object(id: ObjectID) -> Arc<RwLock<Object>> {
+        let template = Arc::new(DefaultThingTemplate::new(format!("EvaOwner{id}")));
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), None).expect("test object")
+    }
+
+    #[test]
+    fn object_eva_lands_in_the_world_that_admitted_the_object() {
+        // Two worlds on one thread: construction-complete, superweapon-launch and
+        // stealth-detection Eva go to the GameEngine owning the Object (C++),
+        // whichever world happens to be published.
+        let a = Arc::new(EngineStores::new_for_world());
+        let b = Arc::new(EngineStores::new_for_world());
+        let in_a = object(71);
+        let in_b = object(72);
+        let unadmitted = object(73);
+        in_a.write().unwrap().bind_pathfinding_owner(&a).unwrap();
+        in_b.write().unwrap().bind_pathfinding_owner(&b).unwrap();
+        assert!(Arc::ptr_eq(
+            &in_b.read().unwrap().owning_world_services().unwrap(),
+            b.services()
+        ));
+
+        with_world_services(a.services(), || {
+            TheEva::set_should_play_for(&in_b.read().unwrap(), EvaEvent::SuperweaponLaunchedOwnNuke)
+                .unwrap();
+            // An Object no world admitted keeps the published Eva.
+            TheEva::set_should_play_for(&unadmitted.read().unwrap(), EvaEvent::UnitLost).unwrap();
+        });
+        with_world_services(b.services(), || {
+            TheEva::set_should_play_for(&in_a.read().unwrap(), EvaEvent::BuildingLost).unwrap();
+        });
+        assert_eq!(
+            TheEva::drain_events_in(a.services()).unwrap(),
+            vec![EvaEvent::UnitLost, EvaEvent::BuildingLost]
+        );
+        assert_eq!(
+            TheEva::drain_events_in(b.services()).unwrap(),
+            vec![EvaEvent::SuperweaponLaunchedOwnNuke]
+        );
     }
 }

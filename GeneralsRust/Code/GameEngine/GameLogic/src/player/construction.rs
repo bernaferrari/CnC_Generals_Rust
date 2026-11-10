@@ -109,7 +109,12 @@ impl Player {
             });
         }
 
-        crate::control_bar::mark_ui_dirty();
+        // C++ TheControlBar/TheEva of the GameEngine that owns the structure.
+        let structure_world = structure.read().ok().and_then(|guard| guard.owning_world_services());
+        match structure_world.as_ref() {
+            Some(world) => crate::control_bar::mark_ui_dirty_in(world.control_bar_ui_hooks()),
+            None => crate::control_bar::mark_ui_dirty(),
+        }
 
         let __player_list_arc = crate::player::player_list();
             let local_player = __player_list_arc.read()
@@ -166,15 +171,18 @@ impl Player {
 
             if is_superweapon_particle {
                 if own {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnParticleCannon,
                     );
                 } else if relation != Relationship::Enemies {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedAllyParticleCannon,
                     );
                 } else {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedEnemyParticleCannon,
                     );
                 }
@@ -182,15 +190,18 @@ impl Player {
 
             if is_superweapon_nuke {
                 if own {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnNuke,
                     );
                 } else if relation != Relationship::Enemies {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedAllyNuke,
                     );
                 } else {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedEnemyNuke,
                     );
                 }
@@ -198,15 +209,18 @@ impl Player {
 
             if is_superweapon_scud {
                 if own {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnScudStorm,
                     );
                 } else if relation != Relationship::Enemies {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedAllyScudStorm,
                     );
                 } else {
-                    let _ = crate::helpers::TheEva::set_should_play(
+                    let _ = crate::helpers::TheEva::set_should_play_from(
+                        structure_world.as_ref(),
                         crate::helpers::EvaEvent::SuperweaponDetectedEnemyScudStorm,
                     );
                 }
