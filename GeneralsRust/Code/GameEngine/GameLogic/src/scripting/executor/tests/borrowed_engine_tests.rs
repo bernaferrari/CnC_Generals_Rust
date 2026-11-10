@@ -130,3 +130,31 @@ fn injected_evaluator_preserves_default_and_empty_named_row_identity() {
         vec![("", 1), ("Shared", 4), ("", 77)]
     );
 }
+
+/// C++ ScriptConditions skirmish command-button-ready reads the evaluating
+/// engine's TheControlBar. Two worlds take turns on ONE thread: each evaluator
+/// resolves buttons only from its own world, whichever world is published.
+#[test]
+fn evaluator_command_buttons_come_from_the_evaluating_engines_world() {
+    let _serial = crate::test_sync::lock();
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    const NAME: &str = "Command_EvaluatorOwnedButton";
+    let world_a = new_world_services();
+    let world_b = new_world_services();
+    world_a.common().ini.control_bar.write().new_command_button(NAME.into()).command = "STOP".into();
+    for world in [&world_a, &world_b] {
+        crate::control_bar::refresh_control_bar_bridge_for_world(world, None).unwrap();
+    }
+    let eval_a = ScriptEvaluator::new(ScriptEngineHandle::from_engine(
+        ScriptEngine::new_with_services(&world_a).unwrap(),
+    ));
+    let eval_b = ScriptEvaluator::new(ScriptEngineHandle::from_engine(
+        ScriptEngine::new_with_services(&world_b).unwrap(),
+    ));
+    for published in [&world_b, &world_a, &world_b] {
+        with_world_services(published, || {
+            assert!(eval_a.evaluating_command_button(NAME).is_some(), "A finds its own button");
+            assert!(eval_b.evaluating_command_button(NAME).is_none(), "B never sees A's catalog");
+        });
+    }
+}

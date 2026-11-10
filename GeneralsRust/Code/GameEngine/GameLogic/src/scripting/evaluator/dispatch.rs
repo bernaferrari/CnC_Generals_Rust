@@ -96,6 +96,18 @@ impl ScriptEvaluator {
         guard.as_ref().map(f)
     }
 
+    /// C++ `TheControlBar->findCommandButton(name)` of the evaluating engine's
+    /// world, never the world published on the thread.
+    pub(crate) fn evaluating_command_button(
+        &self,
+        name: &str,
+    ) -> Option<crate::command_button::CommandButton> {
+        self.with_evaluation_engine_ref(|engine| engine.control_bar_bridge())
+            .flatten()?
+            .find_command_button_by_name(name)
+            .cloned()
+    }
+
     /// Mutating counterpart to `with_evaluation_engine_ref`.
     fn with_evaluation_engine_mut<R>(&self, f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
         if is_script_engine_active() {
@@ -1605,10 +1617,7 @@ impl ScriptEvaluator {
                 })?;
 
                 let button_name = button_name_param.get_string();
-                let Some(bridge) = crate::control_bar::get_control_bar_bridge() else {
-                    return Ok(false);
-                };
-                let Some(_button) = bridge.find_command_button_by_name(&button_name) else {
+                let Some(_button) = self.evaluating_command_button(&button_name) else {
                     return Ok(false);
                 };
 
@@ -1659,10 +1668,7 @@ impl ScriptEvaluator {
                 })?;
 
                 let button_name = button_name_param.get_string();
-                let Some(bridge) = crate::control_bar::get_control_bar_bridge() else {
-                    return Ok(false);
-                };
-                let Some(_button) = bridge.find_command_button_by_name(&button_name) else {
+                let Some(_button) = self.evaluating_command_button(&button_name) else {
                     return Ok(false);
                 };
 
