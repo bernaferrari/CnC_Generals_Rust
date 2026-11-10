@@ -57,7 +57,8 @@ fn native_team_preflight_unexpected_create_rejects_before_live_session_or_camera
             definition.set_bool(key_team_executes_actions_on_create(), true);
             definition.set_ascii_string(key_team_production_condition(), "ForeignCallback");
             {
-                let mut factory = gamelogic::team::get_team_factory().lock().unwrap();
+                let published_team_factory = gamelogic::team::get_team_factory();
+                let mut factory = published_team_factory.lock().unwrap();
                 assert!(
                     factory
                         .init_team(

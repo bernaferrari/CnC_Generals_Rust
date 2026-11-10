@@ -67,7 +67,8 @@ impl AIPlayer {
     }
 
     pub(super) fn team_any_member_idle(team_name: &str) -> bool {
-        let Ok(factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(factory) = published_team_factory.lock() else {
             return false;
         };
         let Some(team_arc) = factory.find_team_instances(team_name).into_iter().next() else {
@@ -84,7 +85,8 @@ impl AIPlayer {
     }
 
     pub(super) fn team_all_members_idle(team_name: &str) -> bool {
-        let Ok(factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(factory) = published_team_factory.lock() else {
             return true;
         };
         let Some(team_arc) = factory.find_team_instances(team_name).into_iter().next() else {

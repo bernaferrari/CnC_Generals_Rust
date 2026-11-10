@@ -80,7 +80,8 @@ fn restored_skirmish_delivery_completes_first_order_and_assigns_team() {
     let factory_id = objects.factory.read().unwrap().get_id();
     let unit_id = objects.unit.read().unwrap().get_id();
     let prototype = TeamPrototype::new("ProductionCallbackTeam".into());
-    let team = get_team_factory()
+    let published_team_factory = get_team_factory();
+    let team = published_team_factory
         .lock()
         .unwrap()
         .create_team_on_prototype_with_id(&prototype, 0xB0_8201)

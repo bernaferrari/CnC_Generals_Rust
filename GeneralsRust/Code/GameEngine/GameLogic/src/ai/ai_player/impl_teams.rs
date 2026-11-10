@@ -405,7 +405,8 @@ impl AIPlayer {
         }
         drop(player_guard);
 
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(());
         };
         let Some(proto) = factory.find_team_prototype(team_name).map(|p| p.clone()) else {
@@ -488,7 +489,8 @@ impl AIPlayer {
         }
 
         // createInactiveTeam
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(());
         };
         let Some(team_arc) = factory.create_inactive_team(team_name) else {
@@ -586,7 +588,8 @@ impl AIPlayer {
             recruit_radius
         };
 
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(());
         };
         let Some(proto) = factory.find_team_prototype(team_name).map(|p| p.clone()) else {

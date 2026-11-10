@@ -23,7 +23,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let members = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let members = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))
@@ -57,7 +58,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let members = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let members = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))
@@ -106,7 +108,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         };
 
-        let Some(team_arc) = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let Some(team_arc) = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))
@@ -179,7 +182,8 @@ impl ScriptActionDispatcher<'_> {
             relation
         );
 
-        let (team_arc, target_team_id) = if let Ok(mut factory) = get_team_factory().lock() {
+        let published_team_factory = get_team_factory();
+        let (team_arc, target_team_id) = if let Ok(mut factory) = published_team_factory.lock() {
             (
                 factory.find_team(&team_name),
                 factory
@@ -210,7 +214,8 @@ impl ScriptActionDispatcher<'_> {
             target_team
         );
 
-        let (team_arc, target_team_id) = if let Ok(mut factory) = get_team_factory().lock() {
+        let published_team_factory = get_team_factory();
+        let (team_arc, target_team_id) = if let Ok(mut factory) = published_team_factory.lock() {
             (
                 factory.find_team(&team_name),
                 factory
@@ -236,7 +241,8 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' remove all override relations", team_name);
 
-        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+        let published_team_factory = get_team_factory();
+        let team_arc = if let Ok(mut factory) = published_team_factory.lock() {
             factory.find_team(&team_name)
         } else {
             None
@@ -266,7 +272,8 @@ impl ScriptActionDispatcher<'_> {
             relation
         );
 
-        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+        let published_team_factory = get_team_factory();
+        let team_arc = if let Ok(mut factory) = published_team_factory.lock() {
             factory.find_team(&team_name)
         } else {
             None
@@ -300,7 +307,8 @@ impl ScriptActionDispatcher<'_> {
             player_name
         );
 
-        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+        let published_team_factory = get_team_factory();
+        let team_arc = if let Ok(mut factory) = published_team_factory.lock() {
             factory.find_team(&team_name)
         } else {
             None
@@ -1307,7 +1315,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(ScriptActionResult::Success);
         };
         let Some(team_arc) = factory.find_team(&team_name) else {
@@ -1513,7 +1522,8 @@ impl ScriptActionDispatcher<'_> {
     }
 
     pub(crate) fn evaluate_team_is_contained(&self, team_name: &str, all_contained: bool) -> bool {
-        let members = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let members = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(team_name))
@@ -1595,7 +1605,8 @@ impl ScriptActionDispatcher<'_> {
         }
 
         let team_name = self.resolve_team_name_token(&team_name);
-        let (members, estimate_team_pos) = if let Ok(mut factory_guard) = get_team_factory().lock()
+        let published_team_factory = get_team_factory();
+        let (members, estimate_team_pos) = if let Ok(mut factory_guard) = published_team_factory.lock()
         {
             if let Some(team_arc) = factory_guard.find_team(&team_name) {
                 if let Ok(team_guard) = team_arc.read() {

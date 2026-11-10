@@ -190,7 +190,8 @@ pub(super) fn execute(case: &str) {
         .probe
         .clone();
     assert_eq!(probe.created.load(Ordering::SeqCst), 0);
-    let team = gamelogic::team::get_team_factory()
+    let published_team_factory = gamelogic::team::get_team_factory();
+    let team = published_team_factory
         .lock()
         .unwrap()
         .find_team_by_id(91311)

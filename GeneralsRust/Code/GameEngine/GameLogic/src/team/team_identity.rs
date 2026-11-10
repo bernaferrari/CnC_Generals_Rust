@@ -234,7 +234,8 @@ impl Team {
     /// Whether this team should share a common attack target.
     pub fn attack_common_target(&self) -> Bool {
         let team_name = self.get_name().to_string();
-        let Ok(factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(factory) = published_team_factory.lock() else {
             return true;
         };
         factory

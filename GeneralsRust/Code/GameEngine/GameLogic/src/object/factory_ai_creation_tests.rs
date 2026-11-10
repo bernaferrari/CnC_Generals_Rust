@@ -161,7 +161,8 @@ fn exercise_factory(no_ai: bool) {
         Arc::new(ai_template("EarlyFactoryAi", !no_ai)),
     );
     let team = {
-        let mut teams = crate::team::get_team_factory().lock().unwrap();
+        let published_team_factory = crate::team::get_team_factory();
+        let mut teams = published_team_factory.lock().unwrap();
         let mut prototype = crate::team::TeamPrototype::new("EarlyFactoryAiTeam".into());
         prototype.set_initial_team_attitude(crate::team::AttitudeType::Aggressive);
         teams.replace_team_prototype(prototype);
@@ -247,7 +248,8 @@ fn factory_unit_owner_survives_registry_replacement_destroy_and_reset_until_reti
     let _serial = crate::test_sync::lock();
     register_ai_probe();
     let team = {
-        let mut teams = crate::team::get_team_factory().lock().unwrap();
+        let published_team_factory = crate::team::get_team_factory();
+        let mut teams = published_team_factory.lock().unwrap();
         let mut prototype = crate::team::TeamPrototype::new("UnitOwnerRetirementTeam".into());
         prototype.set_initial_team_attitude(crate::team::AttitudeType::Aggressive);
         teams.replace_team_prototype(prototype);

@@ -1309,7 +1309,8 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
     crate::scripting::clear_host_script_query_snapshot();
     get_team_factory().lock().unwrap().reset();
     {
-        let mut factory = get_team_factory().lock().unwrap();
+        let published_team_factory = get_team_factory();
+        let mut factory = published_team_factory.lock().unwrap();
         factory.init_team(
             crate::common::AsciiString::from("HostSeqTeam"),
             crate::common::AsciiString::default(),

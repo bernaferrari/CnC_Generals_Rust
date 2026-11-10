@@ -34,7 +34,8 @@ impl ScriptEvaluator {
     }
 
     fn resolve_team_instances(&self, team_name: &str) -> Vec<Arc<RwLock<crate::team::Team>>> {
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Vec::new();
         };
 

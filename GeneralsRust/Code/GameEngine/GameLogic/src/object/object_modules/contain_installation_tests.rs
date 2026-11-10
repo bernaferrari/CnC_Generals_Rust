@@ -349,7 +349,8 @@ fn authored_transport_admission_uses_borrowed_same_id_owner_without_registry() {
             .get_object(ID + 3)
             .is_none()
     );
-    let ambient_team = crate::team::get_team_factory()
+    let published_team_factory = crate::team::get_team_factory();
+    let ambient_team = published_team_factory
         .lock()
         .unwrap()
         .create_team_on_prototype_with_id(

@@ -251,7 +251,8 @@ impl ScriptAction for TeamGuardAction {
                 .unwrap_or(0.0);
             Coord3D::new(x_pos as f32, y_pos as f32, z)
         } else {
-            let Some(team_arc) = get_team_factory()
+            let published_team_factory = get_team_factory();
+            let Some(team_arc) = published_team_factory
                 .lock()
                 .ok()
                 .and_then(|mut guard| guard.find_team(&resolved_team))
@@ -539,7 +540,8 @@ impl ScriptAction for TeamGarrisonBuildingAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let members = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let members = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
@@ -627,7 +629,8 @@ impl ScriptAction for TeamExitBuildingAction {
 
         let resolved_team =
             resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
-        let members = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let members = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
@@ -720,7 +723,8 @@ impl ScriptAction for TeamCaptureBuildingAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let members = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let members = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
@@ -823,7 +827,8 @@ impl ScriptAction for TeamRepairAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let members = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let members = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
@@ -1181,7 +1186,8 @@ impl ScriptAction for TeamFollowTeamAction {
         let resolved_target =
             resolve_team_name_token(&target_team, _context.is_generals_challenge_campaign());
 
-        let target_id = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let target_id = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_target))
@@ -1259,7 +1265,8 @@ impl ScriptAction for TeamGuardInTunnelAction {
 
         let resolved_team =
             resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
-        let team_arc = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let team_arc = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team));

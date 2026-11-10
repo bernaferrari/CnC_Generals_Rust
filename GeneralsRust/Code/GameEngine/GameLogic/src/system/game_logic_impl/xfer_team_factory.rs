@@ -11,7 +11,8 @@ fn xfer_team_factory_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    let mut factory = get_team_factory()
+    let published_team_factory = get_team_factory();
+    let mut factory = published_team_factory
         .lock()
         .map_err(|_| XferStatus::InvalidData)?;
 
@@ -63,7 +64,8 @@ fn xfer_team_factory_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus
 }
 
 fn xfer_team_factory_load_post_process() -> Result<(), XferStatus> {
-    let mut factory = get_team_factory()
+    let published_team_factory = get_team_factory();
+    let mut factory = published_team_factory
         .lock()
         .map_err(|_| XferStatus::InvalidData)?;
     factory.restore_unique_ids_after_load();

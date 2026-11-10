@@ -197,7 +197,8 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
         crate::team::TeamFactory::new(),
     )));
     let team = {
-        let mut teams = crate::team::get_team_factory().lock().unwrap();
+        let published_team_factory = crate::team::get_team_factory();
+        let mut teams = published_team_factory.lock().unwrap();
         let prototype = teams
             .init_team_owned("AuthoredBodyProbeTeam".into(), "".into(), false, None, None)
             .unwrap();

@@ -1295,7 +1295,8 @@ mod tests {
             crate::team::TeamFactory::new(),
         )));
         let receiving_team = {
-            let mut teams = crate::team::get_team_factory().lock().unwrap();
+            let published_team_factory = crate::team::get_team_factory();
+            let mut teams = published_team_factory.lock().unwrap();
             let prototype = teams
                 .init_team_owned("CppObjectTocTeam".into(), "".into(), false, None, None)
                 .unwrap();

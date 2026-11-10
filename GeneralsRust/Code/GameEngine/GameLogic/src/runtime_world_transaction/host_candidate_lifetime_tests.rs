@@ -34,7 +34,8 @@ fn seed(marker: u32) {
         game_engine::common::well_known_keys::key_team_on_unit_destroyed_script(),
         "NotExecutedByNativeCommit",
     );
-    let mut factory = get_team_factory().lock().unwrap();
+    let published_team_factory = get_team_factory();
+    let mut factory = published_team_factory.lock().unwrap();
     let prototype = factory
         .init_team("ReservationTeam".into(), "".into(), false, Some(&dict))
         .unwrap();

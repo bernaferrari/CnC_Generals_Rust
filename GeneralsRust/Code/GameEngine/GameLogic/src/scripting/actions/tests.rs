@@ -737,7 +737,8 @@ async fn team_guard_without_position_guards_each_member_at_own_position() {
     reset_test_team_factory();
 
     let team = {
-        let mut factory = get_team_factory().lock().unwrap();
+        let published_team_factory = get_team_factory();
+        let mut factory = published_team_factory.lock().unwrap();
         factory.init_team(
             AsciiString::from("GuardTeam"),
             AsciiString::default(),
@@ -870,7 +871,8 @@ async fn team_attack_area_dispatches_attack_area_to_team_members() {
         ));
 
     let team = {
-        let mut factory = get_team_factory().lock().unwrap();
+        let published_team_factory = get_team_factory();
+        let mut factory = published_team_factory.lock().unwrap();
         factory.init_team(
             AsciiString::from("AttackAreaTeam"),
             AsciiString::default(),
@@ -1388,7 +1390,8 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
     reset_test_team_factory();
 
     {
-        let mut factory = get_team_factory().lock().unwrap();
+        let published_team_factory = get_team_factory();
+        let mut factory = published_team_factory.lock().unwrap();
         factory.init_team(
             AsciiString::from("TargetTeam"),
             AsciiString::default(),

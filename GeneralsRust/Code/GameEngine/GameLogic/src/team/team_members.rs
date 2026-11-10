@@ -162,7 +162,8 @@ impl Team {
             })
             .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_id()));
 
-        let my_priority = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let my_priority = published_team_factory
             .lock()
             .ok()
             .and_then(|factory| {
@@ -201,7 +202,8 @@ impl Team {
                         return None;
                     }
 
-                    let source_priority = get_team_factory()
+                    let published_team_factory = get_team_factory();
+                    let source_priority = published_team_factory
                         .lock()
                         .ok()
                         .and_then(|factory| {

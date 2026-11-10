@@ -379,7 +379,8 @@ impl ScriptEngine {
                         continue;
                     }
 
-                    let Some(prototype) = get_team_factory()
+                    let published_team_factory = get_team_factory();
+                    let Some(prototype) = published_team_factory
                         .lock()
                         .ok()
                         .and_then(|factory| factory.find_team_prototype(team_name))

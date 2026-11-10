@@ -30,7 +30,8 @@ impl CompletionFixture {
                     .get_object(id)
                     .is_none()
             });
-            let team_unused = crate::team::get_team_factory()
+            let published_team_factory = crate::team::get_team_factory();
+            let team_unused = published_team_factory
                 .lock()
                 .unwrap()
                 .find_team_by_id(team_id)

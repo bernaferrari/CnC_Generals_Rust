@@ -1037,7 +1037,8 @@ impl Object {
         }
 
         let original_name = self.original_team_name.to_string();
-        let restored_team = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let restored_team = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&original_name));

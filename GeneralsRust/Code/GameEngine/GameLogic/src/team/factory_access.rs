@@ -474,16 +474,12 @@ impl TeamFactoryDeferredEffects {
     }
 }
 
-/// Global team factory instance (matching C++ TheTeamFactory)
-static THE_TEAM_FACTORY: OnceLock<TeamFactoryHandle> = OnceLock::new();
-
-fn global_team_factory_handle() -> &'static TeamFactoryHandle {
-    THE_TEAM_FACTORY.get_or_init(|| TeamFactoryHandle::new())
-}
-
-/// Get the compatibility singleton used by legacy engine-only callers.
-pub fn get_team_factory() -> &'static TeamFactoryMutex {
-    global_team_factory_handle().inner.as_ref()
+/// C++ `TheTeamFactory`: the published world's own factory
+/// (`WorldServices::team_factory`). There is no process-wide factory; a
+/// caller outside a published world has no TeamFactory, as in C++ before
+/// GameEngine::init creates the subsystem.
+pub fn get_team_factory() -> Arc<TeamFactoryMutex> {
+    Arc::clone(&crate::system::engine_stores::active_services().team_factory().inner)
 }
 
 /// Convenience alias for C++ compatibility
@@ -511,7 +507,8 @@ impl TeamArcExt for Arc<RwLock<Team>> {
 /// id is unknown or a lock is poisoned. The factory lock is released before
 /// `f` runs so object creation under a team cannot re-enter it.
 pub fn with_team<R>(team_id: TeamID, f: impl FnOnce(&mut Team) -> R) -> Option<R> {
-    let team = get_team_factory().lock().ok()?.find_team_by_id(team_id)?;
+    let published_team_factory = get_team_factory();
+    let team = published_team_factory.lock().ok()?.find_team_by_id(team_id)?;
     let mut guard = team.write().ok()?;
     Some(f(&mut guard))
 }
@@ -632,5 +629,39 @@ mod detached_definition_tests {
             factory.pending_generic_script_evals[0].script_name,
             "PendingGeneric"
         );
+    }
+}
+
+#[cfg(test)]
+mod published_world_factory_tests {
+    use super::*;
+    use crate::system::engine_stores::{WorldServices, with_world_services};
+
+    fn has_prototype(name: &str) -> bool {
+        get_team_factory().inner.lock().unwrap().prototypes.contains_key(name)
+    }
+
+    #[test]
+    fn the_team_factory_is_the_published_worlds_own_while_worlds_take_turns() {
+        let a = Arc::new(WorldServices::new_for_world());
+        let b = Arc::new(WorldServices::new_for_world());
+        with_world_services(&a, || {
+            assert!(Arc::ptr_eq(&get_team_factory(), &a.team_factory().inner));
+            get_team_factory()
+                .inner
+                .lock()
+                .unwrap()
+                .prototypes
+                .insert("OnlyInA".into(), Arc::new(TeamPrototype::new("OnlyInA".into())));
+        });
+        for _ in 0..2 {
+            with_world_services(&b, || {
+                assert!(Arc::ptr_eq(&get_team_factory(), &b.team_factory().inner));
+                assert!(!has_prototype("OnlyInA"), "B never sees A's team prototypes");
+            });
+            with_world_services(&a, || {
+                assert!(has_prototype("OnlyInA"), "A keeps its own factory between turns");
+            });
+        }
     }
 }

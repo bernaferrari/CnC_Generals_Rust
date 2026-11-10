@@ -253,7 +253,8 @@ impl ScriptEngine {
     }
 
     fn standalone_team_name(id: Option<TeamID>) -> Option<String> {
-        let team = get_team_factory().lock().ok()?.find_team_by_id(id?)?;
+        let published_team_factory = get_team_factory();
+        let team = published_team_factory.lock().ok()?.find_team_by_id(id?)?;
         team.read().ok().map(|team| team.get_name().to_string())
     }
 
@@ -263,7 +264,8 @@ impl ScriptEngine {
     ) -> Option<Arc<RwLock<crate::team::Team>>> {
         let (calling, condition) =
             self.with_inner(|inner| (inner.calling_team, inner.condition_team));
-        let factory = get_team_factory().lock().ok()?;
+        let published_team_factory = get_team_factory();
+        let factory = published_team_factory.lock().ok()?;
         if raw == crate::scripting::core::THIS_TEAM {
             return factory.find_team_by_id(calling.or(condition)?);
         }
@@ -287,7 +289,8 @@ impl ScriptEngine {
     }
 
     fn standalone_team_player(id: TeamID) -> Option<String> {
-        let team = get_team_factory().lock().ok()?.find_team_by_id(id)?;
+        let published_team_factory = get_team_factory();
+        let team = published_team_factory.lock().ok()?.find_team_by_id(id)?;
         let player_id = team.read().ok()?.get_controlling_player_id()?;
         let __player_list_arc = crate::player::player_list();
             let player = __player_list_arc.read()

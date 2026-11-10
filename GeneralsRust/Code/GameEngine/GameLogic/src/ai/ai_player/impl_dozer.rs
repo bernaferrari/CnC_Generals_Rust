@@ -1005,7 +1005,8 @@ impl AIPlayer {
                 continue;
             }
 
-            let Ok(factory_guard) = get_team_factory().lock() else {
+            let published_team_factory = get_team_factory();
+            let Ok(factory_guard) = published_team_factory.lock() else {
                 continue;
             };
             let instances = factory_guard.find_team_instances(&name);

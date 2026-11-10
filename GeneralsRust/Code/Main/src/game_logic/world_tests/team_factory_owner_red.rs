@@ -75,7 +75,8 @@ fn host_team_activation_uses_the_driving_world_factory() {
             // Model the old Main consumer's ambient factory selection: world B is the
             // currently installed engine singleton while the host is ticking world A.
             {
-                let mut factory = get_team_factory().lock().expect("ambient factory");
+                let published_team_factory = get_team_factory();
+                let mut factory = published_team_factory.lock().expect("ambient factory");
                 factory.reset();
                 factory
                     .init_team("SharedTeam".into(), "".into(), false, None)

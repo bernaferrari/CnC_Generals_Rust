@@ -320,7 +320,8 @@ impl ScriptActionDispatcher<'_> {
         } else {
             None
         };
-        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+        let published_team_factory = get_team_factory();
+        let team_arc = if let Ok(mut factory) = published_team_factory.lock() {
             factory.find_team(&team_name)
         } else {
             None
@@ -354,7 +355,8 @@ impl ScriptActionDispatcher<'_> {
         } else {
             None
         };
-        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
+        let published_team_factory = get_team_factory();
+        let team_arc = if let Ok(mut factory) = published_team_factory.lock() {
             factory.find_team(&team_name)
         } else {
             None

@@ -1911,7 +1911,8 @@ impl ScriptConditionEvaluator<'_> {
         }
 
         // C++ parity: ScriptConditions::evaluateTeamReachedWaypointsEnd
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(team_arc) = factory.find_team(&team_name) else {
@@ -2141,7 +2142,8 @@ impl ScriptConditionEvaluator<'_> {
             ));
         }
 
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(team_arc) = factory.find_team(&team_name) else {
@@ -2191,7 +2193,8 @@ impl ScriptConditionEvaluator<'_> {
             ));
         }
 
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(mut factory) = published_team_factory.lock() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(team_arc) = factory.find_team(&team_name) else {

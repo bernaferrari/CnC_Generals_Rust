@@ -151,7 +151,8 @@ impl ScriptAction for NamedAttackTeamAction {
 
         let resolved_team =
             resolve_team_name_token(&team_name, _context.is_generals_challenge_campaign());
-        let team_exists = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let team_exists = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))

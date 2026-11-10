@@ -3,7 +3,7 @@
   "EngineCrates": 0,
   "GameClient": 1,
   "GameEngineDevice": 10,
-  "GameLogic": 1,
+  "GameLogic": 0,
   "GameNetwork": 25,
   "Main": 0,
   "WWVegas": 1

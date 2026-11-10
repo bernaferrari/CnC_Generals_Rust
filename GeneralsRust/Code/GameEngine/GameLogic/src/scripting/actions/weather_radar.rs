@@ -583,7 +583,8 @@ impl ScriptAction for TeamCreateRadarEventAction {
         );
         let event_type = get_int_param(parameters, "event_type")? as i32;
 
-        let Some(position) = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let Some(position) = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))

@@ -32,7 +32,8 @@ impl ScriptActionDispatcher<'_> {
         // `findTeamPrototype(teamName)->getControllingPlayer()`.  A live team
         // instance or the currently executing script side must not substitute
         // for a missing prototype owner.
-        let owner_name = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let owner_name = published_team_factory
             .lock()
             .ok()
             .and_then(|factory| factory.find_team_prototype(&team_name))
@@ -83,7 +84,8 @@ impl ScriptActionDispatcher<'_> {
 
         // C++ ScriptActions::doRecruitTeam has the same prototype-controller
         // requirement as doBuildTeam.  Missing ownership is a no-op.
-        let owner_name = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let owner_name = published_team_factory
             .lock()
             .ok()
             .and_then(|factory| factory.find_team_prototype(&team_name))
@@ -266,7 +268,8 @@ impl ScriptActionDispatcher<'_> {
         }
 
         let (team_proto, team_arc) = {
-            let Ok(mut factory) = get_team_factory().lock() else {
+            let published_team_factory = get_team_factory();
+            let Ok(mut factory) = published_team_factory.lock() else {
                 log::warn!("CREATE_REINFORCEMENT_TEAM: failed to lock TeamFactory");
                 return Ok(ScriptActionResult::Success);
             };
@@ -1091,7 +1094,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let Some(team_arc) = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let Some(team_arc) = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))
@@ -1190,7 +1194,8 @@ impl ScriptActionDispatcher<'_> {
         source_team: &str,
         target_team: &str,
     ) -> Result<(), ScriptError> {
-        let (source_team_arc, target_team_arc) = if let Ok(mut factory) = get_team_factory().lock()
+        let published_team_factory = get_team_factory();
+        let (source_team_arc, target_team_arc) = if let Ok(mut factory) = published_team_factory.lock()
         {
             (
                 factory.find_team(source_team),

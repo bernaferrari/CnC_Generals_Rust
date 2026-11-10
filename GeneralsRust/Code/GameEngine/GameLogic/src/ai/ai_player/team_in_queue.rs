@@ -106,7 +106,8 @@ impl TeamInQueue {
         let Some(team_name) = team_name else {
             return false;
         };
-        let Ok(factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(factory) = published_team_factory.lock() else {
             return false;
         };
         let Some(prototype) = factory.find_team_prototype(&team_name) else {
@@ -132,7 +133,8 @@ impl TeamInQueue {
         let team_arc = if let Some(arc) = self.team.clone() {
             arc
         } else if !team_name.is_empty() {
-            let Ok(mut factory) = get_team_factory().lock() else {
+            let published_team_factory = get_team_factory();
+            let Ok(mut factory) = published_team_factory.lock() else {
                 self.work_orders.clear();
                 return Ok(());
             };

@@ -2536,7 +2536,8 @@ impl XferSnapshot for SequentialScript {
         xfer.xfer_unsigned_int(&mut team_id)?;
         if xfer.get_xfer_mode() == XferMode::Load {
             if team_id != TEAM_ID_INVALID {
-                let factory = TheTeamFactory()
+                let published_team_factory = TheTeamFactory();
+                let factory = published_team_factory
                     .lock()
                     .map_err(|_| XferStatus::InvalidData)?;
                 if factory.find_team_by_id(team_id).is_none() {

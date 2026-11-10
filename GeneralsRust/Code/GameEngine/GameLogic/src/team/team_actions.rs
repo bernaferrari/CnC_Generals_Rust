@@ -10,7 +10,8 @@ impl Team {
             return;
         }
 
-        let new_team_arc = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let new_team_arc = published_team_factory
             .lock()
             .ok()
             .and_then(|factory| factory.find_team_by_id(new_team.id));
@@ -243,7 +244,8 @@ impl Team {
 
     /// Get vision shared teams (all allied teams)
     pub fn get_vision_shared_teams(&self) -> Vec<TeamID> {
-        let Ok(factory) = get_team_factory().lock() else {
+        let published_team_factory = get_team_factory();
+        let Ok(factory) = published_team_factory.lock() else {
             return Vec::new();
         };
 

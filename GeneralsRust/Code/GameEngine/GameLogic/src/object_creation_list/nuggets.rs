@@ -361,7 +361,8 @@ impl GenericObjectCreationNugget {
         if !self.put_in_container.is_empty() {
             if let Some(container_tmpl) = ctx.thing_factory.find_template(&self.put_in_container) {
                 if let Some(team_id) = debris_owner {
-                    let team = crate::team::get_team_factory()
+                    let published_team_factory = crate::team::get_team_factory();
+                    let team = published_team_factory
                         .lock()
                         .ok()
                         .and_then(|factory| factory.find_team_by_id(team_id));
@@ -409,7 +410,8 @@ impl GenericObjectCreationNugget {
                 continue;
             };
 
-            let team = crate::team::get_team_factory()
+            let published_team_factory = crate::team::get_team_factory();
+            let team = published_team_factory
                 .lock()
                 .ok()
                 .and_then(|factory| factory.find_team_by_id(team_id));
@@ -1669,7 +1671,8 @@ mod tests {
         let previous = neutral.read().expect("neutral player").get_default_team();
         if let Some(team) = previous {
             let team_id = team.read().expect("default team").get_id();
-            let canonical = TheTeamFactory()
+            let published_team_factory = TheTeamFactory();
+            let canonical = published_team_factory
                 .lock()
                 .expect("team factory")
                 .find_team_by_id(team_id);
@@ -1680,7 +1683,8 @@ mod tests {
                 return team;
             }
         }
-        let team = TheTeamFactory()
+        let published_team_factory = TheTeamFactory();
+        let team = published_team_factory
             .lock()
             .expect("team factory")
             .create_team_on_prototype_with_id(

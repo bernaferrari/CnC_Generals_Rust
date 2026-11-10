@@ -749,7 +749,8 @@ impl TheThingFactory {
 
         let template_name = Self::resolve_build_variation_name(&template);
 
-        let team_arc = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let team_arc = published_team_factory
             .lock()
             .ok()
             .and_then(|factory| factory.find_team_by_id(team.get_id()));

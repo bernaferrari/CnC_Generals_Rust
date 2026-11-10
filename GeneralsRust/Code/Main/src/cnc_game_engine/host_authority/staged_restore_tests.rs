@@ -569,7 +569,8 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                     .read()
                     .map(|players| (players.get_player_count(), players.get_local_player_index()))
                     .unwrap_or_default();
-                let teams = gamelogic::team::get_team_factory()
+                let published_team_factory = gamelogic::team::get_team_factory();
+                let teams = published_team_factory
                     .lock()
                     .map(|teams| {
                         (

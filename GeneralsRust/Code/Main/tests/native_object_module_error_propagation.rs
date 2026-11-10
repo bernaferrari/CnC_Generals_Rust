@@ -312,7 +312,8 @@ fn assert_catalog(template: &dyn ThingTemplate) {
 fn object(template: &Arc<dyn ThingTemplate>) -> Arc<RwLock<Object>> {
     assert_catalog(template.as_ref());
     assert!(OBJECT_REGISTRY.get_object(ID).is_none());
-    let team = gamelogic::team::get_team_factory()
+    let published_team_factory = gamelogic::team::get_team_factory();
+    let team = published_team_factory
         .lock()
         .unwrap()
         .find_team_by_id(91311)
@@ -473,7 +474,8 @@ fn direct_control(object: &Arc<RwLock<Object>>) {
 fn execute(case: &str) {
     let _ = env_logger::builder().is_test(true).try_init();
     {
-        let mut teams = gamelogic::team::get_team_factory().lock().unwrap();
+        let published_team_factory = gamelogic::team::get_team_factory();
+        let mut teams = published_team_factory.lock().unwrap();
         let prototype = teams
             .init_team_owned("NativeXferFixture".into(), "".into(), false, None, None)
             .unwrap();

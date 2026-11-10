@@ -1508,7 +1508,8 @@ impl GameInitializer {
             return;
         };
 
-        let mut team_factory = get_team_factory().lock().unwrap();
+        let published_team_factory = get_team_factory();
+        let mut team_factory = published_team_factory.lock().unwrap();
         team_factory.reset();
 
         for index in 0..sides_guard.get_num_teams() {

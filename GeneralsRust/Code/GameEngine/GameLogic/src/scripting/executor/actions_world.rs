@@ -1098,7 +1098,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let team_arc = get_team_factory()
+        let published_team_factory = get_team_factory();
+        let team_arc = published_team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name));

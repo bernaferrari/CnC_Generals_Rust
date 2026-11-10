@@ -940,7 +940,8 @@ fn team_reached_waypoints_end_requires_the_requested_path_like_cpp() {
         .unwrap();
 
     {
-        let mut factory = get_team_factory().lock().unwrap();
+        let published_team_factory = get_team_factory();
+        let mut factory = published_team_factory.lock().unwrap();
         factory.init_team(
             AsciiString::from(TEAM_NAME),
             AsciiString::default(),
