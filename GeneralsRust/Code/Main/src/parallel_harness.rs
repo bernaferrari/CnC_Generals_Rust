@@ -12,7 +12,7 @@ use crate::cnc_game_engine::{StandaloneStartupSources, load_standalone_startup_s
 use crate::game_logic::GameLogic;
 use crate::skirmish_config::{SkirmishMatchConfig, apply_skirmish_config, golden_skirmish_config};
 use game_engine::common::ini::INILoadType;
-use game_engine::common::ini::ini_game_data::CameraMovementRules;
+use game_engine::common::ini::ini_game_data::{CameraMovementRules, ProductionEnergyRules};
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::ini::ini_multiplayer::MultiplayerSettings;
 use game_engine::common::rts::player_template::PlayerTemplateStore;
@@ -27,6 +27,8 @@ pub struct SharedSkirmishAssets {
     startup: StandaloneStartupSources,
     map_path: PathBuf,
     game_data: CameraMovementRules,
+    /// GameData.ini Low/Min/MaxLowEnergy* rules (ThingTemplate::calcTimeToBuild).
+    energy: ProductionEnergyRules,
     player_templates: PlayerTemplateStore,
     locomotors: LocomotorStore,
     multiplayer: Arc<MultiplayerSettings>,
@@ -74,8 +76,12 @@ impl SharedSkirmishAssets {
         };
 
         let mut game_data = CameraMovementRules::default();
+        let mut energy = ProductionEnergyRules::default();
         for (path, text) in startup.definition_texts("GameData.ini") {
             game_data = game_data
+                .overlay_ini_text(text)
+                .map_err(|error| invalid(path, &error))?;
+            energy = energy
                 .overlay_ini_text(text)
                 .map_err(|error| invalid(path, &error))?;
         }
@@ -109,6 +115,7 @@ impl SharedSkirmishAssets {
             startup,
             map_path,
             game_data,
+            energy,
             player_templates,
             locomotors,
             multiplayer,
@@ -187,6 +194,9 @@ impl HeadlessSkirmish {
         let mut logic = GameLogic::new();
         logic.with_own_services_mut(|logic| -> Result<(), String> {
             logic.admit_camera_application_movement(assets.game_data.clone());
+            // The application boot admits GameData's energy rules before any
+            // build; without them every calcTimeToBuild hits the 0.01 floor.
+            logic.admit_production_energy_base(assets.energy);
             logic.admit_locomotor_definitions(assets.locomotors.clone())?;
             logic.admit_startup_content(assets.startup.admit()?)?;
             logic.admit_player_template_definitions(assets.player_templates.clone())?;
@@ -197,7 +207,12 @@ impl HeadlessSkirmish {
             }
             Ok(())
         })?;
-        Ok(Self { logic })
+        let mut game = Self { logic };
+        // Hand out the world after its first logic frame, when a player first
+        // has control: C++ DozerAIUpdate::getMostRecentCommand only selects a
+        // task whose m_taskOrderFrame is above 0, so a frame-0 order is inert.
+        game.advance();
+        Ok(game)
     }
 
     /// Advance one logic frame.
@@ -279,6 +294,38 @@ impl HeadlessSkirmish {
         hash
     }
 
+    /// `(id, under construction, construction fraction)` of `player`'s `name` objects.
+    pub fn construction(&self, player: u32, name: &str) -> Vec<(crate::game_logic::ObjectId, bool, f32)> {
+        let mut sites: Vec<_> = self
+            .logic
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.owner_player_id == Some(player))
+            .filter(|object| object.get_template().name.eq_ignore_ascii_case(name))
+            .map(|object| (object.id, object.status.under_construction, object.construction_percent))
+            .collect();
+        sites.sort_unstable_by_key(|site| site.0.0);
+        sites
+    }
+
+    /// Authored `BuildTime` seconds of the loaded `name` template.
+    pub fn template_build_seconds(&self, name: &str) -> Option<f32> {
+        self.logic.templates.get(name).map(|template| template.build_time)
+    }
+
+    /// GameData `(LowEnergyPenaltyModifier, MinLowEnergyProductionSpeed,
+    /// MaxLowEnergyProductionSpeed)` admitted to this world.
+    pub fn energy_rules(&self) -> (f32, f32, f32) {
+        let rules = self.logic.production_energy_rules();
+        (rules.penalty, rules.min_speed, rules.max_speed)
+    }
+
+    /// C++ `Energy::getEnergySupplyRatio` of `player` now.
+    pub fn energy_supply_ratio(&self, player: u32) -> Option<f32> {
+        let frame = self.frame();
+        self.logic.get_players().get(&player).map(|p| p.energy_supply_ratio_at(frame))
+    }
+
     /// Live objects of `player` whose template is `name`.
     pub fn owned_ids(&self, player: u32, name: &str) -> Vec<crate::game_logic::ObjectId> {
         let mut ids: Vec<_> = self
@@ -314,6 +361,9 @@ impl HeadlessSkirmish {
     /// Issue [`HumanOrders`]; errors when the map start lacks the units.
     pub fn issue_human_orders(&mut self) -> Result<(), String> {
         use crate::command_system::CommandType;
+        if self.frame() == 0 {
+            return Err("orders issued on logic frame 0 are never selected by DozerAIUpdate".into());
+        }
         let player = HumanOrders::PLAYER;
         let center = *self
             .owned_ids(player, "AmericaCommandCenter")

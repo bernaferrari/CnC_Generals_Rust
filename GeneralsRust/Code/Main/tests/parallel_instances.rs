@@ -152,3 +152,78 @@ fn same_process_interleaved_and_concurrent_worlds_match_single_runs() {
         .join()
         .expect("probe panicked");
 }
+
+/// C++ `ThingTemplate::calcTimeToBuild` for a full-handicap player without a
+/// faction ProductionTimeChange, from the world's authored inputs.
+fn cpp_build_frames(game: &HeadlessSkirmish, player: u32, name: &str) -> u32 {
+    let seconds = game.template_build_seconds(name).expect("retail template");
+    let (penalty, min_speed, max_speed) = game.energy_rules();
+    let energy = game.energy_supply_ratio(player).expect("player").min(1.0);
+    let mut rate = (1.0 - (1.0 - energy) * penalty).max(min_speed);
+    if energy < 1.0 {
+        rate = rate.min(max_speed);
+    }
+    if rate <= 0.0 {
+        rate = 0.01;
+    }
+    ((seconds * 30.0) as u32 as f32 / rate) as u32
+}
+
+#[test]
+#[ignore = "requires retail assets and plays a long skirmish opening"]
+fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let assets = SharedSkirmishAssets::load_retail().expect("retail harness assets");
+            let specs = [
+                SkirmishSpec { seed: 1234, frames: 0, human_orders: true },
+                SkirmishSpec { seed: 0x8765_4321, frames: 0, human_orders: true },
+            ];
+            let mut worlds: Vec<_> = specs.iter().map(|&spec| start(&assets, spec)).collect();
+            let human = HumanOrders::PLAYER;
+            let expected = cpp_build_frames(&worlds[0], human, HumanOrders::STRUCTURE);
+            assert_eq!(cpp_build_frames(&worlds[1], human, HumanOrders::STRUCTURE), expected,
+                "both worlds start from the same authored build-time inputs");
+            assert!(expected >= 30, "retail Power Plant build time: {expected} frames");
+            // Approach and docking, then exactly one percent step per frame.
+            let limit = expected + 600;
+            let mut started = [None; 2];
+            let mut finished = [None; 2];
+            for _ in 0..limit {
+                for (index, world) in worlds.iter_mut().enumerate() {
+                    if finished[index].is_some() {
+                        continue;
+                    }
+                    world.advance();
+                    let sites = world.construction(human, HumanOrders::STRUCTURE);
+                    assert_eq!(sites.len(), 1, "world {index}: one scaffold, got {sites:?}");
+                    let (_, under_construction, percent) = sites[0];
+                    if started[index].is_none() && percent > 0.0 {
+                        started[index] = Some(world.frame());
+                    }
+                    if !under_construction {
+                        assert_eq!(percent, 1.0, "world {index}: completed at 100%");
+                        finished[index] = Some(world.frame());
+                    }
+                }
+                if finished.iter().all(Option::is_some) {
+                    break;
+                }
+            }
+            for index in 0..2 {
+                let start = started[index].unwrap_or_else(|| panic!("world {index}: Dozer never started building"));
+                let end = finished[index].unwrap_or_else(|| panic!("world {index}: Power Plant unfinished after {limit} frames"));
+                // The first contributing frame already adds 1/frames.
+                let building = end - start + 1;
+                assert!((expected..=expected + 1).contains(&building),
+                    "world {index}: built in {building} frames, C++ calcTimeToBuild gives {expected}");
+                // The finished plant now powers its own world only.
+                assert_eq!(worlds[index].energy_supply_ratio(human).map(|ratio| ratio > 0.0), Some(true),
+                    "world {index}: completed Power Plant must supply energy");
+            }
+        })
+        .expect("spawn probe")
+        .join()
+        .expect("probe panicked");
+}
