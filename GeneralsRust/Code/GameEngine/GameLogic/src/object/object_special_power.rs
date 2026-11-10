@@ -216,7 +216,6 @@ impl Object {
     ) -> Result<(), String> {
         use crate::ai::{AiCommandParams, AiCommandType};
         use crate::commands::command::CommandType;
-        use crate::control_bar::get_control_bar_bridge;
         use crate::modules::AIUpdateInterfaceExt;
         use crate::object::special_power_module::SpecialPowerCommandOptions;
         use crate::object::update::special_power_update::SpecialPowerCommandOption;
@@ -225,7 +224,7 @@ impl Object {
             return Ok(());
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = crate::control_bar::control_bar_bridge_for(self) else {
             return Ok(());
         };
 
@@ -352,7 +351,6 @@ impl Object {
 
         use crate::ai::{AiCommandParams, AiCommandType};
         use crate::commands::command::CommandType;
-        use crate::control_bar::get_control_bar_bridge;
         use crate::modules::AIUpdateInterfaceExt;
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::special_power_module::SpecialPowerCommandOptions;
@@ -362,7 +360,7 @@ impl Object {
             return Ok(());
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = crate::control_bar::control_bar_bridge_for(self) else {
             return Ok(());
         };
 
@@ -483,7 +481,6 @@ impl Object {
     ) -> Result<(), String> {
         use crate::ai::{AiCommandParams, AiCommandType};
         use crate::commands::command::CommandType;
-        use crate::control_bar::get_control_bar_bridge;
         use crate::modules::AIUpdateInterfaceExt;
         use crate::object::special_power_module::SpecialPowerCommandOptions;
         use crate::object::update::special_power_update::SpecialPowerCommandOption;
@@ -492,7 +489,7 @@ impl Object {
             return Ok(());
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = crate::control_bar::control_bar_bridge_for(self) else {
             return Ok(());
         };
 
@@ -575,7 +572,6 @@ impl Object {
         source: CommandSource,
     ) -> Result<(), String> {
         use crate::commands::command::CommandType;
-        use crate::control_bar::get_control_bar_bridge;
         use crate::object::special_power_module::SpecialPowerCommandOptions;
         use crate::object::update::special_power_update::SpecialPowerCommandOption;
 
@@ -583,7 +579,7 @@ impl Object {
             return Ok(());
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = crate::control_bar::control_bar_bridge_for(self) else {
             return Ok(());
         };
 

@@ -19,7 +19,6 @@ use crate::common::{
     AsciiString, Bool, CommandSourceType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, Real,
     Relationship, UnsignedInt,
 };
-use crate::control_bar::get_control_bar_bridge;
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModuleInterface, SpecialAbilityUpdateExt,
@@ -193,7 +192,7 @@ impl CommandButtonHuntUpdate {
         };
 
         // Find the command button in the command set
-        if let Some(control_bar) = get_control_bar_bridge() {
+        if let Some(control_bar) = crate::control_bar::control_bar_bridge_for(&object) {
             if let Some(command_set) =
                 control_bar.find_command_set_by_name(object.get_command_set_string())
             {
@@ -243,7 +242,7 @@ impl CommandButtonHuntUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = crate::control_bar::control_bar_bridge_for(&object) else {
             return UpdateSleepTime::Forever;
         };
 
@@ -276,7 +275,7 @@ impl CommandButtonHuntUpdate {
         }
 
         if let Some(button_id) = self.command_button {
-            if let Some(control_bar) = get_control_bar_bridge() {
+            if let Some(control_bar) = crate::control_bar::control_bar_bridge_for(&object) {
                 if let Some(button) = control_bar.get_command_button(button_id) {
                     let weapon_slot = button.get_weapon_slot();
                     object.set_weapon_lock(
@@ -312,7 +311,7 @@ impl CommandButtonHuntUpdate {
                 return UpdateSleepTime::Forever;
             };
 
-            let Some(control_bar) = get_control_bar_bridge() else {
+            let Some(control_bar) = crate::control_bar::control_bar_bridge_for(&object) else {
                 return UpdateSleepTime::Forever;
             };
 
@@ -416,7 +415,7 @@ impl CommandButtonHuntUpdate {
             return None;
         };
 
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = crate::control_bar::control_bar_bridge_for(&object) else {
             return None;
         };
 
@@ -720,7 +719,7 @@ impl Snapshotable for CommandButtonHuntUpdate {
                 let Ok(object) = object_arc.read() else {
                     return Ok(());
                 };
-                let Some(control_bar) = get_control_bar_bridge() else {
+                let Some(control_bar) = crate::control_bar::control_bar_bridge_for(&object) else {
                     return Ok(());
                 };
                 if let Some(command_set) =

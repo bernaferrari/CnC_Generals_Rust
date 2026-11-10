@@ -286,6 +286,18 @@ fn replace_control_bar_bridge(bridge: ControlBarBridge) -> Result<(), String> {
 
 /// Shared catalog view for the active world. `Arc` derefs to [`ControlBarBridge`]
 /// so existing `bridge.find_*` call sites stay unchanged.
+/// C++ `TheControlBar` of the GameEngine that owns `object`: the ControlBar of
+/// the world whose GameLogic admitted it. Objects no world admitted keep the
+/// published world's ControlBar.
+pub(crate) fn control_bar_bridge_for(
+    object: &crate::object::Object,
+) -> Option<Arc<ControlBarBridge>> {
+    match object.owning_world_services() {
+        Some(world) => world.control_bar_bridge().read().ok().and_then(|slot| slot.clone()),
+        None => get_control_bar_bridge(),
+    }
+}
+
 pub fn get_control_bar_bridge() -> Option<Arc<ControlBarBridge>> {
     with_bridge_slot(|slot| slot.read().ok().and_then(|g| g.clone()))
 }
@@ -687,5 +699,53 @@ mod tests {
         got.sort_by_key(|(s, _, _)| *s);
         assert!(got[0].1 && !got[0].2);
         assert!(got[1].1 && !got[1].2);
+    }
+}
+
+#[cfg(test)]
+mod owning_world_bridge_tests {
+    use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::Object;
+    use crate::system::engine_stores::{with_world_services, EngineStores};
+
+    fn bridge_with_set(name: &str) -> Arc<ControlBarBridge> {
+        Arc::new(ControlBarBridge {
+            buttons_by_id: HashMap::new(),
+            command_sets: HashMap::from([(name.to_string(), CommandSet::new(name.to_string()))]),
+            overrides: None,
+        })
+    }
+
+    #[test]
+    fn object_control_bar_reads_come_from_the_world_that_admitted_the_object() {
+        // Two worlds on one thread: special-power, hunt, upgrade and
+        // partition CommandSet reads (C++ TheControlBar of the GameEngine
+        // owning the Object) never use the published world's ControlBar.
+        let a = Arc::new(EngineStores::new_for_world());
+        let b = Arc::new(EngineStores::new_for_world());
+        *a.services().control_bar_bridge().write().unwrap() = Some(bridge_with_set("SetA"));
+        *b.services().control_bar_bridge().write().unwrap() = Some(bridge_with_set("SetB"));
+        let template = Arc::new(DefaultThingTemplate::new("BridgeOwner".to_string()));
+        let in_b = Object::new_with_id(template.clone(), 81, ObjectStatusMaskType::none(), None)
+            .expect("object");
+        in_b.write().unwrap().bind_pathfinding_owner(&b).unwrap();
+        let unadmitted =
+            Object::new_with_id(template, 82, ObjectStatusMaskType::none(), None).expect("object");
+
+        with_world_services(a.services(), || {
+            let owned = control_bar_bridge_for(&in_b.read().unwrap()).expect("B's ControlBar");
+            assert!(owned.find_command_set_by_name("SetB").is_some());
+            assert!(owned.find_command_set_by_name("SetA").is_none());
+            let published =
+                control_bar_bridge_for(&unadmitted.read().unwrap()).expect("published ControlBar");
+            assert!(published.find_command_set_by_name("SetA").is_some());
+        });
+
+        // B without a ControlBar: its object sees none, not A's.
+        *b.services().control_bar_bridge().write().unwrap() = None;
+        with_world_services(a.services(), || {
+            assert!(control_bar_bridge_for(&in_b.read().unwrap()).is_none());
+        });
     }
 }

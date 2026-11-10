@@ -1781,7 +1781,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
                 if valid_target {
                     valid_target = crate::object::registry::OBJECT_REGISTRY
                         .with_object(self.source_id, |source_guard| {
-                            if let Some(control_bar) = crate::control_bar::get_control_bar_bridge()
+                            if let Some(control_bar) = crate::control_bar::control_bar_bridge_for(source_guard)
                             {
                                 if let Some(command_button) =
                                     control_bar.get_command_button(self.command_button_id)

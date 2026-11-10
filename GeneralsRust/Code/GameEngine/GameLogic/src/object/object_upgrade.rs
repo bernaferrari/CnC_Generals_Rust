@@ -1283,7 +1283,7 @@ impl Object {
     /// `GameLogic::findControlBarOverride`). True only if that button's
     /// `getUpgradeTemplate()` matches the requested upgrade.
     pub fn can_produce_upgrade(&self, upgrade: &crate::upgrade::template::UpgradeTemplate) -> bool {
-        let Some(control_bar) = crate::control_bar::get_control_bar_bridge() else {
+        let Some(control_bar) = crate::control_bar::control_bar_bridge_for(self) else {
             return false;
         };
         let Some(command_set) = control_bar.find_command_set_by_name(self.get_command_set_string())

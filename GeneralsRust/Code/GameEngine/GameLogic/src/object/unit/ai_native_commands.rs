@@ -99,7 +99,7 @@ impl UnitAiStateRuntime<'_, '_> {
             return None;
         }
         let command_set_name = owner_guard.get_command_set_string();
-        let control_bar = crate::control_bar::get_control_bar_bridge()?;
+        let control_bar = crate::control_bar::control_bar_bridge_for(&owner_guard)?;
         let command_set = control_bar.find_command_set_by_name(command_set_name)?;
         (0..crate::command_button::MAX_COMMANDS_PER_SET).find_map(|slot| {
             command_set
