@@ -625,10 +625,10 @@ fn sell_refunds_queued_production() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
     with_global_data_restored(|| {
-        game_engine::common::global_data::write().sell_percentage = 0.5;
-
         let system = CommandSystem::new();
         let mut game_logic = GameLogic::new();
+        // GlobalData SellPercentage is admitted into the receiving world (BuildAssistant::sellObject).
+        game_logic.admit_sell_percentage(0.5);
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 1_000;
         game_logic.add_player(player);
@@ -736,10 +736,10 @@ fn sell_refund_uses_global_sell_percentage() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
     with_global_data_restored(|| {
-        game_engine::common::global_data::write().sell_percentage = 0.25;
-
         let system = CommandSystem::new();
         let mut game_logic = GameLogic::new();
+        // GlobalData SellPercentage is admitted into the receiving world (BuildAssistant::sellObject).
+        game_logic.admit_sell_percentage(0.25);
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 0;
         game_logic.add_player(player);
@@ -757,13 +757,6 @@ fn sell_refund_uses_global_sell_percentage() {
         let barracks_id = game_logic
             .create_object("TestBarracks", Team::USA, Vec3::ZERO)
             .expect("barracks should be created");
-
-        // Re-assert sell percentage immediately before sell so the production
-        // path is proven to consume the live GlobalData value under isolation.
-        assert!(
-            (game_engine::common::global_data::read().sell_percentage - 0.25).abs() < f32::EPSILON,
-            "test isolation must preserve configured SellPercentage"
-        );
 
         let sell_command = GameCommand {
             command_type: CommandType::Sell {
