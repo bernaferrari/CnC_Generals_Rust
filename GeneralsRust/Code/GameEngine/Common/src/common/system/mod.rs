@@ -64,7 +64,7 @@ pub use geometry::{
     Region3D,
 };
 pub use radar::{
-    RadarBridgeSample, RadarDataSink, RadarEventFeedback, RadarMapSource, RadarObjectInsert,
+    RadarBridgeSample, RadarDataSink, RadarEventFeedback, RadarEventOwner, RadarMapSource, RadarObjectInsert,
     RadarObjectProvider, RadarTerrainPaintSource, RadarVictimInfo, RadarWindowGeom,
     RadarWindowSource, ensure_the_radar_snapshot_block, register_radar_data_sink,
     register_radar_event_feedback, register_radar_map_source, register_radar_object_provider,

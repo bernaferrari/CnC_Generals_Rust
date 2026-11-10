@@ -1892,3 +1892,41 @@ fn try_under_attack_creates_under_attack_event() {
     assert_eq!(radar.get_last_event_loc(), Some(loc));
     assert!(!radar.try_under_attack_event_for(&loc, None));
 }
+
+#[test]
+fn under_attack_glow_and_eva_go_to_the_victims_owner() {
+    #[derive(Default)]
+    struct Owner {
+        glows: u32,
+        eva: Vec<String>,
+    }
+    impl RadarEventOwner for Owner {
+        fn trigger_radar_attack_glow(&mut self) {
+            self.glows += 1;
+        }
+        fn set_eva_should_play(&mut self, eva_name: &str) {
+            self.eva.push(eva_name.to_string());
+        }
+    }
+    let _scope = crate::common::common_services::CommonServicesScope::new();
+    let mut radar = RadarSystem::new();
+    radar.new_map(
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(1024.0, 1024.0, 100.0),
+        &[],
+    );
+    let base = RadarVictimInfo {
+        is_structure: true,
+        is_mp_count_for_victory: true,
+        is_local_player: true,
+        ..Default::default()
+    };
+    let mut owner = Owner::default();
+    assert!(radar.try_under_attack_event_in(
+        &Coord3D::new(12.0, 34.0, 0.0),
+        Some(&base),
+        Some(&mut owner)
+    ));
+    assert_eq!(owner.glows, 1);
+    assert_eq!(owner.eva, vec!["EVA_BaseUnderAttack".to_string()]);
+}

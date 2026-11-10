@@ -285,7 +285,7 @@ impl GameLogic {
                 &loc,
             );
         }
-        gamelogic::helpers::TheControlBar::trigger_radar_attack_glow();
+        gamelogic::helpers::TheControlBar::trigger_radar_attack_glow_in(&self.world_services);
         self.queue_audio_event(
             AudioEventRequest::new(audio)
                 .with_object(victim_id)

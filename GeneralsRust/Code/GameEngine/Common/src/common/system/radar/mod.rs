@@ -55,12 +55,17 @@ pub struct RadarVictimInfo {
     pub player_index: i32,
 }
 
-/// Client/W3D render EVA, UI, and audio for radar events.
+/// Client/W3D render UI messages and audio for radar events.
 pub trait RadarEventFeedback: Send + Sync {
-    fn trigger_radar_attack_glow(&self);
     fn show_radar_message(&self, message_key: &str);
     fn play_radar_audio(&self, event_name: &str, player_index: i32);
-    fn set_eva_should_play(&self, eva_name: &str);
+}
+
+/// The GameEngine that owns a radar event's victim: C++ `TheControlBar` and
+/// `TheEva` of that engine receive the attack glow and the EVA request.
+pub trait RadarEventOwner {
+    fn trigger_radar_attack_glow(&mut self);
+    fn set_eva_should_play(&mut self, eva_name: &str);
 }
 
 pub fn register_radar_event_feedback(hook: Arc<dyn RadarEventFeedback>) -> bool {
@@ -1335,24 +1340,37 @@ impl RadarSystem {
         world_loc: &Coord3D,
         victim: Option<&RadarVictimInfo>,
     ) -> bool {
-        self.try_under_attack_event_with_eva(world_loc, victim, None)
+        self.try_under_attack_event_in(world_loc, victim, None)
     }
 
-    /// As `try_under_attack_event_for`, with the Eva of the engine that owns
-    /// the victim (C++ `TheEva` of that GameEngine) receiving the EVA name
-    /// instead of the registered client feedback.
-    pub fn try_under_attack_event_with_eva(
+    /// As `try_under_attack_event_for`, with the engine that owns the victim
+    /// receiving the ControlBar glow and EVA. Without an owner there is no
+    /// ControlBar or Eva to notify.
+    pub fn try_under_attack_event_in(
         &mut self,
         world_loc: &Coord3D,
         victim: Option<&RadarVictimInfo>,
-        mut eva: Option<&mut dyn FnMut(&str)>,
+        mut owner: Option<&mut dyn RadarEventOwner>,
     ) -> bool {
         if !self.try_event(RadarEventType::UnderAttack, world_loc) {
             return false;
         }
 
+        if let Some(owner) = owner.as_mut() {
+            owner.trigger_radar_attack_glow();
+            // C++ Radar.cpp:1195-1203: base/ally under attack is an EVA of the
+            // victim's engine, independent of any client message/audio hook.
+            if let Some(v) = victim.filter(|v| {
+                !(v.is_infantry || v.is_vehicle) && v.is_structure && v.is_mp_count_for_victory
+            }) {
+                if v.is_local_player {
+                    owner.set_eva_should_play("EVA_BaseUnderAttack");
+                } else if v.is_ally {
+                    owner.set_eva_should_play("EVA_AllyUnderAttack");
+                }
+            }
+        }
         if let Some(fb) = radar_feedback() {
-            fb.trigger_radar_attack_glow();
             // C++ Radar.cpp:1168 — audio always attributes to the LOCAL player.
             // Every live call site gates victim == local (Object.cpp:1853), so
             // the victim index carried here IS the local index.
@@ -1368,19 +1386,6 @@ impl RadarSystem {
                     }
                 }
                 Some(v) if v.is_structure && v.is_mp_count_for_victory => {
-                    let eva_name = if v.is_local_player {
-                        Some("EVA_BaseUnderAttack")
-                    } else if v.is_ally {
-                        Some("EVA_AllyUnderAttack")
-                    } else {
-                        None
-                    };
-                    if let Some(eva_name) = eva_name {
-                        match eva.as_mut() {
-                            Some(eva) => eva(eva_name),
-                            None => fb.set_eva_should_play(eva_name),
-                        }
-                    }
                     fb.show_radar_message("RADAR:StructureUnderAttack");
                     fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);
                 }

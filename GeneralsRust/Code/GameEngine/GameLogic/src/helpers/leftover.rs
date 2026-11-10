@@ -504,14 +504,9 @@ impl TheRadar {
                 y: position.y,
                 z: position.z,
             };
-            // C++ TheEva of the GameEngine that owns the victim.
-            let victim_world = target.owning_world_services();
-            let mut eva = |name: &str| {
-                if let Some(event) = radar_eva_event(name) {
-                    let _ = TheEva::set_should_play_from(victim_world.as_ref(), event);
-                }
-            };
-            guard.try_under_attack_event_with_eva(&world_loc, Some(&victim), Some(&mut eva))
+            // C++ TheControlBar / TheEva of the GameEngine that owns the victim.
+            let mut owner = VictimRadarOwner(target.owning_world_services());
+            guard.try_under_attack_event_in(&world_loc, Some(&victim), Some(&mut owner))
         } else {
             false
         };
@@ -538,8 +533,9 @@ impl TheRadar {
 pub struct TheControlBar;
 
 impl TheControlBar {
-    pub fn trigger_radar_attack_glow() {
-        crate::system::engine_stores::active_services()
+    /// C++ `TheControlBar->triggerRadarAttackGlow()` of `world`'s engine.
+    pub fn trigger_radar_attack_glow_in(world: &crate::system::engine_stores::WorldServices) {
+        world
             .session_flags()
             .radar_attack_glow
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -554,13 +550,27 @@ impl TheControlBar {
     }
 }
 
+/// The world that admitted a radar victim; an Object of no world has no
+/// ControlBar to glow and no Eva to play.
+struct VictimRadarOwner(Option<Arc<crate::system::engine_stores::WorldServices>>);
+
+impl game_engine::common::system::radar::RadarEventOwner for VictimRadarOwner {
+    fn trigger_radar_attack_glow(&mut self) {
+        if let Some(world) = self.0.as_deref() {
+            TheControlBar::trigger_radar_attack_glow_in(world);
+        }
+    }
+
+    fn set_eva_should_play(&mut self, eva_name: &str) {
+        if let Some(event) = radar_eva_event(eva_name) {
+            let _ = TheEva::set_should_play_from(self.0.as_ref(), event);
+        }
+    }
+}
+
 struct LeftoverRadarEventFeedback;
 
 impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEventFeedback {
-    fn trigger_radar_attack_glow(&self) {
-        TheControlBar::trigger_radar_attack_glow();
-    }
-
     fn show_radar_message(&self, message_key: &str) {
         TheInGameUI::display_message(message_key);
     }
@@ -580,12 +590,6 @@ impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEve
             event.set_player_index(player_index as u32);
         }
         audio.add_audio_event(&event);
-    }
-
-    fn set_eva_should_play(&self, _eva_name: &str) {
-        // GameLogic's under-attack path hands the radar the victim's own Eva
-        // (`try_under_attack_event_with_eva`); a location-only radar event
-        // has no owning engine to play in.
     }
 }
 
@@ -1073,6 +1077,31 @@ mod in_game_ui_eva_ownership_tests {
             TheEva::set_should_play_in(&a, EvaEvent::GeneralLevelUp).unwrap();
         });
         assert_eq!(TheEva::drain_events_in(&a).unwrap(), vec![EvaEvent::GeneralLevelUp]);
+        assert!(TheEva::drain_events_in(&b).unwrap().is_empty());
+    }
+
+    #[test]
+    fn radar_glow_and_eva_land_in_the_victims_world() {
+        use game_engine::common::system::radar::RadarEventOwner;
+        let a = new_world_services();
+        let b = new_world_services();
+        let glow = |w: &Arc<crate::system::engine_stores::WorldServices>| {
+            w.session_flags()
+                .radar_attack_glow
+                .load(std::sync::atomic::Ordering::SeqCst)
+        };
+        with_world_services(&b, || {
+            let mut owner = VictimRadarOwner(Some(Arc::clone(&a)));
+            owner.trigger_radar_attack_glow();
+            owner.set_eva_should_play("EVA_BaseUnderAttack");
+            // A victim of no world has no ControlBar or Eva.
+            let mut orphan = VictimRadarOwner(None);
+            orphan.trigger_radar_attack_glow();
+            orphan.set_eva_should_play("EVA_BaseUnderAttack");
+        });
+        assert!(glow(&a));
+        assert!(!glow(&b));
+        assert_eq!(TheEva::drain_events_in(&a).unwrap(), vec![EvaEvent::BaseUnderAttack]);
         assert!(TheEva::drain_events_in(&b).unwrap().is_empty());
     }
 
