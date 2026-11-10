@@ -81,32 +81,6 @@ fn historical_multiplier_and_absolute_drawable_capsules_admit_once() {
     );
 }
 
-#[test]
-fn version30_absolute_scale_capability_preserves_identical_positional_world_body() {
-    use crate::save_load::snapshot::{WorldSnapshot, world_codec::decode_bincode_world_snapshot};
-    let mut old = WorldSnapshot::default();
-    old.version = 29;
-    let old_bytes = bincode_legacy::serialize(&old).unwrap();
-    let mut new: WorldSnapshot = bincode_legacy::deserialize(&old_bytes).unwrap();
-    new.version = 30;
-    let new_bytes = bincode_legacy::serialize(&new).unwrap();
-    assert_eq!(
-        &old_bytes[4..],
-        &new_bytes[4..],
-        "scale capability must not alter the positional world body"
-    );
-    assert_eq!(
-        decode_bincode_world_snapshot(&old_bytes).unwrap().version,
-        29
-    );
-    assert_eq!(
-        decode_bincode_world_snapshot(&new_bytes).unwrap().version,
-        30
-    );
-    new.version = crate::save_load::snapshot::WORLD_SNAPSHOT_BINCODE_VERSION + 1;
-    assert!(decode_bincode_world_snapshot(&bincode_legacy::serialize(&new).unwrap()).is_err());
-}
-
 #[cfg(feature = "game_client")]
 #[test]
 fn foreign_client_scale_cannot_replace_receiving_absolute_host_scale() {

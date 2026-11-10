@@ -147,23 +147,21 @@ fn save_file_roundtrip_survives_unpaused_cooldown_and_keeps_weapon_clip() {
 }
 
 #[test]
-fn save_file_absent_lifecycle_tail_loads_empty() {
+fn save_file_empty_world_loads_and_historical_tailless_envelope_is_rejected() {
     let mut snapshot = WorldSnapshot::default();
     let mut logic = GameLogic::new();
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut logic)
         .expect("current empty world retains admission metadata");
     assert!(logic.host_objects().registered_is_empty());
-    // Historical snapshots can omit the entire tail. Current snapshots must
-    // retain the session admission metadata, even without lifecycle records.
+    // Tail-less v25 envelopes were Rust-only history, never C++ save data.
     snapshot.version = 25;
     snapshot.lifecycle_tail.clear();
-    SnapshotBuilder::new()
-        .restore_from_snapshot(&snapshot, &mut logic)
-        .expect("absent tail");
+    assert!(matches!(
+        SnapshotBuilder::new().restore_from_snapshot(&snapshot, &mut logic),
+        Err(crate::save_load::SaveLoadError::VersionMismatch { actual: 25, .. })
+    ));
     assert!(logic.host_objects().registered_is_empty());
-    let decoded = decode_lifecycle_tail(&snapshot.lifecycle_tail).expect("empty");
-    assert!(decoded.envelopes.is_empty());
 }
 
 #[test]

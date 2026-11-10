@@ -106,7 +106,7 @@ fn malformed_body_frame_fails_full_restore_before_old_actor_frame_or_policy_chan
     }
 }
 #[test]
-fn v30_without_body_capsule_uses_receiving_content_explicitly_and_a10v2_stays_readable() {
+fn current_encoded_save_restores_queued_a10_deliveries() {
     let mut source = world(0.8, 0.4);
     let source_id = source
         .create_object_for_player("FlightSource", 1, glam::Vec3::ZERO)
@@ -124,18 +124,14 @@ fn v30_without_body_capsule_uses_receiving_content_explicitly_and_a10v2_stays_re
     );
     assert!(source.a10_strike_flight_reg.transports_spawned > 0);
     let builder = SnapshotBuilder::new();
-    let mut old = builder.create_world_snapshot(&source).unwrap();
-    let (start, end) = frame(&old.lifecycle_tail).unwrap();
-    old.lifecycle_tail.drain(start..end);
-    old.version = 30;
+    // Current envelope only; capsule-less v30 bodies were Rust-only history.
+    let saved = builder.create_world_snapshot(&source).unwrap();
     let mut receiving = world(0.5, 0.2);
-    let expected = receiving.body_damage_policy();
-    let bytes = bincode_legacy::serialize(&old).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
     let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
     builder
         .restore_from_snapshot(&decoded, &mut receiving)
         .unwrap();
-    assert_eq!(receiving.body_damage_policy(), expected);
     let original = &source.a10_strike_flight_reg;
     let restored = &receiving.a10_strike_flight_reg;
     assert_eq!(restored.transports_spawned, original.transports_spawned);
@@ -147,7 +143,7 @@ fn v30_without_body_capsule_uses_receiving_content_explicitly_and_a10v2_stays_re
         let got = restored
             .deliveries
             .get(id)
-            .expect("saved delivery survives encoded v30/A10v2 import");
+            .expect("saved delivery survives encoded restore");
         assert_eq!(got.source_object, row.source_object);
         assert_eq!(got.strike_id, row.strike_id);
         assert_eq!(got.active_transports, row.active_transports);

@@ -86,11 +86,11 @@ fn direct_xfer_rejects_old_rust_outer_versions() {
 }
 
 #[test]
-fn direct_xfer_accepts_v23_nonempty_body_and_following_sentinel() {
+fn direct_xfer_current_nonempty_body_stops_at_following_sentinel() {
     use crate::save_load::{Snapshot, Xfer, XferLoad, XferSave};
     use std::io::Cursor;
     let mut source = WorldSnapshot::default();
-    source.version = 23;
+    source.version = crate::save_load::snapshot::WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     let mut player = super::super::xfer_helpers::default_player_snapshot();
     player.id = 7;
     player.name = "LegacyHost".into();
@@ -110,7 +110,10 @@ fn direct_xfer_accepts_v23_nonempty_body_and_following_sentinel() {
     let mut following = 0;
     reader.xfer_u32(&mut following).unwrap();
     assert_eq!(following, 0x71AF_91C0);
-    assert_eq!(destination.version, 23);
+    assert_eq!(
+        destination.version,
+        crate::save_load::snapshot::WORLD_SNAPSHOT_DIRECT_XFER_VERSION
+    );
     assert_eq!(destination.players.len(), 1);
     assert_eq!(destination.players[0].id, 7);
     assert_eq!(destination.players[0].name, "LegacyHost");

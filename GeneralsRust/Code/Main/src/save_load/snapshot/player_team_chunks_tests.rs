@@ -347,12 +347,10 @@ fn missing_admission_cash_rejects_empty_world_before_restore_mutation() {
     bind_chunks_to_world(&mut saved, &chunks).unwrap();
     assert!(builder.restore_from_snapshot(&saved, &mut live).is_err());
     assert_eq!(live.skirmish_rules().starting_cash, 12_500);
+    // Pre-admission-cash v25 envelopes were Rust-only history: rejected too.
     saved.version = 25;
-    builder.restore_from_snapshot(&saved, &mut live).unwrap();
-    assert_eq!(
-        live.skirmish_rules().starting_cash,
-        crate::game_logic::Player::DEFAULT_STARTING_MONEY
-    );
+    assert!(builder.restore_from_snapshot(&saved, &mut live).is_err());
+    assert_eq!(live.skirmish_rules().starting_cash, 12_500);
 }
 
 #[test]

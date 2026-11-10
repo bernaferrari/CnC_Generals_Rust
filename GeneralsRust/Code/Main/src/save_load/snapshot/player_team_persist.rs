@@ -2022,38 +2022,4 @@ mod legacy_script_identity_import_tests {
             Some("Old Label")
         );
     }
-
-    #[test]
-    fn legacy_missing_identity_recovers_reserved_neutral_from_receiving_team_not_label() {
-        use crate::game_logic::{GameLogic, Player, Team};
-        use crate::save_load::SnapshotBuilder;
-        fn neutral(world: &mut GameLogic, label: &str) {
-            let mut player = Player::new(0, Team::Neutral, label, false);
-            let mut dict = game_engine::common::dict::Dict::new();
-            dict.set_ascii_string(game_engine::common::well_known_keys::key_player_name(), "");
-            player.apply_map_side_dict(&dict, false, &mut Default::default());
-            world.add_player(player);
-        }
-        let mut source = GameLogic::new();
-        neutral(&mut source, "Old Neutral Label");
-        let builder = SnapshotBuilder::new();
-        let mut saved = builder.create_world_snapshot(&source).unwrap();
-        saved.version = 24;
-        let mut chunks = super::super::player_team_chunks::stamp_from_live(&source).unwrap();
-        chunks.players.as_mut().unwrap().players[0].host_side_identity = None;
-        super::super::player_team_chunks::bind_chunks_to_world(&mut saved, &chunks).unwrap();
-        let mut receiver = GameLogic::new();
-        neutral(&mut receiver, "New Receiving Label");
-        receiver.clear_all_players();
-        builder
-            .restore_from_snapshot(&saved, &mut receiver)
-            .unwrap();
-        assert!(receiver.get_player(0).unwrap().is_reserved_neutral());
-        assert_eq!(receiver.get_player(0).unwrap().script_identity(), Some(""));
-        assert_eq!(
-            receiver.default_host_team_instance_name(Some(0), Team::Neutral),
-            "team"
-        );
-        assert_eq!(receiver.get_player(0).unwrap().name, "Old Neutral Label");
-    }
 }
