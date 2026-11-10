@@ -1425,8 +1425,8 @@ mod presentation_selection_tests {
 
         let snap = PresentationFrame::build_from_logic(&mut logic, 0);
         // Mutate live world after snapshot — consumer must keep snapshot identity.
+        logic.set_fixture_object_position(id, Vec3::new(999.0, 0.0, 999.0));
         if let Some(o) = logic.host_object_mut(id) {
-            o.set_position(Vec3::new(999.0, 0.0, 999.0));
             o.selected = false;
             o.status.selected = false;
             o.health.current = 1.0;

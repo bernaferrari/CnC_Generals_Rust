@@ -1003,8 +1003,8 @@ mod tests {
             .expect("hacker");
         assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
         let frame = logic.frame;
-        if let Some(obj) = logic.host_object_mut(hacker) {
-            obj.set_contained_by(Some(ic));
+        if let Some((obj, partition)) = logic.host_object_and_partition_mut(hacker) {
+            obj.set_contained_by_with_partition_owner(Some(ic), true, partition);
             obj.set_ai_state(
                 crate::game_logic::AIState::Docked,
                 frame,

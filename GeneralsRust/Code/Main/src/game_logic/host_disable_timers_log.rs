@@ -56,7 +56,10 @@ mod owned_audio_tests {
                 outputs,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
-            object.set_position(Vec3::new(8.0, 9.0, 10.0));
+        }
+        owner.set_fixture_object_position(id, Vec3::new(8.0, 9.0, 10.0));
+        {
+            let (object, outputs) = owner.host_object_and_health_events_mut(id).unwrap();
             object.tick_disabled_emp(11, outputs); // another power disable remains
             assert!(!object.status.disabled_emp);
             assert!(object.status.disabled_hacked);

@@ -774,8 +774,8 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
 
     let snap = PresentationFrame::build_from_logic(&mut logic, 0);
     // Poison live world — unit collect must ignore it.
+    logic.set_fixture_object_position(id, Vec3::new(777.0, 0.0, 777.0));
     if let Some(o) = logic.host_object_mut(id) {
-        o.set_position(Vec3::new(777.0, 0.0, 777.0));
         o.selected = false;
         o.status.selected = false;
     }

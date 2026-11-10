@@ -631,9 +631,7 @@ mod tests {
             .expect("id");
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         // Poison live pose — presentation must win.
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_position(glam::Vec3::new(9999.0, 0.0, 9999.0));
-        }
+        logic.set_fixture_object_position(id, glam::Vec3::new(9999.0, 0.0, 9999.0));
         let mut proc = SimpleInputProcessor::new(0, (1024.0, 768.0));
         assert!(
             proc.find_object_at_position(glam::Vec3::new(10.0, 0.0, 20.0), &logic)

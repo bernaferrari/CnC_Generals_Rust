@@ -892,8 +892,8 @@ mod presentation_identity_tests {
         );
 
         // Mutate live world after snapshot: position leaves NDC frustum under identity matrices.
+        logic.set_fixture_object_position(id, Vec3::new(999.0, 0.0, 999.0));
         if let Some(o) = logic.host_object_mut(id) {
-            o.set_position(Vec3::new(999.0, 0.0, 999.0));
             o.health.current = 1.0;
             o.selected = false;
         }
@@ -945,9 +945,7 @@ mod presentation_identity_tests {
             .create_object("CtrlGrpUnit", Team::USA, Vec3::new(10.0, 0.0, 20.0))
             .expect("u");
         let snap = PresentationFrame::build_from_logic(&mut logic, 0);
-        if let Some(o) = logic.host_object_mut(id) {
-            o.set_position(Vec3::new(999.0, 0.0, 999.0));
-        }
+        logic.set_fixture_object_position(id, Vec3::new(999.0, 0.0, 999.0));
         let mut uc = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         uc.selected_objects = vec![id];
         uc.set_presentation_frame(Some(snap.clone()));

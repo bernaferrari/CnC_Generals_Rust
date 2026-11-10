@@ -1196,9 +1196,7 @@ mod tests {
             .expect("id");
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         // Poison live pose — presentation must still win.
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.set_position(glam::Vec3::new(9999.0, 0.0, 9999.0));
-        }
+        logic.set_fixture_object_position(id, glam::Vec3::new(9999.0, 0.0, 9999.0));
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id];
         ctl.set_presentation_frame(Some(frame));
@@ -1349,8 +1347,8 @@ mod tests {
         let occupant = logic
             .create_object("Ranger", Team::USA, glam::Vec3::new(20.5, 0.0, 20.5))
             .expect("occupant");
-        if let Some(obj) = logic.host_object_mut(occupant) {
-            obj.set_contained_by(Some(firebase_id));
+        if let Some((obj, partition)) = logic.host_object_and_partition_mut(occupant) {
+            obj.set_contained_by_with_partition_owner(Some(firebase_id), true, partition);
         }
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert_eq!(
@@ -1434,9 +1432,7 @@ mod tests {
     fn world_pick_from_presentation_ignores_live_move() {
         let (mut logic, id) = logic_with_selectable_unit();
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
-        if let Some(o) = logic.host_object_mut(id) {
-            o.set_position(glam::Vec3::new(9000.0, 0.0, 9000.0));
-        }
+        logic.set_fixture_object_position(id, glam::Vec3::new(9000.0, 0.0, 9000.0));
         let picked = UnitControlSystem::pick_object_id_at_world_from_presentation(
             &frame,
             glam::Vec3::ZERO,
@@ -1454,9 +1450,7 @@ mod tests {
     fn control_group_assign_prefers_presentation_pose() {
         let (mut logic, id) = logic_with_selectable_unit();
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
-        if let Some(o) = logic.host_object_mut(id) {
-            o.set_position(glam::Vec3::new(8000.0, 0.0, 8000.0));
-        }
+        logic.set_fixture_object_position(id, glam::Vec3::new(8000.0, 0.0, 8000.0));
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id];
         ctl.set_presentation_frame(Some(frame));
