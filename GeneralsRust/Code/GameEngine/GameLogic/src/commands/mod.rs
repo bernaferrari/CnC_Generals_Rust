@@ -88,10 +88,7 @@ pub use command_queue::{
     QueuedCommand, get_command_queue_manager,
 };
 
-pub use command_processor::{
-    AIManager, CommandExecutionContext, CommandExecutionResult, CommandExecutionStats,
-    CommandHandler, CommandProcessor, GameObject, ObjectManager, PlayerManager,
-};
+pub use command_processor::{AIManager, GameObject, ObjectManager, PlayerManager};
 
 // Additional command system constants and types
 pub use command_queue::MAX_COMMAND_QUEUE_SIZE;
@@ -105,10 +102,6 @@ pub const COMMAND_PRIORITY_DEFERRED: i32 = 4;
 
 // Command parameter and status types
 pub type CommandParams = command::CommandArgumentDataType;
-pub type CommandStatus = CommandExecutionResult;
-
-// Command execution state lives on GameLogic::command_processor.
-// THE_COMMAND_PROCESSOR had no callers; do not add another process-global.
 use std::sync::Arc;
 
 pub use selection::{
@@ -161,7 +154,7 @@ pub fn initialize_command_system(max_players: i32) -> Result<(), String> {
         }
     }
 
-    // Formations and the command processor are owned by GameLogic.
+    // Formations are owned by GameLogic.
 
     Ok(())
 }
@@ -187,101 +180,9 @@ pub fn update_command_system(
     Ok(())
 }
 
-/// Shutdown the command system - call this at game shutdown
-pub fn shutdown_command_system(
-    formations: &mut FormationManager,
-    processor: &mut CommandProcessor,
-) {
-    // Clear all command queues
-    let __arc_get_command_queue_manager = get_command_queue_manager();
-        if let Ok(_queue_manager) = __arc_get_command_queue_manager.lock() {
-        // Queue manager will clean up automatically when dropped
-    }
 
-    // Clear all selections
-    if let Ok(_selection_manager) = get_selection_manager().write() {
-        // Selection manager will clean up automatically when dropped
-    }
 
-    *formations = FormationManager::new();
-    *processor = CommandProcessor::new();
-}
 
-/// Get command system statistics for debugging
-pub fn get_command_system_stats(
-    formations: &FormationManager,
-    processor: &CommandProcessor,
-) -> CommandSystemStats {
-    let mut stats = CommandSystemStats::default();
-
-    // Get queue statistics
-    let __arc_get_command_queue_manager = get_command_queue_manager();
-        if let Ok(queue_manager) = __arc_get_command_queue_manager.lock() {
-        stats.queue_stats = queue_manager.get_all_stats();
-    }
-
-    stats.execution_stats = processor.get_statistics().clone();
-    stats.average_frame_time = processor.get_average_frame_time();
-
-    stats.active_formations = formations.get_formation_count();
-
-    stats
-}
-
-/// Command system statistics for debugging and monitoring
-#[derive(Debug, Clone, Default)]
-pub struct CommandSystemStats {
-    /// Per-player queue statistics
-    pub queue_stats: std::collections::HashMap<i32, PlayerCommandQueueStats>,
-
-    /// Command execution statistics
-    pub execution_stats: CommandExecutionStats,
-
-    /// Average frame processing time
-    pub average_frame_time: f64,
-
-    /// Number of active formations
-    pub active_formations: usize,
-}
-
-impl CommandSystemStats {
-    /// Get total commands queued across all players
-    pub fn get_total_queued_commands(&self) -> u64 {
-        self.queue_stats
-            .values()
-            .map(|stats| stats.total_queued)
-            .sum()
-    }
-
-    /// Get total commands executed across all players  
-    pub fn get_total_executed_commands(&self) -> u64 {
-        self.queue_stats
-            .values()
-            .map(|stats| stats.total_executed)
-            .sum()
-    }
-
-    /// Get total failed commands across all players
-    pub fn get_total_failed_commands(&self) -> u64 {
-        self.queue_stats
-            .values()
-            .map(|stats| stats.total_failed)
-            .sum()
-    }
-
-    /// Get success rate as percentage
-    pub fn get_success_rate(&self) -> f64 {
-        let executed = self.get_total_executed_commands();
-        let failed = self.get_total_failed_commands();
-        let total = executed + failed;
-
-        if total > 0 {
-            (executed as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        }
-    }
-}
 
 /// Convenience functions for common command operations
 pub mod commands {
@@ -386,11 +287,6 @@ mod tests {
         assert!(initialize_command_system(4).is_ok());
     }
 
-    #[test]
-    fn test_command_system_stats() {
-        let stats = get_command_system_stats(&FormationManager::new(), &CommandProcessor::new());
-        assert!(stats.queue_stats.len() <= crate::common::MAX_PLAYER_COUNT);
-    }
 
     #[test]
     fn test_convenience_functions() {

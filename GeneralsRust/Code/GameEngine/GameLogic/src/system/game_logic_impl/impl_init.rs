@@ -217,7 +217,6 @@ impl GameLogic {
         self.event_queue.clear();
         self.command_queue.clear();
         self.formation_manager = crate::commands::FormationManager::new();
-        self.command_processor = crate::commands::CommandProcessor::new();
         self.radar_updates.clear();
         self.game_mode = GAME_NONE;
         self.game_paused = false;

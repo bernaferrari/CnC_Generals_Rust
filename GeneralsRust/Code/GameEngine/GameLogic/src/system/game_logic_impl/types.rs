@@ -295,8 +295,6 @@ pub struct GameLogic {
     /// Active formations for this world. One manager per GameLogic so
     /// concurrent games do not share formation membership or ids.
     formation_manager: crate::commands::FormationManager,
-    /// Command execution for this world. Separate from the shared command queue.
-    command_processor: crate::commands::CommandProcessor,
     radar_updates: Vec<RadarUpdate>,
     objects_changed_trigger_areas: VecDeque<ObjectID>,
     frame_objects_changed_trigger_areas: UnsignedInt,
@@ -396,7 +394,6 @@ impl Default for GameLogic {
             event_queue: Vec::new(),
             command_queue: VecDeque::new(),
             formation_manager: crate::commands::FormationManager::new(),
-            command_processor: crate::commands::CommandProcessor::new(),
             radar_updates: Vec::new(),
             objects_changed_trigger_areas: VecDeque::new(),
             frame_objects_changed_trigger_areas: 0,

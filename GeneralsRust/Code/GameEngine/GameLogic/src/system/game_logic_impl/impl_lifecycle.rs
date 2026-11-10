@@ -976,7 +976,6 @@ impl GameLogic {
         self.event_queue.clear();
         self.command_queue.clear();
         self.formation_manager = crate::commands::FormationManager::new();
-        self.command_processor = crate::commands::CommandProcessor::new();
         self.radar_updates.clear();
         self.objects_changed_trigger_areas.clear();
 
@@ -1071,7 +1070,6 @@ impl GameLogic {
         self.module_lookup.clear();
         self.sleepy_updates.clear();
         self.formation_manager = crate::commands::FormationManager::new();
-        self.command_processor = crate::commands::CommandProcessor::new();
         if !loading_save_game {
             self.next_object_id = 1;
         }

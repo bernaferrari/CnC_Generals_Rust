@@ -4,61 +4,92 @@
 //																																						//
 ////////////////////////////////////////////////////////////////////////////////
 
-//! Command Processor - Command execution engine
+//! Command-processor interfaces.
 //!
-//! This module provides the command execution system that processes
-//! commands from the queue and translates them into game actions.
-//! Matches C++ command processing and GameLogic integration.
+//! The GameLogic-crate CommandProcessor (handler_*.rs) was never driven:
+//! Main's command executor owns C++ `GameLogic::logicMessageDispatcher`
+//! for every receiving world. Only the shared manager interfaces remain.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
+use std::sync::Arc;
 
-use super::command::{Command, CommandType, CommandValidation};
-use super::command_queue::{
-    CommandExecutionState, CommandPriority, QueuedCommand, get_command_queue_manager,
-};
-use super::rts_command::{RtsCommand, RtsCommandValidator};
-use crate::action_manager::TheActionManager;
-use crate::commands::get_selection_manager;
-use crate::common::{
-    AsciiString, Bool, CommandSourceType, Coord3D, DrawableID, EvaEvent, FormationID, ICoord2D,
-    IRegion2D, Int, KindOf, ObjectID, ObjectStatusTypes, PlayerMaskType, Real, Relationship,
-    UnsignedInt, audio::AudioEventRts,
-};
-use crate::control_bar;
-use crate::helpers::{
-    TheAudio, TheEva, TheGameLogic, TheGameText, TheInGameUI, TheTerrainLogic, TheThingFactory,
-};
-use crate::modules::{
-    AIUpdateInterfaceExt, ContainModuleInterfaceExt,
-    SpecialPowerModuleInterface as EngineSpecialPowerModuleInterface,
-    SpecialPowerUpdateInterface as EngineSpecialPowerUpdateInterface,
-};
-use crate::object::object_factory::{GameObjectInstance, get_object_factory};
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::object_manager::get_object_manager;
-use crate::player::player_list;
-use crate::system::beacon_manager::{BeaconManager, get_beacon_manager};
-use crate::upgrade::center::get_upgrade_center;
-use crate::weapon::{NO_MAX_SHOTS_LIMIT, WeaponLockType, WeaponSetType, WeaponSlotType};
-use game_engine::common::game_engine::get_game_engine;
-use game_engine::common::ini::get_global_data as get_engine_global_data;
-use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
-use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
-use game_engine::common::system::radar::{
-    Coord3D as RadarCoord3D, RadarEventType, get_radar_system,
-};
+use crate::common::{Coord3D, IRegion2D, Int, ObjectID};
 
-include!("types.rs");
-include!("handler_move_attack.rs");
-include!("handler_build.rs");
-include!("handler_group.rs");
-include!("handler_special.rs");
-include!("handler_guard.rs");
-include!("handler_unit.rs");
-include!("handler_misc.rs");
-include!("handler_dispatch.rs");
-include!("processor.rs");
-include!("tests.rs");
+/// Trait for object management interface
+pub trait ObjectManager: Send + Sync {
+    fn get_object(&self, id: ObjectID) -> Option<Arc<dyn GameObject>>;
+    fn get_objects_in_region(&self, region: &IRegion2D) -> Vec<ObjectID>;
+    fn create_object(
+        &mut self,
+        template: &str,
+        position: Coord3D,
+        player_id: Int,
+    ) -> Option<ObjectID>;
+    fn destroy_object(&mut self, id: ObjectID) -> bool;
+}
+
+/// Trait for player management interface  
+pub trait PlayerManager: Send + Sync {
+    fn get_player_resources(&self, player_id: Int) -> Option<PlayerResources>;
+    fn modify_player_resources(&mut self, player_id: Int, supplies: Int, power: Int);
+    fn can_player_afford(&self, player_id: Int, cost: &ResourceCost) -> bool;
+}
+
+/// Trait for AI management interface
+pub trait AIManager: Send + Sync {
+    fn issue_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool;
+    fn issue_waypoint_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        self.issue_move_order(objects, destination)
+    }
+    fn issue_attack_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        self.issue_move_order(objects, destination)
+    }
+    fn issue_attack_order(&mut self, attackers: &[ObjectID], target: ObjectID) -> bool;
+    fn issue_build_order(&mut self, builder: ObjectID, template: &str, position: Coord3D) -> bool;
+    fn issue_stop_order(&mut self, objects: &[ObjectID]) -> bool;
+    fn issue_targeted_order(
+        &mut self,
+        objects: &[ObjectID],
+        target: ObjectID,
+        command: crate::ai::AiCommandType,
+    ) -> bool;
+    fn issue_guard_position_order(
+        &mut self,
+        objects: &[ObjectID],
+        position: Coord3D,
+        guard_mode: crate::ai::GuardMode,
+    ) -> bool;
+    fn issue_guard_object_order(
+        &mut self,
+        objects: &[ObjectID],
+        target: ObjectID,
+        guard_mode: crate::ai::GuardMode,
+    ) -> bool;
+    /// C++ parity: AIUpdateInterface::queueWaypoint() — queue a waypoint without starting execution
+    fn queue_waypoint_for_object(&mut self, _object_id: ObjectID, _pos: Coord3D) {}
+    /// C++ parity: AIUpdateInterface::executeWaypointQueue() — start executing queued waypoints
+    fn execute_waypoint_queue_for_object(&mut self, _object_id: ObjectID) {}
+}
+
+/// Trait for game object interface
+pub trait GameObject: Send + Sync {
+    fn get_id(&self) -> ObjectID;
+    fn get_position(&self) -> Coord3D;
+    fn get_owner(&self) -> Int;
+    fn is_alive(&self) -> bool;
+    fn can_be_controlled_by(&self, player_id: Int) -> bool;
+}
+
+/// Resource cost structure
+#[derive(Debug, Clone)]
+pub struct ResourceCost {
+    pub supplies: Int,
+    pub power: Int,
+}
+
+/// Player resources
+#[derive(Debug, Clone)]
+pub struct PlayerResources {
+    pub supplies: Int,
+    pub power_available: Int,
+    pub power_used: Int,
+}
