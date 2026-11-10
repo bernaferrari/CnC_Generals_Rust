@@ -1,7 +1,10 @@
 {
   "Common": 2,
+  "EngineCrates": 0,
   "GameClient": 1,
-  "GameLogic": 0,
+  "GameEngineDevice": 10,
+  "GameLogic": 1,
+  "GameNetwork": 25,
   "Main": 0,
-  "WWVegas": 0
+  "WWVegas": 1
 }

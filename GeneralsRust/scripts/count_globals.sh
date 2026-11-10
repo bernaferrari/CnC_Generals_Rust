@@ -75,12 +75,46 @@ def struct_body_text(text, type_name):
     return None
 
 
+# Struct bodies across every scanned crate, filled before counting, so a
+# static's handle type defined in one file (e.g. `TeamFactoryHandle {
+# inner: Arc<TeamFactoryMutex> }`) is followed to the Mutex in another.
+STRUCT_INDEX = collections.defaultdict(list)
+
+
+def index_struct_bodies(text):
+    for m in re.finditer(
+        r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+([A-Z][A-Za-z0-9_]*)\b", text
+    ):
+        body = struct_body_text(text, m.group(1))
+        if body is not None and body not in STRUCT_INDEX[m.group(1)]:
+            STRUCT_INDEX[m.group(1)].append(body)
+
+
+def body_is_mutable(text, body, depth=0, seen=None):
+    """Interior mutability in `body` or, transitively, in its field types."""
+    body = re.sub(r"//[^\n]*", "", body)
+    if body_mut.search(body):
+        return True
+    if depth >= 4:
+        return False
+    seen = set() if seen is None else seen
+    for name in type_names.findall(body):
+        if name in SKIP_TYPE_NAMES or name in seen:
+            continue
+        seen.add(name)
+        local = struct_body_text(text, name)
+        for nested in ([local] if local is not None else STRUCT_INDEX.get(name, [])):
+            if body_is_mutable(text, nested, depth + 1, seen):
+                return True
+    return False
+
+
 def wrapper_struct_is_mutable(text, type_annotation):
     for name in type_names.findall(type_annotation):
         if name in SKIP_TYPE_NAMES:
             continue
         body = struct_body_text(text, name)
-        if body and body_mut.search(body):
+        if body and body_is_mutable(text, body):
             return True
     return False
 
@@ -153,7 +187,7 @@ def init_cell_is_mutable(text, ty):
         body = struct_body_text(text, name)
         if body is None:
             return not struct_is_unit(text, name)
-        return body_mut.search(body) is not None
+        return body_is_mutable(text, body)
     return True
 
 
@@ -272,8 +306,30 @@ roots = {
     "Common": "Code/GameEngine/Common",
     "WWVegas": "Code/Libraries/Source/WWVegas",
     "Main": "Code/Main",
+    "GameEngineDevice": "Code/GameEngine/GameEngineDevice",
+    # Remaining workspace engine crates, so no crate is outside the meter.
+    "GameNetwork": "Code/GameEngine/GameNetwork",
+    "EngineCrates": [
+        "Code/GameEngine/FX", "Code/GameEngine/GameDomain",
+        "Code/GameEngine/Map", "Code/GameEngine/Particles", "Code/GameEngine/Pathfinding",
+        "Code/GameEngine/Presentation", "Code/GameEngine/UI",
+    ],
 }
 skip_dir = re.compile(r"(?:^|/)(?:tests|examples|benches|target)(?:/|$)")
+roots_expanded = [
+    (label, rel)
+    for label, dirs in roots.items()
+    for rel in (dirs if isinstance(dirs, list) else [dirs])
+]
+
+for _, _rel in roots_expanded:
+    _base = os.path.join(root, _rel)
+    for _dirpath, _dirnames, _fns in os.walk(_base):
+        _dirnames[:] = [d for d in _dirnames if not skip_dir.search(d)]
+        for _fn in _fns:
+            if _fn.endswith(".rs") and not _fn.endswith("_tests.rs") and _fn != "tests.rs":
+                with open(os.path.join(_dirpath, _fn), encoding="utf-8", errors="ignore") as _f:
+                    index_struct_bodies(_f.read())
 
 counts = collections.OrderedDict((k, 0) for k in roots)
 details = collections.defaultdict(list)
@@ -308,7 +364,7 @@ ALLOWED_TLS_EXCEPTIONS = {
 }
 
 
-for label, rel in roots.items():
+for label, rel in roots_expanded:
     base = os.path.join(root, rel)
     if not os.path.isdir(base):
         continue
@@ -394,6 +450,10 @@ else:
         print(f"  {k}: {v}")
         total += v
     print(f"  TOTAL: {total}")
+    if "--details" in sys.argv[1:]:
+        for k, items in details.items():
+            for item in items:
+                print(f"    {k}: {item}")
 
 
 # --- Opaque process-wrapper lint (always) ---
@@ -404,6 +464,7 @@ else:
 ALLOW_OPAQUE_WRAPPERS = {
     "AcademyTemplateContextSlot",
     "AcceleratorsSlot",
+    "AdvancedRuntime",
     "AiDataActiveSlot",
     "AiDataProcessLifetimeSlot",
     "Anim2DCollectionSlot",
@@ -525,6 +586,9 @@ ALLOW_OPAQUE_WRAPPERS = {
     "HotReloadRuntime",
     "HudFeedbackChainLockSlot",
     "HulkMaxLifetimeOverrideSlot",
+    # Plain per-buffer range records (size/start/index), not process slots;
+    # listed when GameEngineDevice joined the scan.
+    "IndexBufferSlot",
     "IngameUiSettingsSlot",
     "InstanceRuntime",
     "InstanceSlot",
@@ -539,6 +603,7 @@ ALLOW_OPAQUE_WRAPPERS = {
     "LoadScreenRuntime",
     "LockRuntime",
     "LockSlot",
+    "LobbyRuntime",
     "LocomotorStoreSlot",
     "LodMaxScreenSizesBag",
     "LowVertexColorWarningsSlot",
@@ -651,12 +716,15 @@ ALLOW_OPAQUE_WRAPPERS = {
     "ThumbnailManagerBag",
     "TimeSlot",
     "TotalOwnedSubmitsSlot",
+    "TransportRuntime",
     "UnitAiRuntime",
     "UnitAiStateRuntime",
+    "UdpRuntime",
     "UpgradeCenterActiveSlot",
     "UpgradeCenterProcessLifetimeSlot",
     "VersionInstanceSlot",
     "VertexMaterialIdRuntime",
+    "VertexBufferSlot",
     "VideoPlayerSlot",
     "WarningCountRuntime",
     "WarningCountSlot",
@@ -678,7 +746,7 @@ pat_opaque_struct = re.compile(
     r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+([A-Za-z_][A-Za-z0-9_]*(?:Slot|Bag|Runtime))\b"
 )
 new_wrappers = []
-for label, rel in roots.items():
+for label, rel in roots_expanded:
     base = os.path.join(root, rel)
     if not os.path.isdir(base):
         continue
