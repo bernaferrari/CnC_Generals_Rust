@@ -197,18 +197,17 @@ impl Player {
                     hooks.on_player_science_purchase_points_changed(self.player_index, self.science_purchase_points);
                 }
             }
-        } else {
-            if self.level_up != 0 && self.is_local_player() {
-                let _ = crate::helpers::TheEva::set_should_play(crate::helpers::EvaEvent::GeneralLevelUp);
+        } else if let Some(world) = self.owning_world_services().filter(|_| self.is_local_player()) {
+            // No lent world: the Player's own world (C++ TheEva/TheControlBar
+            // of its GameEngine). A Player of no world plays and marks nothing.
+            if self.level_up != 0 {
+                let _ = crate::helpers::TheEva::set_should_play_in(&world, crate::helpers::EvaEvent::GeneralLevelUp);
             }
-            if self.is_local_player() {
-                crate::control_bar::notify_player_rank_changed(
-                    self.player_index, self.rank_level, self.science_purchase_points,
-                );
+            let hooks = world.control_bar_ui_hooks().lock().ok().and_then(|hooks| hooks.clone());
+            if let Some(hooks) = hooks {
+                hooks.on_player_rank_changed(self.player_index, self.rank_level, self.science_purchase_points);
                 if old_spp != self.science_purchase_points {
-                    crate::control_bar::notify_science_purchase_points_changed(
-                        self.player_index, self.science_purchase_points,
-                    );
+                    hooks.on_player_science_purchase_points_changed(self.player_index, self.science_purchase_points);
                 }
             }
         }
@@ -340,10 +339,11 @@ impl Player {
                 if let Some(hooks) = hooks {
                     hooks.on_player_science_purchase_points_changed(self.player_index, self.science_purchase_points);
                 }
-            } else if self.is_local_player() {
-                crate::control_bar::notify_science_purchase_points_changed(
-                    self.player_index, self.science_purchase_points,
-                );
+            } else if let Some(world) = self.owning_world_services().filter(|_| self.is_local_player()) {
+                let hooks = world.control_bar_ui_hooks().lock().ok().and_then(|hooks| hooks.clone());
+                if let Some(hooks) = hooks {
+                    hooks.on_player_science_purchase_points_changed(self.player_index, self.science_purchase_points);
+                }
             }
         }
     }
@@ -454,7 +454,7 @@ impl Player {
                     hooks.mark_ui_dirty();
                 }
             } else {
-                crate::control_bar::mark_ui_dirty();
+                crate::control_bar::mark_ui_dirty_from(self.owning_world_services().as_ref());
             }
         }
 
@@ -540,7 +540,7 @@ impl Player {
             .record_generals_points_spent(cost);
 
         if self.is_local_player() {
-            crate::control_bar::mark_ui_dirty();
+            crate::control_bar::mark_ui_dirty_from(self.owning_world_services().as_ref());
         }
 
         true

@@ -504,7 +504,14 @@ impl TheRadar {
                 y: position.y,
                 z: position.z,
             };
-            guard.try_under_attack_event_for(&world_loc, Some(&victim))
+            // C++ TheEva of the GameEngine that owns the victim.
+            let victim_world = target.owning_world_services();
+            let mut eva = |name: &str| {
+                if let Some(event) = radar_eva_event(name) {
+                    let _ = TheEva::set_should_play_from(victim_world.as_ref(), event);
+                }
+            };
+            guard.try_under_attack_event_with_eva(&world_loc, Some(&victim), Some(&mut eva))
         } else {
             false
         };
@@ -575,13 +582,18 @@ impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEve
         audio.add_audio_event(&event);
     }
 
-    fn set_eva_should_play(&self, eva_name: &str) {
-        let event = match eva_name {
-            "EVA_BaseUnderAttack" => EvaEvent::BaseUnderAttack,
-            "EVA_AllyUnderAttack" => EvaEvent::AllyUnderAttack,
-            _ => return,
-        };
-        let _ = TheEva::set_should_play(event);
+    fn set_eva_should_play(&self, _eva_name: &str) {
+        // GameLogic's under-attack path hands the radar the victim's own Eva
+        // (`try_under_attack_event_with_eva`); a location-only radar event
+        // has no owning engine to play in.
+    }
+}
+
+fn radar_eva_event(eva_name: &str) -> Option<EvaEvent> {
+    match eva_name {
+        "EVA_BaseUnderAttack" => Some(EvaEvent::BaseUnderAttack),
+        "EVA_AllyUnderAttack" => Some(EvaEvent::AllyUnderAttack),
+        _ => None,
     }
 }
 
@@ -958,12 +970,6 @@ impl EvaState {
 pub struct TheEva;
 
 impl TheEva {
-    fn state_arc() -> std::sync::Arc<std::sync::Mutex<EvaState>> {
-        std::sync::Arc::clone(
-            crate::system::engine_stores::active_services().eva(),
-        )
-    }
-
     /// C++ `TheEva->setShouldPlay` on the Eva owned by `world` (Eva.cpp:339-345).
     /// The flag latches regardless of `m_enabled`; the disabled update
     /// (Eva.cpp:267-269) returns before the flag clear, so alerts raised while
@@ -979,7 +985,7 @@ impl TheEva {
     }
 
     /// C++ `TheEva->setShouldPlay` from code running for `object`: the Eva of
-    /// the world that admitted it. Objects no world admitted keep the published Eva.
+    /// the world it was assembled in. An Object of no world plays nothing.
     pub fn set_should_play_for(
         object: &crate::object::Object,
         event: EvaEvent,
@@ -987,14 +993,14 @@ impl TheEva {
         Self::set_should_play_from(object.owning_world_services().as_ref(), event)
     }
 
-    /// `world`'s Eva when there is an owning world, else the published one.
+    /// `world`'s Eva; without an owning world there is no Eva to play in.
     pub fn set_should_play_from(
         world: Option<&std::sync::Arc<crate::system::engine_stores::WorldServices>>,
         event: EvaEvent,
     ) -> Result<(), GameError> {
         match world {
             Some(world) => Self::set_should_play_in(world, event),
-            None => Self::set_should_play(event),
+            None => Ok(()),
         }
     }
 
@@ -1033,14 +1039,6 @@ impl TheEva {
         Ok(guard.queued.drain(..).collect())
     }
 
-    /// Published-world compatibility entry for Core module callbacks that do
-    /// not yet receive their world; prefer [`Self::set_should_play_in`].
-    pub fn set_should_play(event: EvaEvent) -> Result<(), GameError> {
-        let state = Self::state_arc();
-        let mut guard = state.lock().map_err(|_| GameError::LockError)?;
-        guard.queued.push(event);
-        Ok(())
-    }
 
 
 }
@@ -1090,7 +1088,7 @@ mod in_game_ui_eva_ownership_tests {
                 let services = new_world_services();
                 with_world_services(&services, || {
                     TheInGameUI::display_message(&format!("msg-{seed}"));
-                    TheEva::set_should_play(EvaEvent::LowPower).unwrap();
+                    TheEva::set_should_play_in(&services, EvaEvent::LowPower).unwrap();
                     if seed == 1 {
                         TheEva::set_enabled_in(&services, false).unwrap();
                     }

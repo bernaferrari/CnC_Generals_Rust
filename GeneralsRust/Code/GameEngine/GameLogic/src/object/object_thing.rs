@@ -89,12 +89,24 @@ impl engine_module::Thing for Object {
 }
 
 impl Object {
-    /// The world whose GameLogic admitted this Object (C++ the GameEngine that
-    /// owns it), if a world runtime admitted it.
+    /// The world this Object was assembled in, or whose GameLogic admitted
+    /// it (C++ the GameEngine that owns it).
     pub(crate) fn owning_world_services(
         &self,
     ) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
-        self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services()))
+        self.owner_world
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .or_else(|| self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services())))
+    }
+
+    /// Fixture Objects built outside assembly join `world` as if assembled there.
+    #[cfg(test)]
+    pub(crate) fn bind_owner_world_for_test(
+        &mut self,
+        world: &Arc<crate::system::engine_stores::WorldServices>,
+    ) {
+        self.owner_world = Some(Arc::downgrade(world));
     }
 }
 
@@ -553,7 +565,7 @@ mod owning_world_eva_tests {
         with_world_services(a.services(), || {
             TheEva::set_should_play_for(&in_b.read().unwrap(), EvaEvent::SuperweaponLaunchedOwnNuke)
                 .unwrap();
-            // An Object no world admitted keeps the published Eva.
+            // An Object of no world plays nothing, even with a world published.
             TheEva::set_should_play_for(&unadmitted.read().unwrap(), EvaEvent::UnitLost).unwrap();
         });
         with_world_services(b.services(), || {
@@ -561,11 +573,74 @@ mod owning_world_eva_tests {
         });
         assert_eq!(
             TheEva::drain_events_in(a.services()).unwrap(),
-            vec![EvaEvent::UnitLost, EvaEvent::BuildingLost]
+            vec![EvaEvent::BuildingLost]
         );
         assert_eq!(
             TheEva::drain_events_in(b.services()).unwrap(),
             vec![EvaEvent::SuperweaponLaunchedOwnNuke]
         );
     }
+
+    #[test]
+    fn main_admitted_object_eva_and_control_bar_stay_in_its_world() {
+        // An Object prepared by Main's world GameLogic (no core EngineStores)
+        // keeps its world from assembly: its Eva, ControlBar and markUIDirty
+        // land there while another world is published.
+        use crate::system::engine_stores::new_world_services;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct DirtyHooks(Arc<AtomicUsize>);
+        impl crate::control_bar::ControlBarUiHooks for DirtyHooks {
+            fn mark_ui_dirty(&self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+            fn on_player_science_purchase_points_changed(&self, _: i32, _: i32) {}
+            fn on_player_rank_changed(&self, _: i32, _: i32, _: i32) {}
+        }
+        let main = new_world_services();
+        let other = new_world_services();
+        let dirty_main = Arc::new(AtomicUsize::new(0));
+        let dirty_other = Arc::new(AtomicUsize::new(0));
+        *main.control_bar_ui_hooks().lock().unwrap() =
+            Some(Arc::new(DirtyHooks(Arc::clone(&dirty_main))));
+        *other.control_bar_ui_hooks().lock().unwrap() =
+            Some(Arc::new(DirtyHooks(Arc::clone(&dirty_other))));
+        let main_bridge = Arc::new(crate::control_bar::ControlBarBridge::from_command_sets(vec![
+            crate::command_button::CommandSet::new("MainSet".to_string()),
+        ]));
+        *main.control_bar_bridge().write().unwrap() = Some(Arc::clone(&main_bridge));
+        *other.control_bar_bridge().write().unwrap() =
+            Some(Arc::new(crate::control_bar::ControlBarBridge::from_command_sets(vec![])));
+
+        let mut logic = crate::system::game_logic::GameLogic::new_with_world_services(Arc::clone(&main));
+        let mut factory = crate::object::object_factory::ObjectFactory::new();
+        let id = factory
+            .prepare_object(
+                &mut logic,
+                Arc::new(DefaultThingTemplate::new("MainAdmitted".into())),
+                crate::common::Coord3D::ZERO,
+                None,
+                crate::object::object_factory::ObjectCreationFlags::NO_AI,
+            )
+            .expect("prepared object");
+        let object = factory
+            .get_object(id)
+            .and_then(|slot| slot.get_base_object())
+            .expect("prepared Object");
+
+        with_world_services(&other, || {
+            let guard = object.read().unwrap();
+            assert!(Arc::ptr_eq(&guard.owning_world_services().expect("own world"), &main));
+            TheEva::set_should_play_for(&guard, EvaEvent::UnitLost).unwrap();
+            let bridge = crate::control_bar::control_bar_bridge_for(&guard).expect("Main's ControlBar");
+            assert!(Arc::ptr_eq(&bridge, &main_bridge));
+            crate::control_bar::mark_ui_dirty_for(&guard);
+        });
+        assert_eq!(TheEva::drain_events_in(&main).unwrap(), vec![EvaEvent::UnitLost]);
+        assert!(TheEva::drain_events_in(&other).unwrap().is_empty());
+        assert_eq!(
+            (dirty_main.load(Ordering::Relaxed), dirty_other.load(Ordering::Relaxed)),
+            (1, 0)
+        );
+    }
+
 }

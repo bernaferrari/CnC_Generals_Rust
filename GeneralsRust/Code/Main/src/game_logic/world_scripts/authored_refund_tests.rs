@@ -81,7 +81,7 @@ End
         }
     }
     assert_eq!(
-        gamelogic::control_bar::parsed_unit_build_authorization(PRODUCER, UNIT),
+        gamelogic::control_bar::parsed_unit_build_authorization(&gamelogic::system::engine_stores::active_services(), PRODUCER, UNIT),
         gamelogic::control_bar::ParsedUnitBuildAuthorization::Unavailable,
         "fixture must not silently claim an authored Common CommandSet gate"
     );

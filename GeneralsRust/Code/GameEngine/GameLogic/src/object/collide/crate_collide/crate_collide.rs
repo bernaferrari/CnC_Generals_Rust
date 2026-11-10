@@ -151,7 +151,7 @@ pub struct CrateCollide {
     /// State owned by this crate collision module.
     state: CrateCollideState,
     /// World the crate's Object was assembled in (C++ the owning GameEngine's
-    /// TheEva). Unbound legacy assembly keeps the published world's Eva.
+    /// TheEva). A crate assembled without a world plays nothing.
     owning_world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
     // Identity is object_id only; resolve via registry/TheGameLogic on demand.
 }
@@ -178,7 +178,7 @@ impl CrateCollide {
                 Some(world) => crate::helpers::TheEva::set_should_play_in(&world, event),
                 None => Ok(()),
             },
-            None => crate::helpers::TheEva::set_should_play(event),
+            None => Ok(()),
         };
     }
 
@@ -736,13 +736,13 @@ mod tests {
         });
         with_world_services(&b, || {
             in_a.play_eva(EvaEvent::VehicleStolen);
-            // Legacy assembly without a supplied world keeps the published Eva.
+            // A crate assembled without a world plays nothing, published or not.
             unbound.play_eva(EvaEvent::UnitLost);
         });
         assert_eq!(TheEva::drain_events_in(&a).unwrap(), vec![EvaEvent::VehicleStolen]);
         assert_eq!(
             TheEva::drain_events_in(&b).unwrap(),
-            vec![EvaEvent::BuildingSabotaged, EvaEvent::CashStolen, EvaEvent::UnitLost]
+            vec![EvaEvent::BuildingSabotaged, EvaEvent::CashStolen]
         );
 
         // A crate whose world has retired plays nothing anywhere.

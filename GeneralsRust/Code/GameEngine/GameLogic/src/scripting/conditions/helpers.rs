@@ -1310,6 +1310,7 @@ pub fn host_eval_skirmish_command_button_ready(
     team_name: &str,
     command_button_name: &str,
     all_ready: bool,
+    control_bar: Option<&crate::control_bar::ControlBarBridge>,
 ) -> Option<bool> {
     if !host_script_query_has_any() {
         return None;
@@ -1318,7 +1319,7 @@ pub fn host_eval_skirmish_command_button_ready(
         return Some(false);
     }
 
-    match leftover_command_button_kind(command_button_name) {
+    match leftover_command_button_kind(command_button_name, control_bar) {
         LeftoverCommandButtonKind::Missing => return Some(false),
         LeftoverCommandButtonKind::Unknown
         | LeftoverCommandButtonKind::SpecialPower(_)
@@ -1335,7 +1336,7 @@ pub fn host_eval_skirmish_command_button_ready(
         let Some(obj) = host_script_query_object_by_id(id) else {
             continue;
         };
-        let Some(is_ready) = host_command_button_ready_for_object(&obj, command_button_name) else {
+        let Some(is_ready) = host_command_button_ready_for_object(&obj, command_button_name, control_bar) else {
             continue;
         };
         if is_ready {
@@ -1875,8 +1876,13 @@ enum LeftoverCommandButtonKind {
     Other,
 }
 
-fn leftover_command_button_kind(command_button_name: &str) -> LeftoverCommandButtonKind {
-    if let Some(bridge) = crate::control_bar::get_control_bar_bridge() {
+/// `control_bar` is the evaluating engine's ControlBar (C++ TheControlBar of
+/// the engine running the script), never the published world's.
+fn leftover_command_button_kind(
+    command_button_name: &str,
+    control_bar: Option<&crate::control_bar::ControlBarBridge>,
+) -> LeftoverCommandButtonKind {
+    if let Some(bridge) = control_bar {
         if let Some(button) = bridge.find_command_button_by_name(command_button_name) {
             if let Some(template) = button.get_special_power_template() {
                 return LeftoverCommandButtonKind::SpecialPower(template.get_name().to_string());
@@ -1919,8 +1925,9 @@ fn host_team_name_known(team_name: &str) -> bool {
 fn host_command_button_ready_for_object(
     obj: &HostScriptQueryObject,
     command_button_name: &str,
+    control_bar: Option<&crate::control_bar::ControlBarBridge>,
 ) -> Option<bool> {
-    match leftover_command_button_kind(command_button_name) {
+    match leftover_command_button_kind(command_button_name, control_bar) {
         LeftoverCommandButtonKind::Missing => None,
         LeftoverCommandButtonKind::Upgrade | LeftoverCommandButtonKind::Other => {
             // C++ does not skip upgrade members; isReady needs leftover Object.

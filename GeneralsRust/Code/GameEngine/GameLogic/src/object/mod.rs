@@ -2261,6 +2261,9 @@ pub struct Object {
     owner_roster: Option<Weak<RwLock<crate::player::PlayerList>>>,
     /// World cave tracker supplied at construction, borrowed for create hooks.
     owner_cave: Option<Weak<Mutex<crate::system::cave_system::CaveSystem>>>,
+    /// World this Object was assembled in (C++ the GameEngine that owns it):
+    /// its Eva, ControlBar and other per-engine singletons.
+    owner_world: Option<Weak<crate::system::engine_stores::WorldServices>>,
     original_team_name: AsciiString,
     indicator_color: Color,
 

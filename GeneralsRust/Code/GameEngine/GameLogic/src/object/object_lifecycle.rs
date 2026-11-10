@@ -202,6 +202,7 @@ impl Object {
         );
         obj.owner_roster = owner_roster.as_ref().map(Arc::downgrade);
         obj.owner_cave = cave_system.as_ref().map(|world| Arc::downgrade(world.cave()));
+        obj.owner_world = cave_system.as_ref().map(|world| world.world().clone());
         obj.ambient_lifecycle_admitted = publish;
         if publish {
             obj.set_team(team)?;
@@ -386,6 +387,7 @@ impl Object {
             team_pin: team,
             owner_roster: None,
             owner_cave: None,
+            owner_world: None,
             original_team_name: AsciiString::new(),
             indicator_color: Color::default(),
 

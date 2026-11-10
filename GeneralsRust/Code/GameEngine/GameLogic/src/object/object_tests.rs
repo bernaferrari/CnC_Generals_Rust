@@ -1665,6 +1665,8 @@ mod tests {
             template.add_kind_of(*kind);
         }
         let mut victim = Object::new_test_from_template(id, 100.0, Arc::new(template));
+        // The victim belongs to the world these tests drain (C++ its GameEngine).
+        victim.bind_owner_world_for_test(&crate::system::engine_stores::active_services());
         victim.set_team(Some(team.clone())).unwrap();
         victim.set_radar_data_for_test(Some(Box::new(RadarObject::new(id))));
         (team, victim)

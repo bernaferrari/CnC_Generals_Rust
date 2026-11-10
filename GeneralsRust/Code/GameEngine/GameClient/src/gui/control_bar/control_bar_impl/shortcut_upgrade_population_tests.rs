@@ -44,7 +44,7 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
             .unwrap();
         gamelogic::control_bar::refresh_control_bar_bridge_from_common().unwrap();
         {
-            let bridge = gamelogic::control_bar::get_control_bar_bridge().unwrap();
+            let bridge = gamelogic::control_bar::control_bar_bridge_in(&gamelogic::system::engine_stores::active_services()).unwrap();
             let button = bridge.find_command_button_by_name(BUTTON).unwrap();
             assert!(button.get_upgrade_template().is_some());
             assert_ne!(
@@ -78,7 +78,7 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
                 Some(game_engine::common::ini::command_definitions::CommandDefinitions::from_common(
                     &game_engine::common::common_services::common_services(),
                 )),
-                gamelogic::control_bar::get_control_bar_bridge(),
+                gamelogic::control_bar::control_bar_bridge_in(&gamelogic::system::engine_stores::active_services()),
             );
             bar.special_power_shortcut_layout = layout.to_owned();
             bar.special_power_shortcut_count = 1;

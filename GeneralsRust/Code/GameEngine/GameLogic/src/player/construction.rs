@@ -111,10 +111,7 @@ impl Player {
 
         // C++ TheControlBar/TheEva of the GameEngine that owns the structure.
         let structure_world = structure.read().ok().and_then(|guard| guard.owning_world_services());
-        match structure_world.as_ref() {
-            Some(world) => crate::control_bar::mark_ui_dirty_in(world.control_bar_ui_hooks()),
-            None => crate::control_bar::mark_ui_dirty(),
-        }
+        crate::control_bar::mark_ui_dirty_from(structure_world.as_ref());
 
         let __player_list_arc = crate::player::player_list();
             let local_player = __player_list_arc.read()

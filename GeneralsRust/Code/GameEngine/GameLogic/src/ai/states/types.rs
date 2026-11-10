@@ -40,7 +40,6 @@ use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
@@ -227,8 +226,14 @@ impl AICommandParmsStorage {
         self.path = parms.path.clone();
     }
 
-    /// Reconstitute command parameters from storage
-    pub fn reconstitute(&self, parms: &mut AICommandParms) {
+    /// Reconstitute command parameters from storage. A loaded button is
+    /// resolved by name in `control_bar`, the owning world's ControlBar
+    /// (C++ `TheControlBar->findCommandButton` of that engine).
+    pub fn reconstitute(
+        &self,
+        parms: &mut AICommandParms,
+        control_bar: Option<&crate::control_bar::ControlBarBridge>,
+    ) {
         parms.cmd = self.cmd;
         parms.cmd_source = self.cmd_source;
         parms.pos = self.pos;
@@ -247,7 +252,14 @@ impl AICommandParmsStorage {
         parms.polygon = self.polygon.clone();
         parms.int_value = self.int_value;
         parms.damage = self.damage.clone();
-        parms.command_button = self.command_button.clone();
+        parms.command_button = self.command_button.clone().or_else(|| {
+            if self.command_button_name.is_empty() {
+                return None;
+            }
+            control_bar
+                .and_then(|bar| bar.find_command_button_by_name(&self.command_button_name))
+                .map(|button| Arc::new(button.clone()))
+        });
         parms.command_button_name = self.command_button_name.clone();
         parms.path = self.path.clone();
     }
@@ -349,17 +361,11 @@ impl AICommandParmsStorage {
         xfer.xfer_ascii_string(&mut command_name)
             .map_err(|e| format!("Failed to xfer command button name: {:?}", e))?;
         if xfer.is_loading() {
+            // The name is the saved identity. C++ resolves it against the
+            // owning engine's ControlBar; `reconstitute` does that with the
+            // receiving world's ControlBar, never the published one.
             self.command_button_name = command_name;
             self.command_button = None;
-            if !self.command_button_name.is_empty() {
-                if let Some(control_bar) = get_control_bar_bridge() {
-                    if let Some(button) =
-                        control_bar.find_command_button_by_name(&self.command_button_name)
-                    {
-                        self.command_button = Some(Arc::new(button.clone()));
-                    }
-                }
-            }
         }
 
         let mut has_path = self.path.is_some();

@@ -3262,10 +3262,12 @@ impl ScriptActionDispatcher<'_> {
         all_ready: bool,
     ) -> Result<bool, ScriptError> {
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            let control_bar = self.owning_control_bar_bridge();
             if let Some(ready) = crate::scripting::host_eval_skirmish_command_button_ready(
                 team_name,
                 command_button_name,
                 all_ready,
+                control_bar.as_deref(),
             ) {
                 return Ok(ready);
             }

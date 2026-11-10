@@ -294,23 +294,22 @@ fn replace_control_bar_bridge(bridge: ControlBarBridge) -> Result<(), String> {
     })
 }
 
-/// Shared catalog view for the active world. `Arc` derefs to [`ControlBarBridge`]
-/// so existing `bridge.find_*` call sites stay unchanged.
 /// C++ `TheControlBar` of the GameEngine that owns `object`: the ControlBar of
-/// the world whose GameLogic admitted it. Objects no world admitted keep the
-/// published world's ControlBar.
+/// the world it was assembled in. An Object of no world has no ControlBar.
 pub(crate) fn control_bar_bridge_for(
     object: &crate::object::Object,
 ) -> Option<Arc<ControlBarBridge>> {
-    match object.owning_world_services() {
-        Some(world) => world.control_bar_bridge().read().ok().and_then(|slot| slot.clone()),
-        None => get_control_bar_bridge(),
-    }
+    let world = object.owning_world_services()?;
+    control_bar_bridge_in(&world)
 }
 
-pub fn get_control_bar_bridge() -> Option<Arc<ControlBarBridge>> {
-    with_bridge_slot(|slot| slot.read().ok().and_then(|g| g.clone()))
+/// `world`'s ControlBar (C++ `TheControlBar` of that GameEngine).
+pub fn control_bar_bridge_in(
+    world: &crate::system::engine_stores::WorldServices,
+) -> Option<Arc<ControlBarBridge>> {
+    world.control_bar_bridge().read().ok().and_then(|slot| slot.clone())
 }
+
 
 /// Authorize a producer/template pair from the parsed retail CommandSet
 /// catalog used by GameClient's ControlBar.
@@ -321,6 +320,7 @@ pub fn get_control_bar_bridge() -> Option<Arc<ControlBarBridge>> {
 /// is reported separately so Main can retain its compatibility fallback only
 /// while startup data is unavailable.
 pub fn parsed_unit_build_authorization(
+    world: &crate::system::engine_stores::WorldServices,
     producer_template: &str,
     producible_template: &str,
 ) -> ParsedUnitBuildAuthorization {
@@ -354,7 +354,8 @@ pub fn parsed_unit_build_authorization(
         name.to_string()
     };
 
-    let Some(bridge) = get_control_bar_bridge() else {
+    // The ControlBar of the world authorizing the build.
+    let Some(bridge) = world.control_bar_bridge().read().ok().and_then(|slot| slot.clone()) else {
         return ParsedUnitBuildAuthorization::Unavailable;
     };
     if !bridge.has_resolved_command_set_catalog() {
@@ -428,7 +429,6 @@ fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplate
         .read()
         .ok()?
         .get_objects_owned_by_player(player.value());
-    let control_bar = get_control_bar_bridge()?;
     let object_manager = get_object_manager();
     let object_manager = object_manager.read().ok()?;
 
@@ -436,17 +436,18 @@ fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplate
         let Some(object_arc) = object_manager.get_object(object_id) else {
             continue;
         };
-        let command_set_name = object_arc
+        // C++ TheControlBar of the GameEngine that owns the object.
+        let Some((command_set_name, Some(control_bar))) = object_arc
             .read()
             .ok()
             .and_then(|object| {
-                object
-                    .base()
-                    .read()
-                    .ok()
-                    .map(|base| base.get_command_set_string().to_string())
+                object.base().read().ok().map(|base| {
+                    (base.get_command_set_string().to_string(), control_bar_bridge_for(&base))
+                })
             })
-            .unwrap_or_default();
+        else {
+            continue;
+        };
         if command_set_name.is_empty() {
             continue;
         }
@@ -545,54 +546,28 @@ pub fn register_control_bar_ui_hooks(hooks: Arc<dyn ControlBarUiHooks>) -> bool 
     true
 }
 
-fn with_control_bar_ui_hooks<F>(f: F)
-where
-    F: FnOnce(&dyn ControlBarUiHooks),
-{
-    let services = crate::system::engine_stores::active_services();
-    let hooks = {
-        let slot = services
-            .control_bar_ui_hooks()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
-    if let Some(hooks) = hooks {
-        f(hooks.as_ref());
-    }
-}
 
-/// Notify the control bar that UI state needs to be refreshed.
 /// C++ `TheControlBar->markUIDirty()` from code running for `object`: the
-/// ControlBar of the world that admitted it, else the published one.
+/// ControlBar of the world it was assembled in.
 pub(crate) fn mark_ui_dirty_for(object: &crate::object::Object) {
     mark_ui_dirty_from(object.owning_world_services().as_ref());
 }
 
-/// `world`'s ControlBar when there is an owning world, else the published one.
+/// `world`'s ControlBar; without an owning world there is nothing to mark.
 pub(crate) fn mark_ui_dirty_from(
     world: Option<&Arc<crate::system::engine_stores::WorldServices>>,
 ) {
-    match world {
-        Some(world) => mark_ui_dirty_in(world.control_bar_ui_hooks()),
-        None => mark_ui_dirty(),
+    if let Some(world) = world {
+        mark_ui_dirty_in(world.control_bar_ui_hooks());
     }
 }
 
-pub fn mark_ui_dirty() {
-    let _ = get_control_bar_bridge();
-    with_control_bar_ui_hooks(|hooks| hooks.mark_ui_dirty());
+/// C++ `TheControlBar->markUIDirty()` on `world`'s ControlBar.
+pub fn mark_world_ui_dirty(world: &crate::system::engine_stores::WorldServices) {
+    mark_ui_dirty_in(world.control_bar_ui_hooks());
 }
 
-pub fn notify_science_purchase_points_changed(player_id: i32, points: i32) {
-    with_control_bar_ui_hooks(|hooks| {
-        hooks.on_player_science_purchase_points_changed(player_id, points)
-    });
-}
 
-pub fn notify_player_rank_changed(player_id: i32, rank_level: i32, points: i32) {
-    with_control_bar_ui_hooks(|hooks| hooks.on_player_rank_changed(player_id, rank_level, points));
-}
 
 impl ControlBarInterface for ControlBarBridge {
     fn find_command_set(&self, name: &str) -> Option<&dyn std::any::Any> {
@@ -704,12 +679,12 @@ mod tests {
                     );
                     replace_control_bar_bridge(bridge).unwrap();
                     barrier.wait();
-                    let mine = get_control_bar_bridge()
+                    let mine = control_bar_bridge_in(&services)
                         .unwrap()
                         .find_command_set_by_name(&format!("Seed{seed}Set"))
                         .is_some();
                     let other_seed = if seed == 1 { 2 } else { 1 };
-                    let other = get_control_bar_bridge()
+                    let other = control_bar_bridge_in(&services)
                         .unwrap()
                         .find_command_set_by_name(&format!("Seed{other_seed}Set"))
                         .is_some();
@@ -763,9 +738,8 @@ mod owning_world_bridge_tests {
             let owned = control_bar_bridge_for(&in_b.read().unwrap()).expect("B's ControlBar");
             assert!(owned.find_command_set_by_name("SetB").is_some());
             assert!(owned.find_command_set_by_name("SetA").is_none());
-            let published =
-                control_bar_bridge_for(&unadmitted.read().unwrap()).expect("published ControlBar");
-            assert!(published.find_command_set_by_name("SetA").is_some());
+            // An Object of no world has no ControlBar, even with A published.
+            assert!(control_bar_bridge_for(&unadmitted.read().unwrap()).is_none());
         });
 
         // B without a ControlBar: its object sees none, not A's.
@@ -818,7 +792,8 @@ mod owning_world_bridge_tests {
         });
         assert_eq!(
             (dirty_a.load(Ordering::Relaxed), dirty_b.load(Ordering::Relaxed)),
-            (1, 1)
+            (0, 1),
+            "an Object of no world marks no ControlBar dirty"
         );
     }
 

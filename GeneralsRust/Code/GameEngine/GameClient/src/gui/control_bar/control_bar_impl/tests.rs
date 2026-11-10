@@ -586,7 +586,7 @@ mod tests {
     fn live_ui_hooks_mark_control_bar_dirty_until_update() {
         crate::test_support::ensure_ambient_host();
         crate::helpers::register_legacy_core_control_bar_ui_ingress();
-        gamelogic::control_bar::mark_ui_dirty();
+        gamelogic::control_bar::mark_world_ui_dirty(&gamelogic::system::engine_stores::active_services());
         let mut control_bar = ControlBar::new();
         assert!(!control_bar.is_ui_dirty());
         let mut wm = crate::gui::window_manager::WindowManager::new();

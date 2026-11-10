@@ -1335,6 +1335,18 @@ impl RadarSystem {
         world_loc: &Coord3D,
         victim: Option<&RadarVictimInfo>,
     ) -> bool {
+        self.try_under_attack_event_with_eva(world_loc, victim, None)
+    }
+
+    /// As `try_under_attack_event_for`, with the Eva of the engine that owns
+    /// the victim (C++ `TheEva` of that GameEngine) receiving the EVA name
+    /// instead of the registered client feedback.
+    pub fn try_under_attack_event_with_eva(
+        &mut self,
+        world_loc: &Coord3D,
+        victim: Option<&RadarVictimInfo>,
+        mut eva: Option<&mut dyn FnMut(&str)>,
+    ) -> bool {
         if !self.try_event(RadarEventType::UnderAttack, world_loc) {
             return false;
         }
@@ -1356,10 +1368,18 @@ impl RadarSystem {
                     }
                 }
                 Some(v) if v.is_structure && v.is_mp_count_for_victory => {
-                    if v.is_local_player {
-                        fb.set_eva_should_play("EVA_BaseUnderAttack");
+                    let eva_name = if v.is_local_player {
+                        Some("EVA_BaseUnderAttack")
                     } else if v.is_ally {
-                        fb.set_eva_should_play("EVA_AllyUnderAttack");
+                        Some("EVA_AllyUnderAttack")
+                    } else {
+                        None
+                    };
+                    if let Some(eva_name) = eva_name {
+                        match eva.as_mut() {
+                            Some(eva) => eva(eva_name),
+                            None => fb.set_eva_should_play(eva_name),
+                        }
                     }
                     fb.show_radar_message("RADAR:StructureUnderAttack");
                     fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);

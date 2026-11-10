@@ -40,6 +40,9 @@ pub struct Player {
     pub(super) general_name: String,
     /// C++ `TheRankInfoStore` of the world that created this Player.
     pub(super) rank_catalog: crate::system::rank_info::RankCatalog,
+    /// World whose PlayerList this Player belongs to (C++ the GameEngine that
+    /// owns it): its Eva and ControlBar. `Player::new` players have none.
+    pub(super) owner_world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
 
     // Team and relationships
     pub(super) default_team: Option<Arc<RwLock<Team>>>,
@@ -131,9 +134,19 @@ impl Player {
     /// (C++ Player ctor -> init -> resetRank, Player.cpp:271/473/2637).
     pub fn new_for_world(
         player_index: PlayerIndex,
-        world: &crate::system::engine_stores::WorldServices,
+        world: &std::sync::Arc<crate::system::engine_stores::WorldServices>,
     ) -> Self {
-        Self::with_rank_catalog(player_index, crate::system::rank_info::RankCatalog::for_world(world))
+        let mut player =
+            Self::with_rank_catalog(player_index, crate::system::rank_info::RankCatalog::for_world(world));
+        player.owner_world = Some(std::sync::Arc::downgrade(world));
+        player
+    }
+
+    /// The world that owns this Player, if it was created for one.
+    pub(crate) fn owning_world_services(
+        &self,
+    ) -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
+        self.owner_world.as_ref().and_then(std::sync::Weak::upgrade)
     }
 
     pub fn with_rank_catalog(
@@ -142,6 +155,7 @@ impl Player {
     ) -> Self {
         let mut player = Self {
             rank_catalog,
+            owner_world: None,
             player_index,
             player_name_key: 0,
             player_display_name: String::new(),
