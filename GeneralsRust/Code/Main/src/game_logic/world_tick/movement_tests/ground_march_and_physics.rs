@@ -390,6 +390,14 @@ fn unit_move_notifies_tree_buffer_topple() {
     );
 }
 
+/// One logic frame of motion in C++ order: AIUpdate drives the Locomotor
+/// (forces), then PhysicsBehavior::update integrates them (GameLogic.cpp
+/// update order), so a Locomotor force moves the body in the same frame.
+fn locomote_then_integrate(logic: &mut GameLogic, ids: &[ObjectId]) {
+    logic.update_movement_for_test(ids, 1.0 / 30.0);
+    logic.tick_physics_collisions_all();
+}
+
 /// C++ `Locomotor::handleBehaviorZ` Z_SURFACE_RELATIVE_HEIGHT
 /// (Locomotor.cpp:2288-2316): lift force + Euler, never kinematic snap
 /// to preferredHeight+surface (hq-ygdfb).
@@ -416,7 +424,7 @@ fn hover_surface_relative_follows_preferred_height() {
     heli.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
     heli.set_locomotor_goal_position_on_path();
     logic.objects.insert(id, heli);
-    logic.update_movement_for_test(&[id], 1.0 / 30.0);
+    locomote_then_integrate(&mut logic, &[id]);
     let obj = logic.objects.get(&id).expect("heli");
     let y = obj.get_position().y;
     assert!(
@@ -435,16 +443,21 @@ fn idle_hover_maintain_holds_preferred_height() {
     let mut tmpl = ThingTemplate::new("ComancheIdle");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, id, Team::USA);
+    crate::fixture_content::locomote(
+        &mut heli,
+        &[
+            "Surfaces = AIR", "Speed = 30", "Acceleration = 10000", "Braking = 10000", "TurnRate = 360",
+            "Lift = 1000000", "Appearance = HOVER", "ZAxisBehavior = SURFACE_RELATIVE_HEIGHT",
+            "PreferredHeight = 12", "PreferredHeightDamping = 1",
+        ],
+    );
     heli.set_position(Vec3::new(0.0, 4.0, 0.0));
     heli.ground_height = 8.0;
-    heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
-    heli.loco_appearance = LocomotorAppearance::Hover;
-    heli.loco_preferred_height = 12.0;
-    heli.loco_preferred_height_damping = 1.0;
+    // C++ Locomotor::setMaxLift: the mutable runtime cap under the template.
     heli.max_lift = 5.0;
     heli.physics_mass = 1.0;
     logic.objects.insert(id, heli);
-    logic.update_movement_for_test(&[id], 1.0 / 30.0);
+    locomote_then_integrate(&mut logic, &[id]);
     let obj = logic.objects.get(&id).expect("heli");
     let y = obj.get_position().y;
     assert!(
@@ -562,7 +575,7 @@ fn stick_to_ground_pulls_a_walker_down_to_the_layer() {
     unit.movement.target_position = Some(Vec3::new(10.0, 5.0, 0.0));
     unit.set_status_moving(true);
     logic.objects.insert(ObjectId(9510), unit);
-    logic.update_movement_for_test(&[ObjectId(9510)], 1.0 / 30.0);
+    locomote_then_integrate(&mut logic, &[ObjectId(9510)]);
     let obj = logic.objects.get(&ObjectId(9510)).expect("ranger");
     assert!(
         obj.get_position().y.abs() < 0.05,
@@ -679,7 +692,7 @@ fn airborne_freefall_is_disabled_without_parachuting() {
     chute.ground_height = 0.0;
     chute.set_position(Vec3::new(10.0, 30.0, 0.0));
     logic.objects.insert(ObjectId(9514), chute);
-    logic.update_movement_for_test(&[ObjectId(9513), ObjectId(9514)], 1.0 / 30.0);
+    locomote_then_integrate(&mut logic, &[ObjectId(9513), ObjectId(9514)]);
     let wreck = logic.objects.get(&ObjectId(9513)).expect("wreck");
     assert!(wreck.status.disabled_freefall);
     assert!(host_model_condition_has(
@@ -710,7 +723,7 @@ fn landing_from_last_frame_air_deals_falling_damage() {
     unit.movement.velocity = Vec3::new(0.0, -40.0, 0.0);
     unit.health.current = 200.0;
     logic.objects.insert(ObjectId(9515), unit);
-    logic.update_movement_for_test(&[ObjectId(9515)], 1.0 / 30.0);
+    locomote_then_integrate(&mut logic, &[ObjectId(9515)]);
     let obj = logic.objects.get(&ObjectId(9515)).expect("faller");
     assert!(
         obj.health.current < 200.0,
