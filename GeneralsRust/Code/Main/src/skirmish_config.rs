@@ -2043,13 +2043,18 @@ mod tests {
             }
         }
 
-        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).expect("client setup config");
+        // The application has loaded PlayerTemplate, Object and Multiplayer INI
+        // before the menu's Start reaches NewGame (GameEngine.cpp:428-458).
+        let palette = lobby_definition_tests::slot_palette(8);
+        let mut logic = lobby_definition_tests::slot_world();
+        logic.multiplayer_definitions = Some(std::sync::Arc::new(palette.clone()));
+        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &palette).expect("client setup config");
         assert!(cfg.map.contains("Lone Eagle"), "{}", cfg.map);
         assert_eq!(cfg.rules.starting_cash, 20_000);
         assert_eq!(cfg.slots.iter().filter(|s| s.is_active).count(), 2);
         assert!(!local_faction_from_config(&cfg).is_empty());
 
-        let mut logic = GameLogic::new();
+        let cfg = lobby_definition_tests::slot_config(&logic, &cfg);
         apply_skirmish_config(&mut logic, &cfg).expect("apply");
         assert_eq!(
             logic.get_player(0).map(|p| p.resources.supplies),

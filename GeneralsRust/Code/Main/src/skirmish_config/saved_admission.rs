@@ -625,6 +625,10 @@ mod tests {
                 }
                 config.source_game_info = Some((source, -1));
                 let mut world = GameLogic::new();
+                // The receiving world owns its authored Multiplayer.ini palette.
+                world.multiplayer_definitions = Some(std::sync::Arc::new(
+                    crate::skirmish_config::lobby_definition_tests::slot_palette(8),
+                ));
                 let mut peer = GameLogic::new();
                 world.add_player(Player::new(
                     23,

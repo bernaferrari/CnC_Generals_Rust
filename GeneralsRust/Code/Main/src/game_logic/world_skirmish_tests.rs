@@ -5,12 +5,45 @@
 use super::*;
 
 // Mirrors the synthesized faction templates used by these startup fixtures.
-const STARTING_UNIT_FIXTURES: &str = "Object AmericaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER SELECTABLE\n BuildCost = 2000\n VisionRange = 300\n ShroudClearingRange = 300\n Body = ActiveBody Body\n  MaxHealth = 2000\n  InitialHealth = 2000\n End\nEnd\nObject ChinaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER SELECTABLE\n BuildCost = 2000\n VisionRange = 300\n ShroudClearingRange = 300\n Body = ActiveBody Body\n  MaxHealth = 2000\n  InitialHealth = 2000\n End\nEnd\nObject AmericaVehicleDozer\n KindOf = VEHICLE DOZER SELECTABLE\n BuildCost = 1000\n VisionRange = 200\n Body = ActiveBody Body\n  MaxHealth = 300\n  InitialHealth = 300\n End\nEnd\nObject China_Dozer\n KindOf = VEHICLE DOZER SELECTABLE\n BuildCost = 1000\n Body = ActiveBody Body\n  MaxHealth = 350\n  InitialHealth = 350\n End\nEnd\nObject SpawnedBuilderScaffold\n KindOf = STRUCTURE IMMOBILE ALWAYS_VISIBLE\n BuildCost = 300\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n";
+// A starting builder is a real dozer: AIUpdate, a locomotor and DozerAIUpdate
+// (C++ Object::isMobile / DozerAIUpdate), not a KindOf alone.
+fn starting_unit_fixtures() -> Vec<crate::fixture_content::FixtureObject> {
+    use crate::fixture_content::FixtureObject;
+    let center = |name: &str| {
+        FixtureObject::new(name)
+            .kind_of("STRUCTURE COMMANDCENTER SELECTABLE")
+            .build_cost(2000)
+            .field("VisionRange = 300")
+            .field("ShroudClearingRange = 300")
+            .health(2000.0)
+    };
+    vec![
+        center("AmericaCommandCenter"),
+        center("ChinaCommandCenter"),
+        FixtureObject::new("AmericaVehicleDozer")
+            .kind_of("VEHICLE DOZER SELECTABLE")
+            .build_cost(1000)
+            .field("VisionRange = 200")
+            .health(300.0)
+            .walker()
+            .dozer(),
+        FixtureObject::new("China_Dozer")
+            .kind_of("VEHICLE DOZER SELECTABLE")
+            .build_cost(1000)
+            .health(350.0)
+            .walker()
+            .dozer(),
+        FixtureObject::new("SpawnedBuilderScaffold")
+            .kind_of("STRUCTURE IMMOBILE ALWAYS_VISIBLE")
+            .build_cost(300)
+            .health(1000.0),
+    ]
+}
 
 #[test]
 fn spawn_skirmish_starting_units_spawns_missing_builder() {
     let mut logic = GameLogic::new();
-    logic.admit_object_ini_sources([("StartingUnits.ini".into(), STARTING_UNIT_FIXTURES.into())]).unwrap();
+    crate::fixture_content::admit_fixture_objects(&mut logic, &starting_unit_fixtures());
     logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     // Human USA with a structure but no dozer.
@@ -61,7 +94,7 @@ fn spawn_skirmish_starting_units_spawns_missing_builder() {
 #[test]
 fn america_vehicle_dozer_is_retail_starting_builder() {
     let mut logic = GameLogic::new();
-    logic.admit_object_ini_sources([("StartingUnits.ini".into(), STARTING_UNIT_FIXTURES.into())]).unwrap();
+    crate::fixture_content::admit_fixture_objects(&mut logic, &starting_unit_fixtures());
     logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     let mut p0 = Player::new(0, Team::USA, "Human", true);
@@ -223,7 +256,7 @@ fn cached_player_start_waypoints_pairs_rally() {
 #[test]
 fn spawn_skirmish_starting_units_uses_player_rally() {
     let mut logic = GameLogic::new();
-    logic.admit_object_ini_sources([("StartingUnits.ini".into(), STARTING_UNIT_FIXTURES.into())]).unwrap();
+    crate::fixture_content::admit_fixture_objects(&mut logic, &starting_unit_fixtures());
     logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     let mut p0 = Player::new(0, Team::USA, "Human", true);

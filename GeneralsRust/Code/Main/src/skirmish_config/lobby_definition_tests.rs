@@ -133,3 +133,19 @@ pub(crate) fn admit_slot_world_with_objects(
     content.extend_from_slice(objects);
     crate::fixture_content::admit_fixture_objects(world, &content);
 }
+
+/// A Multiplayer.ini palette of `count` authored colors for a slot world.
+/// C++ MultiplayerSettings always holds the authored palette before any
+/// skirmish admission (GameEngine.cpp loads Multiplayer.ini at init).
+pub(crate) fn slot_palette(
+    count: u32,
+) -> game_engine::common::ini::ini_multiplayer::MultiplayerSettings {
+    let mut settings = game_engine::common::ini::ini_multiplayer::MultiplayerSettings::new();
+    for index in 0..count {
+        let color = settings
+            .new_multiplayer_color_definition(format!("SlotColor{index}").as_str().into());
+        color.set_color(0x10_0000 * (index + 1) + index);
+        color.set_night_color(0x08_0000 * (index + 1) + index);
+    }
+    settings
+}
