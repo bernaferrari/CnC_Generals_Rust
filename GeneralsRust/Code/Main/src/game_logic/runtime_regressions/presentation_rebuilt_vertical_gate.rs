@@ -1,23 +1,24 @@
 //! Executable command and lifecycle regressions.
 
 fn presentation_rebuilt_vertical_gate() -> bool {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("RebuiltVert196");
+    // C++ GameEngine.cpp loads PlayerTemplate and Object INI before NewGame.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("RebuiltVert196")
+            .kind_of("SELECTABLE VEHICLE")
+            .health(100.0),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("RebuiltVert196"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("RebuiltVert196") {
-        let mut t = ThingTemplate::new("RebuiltVert196");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("RebuiltVert196".into(), t);
     }
     let Some(_oid) = logic.create_object("RebuiltVert196", Team::USA, Vec3::new(5.0, 0.0, 6.0))
     else {

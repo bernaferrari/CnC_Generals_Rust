@@ -5,7 +5,7 @@ use crate::game_logic::GameLogic;
 
 fn parsed_ranger(name: &str, weapon_set: &str) -> ThingTemplate {
     let source = format!(
-        "Object {name}\n  Type = Infantry\n  KindOf = INFANTRY SELECTABLE ATTACKABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n  End\n{weapon_set}End\n"
+        "Object {name}\n  Type = Infantry\n  KindOf = INFANTRY SELECTABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n  End\n{weapon_set}End\n"
     );
     let mut parser = crate::assets::IniParser::new();
     parser

@@ -2556,6 +2556,14 @@ pub fn run_golden_skirmish(
     let slots_active = config.slots.iter().filter(|s| s.is_active).count();
 
     let mut logic = GameLogic::new();
+    // With retail assets present the application boot has already loaded
+    // GameData, PlayerTemplate and Object INI (GameEngine.cpp:428-458) before
+    // NewGame; without them the synthetic path stays fail-closed.
+    if map_exists {
+        if let Ok(definitions) = crate::parallel_harness::RetailWorldDefinitions::load() {
+            let _ = logic.with_own_services_mut(|logic| definitions.admit(logic));
+        }
+    }
     let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
     install_templates(&mut logic);
     logic.ensure_ai_faction_templates(Team::USA);

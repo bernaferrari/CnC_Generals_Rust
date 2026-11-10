@@ -32,7 +32,7 @@ Object RetailAmericaProducer
 End
 Object RetailSupplyCenterProducer
   Type = Structure
-  KindOf = STRUCTURE SUPPLY_CENTER
+  KindOf = STRUCTURE FS_SUPPLY_CENTER
   Behavior = SupplyCenterProductionExitUpdate ModuleTag_Exit
     UnitCreatePoint = X:0.0 Y:0.0 Z:0.0
     NaturalRallyPoint = X:24.0 Y:0.0 Z:0.0

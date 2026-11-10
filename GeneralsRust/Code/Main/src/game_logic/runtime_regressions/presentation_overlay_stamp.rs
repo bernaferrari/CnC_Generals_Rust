@@ -1,22 +1,24 @@
 //! Executable command and lifecycle regressions.
 
 fn presentation_overlay_stamp() -> bool {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("PresOverlayStamp190");
+    // C++ GameEngine.cpp loads PlayerTemplate and Object INI before NewGame.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("StampU190")
+            .kind_of("SELECTABLE")
+            .health(150.0),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("PresOverlayStamp190"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("StampU190") {
-        let mut t = ThingTemplate::new("StampU190");
-        t.set_health(150.0);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("StampU190".into(), t);
     }
     let Some(oid) = logic.create_object("StampU190", Team::USA, Vec3::new(9.0, 0.0, 9.0)) else {
         return false;

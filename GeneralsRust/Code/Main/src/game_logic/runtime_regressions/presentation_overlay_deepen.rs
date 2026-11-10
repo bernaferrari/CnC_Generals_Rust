@@ -1,23 +1,24 @@
 //! Executable command and lifecycle regressions.
 
 fn presentation_overlay_deepen() -> bool {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("PresOverlayDeep189");
+    // C++ GameEngine.cpp loads PlayerTemplate and Object INI before NewGame.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("OverlayDeep189")
+            .kind_of("SELECTABLE VEHICLE")
+            .health(200.0),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("PresOverlayDeep189"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("OverlayDeep189") {
-        let mut t = ThingTemplate::new("OverlayDeep189");
-        t.set_health(200.0);
-        t.add_kind_of(KindOf::Selectable);
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("OverlayDeep189".into(), t);
     }
     let Some(oid) = logic.create_object("OverlayDeep189", Team::USA, Vec3::new(11.0, 0.0, 12.0))
     else {

@@ -305,7 +305,7 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
             let mut world = GameLogic::new();
             world.admit_object_ini_sources([(
                 "SupplyCallback.ini".into(),
-                "Object CallbackSupplyCenter\n KindOf = STRUCTURE SUPPLY_CENTER FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\n End\n Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\n End\nEnd\nObject AmericaVehicleChinook\n KindOf = HARVESTER VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n".into(),
+                "Object CallbackSupplyCenter\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\n End\n Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\n End\nEnd\nObject AmericaVehicleChinook\n KindOf = HARVESTER VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n".into(),
             )]).expect("authored supply fixture");
             let mut player = Player::new(1, Team::USA, "Production AI", false);
             player.resources.supplies = 10_000;

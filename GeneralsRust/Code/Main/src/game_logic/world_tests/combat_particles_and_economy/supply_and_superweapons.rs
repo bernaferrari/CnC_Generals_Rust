@@ -3087,7 +3087,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     game_logic.add_player(player);
     ensure_test_tank_template(&mut game_logic);
 
-    let source = "Object GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE ATTACKABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE ATTACKABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
+    let source = "Object GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
     let content = crate::assets::ReceivingObjectContent::from_sources([
         ("combat-mob.ini".into(), source.into())
     ]).unwrap();

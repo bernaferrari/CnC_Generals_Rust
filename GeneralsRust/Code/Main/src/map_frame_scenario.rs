@@ -329,13 +329,12 @@ pub fn run_lone_eagle_skirmish(
     // Publish this instance before start/load/update — no process-bag fallback.
     logic.install_as_active_stores();
     logic.set_logic_random_seed(seed);
-    // Same in-process retail admit bootstrap as initial_skirmish_owner_tests /
-    // playable Lone Eagle hosts: GameData partition cell + golden skirmish slots.
-    logic.admit_camera_application_movement(
-        game_engine::common::ini::ini_game_data::CameraMovementRules::default()
-            .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
-            .ok()?,
-    );
+    // C++ GameEngine::init (GameEngine.cpp:428-458) loads GameData,
+    // PlayerTemplate, Locomotor and Object INI before any NewGame or map.
+    let definitions = crate::parallel_harness::RetailWorldDefinitions::load().ok()?;
+    logic
+        .with_own_services_mut(|logic| definitions.admit(logic))
+        .ok()?;
     // Match initial_skirmish_owner_tests::world(): admit → apply_skirmish → load_map
     // (no start_new_game before load — that path wiped/raced retail map stage).
     apply_skirmish_config(&mut logic, &golden_skirmish_config(&map)).ok()?;

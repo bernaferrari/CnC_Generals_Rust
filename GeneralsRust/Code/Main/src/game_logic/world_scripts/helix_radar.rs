@@ -3244,7 +3244,7 @@ mod sticky_bomb_exact_team_tests {
 
     #[test]
     fn ability_charge_keeps_nondefault_same_player_team_and_xp_sink() {
-        const SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n Behavior = StickyBombUpdate Sticky\n End\nEnd\nObject Target\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject Planter\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
+        const SOURCE: &str = "Object BoobyTrap\n KindOf = IMMOBILE BOOBY_TRAP\n Body = ActiveBody Body\n MaxHealth = 37\n InitialHealth = 19\n End\n Behavior = StickyBombUpdate Sticky\n End\nEnd\nObject Target\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\nObject Planter\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\nEnd\nEnd\n";
         let mut game = GameLogic::new();
         game.admit_object_ini_sources([("ExactSticky.ini".into(), SOURCE.into())])
             .unwrap();

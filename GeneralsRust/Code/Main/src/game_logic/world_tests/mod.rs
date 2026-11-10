@@ -7,7 +7,7 @@ mod direct_destroy_owner;
 mod helpers;
 use helpers::*;
 
-const VICTORY_FIXTURE_OBJECTS: &str = "Object TestInfantry\n KindOf = INFANTRY SELECTABLE ATTACKABLE SCORE\n BuildCost = 100\n Body = ActiveBody Body\n  MaxHealth = 80\n  InitialHealth = 80\n End\nEnd\nObject TestBuilding\n KindOf = STRUCTURE MP_COUNT_FOR_VICTORY SELECTABLE ATTACKABLE\n BuildCost = 500\n EnergyProduction = -1\n Body = ActiveBody Body\n  MaxHealth = 1200\n  InitialHealth = 1200\n End\nEnd\n";
+const VICTORY_FIXTURE_OBJECTS: &str = "Object TestInfantry\n KindOf = INFANTRY SELECTABLE SCORE\n BuildCost = 100\n Body = ActiveBody Body\n  MaxHealth = 80\n  InitialHealth = 80\n End\nEnd\nObject TestBuilding\n KindOf = STRUCTURE MP_COUNT_FOR_VICTORY SELECTABLE\n BuildCost = 500\n EnergyProduction = -1\n Body = ActiveBody Body\n  MaxHealth = 1200\n  InitialHealth = 1200\n End\nEnd\n";
 
 mod base_defenses;
 mod cave_bridge;

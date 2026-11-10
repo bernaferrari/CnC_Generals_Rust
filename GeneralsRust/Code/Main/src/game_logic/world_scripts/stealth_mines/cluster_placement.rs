@@ -300,7 +300,7 @@ mod tests {
         world.admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "cluster-fx.ini".into(),
-                "Object ClusterMinesBomb\nBehavior = GenerateMinefieldBehavior MinefieldTag\n MineName = ReceivingClusterMine\n SmartBorder = Yes\n DistanceAroundObject = 80\n GenerationFX = FX_ReceivingClusterMine\nEnd\nEnd\nObject ReceivingClusterMine\nKindOf = LAND_MINE\nBody = ActiveBody BodyTag\nMaxHealth = 50\nInitialHealth = 50\nEnd\nEnd\n".into(),
+                "Object ClusterMinesBomb\nBehavior = GenerateMinefieldBehavior MinefieldTag\n MineName = ReceivingClusterMine\n SmartBorder = Yes\n DistanceAroundObject = 80\n GenerationFX = FX_ReceivingClusterMine\nEnd\nEnd\nObject ReceivingClusterMine\nKindOf = MINE\nBody = ActiveBody BodyTag\nMaxHealth = 50\nInitialHealth = 50\nEnd\nEnd\n".into(),
             )])
             .unwrap(),
         ).unwrap();
@@ -449,7 +449,7 @@ mod tests {
         world.admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "cluster-fx-none.ini".into(),
-                "Object ClusterMinesBomb\nBehavior = GenerateMinefieldBehavior MinefieldTag\n MineName = ChinaClusterMine\n SmartBorder = Yes\n DistanceAroundObject = 80\nEnd\nEnd\nObject ChinaClusterMine\nKindOf = LAND_MINE\nBody = ActiveBody BodyTag\nMaxHealth = 50\nInitialHealth = 50\nEnd\nEnd\n".into(),
+                "Object ClusterMinesBomb\nBehavior = GenerateMinefieldBehavior MinefieldTag\n MineName = ChinaClusterMine\n SmartBorder = Yes\n DistanceAroundObject = 80\nEnd\nEnd\nObject ChinaClusterMine\nKindOf = MINE\nBody = ActiveBody BodyTag\nMaxHealth = 50\nInitialHealth = 50\nEnd\nEnd\n".into(),
             )])
             .unwrap(),
         )
