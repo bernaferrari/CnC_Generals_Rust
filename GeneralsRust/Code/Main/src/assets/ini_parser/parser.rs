@@ -356,7 +356,7 @@ impl IniParser {
                     match lower_key.as_str() {
                         "type" => obj.object_type = value.to_string(),
                         "displayname" => {
-                            obj.display_name = translate_object_display_name(value);
+                            obj.display_name = object_display_label(value);
                         }
                         "model" | "modelname" | "w3dmodel" => {
                             Self::assign_model_name(obj, value);

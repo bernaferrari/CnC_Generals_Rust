@@ -732,7 +732,7 @@ impl ObjectDefinition {
         }
 
         if leftover_field_is(base, "DisplayName") {
-            self.display_name = translate_object_display_name(trimmed);
+            self.display_name = object_display_label(trimmed);
             self.attributes
                 .insert("DisplayName".to_string(), trimmed.to_string());
             return;

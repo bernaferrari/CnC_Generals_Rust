@@ -256,16 +256,16 @@ impl Object {
         !self.is_effectively_stealthed()
     }
 
-    /// Get a description string for UI display.
-    /// C++ parity: prefers per-object name override, then template display
-    /// name (from INI DisplayName), then template internal name.
+    /// Per-object name override, then the template's authored DisplayName
+    /// label, then the template name. A label is translated by the caller's
+    /// owning client (`ini_parser::display_label_text`).
     pub fn get_display_name(&self) -> String {
         if !self.name.is_empty() {
             return self.name.clone();
         }
         let tmpl_display = &self.thing.template.display_name;
         if !tmpl_display.is_empty() && tmpl_display != &self.template_name {
-            return crate::assets::ini_parser::translate_object_display_name(tmpl_display);
+            return tmpl_display.clone();
         }
         self.template_name.clone()
     }

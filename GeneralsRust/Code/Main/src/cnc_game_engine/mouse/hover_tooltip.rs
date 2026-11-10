@@ -130,14 +130,12 @@ impl CnCGameEngine {
                 object.get_template()
             };
             let raw = &template.display_name;
-            let name = if raw.contains(':') {
+            let name = crate::assets::ini_parser::display_label_text(raw, |label| {
                 game_text
                     .write()
                     .unwrap_or_else(|error| error.into_inner())
-                    .fetch_owned(raw)
-            } else {
-                raw.clone()
-            };
+                    .fetch_owned(label)
+            });
             names.insert(template.name.clone(), name);
             let projected = ui
                 .presentation_unit_catalog()

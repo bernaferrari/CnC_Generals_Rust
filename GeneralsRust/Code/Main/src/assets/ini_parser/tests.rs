@@ -95,11 +95,7 @@ fn locomotor_rows_accept_all_source_set_tokens_and_reject_unknown() {
 }
 
 #[test]
-fn display_name_label_is_translated_via_game_text() {
-    game_engine::common::language::Language::register_localized_string(
-        "OBJECT:AmericaRanger",
-        "Ranger",
-    );
+fn display_name_label_is_kept_for_the_owning_client_to_translate() {
     let ini_content = r#"
 Object AmericaInfantryRanger
   DisplayName = OBJECT:AmericaRanger
@@ -110,8 +106,13 @@ End
         .parse_ini_content(ini_content, "display_name.ini")
         .expect("parse");
     let def = parser.get_definition("AmericaInfantryRanger").unwrap();
-    assert_eq!(def.display_name, "Ranger");
-    game_engine::common::language::Language::clear_localized_strings();
+    assert_eq!(def.display_name, "OBJECT:AmericaRanger");
+    let shown = display_label_text(&def.display_name, |label| {
+        assert_eq!(label, "OBJECT:AmericaRanger");
+        "Ranger".to_string()
+    });
+    assert_eq!(shown, "Ranger");
+    assert_eq!(display_label_text("USA Ranger", |_| unreachable!()), "USA Ranger");
 }
 
 #[test]

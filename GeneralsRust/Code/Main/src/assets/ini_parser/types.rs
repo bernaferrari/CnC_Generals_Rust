@@ -8,28 +8,22 @@
 // Reference: /GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2 and game object system
 
 use super::*;
-/// C++ `INI::parseAndTranslateLabel` (`TheGameText->fetch`).
+/// `DisplayName` label as authored (e.g. `OBJECT:AmericaRanger`).
 ///
-/// Missing GameText entries fall through to leftover `INI::translate_label`
-/// (Language table, then the raw key) so parse-before-CSF still stores a
-/// retrievable label instead of `MISSING: 'OBJECT:…'`.
-pub fn translate_object_display_name(label: &str) -> String {
-    let trimmed = label.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
+/// C++ `INI::parseAndTranslateLabel` fetches it from the engine's GameText,
+/// which Main's parse may precede; the label is kept and the owning client's
+/// catalog translates it where it is displayed (see [`display_label_text`]).
+pub fn object_display_label(label: &str) -> String {
+    label.trim().to_string()
+}
 
-    #[cfg(feature = "game_client")]
-    {
-        let (text, exists) = game_client::game_text::GameText::fetch_with_exists(trimmed);
-        if exists {
-            return text;
-        }
-    }
-
-    match game_engine::common::ini::INI::translate_label(trimmed) {
-        Ok(translated) if !translated.is_empty() => translated,
-        _ => trimmed.to_string(),
+/// Display text for an authored label: a `CATEGORY:Key` label is fetched from
+/// the owning client's GameText (`fetch`), plain text is shown unchanged.
+pub fn display_label_text(label: &str, fetch: impl FnOnce(&str) -> String) -> String {
+    if label.contains(':') {
+        fetch(label)
+    } else {
+        label.to_string()
     }
 }
 

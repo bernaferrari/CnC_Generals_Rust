@@ -204,6 +204,11 @@ impl GameLogic {
         if let Some(ui) = effects.ui.as_deref_mut() {
             match ui.game_text("GUI:RallyPointSet") {
                 Ok(template) => {
+                    // C++ getDisplayName() is the template's translated label.
+                    let display_name = crate::assets::ini_parser::display_label_text(
+                        &display_name,
+                        |label| ui.game_text(label).unwrap_or_else(|_| label.to_string()),
+                    );
                     let formatted = format_rally_point_set_message(&template, &display_name);
                     ui.hud_message(&formatted, self.get_frame());
                 }
