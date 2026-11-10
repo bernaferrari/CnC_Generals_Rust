@@ -24,11 +24,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Nuke_ChinaInfantryTankHunter"
         | "Infa_ChinaInfantryTankHunter"
         | "TestTankHunter" => Some(TANK_HUNTER_PRIMARY_WEAPON),
-        "ChinaVehicleTroopCrawler"
-        | "China_TroopCrawler"
-        | "Tank_ChinaVehicleTroopCrawler"
-        | "Nuke_ChinaVehicleTroopCrawler"
-        | "TestTroopCrawler" => Some(TROOP_CRAWLER_ASSAULT_WEAPON),
         "USA_Crusader" | "USA_CrusaderTank" | "AmericaTankCrusader" | "TestCrusader" => {
             Some(CRUSADER_TANK_GUN)
         }
@@ -65,12 +60,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "GC_Slth_GLAStingerSite"
         | "GC_Chem_GLAStingerSite"
         | "TestStingerSite" => Some(STINGER_PRIMARY_WEAPON),
-        "China_GattlingCannon"
-        | "ChinaGattlingCannon"
-        | "Nuke_ChinaGattlingCannon"
-        | "Tank_ChinaGattlingCannon"
-        | "Infa_ChinaGattlingCannon"
-        | "TestGattlingCannon" => Some(GATTLING_BUILDING_PRIMARY_WEAPON),
         "China_NukeCannon"
         | "ChinaVehicleNukeCannon"
         | "Nuke_ChinaVehicleNukeCannon"
@@ -241,20 +230,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "TestBattlemaster"
         | "Tank_ChinaTankBattleMaster"
         | "Nuke_ChinaTankBattleMaster" => Some(BATTLE_MASTER_TANK_GUN),
-        // China Dragon Tank residual flame.
-        "ChinaTankDragon"
-        | "China_DragonTank"
-        | "TestDragonTank"
-        | "Tank_ChinaTankDragon"
-        | "Nuke_ChinaTankDragon"
-        | "Infa_ChinaTankDragon" => Some(DRAGON_TANK_FLAME_WEAPON),
-        // China Gattling Tank residual ground gun (AA secondary separate).
-        "ChinaTankGattling"
-        | "China_GattlingTank"
-        | "TestGattlingTank"
-        | "Tank_ChinaTankGattling"
-        | "Nuke_ChinaTankGattling"
-        | "Infa_ChinaTankGattling" => Some(GATTLING_TANK_GUN),
         // China Infantry General MiniGunner residual ground gun.
         "Infa_ChinaInfantryMiniGunner"
         | "China_MiniGunner"
@@ -302,17 +277,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
                 return Some(TOXIN_TRUCK_GUN);
             }
-            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
-                return Some(TOMAHAWK_MISSILE_WEAPON);
-            }
             // Raptor: explicit retail rows above only; no fuzzy name peel
             // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.249).
-            if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
-                return Some(BATTLE_DRONE_MACHINE_GUN);
-            }
-            if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
-                return Some(OVERLORD_TANK_GUN);
-            }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
             }
@@ -321,9 +287,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
                 return Some(MISSILE_DEFENDER_MISSILE_WEAPON);
             }
 
-            if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
-                return Some(GATTLING_TANK_GUN);
-            }
             if let Some(w) =
                 crate::game_logic::host_usa_tanks::primary_weapon_name_for_usa_tank(template_name)
             {
@@ -343,9 +306,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "AmericaInfantryMissileDefender"
         | "TestMissileDefender"
         | "SupW_AmericaInfantryMissileDefender" => Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON),
-        "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
-            Some(HUMVEE_SECONDARY_WEAPON)
-        }
         "USA_Avenger" | "AmericaTankAvenger" | "AmericaVehicleAvenger" | "TestAvenger" => {
             Some(AVENGER_AIR_LASER)
         }
@@ -369,12 +329,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "GC_Slth_GLAStingerSite"
         | "GC_Chem_GLAStingerSite"
         | "TestStingerSite" => Some(STINGER_SECONDARY_WEAPON),
-        "China_GattlingCannon"
-        | "ChinaGattlingCannon"
-        | "Nuke_ChinaGattlingCannon"
-        | "Tank_ChinaGattlingCannon"
-        | "Infa_ChinaGattlingCannon"
-        | "TestGattlingCannon" => Some(GATTLING_BUILDING_SECONDARY_WEAPON),
         // Neutron shells are PLAYER_UPGRADE residual (Upgrade_ChinaNeutronShells) —
         // not bound at create; research equips secondary (parity with rocket pods).
         // Rocket pods are PLAYER_UPGRADE residual — not bound at create; research equips.
@@ -407,13 +361,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "Chem_GLAVehicleToxinTruck"
         | "Demo_GLAVehicleToxinTruck"
         | "Slth_GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_SPRAYER),
-        // China Gattling Tank residual AA secondary.
-        "ChinaTankGattling"
-        | "China_GattlingTank"
-        | "TestGattlingTank"
-        | "Tank_ChinaTankGattling"
-        | "Nuke_ChinaTankGattling"
-        | "Infa_ChinaTankGattling" => Some(GATTLING_TANK_GUN_AIR),
         // China MiniGunner residual AA secondary.
         "Infa_ChinaInfantryMiniGunner"
         | "China_MiniGunner"
@@ -438,10 +385,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 template_name,
             ) {
                 Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
-            } else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
-                template_name,
-            ) {
-                Some(GATTLING_TANK_GUN_AIR)
             } else {
                 None
             }
