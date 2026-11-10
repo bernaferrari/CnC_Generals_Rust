@@ -268,11 +268,18 @@ pub fn load_standalone_startup_sources() -> Result<StandaloneStartupSources, Str
 }
 
 /// Initialize a standalone world with real application-selected definitions.
+/// Like the application boot (C++ GameEngine::init loads GameData.ini before
+/// any map), this admits the GameData baselines, PlayerTemplate, Locomotor,
+/// Multiplayer, Armor, Terrain, Roads and OCL catalogs with the Object INI;
+/// a world holding only Objects has PartitionCellSize 0 (GlobalData.cpp:679)
+/// and cannot partition a retail map.
 pub fn start_standalone_game(
     world: &mut crate::game_logic::GameLogic,
     mode: crate::game_logic::GameMode,
 ) -> Result<(), String> {
-    world.admit_startup_content(load_standalone_startup_content()?)?;
+    let definitions =
+        crate::parallel_harness::RetailWorldDefinitions::load().map_err(|error| error.to_string())?;
+    world.with_own_services_mut(|world| definitions.admit(world))?;
     world.start_new_game(mode)
 }
 

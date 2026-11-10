@@ -24,8 +24,16 @@ pub const HARNESS_MAP: &str = "Lone Eagle";
 
 /// Immutable retail content read once and shared by all instances.
 pub struct SharedSkirmishAssets {
-    startup: StandaloneStartupSources,
+    definitions: RetailWorldDefinitions,
     map_path: PathBuf,
+}
+
+/// Everything C++ GameEngine::init loads before a game can start (GlobalData,
+/// PlayerTemplate, Locomotor, Multiplayer, Armor, Terrain, Roads, OCL and the
+/// ordered Object INI), read once and admitted into each receiving world in
+/// the application boot order.
+pub struct RetailWorldDefinitions {
+    startup: StandaloneStartupSources,
     game_data: CameraMovementRules,
     /// GameData.ini Low/Min/MaxLowEnergy* rules (ThingTemplate::calcTimeToBuild).
     energy: ProductionEnergyRules,
@@ -163,6 +171,27 @@ impl SharedSkirmishAssets {
         let map_path = crate::map_frame_scenario::lone_eagle_map_path()
             .map(PathBuf::from)
             .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?;
+        Ok(Self {
+            definitions: RetailWorldDefinitions::load()?,
+            map_path,
+        })
+    }
+
+    /// Path of the shared retail map.
+    pub fn map_path(&self) -> &std::path::Path {
+        &self.map_path
+    }
+
+    fn match_config(&self, seed: u32) -> SkirmishMatchConfig {
+        let mut config = golden_skirmish_config(&self.map_path.to_string_lossy());
+        config.random_seed = seed;
+        config
+    }
+}
+
+impl RetailWorldDefinitions {
+    /// Read the retail definition sources the application boot admits.
+    pub fn load() -> Result<Self, HarnessAssetError> {
         // Owned parse scope: these catalogs are built here, then handed to
         // every instance by value; no instance's services observe the parse.
         let _scope = game_engine::common::common_services::CommonServicesScope::new();
@@ -216,7 +245,6 @@ impl SharedSkirmishAssets {
 
         Ok(Self {
             startup,
-            map_path,
             game_data,
             energy,
             rules,
@@ -226,15 +254,21 @@ impl SharedSkirmishAssets {
         })
     }
 
-    /// Path of the shared retail map.
-    pub fn map_path(&self) -> &std::path::Path {
-        &self.map_path
-    }
-
-    fn match_config(&self, seed: u32) -> SkirmishMatchConfig {
-        let mut config = golden_skirmish_config(&self.map_path.to_string_lossy());
-        config.random_seed = seed;
-        config
+    /// Admit these definitions into a fresh world in CnCGameEngine boot
+    /// order, before NewGame (C++ GameEngine::init, GameEngine.cpp:428-458).
+    pub fn admit(&self, logic: &mut GameLogic) -> Result<(), String> {
+        logic.admit_camera_application_movement(self.game_data.clone());
+        // The application boot admits GameData's energy rules before any
+        // build; without them every calcTimeToBuild hits the 0.01 floor.
+        logic.admit_production_energy_base(self.energy);
+        // Boot order (boot.rs): GameData baselines, Armor, Terrain,
+        // Roads and OCL before any object content is admitted.
+        self.rules.admit(logic)?;
+        logic.admit_locomotor_definitions(self.locomotors.clone())?;
+        logic.admit_startup_content(self.startup.admit()?)?;
+        logic.admit_player_template_definitions(self.player_templates.clone())?;
+        logic.multiplayer_definitions = Some(Arc::clone(&self.multiplayer));
+        Ok(())
     }
 }
 
@@ -297,17 +331,7 @@ impl HeadlessSkirmish {
     pub fn start(assets: &SharedSkirmishAssets, seed: u32) -> Result<Self, String> {
         let mut logic = GameLogic::new();
         logic.with_own_services_mut(|logic| -> Result<(), String> {
-            logic.admit_camera_application_movement(assets.game_data.clone());
-            // The application boot admits GameData's energy rules before any
-            // build; without them every calcTimeToBuild hits the 0.01 floor.
-            logic.admit_production_energy_base(assets.energy);
-            // Boot order (boot.rs): GameData baselines, Armor, Terrain,
-            // Roads and OCL before any object content is admitted.
-            assets.rules.admit(logic)?;
-            logic.admit_locomotor_definitions(assets.locomotors.clone())?;
-            logic.admit_startup_content(assets.startup.admit()?)?;
-            logic.admit_player_template_definitions(assets.player_templates.clone())?;
-            logic.multiplayer_definitions = Some(Arc::clone(&assets.multiplayer));
+            assets.definitions.admit(logic)?;
             apply_skirmish_config(logic, &assets.match_config(seed))?;
             if !logic.load_map(&assets.map_path.to_string_lossy()) {
                 return Err(format!("load_map failed for {}", assets.map_path.display()));
@@ -447,7 +471,7 @@ impl HeadlessSkirmish {
     /// Boot-admitted rules this world does not hold at their shared retail
     /// value (GameData physics/power bar/sell/tunnel, Armor, Terrain).
     pub fn retail_rule_mismatches(&self, assets: &SharedSkirmishAssets) -> Vec<&'static str> {
-        let rules = &assets.rules;
+        let rules = &assets.definitions.rules;
         let logic = &self.logic;
         let mut wrong = Vec::new();
         if logic.physics_rules_baseline() != rules.physics {

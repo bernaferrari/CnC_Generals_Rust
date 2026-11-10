@@ -2254,9 +2254,10 @@ mod tests {
         let path_str = path.to_string_lossy().into_owned();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
+            // C++ loads GameData (PartitionCellSize) and Object INI before
+            // any map; an Object-less, GameData-less world cannot load one.
             let mut logic = GameLogic::new();
-            logic.admit_object_ini_sources(std::iter::empty()).unwrap();
-            logic.start_new_game(GameMode::Skirmish).unwrap();
+            crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish).unwrap();
             let load_started = std::time::Instant::now();
             let ok = logic.load_map(&path_str);
             println!(
