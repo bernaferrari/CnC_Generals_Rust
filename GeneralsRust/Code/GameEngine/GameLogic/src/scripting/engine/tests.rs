@@ -1716,3 +1716,50 @@ fn script_engine_control_bar_follows_its_own_world_slot() {
     assert!(b.find_command_button_by_name(NAME).is_none());
     assert!(!std::sync::Arc::ptr_eq(&b, &engine_a.control_bar_bridge().unwrap()));
 }
+
+/// C++ doAdd/RemoveCommandBarButton write the dispatching world's ControlBar
+/// and its GameLogic::setControlBarOverride. Two worlds take turns on ONE
+/// thread, each engine dispatching while the peer world is published.
+#[test]
+fn script_command_bar_override_lands_in_the_dispatching_engines_world() {
+    let _lock = crate::test_sync::lock();
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    const SET: &str = "EngineOwnedOverrideSet";
+    const BUTTON: &str = "Command_EngineOwnedOverride";
+    let world_a = new_world_services();
+    let world_b = new_world_services();
+    for world in [&world_a, &world_b] {
+        world.common().ini.control_bar.write().new_command_button(BUTTON.into()).command = "STOP".into();
+        world.common().ini.command_set.write().new_command_set(SET.into());
+        crate::control_bar::refresh_control_bar_bridge_for_world(world, None).unwrap();
+    }
+    let logic_a = world_a.game_logic_mutex();
+    let logic_b = world_b.game_logic_mutex();
+    let engine_a = ScriptEngine::new_with_services(&world_a).expect("engine A");
+    let engine_b = ScriptEngine::new_with_services(&world_b).expect("engine B");
+    let set_override = |engine: &ScriptEngine, slot: usize, button: Option<&str>| {
+        let state = std::cell::RefCell::new(ScriptContext::at_frame(1));
+        ScriptActionDispatcher::new(engine, &state)
+            .set_owning_command_set_slot_override(SET, slot, button)
+            .expect("override")
+    };
+    let slot_button = |engine: &ScriptEngine, slot: usize| {
+        engine.control_bar_bridge().unwrap().find_command_set_by_name(SET).unwrap().buttons[slot]
+            .as_ref()
+            .map(|button| button.name.clone())
+    };
+    // Turn 1: A adds slot 2 while B is published.
+    with_world_services(&world_b, || set_override(&engine_a, 2, Some(BUTTON)));
+    assert_eq!(slot_button(&engine_a, 2).as_deref(), Some(BUTTON));
+    assert_eq!(slot_button(&engine_b, 2), None);
+    assert_eq!(
+        logic_a.lock().unwrap().find_control_bar_override(SET, 2),
+        Some(Some(BUTTON))
+    );
+    assert_eq!(logic_b.lock().unwrap().find_control_bar_override(SET, 2), None);
+    // Turn 2: B removes slot 3 while A is published; A's world is untouched.
+    with_world_services(&world_a, || set_override(&engine_b, 3, None));
+    assert_eq!(logic_b.lock().unwrap().find_control_bar_override(SET, 3), Some(None));
+    assert_eq!(logic_a.lock().unwrap().find_control_bar_override(SET, 3), None);
+    assert_eq!(slot_button(&engine_a, 2).as_deref(), Some(BUTTON));
+}

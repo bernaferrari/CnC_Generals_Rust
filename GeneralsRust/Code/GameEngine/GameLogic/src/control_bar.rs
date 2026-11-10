@@ -437,12 +437,17 @@ fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplate
     None
 }
 
-pub fn set_command_set_slot_override(
+/// C++ `doRemove/AddCommandBarButton`: the dispatching world's ControlBar
+/// slot and its own `GameLogic::setControlBarOverride`, never the world
+/// published on the thread.
+pub fn set_command_set_slot_override_in(
+    bridge_slot: &RwLock<Option<Arc<ControlBarBridge>>>,
+    owning_logic: Option<&std::sync::Mutex<crate::system::game_logic::GameLogic>>,
     command_set_name: &str,
     slot: usize,
     button_name: Option<&str>,
 ) -> Result<(), String> {
-    with_bridge_slot(|bridge_slot| {
+    {
         let mut guard = bridge_slot
             .write()
             .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
@@ -453,9 +458,9 @@ pub fn set_command_set_slot_override(
             command_set_name,
             slot,
             button_name,
-        )
-    })?;
-    if let Ok(mut logic) = crate::system::game_logic::lock_game_logic() {
+        )?;
+    }
+    if let Some(Ok(mut logic)) = owning_logic.map(|logic| logic.lock()) {
         logic.set_control_bar_override(command_set_name, slot as i32, button_name);
     }
     Ok(())

@@ -25,7 +25,6 @@ use crate::common::{
     AsciiString, Color, CommandSourceType, Coord3D, INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID,
     Relationship, WaypointID,
 };
-use crate::control_bar::set_command_set_slot_override;
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
     TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions, get_game_logic_random_value,
@@ -1398,6 +1397,28 @@ impl<'engine> ScriptActionDispatcher<'engine> {
     /// resolved catalog), never the world published on the thread.
     fn owning_control_bar_bridge(&self) -> Option<Arc<crate::control_bar::ControlBarBridge>> {
         self.context.with_engine_ref(|engine| engine.control_bar_bridge()).flatten()
+    }
+
+    /// Script command-bar override on the dispatching engine's own world
+    /// (its ControlBar slot and GameLogic); no engine borrow is held while
+    /// the GameLogic is locked.
+    pub(crate) fn set_owning_command_set_slot_override(
+        &self,
+        command_set_name: &str,
+        slot: usize,
+        button_name: Option<&str>,
+    ) -> Result<(), String> {
+        let (bridge_slot, owning_logic) = self
+            .context
+            .with_engine_ref(|engine| (engine.control_bar_bridge_slot(), engine.owning_game_logic()))
+            .ok_or_else(|| "script command-bar override has no dispatching engine".to_string())?;
+        crate::control_bar::set_command_set_slot_override_in(
+            &bridge_slot,
+            owning_logic,
+            command_set_name,
+            slot,
+            button_name,
+        )
     }
 
     fn current_script_player_name(&self) -> String {

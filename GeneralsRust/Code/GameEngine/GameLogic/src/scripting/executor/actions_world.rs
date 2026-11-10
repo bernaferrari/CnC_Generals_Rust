@@ -1599,7 +1599,7 @@ impl ScriptActionDispatcher<'_> {
         });
 
         if let Some(slot) = slot {
-            let _ = set_command_set_slot_override(command_set_name.as_str(), slot, None);
+            let _ = self.set_owning_command_set_slot_override(command_set_name.as_str(), slot, None);
             crate::control_bar::mark_ui_dirty();
         }
 
@@ -1636,7 +1636,7 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let _ = set_command_set_slot_override(
+        let _ = self.set_owning_command_set_slot_override(
             command_set_name.as_str(),
             slot as usize,
             Some(button_name.as_str()),

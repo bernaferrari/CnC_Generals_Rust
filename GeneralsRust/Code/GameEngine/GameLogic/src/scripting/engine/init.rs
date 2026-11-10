@@ -57,6 +57,20 @@ impl ScriptEngine {
         self.control_bar_bridge.read().ok().and_then(|guard| guard.clone())
     }
 
+    /// This world's ControlBar slot itself (script button overrides write it).
+    pub(crate) fn control_bar_bridge_slot(
+        &self,
+    ) -> Arc<RwLock<Option<Arc<crate::control_bar::ControlBarBridge>>>> {
+        Arc::clone(&self.control_bar_bridge)
+    }
+
+    /// The GameLogic owning this engine's world (its object registry's owner).
+    pub(crate) fn owning_game_logic(
+        &self,
+    ) -> Option<&'static std::sync::Mutex<crate::system::game_logic::GameLogic>> {
+        self.cave_objects.owning_logic()
+    }
+
     /// The Eva of the world that built this engine.
     pub(crate) fn eva_owner(&self) -> &Mutex<crate::helpers::EvaState> {
         &self.eva
