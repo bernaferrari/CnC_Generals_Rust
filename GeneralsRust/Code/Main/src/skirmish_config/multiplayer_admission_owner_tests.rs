@@ -106,21 +106,25 @@ fn receiving_palette_controls_actual_admission_and_retained_original_record() {
                 (&a, 0xff01_0203, 0xff11_1213),
                 (&b, 0xff21_2223, 0xff31_3233),
             ] {
-                let sides = &world.prepared_map_sides;
-                let side = sides
-                    .find_side_info("ReplayObserver")
-                    .and_then(|index| sides.get_side_info(index))
-                    .unwrap()
-                    .get_dict();
-                assert_eq!(
-                    side.get_int(game_engine::common::well_known_keys::key_player_color()) as u32,
-                    day
-                );
-                assert_eq!(
-                    side.get_int(game_engine::common::well_known_keys::key_player_night_color())
-                        as u32,
-                    night
-                );
+                // Dict keys are this world's NameKeys (C++ TheNameKeyGenerator);
+                // read the prepared side under the world's own services.
+                world.with_own_services(|| {
+                    let sides = &world.prepared_map_sides;
+                    let side = sides
+                        .find_side_info("ReplayObserver")
+                        .and_then(|index| sides.get_side_info(index))
+                        .unwrap()
+                        .get_dict();
+                    assert_eq!(
+                        side.get_int(game_engine::common::well_known_keys::key_player_color()) as u32,
+                        day
+                    );
+                    assert_eq!(
+                        side.get_int(game_engine::common::well_known_keys::key_player_night_color())
+                            as u32,
+                        night
+                    );
+                });
             }
             let before = a.initial_skirmish_admission.clone();
             assert!(

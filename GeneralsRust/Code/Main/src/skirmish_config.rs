@@ -2199,8 +2199,8 @@ mod tests {
         );
         logic.reveal_replay_observer_map();
         let id = logic.replay_observer_player_id().expect("observer id");
-        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-        let shroud = shroud_manager.lock().expect("shroud");
+        // The reveal is written to this world's own shroud (GameLogic.cpp:1703-1705).
+        let shroud = logic.world_services.shroud().lock().expect("shroud");
         let snap = shroud.snapshot_state();
         assert!(
             snap.pending_permanent_reveal_players.contains(&id)
