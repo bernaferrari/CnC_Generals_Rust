@@ -1,5 +1,4 @@
 //! CPP ScriptConditions1008/1589: module presence is independent of admission.
-use super::named_command_test_support::world;
 use super::*;
 use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
 fn condition(kind: ConditionType, name: &str) -> Condition {
@@ -9,15 +8,27 @@ fn condition(kind: ConditionType, name: &str) -> Condition {
         .unwrap();
     condition
 }
-fn container(owner: &mut GameLogic, name: &str, kind: ContainModuleKind, slots: usize) -> ObjectId {
-    let mut template = ThingTemplate::new(name);
-    template.add_kind_of(KindOf::Structure).set_health(100.0);
-    template.contain_module = ContainModuleMetadata {
-        kind,
-        slots: Some(slots),
-        ..Default::default()
+/// The named world plus this file's authored containers.
+fn world() -> (GameLogic, ObjectId, ObjectId) {
+    let container = |name: &str, module: &str, slots: usize| {
+        crate::fixture_content::FixtureObject::new(name)
+            .kind_of("STRUCTURE")
+            .health(100.0)
+            .module(format!("Behavior = {module} ModuleTag_Contain\n ContainMax = {slots}\nEnd"))
     };
-    owner.templates.insert(name.into(), template);
+    super::named_command_test_support::world_with(
+        &[
+            container("ObserveZero", "GarrisonContain", 0),
+            container("ObserveTwo", "GarrisonContain", 2),
+            container("ObserveTunnel", "TunnelContain", 0),
+            container("ObserveCave", "CaveContain", 0),
+        ],
+        &[],
+        "",
+    )
+}
+
+fn container(owner: &mut GameLogic, name: &str) -> ObjectId {
     let id = owner.create_object_for_player(name, 1, Vec3::ZERO).unwrap();
     owner.host_object_mut(id).unwrap().name = name.into();
     id
@@ -26,8 +37,8 @@ fn container(owner: &mut GameLogic, name: &str, kind: ContainModuleKind, slots: 
 fn containment_conditions_use_actual_zero_dead_and_owned_local_rosters() {
     let (mut owner, unit, _) = world();
     let (mut peer, peer_unit, _) = world();
-    let zero = container(&mut owner, "ObserveZero", ContainModuleKind::Garrison, 0);
-    let peer_zero = container(&mut peer, "ObserveZero", ContainModuleKind::Garrison, 0);
+    let zero = container(&mut owner, "ObserveZero");
+    let peer_zero = container(&mut peer, "ObserveZero");
     assert_eq!((unit, zero), (peer_unit, peer_zero));
     assert!(owner.owned_script_condition_for_test(condition(
         ConditionType::NamedBuildingIsEmpty,
@@ -43,8 +54,8 @@ fn containment_conditions_use_actual_zero_dead_and_owned_local_rosters() {
         ConditionType::NamedBuildingIsEmpty,
         "ObserveZero"
     )));
-    let filled = container(&mut owner, "ObserveTwo", ContainModuleKind::Garrison, 2);
-    let peer_filled = container(&mut peer, "ObserveTwo", ContainModuleKind::Garrison, 2);
+    let filled = container(&mut owner, "ObserveTwo");
+    let peer_filled = container(&mut peer, "ObserveTwo");
     assert_eq!(filled, peer_filled);
     assert!(owner.host_object_mut(filled).unwrap().add_occupant(unit));
     assert!(!owner.owned_script_condition_for_test(condition(
@@ -87,8 +98,8 @@ fn containment_conditions_use_actual_zero_dead_and_owned_local_rosters() {
 fn containment_conditions_read_canonical_shared_tunnel_and_cave_pools() {
     let (mut owner, unit, _) = world();
     let (mut peer, peer_unit, _) = world();
-    let tunnel = container(&mut owner, "ObserveTunnel", ContainModuleKind::Tunnel, 0);
-    let peer_tunnel = container(&mut peer, "ObserveTunnel", ContainModuleKind::Tunnel, 0);
+    let tunnel = container(&mut owner, "ObserveTunnel");
+    let peer_tunnel = container(&mut peer, "ObserveTunnel");
     assert_eq!((unit, tunnel), (peer_unit, peer_tunnel));
     assert!(owner.tunnel_network.record_enter(1, unit, tunnel));
     assert!(!owner.owned_script_condition_for_test(condition(
@@ -103,8 +114,8 @@ fn containment_conditions_read_canonical_shared_tunnel_and_cave_pools() {
         ConditionType::NamedHasFreeContainerSlots,
         "ObserveTunnel"
     )));
-    let cave = container(&mut owner, "ObserveCave", ContainModuleKind::Cave, 0);
-    let peer_cave = container(&mut peer, "ObserveCave", ContainModuleKind::Cave, 0);
+    let cave = container(&mut owner, "ObserveCave");
+    let peer_cave = container(&mut peer, "ObserveCave");
     assert_eq!(cave, peer_cave);
     let index = owner.cave_system.index_of(cave).unwrap();
     assert!(

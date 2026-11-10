@@ -1,5 +1,5 @@
 //! CPP420/513/2088: canonical players/objects with the owned polygon.
-use super::named_command_test_support::world;
+use super::named_command_test_support::{named_infantry, world, world_with};
 use super::*;
 use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
 fn area(world: &mut GameLogic) {
@@ -651,43 +651,26 @@ fn special_power_readiness_uses_owned_module_and_timer() {
     use super::script_execution_driver::HostScriptExecutionDriver;
     use crate::command_system::SpecialPowerType;
     use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
-    let (mut owner, unit, _) = world();
+    // SpecialPower.ini loads at startup; only the owner's content authors
+    // the power and the unit whose OCLSpecialPower module names it.
+    const POWER: &str = "SpecialPowerSpySatellite";
+    let (mut owner, _, _) = world_with(
+        &[named_infantry("OwnerSpyUnit").module(format!(
+            "Behavior = OCLSpecialPower ModuleTag_Spy\n SpecialPowerTemplate = {POWER}\nEnd"
+        ))],
+        &[],
+        &format!("SpecialPower {POWER}\n Enum = SPECIAL_SPY_SATELLITE\n ReloadTime = 60000\n PublicTimer = Yes\nEnd\n"),
+    );
+    let unit = owner
+        .create_object_for_player("OwnerSpyUnit", 1, Vec3::new(60.0, 0.0, 60.0))
+        .unwrap();
     let (mut peer, _, _) = world();
-    let module = SpecialPowerModuleMetadata {
-        source_index: 0,
-        module_tag: None,
-        module_kind: SpecialPowerModuleKind::OclSpecialPower,
-        special_power_template: "OwnerSpy".into(),
-        special_power_template_id: 901,
-        command_power: Some(SpecialPowerType::SpySatellite),
-        reload_time_frames: 1800,
-        required_science: None,
-        public_timer: true,
-        shared_n_sync: false,
-        shortcut_power: false,
-        update_module_starts_attack: false,
-        starts_paused: false,
-        scripted_special_power_only: false,
-        cash_bounty: None,
-    };
-    owner
-        .templates
-        .get_mut("OwnedNamedInfantry")
-        .unwrap()
-        .special_power_modules
-        .push(module.clone());
-    owner
-        .host_object_mut(unit)
-        .unwrap()
-        .template_mut()
-        .special_power_modules
-        .push(module);
     owner
         .host_object_mut(unit)
         .unwrap()
         .set_special_power_ready_seconds(&SpecialPowerType::SpySatellite, 2.0);
     let ScriptOwnerQuery::Present(state) = HostScriptExecutionDriver::new(&mut owner)
-        .skirmish_special_power_readiness("NamedOwner", "OwnerSpy", None)
+        .skirmish_special_power_readiness("NamedOwner", POWER, None)
     else {
         panic!("owned power")
     };
@@ -703,7 +686,7 @@ fn special_power_readiness_uses_owned_module_and_timer() {
             ConditionType::SkirmishSpecialPowerReady,
             &[
                 (ParameterType::Side, "NamedOwner"),
-                (ParameterType::SpecialPower, "OwnerSpy"),
+                (ParameterType::SpecialPower, POWER),
             ],
         )
     };

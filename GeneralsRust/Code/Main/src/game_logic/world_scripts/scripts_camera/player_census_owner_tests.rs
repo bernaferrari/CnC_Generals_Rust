@@ -1,5 +1,5 @@
 //! Real ScriptEngine conditions read this world's current player and object census.
-use super::named_command_test_support::world;
+use super::named_command_test_support::{world, world_with};
 use super::*;
 use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
 
@@ -67,7 +67,12 @@ fn built_by_player_requires_owned_literal_definition_before_type_list_expansion(
     use gamelogic::scripting::core::{OrCondition, Script};
     use gamelogic::scripting::engine::ScriptEngine;
     let (mut owner, unit, _) = world();
-    let (mut peer, _, _) = world();
+    // Only the second owner's startup content authors the literal template.
+    let (mut peer, _, _) = world_with(
+        &[crate::fixture_content::FixtureObject::new("OwnerInfantryList").kind_of("INFANTRY")],
+        &[],
+        "",
+    );
     owner.host_object_mut(unit).unwrap().status.effectively_dead = true;
     let engine = ScriptEngine::new_in_published_world().unwrap();
     let mut list = gamelogic::object::object_types::ObjectTypes::new();
@@ -105,9 +110,6 @@ fn built_by_player_requires_owned_literal_definition_before_type_list_expansion(
     }
     // The same spelling resolves a literal template in this second owner,
     // while its independent list/census is absent in the first owner.
-    let mut template = ThingTemplate::new("OwnerInfantryList");
-    template.add_kind_of(KindOf::Infantry);
-    peer.templates.insert(template.name.clone(), template);
     peer.create_object_for_player("OwnerInfantryList", 1, Vec3::ZERO)
         .unwrap();
     let mut condition = Condition::new(ConditionType::BuiltByPlayer);

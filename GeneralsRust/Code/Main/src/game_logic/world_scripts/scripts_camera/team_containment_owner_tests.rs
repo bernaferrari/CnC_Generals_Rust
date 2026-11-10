@@ -1,5 +1,5 @@
 //! CPP ScriptConditions1994 and ScriptEngine7965: canonical team containment.
-use super::named_command_test_support::world;
+use super::named_command_test_support::{world, world_with};
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
@@ -215,13 +215,17 @@ fn authored_cave_index_driver_updates_exact_owner_network_and_rejects_occupied_s
 fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_peer() {
     use crate::save_load::snapshot::{apply_lifecycle_tail_to_host, capture_lifecycle_tail};
     use gamelogic::scripting::executor::ScriptContext;
-    let (mut owner, _, _) = world();
-    let (mut peer, _, _) = world();
-    for world in [&mut owner, &mut peer] {
-        let mut definition = ThingTemplate::new("CivilianTrainEngine");
-        definition.add_kind_of(KindOf::Vehicle).set_health(100.0);
-        world.templates.insert(definition.name.clone(), definition);
-    }
+    let train_content = || {
+        world_with(
+            &[crate::fixture_content::FixtureObject::new("CivilianTrainEngine")
+                .kind_of("VEHICLE")
+                .health(100.0)],
+            &[],
+            "",
+        )
+    };
+    let (mut owner, _, _) = train_content();
+    let (mut peer, _, _) = train_content();
     let train = owner
         .create_object_for_player("CivilianTrainEngine", 1, Vec3::ZERO)
         .unwrap();

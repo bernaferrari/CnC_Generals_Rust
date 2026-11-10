@@ -1,5 +1,5 @@
 //! Exact C++ Team* contexts through the actual Main script driver.
-use super::named_command_test_support::world;
+use super::named_command_test_support::{named_infantry, world, world_with};
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use gamelogic::scripting::core::{
@@ -305,14 +305,14 @@ fn retained_missing_team_id_rejects_before_persist_tail_mutates_receiver() {
 
 #[test]
 fn sequence_idle_contains_cycle_is_bounded_and_still_visits_each_live_member() {
-    let (mut world, _, _) = world();
     // privateIdle recurses through an actual Contain interface. A projected
     // occupants list alone (for example parked aircraft) is not that interface.
-    let mut carrier = world.templates["OwnedNamedInfantry"].clone();
-    carrier.name = "OwnedCycleCarrier".into();
-    carrier.contain_module.kind = ContainModuleKind::Transport;
-    carrier.contain_module.slots = Some(2);
-    world.templates.insert(carrier.name.clone(), carrier);
+    let (mut world, _, _) = world_with(
+        &[named_infantry("OwnedCycleCarrier")
+            .module("Behavior = TransportContain ModuleTag_Contain\n Slots = 2\nEnd")],
+        &[],
+        "",
+    );
     let first = world
         .create_object_for_player("OwnedCycleCarrier", 1, Vec3::ZERO)
         .unwrap();

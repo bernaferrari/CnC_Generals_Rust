@@ -1,5 +1,15 @@
 //! Actual ScriptActions effects against distinct driving owners with colliding IDs.
-use super::named_command_test_support::{execute, world};
+use super::named_command_test_support::{execute, world, world_with};
+use crate::fixture_content::FixtureObject;
+
+/// A structure whose authored StructureToppleUpdate creates the topple Die
+/// interface (C++ creates it only for an authored module row).
+fn toppling_structure(name: &str) -> FixtureObject {
+    FixtureObject::new(name)
+        .kind_of("STRUCTURE")
+        .health(100.0)
+        .module("Behavior = StructureToppleUpdate ModuleTag_Topple\nEnd")
+}
 use super::*;
 use gamelogic::scripting::core::{
     Parameter, ParameterType, ScriptAction, ScriptActionType, THIS_TEAM,
@@ -422,16 +432,14 @@ fn team_transfer_updates_sibling_owner_views_and_preserves_selected_team_scope()
 
 #[test]
 fn sell_everything_uses_owned_faction_structure_filter_and_real_sell_lifecycle() {
-    let (mut owner, unit, _) = world();
+    let (mut owner, unit, _) = world_with(
+        &[FixtureObject::new("OwnedSellFactory")
+            .kind_of("STRUCTURE FS_WARFACTORY")
+            .health(100.0)],
+        &[],
+        "",
+    );
     let (peer, peer_unit, _) = world();
-    let mut template = ThingTemplate::new("OwnedSellFactory");
-    template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSWarFactory)
-        .set_health(100.0);
-    owner
-        .templates
-        .insert(template.name.clone(), template.clone());
     let factory = owner
         .create_object_for_player("OwnedSellFactory", 1, Vec3::new(100.0, 0.0, 100.0))
         .unwrap();
@@ -458,10 +466,8 @@ fn command_button_hunt_validates_authored_button_then_arms_owned_real_update() {
     // owning engine's TheControlBar), without publishing either world.
     const BUTTON: &str = "Command_OwnedRuntimeFireWeapon";
     let definition = format!("CommandButton {BUTTON}\n Command = FIRE_WEAPON\nEnd\n");
-    let (mut owner, unit, _) = world();
-    let (peer, peer_unit, _) = world();
-    owner.load_own_command_ini_for_test(&definition);
-    peer.load_own_command_ini_for_test(&definition);
+    let (mut owner, unit, _) = world_with(&[], &[], &definition);
+    let (peer, peer_unit, _) = world_with(&[], &[], &definition);
     roster(&owner, "HuntTeam", unit, 1);
     roster(&peer, "HuntTeam", peer_unit, 1);
     // The actual native classifier needs a hunt-capable authored unit.
@@ -643,12 +649,8 @@ fn world_effects_deliver_to_the_driving_interpreter_hooks_before_next_action() {
 fn named_presentation_and_sequential_use_owned_identity_then_topple_consumes_owned_cache() {
     use super::script_execution_driver::HostScriptExecutionDriver;
     use gamelogic::scripting::core::{Parameter, ParameterType, Script, ScriptAction, ScriptList};
-    let (mut owner, unit, _) = world();
+    let (mut owner, unit, _) = world_with(&[toppling_structure("OwnedTopplingStructure")], &[], "");
     let (peer, peer_unit, _) = world();
-    let mut template = ThingTemplate::new("OwnedTopplingStructure");
-    template.add_kind_of(KindOf::Structure).set_health(100.0);
-    template.authored_structure_topple = true;
-    owner.templates.insert(template.name.clone(), template);
     let building = owner
         .create_object_for_player("OwnedTopplingStructure", 1, Vec3::new(200.0, 0.0, 200.0))
         .unwrap();
@@ -767,15 +769,9 @@ fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_dea
     use super::script_execution_driver::HostScriptExecutionDriver;
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
     for team_kill in [false, true] {
-        let (mut owner, _, _) = world();
-        let (mut peer, _, _) = world();
-        let mut template = ThingTemplate::new("BorrowedScriptToppleBuilding");
-        template.add_kind_of(KindOf::Structure).set_health(100.0);
-        template.authored_structure_topple = true;
-        owner
-            .templates
-            .insert(template.name.clone(), template.clone());
-        peer.templates.insert(template.name.clone(), template);
+        let content = [toppling_structure("BorrowedScriptToppleBuilding")];
+        let (mut owner, _, _) = world_with(&content, &[], "");
+        let (mut peer, _, _) = world_with(&content, &[], "");
         let building = owner
             .create_object_for_player(
                 "BorrowedScriptToppleBuilding",
@@ -993,12 +989,14 @@ fn two_worlds_taking_turns_on_one_thread_read_only_their_own_control_bar() {
     // the peer is the published world.
     const SHARED: &str = "Command_TurnTakingShared";
     const ONLY_A: &str = "Command_TurnTakingOnlyA";
-    let (a, _, _) = world();
-    let (b, _, _) = world();
-    a.load_own_command_ini_for_test(&format!(
-        "CommandButton {SHARED}\n Command = FIRE_WEAPON\nEnd\nCommandButton {ONLY_A}\n Command = STOP\nEnd\n"
-    ));
-    b.load_own_command_ini_for_test(&format!("CommandButton {SHARED}\n Command = STOP\nEnd\n"));
+    let (a, _, _) = world_with(
+        &[],
+        &[],
+        &format!(
+            "CommandButton {SHARED}\n Command = FIRE_WEAPON\nEnd\nCommandButton {ONLY_A}\n Command = STOP\nEnd\n"
+        ),
+    );
+    let (b, _, _) = world_with(&[], &[], &format!("CommandButton {SHARED}\n Command = STOP\nEnd\n"));
     let a_bridge = a.control_bar_bridge().expect("a's bridge");
     let b_bridge = b.control_bar_bridge().expect("b's bridge");
     assert!(!std::sync::Arc::ptr_eq(&a_bridge, &b_bridge));

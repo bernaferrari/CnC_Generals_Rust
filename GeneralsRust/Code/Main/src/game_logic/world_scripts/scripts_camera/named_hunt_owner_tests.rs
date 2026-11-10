@@ -7,7 +7,7 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::engine::ScriptEngine;
 
-use super::named_command_test_support::{execute, world};
+use super::named_command_test_support::{NAMED_RIFLE, execute, world, world_with};
 
 fn hunt(world: &mut GameLogic, name: &str) {
     assert_eq!(
@@ -215,22 +215,20 @@ fn effectively_dead_unit_rejects_hunt_after_normal_selection() {
 #[test]
 fn nonmobile_and_projectile_units_reject_hunt() {
     for projectile in [false, true] {
-        let (mut world, _, _) = world();
-        let mut template = ThingTemplate::new("RejectedHunt");
-        template
-            .set_health(100.0)
-            .set_primary_weapon(Weapon::default());
-        if projectile {
-            template
-                .add_kind_of(KindOf::Infantry)
-                .add_kind_of(KindOf::Projectile);
+        let kinds = if projectile {
+            "INFANTRY PROJECTILE"
         } else {
-            template
-                .add_kind_of(KindOf::Structure)
-                .add_kind_of(KindOf::Immobile);
-        }
-        template.set_authored_ai_update_interface(Some(true));
-        world.templates.insert(template.name.clone(), template);
+            "STRUCTURE IMMOBILE"
+        };
+        let (mut world, _, _) = world_with(
+            &[crate::fixture_content::FixtureObject::new("RejectedHunt")
+                .kind_of(kinds)
+                .health(100.0)
+                .armed(NAMED_RIFLE)
+                .module("Behavior = AIUpdateInterface ModuleTag_AI\nEnd")],
+            &[],
+            "",
+        );
         let id = world
             .create_object_for_player("RejectedHunt", 1, Vec3::ZERO)
             .unwrap();

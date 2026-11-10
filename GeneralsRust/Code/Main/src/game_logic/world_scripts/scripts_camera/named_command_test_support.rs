@@ -7,7 +7,37 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::engine::ScriptEngine;
 
+use crate::fixture_content::{FixtureObject, FixtureWeapon};
+
+/// The shared rifle every named infantry fixture's WeaponSet names.
+pub(super) const NAMED_RIFLE: &str = "OwnedNamedRifle";
+
+/// Infantry authored like retail: an AIUpdateInterface (the source of the
+/// saved BaseAI continuation, AIUpdateInterface::xfer), a WeaponSet naming
+/// [`NAMED_RIFLE`] and Normal/Panic LocomotorSets.
+pub(super) fn named_infantry(name: &str) -> FixtureObject {
+    FixtureObject::new(name)
+        .kind_of("INFANTRY CAN_ATTACK")
+        .health(100.0)
+        .armed(NAMED_RIFLE)
+        .field("TransportSlotCount = 1")
+        .field("Locomotor = SET_NORMAL BasicHumanLocomotor")
+        .field("Locomotor = SET_PANIC RedguardLocomotor")
+        .module("Behavior = AIUpdateInterface ModuleTag_AI\nEnd")
+}
+
 pub(super) fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_with(&[], &[], "")
+}
+
+/// [`world`] whose startup content also authors a test's extra Objects,
+/// Weapons and CommandButton/SpecialPower blocks. C++ builds every
+/// ThingTemplate from INI before NewGame; nothing is added afterwards.
+pub(super) fn world_with(
+    objects: &[FixtureObject],
+    weapons: &[FixtureWeapon],
+    actions: &str,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
@@ -22,28 +52,15 @@ pub(super) fn world() -> (GameLogic, ObjectId, ObjectId) {
     world.add_player(
         Player::new(2, Team::China, "NamedVictim", false).with_script_identity("NamedVictim"),
     );
-    let mut template = ThingTemplate::new("OwnedNamedInfantry");
-    template
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(100.0)
-        .set_primary_weapon(Weapon::default());
-    use crate::game_logic::host_upgrade_module_residuals::{
-        AuthoredLocomotorSet, HostLocomotorSetKind,
-    };
-    template.transport_slot_count = Some(1);
-    template.set_authored_ai_update_interface(Some(true));
-    template.authored_locomotor_sets = Some(vec![
-        AuthoredLocomotorSet {
-            kind: HostLocomotorSetKind::Normal,
-            members: vec!["BasicHumanLocomotor".into()],
-        },
-        AuthoredLocomotorSet {
-            kind: HostLocomotorSetKind::Panic,
-            members: vec!["RedguardLocomotor".into()],
-        },
-    ]);
-    world.templates.insert(template.name.clone(), template);
+    let objects: Vec<_> = std::iter::once(named_infantry("OwnedNamedInfantry"))
+        .chain(objects.iter().cloned())
+        .collect();
+    let weapons: Vec<_> = std::iter::once(FixtureWeapon::from_stats(NAMED_RIFLE, &Weapon::default()))
+        .chain(weapons.iter().cloned())
+        .collect();
+    crate::fixture_content::admit_fixture_content_with_actions(
+        &mut world, &objects, &weapons, actions,
+    );
     let unit = world
         .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();

@@ -165,6 +165,19 @@ pub(crate) fn admit_fixture_content(
     objects: &[FixtureObject],
     weapons: &[FixtureWeapon],
 ) {
+    admit_fixture_content_with_actions(world, objects, weapons, "");
+}
+
+/// [`admit_fixture_content`] plus authored `CommandButton`, `CommandSet` and
+/// `SpecialPower` blocks. C++ loads CommandButton.ini and SpecialPower.ini with
+/// the other startup INI (GameEngine.cpp:428-458), so a fixture's buttons and
+/// powers exist before any Object template binds them.
+pub(crate) fn admit_fixture_content_with_actions(
+    world: &mut GameLogic,
+    objects: &[FixtureObject],
+    weapons: &[FixtureWeapon],
+    actions: &str,
+) {
     if objects.iter().any(|object| object.walker) {
         let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
         locomotors
@@ -192,6 +205,26 @@ pub(crate) fn admit_fixture_content(
     }
     let text: String = objects.iter().map(FixtureObject::ini).collect();
     let sources = [("fixture-objects.ini".to_string(), text)];
+    if !actions.is_empty() {
+        let sciences =
+            std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::default());
+        let mut definitions =
+            game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
+        definitions
+            .apply_source(actions, &sciences)
+            .expect("fixture action definitions parse");
+        let content = crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
+            sources,
+            sciences,
+            std::sync::Arc::new(definitions),
+        )
+        .expect("fixture Object content parses");
+        let weapons = (!weapons.is_empty()).then(|| fixture_weapon_rules(weapons));
+        world
+            .admit_receiving_module_content_with_weapons(content, weapons)
+            .expect("fixture Object, Weapon and action content admitted before NewGame");
+        return;
+    }
     if weapons.is_empty() {
         world
             .admit_object_ini_sources(sources)

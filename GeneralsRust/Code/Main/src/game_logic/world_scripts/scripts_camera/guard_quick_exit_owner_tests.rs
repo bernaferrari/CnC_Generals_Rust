@@ -1,7 +1,7 @@
 //! C++ AIStates.cpp:844-869 / AIUpdate.cpp:998,1097: temporary update and
 //! base-state resumption precede locomotion; locomotor arrival is next-frame input.
 use super::guard_return_rate_control_tests::{authored_rates, unfinished_return};
-use super::named_command_test_support::{execute, world};
+use super::named_command_test_support::{execute, world, world_with};
 use super::*;
 use crate::game_logic::object::unit_ai_runtime::GuardPhase;
 use gamelogic::scripting::core::ScriptActionType;
@@ -446,14 +446,16 @@ fn same_id_world_temporary_and_base_state_updates_are_independent() {
 
 #[test]
 fn actual_tunnel_sally_installs_and_suspends_owned_guard_overlay() {
-    let (mut owner, id, enemy) = world();
+    let (mut owner, id, enemy) = world_with(
+        &[crate::fixture_content::FixtureObject::new("OwnedQuickExitTunnel")
+            .kind_of("STRUCTURE")
+            .health(1000.0)
+            .module("Behavior = TunnelContain ModuleTag_Contain\n ContainMax = 10\nEnd")],
+        &[],
+        "",
+    );
     authored_rates(&mut owner, 60, 7);
     step(&mut owner);
-    let mut tunnel = ThingTemplate::new("OwnedQuickExitTunnel");
-    tunnel.add_kind_of(KindOf::Structure).set_health(1000.0);
-    tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    tunnel.contain_module.slots = Some(10);
-    owner.templates.insert(tunnel.name.clone(), tunnel);
     let tunnel = owner
         .create_object_for_player("OwnedQuickExitTunnel", 1, Vec3::new(200.0, 0.0, 200.0))
         .unwrap();

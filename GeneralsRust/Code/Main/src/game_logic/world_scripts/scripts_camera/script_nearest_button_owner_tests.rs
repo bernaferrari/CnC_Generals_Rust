@@ -4,8 +4,36 @@ use crate::command_system::SpecialPowerType;
 use game_engine::common::ini::ini_command_button::CommandButton;
 use gamelogic::scripting::HostScriptUseCommandButtonRequest as Request;
 
+const LASER_POWER: &str = "SpecialAbilityMissileDefenderLaserGuidedMissiles";
+
 fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
-    let (mut world, unrelated, invalid) = super::named_command_test_support::world();
+    // SpecialPower.ini and Weapon.ini load with Object.ini at startup: the
+    // Missile Defender's SpecialAbility names its laser power, its WeaponSet
+    // names the laser gun.
+    use crate::fixture_content::{FixtureObject, FixtureWeapon};
+    let (mut world, unrelated, invalid) = super::named_command_test_support::world_with(
+        &[
+            FixtureObject::new("AmericaInfantryMissileDefender")
+                .kind_of("INFANTRY")
+                .health(100.0)
+                .weapon("SECONDARY", "OwnedNearestLaserGun")
+                .field("Locomotor = SET_NORMAL BasicHumanLocomotor")
+                .module("Behavior = AIUpdateInterface ModuleTag_AI\nEnd")
+                .module(format!(
+                    "Behavior = SpecialAbility ModuleTag_Laser\n SpecialPowerTemplate = {LASER_POWER}\nEnd"
+                )),
+            FixtureObject::new("OwnedNearestVehicle")
+                .kind_of("VEHICLE")
+                .health(500.0),
+        ],
+        &[FixtureWeapon::from_stats(
+            "OwnedNearestLaserGun",
+            &crate::game_logic::host_missile_defender::missile_defender_laser_guided_weapon(),
+        )],
+        &format!(
+            "SpecialPower {LASER_POWER}\n Enum = SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES\n ReloadTime = 0\nEnd\n"
+        ),
+    );
     world.override_world_size(2000.0, 2000.0);
     world
         .players
@@ -17,35 +45,6 @@ fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
         .get_mut(&2)
         .unwrap()
         .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
-    let mut caster = ThingTemplate::new("AmericaInfantryMissileDefender");
-    caster.add_kind_of(KindOf::Infantry).set_health(100.0);
-    caster.set_authored_ai_update_interface(Some(true));
-    caster.authored_locomotor_sets = Some(vec![
-        crate::game_logic::host_upgrade_module_residuals::AuthoredLocomotorSet {
-            kind: crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
-            members: vec!["BasicHumanLocomotor".into()],
-        },
-    ]);
-    caster
-        .special_power_modules
-        .push(SpecialPowerModuleMetadata {
-            source_index: 0,
-            module_tag: Some("ModuleTag_Laser".into()),
-            module_kind: SpecialPowerModuleKind::SpecialAbility,
-            special_power_template: "OwnedNearestLaser".into(),
-            special_power_template_id: 9182,
-            command_power: Some(SpecialPowerType::MissileDefenderLaserGuided),
-            reload_time_frames: 0,
-            required_science: None,
-            public_timer: false,
-            shared_n_sync: false,
-            shortcut_power: false,
-            update_module_starts_attack: false,
-            starts_paused: false,
-            scripted_special_power_only: false,
-            cash_bounty: None,
-        });
-    world.templates.insert(caster.name.clone(), caster);
     let source = world
         .create_object_for_player(
             "AmericaInfantryMissileDefender",
@@ -53,11 +52,6 @@ fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
             Vec3::new(50.0, 0.0, 50.0),
         )
         .unwrap();
-    world.host_object_mut(source).unwrap().secondary_weapon =
-        Some(crate::game_logic::host_missile_defender::missile_defender_laser_guided_weapon());
-    let mut vehicle = ThingTemplate::new("OwnedNearestVehicle");
-    vehicle.add_kind_of(KindOf::Vehicle).set_health(500.0);
-    world.templates.insert(vehicle.name.clone(), vehicle);
     let target = world
         .create_object_for_player("OwnedNearestVehicle", 2, Vec3::new(300.0, 0.0, 50.0))
         .unwrap();
@@ -87,7 +81,7 @@ fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
     }
     let mut button = CommandButton::new("OwnedNearestButton".into());
     button.command = "SPECIAL_POWER".into();
-    button.special_power_template = Some("OwnedNearestLaser".into());
+    button.special_power_template = Some(LASER_POWER.into());
     button.options_bits = gamelogic::object::update::special_power_update::SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT.bits();
     (world, source, target, button, team_id)
 }

@@ -1,19 +1,29 @@
 //! AIUpdate privateEnter/Exit/Evacuate through the actual borrowed script walk.
-use super::named_command_test_support::{execute, world};
+use super::named_command_test_support::{execute, named_infantry, world_with};
+use crate::fixture_content::FixtureObject;
 use super::*;
 use gamelogic::scripting::core::ScriptActionType;
 
+/// The named world plus this file's authored one-seat infantry transport and
+/// a STEALTH_GARRISON passenger.
+fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_with(
+        &[
+            FixtureObject::new("OwnedExitTransport")
+                .kind_of("VEHICLE")
+                .health(300.0)
+                .module("Behavior = AIUpdateInterface ModuleTag_AI\nEnd")
+                .module(
+                    "Behavior = TransportContain ModuleTag_Contain\n Slots = 1\n AllowInsideKindOf = INFANTRY\nEnd",
+                ),
+            named_infantry("HiddenExitPassenger").kind_of("STEALTH_GARRISON"),
+        ],
+        &[],
+        "",
+    )
+}
+
 fn transport(world: &mut GameLogic) -> ObjectId {
-    let mut template = ThingTemplate::new("OwnedExitTransport");
-    template.add_kind_of(KindOf::Vehicle).set_health(300.0);
-    template.set_authored_ai_update_interface(Some(true));
-    template.contain_module = ContainModuleMetadata {
-        kind: ContainModuleKind::Transport,
-        slots: Some(1),
-        admission: ContainAdmission::InfantryOnly,
-        ..ContainModuleMetadata::default()
-    };
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("OwnedExitTransport", 1, Vec3::new(70.0, 0.0, 70.0))
         .unwrap();
@@ -250,10 +260,6 @@ fn malformed_exit_goal_cannot_remove_a_different_containers_passenger() {
 fn false_evacuation_preserves_stealth_garrison_detection_flags() {
     let (mut owner, _, _) = world();
     let container = transport(&mut owner);
-    let mut template = owner.templates["OwnedNamedInfantry"].clone();
-    template.name = "HiddenExitPassenger".into();
-    template.add_kind_of(KindOf::StealthGarrison);
-    owner.templates.insert(template.name.clone(), template);
     let rider = owner
         .create_object_for_player("HiddenExitPassenger", 1, Vec3::ZERO)
         .unwrap();

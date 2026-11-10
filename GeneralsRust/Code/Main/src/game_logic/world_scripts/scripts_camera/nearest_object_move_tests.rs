@@ -1,5 +1,5 @@
 //! Real script action -> owned trigger selection -> checked object-goal movement.
-use super::named_command_test_support::world;
+use super::named_command_test_support::{named_infantry, world, world_with};
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use gamelogic::scripting::core::{
@@ -11,10 +11,7 @@ use gamelogic::scripting::engine::ScriptEngine;
 // A distant tracking target must have a distinct authored type: CPP's
 // Coord3D closest query permits the receiver itself when its type matches.
 fn tracking_world() -> (GameLogic, ObjectId, ObjectId) {
-    let (mut world, unit, _) = world();
-    let mut template = world.templates["OwnedNamedInfantry"].clone();
-    template.name = "OwnedNearestTarget".into();
-    world.templates.insert(template.name.clone(), template);
+    let (mut world, unit, _) = world_with(&[named_infantry("OwnedNearestTarget")], &[], "");
     let target = world
         .create_object_for_player("OwnedNearestTarget", 2, Vec3::new(70.0, 0.0, 70.0))
         .unwrap();
