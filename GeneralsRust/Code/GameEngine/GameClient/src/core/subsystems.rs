@@ -1199,6 +1199,9 @@ pub struct PresentationSuperweaponTimerResidual {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
+    /// The owning client's text catalog (`GameClient::ensure_game_text_store`);
+    /// C++ TheGameText of this instance.
+    pub(crate) game_text: Option<Arc<std::sync::RwLock<GameText>>>,
     /// Local player index the translators stamp commands with (this client's
     /// `GameClient::set_local_player_id`; was a failed live-slot lookup).
     local_player_id: i32,
@@ -1735,10 +1738,27 @@ impl InGameUISubsystem {
         self.message(&key, frame);
     }
 
+    /// Bind the owning client's catalog.
+    pub fn admit_game_text(&mut self, store: Arc<std::sync::RwLock<GameText>>) {
+        self.game_text = Some(store);
+    }
+
+    /// C++ `TheGameText->fetch(key, &exists)` against the owning client's
+    /// catalog; an unbound UI has no strings.
+    pub fn game_text(&self, key: &str) -> (String, bool) {
+        match self.game_text.as_deref() {
+            Some(store) => store
+                .write()
+                .unwrap_or_else(|error| error.into_inner())
+                .fetch_with_exists_owned(key),
+            None => (format!("MISSING: '{}'", key.trim()), false),
+        }
+    }
+
     pub fn message(&mut self, text: &str, frame: u32) {
         // C++ InGameUI::message displays the already-formatted UnicodeString.
         // Fetch labels; pass through formatted HUD text so %s substitution survives.
-        let (fetched, exists) = GameText::fetch_with_exists(text);
+        let (fetched, exists) = self.game_text(text);
         self.push_hud_message_at(if exists { fetched } else { text.to_string() }, frame);
     }
 
@@ -2730,6 +2750,29 @@ mod tests {
             vec![("FX_TreeTopple".to_string(), Vec3::new(4.0, 5.0, 6.0))]
         );
         assert_eq!(terrain.drain_tree_fx_events_with(|_, _| {}), 0);
+    }
+
+    #[test]
+    fn in_game_ui_message_reads_its_owning_client_catalog() {
+        let path = std::env::temp_dir()
+            .join(format!("ingame_ui_owned_text_{}.str", std::process::id()));
+        std::fs::write(&path, "SCIENCE:GeneralName\n\"Owned General\"\nEND\n").expect("write str");
+        let mut catalog = GameText::default();
+        catalog.load_map_strings(&path).expect("load str");
+        let _ = std::fs::remove_file(&path);
+
+        let mut owner = InGameUISubsystem::default();
+        owner.admit_game_text(Arc::new(std::sync::RwLock::new(catalog)));
+        let mut peer = InGameUISubsystem::default();
+        assert_eq!(owner.game_text("SCIENCE:GeneralName"), ("Owned General".to_string(), true));
+        assert_eq!(
+            peer.game_text("SCIENCE:GeneralName"),
+            ("MISSING: 'SCIENCE:GeneralName'".to_string(), false)
+        );
+        owner.message("SCIENCE:GeneralName", 0);
+        peer.message("SCIENCE:GeneralName", 0);
+        assert_eq!(owner.drain_hud_messages(), vec!["Owned General".to_string()]);
+        assert_eq!(peer.drain_hud_messages(), vec!["SCIENCE:GeneralName".to_string()]);
     }
 
     #[test]

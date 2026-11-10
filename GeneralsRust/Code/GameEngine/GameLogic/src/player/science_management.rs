@@ -45,10 +45,17 @@ impl Player {
 
     /// Reset rank state to defaults (matches C++ Player::resetRank)
     pub fn reset_rank_impl(&mut self) {
-        self.reset_rank_impl_for_world(None, 0);
+        self.reset_rank_impl_for_world(None, 0, None);
     }
 
-    fn reset_rank_impl_for_world(&mut self, world: Option<&crate::system::engine_stores::WorldServices>, frame: u32) {
+    /// `general_name` is the receiving client's `SCIENCE:GeneralName`; `None`
+    /// (legacy owner-less callers) still reads the ambient catalog.
+    fn reset_rank_impl_for_world(
+        &mut self,
+        world: Option<&crate::system::engine_stores::WorldServices>,
+        frame: u32,
+        general_name: Option<&str>,
+    ) {
         self.rank_level = 1;
         self.skill_points = 0;
         self.level_down = 0;
@@ -70,7 +77,10 @@ impl Player {
             }
         }
 
-        self.general_name = TheGameText::fetch("SCIENCE:GeneralName");
+        self.general_name = match general_name {
+            Some(name) => name.to_string(),
+            None => TheGameText::fetch("SCIENCE:GeneralName"),
+        };
         self.reset_sciences_impl_for_world(world, frame);
     }
 
@@ -89,7 +99,7 @@ impl Player {
     /// # Returns
     /// Returns true if the rank actually changed
     pub fn set_rank_level_impl(&mut self, new_level: Int, rank_level_limit: Int) -> Bool {
-        self.set_rank_level_impl_for_world(new_level, rank_level_limit, None, 0)
+        self.set_rank_level_impl_for_world(new_level, rank_level_limit, None, 0, None)
     }
 
     /// Rank mutation against the explicitly receiving world's rank catalog.
@@ -99,6 +109,7 @@ impl Player {
         rank_level_limit: Int,
         world: Option<&crate::system::engine_stores::WorldServices>,
         frame: u32,
+        general_name: Option<&str>,
     ) -> Bool {
         let mut new_level = new_level;
         let old_spp = self.science_purchase_points;
@@ -130,7 +141,7 @@ impl Player {
         }
 
         if new_level < self.rank_level {
-            self.reset_rank_impl_for_world(world, frame);
+            self.reset_rank_impl_for_world(world, frame, general_name);
         }
 
         // Update level-up threshold for next level (C++ Player.cpp:2665-2681)

@@ -1370,6 +1370,7 @@ impl GameClient {
         }
         let mut ui = ui;
         ui.set_local_player_id(self.local_player_id);
+        ui.admit_game_text(self.ensure_game_text_store());
         self.subsystem_manager.in_game_ui = Some(ui);
     }
 
