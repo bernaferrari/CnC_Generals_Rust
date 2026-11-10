@@ -1023,18 +1023,6 @@ impl TheEva {
         Ok(())
     }
 
-    pub fn is_enabled() -> Result<bool, GameError> {
-        let state = Self::state_arc();
-        let guard = state.lock().map_err(|_| GameError::LockError)?;
-        Ok(guard.enabled)
-    }
-
-    pub fn drain_events() -> Result<Vec<EvaEvent>, GameError> {
-        let state = Self::state_arc();
-        let mut guard = state.lock().map_err(|_| GameError::LockError)?;
-        let drained = guard.queued.drain(..).collect();
-        Ok(drained)
-    }
 }
 
 
@@ -1084,12 +1072,12 @@ mod in_game_ui_eva_ownership_tests {
                     TheInGameUI::display_message(&format!("msg-{seed}"));
                     TheEva::set_should_play(EvaEvent::LowPower).unwrap();
                     if seed == 1 {
-                        TheEva::set_enabled(false).unwrap();
+                        TheEva::set_enabled_in(&services, false).unwrap();
                     }
                     barrier.wait();
                     let msgs = TheInGameUI::drain_displayed_messages();
-                    let enabled = TheEva::is_enabled().unwrap();
-                    let drained = TheEva::drain_events().unwrap();
+                    let enabled = TheEva::is_enabled_in(&services).unwrap();
+                    let drained = TheEva::drain_events_in(&services).unwrap();
                     results.lock().unwrap().push((seed, msgs, enabled, drained.len()));
                     barrier.wait();
                 });

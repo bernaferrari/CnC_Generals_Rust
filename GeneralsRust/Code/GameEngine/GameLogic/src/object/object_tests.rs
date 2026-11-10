@@ -1686,7 +1686,7 @@ mod tests {
         player_list().write().unwrap().clear();
         OBJECT_REGISTRY.clear();
         let _ = crate::system::radar_notifier::drain();
-        let _ = crate::helpers::TheEva::drain_events();
+        let _ = crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services());
         let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
         reset_radar_for_test();
 
@@ -1734,7 +1734,7 @@ mod tests {
             "generic branch message expected, got {messages:?}"
         );
         assert!(
-            crate::helpers::TheEva::drain_events().unwrap().is_empty(),
+            crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services()).unwrap().is_empty(),
             "non-structure victim must not play base/ally EVA"
         );
 
@@ -1764,7 +1764,7 @@ mod tests {
         player_list().write().unwrap().clear();
         OBJECT_REGISTRY.clear();
         let _ = crate::system::radar_notifier::drain();
-        let _ = crate::helpers::TheEva::drain_events();
+        let _ = crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services());
         let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
         reset_radar_for_test();
 
@@ -1805,7 +1805,7 @@ mod tests {
         player_list().write().unwrap().clear();
         OBJECT_REGISTRY.clear();
         let _ = crate::system::radar_notifier::drain();
-        let _ = crate::helpers::TheEva::drain_events();
+        let _ = crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services());
         let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
         reset_radar_for_test();
 
@@ -1824,7 +1824,7 @@ mod tests {
 
         assert_eq!(last_radar_event_for_test(), Some(radar_coord_at(&victim)));
         assert!(crate::system::radar_notifier::drain().is_empty());
-        let eva = crate::helpers::TheEva::drain_events().unwrap();
+        let eva = crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services()).unwrap();
         assert!(
             eva.contains(&crate::helpers::EvaEvent::BaseUnderAttack),
             "EVA_BaseUnderAttack expected, got {eva:?}"
