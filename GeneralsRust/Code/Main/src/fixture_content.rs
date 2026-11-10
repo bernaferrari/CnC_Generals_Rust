@@ -23,6 +23,7 @@ pub(crate) struct FixtureObject {
     fields: Vec<String>,
     walker: bool,
     modules: Vec<String>,
+    weapon_slots: Vec<(String, String)>,
 }
 
 impl FixtureObject {
@@ -34,6 +35,7 @@ impl FixtureObject {
             fields: Vec::new(),
             walker: false,
             modules: Vec::new(),
+            weapon_slots: Vec::new(),
         }
     }
 
@@ -95,6 +97,19 @@ impl FixtureObject {
         self.module("Behavior = DozerAIUpdate FixtureDozerAI\nEnd")
     }
 
+    /// One slot of the default (`Conditions = None`) WeaponSet, e.g.
+    /// `.weapon("SECONDARY", "FixtureRocket")`. C++ Objects fire only weapons
+    /// their authored WeaponSet names (WeaponSet.cpp); kind never implies a gun.
+    pub(crate) fn weapon(mut self, slot: &str, weapon: &str) -> Self {
+        self.weapon_slots.push((slot.into(), weapon.into()));
+        self
+    }
+
+    /// The default WeaponSet's PRIMARY weapon.
+    pub(crate) fn armed(self, weapon: &str) -> Self {
+        self.weapon("PRIMARY", weapon)
+    }
+
     pub(crate) fn instant_death(self) -> Self {
         self.module("Behavior = InstantDeathBehavior FixtureDeath\nEnd")
     }
@@ -115,6 +130,13 @@ impl FixtureObject {
                 " Body = ActiveBody FixtureBody\n  MaxHealth = {health}\n  InitialHealth = {health}\n End\n"
             ));
         }
+        if !self.weapon_slots.is_empty() {
+            text.push_str(" WeaponSet\n  Conditions = None\n");
+            for (slot, weapon) in &self.weapon_slots {
+                text.push_str(&format!("  Weapon = {slot} {weapon}\n"));
+            }
+            text.push_str(" End\n");
+        }
         if self.walker {
             text.push_str(" Behavior = AIUpdateInterface FixtureBrain\n End\n");
         }
@@ -130,6 +152,17 @@ impl FixtureObject {
 /// Admit fixture Objects (and the walker locomotor when any walks) as the
 /// world's ordered startup content, before NewGame.
 pub(crate) fn admit_fixture_objects(world: &mut GameLogic, objects: &[FixtureObject]) {
+    admit_fixture_content(world, objects, &[]);
+}
+
+/// Admit fixture Objects together with the authored Weapons their WeaponSets
+/// name, as one ordered startup admission (C++ loads Weapon.ini with the
+/// other INI before Object templates are built, GameEngine.cpp:428-458).
+pub(crate) fn admit_fixture_content(
+    world: &mut GameLogic,
+    objects: &[FixtureObject],
+    weapons: &[FixtureWeapon],
+) {
     if objects.iter().any(|object| object.walker) {
         let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
         locomotors
@@ -151,13 +184,149 @@ pub(crate) fn admit_fixture_objects(world: &mut GameLogic, objects: &[FixtureObj
         );
     }
     let text: String = objects.iter().map(FixtureObject::ini).collect();
+    let sources = [("fixture-objects.ini".to_string(), text)];
+    if weapons.is_empty() {
+        world
+            .admit_object_ini_sources(sources)
+            .expect("fixture Object content admitted before NewGame");
+        return;
+    }
+    let content = crate::assets::ReceivingObjectContent::from_sources(sources)
+        .expect("fixture Object content parses");
     world
-        .admit_object_ini_sources([("fixture-objects.ini".into(), text)])
-        .expect("fixture Object content admitted before NewGame");
+        .admit_receiving_module_content_with_weapons(content, Some(fixture_weapon_rules(weapons)))
+        .expect("fixture Object and Weapon content admitted before NewGame");
+}
+
+/// One authored fixture Weapon definition (Weapon.ini block). Unset fields
+/// keep the C++ WeaponTemplate defaults (Weapon.cpp WeaponTemplate ctor).
+#[derive(Clone, Debug)]
+pub(crate) struct FixtureWeapon {
+    name: String,
+    fields: Vec<String>,
+}
+
+impl FixtureWeapon {
+    pub(crate) fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            fields: Vec::new(),
+        }
+    }
+
+    /// A raw Weapon field line, e.g. `"AntiAirborneVehicle = Yes"`.
+    pub(crate) fn field(mut self, line: impl Into<String>) -> Self {
+        self.fields.push(line.into());
+        self
+    }
+
+    pub(crate) fn damage(self, damage: f32) -> Self {
+        self.field(format!("PrimaryDamage = {damage}"))
+    }
+
+    pub(crate) fn radius(self, radius: f32) -> Self {
+        self.field(format!("PrimaryDamageRadius = {radius}"))
+    }
+
+    pub(crate) fn range(self, range: f32) -> Self {
+        self.field(format!("AttackRange = {range}"))
+    }
+
+    pub(crate) fn min_range(self, range: f32) -> Self {
+        self.field(format!("MinimumAttackRange = {range}"))
+    }
+
+    pub(crate) fn delay_ms(self, delay: u32) -> Self {
+        self.field(format!("DelayBetweenShots = {delay}"))
+    }
+
+    pub(crate) fn damage_type(self, damage_type: &str) -> Self {
+        self.field(format!("DamageType = {damage_type}"))
+    }
+
+    pub(crate) fn clip(self, size: u32, reload_ms: u32) -> Self {
+        self.field(format!("ClipSize = {size}"))
+            .field(format!("ClipReloadTime = {reload_ms}"))
+    }
+
+    pub(crate) fn anti_air(self) -> Self {
+        self.field("AntiAirborneVehicle = Yes")
+            .field("AntiAirborneInfantry = Yes")
+    }
+
+    pub(crate) fn ini(&self) -> String {
+        let mut text = format!("Weapon {}\n", self.name);
+        for field in &self.fields {
+            text.push_str(&format!(" {field}\n"));
+        }
+        text.push_str("End\n");
+        text
+    }
+}
+
+/// Parse fixture Weapons through the ordinary Weapon.ini loader.
+pub(crate) fn fixture_weapon_rules(
+    weapons: &[FixtureWeapon],
+) -> Vec<(String, gamelogic::weapon::WeaponTemplate)> {
+    let text: String = weapons.iter().map(FixtureWeapon::ini).collect();
+    let mut rules = std::collections::HashMap::new();
+    let parsed = crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut rules,
+        &text,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    assert_eq!(parsed, weapons.len(), "every fixture Weapon parses:\n{text}");
+    let mut rules: Vec<_> = rules
+        .into_values()
+        .map(|rule| (rule.name.clone(), rule))
+        .collect();
+    rules.sort_by(|a, b| a.0.cmp(&b.0));
+    rules
 }
 
 /// Declare named Objects with no authored modules (content-only witnesses).
 pub(crate) fn admit_declared_objects(world: &mut GameLogic, names: &[&str]) {
     let objects: Vec<_> = names.iter().map(|name| FixtureObject::new(*name)).collect();
     admit_fixture_objects(world, &objects);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{Player, Team};
+
+    #[test]
+    fn armed_fixture_object_fires_only_its_authored_weapon_set() {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Gunner", true));
+        admit_fixture_content(
+            &mut world,
+            &[
+                FixtureObject::new("FixtureGunner")
+                    .kind_of("INFANTRY CAN_ATTACK")
+                    .health(100.0)
+                    .walker()
+                    .armed("FixtureGun"),
+                FixtureObject::new("FixtureUnarmed")
+                    .kind_of("INFANTRY")
+                    .health(100.0),
+            ],
+            &[FixtureWeapon::new("FixtureGun").damage(12.0).range(150.0)],
+        );
+        let gunner = world
+            .create_object_for_player("FixtureGunner", 0, glam::Vec3::ZERO)
+            .expect("armed fixture object");
+        let weapon = world
+            .host_object(gunner)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .expect("authored WeaponSet instantiates its PRIMARY");
+        assert_eq!(weapon.damage, 12.0);
+        assert_eq!(weapon.range, 150.0);
+        let unarmed = world
+            .create_object_for_player("FixtureUnarmed", 0, glam::Vec3::ZERO)
+            .expect("unarmed fixture object");
+        assert!(world.host_object(unarmed).unwrap().weapon.is_none());
+    }
 }
