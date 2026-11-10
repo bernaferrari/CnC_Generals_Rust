@@ -925,7 +925,11 @@ mod leftover_the_audio_tests {
                 ..Default::default()
             },
         );
-        let resolver = super::GameLogicAudioEventOwnerResolver;
+        let resolver = super::GameLogicAudioEventOwnerResolver {
+            world: crate::system::engine_stores::try_active_services()
+                .as_ref()
+                .map(std::sync::Arc::downgrade),
+        };
         let pos = resolver.resolve_object_position(77).expect("host object");
         assert_eq!(pos.x, 10.0);
         assert_eq!(pos.y, 20.0);

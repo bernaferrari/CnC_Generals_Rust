@@ -29,7 +29,7 @@ impl ScriptActionHandler for ObserveEligibility {
             // Revisit the same actual Team through the production collector
             // during its action. No handler -> interpreter ownership cycle.
             let mut nested = factory_for(&self.pending);
-            nested.update();
+            nested.update(&crate::scripting::HostScriptQuery::published_for_test());
             assert!(nested.drain_pending_generic_script_evals().is_empty());
         }
         Ok(())
