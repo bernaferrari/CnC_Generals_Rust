@@ -33,8 +33,6 @@ pub struct TunnelTracker {
     cur_nemesis_id: ObjectID,
     /// Frame when nemesis was last updated (expires after 4 seconds)
     nemesis_timestamp: u32,
-    /// Maximum capacity for this tunnel network
-    max_capacity: i32,
 }
 
 /// The metadata edge of the original immediate tunnel retirement. Rider
@@ -57,30 +55,13 @@ impl TunnelTracker {
             contain_list_size: 0,
             cur_nemesis_id: INVALID_ID,
             nemesis_timestamp: 0,
-            max_capacity: 0, // C++ GlobalData::m_maxTunnelCapacity default is 0 (admits nobody)
         }
     }
 
-    /// Set maximum capacity for this tunnel network
-    pub fn set_max_capacity(&mut self, max: i32) {
-        self.max_capacity = max;
-    }
-
-    /// Check if an object can be contained in the tunnel network.
-    /// Matches C++ TunnelTracker::isValidContainerFor (TunnelTracker.cpp:132-150)
-    pub fn is_valid_container_for(
-        &self,
-        object: &Object,
-        check_capacity: bool,
-    ) -> GameResult<bool> {
-        if object.is_kind_of(KindOf::Aircraft) {
-            return Ok(false);
-        }
-        let capacity = if check_capacity { self.get_contain_max()? } else { 0 };
-        self.is_valid_container_for_with_capacity(object, check_capacity, capacity)
-    }
-
-    /// Same C++ predicate with the driving world's GameData capacity.
+    /// C++ TunnelTracker::isValidContainerFor (TunnelTracker.cpp:132-150).
+    /// `capacity` is getContainMax (TunnelTracker.cpp:81-84,
+    /// TheGlobalData->m_maxTunnelCapacity) of the driving world's GameData;
+    /// the owning container supplies it, the tracker holds no capacity.
     pub fn is_valid_container_for_with_capacity(
         &self,
         object: &Object,
@@ -462,17 +443,6 @@ impl TunnelTracker {
         Ok(self.contained_ids.len() as u32)
     }
 
-    /// Maximum capacity allowed for this tracker.
-    /// Matches C++ TunnelTracker::getContainMax (TunnelTracker.cpp:81-84)
-    pub fn get_contain_max(&self) -> GameResult<i32> {
-        // C++ line 83: return TheGlobalData->m_maxTunnelCapacity
-        if let Some(global_data) = crate::helpers::TheGlobalData::get() {
-            return Ok(global_data.get_max_tunnel_capacity());
-        }
-        // C++ default when GameData has not applied MaxTunnelCapacity is 0, not unlimited.
-        Ok(self.max_capacity.max(0))
-    }
-
     /// Retrieve a reference to the contained objects list.
     /// Resolve contained members for the duration of the caller (owned Arc vec, not stored).
     pub fn get_contained_item_ids(&self) -> &[ObjectID] {
@@ -713,32 +683,8 @@ mod tests {
     }
 
     #[test]
-    fn test_tunnel_capacity() {
-        let mut tracker = TunnelTracker::new();
-        tracker.set_max_capacity(10);
-        let expected_capacity = crate::helpers::TheGlobalData::get()
-            .map(|global| global.get_max_tunnel_capacity())
-            .unwrap_or(10);
-        assert_eq!(tracker.get_contain_max().unwrap(), expected_capacity);
-    }
-
-    #[test]
-    fn zero_max_tunnel_capacity_admits_nobody_like_cpp() {
-        let tracker = TunnelTracker::new();
-        let contain_max = tracker.get_contain_max().unwrap();
-        let contain_count = tracker.get_contain_count().unwrap() as i32;
-        // C++ `containCount < containMax`; default GameData 0 means 0 < 0 is false.
-        assert_eq!(contain_max, 0);
-        assert!(
-            !(contain_count < contain_max),
-            "MaxTunnelCapacity 0 must reject every enter, not treat the network as unlimited"
-        );
-    }
-
-    #[test]
     fn forced_insert_keeps_duplicates_and_ignores_capacity() {
         let mut tracker = TunnelTracker::new();
-        tracker.set_max_capacity(1);
         tracker.add_to_contain_list(7).unwrap();
         tracker.add_to_contain_list(8).unwrap();
         tracker.add_to_contain_list(7).unwrap();
