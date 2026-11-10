@@ -1434,7 +1434,7 @@ mod hq_m6gcj_tests {
             ObjectId(7),
             Team::USA,
         );
-        jet.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut jet, Weapon {
             ammo: Some(0),
             clip_size: 4,
             ..Weapon::default()
@@ -1484,7 +1484,7 @@ mod hq_m6gcj_tests {
             logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        idle.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut idle, Weapon {
             range: 200.0,
             damage: 10.0,
             ..Weapon::default()
@@ -1553,7 +1553,7 @@ mod hq_m6gcj_tests {
         let dest = Vec3::new(200.0, 0.0, 0.0);
         let mut logic = GameLogic::new();
         let mut tank = Object::new(ThingTemplate::new("Crusader"), ObjectId(1), Team::USA);
-        tank.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut tank, Weapon {
             range: 150.0,
             damage: 10.0,
             ..Weapon::default()
@@ -1628,7 +1628,7 @@ mod hq_m6gcj_tests {
         unit.ai_attitude = 0;
         unit.vision_range = 200.0;
         unit.next_mood_check_time = 0;
-        unit.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut unit, Weapon {
             range: 50.0,
             damage: 10.0,
             can_target_ground: true,
@@ -1828,7 +1828,7 @@ mod hq_m6gcj_tests {
         hunter.owner_player_id = Some(1);
         hunter.team_instance_name = "teamUSA".into();
         hunter.attack_priority_set = Some("HuntPrio".into());
-        hunter.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut hunter, Weapon {
             range: 150.0,
             damage: 10.0,
             ..Weapon::default()
@@ -1896,7 +1896,7 @@ mod hq_m6gcj_tests {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         hunter.set_position(Vec3::ZERO);
-        hunter.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut hunter, Weapon {
             range: 50.0,
             damage: 10.0,
             can_target_ground: true,
@@ -1944,7 +1944,7 @@ mod hq_m6gcj_tests {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         due.set_position(Vec3::ZERO);
-        due.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut due, Weapon {
             range: 50.0,
             damage: 10.0,
             can_target_ground: true,
@@ -1958,7 +1958,7 @@ mod hq_m6gcj_tests {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         waiting.set_position(Vec3::new(5.0, 0.0, 0.0));
-        waiting.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut waiting, Weapon {
             range: 50.0,
             damage: 10.0,
             can_target_ground: true,

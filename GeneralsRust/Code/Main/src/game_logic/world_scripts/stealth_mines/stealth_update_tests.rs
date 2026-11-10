@@ -124,7 +124,7 @@ fn firing_primary_reveals_and_rearms_the_delay_but_secondary_does_not() {
     let mut sounds = Vec::new();
     {
         let obj = world.host_object_mut(id).unwrap();
-        obj.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(obj, crate::game_logic::Weapon {
             last_fire_time: -10.0,
             ..Default::default()
         });

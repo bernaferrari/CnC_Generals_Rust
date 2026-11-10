@@ -2563,7 +2563,7 @@ mod tests {
         let mut obj = crate::game_logic::object::Object::new(tmpl, id, team);
         obj.set_position(pos);
         obj.vision_range = 200.0;
-        obj.weapon = Some(w25_guard_weapon());
+        crate::fixture_content::arm_with_stats(&mut obj, w25_guard_weapon());
         logic.objects.insert(id, obj);
     }
 
@@ -3168,7 +3168,7 @@ mod tests {
             obj.owner_player_id = Some(1);
             obj.name = "NamedScud".into();
             if obj.weapon.is_none() {
-                obj.weapon = Some(Weapon::default());
+                crate::fixture_content::arm_with_stats(obj, Weapon::default());
             }
         }
 

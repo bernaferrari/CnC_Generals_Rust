@@ -86,7 +86,7 @@ fn pending_assist_locks_authored_slot_and_attacks_with_clip() {
         .unwrap();
     {
         let o = w.objects.get_mut(&id).unwrap();
-        o.weapon = Some(Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
+        crate::fixture_content::arm_with_stats(o, Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
         o.secondary_weapon = Some(Weapon { damage: 30.0, range: 200.0, ..Weapon::default() });
     }
     let assist = w.host_object(id).unwrap().assisted_targeting.expect("bound");
@@ -149,7 +149,7 @@ fn pending_assist_issues_attack_even_when_victim_beyond_assist_weapon_range() {
         .unwrap();
     {
         let o = w.objects.get_mut(&id).unwrap();
-        o.weapon = Some(Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
+        crate::fixture_content::arm_with_stats(o, Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
         o.secondary_weapon = Some(Weapon { damage: 25.0, range: 450.0, ..Weapon::default() });
     }
     let assist = w.host_object(id).unwrap().assisted_targeting.expect("bound");

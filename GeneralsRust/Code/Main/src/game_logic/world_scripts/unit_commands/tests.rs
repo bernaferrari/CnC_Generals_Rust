@@ -12,7 +12,7 @@ fn three_slot_logic() -> (GameLogic, ObjectId) {
         .create_object("ThreeSlotTest", Team::USA, glam::Vec3::ZERO)
         .expect("test object");
     let object = logic.host_object_mut(id).expect("test object mut");
-    object.weapon = Some(Weapon {
+    crate::fixture_content::arm_with_stats(object, Weapon {
         damage: 1.0,
         range: 100.0,
         ..Weapon::default()
@@ -105,7 +105,7 @@ fn attack_move_path_fail_does_not_set_destination() {
         .expect("unit");
     {
         let unit = logic.host_object_mut(id).expect("unit");
-        unit.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(unit, Weapon {
             range: 80.0,
             damage: 10.0,
             ..Weapon::default()
@@ -257,7 +257,7 @@ fn hunting_infantry_pair() -> (GameLogic, ObjectId, ObjectId) {
     logic.objects.insert(hunter_id, {
         let mut hunter = Object::new(hunter_template, hunter_id, Team::USA);
         hunter.set_position(glam::Vec3::ZERO);
-        hunter.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut hunter, Weapon {
             range: 100.0,
             damage: 10.0,
             can_target_ground: true,

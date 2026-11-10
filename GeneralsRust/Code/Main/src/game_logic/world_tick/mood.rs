@@ -1716,7 +1716,7 @@ mod common_target_parity {
             o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
             o.status.stealthed = true;
             o.status.detected = true;
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 80.0,
                 damage: 10.0,
                 can_target_ground: true,
@@ -1753,7 +1753,7 @@ mod common_target_parity {
         granted.vision_range = 200.0;
         granted.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
         granted.status.stealthed = true;
-        granted.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut granted, Weapon {
             range: 80.0,
             damage: 10.0,
             can_target_ground: true,
@@ -1794,7 +1794,7 @@ mod common_target_parity {
                 o.vision_range = 200.0;
                 o.next_mood_check_time = 0;
                 o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE | AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS;
-                o.weapon = Some(Weapon {
+                crate::fixture_content::arm_with_stats(&mut o, Weapon {
                     range: 80.0,
                     damage: 10.0,
                     can_target_ground: true,
@@ -1846,7 +1846,7 @@ mod common_target_parity {
         logic.objects.insert(aid, {
             let mut o = Object::new(at, aid, Team::USA);
             o.set_position(glam::Vec3::ZERO);
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 9999.0,
                 can_target_ground: true,
                 damage: 5.0,
@@ -1895,7 +1895,7 @@ mod common_target_parity {
         logic.objects.insert(aid, {
             let mut o = Object::new(at, aid, Team::USA);
             o.set_position(glam::Vec3::ZERO);
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 9999.0,
                 can_target_ground: true,
                 damage: 5.0,
@@ -1980,7 +1980,7 @@ mod common_target_parity {
             let mut o = Object::new(at, aid, Team::USA);
             o.owner_player_id = Some(0);
             o.set_position(glam::Vec3::ZERO);
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 9999.0,
                 can_target_ground: true,
                 damage: 5.0,
@@ -2467,7 +2467,7 @@ mod get_able_weapon_parity {
             o.set_position(Vec3::ZERO);
             o.contained_by = Some(bid);
             o.movement.max_speed = 10.0;
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 40.0,
                 damage: 10.0,
                 can_target_ground: true,
@@ -2506,7 +2506,7 @@ mod get_able_weapon_parity {
             o.set_position(Vec3::ZERO);
             o.contained_by = Some(ObjectId(4099));
             o.movement.max_speed = 10.0;
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 30.0,
                 damage: 10.0,
                 can_target_ground: true,
@@ -2543,7 +2543,7 @@ mod get_able_weapon_parity {
         logic.objects.insert(ObjectId(4020), {
             let mut o = Object::new(at, ObjectId(4020), Team::USA);
             o.set_position(Vec3::ZERO);
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 200.0,
                 damage: 10.0,
                 can_target_ground: true,
@@ -2614,7 +2614,7 @@ mod get_able_weapon_parity {
         logic.objects.insert(ObjectId(4101), {
             let mut o = Object::new(at, ObjectId(4101), Team::USA);
             o.set_position(Vec3::ZERO);
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 100.0,
                 damage: 10.0,
                 ..Default::default()
@@ -2669,7 +2669,7 @@ mod get_able_weapon_parity {
         logic.objects.insert(ObjectId(4111), {
             let mut o = Object::new(at, ObjectId(4111), Team::USA);
             o.set_position(Vec3::ZERO);
-            o.weapon = Some(Weapon {
+            crate::fixture_content::arm_with_stats(&mut o, Weapon {
                 range: 100.0,
                 damage: 10.0,
                 ..Default::default()

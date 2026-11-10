@@ -538,7 +538,7 @@ fn real_attack_move_child_attack_returns_to_idle_without_losing_parent_goal() {
     let goal = Vec3::new(160., 0., 100.);
     let mut attacker = Object::new(ThingTemplate::new("AttackMoveAttacker"), id, Team::USA);
     attacker.set_position(Vec3::ZERO);
-    attacker.weapon = Some(Weapon {
+    crate::fixture_content::arm_with_stats(&mut attacker, Weapon {
         range: 100.,
         damage: 10.,
         can_target_ground: true,

@@ -3517,7 +3517,7 @@ mod owned_out_of_ammo_tests {
             .unwrap();
         let object = world.objects.get_mut(&jet).unwrap();
         object.status.airborne_target = true;
-        object.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(object, Weapon {
             ammo: Some(0),
             clip_size: 2,
             reload_time: 0.0,
