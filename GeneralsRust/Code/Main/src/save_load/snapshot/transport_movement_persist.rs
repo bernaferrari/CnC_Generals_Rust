@@ -217,43 +217,6 @@ mod tests {
                 .is_none()
         );
     }
-    #[test]
-    fn exact_v14_payload_defaults_transport_without_inventing_resume() {
-        let mut world = GameLogic::new();
-        world.templates.insert(
-            "OldTransportCodec".into(),
-            ThingTemplate::new("OldTransportCodec"),
-        );
-        let id = world
-            .create_object("OldTransportCodec", Team::USA, glam::Vec3::ZERO)
-            .unwrap();
-        let current = super::super::capture(&world);
-        let old = super::super::ObjectXferPersistPayloadV14 {
-            objects: current.objects,
-            script_status: current.script_status,
-            structures: current.structures,
-            damage_info: current.damage_info,
-        };
-        world.host_object_mut(id).unwrap().transport_return_state =
-            Some(TransportReturnState::MoveAndDelete {
-                origin: glam::Vec3::ZERO,
-                append_goal: true,
-            });
-        world
-            .host_object_mut(id)
-            .unwrap()
-            .pending_exit_after_evacuate = true;
-        let encoded = bincode_legacy::serialize(&old).unwrap();
-        let mut bytes = super::super::OXOB_MAGIC.to_vec();
-        super::super::append_u32(&mut bytes, 14);
-        super::super::append_u32(&mut bytes, encoded.len() as u32);
-        bytes.extend_from_slice(&encoded);
-        super::super::apply_from_lifecycle_tail(&bytes, &mut world).unwrap();
-        let owner = world.host_object(id).unwrap();
-        assert!(owner.transport_return_state.is_none());
-        assert!(!owner.pending_exit_after_evacuate);
-        assert!(!owner.status.destroyed);
-    }
 }
 
 pub(super) fn validate_base_ai_projection_before_restore(

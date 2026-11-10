@@ -36,10 +36,11 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 24;
+/// The only OXOB layout read or written. Older Rust-only layouts are not C++
+/// save data and are rejected (C++ AIUpdateInterface::xfer alone owns the
+/// guard/hunt scan and quick-exit deadlines; v25 drops their duplicate here).
+const OXOB_VERSION: u32 = 25;
 
-mod legacy_versions;
-use legacy_versions::*;
 #[cfg(test)]
 mod tests;
 
@@ -61,7 +62,7 @@ struct ObjectXferPersistPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ObjectXferPersistPayloadV24 {
+struct ObjectXferPersistWire {
     prior: ObjectXferPersistPayload,
     morale: Vec<(u32, bool, bool)>,
 }
@@ -143,8 +144,6 @@ struct ObjectXferPersist {
     health_box_offset: [f32; 3],
     last_fire_frame: u32,
     is_recruitable: bool,
-    guard_next_enemy_scan: Option<u32>,
-    hunt_next_enemy_scan: Option<u32>,
     ignore_collisions_until_frame: u32,
     do_final_position: bool,
     final_position: [f32; 3],
@@ -193,9 +192,6 @@ struct ObjectXferPersist {
     valid_locomotor_surfaces: u32,
     /// C++ `LocomotorSet::m_downhillOnly`.
     downhill_only: bool,
-    /// C++ doQuickExit temporary-state frame. Absent before OXOB version 11.
-    #[serde(default)]
-    quick_exit_until: Option<u32>,
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
@@ -206,7 +202,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     let morale = game_logic.host_objects().registered()
         .map(|(id, object)| (id.0, object.weapon_bonus_nationalism, object.weapon_bonus_fanaticism))
         .collect();
-    let payload = ObjectXferPersistPayloadV24 { prior, morale };
+    let payload = ObjectXferPersistWire { prior, morale };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -216,39 +212,18 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-fn decode_current_payload(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXferPersistPayload> {
-    if version == 18 {
-        bincode_legacy::deserialize::<ObjectXferPersistPayloadV18>(bytes)
-            .map(Into::into)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else if version == 19 {
-        bincode_legacy::deserialize::<ObjectXferPersistPayloadV19>(bytes)
-            .map(Into::into)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else if version == 20 {
-        bincode_legacy::deserialize::<ObjectXferPersistPayloadV20>(bytes)
-            .map(Into::into)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else if version == 21 {
-        bincode_legacy::deserialize::<ObjectXferPersistPayloadV21>(bytes)
-            .map(Into::into)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else if version == 22 {
-        bincode_legacy::deserialize::<ObjectXferPersistPayloadV22>(bytes)
-            .map(Into::into)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else if version == 23 {
-        bincode_legacy::deserialize(bytes)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else if version == OXOB_VERSION {
-        bincode_legacy::deserialize::<ObjectXferPersistPayloadV24>(bytes)
-            .map(|payload| payload.prior)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-    } else {
-        Err(SaveLoadError::Corrupted(format!(
+fn decode_wire(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXferPersistWire> {
+    if version != OXOB_VERSION {
+        return Err(SaveLoadError::Corrupted(format!(
             "unsupported OXOB projection version {version}"
-        )))
+        )));
     }
+    bincode_legacy::deserialize(bytes)
+        .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
+}
+
+fn decode_current_payload(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXferPersistPayload> {
+    decode_wire(version, bytes).map(|wire| wire.prior)
 }
 
 /// Validate owned object continuations before replacing the receiving session.
@@ -260,41 +235,26 @@ pub(super) fn validate_owned_object_continuations_before_restore(
         return Ok(());
     }
     let Some(mut rest) = find_oxob_suffix(bytes) else {
-        return if snapshot.version < 39 {
-            Ok(())
-        } else {
-            Err(SaveLoadError::Corrupted(
-                "missing passenger-fire continuation".into(),
-            ))
-        };
+        return Err(SaveLoadError::Corrupted(
+            "missing passenger-fire continuation".into(),
+        ));
     };
     let version = take_u32(&mut rest)?;
-    if version < 19 && snapshot.version < 39 {
-        return Ok(());
-    }
-    if version != 19 && version != 20 && version != 21 && version != 22 && version != 23 && version != OXOB_VERSION {
-        return Err(SaveLoadError::Corrupted(
-            "missing current passenger-fire continuation".into(),
-        ));
-    }
     let length = take_u32(&mut rest)? as usize;
     let encoded = rest
         .get(..length)
         .ok_or_else(|| SaveLoadError::Corrupted("truncated passenger-fire continuation".into()))?;
-    if version == OXOB_VERSION {
-        let saved: ObjectXferPersistPayloadV24 = bincode_legacy::deserialize(encoded)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
-        let mut ids = std::collections::HashSet::new();
-        for (id, _, _) in &saved.morale {
-            if !ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
-                return Err(SaveLoadError::Corrupted("invalid morale continuation owner".into()));
-            }
-        }
-        if ids.len() != snapshot.objects.len() {
-            return Err(SaveLoadError::Corrupted("incomplete morale continuation owners".into()));
+    let wire = decode_wire(version, encoded)?;
+    let mut ids = std::collections::HashSet::new();
+    for (id, _, _) in &wire.morale {
+        if !ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
+            return Err(SaveLoadError::Corrupted("invalid morale continuation owner".into()));
         }
     }
-    let payload = decode_current_payload(version, encoded)?;
+    if ids.len() != snapshot.objects.len() {
+        return Err(SaveLoadError::Corrupted("incomplete morale continuation owners".into()));
+    }
+    let payload = wire.prior;
     let mut ids = std::collections::HashSet::new();
     for (id, _) in payload.passenger_fire_permissions {
         if !ids.insert(id) || !snapshot.objects.contains_key(&ObjectId(id)) {
@@ -308,53 +268,47 @@ pub(super) fn validate_owned_object_continuations_before_restore(
             "incomplete passenger-fire continuation".into(),
         ));
     }
-    if version >= 20 {
-        let mut activity_ids = std::collections::HashSet::new();
-        for (id, _, _) in &payload.weapon_activity {
-            if !activity_ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid weapon-activity continuation owner".into(),
-                ));
-            }
-        }
-        if activity_ids.len() != snapshot.objects.len() {
+    let mut activity_ids = std::collections::HashSet::new();
+    for (id, _, _) in &payload.weapon_activity {
+        if !activity_ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
             return Err(SaveLoadError::Corrupted(
-                "incomplete weapon-activity continuation".into(),
+                "invalid weapon-activity continuation owner".into(),
             ));
         }
     }
-    if version >= 21 {
-        let mut target_ids = std::collections::HashSet::new();
-        for (id, _, position) in &payload.target_positions {
-            if !target_ids.insert(*id)
-                || !snapshot.objects.contains_key(&ObjectId(*id))
-                || position.iter().any(|value| !value.is_finite())
-            {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid target-position continuation".into(),
-                ));
-            }
-        }
-        if target_ids.len() != snapshot.objects.len() {
+    if activity_ids.len() != snapshot.objects.len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete weapon-activity continuation".into(),
+        ));
+    }
+    let mut target_ids = std::collections::HashSet::new();
+    for (id, _, position) in &payload.target_positions {
+        if !target_ids.insert(*id)
+            || !snapshot.objects.contains_key(&ObjectId(*id))
+            || position.iter().any(|value| !value.is_finite())
+        {
             return Err(SaveLoadError::Corrupted(
-                "incomplete target-position continuation".into(),
+                "invalid target-position continuation".into(),
             ));
         }
     }
-    if version >= 22 {
-        let mut owners = std::collections::HashSet::new();
-        for (id, _, _) in &payload.body_fx_throttles {
-            if !owners.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid body FX throttle owner".into(),
-                ));
-            }
-        }
-        if owners.len() != snapshot.objects.len() {
+    if target_ids.len() != snapshot.objects.len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete target-position continuation".into(),
+        ));
+    }
+    let mut owners = std::collections::HashSet::new();
+    for (id, _, _) in &payload.body_fx_throttles {
+        if !owners.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
             return Err(SaveLoadError::Corrupted(
-                "incomplete body FX throttle owners".into(),
+                "invalid body FX throttle owner".into(),
             ));
         }
+    }
+    if owners.len() != snapshot.objects.len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete body FX throttle owners".into(),
+        ));
     }
     let mut cleared = std::collections::HashSet::new();
     for id in &payload.cleared_last_attackers {
@@ -375,25 +329,11 @@ pub(super) fn saved_kill_experience_receipts(
         return Ok(Default::default());
     };
     let version = take_u32(&mut rest)?;
-    if version < 17 {
-        return Ok(Default::default());
-    }
-    if version > OXOB_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown OXOB suffix version {version}"
-        )));
-    }
     let length = take_u32(&mut rest)? as usize;
     let bytes = rest
         .get(..length)
         .ok_or_else(|| SaveLoadError::Corrupted("OXOB payload truncated".into()))?;
-    let body_history = if version == 17 {
-        bincode_legacy::deserialize::<ObjectXferPersistPayloadV17>(bytes)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?
-            .body_history
-    } else {
-        decode_current_payload(version, bytes)?.body_history
-    };
+    let body_history = decode_current_payload(version, bytes)?.body_history;
     Ok(body_history
         .into_iter()
         .filter(|record| record.kill_experience_awarded)
@@ -408,35 +348,6 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 1
-        && version != 2
-        && version != 3
-        && version != 4
-        && version != 5
-        && version != 6
-        && version != 7
-        && version != 8
-        && version != 9
-        && version != 10
-        && version != 11
-        && version != 12
-        && version != 13
-        && version != 14
-        && version != 15
-        && version != 16
-        && version != 17
-        && version != 18
-        && version != 19
-        && version != 20
-        && version != 21
-        && version != 22
-        && version != 23
-        && version != OXOB_VERSION
-    {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown OXOB suffix version {version}"
-        )));
-    }
     let payload_len = take_u32(&mut rest)? as usize;
     if rest.len() < payload_len {
         return Err(SaveLoadError::Corrupted(
@@ -444,354 +355,16 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         ));
     }
     let encoded = &rest[..payload_len];
-    let morale = if version == OXOB_VERSION {
-        let saved: ObjectXferPersistPayloadV24 = bincode_legacy::deserialize(encoded)
-            .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
-        let mut ids = std::collections::HashSet::new();
-        for (id, _, _) in &saved.morale {
-            if !ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
-                return Err(SaveLoadError::Corrupted("invalid saved morale owner".into()));
-            }
+    let ObjectXferPersistWire { prior: payload, morale } = decode_wire(version, encoded)?;
+    let mut morale_ids = std::collections::HashSet::new();
+    for (id, _, _) in &morale {
+        if !morale_ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
+            return Err(SaveLoadError::Corrupted("invalid saved morale owner".into()));
         }
-        if ids.len() != game_logic.host_objects().registered_len() {
-            return Err(SaveLoadError::Corrupted("incomplete saved morale owners".into()));
-        }
-        saved.morale
-    } else {
-        Vec::new()
-    };
-    let payload = if version == 1 {
-        let old: ObjectXferPersistPayloadV1 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 2 {
-        let old: ObjectXferPersistPayloadV2 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 3 {
-        let old: ObjectXferPersistPayloadV3 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 4 {
-        let old: ObjectXferPersistPayloadV4 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 5 {
-        let old: ObjectXferPersistPayloadV5 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 6 {
-        let old: ObjectXferPersistPayloadV6 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 7 {
-        let old: ObjectXferPersistPayloadV7 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 8 {
-        let old: ObjectXferPersistPayloadV8 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 9 {
-        let old: ObjectXferPersistPayloadV9 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 10 {
-        let old: ObjectXferPersistPayloadV10 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old
-                .objects
-                .into_iter()
-                .map(ObjectXferPersist::from)
-                .collect(),
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 11 {
-        let old: ObjectXferPersistPayloadV11 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old.objects,
-            script_status: Vec::new(),
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 12 {
-        let old: ObjectXferPersistPayloadV12 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old.objects,
-            script_status: old.script_status,
-            structures: Vec::new(),
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 13 {
-        let old: ObjectXferPersistPayloadV13 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old.objects,
-            script_status: old.script_status,
-            structures: old.structures,
-            damage_info: Vec::new(),
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 14 {
-        let old: ObjectXferPersistPayloadV14 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old.objects,
-            script_status: old.script_status,
-            structures: old.structures,
-            damage_info: old.damage_info,
-            transport: Vec::new(),
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 15 {
-        let old: ObjectXferPersistPayloadV15 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old.objects,
-            script_status: old.script_status,
-            structures: old.structures,
-            damage_info: old.damage_info,
-            transport: old.transport,
-            body_history: Vec::new(),
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 16 {
-        let old: ObjectXferPersistPayloadV16 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old.objects,
-            script_status: old.script_status,
-            structures: old.structures,
-            damage_info: old.damage_info,
-            transport: old.transport,
-            body_history: body_damage_history_persist::migrate_v16(game_logic, old.body_history)?,
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else if version == 17 {
-        let old: ObjectXferPersistPayloadV17 = bincode_legacy::deserialize(encoded)
-            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
-        ObjectXferPersistPayload {
-            objects: old.objects,
-            script_status: old.script_status,
-            structures: old.structures,
-            damage_info: old.damage_info,
-            transport: old.transport,
-            body_history: old.body_history,
-            open_contain_rallies: Vec::new(),
-            passenger_fire_permissions: Vec::new(),
-            weapon_activity: Vec::new(),
-            target_positions: Vec::new(),
-            body_fx_throttles: Vec::new(),
-            cleared_last_attackers: Vec::new(),
-        }
-    } else {
-        decode_current_payload(version, encoded)?
-    };
+    }
+    if morale_ids.len() != game_logic.host_objects().registered_len() {
+        return Err(SaveLoadError::Corrupted("incomplete saved morale owners".into()));
+    }
     body_damage_history_persist::validate(game_logic, &payload.body_history)?;
     let mut cleared = std::collections::HashSet::new();
     for id in &payload.cleared_last_attackers {
@@ -802,76 +375,68 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         }
     }
     validate_open_contain_rallies(game_logic, &payload.open_contain_rallies)?;
-    if version >= 19 {
-        let mut ids = std::collections::HashSet::new();
-        for (id, _) in &payload.passenger_fire_permissions {
-            if !ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid saved passenger-fire permission owner".into(),
-                ));
-            }
-        }
-        if ids.len() != game_logic.host_objects().registered_len() {
+    let mut ids = std::collections::HashSet::new();
+    for (id, _) in &payload.passenger_fire_permissions {
+        if !ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
             return Err(SaveLoadError::Corrupted(
-                "incomplete saved passenger-fire permission owners".into(),
+                "invalid saved passenger-fire permission owner".into(),
             ));
         }
     }
-    if version >= 20 {
-        let mut ids = std::collections::HashSet::new();
-        for (id, _, _) in &payload.weapon_activity {
-            if !ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid saved weapon-activity owner".into(),
-                ));
-            }
-        }
-        if ids.len() != game_logic.host_objects().registered_len() {
+    if ids.len() != game_logic.host_objects().registered_len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete saved passenger-fire permission owners".into(),
+        ));
+    }
+    let mut ids = std::collections::HashSet::new();
+    for (id, _, _) in &payload.weapon_activity {
+        if !ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
             return Err(SaveLoadError::Corrupted(
-                "incomplete saved weapon-activity owners".into(),
+                "invalid saved weapon-activity owner".into(),
             ));
         }
     }
-    if version >= 21 {
-        let mut ids = std::collections::HashSet::new();
-        for (id, _, position) in &payload.target_positions {
-            if !ids.insert(*id)
-                || game_logic.host_object(ObjectId(*id)).is_none()
-                || position.iter().any(|value| !value.is_finite())
-            {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid saved target-position owner or coordinates".into(),
-                ));
-            }
-        }
-        if ids.len() != game_logic.host_objects().registered_len() {
+    if ids.len() != game_logic.host_objects().registered_len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete saved weapon-activity owners".into(),
+        ));
+    }
+    let mut ids = std::collections::HashSet::new();
+    for (id, _, position) in &payload.target_positions {
+        if !ids.insert(*id)
+            || game_logic.host_object(ObjectId(*id)).is_none()
+            || position.iter().any(|value| !value.is_finite())
+        {
             return Err(SaveLoadError::Corrupted(
-                "incomplete saved target-position owners".into(),
+                "invalid saved target-position owner or coordinates".into(),
             ));
         }
     }
-    if version >= 22 {
-        let mut owners = std::collections::HashSet::new();
-        for (id, _, _) in &payload.body_fx_throttles {
-            if !owners.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
-                return Err(SaveLoadError::Corrupted(
-                    "invalid saved body FX throttle owner".into(),
-                ));
-            }
-        }
-        if owners.len() != game_logic.host_objects().registered_len() {
+    if ids.len() != game_logic.host_objects().registered_len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete saved target-position owners".into(),
+        ));
+    }
+    let mut owners = std::collections::HashSet::new();
+    for (id, _, _) in &payload.body_fx_throttles {
+        if !owners.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
             return Err(SaveLoadError::Corrupted(
-                "incomplete saved body FX throttle owners".into(),
+                "invalid saved body FX throttle owner".into(),
             ));
         }
     }
-    if version >= 16 && payload.body_history.len() != game_logic.host_objects().registered_len() {
+    if owners.len() != game_logic.host_objects().registered_len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete saved body FX throttle owners".into(),
+        ));
+    }
+    if payload.body_history.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved body history owners".into(),
         ));
     }
     transport_movement_persist::validate(game_logic, &payload.transport)?;
-    if version >= 15 && payload.transport.len() != game_logic.host_objects().registered_len() {
+    if payload.transport.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved transport movement owners".into(),
         ));
@@ -887,7 +452,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             ));
         }
     }
-    if version >= 14 && damage_ids.len() != game_logic.host_objects().registered_len() {
+    if damage_ids.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved body damage-info owners".into(),
         ));
@@ -966,9 +531,6 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             health_box_offset: object.health_box_offset,
             last_fire_frame: object.last_fire_frame,
             is_recruitable: object.is_recruitable,
-            guard_next_enemy_scan: object.unit_ai_runtime.guard_scan_deadline(),
-            quick_exit_until: object.unit_ai_runtime.quick_exit_deadline(),
-            hunt_next_enemy_scan: object.unit_ai_runtime.hunt_scan_deadline(),
             ignore_collisions_until_frame: object.ignore_collisions_until_frame,
             do_final_position: object.do_final_position,
             final_position: object.final_position.to_array(),
@@ -1544,35 +1106,11 @@ pub(super) fn validate_base_ai_projection_after_restore(
         return Ok(());
     };
     let version = take_u32(&mut rest)?;
-    if version != 18
-        && version != 19
-        && version != 20
-        && version != 21
-        && version != 22
-        && version != OXOB_VERSION
-    {
-        return Err(SaveLoadError::Corrupted(
-            "native14 requires current OO projection layout".into(),
-        ));
-    }
     let length = take_u32(&mut rest)? as usize;
     let encoded = rest
         .get(..length)
         .ok_or_else(|| SaveLoadError::Corrupted("truncated OO projection".into()))?;
     let payload = decode_current_payload(version, encoded)?;
-    for entry in &payload.objects {
-        let runtime = game_logic
-            .unit_ai_runtime(ObjectId(entry.object_id))
-            .ok_or_else(|| SaveLoadError::Corrupted("missing OO projection owner".into()))?;
-        if runtime.guard_scan_deadline() != entry.guard_next_enemy_scan
-            || runtime.hunt_scan_deadline() != entry.hunt_next_enemy_scan
-            || runtime.quick_exit_deadline() != entry.quick_exit_until
-        {
-            return Err(SaveLoadError::Corrupted(
-                "OO deadline projection disagrees with native14 owner".into(),
-            ));
-        }
-    }
     transport_movement_persist::validate_base_ai_projection_after_restore(
         game_logic,
         &payload.transport,
@@ -1587,48 +1125,11 @@ pub(super) fn validate_base_ai_projection_before_restore(
         return Ok(());
     };
     let version = take_u32(&mut rest)?;
-    if version != 18
-        && version != 19
-        && version != 20
-        && version != 21
-        && version != 22
-        && version != OXOB_VERSION
-    {
-        return Err(SaveLoadError::Corrupted(
-            "native14 requires current OO projection layout".into(),
-        ));
-    }
     let length = take_u32(&mut rest)? as usize;
     let encoded = rest
         .get(..length)
         .ok_or_else(|| SaveLoadError::Corrupted("truncated OO projection".into()))?;
     let payload = decode_current_payload(version, encoded)?;
-    for entry in &payload.objects {
-        let saved = snapshot
-            .objects
-            .get(&ObjectId(entry.object_id))
-            .ok_or_else(|| SaveLoadError::Corrupted("missing detached OO owner".into()))?;
-        let control = match saved.modules.get("ReceivingBaseAI") {
-            Some(super::ModuleSnapshot::BaseAi(owner)) => owner.continuation(),
-            _ => {
-                return Err(SaveLoadError::Corrupted(
-                    "missing detached BaseAI capsule".into(),
-                ));
-            }
-        };
-        let expected = control.map_or((None, None, None), |control| control.deadline_projection());
-        if expected
-            != (
-                entry.guard_next_enemy_scan,
-                entry.hunt_next_enemy_scan,
-                entry.quick_exit_until,
-            )
-        {
-            return Err(SaveLoadError::Corrupted(
-                "detached OO deadline projection disagrees with native14 owner".into(),
-            ));
-        }
-    }
     transport_movement_persist::validate_base_ai_projection_before_restore(
         &payload.transport,
         snapshot,
