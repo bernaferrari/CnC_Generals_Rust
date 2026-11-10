@@ -3499,7 +3499,7 @@ mod tests {
     #[test]
     fn test_script_engine_execute_script_block() {
         crate::test_support::ensure_ambient_host();
-        let mut engine = WindowScriptEngine::new_in_published_world();
+        let mut engine = WindowScriptEngine::new();
         let block = ScriptBlock {
             name: "TestScript".to_string(),
             actions: vec![
@@ -3531,7 +3531,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let engine = WindowScriptEngine::new_in_published_world();
+        let engine = WindowScriptEngine::new();
         let parsed = engine.load_window_layout(&path).unwrap();
         assert_eq!(parsed.windows.len(), 1);
         let def = &parsed.windows[0];
@@ -3577,7 +3577,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let engine = WindowScriptEngine::new_in_published_world();
+        let engine = WindowScriptEngine::new();
         let parsed = engine.load_window_layout(&path).unwrap();
         let def = &parsed.windows[0];
         // Explicit packed zero and transparent white are real authored colors.
@@ -3621,7 +3621,7 @@ mod tests {
     #[test]
     fn test_engine_apply_default_color() {
         crate::test_support::ensure_ambient_host();
-        let mut engine = WindowScriptEngine::new_in_published_world();
+        let mut engine = WindowScriptEngine::new();
         engine.apply_default_color("TEXTCOLOR", "255 128 64 255");
         assert_ne!(engine.defaults.text_color, 0);
         // Reconstruct: R=255 G=128 B=64 A=255
@@ -3632,7 +3632,7 @@ mod tests {
     #[test]
     fn test_engine_apply_default_color_transparent() {
         crate::test_support::ensure_ambient_host();
-        let mut engine = WindowScriptEngine::new_in_published_world();
+        let mut engine = WindowScriptEngine::new();
         engine.apply_default_color("TEXTCOLOR", "TRANSPARENT");
         assert_eq!(
             engine.defaults.text_color,
