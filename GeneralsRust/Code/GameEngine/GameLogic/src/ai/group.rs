@@ -14,7 +14,6 @@ use crate::common::coord::*;
 use crate::common::science::SCIENCE_INVALID;
 use crate::common::xfer::{Xfer, XferExt};
 use crate::common::*;
-use crate::control_bar::get_control_bar_bridge;
 use crate::damage::*;
 use crate::formation::{
     FormationCommand, FormationGroup, FormationManager, FormationSettings, FormationType,
@@ -1921,10 +1920,14 @@ impl AIGroup {
         &self,
         command_type: GUICommandType,
     ) -> Option<Arc<RwLock<Object>>> {
-        let control_bar = get_control_bar_bridge()?;
         for &member_id in &self.member_list {
             let has_command_button = OBJECT_REGISTRY
                 .with_object(member_id, |obj_ref| {
+                    // C++ TheControlBar of the GameEngine that owns the member.
+                    let Some(control_bar) = crate::control_bar::control_bar_bridge_for(obj_ref)
+                    else {
+                        return false;
+                    };
                     let command_set_name = obj_ref.get_command_set_string();
                     let Some(command_set) = control_bar.find_command_set_by_name(command_set_name)
                     else {
@@ -2724,6 +2727,59 @@ mod tests {
 
         group.reform_formation();
         // Note: reform won't work without units, this is just testing the API
+    }
+
+    #[test]
+    fn command_button_source_uses_each_members_own_control_bar() {
+        // Two worlds on one thread: C++ AIGroup::getCommandButtonSourceObject
+        // asks the ControlBar of the GameEngine owning the member, not the
+        // published one.
+        use crate::command_button::{CommandButton, CommandSet};
+        use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+        use crate::control_bar::ControlBarBridge;
+        use crate::system::engine_stores::{with_world_services, EngineStores};
+        const BUTTON_ID: u32 = 7;
+        let a = Arc::new(EngineStores::new_for_world());
+        let b = Arc::new(EngineStores::new_for_world());
+        let mut with_button = CommandSet::new("GroupSet".to_string());
+        assert!(with_button.set_command_button(
+            0,
+            Some(CommandButton::new(BUTTON_ID, "Command_Group".to_string(), String::new(), 0)),
+        ));
+        *b.services().control_bar_bridge().write().unwrap() =
+            Some(Arc::new(ControlBarBridge::from_command_sets(vec![with_button])));
+        *a.services().control_bar_bridge().write().unwrap() = Some(Arc::new(
+            ControlBarBridge::from_command_sets(vec![CommandSet::new("GroupSet".to_string())]),
+        ));
+        let template = Arc::new(DefaultThingTemplate::new("GroupMember".to_string()));
+        let in_b = Object::new_with_id(template.clone(), 4101, ObjectStatusMaskType::none(), None)
+            .expect("object");
+        let unadmitted =
+            Object::new_with_id(template, 4102, ObjectStatusMaskType::none(), None).expect("object");
+        for object in [&in_b, &unadmitted] {
+            object
+                .write()
+                .unwrap()
+                .set_command_set_string_override(&game_engine::common::ascii_string::AsciiString::from("GroupSet"));
+        }
+        in_b.write().unwrap().bind_pathfinding_owner(&b).unwrap();
+
+        with_world_services(a.services(), || {
+            OBJECT_REGISTRY.register_object(4101, &in_b);
+            OBJECT_REGISTRY.register_object(4102, &unadmitted);
+            let mut only_unadmitted = AIGroup::new(1);
+            only_unadmitted.member_list.push(4102);
+            only_unadmitted.member_list_size = 1;
+            assert!(only_unadmitted.get_command_button_source_object(BUTTON_ID).is_none());
+
+            let mut group = AIGroup::new(2);
+            group.member_list.extend([4102, 4101]);
+            group.member_list_size = 2;
+            let source = group.get_command_button_source_object(BUTTON_ID).expect("B's member");
+            assert!(Arc::ptr_eq(&source, &in_b));
+            OBJECT_REGISTRY.unregister_object(4101);
+            OBJECT_REGISTRY.unregister_object(4102);
+        });
     }
 
     #[test]

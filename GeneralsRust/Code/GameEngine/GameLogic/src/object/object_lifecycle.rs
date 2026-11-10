@@ -832,7 +832,7 @@ impl Object {
             }
         }
 
-        crate::control_bar::mark_ui_dirty();
+        crate::control_bar::mark_ui_dirty_for(self);
         // Once the pathfinding callback has run, a query Arc may retain this
         // finalized Object but no longer needs to keep the whole world alive.
         self.pathfinding_owner = None;
@@ -1667,7 +1667,7 @@ impl Object {
                     self.id
                 );
                 if let Err(err) =
-                    crate::helpers::TheEva::set_should_play(crate::helpers::EvaEvent::BuildingLost)
+                    crate::helpers::TheEva::set_should_play_for(self, crate::helpers::EvaEvent::BuildingLost)
                 {
                     log::warn!(
                         "Object {} failed to queue building lost EVA event: {:?}",
@@ -1681,7 +1681,7 @@ impl Object {
                     self.id
                 );
                 if let Err(err) =
-                    crate::helpers::TheEva::set_should_play(crate::helpers::EvaEvent::UnitLost)
+                    crate::helpers::TheEva::set_should_play_for(self, crate::helpers::EvaEvent::UnitLost)
                 {
                     log::warn!(
                         "Object {} failed to queue unit lost EVA event: {:?}",

@@ -68,10 +68,6 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
-            return Ok(());
-        };
-
         // C++ walks build list (not all objects) for factory order parity.
         let factory_ids: Vec<ObjectID> = {
             let mut ids = Vec::new();
@@ -88,14 +84,18 @@ impl AIPlayer {
         drop(player_guard);
 
         for object_id in factory_ids {
-            let Some(command_set_name) = OBJECT_REGISTRY
+            // C++ TheControlBar of the GameEngine that owns the factory.
+            let Some((command_set_name, Some(control_bar))) = OBJECT_REGISTRY
                 .with_object(object_id, |obj_guard| {
                     if obj_guard.test_status(ObjectStatusTypes::UnderConstruction)
                         || obj_guard.test_status(ObjectStatusTypes::Sold)
                     {
                         return None;
                     }
-                    Some(obj_guard.get_command_set_string().to_string())
+                    Some((
+                        obj_guard.get_command_set_string().to_string(),
+                        crate::control_bar::control_bar_bridge_for(obj_guard),
+                    ))
                 })
                 .flatten()
             else {

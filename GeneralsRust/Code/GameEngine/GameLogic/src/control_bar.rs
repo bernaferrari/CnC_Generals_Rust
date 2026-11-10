@@ -67,6 +67,16 @@ fn is_exact_unit_build_identity(
 }
 
 impl ControlBarBridge {
+    /// Test bridge holding exactly `command_sets`, keyed by their names.
+    #[cfg(test)]
+    pub(crate) fn from_command_sets(command_sets: Vec<CommandSet>) -> Self {
+        Self {
+            buttons_by_id: HashMap::new(),
+            command_sets: command_sets.into_iter().map(|set| (set.name.clone(), set)).collect(),
+            overrides: None,
+        }
+    }
+
     /// Bind this catalog to its world's GameLogic override table (C++
     /// `CommandSet::getCommandButton` consults that world's TheGameLogic).
     pub(crate) fn bind_overrides(&mut self, overrides: ControlBarOverrides) {

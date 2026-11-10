@@ -32,7 +32,6 @@ use crate::common::{
     LocomotorSetType, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Real,
     Relationship, TeamId, ThingTemplate, UnsignedInt,
 };
-use crate::control_bar::get_control_bar_bridge;
 use crate::helpers::{
     TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory, game_logic_random_value,
 };
