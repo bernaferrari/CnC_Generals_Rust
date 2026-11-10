@@ -32,14 +32,16 @@ fn attach_command_special_power(
 fn arm_attacker_then_attack(attacker: &mut Object, target_id: ObjectId, damage: f32) {
     let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
-    attacker.weapon = Some(Weapon {
-        damage,
-        range: 200.0,
-        reload_time: 0.0,
-        last_fire_time: 0.0,
-        projectile_speed: 0.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        attacker,
+        crate::game_logic::Weapon {
+            damage: damage,
+            range: 200.0,
+            reload_time: 0.0,
+            projectile_speed: 0.0,
+            ..Default::default()
+        },
+    );
     attacker.attack_target(
         target_id,
         0,

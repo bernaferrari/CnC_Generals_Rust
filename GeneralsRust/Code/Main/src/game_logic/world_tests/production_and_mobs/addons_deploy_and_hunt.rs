@@ -1060,13 +1060,16 @@ fn battle_bus_residual_enter_sets_docked_and_upgrades_weapon_set() {
     // Armed rider residual (rifle) so ArmedRidersUpgradeMyWeaponSet applies.
     {
         let unit = game_logic.host_object_mut(infantry_id).unwrap();
-        unit.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 100.0,
-            reload_time: 0.5,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 100.0,
+                reload_time: 0.5,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     game_logic.queue_command(GameCommand {
@@ -1128,13 +1131,16 @@ fn battle_bus_residual_load_two_unload_both_free() {
         {
             let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
-            unit.weapon = Some(Weapon {
-                damage: 20.0,
-                range: 80.0,
-                reload_time: 0.5,
-                last_fire_time: -10.0,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_with_stats(
+                unit,
+                crate::game_logic::Weapon {
+                    damage: 20.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    ..Default::default()
+                },
+            );
+            unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
             unit.target = Some(bus_id);
             unit.set_ai_state(
                 AIState::Entering,
@@ -1246,13 +1252,16 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
         let (unit, fixture_partition_unit) = game_logic
             .host_object_and_partition_mut(infantry_id)
             .unwrap();
-        unit.weapon = Some(Weapon {
-            damage: 40.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
         unit.target = Some(bus_id);
         unit.set_contained_by_with_partition_owner(Some(bus_id), true, fixture_partition_unit);
         unit.set_ai_state(
@@ -2127,29 +2136,24 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
         .expect("auto target");
     {
         let sentry = logic.host_object_mut(sentry_id).unwrap();
-        sentry.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            min_range: 0.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            last_fire_frame: 0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: false,
-            can_target_ground: true,
-            projectile_speed: 0.0,
-            pre_attack_delay: 0.0,
-            splash_radius: 0.0,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-            next_fire_frame: 0,
-            reload_started_frame: 0,
-            frame_clock_active: false,
-            frame_clock_status: Default::default(),
-        });
+        crate::fixture_content::arm_with_stats(
+            sentry,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                min_range: 0.0,
+                reload_time: 0.0,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+                ..Default::default()
+            },
+        );
+        sentry.weapon.as_mut().unwrap().last_fire_time = -100.0;
     }
 
     logic.set_current_frame(1);
@@ -2352,17 +2356,20 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
 
     {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 4,
-            can_target_air: true,
-            can_target_ground: true,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            jet,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                clip_size: 4,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
+        jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        jet.weapon.as_mut().unwrap().ammo = Some(0);
         jet.status.airborne_target = true;
     }
     assert!(
@@ -2455,19 +2462,22 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
         .unwrap();
     {
         let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
-        jet.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: RAPTOR_CLIP_SIZE,
-            // Retail ClipReload 8000ms → 240 frames @ 30 FPS.
+        crate::fixture_content::arm_with_stats(
+            jet,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                clip_size: RAPTOR_CLIP_SIZE,
+                // Retail ClipReload 8000ms → 240 frames @ 30 FPS.
             clip_reload_time: (RAPTOR_CLIP_RELOAD_FRAMES as f32) / 30.0,
-            can_target_air: true,
-            can_target_ground: true,
-            ..Weapon::default()
-        });
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
+        jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        jet.weapon.as_mut().unwrap().ammo = Some(0);
         jet.status.airborne_target = false;
         jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
         jet.set_position_with_partition_owner(
@@ -2572,17 +2582,20 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
         jet.producer_id = Some(af_id);
         jet.status.airborne_target = true;
-        jet.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 4,
-            can_target_air: true,
-            can_target_ground: true,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            jet,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                clip_size: 4,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
+        jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        jet.weapon.as_mut().unwrap().ammo = Some(0);
     }
 
     logic

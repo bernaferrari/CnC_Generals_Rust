@@ -91,13 +91,16 @@ fn listening_outpost_residual_transport_load_unload() {
         {
             let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
-            unit.weapon = Some(Weapon {
-                damage: 20.0,
-                range: 80.0,
-                reload_time: 0.5,
-                last_fire_time: -10.0,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_with_stats(
+                unit,
+                crate::game_logic::Weapon {
+                    damage: 20.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    ..Default::default()
+                },
+            );
+            unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
             unit.target = Some(outpost_id);
             unit.set_ai_state(
                 AIState::Entering,
@@ -1410,11 +1413,14 @@ fn stealth_residual_not_auto_targeted_until_detected() {
         .expect("attacker");
     {
         let a = game_logic.host_object_mut(attacker_id).unwrap();
-        a.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 150.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            a,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Default::default()
+            },
+        );
     }
 
     let stealth_id = game_logic
@@ -1517,13 +1523,17 @@ fn stealth_residual_fire_breaks_stealth() {
         let _ = game_logic.host_object_mut(shooter_id).unwrap();
         let s = game_logic.objects.get_mut(&shooter_id).unwrap();
         s.apply_grant_stealth(game_logic.frame);
-        s.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 100.0,
-            reload_time: 0.5,
-            last_fire_time: -1.0, // ready immediately
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            s,
+            crate::game_logic::Weapon {
+                damage: 5.0,
+                range: 100.0,
+                reload_time: 0.5,
+                // ready immediately
+                ..Default::default()
+            },
+        );
+        s.weapon.as_mut().unwrap().last_fire_time = -1.0;
         assert!(s.fire_at(
             target_id,
             0.0,
@@ -1692,29 +1702,24 @@ fn residual_auto_fire_commits_canonical_target_before_observation() {
     // Arm attacker with a residual weapon for apply_damage path.
     {
         let o = logic.host_object_mut(attacker).unwrap();
-        o.weapon = Some(crate::game_logic::Weapon {
-            damage: 10.0,
-            range: 200.0,
-            min_range: 0.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            last_fire_frame: 0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: false,
-            can_target_ground: true,
-            projectile_speed: 0.0,
-            pre_attack_delay: 0.0,
-            splash_radius: 0.0,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-            next_fire_frame: 0,
-            reload_started_frame: 0,
-            frame_clock_active: false,
-            frame_clock_status: Default::default(),
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 200.0,
+                min_range: 0.0,
+                reload_time: 0.1,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     assert!(logic.host_object(attacker).unwrap().target.is_none());
     let weapon = logic.host_object(attacker).and_then(|o| o.weapon.clone());
@@ -2056,13 +2061,16 @@ fn camo_netting_structure_attack_and_damage_reveal() {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
         e.target = None;
         e.vision_range = 300.0;
-        e.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            e,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 200.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        e.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     game_logic.mark_stealth_detected(tunnel_id, 0);
     assert!(!game_logic.host_object(tunnel_id).unwrap().status.detected);

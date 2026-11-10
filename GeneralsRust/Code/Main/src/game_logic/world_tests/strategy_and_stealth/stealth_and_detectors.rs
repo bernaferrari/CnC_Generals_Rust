@@ -2457,13 +2457,16 @@ fn detected_hero_wakes_idle_enemies() {
         );
         t.target = None;
         t.vision_range = 150.0;
-        t.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            t,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 200.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        t.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     logic.frame = 1;

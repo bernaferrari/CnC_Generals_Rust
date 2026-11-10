@@ -1032,13 +1032,16 @@ fn strategy_center_battle_plan_door_animation_residual() {
         .expect("ally");
     {
         let u = game_logic.host_object_mut(ally_id).expect("ally");
-        u.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            u,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        u.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     assert!(!game_logic.honesty_battle_plan_door_ok());
@@ -1202,13 +1205,16 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
         .expect("ally");
     {
         let u = game_logic.host_object_mut(ally_id).expect("ally");
-        u.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            u,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        u.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     assert!(!game_logic.honesty_battle_plan_delayed_active_ok());
@@ -1668,13 +1674,16 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
     }
     for id in [ally_vehicle_id, enemy_id] {
         let unit = game_logic.host_object_mut(id).expect("unit");
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 150.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 150.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     assert!(!game_logic.honesty_gps_scrambler_ok());
@@ -1982,13 +1991,16 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
 
     for id in [enemy_vehicle_id, far_vehicle_id, ally_vehicle_id] {
         let unit = game_logic.host_object_mut(id).expect("unit");
-        unit.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 150.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     let vehicle_hp = game_logic

@@ -26,13 +26,16 @@ fn combat_chinook_residual_load_two_unload_both_free() {
         {
             let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
-            unit.weapon = Some(Weapon {
-                damage: 20.0,
-                range: 80.0,
-                reload_time: 0.5,
-                last_fire_time: -10.0,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_with_stats(
+                unit,
+                crate::game_logic::Weapon {
+                    damage: 20.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    ..Default::default()
+                },
+            );
+            unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
             unit.target = Some(chinook_id);
             unit.set_ai_state(
                 AIState::Entering,
@@ -160,13 +163,16 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
         let (unit, fixture_partition_unit) = game_logic
             .host_object_and_partition_mut(infantry_id)
             .unwrap();
-        unit.weapon = Some(Weapon {
-            damage: 40.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
         unit.target = Some(chinook_id);
         unit.set_contained_by_with_partition_owner(Some(chinook_id), true, fixture_partition_unit);
         unit.set_ai_state(
@@ -342,11 +348,14 @@ fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
         let ai_entry_frame = game_logic.frame;
         let (unit, fixture_partition_unit) =
             game_logic.host_object_and_partition_mut(tank_id).unwrap();
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 80.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 80.0,
+                ..Default::default()
+            },
+        );
         unit.set_contained_by_with_partition_owner(Some(chinook_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Docked,

@@ -47,17 +47,20 @@ fn airfield_parking_rearm_docks_and_heals() {
 
     {
         let (jet, fixture_partition_jet) = logic.host_object_and_partition_mut(jet_id).unwrap();
-        jet.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 4,
-            can_target_air: true,
-            can_target_ground: true,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            jet,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                clip_size: 4,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
+        jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        jet.weapon.as_mut().unwrap().ammo = Some(0);
         jet.health.current = 40.0;
         jet.status.airborne_target = false;
         jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
@@ -161,15 +164,18 @@ fn airfield_parking_capacity_blocks_fifth_jet() {
             )
             .unwrap();
         if let Some(jet) = logic.objects.get_mut(&id) {
-            jet.weapon = Some(Weapon {
-                damage: 10.0,
-                range: 100.0,
-                reload_time: 0.0,
-                last_fire_time: -100.0,
-                ammo: Some(0),
-                clip_size: 2,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_with_stats(
+                jet,
+                crate::game_logic::Weapon {
+                    damage: 10.0,
+                    range: 100.0,
+                    reload_time: 0.0,
+                    clip_size: 2,
+                    ..Default::default()
+                },
+            );
+            jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+            jet.weapon.as_mut().unwrap().ammo = Some(0);
         }
         jet_ids.push(id);
     }
@@ -221,15 +227,18 @@ fn airfield_takeoff_keeps_parking_stall_for_airborne_jet() {
         .create_object("KeepStallRaptor", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
     if let Some(jet) = logic.objects.get_mut(&jet_id) {
-        jet.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 2,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            jet,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                clip_size: 2,
+                ..Default::default()
+            },
+        );
+        jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        jet.weapon.as_mut().unwrap().ammo = Some(0);
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     assert!(logic.try_runway_takeoff_from_airfield(jet_id));

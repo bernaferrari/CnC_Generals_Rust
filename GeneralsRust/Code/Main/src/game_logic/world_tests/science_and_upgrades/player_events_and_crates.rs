@@ -1961,11 +1961,14 @@ fn car_bomb_convert_endows_vision_and_veterancy() {
 
         o.shroud_clearing_range = 100.0;
 
-        o.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 20.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 5.0,
+                range: 20.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let donor = logic.objects.get(&tid).cloned();
@@ -2534,11 +2537,14 @@ fn salvage_crate_only_salvager_picks_up() {
     logic.objects.insert(sid, {
         let mut o = Object::new(st, sid, Team::GLA);
         o.set_position(glam::Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
 
@@ -2632,10 +2638,13 @@ fn execute_salvage_weapon_then_money() {
     let id = ObjectId(4810);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::GLA);
-        o.weapon = Some(Weapon {
-            damage: 20.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let (kind, money) = logic.execute_salvage_crate_behavior(id, 40, 1);
@@ -3001,10 +3010,13 @@ fn guard_retaliate_returns_to_guard_not_idle() {
     let id = ObjectId(4520);
     let mut o = Object::new(t, id, Team::USA);
     o.set_position(glam::Vec3::new(200.0, 0.0, 0.0));
-    o.weapon = Some(Weapon {
-        range: 40.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut o,
+        crate::game_logic::Weapon {
+            range: 40.0,
+            ..Default::default()
+        },
+    );
     o.set_guard_position_data(Some(glam::Vec3::ZERO));
     o.set_ai_state(
         AIState::GuardingArea,
@@ -3065,10 +3077,13 @@ fn guarding_interrupts_to_last_attacker() {
     g.set_guard_position_data(Some(glam::Vec3::ZERO));
     g.guard_radius = 80.0;
     g.vision_range = 100.0;
-    g.weapon = Some(Weapon {
-        range: 150.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut g,
+        crate::game_logic::Weapon {
+            range: 150.0,
+            ..Default::default()
+        },
+    );
     g.set_ai_state(
         AIState::GuardingArea,
         0,
@@ -3082,10 +3097,13 @@ fn guarding_interrupts_to_last_attacker() {
     let eid = ObjectId(4702);
     let mut e = Object::new(et, eid, Team::GLA);
     e.set_position(glam::Vec3::new(250.0, 0.0, 0.0));
-    e.weapon = Some(Weapon {
-        range: 300.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut e,
+        crate::game_logic::Weapon {
+            range: 300.0,
+            ..Default::default()
+        },
+    );
     logic.objects.insert(eid, e);
 
     logic.objects.get_mut(&gid).unwrap().last_damage_source = Some(eid);

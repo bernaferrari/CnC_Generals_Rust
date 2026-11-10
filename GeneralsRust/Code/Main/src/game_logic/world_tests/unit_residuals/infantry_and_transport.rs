@@ -584,13 +584,16 @@ fn troop_crawler_residual_transport_load_unload() {
         let frame = game_logic.frame;
         {
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
-            unit.weapon = Some(Weapon {
-                damage: 15.0,
-                range: 80.0,
-                reload_time: 0.5,
-                last_fire_time: -10.0,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_with_stats(
+                unit,
+                crate::game_logic::Weapon {
+                    damage: 15.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    ..Default::default()
+                },
+            );
+            unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
             unit.target = Some(crawler_id);
             unit.set_ai_state(
                 AIState::Entering,

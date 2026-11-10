@@ -172,13 +172,16 @@ fn host_attack_los_gates_fire_through_building() {
                 "static wall must block attack view start={start:?} goal={goal:?}"
             );
             if let Some(o) = logic.objects.get_mut(&atk) {
-                o.weapon = Some(Weapon {
-                    damage: 25.0,
-                    range: 200.0,
-                    reload_time: 0.0,
-                    last_fire_time: -100.0,
-                    ..Weapon::default()
-                });
+                crate::fixture_content::arm_with_stats(
+                    o,
+                    crate::game_logic::Weapon {
+                        damage: 25.0,
+                        range: 200.0,
+                        reload_time: 0.0,
+                        ..Default::default()
+                    },
+                );
+                o.weapon.as_mut().unwrap().last_fire_time = -100.0;
                 o.target = Some(tgt);
                 o.set_ai_state(
                     AIState::Attacking,
@@ -256,13 +259,16 @@ fn host_attack_los_allows_fire_in_open() {
         .create_object("LosTgt2", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
         .expect("tgt");
     if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 200.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
@@ -330,14 +336,7 @@ fn generic_object_fire_uses_weapon_ini_damage_type() {
         .create_object("HqSzqaTank", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
         .expect("tgt");
     if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 100.0,
-            range: 300.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            projectile_speed: 999_999.0,
-            ..Weapon::default()
-        });
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
@@ -431,13 +430,16 @@ fn find_attack_path_picks_los_cell_not_target_footprint() {
         logic.set_pathfinding_static_block(x0, y0, true);
     }
     if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
@@ -544,13 +546,16 @@ fn structure_footprint_blocks_attack_los() {
                 "structure between attacker and target must block attack LOS"
             );
             if let Some(o) = logic.objects.get_mut(&atk) {
-                o.weapon = Some(Weapon {
-                    damage: 25.0,
-                    range: 200.0,
-                    reload_time: 0.0,
-                    last_fire_time: -100.0,
-                    ..Weapon::default()
-                });
+                crate::fixture_content::arm_with_stats(
+                    o,
+                    crate::game_logic::Weapon {
+                        damage: 25.0,
+                        range: 200.0,
+                        reload_time: 0.0,
+                        ..Default::default()
+                    },
+                );
+                o.weapon.as_mut().unwrap().last_fire_time = -100.0;
                 o.target = Some(tgt);
                 o.set_ai_state(
                     AIState::Attacking,

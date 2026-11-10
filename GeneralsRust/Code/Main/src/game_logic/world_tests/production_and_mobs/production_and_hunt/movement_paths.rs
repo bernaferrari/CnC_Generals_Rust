@@ -896,29 +896,24 @@ fn contact_attack_ignores_the_victim() {
         // surfaces; a newly-created test object otherwise has mask zero.
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
-        unit.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 5.0,
-            min_range: 0.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            last_fire_frame: 0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: false,
-            can_target_ground: true,
-            projectile_speed: 0.0,
-            pre_attack_delay: 0.0,
-            splash_radius: 0.0,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-            next_fire_frame: 0,
-            reload_started_frame: 0,
-            frame_clock_active: false,
-            frame_clock_status: Default::default(),
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 5.0,
+                min_range: 0.0,
+                reload_time: 0.1,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     ({
         let ground_owner = logic.world_services.terrain();
@@ -1020,29 +1015,24 @@ fn ranged_attack_does_not_keep_a_stale_ignore() {
         .expect("attacker");
     {
         let unit = logic.host_object_mut(attacker).expect("attacker");
-        unit.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 80.0,
-            min_range: 0.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            last_fire_frame: 0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: false,
-            can_target_ground: true,
-            projectile_speed: 0.0,
-            pre_attack_delay: 0.0,
-            splash_radius: 0.0,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-            next_fire_frame: 0,
-            reload_started_frame: 0,
-            frame_clock_active: false,
-            frame_clock_status: Default::default(),
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 80.0,
+                min_range: 0.0,
+                reload_time: 0.1,
+                clip_size: 0,
+                clip_reload_time: 0.0,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                splash_radius: 0.0,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     let wall_x = {
         let grid = &logic.pathfinding_system.grid;

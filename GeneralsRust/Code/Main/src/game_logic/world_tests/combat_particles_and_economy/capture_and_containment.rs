@@ -2122,13 +2122,16 @@ fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
         let (unit, fixture_partition_unit) = game_logic
             .host_object_and_partition_mut(infantry_id)
             .unwrap();
-        unit.weapon = Some(Weapon {
-            damage: 40.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
         unit.target = Some(bunker_id);
         unit.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_unit);
         unit.set_ai_state(

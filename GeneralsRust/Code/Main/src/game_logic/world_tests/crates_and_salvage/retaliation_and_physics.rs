@@ -302,10 +302,13 @@ fn set_team_attitude_applies_to_all_members() {
         let id = ObjectId(3100 + i);
         let mut o = Object::new(t, id, Team::China);
         o.owner_player_id = Some(1);
-        o.weapon = Some(Weapon {
-            range: 40.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 40.0,
+                ..Default::default()
+            },
+        );
         logic.objects.insert(id, o);
     }
     // USA control
@@ -313,10 +316,13 @@ fn set_team_attitude_applies_to_all_members() {
     t.add_kind_of(KindOf::Infantry);
     logic.objects.insert(ObjectId(3199), {
         let mut o = Object::new(t, ObjectId(3199), Team::USA);
-        o.weapon = Some(Weapon {
-            range: 40.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 40.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let n = logic.set_team_attitude_by_name("China", "SLEEP");
@@ -339,10 +345,13 @@ fn set_team_attitude_by_instance_name_and_script_drain() {
     let id = ObjectId(4100);
     let mut o = Object::new(t, id, Team::USA);
     o.team_instance_name = "AmericaTeamHeroes".into();
-    o.weapon = Some(Weapon {
-        range: 40.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut o,
+        crate::game_logic::Weapon {
+            range: 40.0,
+            ..Default::default()
+        },
+    );
     logic.objects.insert(id, o);
 
     request_host_team_attitude("AmericaTeamHeroes", 2);
@@ -496,10 +505,13 @@ fn set_unit_attitude_affects_mood_matrix() {
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::China);
         o.owner_player_id = Some(1);
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
     assert!(logic.set_unit_attitude(id, GameLogic::parse_attitude_token("SLEEP")));
@@ -566,12 +578,15 @@ fn script_priority_set_applies_to_unit_via_host_api() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 300.0,
-            can_target_ground: true,
-            damage: 5.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 300.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            },
+        );
         o
     });
     // C++ NamedApplyAttackPrioritySet residual via host setter.
@@ -661,12 +676,15 @@ fn find_closest_enemy_uses_attack_priority() {
         let mut o = Object::new(at, aid, Team::China);
         o.set_position(Vec3::ZERO);
         o.attack_priority_set = Some("Hunt".into());
-        o.weapon = Some(Weapon {
-            range: 500.0,
-            can_target_ground: true,
-            damage: 5.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 500.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            },
+        );
         o
     });
     // Low value close
@@ -715,12 +733,15 @@ fn find_closest_enemy_skips_zero_priority() {
         let mut o = Object::new(at, aid, Team::China);
         o.set_position(Vec3::ZERO);
         o.attack_priority_set = Some("Zero".into());
-        o.weapon = Some(Weapon {
-            range: 200.0,
-            can_target_ground: true,
-            damage: 5.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 200.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut zt = ThingTemplate::new("Forbidden");
@@ -759,12 +780,15 @@ fn find_closest_enemy_skips_pure_buildings_by_default() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 200.0,
-            can_target_ground: true,
-            damage: 5.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 200.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            },
+        );
         o
     });
     // Pure building (no weapon) nearby.
@@ -811,12 +835,15 @@ fn find_closest_enemy_within_attack_range_flag() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 40.0,
-            can_target_ground: true,
-            damage: 5.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 40.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut et = ThingTemplate::new("FceE2");
@@ -912,12 +939,15 @@ fn get_next_mood_target_finds_nearby_enemy() {
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         o.ai_attitude = 0; // Normal
         o.vision_range = 200.0;
-        o.weapon = Some(Weapon {
-            range: 80.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 80.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("MoodT2");
@@ -970,11 +1000,14 @@ fn get_next_mood_target_sleep_returns_none() {
         o.auto_acquire_idle_bits =
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         o.vision_range = 200.0;
-        o.weapon = Some(Weapon {
-            range: 80.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 80.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("MoodSE");
@@ -1031,12 +1064,15 @@ fn get_next_mood_target_passive_uses_last_damage_source() {
         // through this gate before the last-damage-source branch.
         o.auto_acquire_idle_bits =
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 5.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 5.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("MoodPE");
@@ -1095,14 +1131,17 @@ fn try_mood_auto_acquire_enters_attack() {
         // AAS_Idle (AIUpdate.cpp:4484-4490; module default 0, AIUpdate.cpp:64).
         o.auto_acquire_idle_bits =
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            last_fire_time: -10.0,
-            reload_time: 1.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("MoodAcE");
@@ -1131,10 +1170,13 @@ fn transfer_attack_retargets_attackers() {
         let mut t = ThingTemplate::new(&name);
         t.add_kind_of(KindOf::Infantry);
         let mut o = Object::new(t, ObjectId(id), team);
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     };
     let from = ObjectId(2401);
@@ -1173,10 +1215,13 @@ fn mood_matrix_sleep_blocks_attack() {
         let mut o = Object::new(t, id, Team::USA);
         o.owner_player_id = Some(1);
         o.ai_attitude = -2; // Sleep
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let adj = logic.get_mood_matrix_action_adjustment(id, MoodMatrixAction::Attack);
@@ -1220,18 +1265,24 @@ fn mood_matrix_aggressive_move_to_attack_move() {
 fn attack_state_enter_fails_when_sleep_mood() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
+    // AIUpdate.cpp:4287-4325: only an AI controlling player carries mood bits.
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "SleepAI", false));
     let mut at = ThingTemplate::new("SleepA");
     at.add_kind_of(KindOf::Infantry);
     let aid = ObjectId(2412);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
+        o.owner_player_id = Some(1);
         o.set_ai_attitude_i8(-2);
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("SleepV");
@@ -1258,11 +1309,14 @@ fn able_to_attack_possible_in_range_enemy() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 10.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AtaV");
@@ -1282,6 +1336,7 @@ fn jarmen_rifle_mode_has_no_vehicle_attack_cursor() {
     use crate::game_logic::{
         AbleToAttackType, CanAttackResult, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon,
     };
+    use crate::fixture_content::FixtureWeapon;
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut jt = ThingTemplate::new("GLAInfantryJarmenKell");
@@ -1294,18 +1349,20 @@ fn jarmen_rifle_mode_has_no_vehicle_attack_cursor() {
     logic.objects.insert(jid, {
         let mut o = Object::new(jt, jid, Team::GLA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 225.0,
-            damage: 180.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
-        o.secondary_weapon = Some(Weapon {
-            range: 225.0,
-            damage: 1.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        // Retail Jarmen Kell: SNIPER rifle PRIMARY, KILL_PILOT SECONDARY.
+        crate::fixture_content::arm(
+            &mut o,
+            &[
+                FixtureWeapon::new("GLAJarmenKellRifle")
+                    .damage(180.0)
+                    .range(225.0)
+                    .damage_type("SNIPER"),
+                FixtureWeapon::new("GLAJarmenKellVehiclePilotSniperRifle")
+                    .damage(1.0)
+                    .range(225.0)
+                    .damage_type("KILL_PILOT"),
+            ],
+        );
         o.active_weapon_slot = 0;
         o
     });
@@ -1364,13 +1421,16 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     logic.objects.insert(attacker_id, {
         let mut attacker = Object::new(attacker_template, attacker_id, Team::USA);
         attacker.set_position(Vec3::ZERO);
-        attacker.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            can_target_air: false,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut attacker,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: false,
+                ..Default::default()
+            },
+        );
         attacker
     });
 
@@ -1426,15 +1486,27 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     // unlocked the same object may use SECONDARY normally.
     let attacker = logic.objects.get_mut(&attacker_id).unwrap();
     attacker.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
-    attacker.weapon.as_mut().unwrap().can_target_ground = false;
-    attacker.weapon.as_mut().unwrap().can_target_air = true;
-    attacker.secondary_weapon = Some(Weapon {
-        range: 100.0,
-        damage: 10.0,
-        can_target_ground: true,
-        can_target_air: false,
-        ..Default::default()
-    });
+    // Re-author the set: air-only PRIMARY, ground SECONDARY.
+    crate::fixture_content::arm_with_slot_stats(
+        attacker,
+        [
+            Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: false,
+                can_target_air: true,
+                ..Default::default()
+            }),
+            Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: false,
+                ..Default::default()
+            }),
+            None,
+        ],
+    );
     assert!(attacker.set_weapon_lock(0, WeaponLockType::LockedPermanently));
     drop(attacker);
     assert!(
@@ -1474,12 +1546,15 @@ fn host_direct_attack_authority_does_not_bypass_weaponset_target_legality() {
         // C++ commands only reach units whose controlling player issued them
         // (command_attack filters selection by owner_player_id).
         object.owner_player_id = Some(0);
-        object.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut object,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         object
     });
 
@@ -1529,13 +1604,16 @@ fn able_to_attack_after_moving_when_oor() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.movement.max_speed = 10.0;
-        o.weapon = Some(Weapon {
-            range: 30.0,
-            damage: 10.0,
-            can_target_ground: true,
-            can_target_air: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 30.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AtaV2");
@@ -1559,10 +1637,13 @@ fn able_to_attack_rejects_self() {
     let aid = ObjectId(2305);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let r = logic.get_able_to_attack_specific_object(aid, aid, AbleToAttackType::NewTarget, false);
@@ -1579,13 +1660,16 @@ fn able_to_attack_stealth_blocks_unless_force() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(glam::Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            damage: 10.0,
-            can_target_ground: true,
-            can_target_air: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AtaV4");
@@ -1628,12 +1712,15 @@ fn able_to_attack_uses_disguised_target_apparent_team_before_real_owner() {
     logic.objects.insert(attacker_id, {
         let mut attacker = Object::new(attacker_template, attacker_id, Team::USA);
         attacker.set_position(Vec3::ZERO);
-        attacker.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut attacker,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         attacker
     });
 
@@ -1687,10 +1774,13 @@ fn cannot_possibly_attack_same_team() {
     let aid = ObjectId(2203);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("CpV");
@@ -1713,10 +1803,13 @@ fn cannot_possibly_attack_stealthed_undetected() {
     let aid = ObjectId(2205);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("StV");
@@ -1776,14 +1869,17 @@ fn attack_state_machine_aim_to_fire_when_facing() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            projectile_speed: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("AsmV");
@@ -1824,12 +1920,15 @@ fn attack_state_machine_out_of_range_approaches() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 30.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 30.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("AsmV2");
@@ -1861,10 +1960,13 @@ fn attack_state_machine_success_when_victim_dies() {
     let aid = ObjectId(1605);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AsmV3");
@@ -1897,14 +1999,17 @@ fn attack_state_machine_fire_returns_to_aim() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            projectile_speed: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o.set_attack_substate(AttackSubState::FireWeapon);
         o.set_status_firing_weapon(true);
         o
@@ -1934,10 +2039,13 @@ fn attack_aim_enter_exit_flags() {
     let id = ObjectId(1501);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::USA);
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                ..Default::default()
+            },
+        );
         o
     });
     assert!(logic.attack_aim_at_target_enter(id));
@@ -1958,10 +2066,13 @@ fn attack_aim_update_success_when_facing() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0); // +X
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AimVic");
@@ -1988,10 +2099,13 @@ fn attack_aim_update_continues_while_turning() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0); // +X
-        o.weapon = Some(Weapon {
-            range: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 200.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AimVic2");
@@ -2017,10 +2131,13 @@ fn attack_aim_update_fails_dead_victim() {
     let aid = ObjectId(1506);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AimVic3");
@@ -2044,12 +2161,15 @@ fn attack_fire_weapon_enter_exit_flags() {
     let id = ObjectId(1401);
     logic.objects.insert(id, {
         let mut o = Object::new(t, id, Team::USA);
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     assert!(logic.attack_fire_weapon_enter(id));
@@ -2070,14 +2190,17 @@ fn attack_fire_weapon_update_fires_in_range() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            projectile_speed: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("FireVic");
@@ -2102,13 +2225,16 @@ fn attack_fire_weapon_update_fails_dead_victim() {
     let aid = ObjectId(1404);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("FireVic2");
@@ -2134,13 +2260,16 @@ fn attack_fire_weapon_update_fails_out_of_range() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 30.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 30.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("FireVic3");
@@ -2163,11 +2292,14 @@ fn is_within_attack_range_object() {
     at.add_kind_of(KindOf::Infantry);
     let mut a = Object::new(at, ObjectId(1301), Team::USA);
     a.set_position(Vec3::ZERO);
-    a.weapon = Some(Weapon {
-        range: 50.0,
-        min_range: 0.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut a,
+        crate::game_logic::Weapon {
+            range: 50.0,
+            min_range: 0.0,
+            ..Default::default()
+        },
+    );
     let mut vt = ThingTemplate::new("RngV");
     vt.add_kind_of(KindOf::Infantry);
     let mut v = Object::new(vt, ObjectId(1302), Team::GLA);
@@ -2213,6 +2345,8 @@ fn private_face_turns_toward_target() {
     let aid = ObjectId(1321);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
+        // C++ movement and facing run only through the AI's current Locomotor.
+        crate::fixture_content::locomote(&mut o, &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"]);
         o.set_orientation(0.0);
         o.movement.turn_rate = std::f32::consts::PI * 30.0;
         o.min_speed = 0.0;
@@ -2263,6 +2397,8 @@ fn private_face_position_sets_angle_goal_without_yaw_snap() {
     let aid = ObjectId(1323);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
+        // C++ movement and facing run only through the AI's current Locomotor.
+        crate::fixture_content::locomote(&mut o, &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"]);
         o.set_orientation(0.0);
         o.movement.turn_rate = std::f32::consts::PI * 30.0;
         o.min_speed = 0.0;
@@ -2328,11 +2464,14 @@ fn attack_can_fire_at_requires_range() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 30.0,
-            reload_time: 0.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 30.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("FireV");
@@ -2441,11 +2580,14 @@ fn attack_approach_skips_when_victim_still() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(crate::game_logic::Weapon {
-            damage: 10.0,
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o.set_approach_timestamp(100);
         o.set_prev_victim_pos(Some(Vec3::new(40.0, 0.0, 0.0)));
         o
@@ -2532,12 +2674,15 @@ fn private_attack_object_sets_target_and_shots() {
         // C++ AIUpdateInterface::privateAttackObject → Object::isAbleToAttack
         // (Object.cpp:3167) requires a live WeaponSet; a weaponless unit can
         // never enter the attack machine.
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("PV");
@@ -2573,12 +2718,15 @@ fn private_attack_object_installs_max_shots_after_attack_enter() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("PV0");
@@ -2744,6 +2892,8 @@ fn move_towards_angle_with_min_speed() {
     let mut t = ThingTemplate::new("Ang");
     t.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(t, ObjectId(992), Team::USA);
+    // C++ movement and facing run only through the AI's current Locomotor.
+    crate::fixture_content::locomote(&mut o, &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"]);
     o.set_position(Vec3::ZERO);
     o.min_speed = 10.0;
     o.movement.max_speed = 30.0;
@@ -2831,6 +2981,8 @@ fn thrust_moves_toward_goal() {
     let mut t = ThingTemplate::new("Thr");
     t.add_kind_of(KindOf::Aircraft);
     let mut o = Object::new(t, ObjectId(983), Team::USA);
+    // C++ movement and facing run only through the AI's current Locomotor.
+    crate::fixture_content::locomote(&mut o, &["Surfaces = AIR", "Speed = 50", "Acceleration = 100", "TurnRate = 180", "Appearance = THRUST"]);
     o.loco_appearance = LocomotorAppearance::Thrust;
     o.set_position(Vec3::ZERO);
     o.movement.max_speed = 50.0;
@@ -3331,10 +3483,13 @@ fn repulsor_filter_rejects_inert_and_uses_relationship_not_team_like_cpp() {
         let mut o = Object::new(t, id, team);
         o.owner_player_id = Some(1);
         o.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
-        o.weapon = Some(Weapon {
-            range: 40.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 40.0,
+                ..Default::default()
+            },
+        );
         o
     };
 

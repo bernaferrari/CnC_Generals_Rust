@@ -31,13 +31,16 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         .create_object("ContMine", Team::GLA, glam::Vec3::new(500.0, 0.0, 0.0))
         .expect("mfar");
     if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 999.0,
-            range: 50.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 999.0,
+                range: 50.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.target = Some(mine1);
         o.set_ai_state(
             AIState::Attacking,
@@ -1963,13 +1966,16 @@ fn fire_callback_transfer_attack_updates_machine_goal_same_frame() {
         .create_object("XferBldg", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("bldg");
     if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 999.0,
-            range: 100.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 999.0,
+                range: 100.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
     }
     if let Some(o) = logic.objects.get_mut(&bldg) {
         o.create_object_die = Some(HostCreateObjectDieData {

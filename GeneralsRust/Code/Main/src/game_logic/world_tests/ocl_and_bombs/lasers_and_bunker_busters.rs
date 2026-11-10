@@ -636,13 +636,16 @@ fn base_defense_residual_barracks_does_not_auto_fire() {
     // Even if someone arms a barracks, residual auto-fire is base-defense only.
     {
         let b = game_logic.host_object_mut(barracks_id).unwrap();
-        b.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 200.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            b,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        b.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     let enemy_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
@@ -986,12 +989,15 @@ fn point_defense_laser_residual_skips_non_carrier() {
         .expect("missile");
     {
         let t = game_logic.host_object_mut(tank_id).unwrap();
-        t.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 100.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            t,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 100.0,
+                ..Default::default()
+            },
+        );
+        t.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     game_logic.frame = 1;

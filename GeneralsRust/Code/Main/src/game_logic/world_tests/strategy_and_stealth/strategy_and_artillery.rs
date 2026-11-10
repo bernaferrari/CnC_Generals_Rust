@@ -2154,13 +2154,15 @@ fn cash_bounty_zero_percent_does_not_award() {
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        attacker.weapon = Some(Weapon {
-            damage: 9999.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            attacker,
+            crate::game_logic::Weapon {
+                damage: 9999.0,
+                range: 200.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
     }
     {
         let target = game_logic
@@ -2382,13 +2384,6 @@ fn combat_fire_queues_authored_fire_sound_audio_event() {
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        attacker.weapon = Some(Weapon {
-            damage: 1.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
     }
 
     game_logic.frame = 30;
@@ -2462,13 +2457,15 @@ fn combat_fire_without_authored_fire_sound_queues_no_audio_token() {
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        attacker.weapon = Some(Weapon {
-            damage: 1.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            attacker,
+            crate::game_logic::Weapon {
+                damage: 1.0,
+                range: 200.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
     }
 
     game_logic.frame = 30;
@@ -2509,13 +2506,15 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        attacker.weapon = Some(Weapon {
-            damage: 1.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            attacker,
+            crate::game_logic::Weapon {
+                damage: 1.0,
+                range: 200.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
         assert!(attacker.set_weapon_barrel_count_for_slot(0, 3));
         attacker.weapon_barrel_states[0].current_barrel = 2;
         attacker.weapon_barrel_states[0].shots_left_on_barrel = 1;

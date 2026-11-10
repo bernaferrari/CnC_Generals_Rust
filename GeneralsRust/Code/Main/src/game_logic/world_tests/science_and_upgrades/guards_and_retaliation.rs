@@ -46,10 +46,13 @@ fn enter_guard_does_not_shoot_enemies() {
     h.set_position(glam::Vec3::ZERO);
     h.set_guard_position_data(Some(glam::Vec3::ZERO));
     h.vision_range = 150.0;
-    h.weapon = Some(Weapon {
-        range: 80.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut h,
+        crate::game_logic::Weapon {
+            range: 80.0,
+            ..Default::default()
+        },
+    );
     h.set_ai_state(
         AIState::GuardingArea,
         0,
@@ -91,10 +94,13 @@ fn hijack_guard_boards_enemy_vehicle() {
     h.set_position(glam::Vec3::ZERO);
     h.set_guard_position_data(Some(glam::Vec3::ZERO));
     h.vision_range = 150.0;
-    h.weapon = Some(Weapon {
-        range: 20.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut h,
+        crate::game_logic::Weapon {
+            range: 20.0,
+            ..Default::default()
+        },
+    );
     h.set_ai_state(
         AIState::GuardingArea,
         0,
@@ -196,10 +202,13 @@ fn sleep_guard_range_is_zero_not_hardcoded_80() {
     g.guard_radius = 80.0;
     g.vision_range = 100.0;
     g.ai_attitude = -2;
-    g.weapon = Some(Weapon {
-        range: 80.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut g,
+        crate::game_logic::Weapon {
+            range: 80.0,
+            ..Default::default()
+        },
+    );
     g.set_ai_state(
         AIState::GuardingArea,
         0,
@@ -297,10 +306,13 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
     let id = ObjectId(4501);
     let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::new(10.0, 0.0, 20.0));
-    o.weapon = Some(Weapon {
-        range: 50.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut o,
+        crate::game_logic::Weapon {
+            range: 50.0,
+            ..Default::default()
+        },
+    );
     logic.objects.insert(id, o);
     let victim = ObjectId(4502);
     logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
@@ -331,10 +343,13 @@ fn begin_guard_retaliate_without_limit_resets_stale_burst_to_no_max() {
     t.add_kind_of(KindOf::Attackable);
     let id = ObjectId(4521);
     let mut o = guard_test_object(t, id, Team::USA);
-    o.weapon = Some(Weapon {
-        range: 50.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut o,
+        crate::game_logic::Weapon {
+            range: 50.0,
+            ..Default::default()
+        },
+    );
     o.max_shots_to_fire = 2;
     logic.objects.insert(id, o);
     logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
@@ -359,10 +374,13 @@ fn guard_retaliate_ends_when_victim_dead() {
     let id = ObjectId(4510);
     let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::ZERO);
-    o.weapon = Some(Weapon {
-        range: 40.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut o,
+        crate::game_logic::Weapon {
+            range: 40.0,
+            ..Default::default()
+        },
+    );
     logic.objects.insert(id, o);
     let vid = ObjectId(4511);
     let mut et = ThingTemplate::new("EV");
@@ -445,11 +463,14 @@ fn friends_retaliate_against_nearby_aggressor() {
         0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    friend.weapon = Some(Weapon {
-        range: 100.0,
-        damage: 10.0,
-        ..Default::default()
-    });
+    crate::fixture_content::arm_with_stats(
+        &mut friend,
+        crate::game_logic::Weapon {
+            range: 100.0,
+            damage: 10.0,
+            ..Default::default()
+        },
+    );
     logic.objects.insert(fid, friend);
 
     // Enemy damager within max retaliate distance
@@ -500,10 +521,13 @@ fn friends_retaliate_skipped_when_mode_off() {
             0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        o.weapon = Some(Weapon {
-            range: 80.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 80.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut et = ThingTemplate::new("En2");

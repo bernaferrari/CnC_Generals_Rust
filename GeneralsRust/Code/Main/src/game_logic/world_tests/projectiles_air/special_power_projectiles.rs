@@ -1356,13 +1356,16 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
     // Give vehicle a weapon so can_attack residual is meaningful.
     for id in [vehicle_id, far_vehicle_id] {
         let unit = game_logic.host_object_mut(id).expect("unit");
-        unit.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 150.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     let vehicle_hp = game_logic
@@ -1632,13 +1635,16 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
     // Bind residual weapons so combat damage is measurable.
     for id in [ally_id, far_ally_id, enemy_id] {
         let unit = game_logic.host_object_mut(id).expect("unit");
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 150.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 150.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     assert!(!game_logic.honesty_frenzy_ok());
@@ -1909,13 +1915,16 @@ fn frenzy_buffs_allied_faction_units_not_just_same_team() {
         .expect("usa ally");
     {
         let unit = logic.host_object_mut(ally).expect("ally");
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 150.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 150.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     assert!(logic.activate_frenzy(
@@ -1952,13 +1961,16 @@ fn frenzy_walks_garrison_occupants_of_in_range_structure() {
         .expect("rider");
     {
         let unit = logic.host_object_mut(rider).expect("rider");
-        unit.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 80.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 80.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     {
         let bunker_obj = logic.host_object_mut(bunker).unwrap();
@@ -2019,13 +2031,16 @@ fn frenzy_does_not_queue_superweapon_strike() {
         caster.set_special_power_ready_seconds(&SpecialPowerType::Frenzy, 0.0);
         // Caster can self-buff residual (WeaponBonusUpdate iterates all allies
         // including source when legal CAN_ATTACK). Ensure weapon so can_attack.
-        caster.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            caster,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        caster.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     game_logic.queue_command(GameCommand {
@@ -2133,23 +2148,29 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
 
     for id in [ally_id, infantry_id, enemy_id] {
         let unit = game_logic.host_object_mut(id).expect("unit");
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     {
         let air = game_logic.host_object_mut(aircraft_id).expect("air");
-        air.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            air,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        air.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     assert!(!game_logic.honesty_battle_plan_ok());
@@ -2345,13 +2366,16 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         let (enemy, fixture_partition_enemy) = game_logic
             .host_object_and_partition_mut(enemy_id)
             .expect("enemy");
-        enemy.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 150.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            enemy,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 150.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        enemy.weapon.as_mut().unwrap().last_fire_time = -10.0;
         enemy.target = Some(ally_id);
         enemy.set_ai_state(
             AIState::Attacking,
@@ -2426,13 +2450,16 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
             .expect("ally");
         ally.set_status_disabled_paralyzed(false);
         ally.status.disabled_paralyzed_until_frame = 0;
-        ally.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            ally,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        ally.weapon.as_mut().unwrap().last_fire_time = -10.0;
         ally.set_position_with_partition_owner(
             Vec3::new(0.0, 0.0, 0.0),
             0,
@@ -2518,13 +2545,16 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
         .expect("aircraft");
     for id in [ally_id, infantry_id, enemy_id, aircraft_id] {
         let u = game_logic.host_object_mut(id).expect("unit");
-        u.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            u,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        u.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     // First select: unpack → ACTIVE applies buffs; no BattlePlanChangeParalyze.
@@ -2650,13 +2680,16 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
-        ally.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            ally,
+            crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                ..Default::default()
+            },
+        );
+        ally.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
     game_logic.health_events.clear_damage();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);

@@ -1471,17 +1471,20 @@ fn scatter_miss_applies_splash_at_offset() {
         .create_object("NearSc", Team::China, glam::Vec3::new(105.0, 0.0, 0.0))
         .unwrap();
     if let Some(o) = logic.objects.get_mut(&arty) {
-        o.weapon = Some(Weapon {
-            damage: 80.0,
-            range: 300.0,
-            min_range: 0.0,
-            splash_radius: 30.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            can_target_ground: true,
-            projectile_speed: 0.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 80.0,
+                range: 300.0,
+                min_range: 0.0,
+                splash_radius: 30.0,
+                reload_time: 0.0,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
     }
     if let Some(o) = logic.objects.get_mut(&intended) {
         o.health.current = 500.0;
@@ -1642,15 +1645,19 @@ fn instant_combat_scatter_can_miss_intended_target() {
         .create_object("ScInf", Team::China, glam::Vec3::new(80.0, 0.0, 0.0))
         .unwrap();
     if let Some(o) = logic.objects.get_mut(&gun) {
-        o.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 150.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            can_target_ground: true,
-            projectile_speed: 0.0, // instant residual
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.0,
+                can_target_ground: true,
+                projectile_speed: 0.0,
+                // instant residual
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.target = Some(inf);
         o.set_ai_state(
             AIState::Attacking,
@@ -1747,16 +1754,19 @@ fn minimum_attack_range_too_close_backs_away() {
         .create_object("CloseTgt", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
     if let Some(o) = logic.objects.get_mut(&arty) {
-        o.weapon = Some(Weapon {
-            damage: 40.0,
-            range: 300.0,
-            min_range: 50.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            can_target_ground: true,
-            can_target_air: false,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 40.0,
+                range: 300.0,
+                min_range: 50.0,
+                reload_time: 0.0,
+                can_target_ground: true,
+                can_target_air: false,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
@@ -1882,22 +1892,28 @@ fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
         .unwrap();
     let tgt_pos = glam::Vec3::new(100.0, 0.0, 0.0);
     if let Some(o) = logic.objects.get_mut(&contact) {
-        o.weapon = Some(Weapon {
-            damage: 1.0,
-            range: 5.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 1.0,
+                range: 5.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
     }
     if let Some(o) = logic.objects.get_mut(&gun) {
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 50.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 50.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
     }
     let c_app = logic.approach_pos_for_attack(
         contact,
@@ -2111,15 +2127,17 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
     if let Some(o) = logic.objects.get_mut(&jet) {
         o.object_type = ObjectType::Aircraft;
         o.status.airborne_target = true;
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: 0.0,
-            clip_size: 1,
-            ammo: Some(0),
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                clip_size: 1,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().ammo = Some(0);
         // Ensure weapon name peels RETURN_TO_BASE.
         o.template_mut().primary_weapon_name = Some("AmericaJetRaptorRocketPods".into());
     }
@@ -2213,17 +2231,20 @@ fn airfield_takeoff_releases_parking_slot() {
         .unwrap();
     {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 4,
-            can_target_air: true,
-            can_target_ground: true,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            jet,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.0,
+                clip_size: 4,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
+        jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        jet.weapon.as_mut().unwrap().ammo = Some(0);
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     {
@@ -2269,15 +2290,18 @@ fn airfield_takeoff_releases_parking_slot() {
         .unwrap();
     {
         let j = logic.objects.get_mut(&jet2).unwrap();
-        j.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 2,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            j,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                clip_size: 2,
+                ..Default::default()
+            },
+        );
+        j.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        j.weapon.as_mut().unwrap().ammo = Some(0);
     }
     assert!(logic.try_return_to_base_rearm(jet2));
 }
@@ -2436,15 +2460,18 @@ fn helipad_landing_uses_two_point_descent_not_pad_snap() {
         .expect("comanche");
     {
         let heli = logic.objects.get_mut(&heli_id).unwrap();
-        heli.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 4,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            heli,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                clip_size: 4,
+                ..Default::default()
+            },
+        );
+        heli.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        heli.weapon.as_mut().unwrap().ammo = Some(0);
         heli.status.airborne_target = true;
         heli.producer_id = Some(pad_id);
         heli.movement.max_speed = 30.0;
@@ -2489,13 +2516,16 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         .create_object("PitchTgt", Team::China, glam::Vec3::new(100.0, -80.0, 0.0))
         .expect("tgt");
     if let Some(o) = logic.objects.get_mut(&sc) {
-        o.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 400.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 400.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.health.current = 5000.0;
         o.health.maximum = 5000.0;
         o.target = Some(tgt);
@@ -2652,13 +2682,16 @@ fn force_fire_ground_position_ignores_target_pitch_like_cpp() {
         "fixture: ground point must be outside the weapon pitch window"
     );
     if let Some(o) = logic.objects.get_mut(&sc) {
-        o.weapon = Some(Weapon {
-            damage: 50.0,
-            range: 400.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 50.0,
+                range: 400.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.health.current = 5000.0;
         o.health.maximum = 5000.0;
         o.set_force_attack(true);

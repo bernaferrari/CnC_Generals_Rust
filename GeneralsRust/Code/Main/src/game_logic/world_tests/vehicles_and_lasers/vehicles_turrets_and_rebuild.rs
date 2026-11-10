@@ -106,15 +106,18 @@ fn taxiing_jet_heals_from_reserved_stall() {
         .create_object("TaxiHealRaptor", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
     if let Some(jet) = logic.objects.get_mut(&jet_id) {
-        jet.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(0),
-            clip_size: 2,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            jet,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.0,
+                clip_size: 2,
+                ..Default::default()
+            },
+        );
+        jet.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        jet.weapon.as_mut().unwrap().ammo = Some(0);
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     {
@@ -342,14 +345,17 @@ fn private_attack_object_enters_attack_state_machine() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            projectile_speed: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("PaV");
@@ -441,14 +447,17 @@ fn turret_sm_aim_to_fire_when_aligned() {
         o.turret_ai.turret_enabled = true;
         o.turret_ai.turret_angle_deg = 0.0;
         o.turret_ai.turret_turn_rate_rad = 1.0;
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            projectile_speed: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("TsmV");
@@ -483,14 +492,17 @@ fn turret_sm_fire_returns_to_aim() {
         o.turret_ai.turret_angle_deg = 0.0;
         o.turret_ai.turret_substate = TurretSubState::Fire;
         o.turret_ai.turret_target_id = Some(ObjectId(2104));
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            projectile_speed: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 1.0,
+                projectile_speed: 200.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("TsmV2");
@@ -523,10 +535,13 @@ fn turret_sm_clear_target_holds_then_recenters() {
         o.turret_ai.turret_recenter_frames = 5;
         o.turret_ai.turret_substate = TurretSubState::Aim;
         o.turret_ai.turret_target_id = Some(ObjectId(99));
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
     logic.set_turret_target_object(aid, None, false);
@@ -568,10 +583,13 @@ fn turret_sm_fire_oor_returns_to_aim() {
         o.turret_ai.turret_enabled = true;
         o.turret_ai.turret_substate = TurretSubState::Fire;
         o.turret_ai.turret_target_id = Some(ObjectId(2107));
-        o.weapon = Some(Weapon {
-            range: 30.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 30.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("TsmV4");
@@ -599,10 +617,13 @@ fn set_turret_target_object_enters_aim() {
         o.turret_ai.turret_enabled = true;
         o.turret_ai.turret_angle_deg = 0.0;
         o.turret_ai.turret_turn_rate_rad = 0.5; // fast for test
-        o.weapon = Some(Weapon {
-            range: 100.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 100.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("TurV");
@@ -637,10 +658,13 @@ fn tick_turret_aim_aligns_toward_target() {
         o.turret_ai.turret_angle_deg = 0.0;
         // Slow turn so first tick Continues if target is behind... use front.
         o.turret_ai.turret_turn_rate_rad = 0.02;
-        o.weapon = Some(Weapon {
-            range: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 200.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("TurV2");
@@ -672,10 +696,13 @@ fn tick_turret_aim_continues_while_turning() {
         o.turret_ai.turret_enabled = true;
         o.turret_ai.turret_angle_deg = 0.0;
         o.turret_ai.turret_turn_rate_rad = 0.02; // ~1.1 deg/frame
-        o.weapon = Some(Weapon {
-            range: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 200.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("TurV3");
@@ -717,10 +744,13 @@ fn turret_move_loop_plays_authored_event_and_stops() {
         o.turret_ai.turret_enabled = true;
         o.turret_ai.turret_angle_deg = 0.0;
         o.turret_ai.turret_turn_rate_rad = 0.02;
-        o.weapon = Some(Weapon {
-            range: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 200.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("TurVicLoop");
@@ -790,10 +820,13 @@ fn turret_move_loop_missing_unit_sound_stays_silent() {
         o.turret_ai.turret_enabled = true;
         o.turret_ai.turret_angle_deg = 0.0;
         o.turret_ai.turret_turn_rate_rad = 0.02;
-        o.weapon = Some(Weapon {
-            range: 200.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 200.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("SilentVic");
@@ -1095,10 +1128,13 @@ fn out_of_weapon_range_object_distance() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 40.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 40.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("OorV");
@@ -1125,10 +1161,13 @@ fn out_of_weapon_range_leech_bypasses() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
-            range: 40.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 40.0,
+                ..Default::default()
+            },
+        );
         o.leech_range_active_primary = true;
         o
     });
@@ -1153,10 +1192,13 @@ fn want_to_squish_vehicle_vs_infantry() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.crusher_level = 1;
-        o.weapon = Some(Weapon {
-            range: 50.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 50.0,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("SqV");
@@ -1208,10 +1250,13 @@ fn want_to_squish_honors_ally_computer_and_dont_auto_crush() {
         } else {
             o.crusher_level = 1;
             o.turret_ai.turret_enabled = true;
-            o.weapon = Some(Weapon {
-                range: 50.0,
-                ..Default::default()
-            });
+            crate::fixture_content::arm_with_stats(
+                &mut o,
+                crate::game_logic::Weapon {
+                    range: 50.0,
+                    ..Default::default()
+                },
+            );
         }
         o
     };
@@ -1254,13 +1299,16 @@ fn attack_state_machine_oor_chases_fleeing_victim() {
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
         o.movement.max_speed = 20.0;
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 30.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 30.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o
     });
     let mut vt = ThingTemplate::new("ChaseV");
@@ -1301,13 +1349,16 @@ fn attack_state_machine_oor_approaches_stationary_victim() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.movement.max_speed = 10.0;
-        o.weapon = Some(Weapon {
-            range: 30.0,
-            damage: 10.0,
-            can_target_ground: true,
-            can_target_air: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 30.0,
+                damage: 10.0,
+                can_target_ground: true,
+                can_target_air: true,
+                ..Default::default()
+            },
+        );
         o
     });
     let mut vt = ThingTemplate::new("AppV");
@@ -1347,10 +1398,13 @@ fn attack_chase_drops_when_victim_stops_fleeing() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.movement.max_speed = 20.0;
-        o.weapon = Some(Weapon {
-            range: 30.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                range: 30.0,
+                ..Default::default()
+            },
+        );
         o.set_attack_substate(AttackSubState::ChaseTarget);
         o
     });
@@ -1389,14 +1443,17 @@ fn attack_chase_crush_floors_to_fast_as_possible() {
         o.movement.velocity = Vec3::new(18.0, 0.0, 0.0);
         o.crusher_level = 1;
         o.group_speed_factor = 0.5;
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 80.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            can_target_ground: true,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 80.0,
+                reload_time: 1.0,
+                can_target_ground: true,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o.set_attack_substate(AttackSubState::ChaseTarget);
         o
     });
@@ -1441,13 +1498,16 @@ fn choose_best_weapon_prefers_ready_slot() {
     let aid = ObjectId(2201);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 50.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Default::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 5.0,
+                range: 50.0,
+                reload_time: 1.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o.secondary_weapon = Some(Weapon {
             damage: 40.0,
             range: 50.0,
@@ -1495,13 +1555,16 @@ fn update_combat_temp_lock_waits_instead_of_firing_primary() {
         .create_object("LockWaitTgt", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
         .expect("tgt");
     if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 200.0,
+                reload_time: 0.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.secondary_weapon = Some(Weapon {
             damage: 80.0,
             range: 200.0,
@@ -1566,12 +1629,15 @@ fn choose_best_and_attack_ground_reset_primary_unless_locked() {
     let aid = ObjectId(4010);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 150.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            &mut o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Default::default()
+            },
+        );
+        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
         o.secondary_weapon = Some(Weapon {
             damage: 30.0,
             range: 150.0,

@@ -3268,13 +3268,16 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
     // Armed rider residual (rifle) so ArmedRidersUpgradeMyWeaponSet applies.
     {
         let unit = game_logic.host_object_mut(infantry_id).unwrap();
-        unit.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 100.0,
-            reload_time: 0.5,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            unit,
+            crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 100.0,
+                reload_time: 0.5,
+                ..Default::default()
+            },
+        );
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
     }
 
     game_logic.queue_command(GameCommand {
