@@ -1585,7 +1585,7 @@ impl ScriptActionDispatcher<'_> {
         };
         let command_set_name = template.get_command_set_string().as_str().to_string();
 
-        let slot = get_control_bar_bridge().and_then(|control_bar| {
+        let slot = self.owning_control_bar_bridge().and_then(|control_bar| {
             control_bar
                 .find_command_set_by_name(command_set_name.as_str())
                 .and_then(|set| {

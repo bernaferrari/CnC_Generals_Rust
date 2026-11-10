@@ -515,7 +515,7 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
         let team_arc = self.get_team_by_name(team_name)?;
-        let control_bar = get_control_bar_bridge().ok_or_else(|| {
+        let control_bar = self.owning_control_bar_bridge().ok_or_else(|| {
             ScriptError::ExecutionFailed("Control bar not initialized".to_string())
         })?;
         let Some(command_button) = control_bar.find_command_button_by_name(command_button_name)

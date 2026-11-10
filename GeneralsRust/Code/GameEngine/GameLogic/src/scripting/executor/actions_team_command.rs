@@ -43,7 +43,7 @@ impl ScriptActionDispatcher<'_> {
             .unwrap_or_default();
 
         // C++: TheControlBar->findCommandButton(ability); if (!commandButton) return;
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.owning_control_bar_bridge() else {
             return Ok(ScriptActionResult::Success);
         };
         let Some(command_button) = control_bar.find_command_button_by_name(&command_button_name)
@@ -697,7 +697,7 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let control_bar = get_control_bar_bridge().ok_or_else(|| {
+        let control_bar = self.owning_control_bar_bridge().ok_or_else(|| {
             ScriptError::ExecutionFailed("Control bar not initialized".to_string())
         })?;
         let Some(command_button) = control_bar.find_command_button_by_name(&command_button_name)
@@ -845,7 +845,7 @@ impl ScriptActionDispatcher<'_> {
         let resolved_team = self.resolve_team_name_token(team_name);
         let group_arc = self.create_ai_group_from_team(&resolved_team)?;
 
-        let control_bar = get_control_bar_bridge().ok_or_else(|| {
+        let control_bar = self.owning_control_bar_bridge().ok_or_else(|| {
             ScriptError::ExecutionFailed("Control bar not initialized".to_string())
         })?;
         let Some(command_button) = control_bar.find_command_button_by_name(ability) else {

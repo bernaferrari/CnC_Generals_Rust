@@ -658,7 +658,7 @@ impl ScriptActionDispatcher<'_> {
 
         let group_arc = self.create_ai_group_from_team(&team_name)?;
 
-        let control_bar = get_control_bar_bridge().ok_or_else(|| {
+        let control_bar = self.owning_control_bar_bridge().ok_or_else(|| {
             ScriptError::ExecutionFailed("Control bar not initialized".to_string())
         })?;
         let Some(command_button) = control_bar.find_command_button_by_name(&ability) else {

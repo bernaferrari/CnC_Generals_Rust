@@ -51,6 +51,12 @@ impl ScriptEngine {
         &self.players
     }
 
+    /// C++ TheControlBar of the world that built this engine (its current
+    /// resolved catalog; refreshed in that world's slot).
+    pub(crate) fn control_bar_bridge(&self) -> Option<Arc<crate::control_bar::ControlBarBridge>> {
+        self.control_bar_bridge.read().ok().and_then(|guard| guard.clone())
+    }
+
     /// The Eva of the world that built this engine.
     pub(crate) fn eva_owner(&self) -> &Mutex<crate::helpers::EvaState> {
         &self.eva
@@ -114,6 +120,7 @@ impl ScriptEngine {
             cave_names: Arc::clone(services.scripts().named_objects()),
             named_evac: Arc::clone(services.named_evac_disposition()),
             eva: Arc::clone(services.eva()),
+            control_bar_bridge: Arc::clone(services.control_bar_bridge()),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),

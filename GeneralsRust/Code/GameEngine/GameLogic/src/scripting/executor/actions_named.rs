@@ -1463,7 +1463,7 @@ impl ScriptActionDispatcher<'_> {
         obj: &crate::object::Object,
         ability: &str,
     ) -> Vec<u32> {
-        let Some(control_bar) = get_control_bar_bridge() else {
+        let Some(control_bar) = self.owning_control_bar_bridge() else {
             return Vec::new();
         };
         let Some(command_set) = control_bar.find_command_set_by_name(obj.get_command_set_string())

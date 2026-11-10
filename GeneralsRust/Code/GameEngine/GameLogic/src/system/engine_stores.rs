@@ -126,7 +126,7 @@ pub struct WorldServices {
     /// Headless GameClient ImageCollection when no live client is registered
     /// (type-erased `Arc<RwLock<ImageCollection>>` owned by the GameClient crate).
     client_image_collection: Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>>,
-    control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
+    control_bar_bridge: Arc<RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
     host_script_query: Mutex<crate::scripting::conditions::HostScriptQuerySnapshot>,
@@ -239,7 +239,7 @@ impl WorldServices {
             locomotor_store: crate::locomotor::new_locomotor_store(),
             main_game_logic: OnceLock::new(),
             client_image_collection: Mutex::new(None),
-            control_bar_bridge: RwLock::new(None),
+            control_bar_bridge: Arc::new(RwLock::new(None)),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
             host_script_query: Mutex::new(Default::default()),
@@ -468,7 +468,7 @@ impl WorldServices {
     }
     pub(crate) fn control_bar_bridge(
         &self,
-    ) -> &RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>> {
+    ) -> &Arc<RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>> {
         &self.control_bar_bridge
     }
     pub(crate) fn damage_over_time_fields(&self) -> &Mutex<Vec<DamageOverTimeField>> {

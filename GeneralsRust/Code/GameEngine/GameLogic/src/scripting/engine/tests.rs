@@ -1685,3 +1685,34 @@ fn eva_set_enabled_lands_in_the_dispatching_engines_world() {
     assert!(TheEva::is_enabled_in(&world_a).unwrap());
     assert!(!TheEva::is_enabled_in(&world_b).unwrap());
 }
+
+/// C++ each engine's script actions read their own TheControlBar. Two worlds
+/// take turns on ONE thread: each engine sees exactly its world's resolved
+/// catalog, including a refresh made while the peer world is published.
+#[test]
+fn script_engine_control_bar_follows_its_own_world_slot() {
+    let _lock = crate::test_sync::lock();
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    const NAME: &str = "Command_EngineOwnedBridgeButton";
+    let world_a = new_world_services();
+    let world_b = new_world_services();
+    world_a.common().ini.control_bar.write().new_command_button(NAME.into()).command = "STOP".into();
+    let engine_a = ScriptEngine::new_with_services(&world_a).expect("engine A");
+    let engine_b = ScriptEngine::new_with_services(&world_b).expect("engine B");
+    assert!(engine_a.control_bar_bridge().is_none());
+    // A's world rebuilds its catalog while B is published on this thread.
+    with_world_services(&world_b, || {
+        crate::control_bar::refresh_control_bar_bridge_for_world(&world_a, None).unwrap();
+    });
+    for published in [&world_a, &world_b, &world_a] {
+        with_world_services(published, || {
+            let a = engine_a.control_bar_bridge().expect("A's catalog");
+            assert!(a.find_command_button_by_name(NAME).is_some());
+            assert!(engine_b.control_bar_bridge().is_none(), "B never sees A's catalog");
+        });
+    }
+    crate::control_bar::refresh_control_bar_bridge_for_world(&world_b, None).unwrap();
+    let b = engine_b.control_bar_bridge().expect("B's catalog");
+    assert!(b.find_command_button_by_name(NAME).is_none());
+    assert!(!std::sync::Arc::ptr_eq(&b, &engine_a.control_bar_bridge().unwrap()));
+}

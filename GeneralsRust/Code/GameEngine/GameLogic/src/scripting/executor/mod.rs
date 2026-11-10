@@ -25,7 +25,7 @@ use crate::common::{
     AsciiString, Color, CommandSourceType, Coord3D, INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID,
     Relationship, WaypointID,
 };
-use crate::control_bar::{get_control_bar_bridge, set_command_set_slot_override};
+use crate::control_bar::set_command_set_slot_override;
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
     TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions, get_game_logic_random_value,
@@ -1394,6 +1394,12 @@ pub struct ScriptActionDispatcher<'engine> {
 }
 
 impl<'engine> ScriptActionDispatcher<'engine> {
+    /// C++ TheControlBar of the engine dispatching this script (its world's
+    /// resolved catalog), never the world published on the thread.
+    fn owning_control_bar_bridge(&self) -> Option<Arc<crate::control_bar::ControlBarBridge>> {
+        self.context.with_engine_ref(|engine| engine.control_bar_bridge()).flatten()
+    }
+
     fn current_script_player_name(&self) -> String {
         self.context
             .with_engine_ref(|engine| engine.get_current_player_name())
@@ -1435,6 +1441,12 @@ pub struct ScriptConditionEvaluator<'engine> {
 }
 
 impl<'engine> ScriptConditionEvaluator<'engine> {
+    /// C++ TheControlBar of the engine dispatching this script (its world's
+    /// resolved catalog), never the world published on the thread.
+    fn owning_control_bar_bridge(&self) -> Option<Arc<crate::control_bar::ControlBarBridge>> {
+        self.context.with_engine_ref(|engine| engine.control_bar_bridge()).flatten()
+    }
+
     /// Dispatch synchronously on this engine using caller-owned operation state.
     /// Construction does not publish the engine or select an ambient world.
     pub fn new(
