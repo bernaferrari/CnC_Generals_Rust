@@ -1402,10 +1402,11 @@ impl GameClient {
         if self.input_authority == ClientInputAuthority::NativeHosted {
             return;
         }
-        let entries = gamelogic::helpers::TheInGameUI::superweapon_entries();
         let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
             return;
         };
+        let entries =
+            gamelogic::helpers::TheInGameUI::superweapon_entries(ui.logic_world().as_deref());
         let guard = ui;
         crate::gui::ingame_ui::live_superweapon_strip_sync(
             &mut guard.superweapon_strip,
@@ -1447,7 +1448,12 @@ impl GameClient {
         if self.input_authority == ClientInputAuthority::NativeHosted {
             return;
         }
-        let messages = gamelogic::helpers::TheInGameUI::drain_displayed_messages();
+        let world = self
+            .subsystem_manager
+            .in_game_ui
+            .as_ref()
+            .and_then(|ui| ui.logic_world());
+        let messages = gamelogic::helpers::TheInGameUI::drain_displayed_messages(world.as_deref());
         if messages.is_empty() {
             return;
         }

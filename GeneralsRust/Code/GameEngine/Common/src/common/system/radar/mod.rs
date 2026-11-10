@@ -57,7 +57,6 @@ pub struct RadarVictimInfo {
 
 /// Client/W3D render UI messages and audio for radar events.
 pub trait RadarEventFeedback: Send + Sync {
-    fn show_radar_message(&self, message_key: &str);
     fn play_radar_audio(&self, event_name: &str, player_index: i32);
 }
 
@@ -66,6 +65,8 @@ pub trait RadarEventFeedback: Send + Sync {
 pub trait RadarEventOwner {
     fn trigger_radar_attack_glow(&mut self);
     fn set_eva_should_play(&mut self, eva_name: &str);
+    /// C++ `TheInGameUI->message` of the victim's engine.
+    fn show_radar_message(&mut self, message_key: &str);
 }
 
 pub fn register_radar_event_feedback(hook: Arc<dyn RadarEventFeedback>) -> bool {
@@ -1370,30 +1371,28 @@ impl RadarSystem {
                 }
             }
         }
-        if let Some(fb) = radar_feedback() {
-            // C++ Radar.cpp:1168 — audio always attributes to the LOCAL player.
-            // Every live call site gates victim == local (Object.cpp:1853), so
-            // the victim index carried here IS the local index.
-            let player_index = victim.map(|v| v.player_index).unwrap_or(-1);
-            match victim {
-                Some(v) if v.is_infantry || v.is_vehicle => {
-                    if v.is_harvester {
-                        fb.show_radar_message("RADAR:HarvesterUnderAttack");
-                        fb.play_radar_audio("RadarHarvesterUnderAttackSound", player_index);
-                    } else {
-                        fb.show_radar_message("RADAR:UnitUnderAttack");
-                        fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);
-                    }
-                }
-                Some(v) if v.is_structure && v.is_mp_count_for_victory => {
-                    fb.show_radar_message("RADAR:StructureUnderAttack");
-                    fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);
-                }
-                _ => {
-                    fb.show_radar_message("RADAR:UnderAttack");
-                    fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);
+        // C++ Radar.cpp:1168 — audio always attributes to the LOCAL player.
+        // Every live call site gates victim == local (Object.cpp:1853), so
+        // the victim index carried here IS the local index.
+        let player_index = victim.map(|v| v.player_index).unwrap_or(-1);
+        let (message_key, sound) = match victim {
+            Some(v) if v.is_infantry || v.is_vehicle => {
+                if v.is_harvester {
+                    ("RADAR:HarvesterUnderAttack", "RadarHarvesterUnderAttackSound")
+                } else {
+                    ("RADAR:UnitUnderAttack", "RadarStructureUnderAttackSound")
                 }
             }
+            Some(v) if v.is_structure && v.is_mp_count_for_victory => {
+                ("RADAR:StructureUnderAttack", "RadarStructureUnderAttackSound")
+            }
+            _ => ("RADAR:UnderAttack", "RadarStructureUnderAttackSound"),
+        };
+        if let Some(owner) = owner.as_mut() {
+            owner.show_radar_message(message_key);
+        }
+        if let Some(fb) = radar_feedback() {
+            fb.play_radar_audio(sound, player_index);
         }
         true
     }
@@ -1420,8 +1419,8 @@ impl RadarSystem {
             return;
         }
         self.create_event(world_loc, RadarEventType::Infiltration, 4.0);
+        // The "RADAR:Infiltration" message is shown by the victim's engine.
         if let Some(fb) = radar_feedback() {
-            fb.show_radar_message("RADAR:Infiltration");
             fb.play_radar_audio("RadarInfiltrationSound", v.player_index);
         }
     }

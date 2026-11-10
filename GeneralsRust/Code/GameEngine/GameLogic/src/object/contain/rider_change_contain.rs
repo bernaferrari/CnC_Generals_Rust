@@ -1698,7 +1698,7 @@ impl RiderChangeContain {
             return;
         };
 
-        let (owner_id, owner_drawable) = {
+        let (owner_id, owner_drawable, owner_world) = {
             let Ok(owner_guard) = owner.read() else {
                 return;
             };
@@ -1713,11 +1713,11 @@ impl RiderChangeContain {
             if already_selected {
                 return;
             }
-            (owner_guard.get_id(), drawable)
+            (owner_guard.get_id(), drawable, owner_guard.owning_world_services())
         };
 
-        TheInGameUI::select_drawable(&owner_drawable);
-        TheInGameUI::set_displayed_max_warning(false);
+        TheInGameUI::select_drawable(owner_world.as_deref(), &owner_drawable);
+        TheInGameUI::set_displayed_max_warning(owner_world.as_deref(), false);
     }
 
     fn transfer_selection_to_rider_on_exit(&self, rider_id: ObjectID) {
@@ -1743,7 +1743,7 @@ impl RiderChangeContain {
             return;
         }
 
-        let (owner_id, owner_drawable) = {
+        let (owner_id, owner_drawable, owner_world) = {
             let Ok(owner_guard) = owner.read() else {
                 return;
             };
@@ -1761,23 +1761,23 @@ impl RiderChangeContain {
             if !selected {
                 return;
             }
-            (owner_guard.get_id(), drawable)
+            (owner_guard.get_id(), drawable, owner_guard.owning_world_services())
         };
 
-        let (rider_id, rider_drawable) = {
+        let (rider_id, rider_drawable, rider_world) = {
             let Ok(rider_guard) = rider.read() else {
                 return;
             };
             let Some(drawable) = rider_guard.get_drawable() else {
                 return;
             };
-            (rider_guard.get_id(), drawable)
+            (rider_guard.get_id(), drawable, rider_guard.owning_world_services())
         };
 
-        TheInGameUI::select_drawable(&rider_drawable);
-        TheInGameUI::set_displayed_max_warning(false);
+        TheInGameUI::select_drawable(rider_world.as_deref(), &rider_drawable);
+        TheInGameUI::set_displayed_max_warning(rider_world.as_deref(), false);
 
-        TheInGameUI::deselect_drawable(&owner_drawable);
+        TheInGameUI::deselect_drawable(owner_world.as_deref(), &owner_drawable);
     }
 
     fn has_exit_scuttle_drawables(&self, rider_id: ObjectID) -> bool {

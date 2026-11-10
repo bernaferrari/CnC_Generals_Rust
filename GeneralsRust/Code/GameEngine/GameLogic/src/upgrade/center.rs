@@ -36,7 +36,10 @@ impl UpgradeCenterPlayerExt for UpgradeCenter {
         let cost = template.calc_cost_to_build(player);
         if player.get_money().get_money() < cost {
             if display_reason {
-                crate::helpers::TheInGameUI::display_message("GUI:NotEnoughMoneyToUpgrade");
+                crate::helpers::TheInGameUI::display_message_from(
+                    player.owning_world_services().as_ref(),
+                    "GUI:NotEnoughMoneyToUpgrade",
+                );
             }
             return false;
         }

@@ -822,7 +822,10 @@ impl GameLogic {
         }
         // C++ GameLogic.cpp:2340-2343 replay start hint.
         if crate::helpers::TheGameLogic::is_in_replay_game() {
-            crate::helpers::TheInGameUI::display_message("GUI:FastForwardInstructions");
+            crate::helpers::TheInGameUI::display_message_from(
+                self.owning_world_services().as_ref(),
+                "GUI:FastForwardInstructions",
+            );
         }
         init_result
     }
@@ -1147,6 +1150,7 @@ impl GameLogic {
             can_add,
             affect_client,
             drawable,
+            self.owning_world_services().as_deref(),
         );
     }
 
@@ -1178,6 +1182,7 @@ impl GameLogic {
             player_mask,
             affect_client,
             drawable,
+            self.owning_world_services().as_deref(),
         );
     }
 

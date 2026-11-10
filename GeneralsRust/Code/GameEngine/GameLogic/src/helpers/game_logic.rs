@@ -640,7 +640,7 @@ impl TheGameLogic {
                 }
                 if actually_removed && affect_client {
                     if let Some(drawable) = object.get_drawable() {
-                        TheInGameUI::deselect_drawable(&drawable);
+                        TheInGameUI::deselect_drawable(object.owning_world_services().as_deref(), &drawable);
                     }
                 }
             });
@@ -728,7 +728,7 @@ impl TheGameLogic {
             }
             if affect_client {
                 if let Some(drawable) = object.get_drawable() {
-                    TheInGameUI::select_drawable(&drawable);
+                    TheInGameUI::select_drawable(object.owning_world_services().as_deref(), &drawable);
                 }
             }
         }

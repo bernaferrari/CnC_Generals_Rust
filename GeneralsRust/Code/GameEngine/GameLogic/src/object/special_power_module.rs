@@ -249,6 +249,7 @@ impl SpecialPowerModule {
                             owner_guard.with_controlling_player(|player_guard| {
                                 let player_index = player_guard.get_player_index();
                                 TheInGameUI::add_superweapon(
+                                    owner_guard.owning_world_services().as_deref(),
                                     player_index,
                                     self.get_power_name(),
                                     self.owner_object_id,
@@ -908,6 +909,7 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
                         if owner_guard.is_kind_of(KindOf::Structure) {
                             owner_guard.with_controlling_player(|player_guard| {
                                 TheInGameUI::add_superweapon(
+                                    owner_guard.owning_world_services().as_deref(),
                                     player_guard.get_player_index(),
                                     self.get_power_name(),
                                     self.owner_object_id,
@@ -1469,6 +1471,7 @@ impl BehaviorModule for SpecialPowerModule {
                     |owner_guard| {
                         owner_guard.with_controlling_player(|player_guard| {
                             TheInGameUI::remove_superweapon(
+                                owner_guard.owning_world_services().as_deref(),
                                 player_guard.get_player_index(),
                                 self.get_power_name(),
                                 self.owner_object_id,
@@ -1533,6 +1536,7 @@ impl game_engine::common::system::snapshot::Snapshotable for SpecialPowerModule 
                         if owner_guard.is_kind_of(KindOf::Structure) {
                             owner_guard.with_controlling_player(|player_guard| {
                                 TheInGameUI::add_superweapon(
+                                    owner_guard.owning_world_services().as_deref(),
                                     player_guard.get_player_index(),
                                     self.get_power_name(),
                                     self.owner_object_id,

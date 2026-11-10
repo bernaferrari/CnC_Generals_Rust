@@ -2616,6 +2616,8 @@ pub struct ScriptEngine {
     named_evac: Arc<Mutex<std::collections::HashMap<String, u32>>>,
     /// C++ TheEva of the world that built this engine (Eva.cpp setEnabled).
     eva: Arc<Mutex<crate::helpers::EvaState>>,
+    /// The world that built this engine (C++ its GameEngine's TheInGameUI).
+    owner_world: std::sync::Weak<crate::system::engine_stores::WorldServices>,
     /// The resolved ControlBar catalog slot of the world that built this engine.
     control_bar_bridge: Arc<RwLock<Option<Arc<crate::control_bar::ControlBarBridge>>>>,
     control_bar_ui_hooks: Arc<Mutex<Option<Arc<dyn crate::control_bar::ControlBarUiHooks>>>>,

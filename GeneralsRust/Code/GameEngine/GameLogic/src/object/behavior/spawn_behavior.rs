@@ -1125,8 +1125,9 @@ impl SpawnBehavior {
                                     .map_err(|_| "Failed to read spawn drawable")?
                                     .is_selected();
                                 if !selected {
-                                    TheInGameUI::select_drawable(&drawable);
-                                    TheInGameUI::set_displayed_max_warning(false);
+                                    let world = spawn_guard.owning_world_services();
+                                    TheInGameUI::select_drawable(world.as_deref(), &drawable);
+                                    TheInGameUI::set_displayed_max_warning(world.as_deref(), false);
                                 }
                             }
                         }
@@ -1137,8 +1138,9 @@ impl SpawnBehavior {
                 if !obj_selected {
                     let _ = self.with_object(|obj_guard| {
                         if let Some(drawable) = obj_guard.get_drawable() {
-                            TheInGameUI::select_drawable(&drawable);
-                            TheInGameUI::set_displayed_max_warning(false);
+                            let world = obj_guard.owning_world_services();
+                            TheInGameUI::select_drawable(world.as_deref(), &drawable);
+                            TheInGameUI::set_displayed_max_warning(world.as_deref(), false);
                         }
                     });
                 }

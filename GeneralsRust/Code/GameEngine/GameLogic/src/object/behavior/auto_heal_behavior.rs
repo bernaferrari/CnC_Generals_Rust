@@ -375,6 +375,7 @@ fn spawn_get_healed_world_icon(obj: &Arc<RwLock<GameObject>>) {
     );
 
     TheInGameUI::add_world_animation(
+        obj_read.owning_world_services().as_deref(),
         global.get_healed_animation_name.as_str(),
         &icon_position,
         true,

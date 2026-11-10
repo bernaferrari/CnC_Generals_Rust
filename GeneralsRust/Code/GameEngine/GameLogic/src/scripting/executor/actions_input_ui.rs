@@ -18,7 +18,11 @@ impl ScriptActionDispatcher<'_> {
                 .map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
         }
         TheGameLogic::set_input_enabled(false);
-        TheInGameUI::request_cinematic_input_lock(true);
+        let world = self
+            .context
+            .with_engine_ref(|engine| engine.owning_world_services())
+            .flatten();
+        TheInGameUI::request_cinematic_input_lock(world.as_deref(), true);
         Ok(ScriptActionResult::Success)
     }
 
@@ -36,7 +40,11 @@ impl ScriptActionDispatcher<'_> {
                 .map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
         }
         TheGameLogic::set_input_enabled(true);
-        TheInGameUI::request_cinematic_input_lock(false);
+        let world = self
+            .context
+            .with_engine_ref(|engine| engine.owning_world_services())
+            .flatten();
+        TheInGameUI::request_cinematic_input_lock(world.as_deref(), false);
         Ok(ScriptActionResult::Success)
     }
 }

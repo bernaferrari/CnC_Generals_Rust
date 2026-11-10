@@ -1689,7 +1689,9 @@ mod tests {
         OBJECT_REGISTRY.clear();
         let _ = crate::system::radar_notifier::drain();
         let _ = crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services());
-        let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
+        let _ = crate::helpers::TheInGameUI::drain_displayed_messages(Some(
+            &crate::system::engine_stores::active_services(),
+        ));
         reset_radar_for_test();
 
         let registry_anchor = Arc::new(RwLock::new(Object::new_test(80_800, 100.0)));
@@ -1730,7 +1732,9 @@ mod tests {
             crate::system::radar_notifier::drain().is_empty(),
             "C++ calls TheRadar->tryUnderAttackEvent(this) directly; no queued BaseAttacked"
         );
-        let messages = crate::helpers::TheInGameUI::drain_displayed_messages();
+        let messages = crate::helpers::TheInGameUI::drain_displayed_messages(Some(
+            &crate::system::engine_stores::active_services(),
+        ));
         assert!(
             messages.iter().any(|m| m == "RADAR:UnderAttack"),
             "generic branch message expected, got {messages:?}"
@@ -1767,7 +1771,9 @@ mod tests {
         OBJECT_REGISTRY.clear();
         let _ = crate::system::radar_notifier::drain();
         let _ = crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services());
-        let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
+        let _ = crate::helpers::TheInGameUI::drain_displayed_messages(Some(
+            &crate::system::engine_stores::active_services(),
+        ));
         reset_radar_for_test();
 
         let player = Arc::new(RwLock::new(Player::new(0)));
@@ -1784,7 +1790,9 @@ mod tests {
 
         assert_eq!(last_radar_event_for_test(), Some(radar_coord_at(&victim)));
         assert!(crate::system::radar_notifier::drain().is_empty());
-        let messages = crate::helpers::TheInGameUI::drain_displayed_messages();
+        let messages = crate::helpers::TheInGameUI::drain_displayed_messages(Some(
+            &crate::system::engine_stores::active_services(),
+        ));
         assert!(
             messages.iter().any(|m| m == "RADAR:HarvesterUnderAttack"),
             "harvester message expected, got {messages:?}"
@@ -1808,7 +1816,9 @@ mod tests {
         OBJECT_REGISTRY.clear();
         let _ = crate::system::radar_notifier::drain();
         let _ = crate::helpers::TheEva::drain_events_in(&crate::system::engine_stores::active_services());
-        let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
+        let _ = crate::helpers::TheInGameUI::drain_displayed_messages(Some(
+            &crate::system::engine_stores::active_services(),
+        ));
         reset_radar_for_test();
 
         let player = Arc::new(RwLock::new(Player::new(0)));
@@ -1831,7 +1841,9 @@ mod tests {
             eva.contains(&crate::helpers::EvaEvent::BaseUnderAttack),
             "EVA_BaseUnderAttack expected, got {eva:?}"
         );
-        let messages = crate::helpers::TheInGameUI::drain_displayed_messages();
+        let messages = crate::helpers::TheInGameUI::drain_displayed_messages(Some(
+            &crate::system::engine_stores::active_services(),
+        ));
         assert!(
             messages.iter().any(|m| m == "RADAR:StructureUnderAttack"),
             "structure message expected, got {messages:?}"

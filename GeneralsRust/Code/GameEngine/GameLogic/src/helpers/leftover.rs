@@ -50,22 +50,17 @@ struct SuperweaponEntry {
     ready_frame: UnsignedInt,
 }
 
-fn in_game_ui_state() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
-    crate::system::engine_stores::active_services()
-}
-
 /// TheInGameUI singleton - in-game user interface (matching C++ TheInGameUI)
 pub struct TheInGameUI;
 
 impl TheInGameUI {
     /// Select drawable object.
-    pub fn select_drawable(drawable: &Arc<RwLock<crate::object::drawable::Drawable>>) {
+    pub fn select_drawable(world: Option<&crate::system::engine_stores::WorldServices>, drawable: &Arc<RwLock<crate::object::drawable::Drawable>>) {
         if let Ok(mut guard) = drawable.write() {
             guard.set_selected(true);
             guard.flash_as_selected();
         }
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.last_selection_frame = TheGameLogic::get_frame();
         }
 
@@ -91,12 +86,11 @@ impl TheInGameUI {
     }
 
     /// Deselect drawable object.
-    pub fn deselect_drawable(drawable: &Arc<RwLock<crate::object::drawable::Drawable>>) {
+    pub fn deselect_drawable(world: Option<&crate::system::engine_stores::WorldServices>, drawable: &Arc<RwLock<crate::object::drawable::Drawable>>) {
         if let Ok(mut guard) = drawable.write() {
             guard.set_selected(false);
         }
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.last_selection_frame = TheGameLogic::get_frame();
         }
 
@@ -122,40 +116,22 @@ impl TheInGameUI {
     }
 
     /// Set displayed maximum warning.
-    pub fn set_displayed_max_warning(show: bool) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn set_displayed_max_warning(world: Option<&crate::system::engine_stores::WorldServices>, show: bool) {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.displayed_max_warning = show;
         }
     }
 
-    /// Display floating combat text.
-    pub fn add_floating_text(
-        text: &str,
-        position: &Coord3D,
-        color: crate::common::Color,
-    ) -> Result<(), GameError> {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
-            state.floating_texts.push(FloatingTextEntry {
-                text: text.to_string(),
-                position: *position,
-                color,
-                created_frame: TheGameLogic::get_frame(),
-            });
-        }
-        Ok(())
-    }
 
     pub fn add_world_animation(
+        world: Option<&crate::system::engine_stores::WorldServices>,
         animation_name: &str,
         position: &Coord3D,
         fade_on_expire: bool,
         duration_seconds: Real,
         z_rise_per_second: Real,
     ) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.world_animations.push(WorldAnimationEntry {
                 animation_name: animation_name.to_string(),
                 position: *position,
@@ -167,9 +143,8 @@ impl TheInGameUI {
         }
     }
 
-    pub fn take_world_animations() -> Vec<WorldAnimationEntry> {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn take_world_animations(world: Option<&crate::system::engine_stores::WorldServices>) -> Vec<WorldAnimationEntry> {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             return std::mem::take(&mut state.world_animations);
         }
         Vec::new()
@@ -236,20 +211,10 @@ impl TheInGameUI {
         }
     }
 
-    /// Display a message to the player.
-    /// Matches C++ InGameUI message display functionality
-    pub fn display_message(message: &str) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
-            state.messages.push(message.to_string());
-        }
-        log::info!("UI Message: {}", message);
-    }
     /// Drain displayed UI messages (C++ `TheInGameUI->message` output; the HUD
     /// consumes these, tests and hosts use this to observe/clear them).
-    pub fn drain_displayed_messages() -> Vec<String> {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn drain_displayed_messages(world: Option<&crate::system::engine_stores::WorldServices>) -> Vec<String> {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             std::mem::take(&mut state.messages)
         } else {
             Vec::new()
@@ -257,6 +222,7 @@ impl TheInGameUI {
     }
 
     pub fn add_superweapon(
+        world: Option<&crate::system::engine_stores::WorldServices>,
         player_index: Int,
         power_name: String,
         object_id: ObjectID,
@@ -276,6 +242,7 @@ impl TheInGameUI {
             })
             .unwrap_or_else(|| TheGameLogic::get_frame() + template.get_reload_time());
         Self::add_superweapon_at_ready_frame(
+            world,
             player_index,
             power_name,
             object_id,
@@ -287,14 +254,14 @@ impl TheInGameUI {
     /// Admit a countdown already observed from its receiving simulation owner.
     /// The native UI store never discovers a Core world to derive its deadline.
     pub fn add_superweapon_at_ready_frame(
+        world: Option<&crate::system::engine_stores::WorldServices>,
         player_index: Int,
         power_name: String,
         object_id: ObjectID,
         template: &SpecialPowerTemplate,
         ready_frame: UnsignedInt,
     ) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index
                     && entry.object_id == object_id
@@ -314,9 +281,8 @@ impl TheInGameUI {
     /// object id, ready frame). GameClient reconciles its InGameUI countdown
     /// strip against this each frame, mirroring the C++ same-process
     /// `m_superweapons` map (addSuperweapon / removeSuperweapon).
-    pub fn superweapon_entries() -> Vec<(Int, String, ObjectID, UnsignedInt)> {
-        let __ui = in_game_ui_state();
-        if let Ok(state) = __ui.in_game_ui().read() {
+    pub fn superweapon_entries(world: Option<&crate::system::engine_stores::WorldServices>) -> Vec<(Int, String, ObjectID, UnsignedInt)> {
+        if let Some(Ok(state)) = world.map(|w| w.in_game_ui().read()) {
             return state
                 .superweapons
                 .iter()
@@ -334,13 +300,13 @@ impl TheInGameUI {
     }
 
     pub fn remove_superweapon(
+        world: Option<&crate::system::engine_stores::WorldServices>,
         player_index: Int,
         power_name: String,
         object_id: ObjectID,
         template: &SpecialPowerTemplate,
     ) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index
                     && entry.object_id == object_id
@@ -352,24 +318,25 @@ impl TheInGameUI {
 
     /// Remove a worker from the idle worker UI list.
     pub fn remove_idle_worker(object: &crate::object::Object, player_index: Int) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        let world = object.owning_world_services();
+        let world = world.as_deref();
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.idle_workers.remove(object.get_id(), player_index);
         }
     }
 
     /// Add a worker to the idle worker UI list.
     pub fn add_idle_worker(object: &crate::object::Object, player_index: Int) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        let world = object.owning_world_services();
+        let world = world.as_deref();
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.idle_workers.add(object.get_id(), player_index);
         }
     }
 
     /// Drain pending idle worker add/remove events (matches InGameUI idle worker bookkeeping).
-    pub fn take_idle_worker_events() -> Vec<IdleWorkerEvent> {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn take_idle_worker_events(world: Option<&crate::system::engine_stores::WorldServices>) -> Vec<IdleWorkerEvent> {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             return state.idle_workers.take();
         }
         Vec::new()
@@ -377,18 +344,16 @@ impl TheInGameUI {
 
     /// C++ parity: InGameUI::clearPopupMessageData().
     /// Sets a flag consumed by GameClient's popup handler.
-    pub fn request_popup_message_clear() {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn request_popup_message_clear(world: Option<&crate::system::engine_stores::WorldServices>) {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.popup_clear_requested = true;
         }
     }
 
     /// Consume and return whether a popup clear was requested.
     /// Called by GameClient's popup handler each frame.
-    pub fn consume_popup_clear_request() -> bool {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn consume_popup_clear_request(world: Option<&crate::system::engine_stores::WorldServices>) -> bool {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             return std::mem::take(&mut state.popup_clear_requested);
         }
         false
@@ -396,29 +361,26 @@ impl TheInGameUI {
 
     /// C++ ScriptActions::doDisableInput / doEnableInput.
     /// `true` = disable (teardown), `false` = enable (restore mouse).
-    pub fn request_cinematic_input_lock(disable: bool) {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn request_cinematic_input_lock(world: Option<&crate::system::engine_stores::WorldServices>, disable: bool) {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             state.cinematic_input_lock = Some(disable);
         }
     }
 
     /// Consume a pending cinematic input-lock request.
-    pub fn take_cinematic_input_lock() -> Option<bool> {
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+    pub fn take_cinematic_input_lock(world: Option<&crate::system::engine_stores::WorldServices>) -> Option<bool> {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             return state.cinematic_input_lock.take();
         }
         None
     }
 
     /// C++ `InGameUI::objectChangedTeam` — move superweapon timers with the object.
-    pub fn object_changed_team(object_id: ObjectID, old_player: i32, new_player: i32) {
+    pub fn object_changed_team(world: Option<&crate::system::engine_stores::WorldServices>, object_id: ObjectID, old_player: i32, new_player: i32) {
         if old_player < 0 || new_player < 0 {
             return;
         }
-        let __ui = in_game_ui_state();
-        if let Ok(mut state) = __ui.in_game_ui().write() {
+        if let Some(Ok(mut state)) = world.map(|w| w.in_game_ui().write()) {
             for entry in &mut state.superweapons {
                 if entry.object_id == object_id && entry.player_index == old_player {
                     entry.player_index = new_player;
@@ -509,6 +471,8 @@ impl TheRadar {
             };
             guard.try_infiltration_event_for(&world_loc, Some(&victim));
         }
+        // C++ Radar.cpp:1252 TheInGameUI->message of the victim's engine.
+        TheInGameUI::display_message_for(target, "RADAR:Infiltration");
         Ok(())
     }
 
@@ -622,6 +586,10 @@ impl game_engine::common::system::radar::RadarEventOwner for VictimRadarOwner {
         }
     }
 
+    fn show_radar_message(&mut self, message_key: &str) {
+        TheInGameUI::display_message_from(self.0.as_ref(), message_key);
+    }
+
     fn set_eva_should_play(&mut self, eva_name: &str) {
         if let Some(event) = radar_eva_event(eva_name) {
             let _ = TheEva::set_should_play_from(self.0.as_ref(), event);
@@ -632,10 +600,6 @@ impl game_engine::common::system::radar::RadarEventOwner for VictimRadarOwner {
 struct LeftoverRadarEventFeedback;
 
 impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEventFeedback {
-    fn show_radar_message(&self, message_key: &str) {
-        TheInGameUI::display_message(message_key);
-    }
-
     fn play_radar_audio(&self, event_name: &str, player_index: i32) {
         let Some(audio) = TheAudio::get() else {
             return;
@@ -1117,6 +1081,54 @@ mod in_game_ui_eva_ownership_tests {
     use std::thread;
 
     #[test]
+    fn in_game_ui_side_effects_land_in_the_owning_world_only() {
+        use game_engine::common::system::radar::RadarEventOwner;
+        let a = new_world_services();
+        let b = new_world_services();
+        let mut object = crate::object::Object::new_test_from_template(
+            9201,
+            100.0,
+            Arc::new(crate::common::DefaultThingTemplate::new("UiOwner".into())),
+        );
+        object.bind_owner_world_for_test(&a);
+        let orphan = crate::object::Object::new_test_from_template(
+            9202,
+            100.0,
+            Arc::new(crate::common::DefaultThingTemplate::new("UiOrphan".into())),
+        );
+        with_world_services(&b, || {
+            TheInGameUI::add_idle_worker(&object, 0);
+            TheInGameUI::add_idle_worker(&orphan, 0);
+            for owner in [&object, &orphan] {
+                TheInGameUI::add_world_animation(
+                    owner.owning_world_services().as_deref(),
+                    "UiAnim",
+                    &Coord3D::new(1.0, 2.0, 3.0),
+                    true,
+                    1.0,
+                    0.0,
+                );
+            }
+            TheInGameUI::request_cinematic_input_lock(Some(&a), true);
+            VictimRadarOwner(Some(Arc::clone(&a))).show_radar_message("RADAR:UnderAttack");
+            VictimRadarOwner(None).show_radar_message("RADAR:UnderAttack");
+        });
+        assert_eq!(TheInGameUI::take_idle_worker_events(Some(&a)).len(), 1);
+        assert!(TheInGameUI::take_idle_worker_events(Some(&b)).is_empty());
+        assert_eq!(TheInGameUI::take_world_animations(Some(&a)).len(), 1);
+        assert!(TheInGameUI::take_world_animations(Some(&b)).is_empty());
+        assert_eq!(TheInGameUI::take_cinematic_input_lock(Some(&a)), Some(true));
+        assert_eq!(TheInGameUI::take_cinematic_input_lock(Some(&b)), None);
+        assert_eq!(
+            TheInGameUI::drain_displayed_messages(Some(&a)),
+            vec!["RADAR:UnderAttack".to_string()]
+        );
+        assert!(TheInGameUI::drain_displayed_messages(Some(&b)).is_empty());
+        // No world, no InGameUI.
+        assert!(TheInGameUI::take_world_animations(None).is_empty());
+    }
+
+    #[test]
     fn object_text_messages_and_floating_text_use_its_own_world() {
         // C++ TheGameText / TheInGameUI of the engine that owns the Object,
         // while another world is published on the same thread.
@@ -1226,13 +1238,13 @@ mod in_game_ui_eva_ownership_tests {
             handles.push(thread::spawn(move || {
                 let services = new_world_services();
                 with_world_services(&services, || {
-                    TheInGameUI::display_message(&format!("msg-{seed}"));
+                    TheInGameUI::display_message_in(&services, &format!("msg-{seed}"));
                     TheEva::set_should_play_in(&services, EvaEvent::LowPower).unwrap();
                     if seed == 1 {
                         TheEva::set_enabled_in(&services, false).unwrap();
                     }
                     barrier.wait();
-                    let msgs = TheInGameUI::drain_displayed_messages();
+                    let msgs = TheInGameUI::drain_displayed_messages(Some(&services));
                     let enabled = TheEva::is_enabled_in(&services).unwrap();
                     let drained = TheEva::drain_events_in(&services).unwrap();
                     results.lock().unwrap().push((seed, msgs, enabled, drained.len()));

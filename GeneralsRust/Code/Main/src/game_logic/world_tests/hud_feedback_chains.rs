@@ -146,11 +146,15 @@ fn defeat_message_routes_localized_to_hud_and_local_defeat_forces_radar_and_chat
     let _guard = hud_feedback_chain_lock();
 
     let mut client = game_client::core::game_client::GameClient::new().expect("GameClient::new");
-    client.set_in_game_ui_subsystem(game_client::core::subsystems::InGameUISubsystem::default());
+    // The client's InGameUI presents its own logic world's messages.
+    let world = gamelogic::system::engine_stores::new_world_services();
+    let mut ui = game_client::core::subsystems::InGameUISubsystem::default();
+    ui.bind_logic_world(&world);
+    client.set_in_game_ui_subsystem(ui);
 
     // The local player has been eliminated (VictoryConditions latch).
     gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(true);
-    gamelogic::helpers::TheInGameUI::display_message("GUI:PlayerHasBeenDefeated Napoleon");
+    gamelogic::helpers::TheInGameUI::display_message_in(&world, "GUI:PlayerHasBeenDefeated Napoleon");
 
     client.drain_logic_hud_messages(0);
 

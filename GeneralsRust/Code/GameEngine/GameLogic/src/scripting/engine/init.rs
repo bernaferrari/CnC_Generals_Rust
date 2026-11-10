@@ -71,6 +71,13 @@ impl ScriptEngine {
         Arc::clone(&self.control_bar_ui_hooks)
     }
 
+    /// The world that built this engine, while it lives.
+    pub(crate) fn owning_world_services(
+        &self,
+    ) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
+        self.owner_world.upgrade()
+    }
+
     /// The Eva of the world that built this engine.
     pub(crate) fn eva_owner(&self) -> &Mutex<crate::helpers::EvaState> {
         &self.eva
@@ -134,6 +141,7 @@ impl ScriptEngine {
             cave_names: Arc::clone(services.scripts().named_objects()),
             named_evac: Arc::clone(services.named_evac_disposition()),
             eva: Arc::clone(services.eva()),
+            owner_world: Arc::downgrade(services),
             control_bar_bridge: Arc::clone(services.control_bar_bridge()),
             control_bar_ui_hooks: Arc::clone(services.control_bar_ui_hooks()),
             subroutine_call_depth: Cell::new(0),

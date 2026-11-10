@@ -1699,7 +1699,7 @@ impl GameLogic {
                     let _ = shroud.reveal_map_for_player_permanently(*player_index as u32);
                 }
 
-                crate::helpers::TheInGameUI::display_message(&format!(
+                crate::helpers::TheInGameUI::display_message_from(self.owning_world_services().as_ref(), &format!(
                     "GUI:PlayerHasBeenDefeated {}",
                     display_name
                 ));

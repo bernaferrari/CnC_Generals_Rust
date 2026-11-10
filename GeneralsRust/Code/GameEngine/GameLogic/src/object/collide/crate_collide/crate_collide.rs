@@ -588,7 +588,15 @@ impl CrateCollide {
         }
 
         let world_pos = crate::common::Coord3D::new(_position.x, _position.y, _position.z);
-        TheInGameUI::add_world_animation(_template, &world_pos, _fades, _duration, _z_rise);
+        let world = self.with_object(|guard| guard.owning_world_services()).ok().flatten();
+        TheInGameUI::add_world_animation(
+            world.as_deref(),
+            _template,
+            &world_pos,
+            _fades,
+            _duration,
+            _z_rise,
+        );
         Ok(())
     }
 
@@ -698,7 +706,6 @@ mod tests {
         fn drop(&mut self) {
             set_logic_frame(0);
             TheGameLogic::set_draw_icon_ui(true);
-            let _ = TheInGameUI::take_world_animations();
         }
     }
 
@@ -815,12 +822,14 @@ mod tests {
         set_logic_frame(777);
         let _frame_reset = LogicFrameReset;
         TheGameLogic::set_draw_icon_ui(true);
-        let _ = TheInGameUI::take_world_animations();
         register_anim2d_template("CratePickupAnimTest");
 
         let template = Arc::new(DefaultThingTemplate::new("CrateAnimObjectTest".to_string()));
         let object = Object::new_with_id(template, 9008, ObjectStatusMaskType::none(), None)
             .expect("crate object");
+        // The crate belongs to its own engine (C++ its GameEngine's TheInGameUI).
+        let world = crate::system::engine_stores::new_world_services();
+        object.write().unwrap().bind_owner_world_for_test(&world);
         {
             let mut guard = object.write().expect("object lock");
             guard
@@ -838,7 +847,7 @@ mod tests {
             .play_execution_animation()
             .expect("execution animation");
 
-        let animations = TheInGameUI::take_world_animations();
+        let animations = TheInGameUI::take_world_animations(Some(&world));
         assert_eq!(animations.len(), 1);
         assert_eq!(animations[0].animation_name, "CratePickupAnimTest");
         assert_eq!(
@@ -858,7 +867,6 @@ mod tests {
         set_logic_frame(778);
         let _frame_reset = LogicFrameReset;
         TheGameLogic::set_draw_icon_ui(true);
-        let _ = TheInGameUI::take_world_animations();
         register_anim2d_template("CratePickupZeroDurationAnimTest");
 
         let template = Arc::new(DefaultThingTemplate::new(
@@ -866,6 +874,9 @@ mod tests {
         ));
         let object = Object::new_with_id(template, 9010, ObjectStatusMaskType::none(), None)
             .expect("crate object");
+        // The crate belongs to its own engine (C++ its GameEngine's TheInGameUI).
+        let world = crate::system::engine_stores::new_world_services();
+        object.write().unwrap().bind_owner_world_for_test(&world);
         let mut data = CrateCollideModuleData::default();
         data.execution_animation_template = "CratePickupZeroDurationAnimTest".to_string();
         data.execute_animation_display_time_seconds = 0.0;
@@ -875,7 +886,7 @@ mod tests {
             .play_execution_animation()
             .expect("execution animation");
 
-        let animations = TheInGameUI::take_world_animations();
+        let animations = TheInGameUI::take_world_animations(Some(&world));
         assert_eq!(animations.len(), 1);
         assert_eq!(
             animations[0].animation_name,
@@ -891,7 +902,6 @@ mod tests {
         let _guard = crate_collide_test_guard();
         let _frame_reset = LogicFrameReset;
         TheGameLogic::set_draw_icon_ui(false);
-        let _ = TheInGameUI::take_world_animations();
         register_anim2d_template("CratePickupDrawIconDisabledTest");
 
         let template = Arc::new(DefaultThingTemplate::new(
@@ -899,6 +909,9 @@ mod tests {
         ));
         let object = Object::new_with_id(template, 9009, ObjectStatusMaskType::none(), None)
             .expect("crate object");
+        // The crate belongs to its own engine (C++ its GameEngine's TheInGameUI).
+        let world = crate::system::engine_stores::new_world_services();
+        object.write().unwrap().bind_owner_world_for_test(&world);
         let mut data = CrateCollideModuleData::default();
         data.execution_animation_template = "CratePickupDrawIconDisabledTest".to_string();
         data.execute_animation_display_time_seconds = 1.0;
@@ -908,7 +921,7 @@ mod tests {
             .play_execution_animation()
             .expect("execution animation");
 
-        assert!(TheInGameUI::take_world_animations().is_empty());
+        assert!(TheInGameUI::take_world_animations(Some(&world)).is_empty());
         OBJECT_REGISTRY.unregister_object(9009);
     }
 }

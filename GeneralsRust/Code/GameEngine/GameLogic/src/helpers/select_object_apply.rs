@@ -11,6 +11,7 @@ impl TheGameLogic {
         can_add_to_group: bool,
         affect_client: bool,
         drawable: Option<Arc<RwLock<crate::object::drawable::Drawable>>>,
+        world: Option<&crate::system::engine_stores::WorldServices>,
     ) {
         use crate::commands::{get_selection_manager, SelectionType};
 
@@ -62,7 +63,7 @@ impl TheGameLogic {
             }
             if affect_client {
                 if let Some(drawable) = drawable.as_ref() {
-                    TheInGameUI::select_drawable(drawable);
+                    TheInGameUI::select_drawable(world, drawable);
                 }
             }
         }
@@ -75,6 +76,7 @@ impl TheGameLogic {
         mask: PlayerMaskType,
         affect_client: bool,
         drawable: Option<Arc<RwLock<crate::object::drawable::Drawable>>>,
+        world: Option<&crate::system::engine_stores::WorldServices>,
     ) {
         use crate::commands::{get_selection_manager, SelectionType};
 
@@ -105,7 +107,7 @@ impl TheGameLogic {
                 actually_removed = player.remove_object_from_current_selection(object_id);
                 if actually_removed && affect_client {
                     if let Some(drawable) = drawable.as_ref() {
-                        TheInGameUI::deselect_drawable(drawable);
+                        TheInGameUI::deselect_drawable(world, drawable);
                     }
                 }
             });

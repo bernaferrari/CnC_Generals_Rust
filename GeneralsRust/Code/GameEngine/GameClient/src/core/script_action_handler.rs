@@ -365,7 +365,8 @@ pub fn apply_pending_script_display_state(
         }
     });
 
-    if let Some(disable) = gamelogic::helpers::TheInGameUI::take_cinematic_input_lock() {
+    let world = ui.logic_world();
+    if let Some(disable) = gamelogic::helpers::TheInGameUI::take_cinematic_input_lock(world.as_deref()) {
         apply_cinematic_input_lock(ui, disable, mouse);
     }
 }

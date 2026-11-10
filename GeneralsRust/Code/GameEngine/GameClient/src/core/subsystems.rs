@@ -1199,6 +1199,9 @@ pub struct PresentationSuperweaponTimerResidual {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
+    /// The logic world bound to this client (C++ the same GameEngine's
+    /// TheInGameUI store); an unbound UI receives nothing from any world.
+    logic_world: Option<std::sync::Weak<gamelogic::system::engine_stores::WorldServices>>,
     /// The owning client's text catalog (`GameClient::ensure_game_text_store`);
     /// C++ TheGameText of this instance.
     pub(crate) game_text: Option<Arc<std::sync::RwLock<GameText>>>,
@@ -1739,6 +1742,19 @@ impl InGameUISubsystem {
     }
 
     /// Bind the owning client's catalog.
+    /// Bind the logic world this client presents.
+    pub fn bind_logic_world(
+        &mut self,
+        world: &Arc<gamelogic::system::engine_stores::WorldServices>,
+    ) {
+        self.logic_world = Some(Arc::downgrade(world));
+    }
+
+    /// The bound logic world, while it lives.
+    pub fn logic_world(&self) -> Option<Arc<gamelogic::system::engine_stores::WorldServices>> {
+        self.logic_world.as_ref().and_then(std::sync::Weak::upgrade)
+    }
+
     pub fn admit_game_text(&mut self, store: Arc<std::sync::RwLock<GameText>>) {
         self.game_text = Some(store);
     }

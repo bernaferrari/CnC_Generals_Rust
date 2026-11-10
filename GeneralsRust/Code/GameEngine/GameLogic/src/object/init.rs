@@ -166,7 +166,7 @@ impl Object {
         let old_index = old_player_id.unwrap_or(-1);
         let new_index = new_player_id.unwrap_or(-1);
         if old_index != new_index {
-            crate::helpers::TheInGameUI::object_changed_team(self.id, old_index, new_index);
+            crate::helpers::TheInGameUI::object_changed_team(self.owning_world_services().as_deref(), self.id, old_index, new_index);
         }
     }
 }

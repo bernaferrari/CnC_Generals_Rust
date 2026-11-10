@@ -1212,7 +1212,9 @@ pub fn idle_worker_system_receiving(
         }
         WindowMessage::None => {
             if effects.input_authority() == ClientInputAuthority::StandaloneCore {
-                let events = gamelogic::helpers::TheInGameUI::take_idle_worker_events();
+                let world = effects.ui().logic_world();
+                let events =
+                    gamelogic::helpers::TheInGameUI::take_idle_worker_events(world.as_deref());
                 let local = ThePlayerList()
                     .read()
                     .ok()

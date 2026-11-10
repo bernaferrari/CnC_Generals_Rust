@@ -331,7 +331,8 @@ impl UpdateModuleInterface for OverchargeBehavior {
 
             if let (Some(owner), Some(local)) = (controlling_player, local_player) {
                 if Arc::ptr_eq(&owner, &local) {
-                    TheInGameUI::display_message("GUI:OverchargeExhausted");
+                    let world = self.with_object(|guard| guard.owning_world_services()).flatten();
+                    TheInGameUI::display_message_from(world.as_ref(), "GUI:OverchargeExhausted");
                     if let Some(radar) = TheRadar::get() {
                         if let Some(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
                             radar.create_event(

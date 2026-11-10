@@ -384,6 +384,9 @@ impl GameClient {
                 visual_world.world_services(),
             );
         }
+        if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+            ui.bind_logic_world(visual_world.world_services());
+        }
         self.visual_world = Some(visual_world);
     }
 
@@ -1148,6 +1151,9 @@ impl GameClient {
             let mut ui = ui;
             ui.set_local_player_id(self.local_player_id);
             ui.admit_game_text(self.ensure_game_text_store());
+            if let Some(handle) = self.visual_world.as_ref() {
+                ui.bind_logic_world(handle.world_services());
+            }
             self.subsystem_manager.in_game_ui = Some(ui);
             // InGameUI.cpp1157 creates this authored transport during UI init;
             // Recorder::initControls later only changes existing visibility.

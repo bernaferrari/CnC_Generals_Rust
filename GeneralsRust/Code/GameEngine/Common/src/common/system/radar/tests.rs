@@ -1899,6 +1899,7 @@ fn under_attack_glow_and_eva_go_to_the_victims_owner() {
     struct Owner {
         glows: u32,
         eva: Vec<String>,
+        messages: Vec<String>,
     }
     impl RadarEventOwner for Owner {
         fn trigger_radar_attack_glow(&mut self) {
@@ -1906,6 +1907,9 @@ fn under_attack_glow_and_eva_go_to_the_victims_owner() {
         }
         fn set_eva_should_play(&mut self, eva_name: &str) {
             self.eva.push(eva_name.to_string());
+        }
+        fn show_radar_message(&mut self, message_key: &str) {
+            self.messages.push(message_key.to_string());
         }
     }
     let _scope = crate::common::common_services::CommonServicesScope::new();

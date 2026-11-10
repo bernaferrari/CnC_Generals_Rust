@@ -564,6 +564,7 @@ impl Object {
                     && game_engine::common::ini::get_anim2d_collection().is_some()
                 {
                     crate::helpers::TheInGameUI::add_world_animation(
+                        self.owning_world_services().as_deref(),
                         &data.level_gain_animation_name,
                         &pos_with_offset,
                         true,

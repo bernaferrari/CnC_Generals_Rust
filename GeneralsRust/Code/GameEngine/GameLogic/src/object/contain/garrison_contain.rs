@@ -1053,7 +1053,7 @@ impl GarrisonContain {
                     .map(|guard| guard.is_selected())
                     .unwrap_or(false);
                 if selected {
-                    TheInGameUI::deselect_drawable(&draw);
+                    TheInGameUI::deselect_drawable(contained.owning_world_services().as_deref(), &draw);
                 }
             }
         }
