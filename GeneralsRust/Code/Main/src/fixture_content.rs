@@ -110,6 +110,14 @@ impl FixtureObject {
         self.weapon("PRIMARY", weapon)
     }
 
+    /// W3DModelDraw DefaultConditionState Model (W3DModelDraw.cpp
+    /// parseConditionState): the Object's authored presentation model.
+    pub(crate) fn model(self, model: &str) -> Self {
+        self.module(format!(
+            "Draw = W3DModelDraw FixtureDraw\n DefaultConditionState\n  Model = {model}\n End\nEnd"
+        ))
+    }
+
     pub(crate) fn instant_death(self) -> Self {
         self.module("Behavior = InstantDeathBehavior FixtureDeath\nEnd")
     }

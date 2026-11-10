@@ -749,7 +749,7 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
     // Criterion: main unit mesh identity comes from PresentationFrame only.
     // Not full W3D retail — proves collect path does not need GameLogic for
     // position/model/selected when a frame is available.
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, Team};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
@@ -758,20 +758,18 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("PresMeshUnit").kind_of("VEHICLE SELECTABLE").health(55.0).walker(),
+            crate::fixture_content::FixtureObject::new("PresMeshUnit")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(55.0)
+                .walker()
+                .model("avhummer"),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("config");
-    let mut t = ThingTemplate::new("PresMeshUnit");
-    t.set_health(55.0);
-    t.set_model("avhummer");
-    t.add_kind_of(KindOf::Vehicle);
-    t.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("PresMeshUnit".into(), t);
     let id = logic
         .create_object("PresMeshUnit", Team::USA, Vec3::new(15.0, 0.0, -3.0))
         .expect("unit");
-    if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
+    if let Some(o) = logic.host_object_mut(id) {
         o.selected = true;
         o.status.selected = true;
         o.selection_radius = 14.0;
