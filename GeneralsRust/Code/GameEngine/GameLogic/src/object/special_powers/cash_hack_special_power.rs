@@ -26,8 +26,13 @@ use crate::helpers::{TheGameLogic, TheGameText, TheInGameUI};
 use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::SpecialPowerModuleData;
 
-fn format_gui_cash(key: &str, amount: u32, fallback_prefix: &str) -> String {
-    let template = TheGameText::fetch(key);
+fn format_gui_cash(
+    world: Option<&std::sync::Arc<crate::system::engine_stores::WorldServices>>,
+    key: &str,
+    amount: u32,
+    fallback_prefix: &str,
+) -> String {
+    let template = TheGameText::fetch_from(world, key);
     if template.contains("%d") || template.contains("%i") || template.contains("%u") {
         template
             .replace("%d", &amount.to_string())
@@ -265,13 +270,16 @@ impl CashHackSpecialPower {
                 .add_money_earned(cash);
         }
 
+        // C++ TheGameText / TheInGameUI of the engine that owns the hacker.
+        let world = owner.read().ok().and_then(|guard| guard.owning_world_services());
         // Display floating text: cash gained (green) over the hacker
         // C++: moneyString.format(TheGameText->fetch("GUI:AddCash"), cash)
         {
             let mut gain_pos = self_pos;
             gain_pos.z += 20.0; // C++: pos.z += 20.0f
-            if let Err(err) = TheInGameUI::add_floating_text(
-                &format_gui_cash("GUI:AddCash", cash, "+"),
+            TheInGameUI::add_floating_text_from(
+                world.as_ref(),
+                &format_gui_cash(world.as_ref(), "GUI:AddCash", cash, "+"),
                 &gain_pos,
                 crate::common::Color {
                     r: 0,
@@ -279,9 +287,7 @@ impl CashHackSpecialPower {
                     b: 0,
                     a: 255,
                 }, // green
-            ) {
-                warn!("Failed to add cash hack gain floating text: {err}");
-            }
+            );
         }
 
         // Display floating text: cash lost (red) over the target
@@ -289,8 +295,9 @@ impl CashHackSpecialPower {
         {
             let mut loss_pos = victim_pos;
             loss_pos.z += 30.0; // C++: pos.z += 30.0f
-            if let Err(err) = TheInGameUI::add_floating_text(
-                &format_gui_cash("GUI:LoseCash", cash, "-"),
+            TheInGameUI::add_floating_text_from(
+                world.as_ref(),
+                &format_gui_cash(world.as_ref(), "GUI:LoseCash", cash, "-"),
                 &loss_pos,
                 crate::common::Color {
                     r: 255,
@@ -298,9 +305,7 @@ impl CashHackSpecialPower {
                     b: 0,
                     a: 255,
                 }, // red
-            ) {
-                warn!("Failed to add cash hack loss floating text: {err}");
-            }
+            );
         }
 
         Ok(())

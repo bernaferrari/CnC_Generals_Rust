@@ -709,7 +709,7 @@ impl HackInternetAIUpdate {
         }
 
         if display_money {
-            let caption = format_add_cash(amount as Int);
+            let caption = format_add_cash(&owner_guard, amount as Int);
             let mut pos = *owner_guard.get_position();
             pos.z += 20.0;
 
@@ -726,7 +726,7 @@ impl HackInternetAIUpdate {
                 );
             }
 
-            let _ = TheInGameUI::add_floating_text(&caption, &pos, Color::new(0, 255, 0, 255));
+            TheInGameUI::add_floating_text_for(&owner_guard, &caption, &pos, Color::new(0, 255, 0, 255));
         }
 
         if let Some(mut sound) = owner_guard
@@ -940,8 +940,8 @@ fn hack_internet_command_params_from_storage(storage: &AICommandParmsStorage) ->
     params
 }
 
-fn format_add_cash(amount: Int) -> String {
-    let template = TheGameText::fetch("GUI:AddCash");
+fn format_add_cash(object: &crate::object::Object, amount: Int) -> String {
+    let template = TheGameText::fetch_for(object, "GUI:AddCash");
     if template.contains("%d") || template.contains("%i") {
         template
             .replace("%d", &amount.to_string())

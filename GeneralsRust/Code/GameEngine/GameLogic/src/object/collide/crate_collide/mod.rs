@@ -135,17 +135,19 @@ pub(crate) fn format_cash_template(template: &str, amount: u32, fallback_prefix:
         .unwrap_or_else(|| format!("{fallback_prefix}${amount}"))
 }
 
-pub(crate) fn format_add_cash(amount: u32) -> String {
+/// `GUI:AddCash` from TheGameText of the engine that owns `object`.
+pub(crate) fn format_add_cash(object: &crate::object::Object, amount: u32) -> String {
     format_cash_template(
-        &crate::helpers::TheGameText::fetch("GUI:AddCash"),
+        &crate::helpers::TheGameText::fetch_for(object, "GUI:AddCash"),
         amount,
         "+",
     )
 }
 
-pub(crate) fn format_lose_cash(amount: u32) -> String {
+/// `GUI:LoseCash` from TheGameText of the engine that owns `object`.
+pub(crate) fn format_lose_cash(object: &crate::object::Object, amount: u32) -> String {
     format_cash_template(
-        &crate::helpers::TheGameText::fetch("GUI:LoseCash"),
+        &crate::helpers::TheGameText::fetch_for(object, "GUI:LoseCash"),
         amount,
         "-",
     )

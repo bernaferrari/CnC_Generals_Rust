@@ -1075,6 +1075,23 @@ impl TheGameText {
     pub fn fetch(key: &str) -> String {
         crate::system::engine_stores::active_services().fetch_game_text(key)
     }
+
+    /// C++ `TheGameText->fetch` of the GameEngine that owns `object`.
+    pub fn fetch_for(object: &crate::object::Object, key: &str) -> String {
+        Self::fetch_from(object.owning_world_services().as_ref(), key)
+    }
+
+    /// `TheGameText` of `world`; with no owning world there is no catalog,
+    /// so the label stays as its own text (GameText.cpp missing-label rule).
+    pub fn fetch_from(
+        world: Option<&Arc<crate::system::engine_stores::WorldServices>>,
+        key: &str,
+    ) -> String {
+        match world {
+            Some(world) => world.fetch_game_text(key),
+            None => key.trim().to_string(),
+        }
+    }
 }
 
 impl crate::system::engine_stores::WorldServices {

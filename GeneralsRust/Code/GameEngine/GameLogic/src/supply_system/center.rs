@@ -119,7 +119,7 @@ impl SupplyCenterDockUpdate {
             // Hide only when the *center* is STEALTHED, not locally controlled, not DETECTED.
             if !hide_stealth_cash {
                 if let Some(ui) = &self.ui_system {
-                    let text = format_gui_add_cash(value);
+                    let text = format_gui_add_cash_with(&ui.fetch_game_text("GUI:AddCash"), value);
                     let pos = Coord3D {
                         x: docker_position.x,
                         y: docker_position.y,

@@ -175,6 +175,67 @@ impl TheInGameUI {
         Vec::new()
     }
 
+    /// C++ `TheInGameUI->message` of `world`'s engine.
+    pub fn display_message_in(world: &crate::system::engine_stores::WorldServices, message: &str) {
+        if let Ok(mut state) = world.in_game_ui().write() {
+            state.messages.push(message.to_string());
+        }
+        log::info!("UI Message: {}", message);
+    }
+
+    /// `TheInGameUI->message` of the engine that owns `object`; an Object of
+    /// no world has no InGameUI to show it.
+    pub fn display_message_for(object: &crate::object::Object, message: &str) {
+        Self::display_message_from(object.owning_world_services().as_ref(), message);
+    }
+
+    pub fn display_message_from(
+        world: Option<&Arc<crate::system::engine_stores::WorldServices>>,
+        message: &str,
+    ) {
+        if let Some(world) = world {
+            Self::display_message_in(world, message);
+        }
+    }
+
+    /// C++ `TheInGameUI->addFloatingText` of `world`'s engine.
+    pub fn add_floating_text_in(
+        world: &crate::system::engine_stores::WorldServices,
+        text: &str,
+        position: &Coord3D,
+        color: crate::common::Color,
+    ) {
+        if let Ok(mut state) = world.in_game_ui().write() {
+            state.floating_texts.push(FloatingTextEntry {
+                text: text.to_string(),
+                position: *position,
+                color,
+                created_frame: TheGameLogic::get_frame(),
+            });
+        }
+    }
+
+    /// `addFloatingText` of the engine that owns `object`.
+    pub fn add_floating_text_for(
+        object: &crate::object::Object,
+        text: &str,
+        position: &Coord3D,
+        color: crate::common::Color,
+    ) {
+        Self::add_floating_text_from(object.owning_world_services().as_ref(), text, position, color);
+    }
+
+    pub fn add_floating_text_from(
+        world: Option<&Arc<crate::system::engine_stores::WorldServices>>,
+        text: &str,
+        position: &Coord3D,
+        color: crate::common::Color,
+    ) {
+        if let Some(world) = world {
+            Self::add_floating_text_in(world, text, position, color);
+        }
+    }
+
     /// Display a message to the player.
     /// Matches C++ InGameUI message display functionality
     pub fn display_message(message: &str) {
@@ -1054,6 +1115,55 @@ mod in_game_ui_eva_ownership_tests {
     use crate::system::engine_stores::{new_world_services, with_world_services};
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
+
+    #[test]
+    fn object_text_messages_and_floating_text_use_its_own_world() {
+        // C++ TheGameText / TheInGameUI of the engine that owns the Object,
+        // while another world is published on the same thread.
+        let a = new_world_services();
+        let b = new_world_services();
+        a.map_string_overlay()
+            .write()
+            .unwrap()
+            .insert("GUI:AddCash".into(), "A+$%d".into());
+        b.map_string_overlay()
+            .write()
+            .unwrap()
+            .insert("GUI:AddCash".into(), "B+$%d".into());
+        let mut object = crate::object::Object::new_test_from_template(
+            9101,
+            100.0,
+            Arc::new(crate::common::DefaultThingTemplate::new("TextOwner".into())),
+        );
+        object.bind_owner_world_for_test(&a);
+        let orphan = crate::object::Object::new_test_from_template(
+            9102,
+            100.0,
+            Arc::new(crate::common::DefaultThingTemplate::new("TextOrphan".into())),
+        );
+        with_world_services(&b, || {
+            assert_eq!(
+                crate::object::collide::crate_collide::format_add_cash(&object, 5),
+                "A+$5"
+            );
+            TheInGameUI::display_message_for(&object, "owned");
+            TheInGameUI::add_floating_text_for(
+                &object,
+                "A+$5",
+                &Coord3D::new(0.0, 0.0, 0.0),
+                crate::common::Color::white(),
+            );
+            // An Object of no world has no catalog and no InGameUI.
+            assert_eq!(TheGameText::fetch_for(&orphan, "GUI:AddCash"), "GUI:AddCash");
+            TheInGameUI::display_message_for(&orphan, "orphan");
+        });
+        let ui = |w: &Arc<crate::system::engine_stores::WorldServices>| {
+            let state = w.in_game_ui().read().unwrap();
+            (state.messages.clone(), state.floating_texts.len())
+        };
+        assert_eq!(ui(&a), (vec!["owned".to_string()], 1));
+        assert_eq!(ui(&b), (Vec::<String>::new(), 0));
+    }
 
     #[test]
     fn same_thread_worlds_keep_explicit_eva_queues_apart() {

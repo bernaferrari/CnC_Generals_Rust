@@ -566,9 +566,12 @@ impl SalvageCrateCollide {
             (position, color)
         };
 
-        let caption = format_add_cash(amount);
-        TheInGameUI::add_floating_text(&caption, &position, color)
-            .map_err(|err| CollisionError::InvalidObject(err.to_string()))
+        let guard = object
+            .read()
+            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
+        let caption = format_add_cash(&guard, amount);
+        TheInGameUI::add_floating_text_for(&guard, &caption, &position, color);
+        Ok(())
     }
 
     fn money_floating_text_position(

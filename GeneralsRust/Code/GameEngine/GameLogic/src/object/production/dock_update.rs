@@ -1465,7 +1465,9 @@ impl SupplyCenterDockUpdate {
                 pos.z = TheTerrainLogic::get()
                     .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
                     .unwrap_or(pos.z);
-                let template = TheGameText::fetch("GUI:AddCash");
+                // C++ TheGameText / TheInGameUI of the docker's engine.
+                let world = obj.read().ok().and_then(|guard| guard.owning_world_services());
+                let template = TheGameText::fetch_from(world.as_ref(), "GUI:AddCash");
                 let text = if template.contains("%d") {
                     template.replace("%d", &value.to_string())
                 } else if template.contains("%i") {
@@ -1496,7 +1498,7 @@ impl SupplyCenterDockUpdate {
                     Color::white()
                 };
 
-                let _ = TheInGameUI::add_floating_text(&text, &pos, color);
+                TheInGameUI::add_floating_text_from(world.as_ref(), &text, &pos, color);
             }
         }
 

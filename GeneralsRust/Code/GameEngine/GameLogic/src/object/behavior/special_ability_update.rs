@@ -1406,11 +1406,17 @@ impl SpecialAbilityUpdate {
                         })
                     });
 
+                    // C++ TheGameText / TheInGameUI of the engine running this
+                    // module: the world that admitted the hacker.
+                    let world = self
+                        .with_object(|owner_guard| owner_guard.owning_world_services())
+                        .flatten();
                     if let Some(mut pos) = self.with_object(|owner_guard| *owner_guard.get_position())
                     {
                         pos.z += 20.0;
-                        let text = TheGameText::fetch("GUI:AddCash");
-                        let _ = TheInGameUI::add_floating_text(
+                        let text = TheGameText::fetch_from(world.as_ref(), "GUI:AddCash");
+                        TheInGameUI::add_floating_text_from(
+                            world.as_ref(),
                             &format!("{} {}", text, cash),
                             &pos,
                             Color::rgb(0, 255, 0),
@@ -1419,8 +1425,9 @@ impl SpecialAbilityUpdate {
 
                     let mut tpos = *target_guard.get_position();
                     tpos.z += 30.0;
-                    let text = TheGameText::fetch("GUI:LoseCash");
-                    let _ = TheInGameUI::add_floating_text(
+                    let text = TheGameText::fetch_from(world.as_ref(), "GUI:LoseCash");
+                    TheInGameUI::add_floating_text_from(
+                        world.as_ref(),
                         &format!("{} {}", text, cash),
                         &tpos,
                         Color::rgb(255, 0, 0),

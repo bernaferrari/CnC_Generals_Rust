@@ -47,6 +47,8 @@ pub trait UISystem: Send + Sync {
     /// Matches C++ TheInGameUI->addFloatingText(moneys, &pos, color)
     /// From SupplyCenterDockUpdate.cpp:136 and AutoDepositUpdate.cpp:186
     fn add_floating_text(&self, text: &str, position: &Coord3D, color: Color);
+    /// C++ `TheGameText->fetch` of the engine this UI belongs to.
+    fn fetch_game_text(&self, key: &str) -> String;
 }
 
 /// Academy stats tracking interface
@@ -76,9 +78,18 @@ pub trait UpgradeSystem: Send + Sync {
 
 pub use crate::common::Coord3D;
 
-/// C++ `TheGameText->fetch("GUI:AddCash")` formatted with the deposit value.
-pub fn format_gui_add_cash(value: u32) -> String {
-    let template = crate::helpers::TheGameText::fetch("GUI:AddCash");
+/// C++ `TheGameText->fetch("GUI:AddCash")` of `world`'s engine, formatted
+/// with the deposit value.
+pub fn format_gui_add_cash(
+    world: Option<&std::sync::Arc<crate::system::engine_stores::WorldServices>>,
+    value: u32,
+) -> String {
+    format_gui_add_cash_with(&crate::helpers::TheGameText::fetch_from(world, "GUI:AddCash"), value)
+}
+
+/// Format an already fetched `GUI:AddCash` template with the deposit value.
+pub fn format_gui_add_cash_with(template: &str, value: u32) -> String {
+    let template = template.to_string();
     if template.contains("%d") {
         template.replace("%d", &value.to_string())
     } else if template.contains("%i") {

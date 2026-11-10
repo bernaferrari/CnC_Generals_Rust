@@ -472,8 +472,11 @@ impl Player {
             let (x, y, z) = killer.bounty_anchor();
             let mut pos = crate::common::Coord3D::new(x, y, z);
             pos.z += 10.0;
-            let text = crate::supply_system::format_gui_add_cash(bounty as u32);
-            let _ = crate::helpers::TheInGameUI::add_floating_text(
+            // C++ TheGameText / TheInGameUI of the engine that owns this Player.
+            let world = self.owning_world_services();
+            let text = crate::supply_system::format_gui_add_cash(world.as_ref(), bounty as u32);
+            crate::helpers::TheInGameUI::add_floating_text_from(
+                world.as_ref(),
                 &text,
                 &pos,
                 crate::common::Color {

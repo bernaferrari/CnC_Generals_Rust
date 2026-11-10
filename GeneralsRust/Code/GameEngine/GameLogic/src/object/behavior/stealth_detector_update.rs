@@ -104,7 +104,10 @@ fn emit_first_detection_feedback(
             if let Some(player_id) = detector.get_controlling_player_id() {
                 play_misc_stealth_sound(true, player_id as i32);
             }
-            TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthDiscovered"));
+            TheInGameUI::display_message_for(
+                detector,
+                &TheGameText::fetch_for(detector, "MESSAGE:StealthDiscovered"),
+            );
             if let Ok(stealth_guard) = stealth.lock() {
                 if let Some(name) = stealth_guard.enemy_detection_eva_event() {
                     if let Some(event) = eva_event_from_name(&name) {
@@ -134,7 +137,10 @@ fn emit_first_detection_feedback(
             if let Some(player_id) = target.get_controlling_player_id() {
                 play_misc_stealth_sound(false, player_id as i32);
             }
-            TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthNeutralized"));
+            TheInGameUI::display_message_for(
+                target,
+                &TheGameText::fetch_for(target, "MESSAGE:StealthNeutralized"),
+            );
             if let Ok(stealth_guard) = stealth.lock() {
                 if let Some(name) = stealth_guard.own_detection_eva_event() {
                     if let Some(event) = eva_event_from_name(&name) {

@@ -937,8 +937,9 @@ impl WorkerAIUpdate {
                         .map(|body| body.get_health() == body.get_max_health())
                         .unwrap_or(false);
                     if already_full {
-                        let message = crate::helpers::TheGameText::fetch("DOZER:RepairComplete");
-                        crate::helpers::TheInGameUI::display_message(&message);
+                        // C++ TheGameText / TheInGameUI of the dozer's engine.
+                        let message = crate::helpers::TheGameText::fetch_for(&owner_guard, "DOZER:RepairComplete");
+                        crate::helpers::TheInGameUI::display_message_for(&owner_guard, &message);
                         if target_is_bridge_tower {
                             Self::remove_bridge_scaffolding(task.target_id);
                         }
@@ -1185,13 +1186,13 @@ impl WorkerAIUpdate {
         if let Ok(owner_guard) = owner.read() {
             if owner_guard.is_locally_controlled() {
                 if let Some(display_name) = target_display_name.as_ref() {
-                    let format = crate::helpers::TheGameText::fetch("DOZER:ConstructionComplete");
+                    let format = crate::helpers::TheGameText::fetch_for(&owner_guard, "DOZER:ConstructionComplete");
                     let message = if format.contains("%s") {
                         format.replace("%s", display_name)
                     } else {
                         format!("{} {}", format, display_name)
                     };
-                    crate::helpers::TheInGameUI::display_message(&message);
+                    crate::helpers::TheInGameUI::display_message_for(&owner_guard, &message);
                 }
 
                 if let Some(voice) = owner_guard

@@ -153,21 +153,26 @@ impl AutoDepositUpdate {
             .get_score_keeper_mut()
             .add_money_earned(data.initial_capture_bonus as u32);
 
-        let text = format_add_cash(data.initial_capture_bonus);
-        let mut pos = (if self.object_id == crate::common::INVALID_ID {
+        let object = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
-        .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+        };
+        // C++ TheGameText / TheInGameUI of the engine that owns this Object.
+        let world = object
+            .as_ref()
+            .and_then(|obj| obj.read().ok().and_then(|g| g.owning_world_services()));
+        let text = format_add_cash(world.as_ref(), data.initial_capture_bonus);
+        let mut pos = object
+            .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
+            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
         pos.z += 10.0;
 
         let mut color = player_guard.get_player_color();
         color.a = 230;
         drop(player_guard);
-        let _ = TheInGameUI::add_floating_text(&text, &pos, color);
+        TheInGameUI::add_floating_text_from(world.as_ref(), &text, &pos, color);
 
         self.award_initial_capture_bonus = false;
     }
@@ -311,7 +316,8 @@ impl UpdateModuleInterface for AutoDepositUpdate {
 
             // Display floating text. Matches C++ lines 162-188
             if display_money {
-                let text = format_add_cash(money_amount);
+                let world = obj_read.owning_world_services();
+                let text = format_add_cash(world.as_ref(), money_amount);
                 let mut pos = *obj_read.get_position();
                 pos.z += 10.0;
 
@@ -326,7 +332,7 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                 obj_read.with_controlling_player(|player_guard| {
                     let mut color = player_guard.get_player_color();
                     color.a |= 230;
-                    let _ = TheInGameUI::add_floating_text(&text, &pos, color);
+                    TheInGameUI::add_floating_text_from(world.as_ref(), &text, &pos, color);
                 });
             }
         }
@@ -576,8 +582,11 @@ const AUTO_DEPOSIT_UPDATE_FIELDS: &[FieldParse<AutoDepositUpdateModuleData>] = &
     },
 ];
 
-fn format_add_cash(amount: Int) -> String {
-    let template = TheGameText::fetch("GUI:AddCash");
+fn format_add_cash(
+    world: Option<&Arc<crate::system::engine_stores::WorldServices>>,
+    amount: Int,
+) -> String {
+    let template = TheGameText::fetch_from(world, "GUI:AddCash");
     if template.contains("%d") || template.contains("%i") {
         template
             .replace("%d", &amount.to_string())

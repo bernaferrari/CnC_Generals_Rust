@@ -98,11 +98,16 @@ fn stop_audio(event: &mut AudioEventRts) {
     event.set_playing_handle(0);
 }
 
-fn display_plan_message(label: &str) {
+/// C++ `TheInGameUI->message(TheGameText->fetch(label))` of the engine that
+/// owns the battle plan structure.
+fn display_plan_message(
+    world: Option<&std::sync::Arc<crate::system::engine_stores::WorldServices>>,
+    label: &str,
+) {
     if label.is_empty() {
         return;
     }
-    TheInGameUI::display_message(&TheGameText::fetch(label));
+    TheInGameUI::display_message_from(world, &TheGameText::fetch_from(world, label));
 }
 
 #[repr(i32)]
@@ -686,7 +691,9 @@ impl BattlePlanUpdate {
 
         let mut object_id = self.object_id;
         let mut position = None;
+        let mut world = None;
         self.with_object_mut(|object| {
+            world = object.owning_world_services();
             if let Some(door) = door {
                 object.set_model_condition_state(door);
                 object.set_animation_loop_duration(frames);
@@ -704,7 +711,7 @@ impl BattlePlanUpdate {
                     BATTLE_PLAN_RADAR_EVENT_SECONDS,
                 );
             }
-            display_plan_message(&message_label);
+            display_plan_message(world.as_ref(), &message_label);
             match self.current_plan {
                 BattlePlanStatus::Bombardment => {
                     play_object_audio(&mut self.bombardment_unpack, object_id);

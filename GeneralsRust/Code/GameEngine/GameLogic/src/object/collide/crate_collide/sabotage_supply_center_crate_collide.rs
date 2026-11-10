@@ -460,18 +460,18 @@ impl SabotageSupplyCenterCrateCollide {
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
 
         // Display cash income floating over the saboteur
-        let money_string = super::format_add_cash(cash_amount);
+        let money_string = super::format_add_cash(&object_lock, cash_amount);
         let mut pos = *object_lock.get_position();
         pos.z += 20.0; // Add a little z to make it show up above the unit
         let green_color = Color::new(0, 255, 0, 255);
-        TheInGameUI::add_floating_text(&money_string, &pos, green_color)?;
+        TheInGameUI::add_floating_text_for(&object_lock, &money_string, &pos, green_color);
 
         // Display cash lost floating over the target
-        let loss_string = super::format_lose_cash(cash_amount);
+        let loss_string = super::format_lose_cash(&object_lock, cash_amount);
         let mut target_pos = *other_lock.get_position();
         target_pos.z += 30.0; // Add a little z to make it show up above the unit
         let red_color = Color::new(255, 0, 0, 255);
-        TheInGameUI::add_floating_text(&loss_string, &target_pos, red_color)?;
+        TheInGameUI::add_floating_text_for(&object_lock, &loss_string, &target_pos, red_color);
 
         Ok(())
     }

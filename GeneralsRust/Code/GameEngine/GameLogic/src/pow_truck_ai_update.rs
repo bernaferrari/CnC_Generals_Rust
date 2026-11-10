@@ -37,8 +37,8 @@ fn prisoner_calc_cost_to_build(prisoner: &Object) -> f32 {
 }
 
 /// C++ `moneyString.format(TheGameText->fetch("GUI:AddCash"), bounty)`.
-fn format_gui_add_cash(amount: u32) -> String {
-    let template = TheGameText::fetch("GUI:AddCash");
+fn format_gui_add_cash(object: &crate::object::Object, amount: u32) -> String {
+    let template = TheGameText::fetch_for(object, "GUI:AddCash");
     if template.contains("%d") || template.contains("%i") || template.contains("%u") {
         template
             .replace("%d", &amount.to_string())
@@ -1091,8 +1091,8 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                 let color = TheGlobalData::get()
                     .map(|gd| gd.get_prison_bounty_text_color())
                     .unwrap_or_else(crate::common::Color::white);
-                let text = format_gui_add_cash(bounty);
-                let _ = TheInGameUI::add_floating_text(&text, &pos, color);
+                let text = format_gui_add_cash(&prison_guard, bounty);
+                TheInGameUI::add_floating_text_for(&prison_guard, &text, &pos, color);
             }
         }
 
