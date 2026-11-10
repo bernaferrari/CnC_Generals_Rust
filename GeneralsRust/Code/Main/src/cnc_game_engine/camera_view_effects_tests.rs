@@ -387,23 +387,23 @@ fn receiving_impulse_component_ignores_hostile_core_and_interleaved_peer() {
         module_path!(),
         "receiving_impulse_component_ignores_hostile_core_and_interleaved_peer",
         || {
-            use game_client::display::view::{CameraShakeType, Point3};
+            use game_client::display::view::{CameraShakeType, Point3, View};
             let mut rules = game_engine::common::global_data::read().clone();
             rules.shake_normal_intensity = 2.;
             rules.max_shake_intensity = 100.;
-            game_client::display::view::with_tactical_view(|view| {
-                view.reset_camera_shake();
-                view.set_position(&Point3::origin());
-                view.shake_with_services(
-                    &Point3::origin(),
-                    CameraShakeType::Normal,
-                    &rules,
-                    &mut |_, _| 0.,
-                );
-                view.tick_impulse_shake();
-                let hostile = view.impulse_shake_offset();
-                assert!(hostile.x != 0. || hostile.y != 0.);
-            });
+            // Another client's own Core view, shaking while this owner advances.
+            let mut hostile = View::new();
+            hostile.init();
+            hostile.set_position(&Point3::origin());
+            hostile.shake_with_services(
+                &Point3::origin(),
+                CameraShakeType::Normal,
+                &rules,
+                &mut |_, _| 0.,
+            );
+            hostile.tick_impulse_shake();
+            let hostile_offset = hostile.impulse_shake_offset();
+            assert!(hostile_offset.x != 0. || hostile_offset.y != 0.);
             let mut owner = LocalView::new().view;
             let mut reference = LocalView::new().view;
             let mut peer = LocalView::new().view;
@@ -415,9 +415,7 @@ fn receiving_impulse_component_ignores_hostile_core_and_interleaved_peer() {
                 assert_eq!(owner.impulse.intensity, reference.impulse.intensity);
                 assert_eq!(owner.impulse.offset, reference.impulse.offset);
             }
-            game_client::display::view::with_tactical_view_ref(|view| {
-                assert!(view.camera_shake_intensity() > 0.);
-            });
+            assert!(hostile.camera_shake_intensity() > 0.);
         },
     );
 }

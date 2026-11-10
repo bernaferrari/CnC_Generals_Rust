@@ -26,8 +26,11 @@ impl game_client::fx_list::FXNugget for Observe {
         self.0.send(()).unwrap();
     }
 }
-fn world() -> (GameLogic, crate::game_logic::ObjectId) {
+/// C++ GameEngine::init loads FXList.ini into the session's FX store before
+/// any Object exists (GameEngine.cpp:428-458); each world admits its own.
+fn world(catalog: &game_client::fx_list::FXListStore) -> (GameLogic, crate::game_logic::ObjectId) {
     let mut world = GameLogic::new();
+    world.admit_receiving_fx_catalog(catalog.clone()).unwrap();
     world.admit_receiving_module_content(
         crate::assets::ReceivingObjectContent::from_sources([(
             "native-companion-die.ini".into(),
@@ -61,12 +64,11 @@ fn native_die_camera_companion_archive_restores_view_height_and_receipts_without
             let (sender, events) = std::sync::mpsc::channel();
             let mut list = game_client::fx_list::FXList::from_definition(&definition);
             list.add_fx_nugget(Box::new(Observe(sender)));
-            game_client::fx_list::with_fx_list_store_mut(|s| {
-                s.add_fx_list("FX_NativeCompanionDie".into(), list);
-            });
-            let (mut source, id) = world();
-            let (mut receiving, same_id) = world();
-            let (mut peer, peer_id) = world();
+            let mut catalog = game_client::fx_list::FXListStore::new();
+            catalog.add_fx_list("FX_NativeCompanionDie".into(), list);
+            let (mut source, id) = world(&catalog);
+            let (mut receiving, same_id) = world(&catalog);
+            let (mut peer, peer_id) = world(&catalog);
             assert_eq!(id, same_id);
             assert_eq!(id, peer_id);
             peer.session_view.target = Vec3::splat(77.);

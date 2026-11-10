@@ -1400,7 +1400,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
                 flush_recorder_and_replay_authority, stamp_host_logic_frame,
             };
             use game_engine::common::message_stream::{
-                Coord3D, GameMessage, GameMessageType, get_message_stream,
+                Coord3D, GameMessage, GameMessageType,
             };
             use std::sync::{
                 Arc,
@@ -1422,8 +1422,9 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
                 .unwrap()
                 .retain_messages(|_| false);
             {
-                let stream = get_message_stream();
-                let mut stream = stream.write().unwrap();
+                // The receiving client's own message stream (C++ the client
+                // owns TheMessageStream's producer side for its GameClient).
+                let stream = client.message_stream_mut();
                 stream.clear_messages();
                 let first = stream.append_message(GameMessageType::DoStop);
                 first.set_player_index(0);

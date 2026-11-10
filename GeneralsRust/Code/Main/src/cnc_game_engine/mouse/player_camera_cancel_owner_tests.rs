@@ -40,23 +40,21 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
         module_path!(),
         "receiving_player_cancel_scopes_preserve_peer_and_foreign_core",
         || {
-            use game_client::display::view::{with_tactical_view, with_tactical_view_ref};
-            with_tactical_view(|view| {
-                view.rotate_camera(1., 3000, 0., 0.);
-                view.zoom_camera(2., 4000, 0., 0.);
-                view.set_camera_lock(Some(812));
-                view.set_camera_lock_drawable(Some(913));
-            });
-            let core = || {
-                with_tactical_view_ref(|view| {
-                    (
-                        view.is_camera_movement_finished(),
-                        view.camera_lock_id(),
-                        view.camera_lock_drawable_id(),
-                    )
-                })
+            // Another client's own Core view with a live move and lock.
+            let mut foreign_view = game_client::display::view::View::new();
+            foreign_view.init();
+            foreign_view.rotate_camera(1., 3000, 0., 0.);
+            foreign_view.zoom_camera(2., 4000, 0., 0.);
+            foreign_view.set_camera_lock(Some(812));
+            foreign_view.set_camera_lock_drawable(Some(913));
+            let core = |view: &game_client::display::view::View| {
+                (
+                    view.is_camera_movement_finished(),
+                    view.camera_lock_id(),
+                    view.camera_lock_drawable_id(),
+                )
             };
-            let foreign = core();
+            let foreign = core(&foreign_view);
             assert_eq!(foreign, (false, Some(812), Some(913)));
             let peer = owner();
             let peer_before = peer.capture_camera_continuation().unwrap();
@@ -129,7 +127,7 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
                 "setCameraLock(INVALID) does not cancel waypoint path"
             );
             assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
-            assert_eq!(core(), foreign);
+            assert_eq!(core(&foreign_view), foreign);
         },
     );
 }

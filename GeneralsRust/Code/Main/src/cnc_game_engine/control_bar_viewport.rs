@@ -900,6 +900,8 @@ mod receiving_observer_roster_tests {
             human.resources.supplies = if name == "Receiving" { 500 } else { 900 };
             let mut infantry_score = game_engine::common::rts::score_keeper::KindOfMaskType::new();
             infantry_score.set(game_engine::common::rts::score_keeper::KindOf::Infantry);
+            // ScoreKeeper.cpp:252-261 counts a unit kill only for SCORE units.
+            infantry_score.set(game_engine::common::rts::score_keeper::KindOf::Score);
             human
                 .statistics
                 .record_destroyed("FixtureInfantry", &infantry_score, 0, false);
