@@ -3,7 +3,6 @@
 //! Used by volumetric shadow `constructVolumeVB` to allocate same-size slots
 //! from a small set of large GPU buffers and recycle them after device reset.
 
-use std::sync::{LazyLock, Mutex};
 
 pub const MAX_FVF: usize = 18;
 pub const MAX_VB_SIZES: usize = 128;
@@ -359,14 +358,6 @@ impl W3DBufferManager {
     pub fn re_acquire_resources(&mut self) -> bool {
         true
     }
-}
-
-static THE_W3D_BUFFER_MANAGER: LazyLock<Mutex<W3DBufferManager>> =
-    LazyLock::new(|| Mutex::new(W3DBufferManager::new()));
-
-/// C++ `TheW3DBufferManager`.
-pub fn the_w3d_buffer_manager() -> &'static Mutex<W3DBufferManager> {
-    &THE_W3D_BUFFER_MANAGER
 }
 
 #[cfg(test)]

@@ -17,18 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::{sync::RwLock, task};
-
-static CRATE_TEXTURE_REDUCTION: AtomicU32 = AtomicU32::new(0);
-
-pub fn set_crate_texture_reduction(factor: u32) {
-    CRATE_TEXTURE_REDUCTION.store(factor.min(4), Ordering::Relaxed);
-}
-
-fn crate_texture_reduction() -> u32 {
-    CRATE_TEXTURE_REDUCTION.load(Ordering::Relaxed)
-}
 
 use wgpu::{
     AddressMode, CompareFunction, Device, Extent3d, FilterMode, Origin3d, Queue, Sampler,
@@ -376,6 +365,10 @@ pub struct W3DTextureManager {
 
     /// Performance statistics
     stats: Arc<RwLock<TextureManagerStats>>,
+
+    /// C++ `WW3D::_TextureReduction` (ww3d.cpp:140, starts at 0), owned by
+    /// this manager instead of a process-wide atomic.
+    texture_reduction: u32,
 }
 
 /// GPU texture resource with complete wgpu integration
@@ -835,7 +828,18 @@ impl W3DTextureManager {
                 memory_budget,
                 ..Default::default()
             })),
+            texture_reduction: 0,
         })
+    }
+
+    /// C++ `WW3D::Set_Texture_Reduction` (ww3d.cpp:1677-1684).
+    pub fn set_texture_reduction(&mut self, factor: u32) {
+        self.texture_reduction = factor.min(4);
+    }
+
+    /// C++ `WW3D::Get_Texture_Reduction`.
+    pub fn texture_reduction(&self) -> u32 {
+        self.texture_reduction
     }
 
     /// Load texture from file with streaming support
@@ -943,7 +947,7 @@ impl W3DTextureManager {
         let (mut width, mut height) = rgba_image.dimensions();
 
         // C++ TextureClass IsReducible / WW3D::Get_Texture_Reduction.
-        let reduction = crate_texture_reduction();
+        let reduction = self.texture_reduction;
         for _ in 0..reduction {
             if width <= 1 && height <= 1 {
                 break;
