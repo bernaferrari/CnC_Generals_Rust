@@ -543,7 +543,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("team write lock");
-            guard.update_state(&crate::scripting::HostScriptQuery::published());
+            guard.update_state(&crate::scripting::HostScriptQuery::published_for_test());
             guard.notify_team_of_object_death();
         }
 
@@ -585,7 +585,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("team write lock");
-            guard.update_state(&crate::scripting::HostScriptQuery::published());
+            guard.update_state(&crate::scripting::HostScriptQuery::published_for_test());
         }
 
         let queued = drain_pending_team_script_events();
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn host_census_update_state_matches_cpp_team_hooks() {
         let _ = drain_pending_team_script_events();
-        crate::scripting::clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
 
         let mut factory = TeamFactory::new();
@@ -645,7 +645,7 @@ mod tests {
             .expect("prototype");
         let team = factory.create_team("HostCensusTeam").expect("team");
 
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![
                     host_hook_object(11, 1, true, true, 0.0, 0.0, 50.0),
@@ -664,7 +664,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("write");
-            guard.update_state(&crate::scripting::HostScriptQuery::published());
+            guard.update_state(&crate::scripting::HostScriptQuery::published_for_test());
         }
         let first = drain_pending_team_script_events();
         assert_eq!(
@@ -693,7 +693,7 @@ mod tests {
 
         {
             let mut guard = team.write().expect("write");
-            guard.update_state(&crate::scripting::HostScriptQuery::published());
+            guard.update_state(&crate::scripting::HostScriptQuery::published_for_test());
         }
         let second = drain_pending_team_script_events();
         assert!(
@@ -705,7 +705,7 @@ mod tests {
             "OnIdle fires on the second consecutive idle frame"
         );
 
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![
                     host_hook_object(11, 1, false, true, 0.0, 0.0, 50.0),
@@ -720,7 +720,7 @@ mod tests {
         );
         {
             let mut guard = team.write().expect("write");
-            guard.update_state(&crate::scripting::HostScriptQuery::published());
+            guard.update_state(&crate::scripting::HostScriptQuery::published_for_test());
         }
         let third = drain_pending_team_script_events();
         assert!(
@@ -730,13 +730,13 @@ mod tests {
             "OnDestroyed fires when the last live host member dies"
         );
 
-        crate::scripting::clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 
     #[test]
     fn empty_registry_without_host_snapshot_does_not_fire_on_destroyed() {
         let _ = drain_pending_team_script_events();
-        crate::scripting::clear_host_script_query_snapshot();
+        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
         assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
 
         let mut factory = TeamFactory::new();
@@ -758,7 +758,7 @@ mod tests {
             let mut guard = team.write().expect("write");
             guard.add_member(7);
             guard.add_member(8);
-            guard.update_state(&crate::scripting::HostScriptQuery::published());
+            guard.update_state(&crate::scripting::HostScriptQuery::published_for_test());
         }
         let queued = drain_pending_team_script_events();
         assert!(
@@ -788,7 +788,7 @@ mod tests {
             .expect("team should be created");
         assert_eq!(factory.get_all_teams().len(), 1);
 
-        factory.update(&crate::scripting::HostScriptQuery::published());
+        factory.update(&crate::scripting::HostScriptQuery::published_for_test());
         assert!(factory.get_all_teams().is_empty());
     }
 

@@ -235,7 +235,7 @@ async fn bridge_condition_scenario() {
             objectives: vec![],
         },
         host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        host_query: crate::scripting::HostScriptQuery::published(),
+        host_query: crate::scripting::HostScriptQuery::published_for_test(),
     };
     let params = HashMap::from([(
         "bridge_name".into(),

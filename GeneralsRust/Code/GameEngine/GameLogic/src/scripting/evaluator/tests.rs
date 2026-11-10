@@ -396,7 +396,7 @@ fn condition_true_evaluates_when_object_registry_empty() {
 fn named_destroyed_uses_host_snapshot_when_registry_empty() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Hero".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 7,
@@ -418,7 +418,7 @@ fn named_destroyed_uses_host_snapshot_when_registry_empty() {
         evaluator.evaluate_condition(&mut condition).unwrap(),
         "dead named host unit must satisfy NamedDestroyed"
     );
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
 }
 
 #[test]
@@ -426,7 +426,7 @@ fn named_destroyed_false_when_name_never_existed_like_cxx() {
     // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:285)
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("OtherHero".into(), 8)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 8,
@@ -451,7 +451,7 @@ fn named_destroyed_false_when_name_never_existed_like_cxx() {
         !evaluator.evaluate_condition(&mut condition).unwrap(),
         "C++ evaluateNamedUnitDestroyed: never existed → FALSE"
     );
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
 }
 
 #[test]
@@ -1459,7 +1459,7 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
     // Triangle (0,0)-(20,0)-(0,20): (18,18) is inside the AABB but outside C++ pointInTrigger.
     let _lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     let host_trigger_world = std::sync::Arc::new(std::sync::Mutex::new(
         crate::scripting::HostTriggerWorld::default(),
     ));
@@ -1468,7 +1468,7 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
         .expect("trigger world")
         .set_trigger_areas(&[wave14_triangle_area()]);
 
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 7,
@@ -1499,7 +1499,7 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
         "AABB would include (18,18); C++ pointInTrigger must not"
     );
 
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 7,
@@ -1536,7 +1536,7 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
 fn named_inside_uses_interleaved_owners_with_identical_trigger_ids() {
     let _lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     let near = wave14_triangle_area();
     let far = crate::polygon_trigger::PolygonTrigger::new(
         near.get_id(),
@@ -1551,7 +1551,7 @@ fn named_inside_uses_interleaved_owners_with_identical_trigger_ids() {
         crate::scripting::HostTriggerWorld::default(),
     ));
     first.lock().unwrap().set_trigger_areas(&[near.clone()]);
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 7,
@@ -1594,14 +1594,14 @@ fn named_inside_uses_interleaved_owners_with_identical_trigger_ids() {
     first.lock().unwrap().set_trigger_areas(&[]);
     assert!(!a.evaluate_condition(&mut condition).unwrap());
     assert!(b.evaluate_condition(&mut condition).unwrap());
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
 }
 
 #[test]
 fn live_named_entered_exited_use_two_frame_host_flags() {
     let _lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     let host_trigger_world = std::sync::Arc::new(std::sync::Mutex::new(
         crate::scripting::HostTriggerWorld::default(),
     ));
@@ -1621,7 +1621,7 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         world.update_object_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
         world.update_object_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
     }
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 7,
@@ -1664,7 +1664,7 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         world.set_current_frame(21);
         world.update_object_flags(7, 18.0, 18.0, 21, false, Some("teamUSA"));
     }
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 7,

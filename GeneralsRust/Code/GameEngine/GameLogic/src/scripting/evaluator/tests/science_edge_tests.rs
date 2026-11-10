@@ -65,7 +65,7 @@ impl HostScienceSnapshotRestore {
         let mut snapshot = HostScriptQuerySnapshot::default();
         snapshot.player_census.insert(SIDE.into(), census);
         let mut previous = None;
-        crate::scripting::merge_host_script_query_snapshot(|current| {
+        crate::scripting::HostScriptQuery::published_for_test().merge_host_script_query_snapshot(|current| {
             previous = Some(std::mem::replace(current, snapshot));
         });
         Self(previous)
@@ -74,7 +74,7 @@ impl HostScienceSnapshotRestore {
 
 impl Drop for HostScienceSnapshotRestore {
     fn drop(&mut self) {
-        crate::scripting::merge_host_script_query_snapshot(|current| {
+        crate::scripting::HostScriptQuery::published_for_test().merge_host_script_query_snapshot(|current| {
             *current = self.0.take().expect("saved host query snapshot");
         });
     }

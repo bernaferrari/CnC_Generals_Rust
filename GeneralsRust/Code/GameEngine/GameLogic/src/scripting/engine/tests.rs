@@ -1306,7 +1306,7 @@ fn empty_object_registry_still_progresses_sequential_scripts() {
 fn leftover_team_sequential_progresses_when_host_members_idle() {
     let _lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     get_team_factory().lock().unwrap().reset();
     {
         let published_team_factory = get_team_factory();
@@ -1321,7 +1321,7 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
             .create_team("HostSeqTeam")
             .expect("leftover team should exist");
     }
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         objects: vec![crate::scripting::HostScriptQueryObject {
             id: 42,
             name: "SeqRanger".into(),
@@ -1359,7 +1359,7 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
         "SET_FLAG in a host-team sequential script must run"
     );
     get_team_factory().lock().unwrap().reset();
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
 }
 
 #[test]

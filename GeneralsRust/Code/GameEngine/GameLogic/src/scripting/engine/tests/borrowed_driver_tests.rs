@@ -119,11 +119,11 @@ struct QuerySnapshotRestore(Option<crate::scripting::HostScriptQuerySnapshot>);
 impl QuerySnapshotRestore {
     fn install() -> Self {
         let mut prior = None;
-        crate::scripting::merge_host_script_query_snapshot(|snapshot| {
+        crate::scripting::HostScriptQuery::published_for_test().merge_host_script_query_snapshot(|snapshot| {
             prior = Some(std::mem::take(snapshot));
         });
         let guard = Self(prior);
-        crate::scripting::set_host_script_query_snapshot(
+        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 named: [(OWNER_UNIT_NAME.to_string(), OWNER_OBJECT_ID)]
                     .into_iter()
@@ -150,7 +150,7 @@ impl QuerySnapshotRestore {
 impl Drop for QuerySnapshotRestore {
     fn drop(&mut self) {
         if let Some(prior) = self.0.take() {
-            crate::scripting::set_host_script_query_snapshot(prior);
+            crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(prior);
         }
     }
 }

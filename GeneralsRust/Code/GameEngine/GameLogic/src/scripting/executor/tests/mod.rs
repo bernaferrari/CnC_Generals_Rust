@@ -126,7 +126,7 @@ fn eval_player_unit_kind_in_area(comparison: i32, count: i32, kind: i32, area: &
 
 fn install_live_hold_zone_census(objects: Vec<crate::scripting::HostScriptQueryObject>) {
     crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
+    crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     crate::terrain::get_terrain_logic()
         .write()
         .expect("terrain")
@@ -140,7 +140,7 @@ fn install_live_hold_zone_census(objects: Vec<crate::scripting::HostScriptQueryO
                 crate::common::ICoord3D::new(0, 20, 0),
             ],
         ));
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+    crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         objects,
         areas: [("HoldZone".into(), (0.0, 0.0, 20.0, 20.0))]
             .into_iter()
