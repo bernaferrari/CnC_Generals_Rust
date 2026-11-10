@@ -918,7 +918,7 @@ impl Object {
 
     pub fn set_command_set_string_override(&mut self, command_set: &AsciiString) {
         self.command_set_string_override = command_set.clone();
-        crate::control_bar::mark_ui_dirty();
+        crate::control_bar::mark_ui_dirty_for(self);
     }
 
     //=========================================================================

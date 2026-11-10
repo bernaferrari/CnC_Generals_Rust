@@ -196,7 +196,10 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
             log::warn!("CommandSetUpgrade: Object {} not found", self.object_id);
             return false;
         }
-        crate::control_bar::mark_ui_dirty();
+        let world = OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| guard.owning_world_services())
+            .flatten();
+        crate::control_bar::mark_ui_dirty_from(world.as_ref());
 
         self.applied = true;
         true

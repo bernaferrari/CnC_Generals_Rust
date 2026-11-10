@@ -553,6 +553,22 @@ where
 }
 
 /// Notify the control bar that UI state needs to be refreshed.
+/// C++ `TheControlBar->markUIDirty()` from code running for `object`: the
+/// ControlBar of the world that admitted it, else the published one.
+pub(crate) fn mark_ui_dirty_for(object: &crate::object::Object) {
+    mark_ui_dirty_from(object.owning_world_services().as_ref());
+}
+
+/// `world`'s ControlBar when there is an owning world, else the published one.
+pub(crate) fn mark_ui_dirty_from(
+    world: Option<&Arc<crate::system::engine_stores::WorldServices>>,
+) {
+    match world {
+        Some(world) => mark_ui_dirty_in(world.control_bar_ui_hooks()),
+        None => mark_ui_dirty(),
+    }
+}
+
 pub fn mark_ui_dirty() {
     let _ = get_control_bar_bridge();
     with_control_bar_ui_hooks(|hooks| hooks.mark_ui_dirty());
@@ -748,4 +764,52 @@ mod owning_world_bridge_tests {
             assert!(control_bar_bridge_for(&in_b.read().unwrap()).is_none());
         });
     }
+
+    #[test]
+    fn object_mark_ui_dirty_reaches_the_world_that_admitted_the_object() {
+        // Two worlds on one thread: C++ Object::setCommandSetStringOverride,
+        // capture, selection-status changes and CommandSetUpgrade mark the
+        // ControlBar of the GameEngine owning the Object dirty.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct DirtyHooks(Arc<AtomicUsize>);
+        impl ControlBarUiHooks for DirtyHooks {
+            fn mark_ui_dirty(&self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+            fn on_player_science_purchase_points_changed(&self, _: i32, _: i32) {}
+            fn on_player_rank_changed(&self, _: i32, _: i32, _: i32) {}
+        }
+        let a = Arc::new(EngineStores::new_for_world());
+        let b = Arc::new(EngineStores::new_for_world());
+        let dirty_a = Arc::new(AtomicUsize::new(0));
+        let dirty_b = Arc::new(AtomicUsize::new(0));
+        *a.services().control_bar_ui_hooks().lock().unwrap() =
+            Some(Arc::new(DirtyHooks(Arc::clone(&dirty_a))));
+        *b.services().control_bar_ui_hooks().lock().unwrap() =
+            Some(Arc::new(DirtyHooks(Arc::clone(&dirty_b))));
+        let template = Arc::new(DefaultThingTemplate::new("DirtyOwner".to_string()));
+        let in_b = Object::new_with_id(template.clone(), 91, ObjectStatusMaskType::none(), None)
+            .expect("object");
+        in_b.write().unwrap().bind_pathfinding_owner(&b).unwrap();
+        let unadmitted =
+            Object::new_with_id(template, 92, ObjectStatusMaskType::none(), None).expect("object");
+
+        with_world_services(a.services(), || {
+            in_b.write()
+                .unwrap()
+                .set_command_set_string_override(&game_engine::common::ascii_string::AsciiString::from("OverrideSet"));
+        });
+        assert_eq!(
+            (dirty_a.load(Ordering::Relaxed), dirty_b.load(Ordering::Relaxed)),
+            (0, 1)
+        );
+        with_world_services(a.services(), || {
+            mark_ui_dirty_for(&unadmitted.read().unwrap());
+        });
+        assert_eq!(
+            (dirty_a.load(Ordering::Relaxed), dirty_b.load(Ordering::Relaxed)),
+            (1, 1)
+        );
+    }
+
 }

@@ -757,20 +757,17 @@ impl StealthUpdateController {
         }
 
         // Mark UI dirty if selected (lines 951-955)
-        let selected = OBJECT_REGISTRY
+        let (selected, world) = OBJECT_REGISTRY
             .with_object(self.object_id, |guard| {
-                let Some(drawable) = guard.get_drawable() else {
-                    return false;
-                };
-                drawable
-                    .read()
-                    .ok()
-                    .map(|d| d.is_selected())
-                    .unwrap_or(false)
+                let selected = guard
+                    .get_drawable()
+                    .and_then(|drawable| drawable.read().ok().map(|d| d.is_selected()))
+                    .unwrap_or(false);
+                (selected, guard.owning_world_services())
             })
-            .unwrap_or(false);
+            .unwrap_or((false, None));
         if selected {
-            crate::control_bar::mark_ui_dirty();
+            crate::control_bar::mark_ui_dirty_from(world.as_ref());
         }
     }
 

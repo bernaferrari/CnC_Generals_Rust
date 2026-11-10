@@ -487,7 +487,7 @@ impl Object {
             if selected.contains(&self.id)
                 || (selected.len() == 1 && container.is_some_and(|id| selected.contains(&id)))
             {
-                crate::control_bar::mark_ui_dirty();
+                crate::control_bar::mark_ui_dirty_for(self);
             }
         }
 

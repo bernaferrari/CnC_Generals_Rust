@@ -581,7 +581,7 @@ impl Object {
 
         // Mark the command bar to redraw
         log::debug!("Object {} marking UI dirty after capture", self.id);
-        crate::control_bar::mark_ui_dirty();
+        crate::control_bar::mark_ui_dirty_for(self);
 
         self.on_capture_sell_ai_faction_building(owners_differ, &new_owner);
 

@@ -533,7 +533,7 @@ impl GameLogic {
             }
         }
         if has_special_power && is_local {
-            crate::control_bar::mark_ui_dirty();
+            crate::control_bar::mark_ui_dirty_from(self.owning_world_services().as_ref());
         }
     }
 
