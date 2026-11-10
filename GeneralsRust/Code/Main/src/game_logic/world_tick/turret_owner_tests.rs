@@ -1,18 +1,30 @@
 //! Actual Main turret routing, isolated by ordinary session/object ownership.
 use super::*;
 
+/// C++ loads the same Object/Weapon INI into every world before NewGame or a
+/// save load; the Turret comes from the AIUpdate module's authored block
+/// (AIUpdate.cpp TurretAIData) and the gun from the default WeaponSet.
+fn admit_turret_content(world: &mut GameLogic) {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+    admit_fixture_content(
+        world,
+        &[
+            FixtureObject::new("AmericaVehicleHumvee")
+                .kind_of("VEHICLE")
+                .health(100.0)
+                .armed("FixtureHumveeGun")
+                .module(
+                    "Behavior = AIUpdateInterface ModuleTag_AI\n  Turret\n    TurretTurnRate = 180\n    ControlledWeaponSlots = PRIMARY\n  End\nEnd",
+                ),
+            FixtureObject::new("OwnedTurretVictim").kind_of("VEHICLE").health(100.0),
+        ],
+        &[FixtureWeapon::new("FixtureHumveeGun").range(1000.0).damage(1.0)],
+    );
+}
+
 fn receiving_world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    let mut template = ThingTemplate::new("AmericaVehicleHumvee");
-    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    template.set_primary_weapon(Weapon {
-        range: 1000.0,
-        damage: 1.0,
-        ..Default::default()
-    });
-    world
-        .templates
-        .insert("AmericaVehicleHumvee".into(), template);
+    admit_turret_content(&mut world);
     let owner = world
         .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
         .unwrap();
@@ -181,7 +193,7 @@ fn normal_encoded_save_continues_existing_sweep_before_another_shot() {
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let mut loaded = GameLogic::new();
-    loaded.templates = original.templates.clone();
+    admit_turret_content(&mut loaded);
     builder
         .restore_from_snapshot(&decoded, &mut loaded)
         .unwrap();
@@ -238,13 +250,6 @@ fn normal_encoded_save_continues_existing_sweep_before_another_shot() {
 #[test]
 fn receiving_object_target_captures_team_immediately_and_load_resolves_actual_victim() {
     let (mut world, owner) = receiving_world();
-    let mut victim_template = ThingTemplate::new("OwnedTurretVictim");
-    victim_template
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(100.0);
-    world
-        .templates
-        .insert("OwnedTurretVictim".into(), victim_template);
     let victim = world
         .create_object(
             "OwnedTurretVictim",
@@ -275,7 +280,7 @@ fn receiving_object_target_captures_team_immediately_and_load_resolves_actual_vi
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let mut loaded = GameLogic::new();
-    loaded.templates = world.templates.clone();
+    admit_turret_content(&mut loaded);
     builder
         .restore_from_snapshot(&snapshot, &mut loaded)
         .unwrap();
