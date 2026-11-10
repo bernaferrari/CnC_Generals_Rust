@@ -409,7 +409,7 @@ fn named_destroyed_uses_host_snapshot_when_registry_empty() {
         }],
         ..Default::default()
     });
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ScriptEvaluator::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::NamedDestroyed);
     condition
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
@@ -439,7 +439,7 @@ fn named_destroyed_false_when_name_never_existed_like_cxx() {
         }],
         ..Default::default()
     });
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ScriptEvaluator::new(published_world_engine());
     let mut condition = Condition::new(ConditionType::NamedDestroyed);
     condition
         .add_parameter(Parameter::with_string(
@@ -1483,7 +1483,7 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
     });
 
     let evaluator =
-        ScriptEvaluator::new_with_host_trigger_world(get_script_engine(), host_trigger_world);
+        ScriptEvaluator::new_with_host_trigger_world(published_world_engine(), host_trigger_world);
     let mut inside = Condition::new(ConditionType::NamedInsideArea);
     inside
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
@@ -1574,8 +1574,8 @@ fn named_inside_uses_interleaved_owners_with_identical_trigger_ids() {
         crate::scripting::HostTriggerWorld::default(),
     ));
     second.lock().unwrap().set_trigger_areas(&[far]);
-    let a = ScriptEvaluator::new_with_host_trigger_world(get_script_engine(), first.clone());
-    let b = ScriptEvaluator::new_with_host_trigger_world(get_script_engine(), second.clone());
+    let a = ScriptEvaluator::new_with_host_trigger_world(published_world_engine(), first.clone());
+    let b = ScriptEvaluator::new_with_host_trigger_world(published_world_engine(), second.clone());
     let mut condition = Condition::new(ConditionType::NamedInsideArea);
     condition
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
@@ -1637,7 +1637,7 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
     });
 
     let evaluator = ScriptEvaluator::new_with_host_trigger_world(
-        get_script_engine(),
+        published_world_engine(),
         std::sync::Arc::clone(&host_trigger_world),
     );
     let mut entered = Condition::new(ConditionType::NamedEnteredArea);
@@ -1730,3 +1730,25 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
 
 #[path = "tests/science_edge_tests.rs"]
 mod science_edge_tests;
+
+#[test]
+fn evaluator_host_query_is_its_engines_world_not_the_published_one() {
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    let a = new_world_services();
+    let b = new_world_services();
+    let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+    snap.named.insert("Hero".to_string(), 7);
+    crate::scripting::HostScriptQuery::of(&a).set_host_script_query_snapshot(snap);
+    let engine = crate::scripting::engine::ScriptEngine::new_with_services(&a).unwrap();
+    let evaluator = ScriptEvaluator::new(ScriptEngineHandle::from_engine(engine));
+    with_world_services(&b, || {
+        assert_eq!(evaluator.host_query().host_script_named_unit_id("Hero"), Some(7));
+        assert!(!crate::scripting::HostScriptQuery::of(&b).host_script_query_has_any());
+    });
+}
+
+/// An engine of the world these tests publish their host snapshot on: host
+/// facts are the evaluating engine's world's, so the engine must be bound.
+fn published_world_engine() -> ScriptEngineHandle {
+    ScriptEngineHandle::from_engine(ScriptEngine::new_in_published_world().unwrap())
+}

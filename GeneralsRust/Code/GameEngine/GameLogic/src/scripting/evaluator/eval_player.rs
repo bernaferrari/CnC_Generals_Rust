@@ -35,7 +35,7 @@ impl ScriptEvaluator {
         if crate::helpers::TheThingFactory::find_template(&type_name).is_none() {
             let key = type_name.to_ascii_lowercase();
             let host_has =
-                crate::scripting::host_query_player_census(&player_name).is_some_and(|c| {
+                self.host_query().host_query_player_census(&player_name).is_some_and(|c| {
                     c.template_counts.contains_key(&key)
                         || c.template_counts_ignore_dead.contains_key(&key)
                 });
@@ -44,7 +44,7 @@ impl ScriptEvaluator {
             }
         }
 
-        let count = if let Some(sum) = crate::scripting::host_query_player_template_count(
+        let count = if let Some(sum) = self.host_query().host_query_player_template_count(
             &player_name,
             &[type_name.clone()],
             false,
@@ -141,7 +141,7 @@ impl ScriptEvaluator {
                     "BuildingEnteredByPlayer condition missing building parameter".to_string(),
                 )
             })?;
-            return Ok(crate::scripting::host_building_entered_by_player(
+            return Ok(self.host_query().host_building_entered_by_player(
                 building_param.get_string(),
                 player_param.get_string(),
             )
@@ -204,7 +204,7 @@ impl ScriptEvaluator {
         })?;
         let unit_name = unit_param.get_string();
         if dual_world_registry_unavailable() {
-            return Ok(crate::scripting::host_script_named_unit_alive(unit_name).unwrap_or(false));
+            return Ok(self.host_query().host_script_named_unit_alive(unit_name).unwrap_or(false));
         }
 
         let tracker = get_named_object_tracker();
@@ -372,7 +372,7 @@ impl ScriptEvaluator {
         );
 
         let current_credits =
-            if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+            if let Some(census) = self.host_query().host_query_player_census(player_name) {
                 census.money
             } else {
                 // C++ returns false when playerFromParam cannot resolve the Side.  Do
@@ -412,7 +412,7 @@ impl ScriptEvaluator {
         let player_name = player_param.get_string();
         log::debug!("Evaluating PlayerHasPower for player: {}", player_name);
 
-        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+        if let Some(census) = self.host_query().host_query_player_census(player_name) {
             return Ok(census.has_sufficient_power());
         }
 
@@ -555,7 +555,7 @@ impl ScriptEvaluator {
             player_name
         );
 
-        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+        if let Some(census) = self.host_query().host_query_player_census(player_name) {
             return Ok(max_buildings >= census.building_count);
         }
 
@@ -594,7 +594,7 @@ impl ScriptEvaluator {
             player_name
         );
 
-        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+        if let Some(census) = self.host_query().host_query_player_census(player_name) {
             return Ok(max_buildings >= census.faction_building_count);
         }
 

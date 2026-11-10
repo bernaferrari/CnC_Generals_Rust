@@ -17,7 +17,7 @@ impl ScriptEvaluator {
         let player_name = player_param.get_string();
         log::debug!("Evaluating PlayerAllDestroyed for player: {}", player_name);
 
-        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+        if let Some(census) = self.host_query().host_query_player_census(player_name) {
             return Ok(!census.has_any_objects);
         }
 
@@ -51,7 +51,7 @@ impl ScriptEvaluator {
             player_name
         );
 
-        if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+        if let Some(census) = self.host_query().host_query_player_census(player_name) {
             return Ok(!census.has_any_build_facility);
         }
 
@@ -80,10 +80,10 @@ impl ScriptEvaluator {
 
         // Live host: leftover Team::hasAnyObjects early-outs on empty OBJECT_REGISTRY.
         if dual_world_registry_unavailable() {
-            if !crate::scripting::host_team_was_fielded(&team_name) {
+            if !self.host_query().host_team_was_fielded(&team_name) {
                 return Ok(false);
             }
-            return Ok(!crate::scripting::host_team_has_any_live_objects(&team_name));
+            return Ok(!self.host_query().host_team_has_any_live_objects(&team_name));
         }
 
         let teams = self.resolve_team_instances(&team_name);
@@ -114,7 +114,7 @@ impl ScriptEvaluator {
         log::debug!("Evaluating TeamHasUnits for team: {}", team_name);
 
         if dual_world_registry_unavailable() {
-            return Ok(crate::scripting::host_team_has_any_live_units(&team_name));
+            return Ok(self.host_query().host_team_has_any_live_units(&team_name));
         }
 
         for team_arc in self.resolve_team_instances(&team_name) {
@@ -137,10 +137,10 @@ impl ScriptEvaluator {
         })?;
         let unit_name = unit_param.get_string();
         if dual_world_registry_unavailable() {
-            if let Some(obj) = crate::scripting::host_script_query_object(unit_name) {
+            if let Some(obj) = self.host_query().host_script_query_object(unit_name) {
                 return Ok(obj.effectively_dead || !obj.alive);
             }
-            if let Some(alive) = crate::scripting::host_script_named_unit_alive(unit_name) {
+            if let Some(alive) = self.host_query().host_script_named_unit_alive(unit_name) {
                 return Ok(!alive);
             }
             // C++ getUnitNamed is NULL; didUnitExist decides (hq-umqv8).
@@ -168,7 +168,7 @@ impl ScriptEvaluator {
         })?;
         let unit_name = unit_param.get_string();
         if dual_world_registry_unavailable() {
-            return Ok(crate::scripting::host_script_named_unit_alive(unit_name).unwrap_or(false));
+            return Ok(self.host_query().host_script_named_unit_alive(unit_name).unwrap_or(false));
         }
 
         let tracker = get_named_object_tracker();
@@ -187,7 +187,7 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
 
         if dual_world_registry_unavailable() {
-            return Ok(crate::scripting::host_team_was_fielded(&team_name));
+            return Ok(self.host_query().host_team_was_fielded(&team_name));
         }
 
         let Some(team_arc) = self.resolve_team_instances(&team_name).into_iter().next() else {

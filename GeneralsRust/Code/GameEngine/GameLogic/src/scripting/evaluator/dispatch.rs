@@ -75,7 +75,7 @@ impl ScriptEvaluator {
             return;
         };
         let mut world = owner.lock().unwrap_or_else(|e| e.into_inner());
-        crate::scripting::sync_host_trigger_flags_from_snapshot(&mut world, frame);
+        self.host_query().sync_host_trigger_flags_from_snapshot(&mut world, frame);
     }
 
     /// Access the engine that owns this evaluation.
@@ -106,6 +106,15 @@ impl ScriptEvaluator {
             .flatten()?
             .find_command_button_by_name(name)
             .cloned()
+    }
+
+    /// C++ the host facts of the engine running this script (its own
+    /// world's snapshot), never the world published on the thread.
+    pub(crate) fn host_query(&self) -> crate::scripting::HostScriptQuery {
+        crate::scripting::HostScriptQuery::from_world(
+            self.with_evaluation_engine_ref(|engine| engine.owning_world_services())
+                .flatten(),
+        )
     }
 
     /// Mutating counterpart to `with_evaluation_engine_ref`.
@@ -550,7 +559,7 @@ impl ScriptEvaluator {
                         })
                         .filter(|n| !n.is_empty())
                         .unwrap_or_else(|| player_param.get_string().to_string());
-                    return Ok(crate::scripting::host_enemy_sighted(
+                    return Ok(self.host_query().host_enemy_sighted(
                         unit_name,
                         alliance,
                         &player_name,
@@ -642,7 +651,7 @@ impl ScriptEvaluator {
                 })?;
                 let bridge_name = bridge_param.get_string();
                 if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-                    return Ok(crate::scripting::host_bridge_repaired(bridge_name));
+                    return Ok(self.host_query().host_bridge_repaired(bridge_name));
                 }
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
@@ -666,7 +675,7 @@ impl ScriptEvaluator {
                 })?;
                 let bridge_name = bridge_param.get_string();
                 if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-                    return Ok(crate::scripting::host_bridge_broken(bridge_name));
+                    return Ok(self.host_query().host_bridge_broken(bridge_name));
                 }
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
@@ -712,7 +721,7 @@ impl ScriptEvaluator {
                 let type_name = type_param.get_string().to_string();
                 let types = self.resolve_object_types(type_param);
 
-                let count = if let Some(sum) = crate::scripting::host_query_player_template_count(
+                let count = if let Some(sum) = self.host_query().host_query_player_template_count(
                     &player_name,
                     &{
                         let mut names: Vec<String> =
@@ -910,7 +919,7 @@ impl ScriptEvaluator {
                         names
                     }
                 };
-                if let Some(count) = crate::scripting::host_count_player_type_in_area(
+                if let Some(count) = self.host_query().host_count_player_type_in_area(
                     &player_name,
                     area_name,
                     &type_names,
@@ -1017,7 +1026,7 @@ impl ScriptEvaluator {
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(kind) = Self::kind_of_type_to_mask(kind_of_type_int) {
-                    if let Some(count) = crate::scripting::host_count_player_kind_in_area(
+                    if let Some(count) = self.host_query().host_count_player_kind_in_area(
                         &player_name,
                         area_name,
                         kind,
@@ -1113,7 +1122,7 @@ impl ScriptEvaluator {
                         })
                         .filter(|n| !n.is_empty())
                         .unwrap_or_else(|| player_param.get_string().to_string());
-                    return Ok(crate::scripting::host_type_sighted(
+                    return Ok(self.host_query().host_type_sighted(
                         unit_name,
                         &type_names,
                         &player_name,
@@ -1209,7 +1218,7 @@ impl ScriptEvaluator {
                     })
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
-                if let Some(ready) = crate::scripting::host_eval_skirmish_special_power_ready(
+                if let Some(ready) = self.host_query().host_eval_skirmish_special_power_ready(
                     &player_name,
                     power_name,
                 ) {
@@ -1282,7 +1291,7 @@ impl ScriptEvaluator {
                     })
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
-                if let Some(ok) = crate::scripting::host_eval_skirmish_value_in_area(
+                if let Some(ok) = self.host_query().host_eval_skirmish_value_in_area(
                     &player_name,
                     comparison as i32,
                     target_value,
@@ -1397,7 +1406,7 @@ impl ScriptEvaluator {
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(ok) =
-                    crate::scripting::host_eval_skirmish_supplies_value_within_distance(
+                    self.host_query().host_eval_skirmish_supplies_value_within_distance(
                         &player_name,
                         distance,
                         area_name,
@@ -1529,7 +1538,7 @@ impl ScriptEvaluator {
                 let area_name = trigger_param.get_string();
                 if crate::object::registry::OBJECT_REGISTRY.is_empty() {
                     if let Some(found) =
-                        crate::scripting::host_eval_skirmish_tech_building_within_distance(
+                        self.host_query().host_eval_skirmish_tech_building_within_distance(
                             &player_name,
                             distance,
                             area_name,
@@ -1708,7 +1717,7 @@ impl ScriptEvaluator {
                 })?;
 
                 if let Some(num_faction_units) =
-                    crate::scripting::host_eval_skirmish_unowned_faction_unit_count()
+                    self.host_query().host_eval_skirmish_unowned_faction_unit_count()
                 {
                     let comparison = comparison_param.get_int() as u32;
                     let target_count = count_param.get_int();
@@ -1822,7 +1831,7 @@ impl ScriptEvaluator {
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(num_garrisoned) =
-                    crate::scripting::host_eval_skirmish_garrisoned_count(&player_name)
+                    self.host_query().host_eval_skirmish_garrisoned_count(&player_name)
                 {
                     let comparison = comparison_param.get_int() as u32;
                     let target_count = count_param.get_int();
@@ -1907,7 +1916,7 @@ impl ScriptEvaluator {
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(num_captured) =
-                    crate::scripting::host_eval_skirmish_captured_count(&player_name)
+                    self.host_query().host_eval_skirmish_captured_count(&player_name)
                 {
                     let comparison = comparison_param.get_int() as u32;
                     let target_count = count_param.get_int();
@@ -1994,7 +2003,7 @@ impl ScriptEvaluator {
                     })
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
-                if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
+                if let Some(ok) = self.host_query().host_eval_skirmish_player_has_units_in_area(
                     &player_name,
                     area_name,
                 ) {
@@ -2095,7 +2104,7 @@ impl ScriptEvaluator {
                     })
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
-                if let Some(inside) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
+                if let Some(inside) = self.host_query().host_eval_skirmish_player_has_units_in_area(
                     &player_name,
                     area_name,
                 ) {
@@ -2235,7 +2244,7 @@ impl ScriptEvaluator {
                     .and_then(|arc| arc.read().ok().map(|p| p.get_player_index() as i32));
 
                 let current_count = if let Some(sum) =
-                    crate::scripting::host_query_player_template_count(
+                    self.host_query().host_query_player_template_count(
                         &player_name,
                         &{
                             let mut names: Vec<String> =
@@ -2280,7 +2289,7 @@ impl ScriptEvaluator {
                 let player_index = match leftover_index {
                     Some(index) => index,
                     None => {
-                        if crate::scripting::host_query_player_census(&player_name).is_none() {
+                        if self.host_query().host_query_player_census(&player_name).is_none() {
                             return Ok(false);
                         }
                         0
@@ -2337,7 +2346,7 @@ impl ScriptEvaluator {
                 drop(player_guard);
 
                 let safe = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-                    crate::scripting::host_query_supply_source_safe(&player_name, min_supplies)
+                    self.host_query().host_query_supply_source_safe(&player_name, min_supplies)
                         .unwrap_or(false)
                 } else {
                     crate::ai::integration::with_ai_integration(|manager| {
@@ -2371,7 +2380,7 @@ impl ScriptEvaluator {
                 drop(player_guard);
 
                 let attacked = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-                    crate::scripting::host_query_supply_source_attacked(&player_name)
+                    self.host_query().host_query_supply_source_attacked(&player_name)
                         .unwrap_or(false)
                 } else {
                     crate::ai::integration::with_ai_integration_mut(|manager| {

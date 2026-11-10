@@ -28,7 +28,7 @@ impl ScriptEvaluator {
             // ScriptConditions.cpp:397-415 tests position against this world's
             // qualified polygon, with no dead/inert filter or foreign AABB.
             return Ok(
-                crate::scripting::conditions::host_named_unit_point_in_trigger(unit_name, &trigger),
+                self.host_query().host_named_unit_point_in_trigger(unit_name, &trigger),
             );
         }
 
@@ -87,12 +87,12 @@ impl ScriptEvaluator {
         if dual_world_registry_unavailable() {
             return Ok(self
                 .with_host_trigger_world(|world| {
-                    crate::scripting::conditions::host_team_some_inside_some_outside(
+                    self.host_query().host_team_some_inside_some_outside(
                         world,
                         &team_name,
                         &trigger,
                         which_to_consider,
-                    ) || crate::scripting::conditions::host_team_all_inside(
+                    ) || self.host_query().host_team_all_inside(
                         world,
                         &team_name,
                         &trigger,
@@ -149,7 +149,7 @@ impl ScriptEvaluator {
         if dual_world_registry_unavailable() {
             return Ok(self
                 .with_host_trigger_world(|world| {
-                    crate::scripting::conditions::host_team_all_inside(
+                    self.host_query().host_team_all_inside(
                         world,
                         &team_name,
                         &trigger,
@@ -204,7 +204,7 @@ impl ScriptEvaluator {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            let Some(object_id) = crate::scripting::host_script_named_unit_id(unit_name) else {
+            let Some(object_id) = self.host_query().host_script_named_unit_id(unit_name) else {
                 return Ok(false);
             };
             return Ok(self
@@ -250,7 +250,7 @@ impl ScriptEvaluator {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            let Some(object_id) = crate::scripting::host_script_named_unit_id(unit_name) else {
+            let Some(object_id) = self.host_query().host_script_named_unit_id(unit_name) else {
                 return Ok(false);
             };
             return Ok(self
@@ -302,7 +302,7 @@ impl ScriptEvaluator {
         if dual_world_registry_unavailable() {
             return Ok(self
                 .with_host_trigger_world(|world| {
-                    crate::scripting::conditions::host_team_did_all_enter(
+                    self.host_query().host_team_did_all_enter(
                         world,
                         &team_name,
                         &trigger,
@@ -359,7 +359,7 @@ impl ScriptEvaluator {
         if dual_world_registry_unavailable() {
             return Ok(self
                 .with_host_trigger_world(|world| {
-                    crate::scripting::conditions::host_team_did_partial_enter(
+                    self.host_query().host_team_did_partial_enter(
                         world,
                         &team_name,
                         &trigger,
@@ -412,7 +412,7 @@ impl ScriptEvaluator {
         if dual_world_registry_unavailable() {
             return Ok(self
                 .with_host_trigger_world(|world| {
-                    crate::scripting::conditions::host_team_did_all_exit(
+                    self.host_query().host_team_did_all_exit(
                         world,
                         &team_name,
                         &trigger,
@@ -469,7 +469,7 @@ impl ScriptEvaluator {
         if dual_world_registry_unavailable() {
             return Ok(self
                 .with_host_trigger_world(|world| {
-                    crate::scripting::conditions::host_team_did_partial_exit(
+                    self.host_query().host_team_did_partial_exit(
                         world,
                         &team_name,
                         &trigger,

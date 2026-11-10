@@ -232,7 +232,7 @@ impl ScriptEvaluator {
             })
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| player_param.get_string().to_string());
-        if let Some(pts) = crate::scripting::host_query_player_science_purchase_points(&player_name)
+        if let Some(pts) = self.host_query().host_query_player_science_purchase_points(&player_name)
         {
             return Ok(pts >= points_needed);
         }
@@ -295,8 +295,8 @@ impl ScriptEvaluator {
             .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| player_param.get_string().to_string());
-        if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
-            if crate::scripting::host_query_player_has_science(&player_name, science_name)
+        if let Some(census) = self.host_query().host_query_player_census(&player_name) {
+            if self.host_query().host_query_player_has_science(&player_name, science_name)
                 .unwrap_or(false)
             {
                 return Ok(false);
