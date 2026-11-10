@@ -1275,7 +1275,9 @@ impl CnCGameEngine {
         } else {
             "GUI:FF_OFF"
         };
-        let msg = host_localized_gui_label(key, self.receiving_game_text(key));
+        // C++ TheInGameUI->message(TheGameText->fetch(key)): the receiving
+        // client's text, "MISSING: '...'" included.
+        let msg = self.receiving_game_text(key).0;
         self.host_push_info_message(&msg);
         info!("{msg}");
     }
@@ -1300,7 +1302,9 @@ impl CnCGameEngine {
             } else {
                 "GUI:ReturnGraphicsToPreviousSettings"
             };
-            let msg = host_localized_gui_label(key, self.receiving_game_text(key));
+            // C++ TheInGameUI->message(TheGameText->fetch(key)): the receiving
+            // client's text, "MISSING: '...'" included.
+            let msg = self.receiving_game_text(key).0;
             self.host_push_info_message(&msg);
         }
     }
@@ -1709,15 +1713,6 @@ fn command_map_view_slot(prefix: &str, name: &str) -> Option<usize> {
     let rest = name.strip_prefix(prefix)?;
     let slot: usize = rest.parse().ok()?;
     (1..=8).contains(&slot).then_some(slot - 1)
-}
-
-/// `fetched` is the receiving GameClient's `(text, exists)` for `key`.
-fn host_localized_gui_label(key: &str, fetched: (String, bool)) -> String {
-    let (text, exists) = fetched;
-    if exists {
-        return text;
-    }
-    crate::localization::localize(key, key)
 }
 
 fn physical_gameplay_character(physical: Option<&winit::keyboard::PhysicalKey>) -> Option<char> {
