@@ -52,6 +52,16 @@ fn lead(grid: &PathfindingGrid, receiver: Option<u32>, from: GridPos, to: GridPo
     )
 }
 
+/// The path-follow line query (`isLinePassable(obj, ..., FALSE, TRUE)`).
+fn passable(grid: &PathfindingGrid, receiver: Option<u32>, from: GridPos, to: GridPos) -> bool {
+    let objects = actors();
+    let receiver = receiver.map(|id| LineReceiver {
+        mover: objects.read().lookup(&crate::game_logic::ObjectId(id)).unwrap(),
+        objects: objects.read(),
+    });
+    grid.line_passable_for_receiver(from, to, SURFACE_GROUND, false, true, false, None, receiver)
+}
+
 #[test]
 fn path_follow_skips_only_own_fixed_and_moving_footprint() {
     let from = GridPos::new(2, 2);
@@ -88,22 +98,10 @@ fn path_follow_foreign_fixed_footprint_still_blocks() {
     let next = GridPos::new(5, 2);
     stamp(&mut grid, from, 7, false);
     stamp(&mut grid, GridPos::new(3, 2), 8, false);
-    assert_eq!(
-        lead(&grid, Some(7), from, next),
-        grid.grid_to_world(
-            from,
-            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
-        )
-    );
+    assert!(!passable(&grid, Some(7), from, next));
     // Even a stale search identifying the blocker cannot admit the caller.
     grid.set_query_seeker_id(8);
-    assert_eq!(
-        lead(&grid, Some(7), from, next),
-        grid.grid_to_world(
-            from,
-            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
-        )
-    );
+    assert!(!passable(&grid, Some(7), from, next));
 }
 
 #[test]
@@ -131,20 +129,8 @@ fn path_follow_receiver_is_independent_of_interleaved_search_identity() {
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
             )
         );
-        assert_eq!(
-            lead(&grid, Some(8), first, first_next),
-            grid.grid_to_world(
-                first,
-                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
-            )
-        );
-        assert_eq!(
-            lead(&grid, Some(7), second, second_next),
-            grid.grid_to_world(
-                second,
-                &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
-            )
-        );
+        assert!(!passable(&grid, Some(8), first, first_next));
+        assert!(!passable(&grid, Some(7), second, second_next));
     }
 }
 
@@ -155,13 +141,7 @@ fn path_follow_own_occupancy_does_not_open_terrain_or_pinched_gate() {
     let next = GridPos::new(5, 2);
     stamp(&mut grid, from, 7, false);
     grid.set_cell_type(from, PathfindCellType::Impassable);
-    assert_eq!(
-        lead(&grid, Some(7), from, next),
-        grid.grid_to_world(
-            from,
-            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
-        )
-    );
+    assert!(!passable(&grid, Some(7), from, next));
     grid.set_cell_type(from, PathfindCellType::Clear);
     grid.set_pinched(from, true);
     assert!(!grid.line_passable_for_receiver(
@@ -182,4 +162,47 @@ fn path_follow_own_occupancy_does_not_open_terrain_or_pinched_gate() {
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0)
         )
     );
+}
+
+fn flat(grid: &PathfindingGrid, cell: GridPos) -> Vec3 {
+    grid.grid_to_world(
+        cell,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    )
+}
+
+#[test]
+fn blocked_lead_on_the_path_still_heads_for_the_next_node() {
+    // C++ AIPathfind.cpp:969-993: with neither passable probe, k == 0 moves
+    // alongPathDist to the segment end, so the goal is the next node rather
+    // than the actor's own projected position (which would never move it).
+    let mut grid = grid();
+    let from = GridPos::new(2, 2);
+    let next = GridPos::new(5, 2);
+    grid.set_cell_type(GridPos::new(3, 2), PathfindCellType::Impassable);
+    assert!(!passable(&grid, Some(7), from, next));
+    assert_eq!(lead(&grid, Some(7), from, next), flat(&grid, next));
+}
+
+#[test]
+fn blocked_lead_far_off_the_path_heads_for_its_projection() {
+    // k == 1 (offset >= 3 cells) leaves alongPathDist at the projection.
+    let mut grid = grid();
+    let a = flat(&grid, GridPos::new(1, 2));
+    let b = flat(&grid, GridPos::new(8, 2));
+    let pos = flat(&grid, GridPos::new(4, 6));
+    for y in 2..=6 {
+        grid.set_cell_type(GridPos::new(4, y), PathfindCellType::Impassable);
+        grid.set_cell_type(GridPos::new(6, y), PathfindCellType::Impassable);
+    }
+    let got = PathfindingSystem::compute_point_on_path_for(
+        pos,
+        &[a, b],
+        Some(&grid),
+        SURFACE_GROUND,
+        false,
+        None,
+        None,
+    );
+    assert_eq!(got, Vec3::new(pos.x, a.y, a.z));
 }

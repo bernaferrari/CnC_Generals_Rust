@@ -1598,7 +1598,6 @@ impl PathfindingSystem {
             return waypoints[0];
         }
         let mut best_d2 = f32::MAX;
-        let mut best = waypoints[0];
         let mut best_seg = 0usize;
         let mut best_t = 0.0f32;
         for i in 0..waypoints.len() - 1 {
@@ -1621,7 +1620,6 @@ impl PathfindingSystem {
             let d2 = dx * dx + dz * dz;
             if d2 < best_d2 {
                 best_d2 = d2;
-                best = Vec3::new(px, a.y, pz);
                 best_seg = i;
                 best_t = t;
             }
@@ -1675,7 +1673,21 @@ impl PathfindingSystem {
                 return mid;
             }
         }
-        best
+        // C++ :969-993 — with no passable goal the lead still advances along
+        // the segment by (1 - k): a unit on its path heads for the next node
+        // instead of holding its own projected position.
+        let along = along + (1.0 - k) * (seg_len - along);
+        if along > seg_len {
+            return next;
+        }
+        let t = if seg_len > 1.0e-6 { along / seg_len } else { 0.0 };
+        let on_path = Vec3::new(a.x + sx * t, a.y, a.z + sz * t);
+        if (pos.x - on_path.x).abs() < 1.0 && (pos.z - on_path.z).abs() < 1.0 {
+            if let Some(after) = waypoints.get(best_seg + 2) {
+                return *after;
+            }
+        }
+        on_path
     }
 
     /// C++ `Path::computePointOnPath` `distAlongPath` (AIPathfind.cpp:997).

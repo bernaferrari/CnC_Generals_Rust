@@ -1989,9 +1989,12 @@ fn destroyed_building_stamps_rubble_not_clear() {
     );
 }
 
-/// hq-2f8q0: CPOP must not lead through an obstacle wall.
+/// hq-2f8q0 revisited against AIPathfind.cpp:953-993: with no passable goal
+/// an on-path unit (k == 0) still advances alongPathDist to the segment end,
+/// so C++ Path::computePointOnPath returns the next node even when a wall
+/// blocks the straight line (the path itself, not the lead, routes around).
 #[test]
-fn cpop_lead_aborts_through_building() {
+fn cpop_blocked_on_path_lead_heads_for_next_node_like_cpp() {
     let mut g = open_grid(16, 16);
     for y in 0..16 {
         g.set_cell_type(GridPos::new(8, y), PathfindCellType::Obstacle);
@@ -2010,11 +2013,7 @@ fn cpop_lead_aborts_through_building() {
     );
     let lead =
         PathfindingSystem::compute_point_on_path_ex(pos, &[a, b], Some(&g), SURFACE_GROUND, false);
-    let lead_cell = g.world_to_grid(lead);
-    assert!(
-        lead_cell.x < 8,
-        "must not aim through the building, lead={lead:?} cell={lead_cell:?}"
-    );
+    assert_eq!(lead, b, "C++ !gotPos with k == 0 targets the next node");
     let blind = PathfindingSystem::compute_point_on_path(pos, &[a, b]);
     let blind_cell = g.world_to_grid(blind);
     assert!(
