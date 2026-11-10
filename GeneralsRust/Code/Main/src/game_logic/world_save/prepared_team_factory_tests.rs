@@ -11,11 +11,11 @@ fn isolated(name: &str, run: impl FnOnce()) {
 }
 
 fn configured(map: &str, display: &str) -> GameLogic {
-    crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
     let mut config = crate::skirmish_config::golden_skirmish_config(map);
     config.slots[0].player_name = display.into();
     config.slots[1].slot_index = 3;
-    let mut world = GameLogic::new();
+    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+    let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
     // Admit the retail app rule explicitly before this real map load.
     world.admit_camera_application_movement(
         game_engine::common::ini::ini_game_data::CameraMovementRules::default()

@@ -218,6 +218,7 @@ fn admitted_names_survive_other_world_construction_reset_and_restart() {
             assert!(first.players.is_empty());
             let mut config = golden_skirmish_config("OwnedSlotAdmission.map");
             config.slots[1].slot_index = 3;
+            let config = crate::skirmish_config::lobby_definition_tests::slot_config(&first, &config);
             apply_skirmish_config(&mut first, &config).unwrap();
             assert_eq!(first.players[&3].map_side.map_player_name, "player3");
         },

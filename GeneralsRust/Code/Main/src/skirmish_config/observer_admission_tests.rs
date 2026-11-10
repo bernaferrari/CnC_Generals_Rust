@@ -128,7 +128,7 @@ fn occupied_observer_precedes_synthetic_replay_observer_and_never_takes_a_start(
                     .player_template,
                 SkirmishPlayerTemplateSelection::Observer
             );
-            let mut receiving = GameLogic::new();
+            let mut receiving = crate::skirmish_config::lobby_definition_tests::slot_world();
             admission.admit(&mut receiving).unwrap();
             assert!(receiving.get_player(3).unwrap().is_observer);
             assert_eq!(receiving.get_player(3).unwrap().start_position, -1);

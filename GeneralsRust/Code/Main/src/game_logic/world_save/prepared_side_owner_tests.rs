@@ -235,8 +235,7 @@ fn prepared_admission_roles_survive_encoded_snapshot_restore() {
             let mut foreign = configured();
             prepare(&mut foreign, "ForeignCivilian", true);
             foreign.reset();
-            let mut restored = GameLogic::new();
-            restored.admit_object_ini_sources(std::iter::empty()).unwrap();
+            let mut restored = crate::skirmish_config::lobby_definition_tests::slot_world();
             restored.start_new_game_for_restore(GameMode::Skirmish).unwrap();
             crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded, None)
                 .unwrap()
@@ -412,8 +411,7 @@ fn receiving_prepared_sides_survive_peer_reset_restore_and_busy_global_adapter()
             let snapshot = builder.create_world_snapshot(&receiving).unwrap();
             let encoded = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
-            let mut restored = GameLogic::new();
-            restored.admit_object_ini_sources(std::iter::empty()).unwrap();
+            let mut restored = crate::skirmish_config::lobby_definition_tests::slot_world();
             restored.start_new_game_for_restore(GameMode::Skirmish).unwrap();
             crate::save_load::snapshot::initial_skirmish::read_for_restore(&decoded, None)
                 .unwrap()
