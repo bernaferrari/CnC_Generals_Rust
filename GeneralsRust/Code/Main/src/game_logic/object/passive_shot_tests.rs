@@ -9,19 +9,27 @@ fn passenger() -> Object {
     );
     object.restore_ai_state(AIState::Idle);
     object.contained_by = Some(ObjectId(91));
-    object.weapon = Some(Weapon {
-        damage: 5.0,
-        last_fire_time: -10.0,
-        ..Weapon::default()
-    });
-    object.secondary_weapon = Some(Weapon {
-        damage: 37.0,
-        last_fire_time: -10.0,
-        ammo: Some(2),
-        clip_size: 2,
-        projectile_speed: 9.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut object,
+        0,
+        Weapon {
+            damage: 5.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        },
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut object,
+        1,
+        Weapon {
+            damage: 37.0,
+            last_fire_time: -10.0,
+            ammo: Some(2),
+            clip_size: 2,
+            projectile_speed: 9.0,
+            ..Weapon::default()
+        },
+    );
     object
 }
 

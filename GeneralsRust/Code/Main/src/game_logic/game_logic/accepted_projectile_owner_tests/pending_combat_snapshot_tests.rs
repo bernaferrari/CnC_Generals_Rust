@@ -73,6 +73,8 @@ fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retir
         .set_prev_victim_pos(Some(victim_pos));
     accept(&mut source_world, source, target, 10.0);
     accept(&mut source_world, other, target, 10.0);
+    // DelayBetweenShots = 1000 is 30 logic frames (Weapon.cpp:1003-1010).
+    source_world.set_current_frame(u64::from(source_world.frame) + 30);
     accept(&mut source_world, source, target, 12.0);
     assert_eq!(source_world.combat_system.projectile_count(), 3);
     let children = fire_children(&source_world);
@@ -225,6 +227,8 @@ fn pending_combat_snapshot_explicit_empty_state_replaces_both_dirty_destination_
         live_projectileless_delayed_count_for_test(&destination.combat_system),
         1
     );
+    // DelayBetweenShots = 1000 is 30 logic frames (Weapon.cpp:1003-1010).
+    destination.set_current_frame(u64::from(destination.frame) + 30);
     accept(&mut destination, same_source, same_target, 12.0);
     SnapshotBuilder::new()
         .restore_from_snapshot(&captured, &mut destination)

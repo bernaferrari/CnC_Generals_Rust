@@ -42,16 +42,20 @@ fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
 
     let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
     let mut object = make_test_object();
-    object.tertiary_weapon = Some(Weapon {
-        damage: 73.0,
-        range: 100.0,
-        reload_time: 0.1,
-        clip_reload_time: 1.0,
-        clip_size: 1,
-        ammo: Some(1),
-        last_fire_time: -10.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut object,
+        2,
+        Weapon {
+            damage: 73.0,
+            range: 100.0,
+            reload_time: 0.1,
+            clip_reload_time: 1.0,
+            clip_size: 1,
+            ammo: Some(1),
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        },
+    );
     assert!(object.set_weapon_lock(2, WeaponLockType::LockedTemporarily));
 
     assert!(object.fire_at(
@@ -145,13 +149,17 @@ fn fire_at_reveals_on_the_stealth_update_when_attacking_is_forbidden() {
     let mut object = make_test_object();
     object.apply_grant_stealth(0);
     assert!(object.status.stealthed && object.innate_stealth);
-    object.weapon = Some(Weapon {
-        damage: 100.0,
-        range: 100.0,
-        reload_time: 0.5,
-        last_fire_time: -1.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut object,
+        0,
+        Weapon {
+            damage: 100.0,
+            range: 100.0,
+            reload_time: 0.5,
+            last_fire_time: -1.0,
+            ..Weapon::default()
+        },
+    );
     assert!(object.fire_at(
         ObjectId(2), 0.0, 1, &mut combat, &mut events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
@@ -176,11 +184,15 @@ fn fire_at_reveals_on_the_stealth_update_when_attacking_is_forbidden() {
 #[test]
 fn can_target_rejects_undetected_stealthed_enemy() {
     let mut attacker = make_test_object();
-    attacker.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        },
+    );
 
     let mut target = make_test_object();
     target.id = ObjectId(2);
@@ -198,12 +210,16 @@ fn can_target_rejects_undetected_stealthed_enemy() {
 #[test]
 fn can_target_rejects_weaponset_unattackable_and_masked_overrides() {
     let mut attacker = make_test_object();
-    attacker.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
 
     let mut target = make_test_object();
     target.id = ObjectId(2);
@@ -265,16 +281,20 @@ fn pre_attack_delay_blocks_first_shot() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
     atk.set_position(Vec3::ZERO);
-    atk.weapon = Some(Weapon {
-        damage: 25.0,
-        range: 100.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        pre_attack_delay: 1.0,
-        ammo: Some(5),
-        clip_size: 5,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 25.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 1.0,
+            ammo: Some(5),
+            clip_size: 5,
+            ..Weapon::default()
+        },
+    );
     let tgt_id = ObjectId(2);
 
     // First call starts wind-up, must not fire (ammo unchanged).
@@ -323,14 +343,18 @@ fn pre_attack_resets_on_new_target() {
     tmpl.add_kind_of(KindOf::Infantry);
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl, ObjectId(3), Team::USA);
-    atk.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 50.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        pre_attack_delay: 2.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 50.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 2.0,
+            ..Weapon::default()
+        },
+    );
     assert!(!atk.fire_at(
         ObjectId(10),
         5.0,
@@ -453,11 +477,15 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
     atk.set_position(Vec3::ZERO);
     // 120 units away; weapon range 100 — out without garrison, in with 133%.
     vic.set_position(Vec3::new(120.0, 0.0, 0.0));
-    atk.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        },
+    );
     assert!(!atk.is_within_attack_range(&vic));
     atk.contained_by = Some(ObjectId(99));
     atk.set_ai_state(
@@ -636,9 +664,21 @@ fn barrel_cursors_are_independent_per_weapon_set_slot() {
 fn direct_weapon_set_replacement_resets_only_its_own_barrel_cursor() {
     let vt = ThingTemplate::new("ExactSlotReplacement");
     let mut o = Object::new(vt, ObjectId(1), Team::USA);
-    o.weapon = Some(Weapon::default());
-    o.secondary_weapon = Some(Weapon::default());
-    o.tertiary_weapon = Some(Weapon::default());
+    crate::fixture_content::arm_slot_with_stats(
+        &mut o,
+        0,
+        Weapon::default(),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut o,
+        1,
+        Weapon::default(),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut o,
+        2,
+        Weapon::default(),
+    );
     o.weapon_barrel_states[0] = WeaponBarrelState::new(2, 4, None);
     o.weapon_barrel_states[1] = WeaponBarrelState::new(3, 3, None);
     o.weapon_barrel_states[2] = WeaponBarrelState::new(4, 2, None);
@@ -757,7 +797,11 @@ End
     vt.set_primary_weapon_name("__RustPendingOriginalBarrelWeapon");
     vt.set_mine_clearing_primary_weapon_name("__RustPendingReplacementBarrelWeapon");
     let mut o = Object::new(vt, ObjectId(1), Team::USA);
-    o.weapon = Some(Weapon::default());
+    crate::fixture_content::arm_slot_with_stats(
+        &mut o,
+        0,
+        Weapon::default(),
+    );
 
     assert_eq!(o.fired_barrel_for_slot(0), Some(0));
     assert!(o.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
@@ -805,7 +849,11 @@ End
     template.set_primary_weapon_name("__RustSnapshotPendingOriginalWeapon");
     template.set_mine_clearing_primary_weapon_name("__RustSnapshotPendingReplacementWeapon");
     let mut object = Object::new(template, ObjectId(1), Team::USA);
-    object.weapon = Some(Weapon::default());
+    crate::fixture_content::arm_slot_with_stats(
+        &mut object,
+        0,
+        Weapon::default(),
+    );
 
     assert_eq!(object.fired_barrel_for_slot(0), Some(0));
     assert!(object.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
@@ -826,7 +874,11 @@ fn mine_clearing_weapon_set_swap_resets_primary_barrel_cursor() {
     vt.set_primary_weapon_name("OrdinaryMineDetailTestWeapon");
     vt.set_mine_clearing_primary_weapon_name("DetailMineDetailTestWeapon");
     let mut o = Object::new(vt, ObjectId(1), Team::USA);
-    o.weapon = Some(Weapon::default());
+    crate::fixture_content::arm_slot_with_stats(
+        &mut o,
+        0,
+        Weapon::default(),
+    );
 
     // Model a partially consumed old PRIMARY cursor.  The next conditional
     // WeaponSet bind must replace it even before the first detail shot.

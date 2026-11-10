@@ -9,6 +9,34 @@ fn waiting_clip(clip: f32, between: f32) -> Object {
         Team::USA,
     );
     attacker.last_fire_frame = 77;
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 200.0,
+            last_fire_time: 1.0,
+            clip_size: 2,
+            ammo: Some(0),
+            clip_reload_time: clip,
+            reloading_clip: true,
+            reload_time: between,
+            ..Weapon::default()
+        },
+    );
+    attacker
+}
+
+/// Seconds-clock Weapon payload: the nested serde Weapon omits the authored
+/// frame scheduler (next_fire_frame/status), which C++ Weapon::xfer keeps, so
+/// the payload round-trip below can only witness the residual seconds clock.
+fn waiting_clip_seconds_payload(clip: f32, between: f32) -> Object {
+    let mut attacker = Object::new(
+        ThingTemplate::new("ClipDeadlineControl"),
+        ObjectId(1),
+        Team::USA,
+    );
+    attacker.last_fire_frame = 77;
     attacker.weapon = Some(Weapon {
         damage: 10.0,
         range: 200.0,
@@ -74,7 +102,7 @@ fn shorter_clip_deadline_stays_ready_across_refresh_and_actual_object_acceptance
 
 #[test]
 fn delayed_clip_poll_retains_original_deadline_in_existing_weapon_payload() {
-    let mut attacker = waiting_clip(1.0, 2.0);
+    let mut attacker = waiting_clip_seconds_payload(1.0, 2.0);
     attacker.refresh_weapon_fire_status(4.0);
     assert_eq!(attacker.weapon_fire_status, WeaponFireStatus::ReadyToFire);
     assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(2));

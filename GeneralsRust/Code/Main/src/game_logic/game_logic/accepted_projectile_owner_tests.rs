@@ -210,6 +210,7 @@ fn world(weapon_name: &str) -> (GameLogic, ObjectId, ObjectId) {
     (world, source, target)
 }
 
+#[track_caller]
 fn accept(world: &mut GameLogic, source: ObjectId, target: ObjectId, time: f32) {
     let unit = &world.objects[&source];
     let victim = &world.objects[&target];
@@ -348,6 +349,8 @@ fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
     let hp = world.objects[&target].health.current;
     accept(&mut world, source, target, 10.0);
     accept(&mut world, other_source, target, 10.0);
+    // DelayBetweenShots = 1000 is 30 logic frames (Weapon.cpp:1003-1010).
+    world.set_current_frame(u64::from(world.frame) + 30);
     accept(&mut world, source, target, 12.0);
     assert_eq!(world.objects[&target].health.current, hp);
     assert_eq!(world.combat_system.projectile_count(), 3);

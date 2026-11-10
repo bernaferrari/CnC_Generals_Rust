@@ -169,11 +169,15 @@ fn acceptable_aim_delta_blocks_then_allows_after_turn() {
     let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
     atk.set_position(glam::Vec3::ZERO);
     atk.set_orientation(0.0); // face +X residual (movement convention)
-    atk.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 200.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 200.0,
+            ..Weapon::default()
+        },
+    );
     let target = glam::Vec3::new(0.0, 0.0, 50.0); // off to +Z (~90°)
     let aim = atk.aim_delta_for_slot(0);
     let rel = atk.relative_angle_2d_to(target);
@@ -223,14 +227,18 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
     atk.set_position(Vec3::ZERO);
-    atk.weapon = Some(Weapon {
-        damage: 5.0,
-        range: 100.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        pre_attack_delay: 0.5,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 5.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 0.5,
+            ..Weapon::default()
+        },
+    );
     let tgt = ObjectId(9);
     // First wind-up
     assert!(!atk.fire_at(
@@ -303,16 +311,20 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
     atk.set_position(Vec3::ZERO);
-    atk.weapon = Some(Weapon {
-        damage: 5.0,
-        range: 100.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        pre_attack_delay: 1.0,
-        ammo: Some(5),
-        clip_size: 5,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 5.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 1.0,
+            ammo: Some(5),
+            clip_size: 5,
+            ..Weapon::default()
+        },
+    );
     let tgt = ObjectId(9);
     assert!(!atk.fire_at(
         tgt,
@@ -374,21 +386,25 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl, ObjectId(1), Team::GLA);
     atk.set_position(Vec3::ZERO);
-    atk.weapon = Some(Weapon {
-        damage: 50.0,
-        range: 300.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        pre_attack_delay: 2.0,
-        ammo: Some(3),
-        clip_size: 3,
-        // Retail ScudStormWeapon ClipReloadTime = 10000 (Weapon.ini:130370):
-        // an emptied AutoReloadsClip clip holds fire (C++ Weapon.cpp:1893
-        // m_whenWeCanFireAgain = start + ClipReloadTime) and the host refill
-        // completes only after it elapses, so ammo reads 0 on the same tick.
-        clip_reload_time: 10.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 50.0,
+            range: 300.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 2.0,
+            ammo: Some(3),
+            clip_size: 3,
+            // Retail ScudStormWeapon ClipReloadTime = 10000 (Weapon.ini:130370):
+            // an emptied AutoReloadsClip clip holds fire (C++ Weapon.cpp:1893
+            // m_whenWeCanFireAgain = start + ClipReloadTime) and the host refill
+            // completes only after it elapses, so ammo reads 0 on the same tick.
+            clip_reload_time: 10.0,
+            ..Weapon::default()
+        },
+    );
     let tgt = ObjectId(9);
     // Full clip → delay
     assert!(!atk.fire_at(

@@ -93,17 +93,21 @@ fn return_to_base_blocks_fire_until_rearm() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
     jet.set_position(Vec3::ZERO);
-    jet.weapon = Some(Weapon {
-        damage: 100.0,
-        range: 200.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        ammo: Some(2),
-        clip_size: 2,
-        can_target_air: true,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut jet,
+        0,
+        Weapon {
+            damage: 100.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(2),
+            clip_size: 2,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
     let tgt = ObjectId(9);
     assert!(jet.fire_at(
         tgt,
@@ -193,17 +197,21 @@ fn out_of_ammo_damage_ticks_empty_rtb_jet() {
     let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
     jet.set_position(Vec3::new(0.0, 50.0, 0.0));
     jet.status.airborne_target = true;
-    jet.weapon = Some(Weapon {
-        damage: 100.0,
-        range: 200.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        ammo: Some(0),
-        clip_size: 2,
-        can_target_air: true,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut jet,
+        0,
+        Weapon {
+            damage: 100.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 2,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
     assert!(jet.needs_return_to_base_rearm());
     let hp0 = jet.health.current;
     let dmg = jet.apply_out_of_ammo_damage_frame(&mut health_events);
@@ -235,18 +243,22 @@ fn airfield_rearm_duration_is_remaining_biased() {
     tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
-    jet.weapon = Some(Weapon {
-        damage: 50.0,
-        range: 200.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        ammo: Some(2),
-        clip_size: 4,
-        clip_reload_time: 8.0,
-        can_target_air: true,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut jet,
+        0,
+        Weapon {
+            damage: 50.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(2),
+            clip_size: 4,
+            clip_reload_time: 8.0,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
     // C++ (rt * needed) / clipSize = (240 * 2) / 4 = 120.
     assert_eq!(jet.airfield_rearm_clip_reload_frames(), 120);
     jet.weapon.as_mut().unwrap().ammo = Some(0);
@@ -260,18 +272,22 @@ fn parked_rearm_fills_clip_percent_over_time() {
     tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
-    jet.weapon = Some(Weapon {
-        damage: 50.0,
-        range: 200.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        ammo: Some(0),
-        clip_size: 4,
-        clip_reload_time: 8.0,
-        can_target_air: true,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut jet,
+        0,
+        Weapon {
+            damage: 50.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 4,
+            clip_reload_time: 8.0,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
     jet.begin_parked_airfield_rearm(10);
     assert_eq!(jet.airfield_rearm_ready_frame, Some(250));
     assert!(!jet.tick_parked_airfield_rearm(10));
@@ -295,15 +311,19 @@ fn empty_jet_circles_last_airfield_not_own_pos() {
     tmpl.set_health(100.0);
     let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
     jet.set_position(Vec3::new(2000.0, 50.0, 0.0));
-    jet.weapon = Some(Weapon {
-        damage: 50.0,
-        range: 200.0,
-        ammo: Some(0),
-        clip_size: 4,
-        can_target_air: true,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut jet,
+        0,
+        Weapon {
+            damage: 50.0,
+            range: 200.0,
+            ammo: Some(0),
+            clip_size: 4,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
     jet.capture_jet_producer_location(Some(Vec3::ZERO));
     assert!(!jet.is_at_jet_producer_location(80.0));
     assert!(jet.enter_circling_dead_airfield(
@@ -330,17 +350,21 @@ fn parked_jet_takeoff_on_attack_and_move() {
     tmpl.set_health(100.0);
     let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
     jet.set_position(Vec3::new(0.0, 0.0, 0.0));
-    jet.weapon = Some(Weapon {
-        damage: 50.0,
-        range: 200.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        ammo: Some(4),
-        clip_size: 4,
-        can_target_air: true,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut jet,
+        0,
+        Weapon {
+            damage: 50.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(4),
+            clip_size: 4,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
     jet.contained_by = Some(ObjectId(99));
     jet.set_ai_state(
         AIState::Docked,
@@ -1895,14 +1919,18 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
     let mut tmpl = ThingTemplate::new("StunBlock");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(tmpl, ObjectId(42), Team::USA);
-    o.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        can_target_ground: true,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut o,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        },
+    );
     assert!(o.can_attack());
     assert!(o.can_fire(0.0));
     assert!(o.can_move());
@@ -2063,11 +2091,15 @@ End
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     raptor.mark_jet_command_for_reload_interrupt(true);
-    raptor.weapon = Some(crate::game_logic::Weapon {
-        ammo: Some(0),
-        clip_size: 2,
-        ..crate::game_logic::Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut raptor,
+        0,
+        crate::game_logic::Weapon {
+            ammo: Some(0),
+            clip_size: 2,
+            ..crate::game_logic::Weapon::default()
+        },
+    );
 
     assert!(raptor.needs_return_to_base_rearm());
     assert!(raptor.jet_empty_clip_should_auto_rtb());
@@ -2567,11 +2599,15 @@ End
         .expect("inbound");
     if let Some(j) = logic.objects.get_mut(&inbound) {
         j.status.airborne_target = true;
-        j.weapon = Some(crate::game_logic::Weapon {
-            ammo: Some(0),
-            clip_size: 2,
-            ..crate::game_logic::Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            j,
+            0,
+            crate::game_logic::Weapon {
+                ammo: Some(0),
+                clip_size: 2,
+                ..crate::game_logic::Weapon::default()
+            },
+        );
     }
     // C++ order: the physical RTB command stamps the return request first
     // (doLandingCommand, JetAIUpdate.cpp:2277-2312); the rearm tick then

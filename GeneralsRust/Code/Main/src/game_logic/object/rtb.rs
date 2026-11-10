@@ -1179,6 +1179,8 @@ mod tests {
         let mut t = ThingTemplate::new("FaceTank");
         t.add_kind_of(KindOf::Vehicle);
         let mut object = Object::new(t, ObjectId(1), Team::USA);
+        // C++ facing needs a current Locomotor (Locomotor.cpp locoUpdate_moveTowardsAngle).
+        crate::fixture_content::locomote(&mut object, &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"]);
         object.min_speed = 0.0;
         object.movement.turn_rate = 0.3;
         let mut world = crate::game_logic::GameLogic::new();
@@ -1216,6 +1218,8 @@ mod tests {
         let mut t = ThingTemplate::new("FaceSlow");
         t.add_kind_of(KindOf::Vehicle);
         let mut object = Object::new(t, ObjectId(3), Team::USA);
+        // C++ facing needs a current Locomotor (Locomotor.cpp locoUpdate_moveTowardsAngle).
+        crate::fixture_content::locomote(&mut object, &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"]);
         object.min_speed = 0.0;
         object.set_face_can_turn_in_place(true);
         object.set_face_active(true);

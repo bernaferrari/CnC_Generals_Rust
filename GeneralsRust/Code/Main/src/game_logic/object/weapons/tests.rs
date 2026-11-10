@@ -16,8 +16,16 @@ fn auto_chooser_never_promotes_a_tertiary_weapon() {
         ObjectId(1),
         Team::USA,
     );
-    attacker.weapon = Some(weapon(5.0));
-    attacker.tertiary_weapon = Some(weapon(999.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        weapon(5.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        2,
+        weapon(999.0),
+    );
     let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
     target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
 
@@ -41,7 +49,11 @@ fn unknown_weapon_slot_fails_closed() {
         ObjectId(1),
         Team::USA,
     );
-    object.weapon = Some(weapon(5.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut object,
+        0,
+        weapon(5.0),
+    );
     assert!(object.weapon_slot(99).is_none());
     assert!(object.weapon_slot_mut(99).is_none());
     assert!(!object.set_weapon_lock(99, WeaponLockType::LockedPermanently));
@@ -60,8 +72,16 @@ fn preferred_against_primary_infantry_beats_higher_damage_secondary() {
         ObjectId(1),
         Team::USA,
     );
-    attacker.weapon = Some(weapon(10.0));
-    attacker.secondary_weapon = Some(weapon(100.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        weapon(10.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        weapon(100.0),
+    );
     let mut target = Object::new(
         {
             let mut t = ThingTemplate::new("Infantry");
@@ -87,8 +107,16 @@ fn preferred_against_secondary_infantry_beats_higher_damage_primary() {
         ObjectId(1),
         Team::GLA,
     );
-    attacker.weapon = Some(weapon(300.0));
-    attacker.secondary_weapon = Some(weapon(50.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        weapon(300.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        weapon(50.0),
+    );
     let mut target = Object::new(
         {
             let mut t = ThingTemplate::new("Infantry");
@@ -176,18 +204,26 @@ fn auto_choose_none_secondary_is_not_picked_while_primary_reloads() {
         !attacker.thing.template.slot_allows_auto_choose(1),
         "Jarmen secondary is AutoChooseSources NONE"
     );
-    attacker.weapon = Some(Weapon {
-        last_fire_time: 1.0,
-        reload_time: 1.0,
-        ..weapon(10.0)
-    });
-    attacker.secondary_weapon = Some(Weapon {
-        last_fire_time: -10.0,
-        reload_time: 0.0,
-        damage: 100.0,
-        range: 200.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(10.0)
+        },
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        Weapon {
+            last_fire_time: -10.0,
+            reload_time: 0.0,
+            damage: 100.0,
+            range: 200.0,
+            ..Weapon::default()
+        },
+    );
     let mut target = Object::new(ThingTemplate::new("Tank"), ObjectId(2), Team::USA);
     target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     assert_eq!(
@@ -361,8 +397,16 @@ fn retarget_inside_continuous_fire_coast_keeps_consecutive_shots() {
 #[test]
 fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
     let mut attacker = Object::new(ThingTemplate::new("ZeroDmgChooser"), ObjectId(1), Team::USA);
-    attacker.weapon = Some(weapon(0.0));
-    attacker.secondary_weapon = Some(weapon(10.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        weapon(0.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        weapon(10.0),
+    );
     let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
     target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     assert_eq!(
@@ -380,7 +424,11 @@ fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
         store.add_weapon_template(template);
     });
     attacker.thing.template.set_primary_weapon_name(UNRES);
-    attacker.weapon = Some(weapon(0.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        weapon(0.0),
+    );
     assert_eq!(
         attacker.select_combat_weapon_slot(&target, 1.0),
         Some(0),
@@ -391,8 +439,16 @@ fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
 #[test]
 fn leftover_choose_best_turret_aim_demotes_ready_slot() {
     let mut attacker = Object::new(ThingTemplate::new("TurretChooser"), ObjectId(1), Team::USA);
-    attacker.weapon = Some(weapon(100.0));
-    attacker.secondary_weapon = Some(weapon(10.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        weapon(100.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        weapon(10.0),
+    );
     attacker.turret_ai.turret_enabled = true;
     attacker.turret_ai.turret_substate = TurretSubState::Aim;
     attacker.turret_ai.turret_target_id = Some(ObjectId(2));
@@ -440,16 +496,24 @@ fn leftover_choose_best_skips_slot_outside_target_pitch() {
 #[test]
 fn leftover_choose_best_backup_picks_unready_valid_slot() {
     let mut attacker = Object::new(ThingTemplate::new("BackupChooser"), ObjectId(1), Team::USA);
-    attacker.weapon = Some(Weapon {
-        last_fire_time: 1.0,
-        reload_time: 1.0,
-        ..weapon(10.0)
-    });
-    attacker.secondary_weapon = Some(Weapon {
-        last_fire_time: 1.0,
-        reload_time: 1.0,
-        ..weapon(40.0)
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(10.0)
+        },
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(40.0)
+        },
+    );
     let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
     target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     assert_eq!(
@@ -475,18 +539,26 @@ fn leftover_choose_best_skips_empty_no_auto_reload_slot() {
     let mut t = ThingTemplate::new("EmptyNoReloadChooser");
     t.set_primary_weapon_name(EMPTY);
     let mut attacker = Object::new(t, ObjectId(1), Team::USA);
-    attacker.weapon = Some(Weapon {
-        ammo: Some(0),
-        clip_size: 1,
-        last_fire_time: 1.0,
-        reload_time: 1.0,
-        ..weapon(100.0)
-    });
-    attacker.secondary_weapon = Some(Weapon {
-        last_fire_time: 1.0,
-        reload_time: 1.0,
-        ..weapon(10.0)
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        Weapon {
+            ammo: Some(0),
+            clip_size: 1,
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(100.0)
+        },
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(10.0)
+        },
+    );
     let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
     target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     assert_eq!(
@@ -505,18 +577,26 @@ fn leftover_choose_best_temp_lock_keeps_unready_slot() {
         ObjectId(1),
         Team::USA,
     );
-    attacker.weapon = Some(Weapon {
-        last_fire_time: -10.0,
-        reload_time: 0.0,
-        ..weapon(5.0)
-    });
-    attacker.secondary_weapon = Some(Weapon {
-        last_fire_time: 1.0,
-        reload_time: 1.0,
-        ammo: Some(0),
-        clip_size: 1,
-        ..weapon(35.0)
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        Weapon {
+            last_fire_time: -10.0,
+            reload_time: 0.0,
+            ..weapon(5.0)
+        },
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ammo: Some(0),
+            clip_size: 1,
+            ..weapon(35.0)
+        },
+    );
     assert!(attacker.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
     let mut target = Object::new(
         {
@@ -542,8 +622,16 @@ fn leftover_choose_best_ground_resets_primary_unless_locked() {
         ObjectId(1),
         Team::USA,
     );
-    attacker.weapon = Some(weapon(10.0));
-    attacker.secondary_weapon = Some(weapon(30.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        0,
+        weapon(10.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut attacker,
+        1,
+        weapon(30.0),
+    );
     attacker.set_active_weapon_slot(1);
     assert_eq!(attacker.leftover_choose_best_ground_slot(), 0);
     attacker.leftover_choose_best_reset_primary_for_ground();
@@ -607,8 +695,16 @@ fn avenger_air_preference_keys_on_authored_secondary_not_template_name() {
     let mut tpl = ThingTemplate::new(name);
     tpl.set_secondary_weapon_name(AVENGER_AIR_LASER_DUMMY);
     let mut clone = Object::new(tpl, ObjectId(1), Team::USA);
-    clone.weapon = Some(air(50.0));
-    clone.secondary_weapon = Some(air(5.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut clone,
+        0,
+        air(50.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut clone,
+        1,
+        air(5.0),
+    );
     assert_eq!(
         clone.select_combat_weapon_slot(&aircraft, 1.0),
         Some(1),
@@ -617,7 +713,15 @@ fn avenger_air_preference_keys_on_authored_secondary_not_template_name() {
 
     // Avenger-named template without the authored air laser gets no peel.
     let mut named = Object::new(ThingTemplate::new("AmericaTankAvenger"), ObjectId(3), Team::USA);
-    named.weapon = Some(air(50.0));
-    named.secondary_weapon = Some(air(5.0));
+    crate::fixture_content::arm_slot_with_stats(
+        &mut named,
+        0,
+        air(50.0),
+    );
+    crate::fixture_content::arm_slot_with_stats(
+        &mut named,
+        1,
+        air(5.0),
+    );
     assert_eq!(named.select_combat_weapon_slot(&aircraft, 1.0), Some(0));
 }

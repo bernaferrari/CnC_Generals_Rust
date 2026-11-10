@@ -1887,17 +1887,25 @@ mod tests {
             ObjectId(1),
             Team::USA,
         );
-        attacker.weapon = Some(Weapon {
-            damage: 5.0,
-            range: 100.0,
-            ..Weapon::default()
-        });
-        attacker.tertiary_weapon = Some(Weapon {
-            damage: 37.0,
-            range: 250.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            &mut attacker,
+            0,
+            Weapon {
+                damage: 5.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+        crate::fixture_content::arm_slot_with_stats(
+            &mut attacker,
+            2,
+            Weapon {
+                damage: 37.0,
+                range: 250.0,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            },
+        );
         assert!(attacker.set_weapon_lock(2, WeaponLockType::LockedPermanently));
 
         // Simulate a stale displayed active slot.  The stored weapon lock is
@@ -1934,12 +1942,16 @@ mod tests {
 
         let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
         let mut unit = Object::new(ThingTemplate::new("PatriotBattery"), ObjectId(1), Team::USA);
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 150.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            &mut unit,
+            0,
+            Weapon {
+                damage: 20.0,
+                range: 150.0,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            },
+        );
         unit.status.under_construction = true;
         assert!(!unit.fire_at(
             ObjectId(2),
@@ -1974,12 +1986,16 @@ mod tests {
     fn held_autonomous_weapon_fires_but_other_disabled_types_still_block() {
         fn fire(held: bool, emp: bool, contained: bool) -> (bool, bool) {
             let mut object = Object::new(ThingTemplate::new("HeldShooter"), ObjectId(1), Team::USA);
-            object.weapon = Some(Weapon {
-                damage: 20.0,
-                range: 150.0,
-                last_fire_time: -10.0,
-                ..Weapon::default()
-            });
+            crate::fixture_content::arm_slot_with_stats(
+                &mut object,
+                0,
+                Weapon {
+                    damage: 20.0,
+                    range: 150.0,
+                    last_fire_time: -10.0,
+                    ..Weapon::default()
+                },
+            );
             object.status.disabled_held = held;
             object.status.disabled_emp = emp;
             object.contained_by = contained.then_some(ObjectId(3));

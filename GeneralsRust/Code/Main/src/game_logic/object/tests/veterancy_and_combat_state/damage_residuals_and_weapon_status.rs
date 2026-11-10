@@ -299,13 +299,17 @@ fn most_percent_ready_between_shots_progresses() {
     tmpl.add_kind_of(KindOf::Infantry);
     let mut o = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
     let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
-    o.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        reload_time: 1.0,
-        last_fire_time: -100.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut o,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        },
+    );
     assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(0.0), 100);
     assert!(o.fire_at(
         tgt.id,
@@ -375,13 +379,17 @@ fn weapon_status_sets_between_firing_model_condition() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
     let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
-    atk.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        reload_time: 1.0,
-        last_fire_time: -100.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        },
+    );
     assert!(atk.fire_at(
         tgt.id,
         1.0,
@@ -413,13 +421,17 @@ fn weapon_fire_status_between_shots_after_fire() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
     let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
-    atk.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        reload_time: 1.0,
-        last_fire_time: -100.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        },
+    );
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::ReadyToFire);
     assert!(atk.fire_at(
         tgt.id,
@@ -479,15 +491,19 @@ fn max_shots_to_fire_blocks_after_budget() {
     let mut atk = Object::new(tmpl.clone(), ObjectId(1), Team::USA);
     let tgt = Object::new(tmpl, ObjectId(2), Team::GLA);
     atk.set_position(Vec3::ZERO);
-    atk.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        reload_time: 0.0,
-        last_fire_time: -100.0,
-        pre_attack_delay: 0.0,
-        projectile_speed: 999_000.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            pre_attack_delay: 0.0,
+            projectile_speed: 999_000.0,
+            ..Weapon::default()
+        },
+    );
     atk.set_max_shots_to_fire(2);
     assert!(atk.fire_at(
         tgt.id,
@@ -542,12 +558,16 @@ fn leech_range_waives_max_in_is_within_attack_range() {
     let mut vic = Object::new(vic_t, ObjectId(2), Team::GLA);
     atk.set_position(Vec3::ZERO);
     vic.set_position(Vec3::new(500.0, 0.0, 0.0)); // far beyond weapon range
-    atk.weapon = Some(Weapon {
-        damage: 10.0,
-        range: 100.0,
-        min_range: 0.0,
-        ..Weapon::default()
-    });
+    crate::fixture_content::arm_slot_with_stats(
+        &mut atk,
+        0,
+        Weapon {
+            damage: 10.0,
+            range: 100.0,
+            min_range: 0.0,
+            ..Weapon::default()
+        },
+    );
     // Force leech template name path: set flags directly (activate needs name peel).
     assert!(!atk.is_within_attack_range(&vic));
     atk.leech_range_active_primary = true;
@@ -845,13 +865,17 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
     {
         let _ = logic.host_object_mut(atk).unwrap();
         let a = logic.objects.get_mut(&atk).unwrap();
-        a.weapon = Some(Weapon {
-            damage: 10.0,
-            range: 200.0,
-            reload_time: 1.0,
-            last_fire_time: -100.0, // never-fired residual
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            a,
+            0,
+            Weapon {
+                damage: 10.0,
+                range: 200.0,
+                reload_time: 1.0,
+                last_fire_time: -100.0, // never-fired residual
+                ..Weapon::default()
+            },
+        );
         // First shot at t=0
         assert!(a.fire_at_ex(
             ObjectId(99),
