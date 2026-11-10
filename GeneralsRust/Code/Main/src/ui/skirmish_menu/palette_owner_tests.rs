@@ -195,6 +195,22 @@ fn default_random_and_duplicate_indices_resolve_once_on_receiving_admission() {
             let mut ini = game_engine::common::ini::INI::new();
             ini.with_inline_source("MultiplayerColor RandomOwnerRed\n RGBColor = R:101 G:2 B:3\nEnd\nMultiplayerColor RandomOwnerBlue\n RGBColor = R:4 G:5 B:106\nEnd\n",|ini|ini.parse_current_file()).unwrap();
             game_engine::common::ini::ensure_player_templates_loaded();
+            let definitions =
+                (*game_engine::common::rts::player_template::get_player_template_store()).clone();
+            let settings = std::sync::Arc::new(
+                game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone),
+            );
+            // Each receiving game owns its startup slot catalog and the authored
+            // Multiplayer.ini palette before admission (GameEngine.cpp init).
+            let receiving_world = || {
+                let mut world = crate::game_logic::GameLogic::new();
+                crate::skirmish_config::lobby_definition_tests::admit_slot_world(
+                    &mut world,
+                    &definitions,
+                );
+                world.multiplayer_definitions = Some(settings.clone());
+                world
+            };
             let mut menu = SkirmishMenu::new();
             menu.initialize().unwrap();
             assert!(menu.configure_slot_medium_ai(1));
@@ -213,7 +229,7 @@ fn default_random_and_duplicate_indices_resolve_once_on_receiving_admission() {
             else {
                 panic!("Start")
             };
-            let mut a = crate::game_logic::GameLogic::new();
+            let mut a = receiving_world();
             apply_skirmish_config(&mut a, &config).unwrap();
             let accepted = a.initial_skirmish_admission.as_ref().unwrap().clone();
             let source = accepted.source.as_ref().unwrap();
@@ -221,7 +237,7 @@ fn default_random_and_duplicate_indices_resolve_once_on_receiving_admission() {
             assert_ne!(source.slots[0].color, source.slots[1].color);
             assert_eq!(source.slots[0].orig_color, -1);
             assert_eq!(source.slots[1].orig_color, -1);
-            let mut b = crate::game_logic::GameLogic::new();
+            let mut b = receiving_world();
             let mut other = config.clone();
             other.random_seed = 333;
             // This is another complete input owner: both its native and
@@ -236,7 +252,7 @@ fn default_random_and_duplicate_indices_resolve_once_on_receiving_admission() {
                 a.initial_skirmish_admission.as_deref(),
                 Some(accepted.as_ref())
             );
-            let mut restored = crate::game_logic::GameLogic::new();
+            let mut restored = receiving_world();
             accepted.admit(&mut restored).unwrap();
             assert_eq!(
                 restored.initial_skirmish_admission.as_deref(),
