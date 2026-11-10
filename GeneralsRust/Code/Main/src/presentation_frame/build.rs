@@ -2673,6 +2673,40 @@ mod sw_hud_tests {
     }
 
     #[test]
+    fn shared_nsync_rows_use_each_owning_players_ready_frame() {
+        // C++ SpecialPowerModule.cpp:756-765: a SharedNSync row's remaining
+        // time is its owning player's ready frame, not the local player's.
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA", true);
+        local.alliance_team = 0;
+        local.apply_faction_intrinsic_sciences();
+        local.authored_special_power_timers.insert("superweaponsharedparticle".into(), 11.0);
+        logic.add_player(local);
+        let mut enemy = Player::new(1, Team::USA, "Enemy", false);
+        enemy.alliance_team = 1;
+        enemy.apply_faction_intrinsic_sciences();
+        enemy.authored_special_power_timers.insert("superweaponsharedparticle".into(), 77.0);
+        logic.add_player(enemy);
+        spawn_sw(&mut logic, "LocalPuc", 0, SpecialPowerType::ParticleCannon, true, 1.0);
+        spawn_sw(&mut logic, "EnemyPuc", 1, SpecialPowerType::ParticleCannon, true, 1.0);
+
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let remaining = |key: &str| {
+            frame
+                .superweapon_timers
+                .iter()
+                .find(|t| t.power_key == key)
+                .unwrap_or_else(|| panic!("{key} row"))
+                .remaining
+        };
+        assert!((remaining("ParticleCannon") - 11.0).abs() < 1e-5);
+        assert!(
+            (remaining("ParticleCannon#1") - 77.0).abs() < 1e-5,
+            "enemy remaining must come from player 1's shared frame"
+        );
+    }
+
+    #[test]
     fn shared_nsync_uses_player_shared_ready_frame_not_object_min() {
         // C++ SpecialPowerModule::getReadyFrame (SpecialPowerModule.cpp:756-765)
         // returns Player::getOrStartSpecialPowerReadyFrame when SharedNSync.

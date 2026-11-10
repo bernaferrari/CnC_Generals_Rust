@@ -27,24 +27,40 @@ fn boat_input(frame: &PresentationFrame) -> UnitRenderInput {
     )
 }
 
+/// C++ FloatUpdate.cpp:106-114 writes the sway into the Drawable's instance
+/// matrix (keep its Z rotation, then Rotate_Y(yaw), Rotate_X(pitch)); the
+/// Drawable transform is Object * instance (Drawable.cpp:2639-2647).
+fn sway_instance(input: &UnitRenderInput) -> glam::Mat4 {
+    crate::game_logic::host_float_update::rebuild_receiving_instance(
+        glam::Mat4::IDENTITY,
+        input.float_yaw,
+        input.float_pitch,
+    )
+}
+
 #[test]
 fn frozen_sway_survives_same_id_other_world_freeze_and_reset() {
     let mut first = boat_world(0.3, -0.1);
     let frame = PresentationFrame::build_from_logic(&mut first, 1);
     let input = boat_input(&frame);
-    let expected = input.world_matrix();
+    assert_eq!((input.float_yaw, input.float_pitch), (0.3, -0.1));
+    let expected = input.world_matrix_with_drawable_instance(Some(sway_instance(&input)));
     let mut second = boat_world(-0.8, 0.2);
     let other_frame = PresentationFrame::build_from_logic(&mut second, 1);
     let other_input = boat_input(&other_frame);
-    assert_ne!(other_input.world_matrix(), expected);
+    assert_eq!((other_input.float_yaw, other_input.float_pitch), (-0.8, 0.2));
+    assert_ne!(
+        other_input.world_matrix_with_drawable_instance(Some(sway_instance(&other_input))),
+        expected
+    );
     assert_eq!(
-        input.world_matrix(),
-        expected,
+        (input.float_yaw, input.float_pitch),
+        (0.3, -0.1),
         "same-ID other-world freeze must not replace a completed input sway"
     );
     second.reset();
     assert_eq!(
-        input.world_matrix(),
+        input.world_matrix_with_drawable_instance(Some(sway_instance(&input))),
         expected,
         "resetting another world must not clear a completed input sway"
     );
@@ -55,17 +71,21 @@ fn frozen_sway_uses_cpp_heading_yaw_pitch_order() {
     let mut world = boat_world(0.3, -0.1);
     let frame = PresentationFrame::build_from_logic(&mut world, 1);
     let input = boat_input(&frame);
-    let matrix = input.world_matrix();
-    let (sh, ch) = 0.6f32.sin_cos();
+    let instance = sway_instance(&input);
+    // In C++ Z-up space the instance is Ry(yaw) * Rx(pitch) after the kept
+    // Z rotation (identity here). Analytic basis vectors distinguish the two
+    // noncommuting rotations without reading globals.
+    let basis = glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
+    let cpp = basis * instance * basis;
     let (sy, cy) = 0.3f32.sin_cos();
     let (sp, cp) = (-0.1f32).sin_cos();
-    // C++ FloatUpdate.cpp:109-112: heading -> yaw -> pitch. In host Y-up
-    // that is Ry(heading) * Rz(yaw) * Rx(pitch). These analytic basis vectors
-    // distinguish all three noncommuting rotations without reading globals.
-    let expected_x = glam::Vec3::new(ch * cy, sy, -sh * cy);
-    let expected_y = glam::Vec3::new(-ch * sy * cp + sh * sp, cy * cp, sh * sy * cp + ch * sp);
-    assert!(matrix.x_axis.truncate().abs_diff_eq(expected_x, 1e-6));
-    assert!(matrix.y_axis.truncate().abs_diff_eq(expected_y, 1e-6));
+    assert!(cpp.x_axis.truncate().abs_diff_eq(glam::Vec3::new(cy, 0.0, -sy), 1e-6));
+    assert!(cpp.y_axis.truncate().abs_diff_eq(glam::Vec3::new(sy * sp, cp, cy * sp), 1e-6));
+    // The heading is the Object transform, applied before the instance.
+    let matrix = input.world_matrix_with_drawable_instance(Some(instance));
+    let object = glam::Mat4::from_translation(input.position)
+        * glam::Mat4::from_rotation_y(input.orientation);
+    assert!(matrix.abs_diff_eq(object * instance, 1e-6));
     assert_eq!(matrix.w_axis.truncate(), input.position);
 }
 
