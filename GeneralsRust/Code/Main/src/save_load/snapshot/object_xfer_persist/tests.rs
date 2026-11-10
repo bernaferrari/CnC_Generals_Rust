@@ -123,16 +123,21 @@ use crate::game_logic::object::TurretSubState;
 use crate::game_logic::{Player, Team, ThingTemplate};
 use glam::Vec3;
 
+/// The AI-owning Ranger every OXOB clock round-trip receives from authored INI.
+fn admit_clock_owner(world: &mut GameLogic) {
+    crate::fixture_content::admit_fixture_objects(
+        world,
+        &[crate::fixture_content::FixtureObject::new("AmericaInfantryRanger")
+            .kind_of("INFANTRY SELECTABLE")
+            .health(100.0)
+            .module("Behavior = AIUpdateInterface ActualClockOwner\nEnd")],
+    );
+}
+
 #[test]
 fn snapshot_round_trips_object_xfer_clocks() {
     let mut source = GameLogic::new();
-    source.templates.insert(
-        "AmericaInfantryRanger".to_string(),
-        ThingTemplate::new("AmericaInfantryRanger"),
-    );
-    source.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
-        ("native-clock-owner.ini".into(), "Object AmericaInfantryRanger\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface ActualClockOwner\nEnd\nEnd\n".into()),
-    ]).unwrap()).unwrap();
+    admit_clock_owner(&mut source);
     source.add_player(Player::new(0, Team::USA, "USA", true));
     let id = source
         .create_object(
@@ -194,9 +199,10 @@ fn snapshot_round_trips_object_xfer_clocks() {
         "OXOB suffix must be appended to lifecycle tail"
     );
 
+    // The loading game owns the same authored INI before the save is applied.
     let mut restored = GameLogic::new();
+    admit_clock_owner(&mut restored);
     restored.add_player(Player::new(0, Team::USA, "USA", true));
-    restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore");
