@@ -469,14 +469,14 @@ impl ScriptCondition for UnitHasObjectStatusCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let unit_name = get_str_param(parameters, "unit_name")?;
         let status_str = get_str_param(parameters, "status")?;
         let status_mask = parse_object_status_mask(&status_str);
         if dual_world_registry_unavailable() {
             return Ok(
-                host_eval_unit_has_object_status(&unit_name, status_mask.bits()).unwrap_or(false),
+                context.host_query.host_eval_unit_has_object_status(&unit_name, status_mask.bits()).unwrap_or(false),
             );
         }
 

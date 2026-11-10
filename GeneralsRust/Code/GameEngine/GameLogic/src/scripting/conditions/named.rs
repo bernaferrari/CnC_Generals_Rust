@@ -35,13 +35,13 @@ impl ScriptCondition for NamedUnitExistsCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let unit_name = get_str_param(parameters, "unit_name")?;
         // Host path: name→id map / host query, no crate Object required.
         if dual_world_registry_unavailable() {
             return Ok(
-                super::helpers::host_script_named_unit_id(&unit_name).is_some()
+                context.host_query.host_script_named_unit_id(&unit_name).is_some()
                     || lookup_named_object_id(&unit_name)?.is_some(),
             );
         }
@@ -80,16 +80,16 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         // Empty dual-world: host snapshot while the unit still exists; after
         // processDestroyList C++ getUnitNamed is NULL and didUnitExist stays true.
         if dual_world_registry_unavailable() {
             let unit_name = get_str_param(parameters, "unit_name")?;
-            if let Some(obj) = super::helpers::host_script_query_object(&unit_name) {
+            if let Some(obj) = context.host_query.host_script_query_object(&unit_name) {
                 return Ok(obj.effectively_dead || !obj.alive);
             }
-            if let Some(alive) = super::helpers::host_script_named_unit_alive(&unit_name) {
+            if let Some(alive) = context.host_query.host_script_named_unit_alive(&unit_name) {
                 return Ok(!alive);
             }
             let tracker = get_named_object_tracker();
@@ -177,13 +177,13 @@ impl ScriptCondition for NamedUnitTotallyDeadCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         // C++ evaluateNamedUnitTotallyDead: getUnitNamed succeeds → false;
         // didUnitExist (name known, object gone) → true; never existed → false.
         if dual_world_registry_unavailable() {
             let unit_name = get_str_param(parameters, "unit_name")?;
-            if super::helpers::host_script_named_unit_alive(&unit_name).is_some() {
+            if context.host_query.host_script_named_unit_alive(&unit_name).is_some() {
                 return Ok(false);
             }
             let tracker = get_named_object_tracker();
@@ -285,13 +285,13 @@ impl ScriptCondition for NamedInsideAreaCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
         if dual_world_registry_unavailable() {
             // Existence is not inside-area. Require mapped host AABB bounds.
-            return Ok(super::helpers::host_script_named_unit_in_named_area(
+            return Ok(context.host_query.host_script_named_unit_in_named_area(
                 &unit_name, &area_name,
             )
             .unwrap_or(false));
@@ -344,7 +344,7 @@ impl ScriptCondition for NamedOutsideAreaCondition {
             let unit_name = get_str_param(parameters, "unit_name")?;
             let area_name = get_str_param(parameters, "area_name")?;
             return Ok(
-                match super::helpers::host_script_named_unit_in_named_area(&unit_name, &area_name) {
+                match context.host_query.host_script_named_unit_in_named_area(&unit_name, &area_name) {
                     Some(inside) => !inside,
                     None => false,
                 },
@@ -594,11 +594,11 @@ impl ScriptCondition for NamedSelectedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let unit_name = get_str_param(parameters, "unit_name")?;
         if dual_world_registry_unavailable() {
-            return Ok(super::helpers::host_script_named_unit_selected(&unit_name).unwrap_or(false));
+            return Ok(context.host_query.host_script_named_unit_selected(&unit_name).unwrap_or(false));
         }
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -710,7 +710,7 @@ impl ScriptCondition for NamedEnteredAreaCondition {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            let Some(object_id) = super::helpers::host_script_named_unit_id(&unit_name) else {
+            let Some(object_id) = context.host_query.host_script_named_unit_id(&unit_name) else {
                 return Ok(false);
             };
             let world = context
@@ -782,7 +782,7 @@ impl ScriptCondition for NamedExitedAreaCondition {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            let Some(object_id) = super::helpers::host_script_named_unit_id(&unit_name) else {
+            let Some(object_id) = context.host_query.host_script_named_unit_id(&unit_name) else {
                 return Ok(false);
             };
             let world = context
@@ -843,4 +843,60 @@ pub(super) fn register_named_conditions(registry: &mut ConditionRegistry) {
     registry.register_condition(Box::new(NamedReachedWaypointsEndCondition));
     registry.register_condition(Box::new(NamedEnteredAreaCondition));
     registry.register_condition(Box::new(NamedExitedAreaCondition));
+}
+
+#[cfg(test)]
+mod host_query_context_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+
+    fn context(query: crate::scripting::HostScriptQuery) -> ScriptContext {
+        ScriptContext {
+            game_time: std::time::Duration::ZERO,
+            active_player: None,
+            variables: HashMap::new(),
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".into(),
+                game_mode: "Test".into(),
+                players: vec![],
+                objectives: vec![],
+            },
+            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
+            host_query: query,
+        }
+    }
+
+    #[test]
+    fn legacy_named_condition_reads_its_contexts_world_not_the_published_one() {
+        const NAME: &str = "HostQueryContextTwoWorldHero";
+        let a = new_world_services();
+        let b = new_world_services();
+        let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
+        snap.named.insert(NAME.to_string(), 7);
+        crate::scripting::HostScriptQuery::of(&a).set_host_script_query_snapshot(snap);
+        let in_a = context(crate::scripting::HostScriptQuery::of(&a));
+        let in_b = context(crate::scripting::HostScriptQuery::of(&b));
+        let params = HashMap::from([(
+            "unit_name".to_string(),
+            ScriptValue::String(NAME.to_string()),
+        )]);
+        let (via_a, via_b) = with_world_services(&b, || {
+            (
+                in_a.host_query.host_script_named_unit_id(NAME),
+                in_b.host_query.host_script_named_unit_id(NAME),
+            )
+        });
+        assert_eq!((via_a, via_b), (Some(7), None));
+        // The condition's host path (registry empty) answers from its context.
+        if dual_world_registry_unavailable() {
+            let (exists_a, exists_b) = with_world_services(&b, || {
+                (
+                    futures::executor::block_on(NamedUnitExistsCondition.evaluate(&params, &in_a)),
+                    futures::executor::block_on(NamedUnitExistsCondition.evaluate(&params, &in_b)),
+                )
+            });
+            assert!(exists_a.unwrap());
+            assert!(!exists_b.unwrap());
+        }
+    }
 }

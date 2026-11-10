@@ -188,7 +188,7 @@ impl ScriptCondition for TeamDestroyedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
@@ -200,10 +200,10 @@ impl ScriptCondition for TeamDestroyedCondition {
             }
         };
         if dual_world_registry_unavailable() {
-            if !super::helpers::host_team_was_fielded(&team_name) {
+            if !context.host_query.host_team_was_fielded(&team_name) {
                 return Ok(false);
             }
-            return Ok(!super::helpers::host_team_has_any_live_objects(&team_name));
+            return Ok(!context.host_query.host_team_has_any_live_objects(&team_name));
         }
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -244,7 +244,7 @@ impl ScriptCondition for TeamHasUnitsCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
@@ -256,7 +256,7 @@ impl ScriptCondition for TeamHasUnitsCondition {
             }
         };
         if dual_world_registry_unavailable() {
-            return Ok(super::helpers::host_team_has_any_live_units(&team_name));
+            return Ok(context.host_query.host_team_has_any_live_units(&team_name));
         }
         let factory = get_team_factory();
         let guard = factory.lock().map_err(|e| {
@@ -531,7 +531,7 @@ impl ScriptCondition for TeamCreatedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
@@ -543,7 +543,7 @@ impl ScriptCondition for TeamCreatedCondition {
             }
         };
         if dual_world_registry_unavailable() {
-            return Ok(super::helpers::host_team_was_fielded(&team_name));
+            return Ok(context.host_query.host_team_was_fielded(&team_name));
         }
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -606,9 +606,9 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
                 .host_trigger_world
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            return Ok(super::helpers::host_team_some_inside_some_outside(
+            return Ok(context.host_query.host_team_some_inside_some_outside(
                 &world, &team_name, &trigger, 1,
-            ) || super::helpers::host_team_all_inside(&world, &team_name, &trigger, 1));
+            ) || context.host_query.host_team_all_inside(&world, &team_name, &trigger, 1));
         }
 
         let factory = get_team_factory();
@@ -693,7 +693,7 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
                 .host_trigger_world
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            return Ok(super::helpers::host_team_all_inside(
+            return Ok(context.host_query.host_team_all_inside(
                 &world, &team_name, &trigger, 1,
             ));
         }
@@ -797,7 +797,7 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
@@ -812,7 +812,7 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
         let status_mask = parse_object_status_mask(&status_str);
         if dual_world_registry_unavailable() {
             return Ok(
-                host_eval_team_has_object_status(&team_name, status_mask.bits(), true)
+                context.host_query.host_eval_team_has_object_status(&team_name, status_mask.bits(), true)
                     .unwrap_or(false),
             );
         }
@@ -866,7 +866,7 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
@@ -881,7 +881,7 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
         let status_mask = parse_object_status_mask(&status_str);
         if dual_world_registry_unavailable() {
             return Ok(
-                host_eval_team_has_object_status(&team_name, status_mask.bits(), false)
+                context.host_query.host_eval_team_has_object_status(&team_name, status_mask.bits(), false)
                     .unwrap_or(false),
             );
         }

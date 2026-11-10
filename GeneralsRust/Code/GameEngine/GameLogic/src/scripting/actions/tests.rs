@@ -131,6 +131,9 @@ fn test_context() -> ScriptContext {
         },
         host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
     }
+        host_query: crate::scripting::HostScriptQuery::published(),
+    } host_query: crate::scripting::HostScriptQuery::published(),
+    }
 }
 
 fn reset_test_player(index: PlayerIndex, money: i32) {
@@ -243,6 +246,7 @@ async fn test_create_unit_action() {
             objectives: vec![],
         },
         host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
+        host_query: crate::scripting::HostScriptQuery::published(),
     };
 
     let result = action.execute(&params, &context).await.unwrap();

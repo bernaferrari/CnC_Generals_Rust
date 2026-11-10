@@ -178,11 +178,11 @@ impl ScriptCondition for BridgeRepairedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let bridge_name = get_str_param(parameters, "bridge_name")?;
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(crate::scripting::host_bridge_repaired(&bridge_name));
+            return Ok(context.host_query.host_bridge_repaired(&bridge_name));
         }
         let object_id = match lookup_named_object_id(&bridge_name)? {
             Some(id) => id,
@@ -222,11 +222,11 @@ impl ScriptCondition for BridgeBrokenCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let bridge_name = get_str_param(parameters, "bridge_name")?;
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(crate::scripting::host_bridge_broken(&bridge_name));
+            return Ok(context.host_query.host_bridge_broken(&bridge_name));
         }
         let object_id = match lookup_named_object_id(&bridge_name)? {
             Some(id) => id,

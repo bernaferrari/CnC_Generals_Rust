@@ -101,6 +101,8 @@ pub struct ScriptContext {
     pub game_state: GameStateContext,
     /// Trigger edge state owned by the script execution world.
     pub host_trigger_world: Arc<Mutex<HostTriggerWorld>>,
+    /// C++ the evaluating engine's host facts (its own world's snapshot).
+    pub host_query: HostScriptQuery,
 }
 
 impl ScriptContext {

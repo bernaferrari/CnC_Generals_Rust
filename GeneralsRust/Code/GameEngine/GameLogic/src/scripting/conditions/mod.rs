@@ -129,6 +129,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
+            host_query: crate::scripting::HostScriptQuery::published(),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -159,6 +160,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
+            host_query: crate::scripting::HostScriptQuery::published(),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -205,6 +207,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
+            host_query: crate::scripting::HostScriptQuery::published(),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -257,6 +260,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
+            host_query: crate::scripting::HostScriptQuery::published(),
         };
         let mut params = HashMap::new();
         params.insert("player".to_string(), ScriptValue::Int(0));
@@ -301,6 +305,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
+            host_query: crate::scripting::HostScriptQuery::published(),
         };
         let mut params = HashMap::new();
         params.insert(
@@ -335,6 +340,7 @@ mod tests {
                 objectives: vec![],
             },
             host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
+            host_query: crate::scripting::HostScriptQuery::published(),
         };
         let mut params = HashMap::new();
         params.insert("player".to_string(), ScriptValue::Int(0));

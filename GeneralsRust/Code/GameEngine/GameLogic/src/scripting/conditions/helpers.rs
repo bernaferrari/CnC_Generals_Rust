@@ -2917,3 +2917,11 @@ mod host_query_world_tests {
         assert_eq!(HostScriptQuery::of(&a).host_script_named_unit_id("Hero"), None);
     }
 }
+
+impl std::fmt::Debug for HostScriptQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostScriptQuery")
+            .field("bound", &self.world.is_some())
+            .finish()
+    }
+}
