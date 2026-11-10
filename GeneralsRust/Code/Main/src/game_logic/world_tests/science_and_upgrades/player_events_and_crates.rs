@@ -236,12 +236,27 @@ fn add_skill_points_modifier_cap_negative_and_reset_rank() {
 
 #[test]
 fn rank_down_keeps_player_template_intrinsic_sciences() {
-    use crate::game_logic::{Player, PlayerTemplateIdentity, Team};
+    use crate::game_logic::{Player, Team};
+    // The world authors its own General (no published template catalog):
+    // Player::resetRank keeps PlayerTemplate intrinsics (Player.cpp:2637-2650).
     let mut logic = GameLogic::new();
     admit_retail_ranks(&logic);
+    let mut general = game_engine::common::rts::player_template::PlayerTemplate::new(
+        "FactionAmericaAirForceGeneral".to_string(),
+    );
+    general.side = "AmericaAirForceGeneral".to_string();
+    general.base_side = "America".to_string();
+    general.intrinsic_sciences = vec!["SCIENCE_AMERICA".to_string(), "SCIENCE_AirForceGeneral".to_string()];
+    general.intrinsic_science_purchase_points = 1;
+    let mut definitions = game_engine::common::rts::player_template::PlayerTemplateStore::new();
+    definitions.add_template(general);
+    logic
+        .admit_player_template_definitions(definitions)
+        .expect("admit world PlayerTemplate definitions");
     logic.add_player(Player::new(0, Team::USA, "AirF", true));
-    let identity = PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
-        .expect("retail Air Force PlayerTemplate");
+    let identity = logic
+        .player_template_identity_from_name("FactionAmericaAirForceGeneral")
+        .expect("world Air Force PlayerTemplate");
     assert!(logic.bind_player_template_identity(0, identity));
     let template = logic
         .resolved_player_template(0)
