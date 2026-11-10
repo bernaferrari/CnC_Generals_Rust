@@ -186,6 +186,19 @@ fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
             assert_eq!(cpp_build_frames(&worlds[1], human, HumanOrders::STRUCTURE), expected,
                 "both worlds start from the same authored build-time inputs");
             assert!(expected >= 30, "retail Power Plant build time: {expected} frames");
+            // The ordered Dozer and its approach budget: C++ newTask stores
+            // the build dock from findGoodBuildOrRepairPosition, outside the
+            // scaffold, and the Dozer drives its first planned path there at
+            // locomotor speed. Budget = frames until that path exists + its
+            // length at max speed + APPROACH_SLACK (acceleration, turning and
+            // the MoveToActionPos arrival tolerance).
+            const APPROACH_SLACK: u32 = 30;
+            let order_frame = worlds[0].frame();
+            let dozers: Vec<_> = worlds
+                .iter_mut()
+                .map(|world| world.owned_ids(human, "AmericaVehicleDozer")[0])
+                .collect();
+            let mut approach_budget = [None; 2];
             // Approach and docking, then exactly one percent step per frame.
             let limit = expected + 600;
             let mut started = [None; 2];
@@ -196,6 +209,19 @@ fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
                         continue;
                     }
                     world.advance();
+                    let dozer = dozers[index];
+                    if approach_budget[index].is_none() {
+                        if let Some((_, Some(dock), speed, Some(path))) = world.dozer_approach(dozer) {
+                            let site = world.owned_ids(human, HumanOrders::STRUCTURE)[0];
+                            assert_eq!(world.footprint_contains(site, dock), Some(false),
+                                "world {index}: build dock {dock:?} must lie outside the scaffold");
+                            assert!(speed > 0.0, "world {index}: dozer locomotor speed");
+                            // Locomotor turning slows the Dozer at each path
+                            // corner: allow 10% over the full-speed drive.
+                            let drive = (path / (speed / 30.0) * 1.1).ceil() as u32;
+                            approach_budget[index] = Some(world.frame() - order_frame + drive + APPROACH_SLACK);
+                        }
+                    }
                     let sites = world.construction(human, HumanOrders::STRUCTURE);
                     assert_eq!(sites.len(), 1, "world {index}: one scaffold, got {sites:?}");
                     let (_, under_construction, percent) = sites[0];
@@ -213,6 +239,11 @@ fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
             }
             for index in 0..2 {
                 let start = started[index].unwrap_or_else(|| panic!("world {index}: Dozer never started building"));
+                let budget = approach_budget[index].unwrap_or_else(|| panic!("world {index}: no build dock"));
+                eprintln!("world {index}: approach {} frames (budget {budget})", start - order_frame);
+                assert!(start - order_frame <= budget,
+                    "world {index}: Dozer took {} frames to reach the scaffold, its planned path allows {budget}",
+                    start - order_frame);
                 let end = finished[index].unwrap_or_else(|| panic!("world {index}: Power Plant unfinished after {limit} frames"));
                 // The first contributing frame already adds 1/frames.
                 let building = end - start + 1;
@@ -221,6 +252,32 @@ fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
                 // The finished plant now powers its own world only.
                 assert_eq!(worlds[index].energy_supply_ratio(human).map(|ratio| ratio > 0.0), Some(true),
                     "world {index}: completed Power Plant must supply energy");
+            }
+        })
+        .expect("spawn probe")
+        .join()
+        .expect("probe panicked");
+}
+
+#[test]
+#[ignore = "requires retail assets"]
+fn retail_game_data_rules_reach_each_world_like_the_app_boot_while_worlds_take_turns() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let assets = SharedSkirmishAssets::load_retail().expect("retail harness assets");
+            let mut worlds = [
+                start(&assets, SkirmishSpec { seed: 7, frames: 0, human_orders: false }),
+                start(&assets, SkirmishSpec { seed: 8, frames: 0, human_orders: true }),
+            ];
+            for step in 0..30 {
+                for (index, world) in worlds.iter_mut().enumerate() {
+                    world.advance();
+                    // C++ GameEngine::init loads GameData/Armor/Terrain/Roads/
+                    // OCL once; every headless world must hold that content.
+                    assert_eq!(world.retail_rule_mismatches(&assets), Vec::<&str>::new(),
+                        "world {index} at step {step}");
+                }
             }
         })
         .expect("spawn probe")

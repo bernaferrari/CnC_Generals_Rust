@@ -81,6 +81,7 @@ impl NetworkClock {
 mod audio;
 mod audio_view;
 mod boot;
+pub(crate) use boot::armor_definitions_from_texts;
 mod camera_drain;
 mod camera_filter;
 mod camera_height;

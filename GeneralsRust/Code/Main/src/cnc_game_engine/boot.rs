@@ -2151,3 +2151,4 @@ mod loose_ini_authority_tests {
 
 #[path = "boot/armor_content.rs"]
 mod armor_content;
+pub(crate) use armor_content::armor_definitions_from_texts;

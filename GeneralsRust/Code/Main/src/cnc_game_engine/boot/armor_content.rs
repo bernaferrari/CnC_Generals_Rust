@@ -31,6 +31,19 @@ where
     }
     Ok(Arc::new(gamelogic::object::armor::ArmorDefinitions::new()))
 }
+/// The same GameEngine.cpp445 selection over sources that were already read
+/// (path, text), for receivers that do not own a startup asset manager.
+pub(crate) fn armor_definitions_from_texts(
+    texts: &[(&str, &str)],
+) -> Result<Arc<gamelogic::object::armor::ArmorDefinitions>, String> {
+    pollster::block_on(select_armor_source(|path| {
+        let text = texts
+            .iter()
+            .find(|(candidate, _)| *candidate == path)
+            .map(|(_, text)| (*text).to_owned());
+        async move { Ok(text) }
+    }))
+}
 impl CnCGameEngine {
     pub(super) async fn load_application_armor_definitions(
         assets: &StartupAssets,

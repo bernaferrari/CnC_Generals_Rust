@@ -29,9 +29,110 @@ pub struct SharedSkirmishAssets {
     game_data: CameraMovementRules,
     /// GameData.ini Low/Min/MaxLowEnergy* rules (ThingTemplate::calcTimeToBuild).
     energy: ProductionEnergyRules,
+    /// The remaining simulation baselines the application boot admits.
+    rules: RetailLogicRules,
     player_templates: PlayerTemplateStore,
     locomotors: LocomotorStore,
     multiplayer: Arc<MultiplayerSettings>,
+}
+
+/// The GameData / definition baselines `CnCGameEngine` boot admits into the
+/// live world (C++ GameEngine::init: GlobalData, Armor, Terrain, Roads,
+/// ObjectCreationList), read once from the shared retail sources.
+#[derive(Clone)]
+struct RetailLogicRules {
+    physics: game_engine::common::ini::ini_game_data::PhysicsContentRules,
+    power_bar: game_engine::common::ini::ini_game_data::PowerBarRules,
+    body_damage: game_engine::common::ini::ini_game_data::BodyDamageRules,
+    body_auto_particles: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
+    combat_bonus: game_engine::common::ini::ini_game_data::CombatBonusRules,
+    tunnel_capacity: i32,
+    historic_damage_limit: u32,
+    sell_percentage: f32,
+    armor: Arc<gamelogic::object::armor::ArmorDefinitions>,
+    terrain: Arc<game_engine::common::ini::ini_terrain::TerrainTypes>,
+    roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
+    object_creation_lists: Vec<String>,
+}
+
+impl RetailLogicRules {
+    fn read(startup: &StandaloneStartupSources) -> Result<Self, HarnessAssetError> {
+        use game_engine::common::ini::ini_game_data as gd;
+        fn fold<R>(
+            startup: &StandaloneStartupSources,
+            init: R,
+            overlay: impl Fn(R, &str) -> Result<R, String>,
+        ) -> Result<R, HarnessAssetError> {
+            startup
+                .definition_texts("GameData.ini")
+                .try_fold(init, |rules, (path, text)| {
+                    overlay(rules, text)
+                        .map_err(|error| HarnessAssetError::Invalid(format!("{path}: {error}")))
+                })
+        }
+        let owned = |file: &'static str| -> Vec<(&'static str, String)> {
+            startup
+                .definition_texts(file)
+                .map(|(path, text)| (path, text.to_owned()))
+                .collect()
+        };
+        let invalid = HarnessAssetError::Invalid;
+        let physics = fold(
+            startup,
+            gd::PhysicsContentRules::from_global_data(
+                &game_engine::common::global_data::GlobalData::default(),
+            ),
+            |r, t| r.overlay_ini_text(t),
+        )?
+        .validate()
+        .map_err(invalid)?;
+        let armor_texts: Vec<_> = startup.definition_texts("Armor.ini").collect();
+        Ok(Self {
+            physics,
+            power_bar: fold(startup, gd::PowerBarRules::default(), |r, t| r.overlay_ini_text(t))?,
+            body_damage: fold(startup, gd::BodyDamageRules::default(), |r, t| r.overlay_ini_text(t))?,
+            body_auto_particles: fold(startup, gd::BodyAutoParticleRules::default(), |r, t| {
+                r.overlay_ini_text(t).map_err(|e| e.to_string())
+            })?,
+            combat_bonus: fold(startup, gd::CombatBonusRules::default(), |r, t| r.overlay_ini_text(t))?,
+            tunnel_capacity: fold(startup, gd::TunnelCapacityRules::default(), |r, t| {
+                r.overlay_ini_text(t).map_err(|e| e.to_string())
+            })?
+            .max_capacity,
+            historic_damage_limit: fold(startup, gd::HistoricDamageLimitRules::default(), |r, t| {
+                r.overlay_ini_text(t).map_err(|e| e.to_string())
+            })?
+            .frames,
+            sell_percentage: fold(startup, gd::SellPercentageRules::default(), |r, t| {
+                r.overlay_ini_text(t).map_err(|e| e.to_string())
+            })?
+            .percentage,
+            armor: crate::cnc_game_engine::armor_definitions_from_texts(&armor_texts).map_err(invalid)?,
+            terrain: crate::game_logic::terrain_definitions::parse_application_terrain_sources(&owned("Terrain.ini"))
+                .map_err(invalid)?,
+            roads: crate::game_logic::terrain_definitions::parse_application_road_sources(&owned("Roads.ini"))
+                .map_err(invalid)?,
+            object_creation_lists: owned("ObjectCreationList.ini").into_iter().map(|(_, text)| text).collect(),
+        })
+    }
+
+    fn admit(&self, logic: &mut GameLogic) -> Result<(), String> {
+        logic.admit_combat_bonus_baseline(self.combat_bonus.clone());
+        logic.admit_tunnel_capacity_baseline(self.tunnel_capacity);
+        logic.admit_historic_damage_limit(self.historic_damage_limit);
+        logic.admit_sell_percentage(self.sell_percentage);
+        logic.admit_armor_definitions(Arc::clone(&self.armor));
+        logic.admit_terrain_definitions(Arc::clone(&self.terrain))?;
+        logic.admit_terrain_road_definitions(self.roads.clone())?;
+        logic.admit_ocl_application_sources(&self.object_creation_lists)?;
+        logic.admit_body_damage_baseline(
+            crate::game_logic::body_damage_rules::BodyDamagePolicy::Receiving(self.body_damage),
+        );
+        logic.admit_physics_rules_base(self.physics)?;
+        logic.admit_power_bar_base(self.power_bar);
+        logic.admit_body_auto_particle_baseline(self.body_auto_particles.clone());
+        Ok(())
+    }
 }
 
 /// Why the shared retail content could not be prepared.
@@ -86,6 +187,8 @@ impl SharedSkirmishAssets {
                 .map_err(|error| invalid(path, &error))?;
         }
 
+        let rules = RetailLogicRules::read(&startup)?;
+
         let mut player_templates = PlayerTemplateStore::new_owned();
         for (path, text) in startup.definition_texts("PlayerTemplate.ini") {
             player_templates
@@ -116,6 +219,7 @@ impl SharedSkirmishAssets {
             map_path,
             game_data,
             energy,
+            rules,
             player_templates,
             locomotors,
             multiplayer,
@@ -197,6 +301,9 @@ impl HeadlessSkirmish {
             // The application boot admits GameData's energy rules before any
             // build; without them every calcTimeToBuild hits the 0.01 floor.
             logic.admit_production_energy_base(assets.energy);
+            // Boot order (boot.rs): GameData baselines, Armor, Terrain,
+            // Roads and OCL before any object content is admitted.
+            assets.rules.admit(logic)?;
             logic.admit_locomotor_definitions(assets.locomotors.clone())?;
             logic.admit_startup_content(assets.startup.admit()?)?;
             logic.admit_player_template_definitions(assets.player_templates.clone())?;
@@ -292,6 +399,80 @@ impl HeadlessSkirmish {
             mix(&mut hash, &((object.health_fraction() * 1024.0).round() as i32).to_le_bytes());
         }
         hash
+    }
+
+    /// Dozer approach inputs: position, the build task's ACTION dock point
+    /// (C++ `m_dockPoint[DOZER_TASK_BUILD][DOZER_DOCK_POINT_ACTION]`), the
+    /// locomotor's pristine max speed in units per second and the ground
+    /// length still to drive along its current path (None without a path).
+    pub fn dozer_approach(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> Option<(glam::Vec3, Option<glam::Vec3>, f32, Option<f32>)> {
+        let object = self.logic.host_objects().lookup(&id)?;
+        let action = &object.dozer_tasks.docks[0][1];
+        let dock = action.valid.then(|| glam::Vec3::new(action.location.x, action.location.y, action.location.z));
+        let position = object.get_position();
+        let path = &object.movement.path;
+        let remaining = (object.movement.current_path_index < path.len()).then(|| {
+            let ground = |a: glam::Vec3, b: glam::Vec3| glam::Vec2::new(b.x - a.x, b.z - a.z).length();
+            let mut at = position;
+            let mut length = 0.0;
+            for &node in &path[object.movement.current_path_index..] {
+                length += ground(at, node);
+                at = node;
+            }
+            length
+        });
+        Some((position, dock, object.movement.max_speed, remaining))
+    }
+
+    /// `true` when `point` (ground plane x/z) lies inside `id`'s footprint.
+    pub fn footprint_contains(&self, id: crate::game_logic::ObjectId, point: glam::Vec3) -> Option<bool> {
+        let object = self.logic.host_objects().lookup(&id)?;
+        let center = object.get_position();
+        let shape = object.geometry_info();
+        let (dx, dz) = (point.x - center.x, point.z - center.z);
+        Some(match shape.geom_type {
+            crate::game_logic::HostGeometryType::Box => {
+                let (sin, cos) = object.get_orientation().sin_cos();
+                let along = dx * cos + dz * sin;
+                let across = -dx * sin + dz * cos;
+                along.abs() < shape.major_radius && across.abs() < shape.minor_radius
+            }
+            _ => dx * dx + dz * dz < shape.major_radius * shape.major_radius,
+        })
+    }
+
+    /// Boot-admitted rules this world does not hold at their shared retail
+    /// value (GameData physics/power bar/sell/tunnel, Armor, Terrain).
+    pub fn retail_rule_mismatches(&self, assets: &SharedSkirmishAssets) -> Vec<&'static str> {
+        let rules = &assets.rules;
+        let logic = &self.logic;
+        let mut wrong = Vec::new();
+        if logic.physics_rules_baseline() != rules.physics {
+            wrong.push("physics");
+        }
+        if logic.power_bar_baseline() != rules.power_bar {
+            wrong.push("power bar");
+        }
+        if logic.session_sell_percentage != rules.sell_percentage {
+            wrong.push("sell percentage");
+        }
+        if logic.effective_tunnel_capacity() != usize::try_from(rules.tunnel_capacity).unwrap_or(0) {
+            wrong.push("tunnel capacity");
+        }
+        // A map's Map.ini may overlay rows (map_settings), never drop them.
+        if logic.current_armor_definitions().map_or(0, |armor| armor.len()) < rules.armor.len() {
+            wrong.push("armor");
+        }
+        if rules.armor.is_empty() {
+            wrong.push("retail armor catalog empty");
+        }
+        if rules.object_creation_lists.is_empty() {
+            wrong.push("retail ObjectCreationList missing");
+        }
+        wrong
     }
 
     /// `(id, under construction, construction fraction)` of `player`'s `name` objects.

@@ -153,6 +153,16 @@ const STANDALONE_DEFINITION_PATHS: &[&str] = &[
     "Data/INI/PlayerTemplate.ini",
     "Data/INI/Default/Locomotor.ini",
     "Data/INI/Locomotor.ini",
+    // GameEngine.cpp445 Armor (retail first, Default only when absent),
+    // then TerrainTypes, Roads and the ObjectCreationList store.
+    "Data/INI/Armor.ini",
+    "Data/INI/Default/Armor.ini",
+    "Data/INI/Default/Terrain.ini",
+    "Data/INI/Terrain.ini",
+    "Data/INI/Default/Roads.ini",
+    "Data/INI/Roads.ini",
+    "Data/INI/Default/ObjectCreationList.ini",
+    "Data/INI/ObjectCreationList.ini",
 ];
 
 impl StandaloneStartupSources {
