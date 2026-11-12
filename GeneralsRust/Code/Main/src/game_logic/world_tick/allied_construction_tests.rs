@@ -22,6 +22,15 @@ fn world() -> GameLogic {
         .overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=0.5\nMaxLowEnergyProductionSpeed=1\nEnd\n")
         .unwrap();
     world.admit_production_energy_base(rules);
+    // DozerAIUpdate is the dozer's only AIUpdateInterface; its Locomotor.ini
+    // row loads before Object templates (GameEngine.cpp:428-458).
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors
+        .apply_source("Locomotor AlliedTimingDozerLocomotor\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TREADS\nEnd\n")
+        .expect("dozer Locomotor");
+    world
+        .admit_locomotor_definitions(locomotors)
+        .expect("Locomotors admitted before Object content");
     // ScoreKeeper.cpp97-119 counts only STRUCTURE+SCORE/SCORE_CREATE; only an
     // authored, mobile DozerAIUpdate reaches its BUILD dock (DozerAIUpdate.cpp).
     crate::fixture_content::admit_fixture_objects(
@@ -34,7 +43,7 @@ fn world() -> GameLogic {
             crate::fixture_content::FixtureObject::new("AlliedTimingDozer")
                 .kind_of("VEHICLE DOZER")
                 .health(100.0)
-                .walker()
+                .field("Locomotor = SET_NORMAL AlliedTimingDozerLocomotor")
                 .dozer(),
         ],
     );
@@ -42,6 +51,9 @@ fn world() -> GameLogic {
 }
 
 fn resumed(world: &mut GameLogic, site_owner: u32) -> (ObjectId, ObjectId) {
+    // DozerAIUpdate newTask records the order frame; mostRecent selects only
+    // a strictly positive frame.
+    world.frame = 10;
     let site = world
         .create_object_under_construction_for_player("AlliedTimingSite", site_owner, Vec3::ZERO, 0.0)
         .unwrap()
