@@ -829,47 +829,14 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.admit_object_ini_sources([(
         "SupplyReplacement.ini".into(),
-        "Object AmericaSupplyCenter\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\n End\n Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:20 Y:0 Z:0\n End\nEnd\nObject AmericaVehicleChinook\n KindOf = VEHICLE HARVESTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n".into(),
+        "Object AmericaSupplyCenter\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n BuildCost = 2000\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\n End\n Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:20 Y:0 Z:0\n End\nEnd\nObject AmericaVehicleChinook\n KindOf = VEHICLE AIRCRAFT HARVESTER SELECTABLE\n BuildCost = 1200\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\nObject TestSupplySource\n KindOf = SUPPLY_SOURCE\nEnd\n".into(),
     )]).expect("authored supply fixture");
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 5_000;
     logic.add_player(player);
 
-    let mut old_center_template = crate::game_logic::ThingTemplate::new("TestOldSupplyCenter");
-    old_center_template
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::SupplyCenter);
-    logic
-        .templates
-        .insert("TestOldSupplyCenter".into(), old_center_template);
-
-    let mut supply_center = logic.templates["AmericaSupplyCenter"].clone();
-    supply_center
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::SupplyCenter)
-        .add_kind_of(crate::game_logic::KindOf::FSSupplyCenter)
-        .add_kind_of(crate::game_logic::KindOf::Selectable)
-        .set_cost(2_000, 0);
-    logic
-        .templates
-        .insert("AmericaSupplyCenter".into(), supply_center);
-
-    let mut chinook = logic.templates["AmericaVehicleChinook"].clone();
-    chinook
-        .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .add_kind_of(crate::game_logic::KindOf::Aircraft)
-        .add_kind_of(crate::game_logic::KindOf::Harvester)
-        .add_kind_of(crate::game_logic::KindOf::Selectable)
-        .set_cost(1_200, 0);
-    logic
-        .templates
-        .insert("AmericaVehicleChinook".into(), chinook);
-
-    let mut source = crate::game_logic::ThingTemplate::new("TestSupplySource");
-    source
-        .add_kind_of(crate::game_logic::KindOf::Resource)
-        .add_kind_of(crate::game_logic::KindOf::Harvestable);
-    logic.templates.insert("TestSupplySource".into(), source);
+    // Costs, KindOf and the SUPPLY_SOURCE are all authored above: an
+    // admitted ThingFactory ignores post-admission template edits.
 
     // `ObjectID` validity in C++ is an existence test, not merely an
     // alive-state test.  The active survivor must therefore carry an ID
