@@ -1,12 +1,11 @@
 //! Golden skirmish vertical slice — USA vs Medium GLA.
 //! Uses production command/update/save paths (same style as playable_smoke_tests).
 //!
-//! Two combat worlds:
-//! - **Map world** (retail map present): load_map on the main logic, build/produce/fight
-//!   against map-spawned enemy structures. When victory is proven: synthetic_combat=false
-//!   and `map_host_playable_ok=true` (fail-closed otherwise).
-//! - **Synthetic host** (no retail map): GoldenCC/GoldenEnemyCC host soup.
-//!   synthetic_combat=true, map_host_playable_ok=false.
+//! The slice runs only on a loaded retail map: load_map on the main logic,
+//! build/produce/fight against map-spawned enemy structures. C++ has no
+//! map-less skirmish (GameLogic::startNewGame always loads the map), so with
+//! no retail map the slice reports `status=no_map` with every step false and
+//! synthetic_combat=true; no host-made Golden* templates stand in for one.
 //!
 //! Claim flags (do not conflate):
 //! - `playable_claim` — **always false**. Headless host vertical slice is not a
@@ -26,10 +25,7 @@
 
 use crate::authoritative_world::AuthorityProbe;
 use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
-use crate::game_logic::host_structure_economy_residual::COMMAND_CENTER_MAX_HEALTH;
-use crate::game_logic::{
-    AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition, Weapon,
-};
+use crate::game_logic::{AIState, GameLogic, KindOf, ObjectId, Team, VictoryCondition};
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use glam::Vec3;
@@ -60,7 +56,7 @@ pub struct GoldenSkirmishResult {
     pub victory: bool,
     pub save_load_ok: bool,
     pub checkpoint_hashes: Vec<u64>,
-    /// True when combat is not on retail map armies (synthetic GoldenEnemyCC host soup).
+    /// True when combat did not run on retail map armies (no map loaded).
     pub synthetic_combat: bool,
     /// True only if opponent AI was left disabled for the whole slice.
     pub ai_disabled_for_slice: bool,
@@ -72,7 +68,7 @@ pub struct GoldenSkirmishResult {
     /// the success path (no mid-scenario `templates.remove` residual).
     pub ai_structure_templates_retained: bool,
     /// True when AttackObject/`update_combat` damaged or killed a **map-loaded**
-    /// enemy object (not the synthetic GoldenEnemyCC-only path).
+    /// enemy object.
     pub map_combat_ok: bool,
     /// Same-world after load_map: DozerConstruct → QueueUnitCreate on the loaded map world.
     pub same_world_production_ok: bool,
@@ -81,14 +77,12 @@ pub struct GoldenSkirmishResult {
     /// Host skirmish players/AI preserved across load_map (no player wipe).
     pub players_preserved_on_load: bool,
     /// True when map-world path built/produced via retail USA_* templates
-    /// (PowerPlant/Barracks/Ranger) rather than golden host fixtures alone.
-    /// Fail-closed: synthetic host always false; map path false when retail
-    /// templates missing or construction/production fell back to golden.
+    /// (PowerPlant/Barracks/Ranger).
+    /// Fail-closed: false without a loaded map or when a retail step failed.
     pub retail_production_chain_ok: bool,
-    /// True when Gather targeted map/retail SupplyDock/SupplyPile (or other
-    /// non-GoldenSupply harvestable), not the golden fixture fallback.
-    /// Fail-closed: synthetic host always false; map path false when golden
-    /// supply was required to complete the Gather step.
+    /// True when Gather targeted a map/retail SupplyDock/SupplyPile (or other
+    /// map harvestable).
+    /// Fail-closed: false without a loaded map or a retail supply target.
     pub retail_gather_ok: bool,
     /// Honesty: true only when combat damage/kills used pure Move/AttackMove/
     /// AttackObject march into weapon range — no set_position range pull.
@@ -119,9 +113,9 @@ struct VerticalSliceOutcome {
     map_combat_ok: bool,
     same_world_production_ok: bool,
     same_world_victory_ok: bool,
-    /// Map-world retail USA production chain succeeded (not golden-only).
+    /// Map-world retail USA production chain succeeded.
     retail_production_chain_ok: bool,
-    /// Map-world Gather used map/retail supply (not GoldenSupply).
+    /// Map-world Gather used map/retail supply.
     retail_gather_ok: bool,
     /// Fought without set_position combat range pull.
     combat_no_teleport_ok: bool,
@@ -131,6 +125,32 @@ struct VerticalSliceOutcome {
     combat_realistic_speed_ok: bool,
     /// No slice damage floor above WeaponStore/template stats.
     combat_store_damage_ok: bool,
+}
+
+impl VerticalSliceOutcome {
+    /// Fail-closed outcome for a slice that never ran a step.
+    fn not_run() -> Self {
+        Self {
+            frames_advanced: 0,
+            moved_units: false,
+            gathered: false,
+            constructed: false,
+            produced: false,
+            upgraded: false,
+            fought: false,
+            victory: false,
+            save_load_ok: false,
+            map_combat_ok: false,
+            same_world_production_ok: false,
+            same_world_victory_ok: false,
+            retail_production_chain_ok: false,
+            retail_gather_ok: false,
+            combat_no_teleport_ok: false,
+            combat_no_mopup_ok: true,
+            combat_realistic_speed_ok: false,
+            combat_store_damage_ok: false,
+        }
+    }
 }
 
 fn command(
@@ -146,133 +166,6 @@ fn command(
         timestamp: UNIX_EPOCH + Duration::from_secs(command_id as u64),
         selected_units,
         modifier_keys: ModifierKeys::default(),
-    }
-}
-
-fn template(
-    name: &str,
-    kinds: &[KindOf],
-    health: f32,
-    cost: u32,
-    build_time: f32,
-) -> ThingTemplate {
-    let mut t = ThingTemplate::new(name);
-    t.set_health(health);
-    t.set_cost(cost, 0);
-    t.build_time = build_time;
-    for k in kinds {
-        t.add_kind_of(*k);
-    }
-    t
-}
-
-fn install_templates(logic: &mut GameLogic) {
-    let mut templates = vec![
-        template(
-            "GoldenCC",
-            &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
-            // Retail CommandCenter MaxHealth residual (not a softened gate target).
-            COMMAND_CENTER_MAX_HEALTH,
-            2000,
-            0.1,
-        ),
-        template(
-            "GoldenPower",
-            &[KindOf::Structure, KindOf::Selectable],
-            800.0,
-            800,
-            0.1,
-        ),
-        template(
-            "GoldenDozer",
-            &[
-                KindOf::Vehicle,
-                KindOf::Worker,
-                KindOf::Dozer,
-                KindOf::Selectable,
-            ],
-            300.0,
-            1000,
-            0.1,
-        ),
-        template(
-            "Barracks",
-            &[KindOf::Structure, KindOf::Selectable, KindOf::FSBarracks],
-            1000.0,
-            500,
-            0.05,
-        ),
-        template(
-            "GoldenRanger",
-            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
-            120.0,
-            100,
-            0.05,
-        ),
-        // Structure-scale HP (retail CC residual). Template-owned weapon (not
-        // ad-hoc create inject) must kill via update_combat over enough frames —
-        // no take_damage fallback and no softened 200 HP gate target.
-        template(
-            "GoldenEnemyCC",
-            &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
-            COMMAND_CENTER_MAX_HEALTH,
-            2000,
-            0.1,
-        ),
-        template(
-            "GoldenSupply",
-            &[KindOf::Resource, KindOf::Harvestable],
-            1000.0,
-            0,
-            0.1,
-        ),
-        template(
-            "GoldenSupplyCenter",
-            &[KindOf::Structure, KindOf::Selectable, KindOf::SupplyCenter],
-            1000.0,
-            1500,
-            0.1,
-        ),
-        // Retail gatherers author KINDOF_HARVESTER (AmericaVehicleChinook.ini /
-        // GLAWorker.ini `KindOf = ... DOZER HARVESTER`); a harvester fixture
-        // keeps the Gather step on the live collector path instead of a dozer
-        // the executor must refuse (C++ gather semantics are harvester-only).
-        template(
-            "GoldenHarvester",
-            &[KindOf::Vehicle, KindOf::Harvester, KindOf::Selectable],
-            300.0,
-            1200,
-            0.1,
-        ),
-    ];
-    // The retail AmericaVehicleDozer authors both sight and shroud clearing at 200.
-    if let Some(dozer) = templates.iter_mut().find(|template| template.name == "GoldenDozer") {
-        dozer.sight_range = 200.0;
-        dozer.shroud_clearing_range = 200.0;
-    }
-
-    // Explicit template weapon for production rangers (host primary_weapon path).
-    if let Some(ranger) = templates.iter_mut().find(|t| t.name == "GoldenRanger") {
-        ranger.set_primary_weapon(Weapon {
-            damage: 25.0,
-            range: 100.0,
-            reload_time: 1.0,
-            ..Weapon::default()
-        });
-    }
-    // Retail faction structures author KINDOF_MP_COUNT_FOR_VICTORY
-    // (FactionBuilding.ini; buildings.rs stamps the same bit on every
-    // synthesized structure).  Victory evaluation counts only
-    // STRUCTURE && MP_COUNT_FOR_VICTORY members (C++ Team::hasAnyBuildings),
-    // so without the bit both players are defeated on frame 1: killPlayer
-    // wipes cash and is_alive, dead-ending economy / upgrade research.
-    for template in templates.iter_mut() {
-        if template.is_kind_of(KindOf::Structure) {
-            template.add_kind_of(KindOf::MpCountForVictory);
-        }
-    }
-    for t in templates {
-        logic.templates.insert(t.name.clone(), t);
     }
 }
 
@@ -339,7 +232,7 @@ fn resolve_map(explicit: Option<&str>) -> (String, bool) {
     if let Some((_id, path)) = crate::map_frame_scenario::resolve_first_map(GOLDEN_MAP_CANDIDATES) {
         return (path.display().to_string(), true);
     }
-    ("GoldenSyntheticMap".to_string(), false)
+    ("NoRetailMap".to_string(), false)
 }
 
 fn usa_base_position(logic: &GameLogic) -> Vec3 {
@@ -465,19 +358,8 @@ fn ensure_map_combat_primary_enemy(logic: &mut GameLogic, usa_base: Vec3) -> Opt
         .map(|o| o.get_position())
         .unwrap_or(usa_base + Vec3::new(180.0, 0.0, 40.0));
     let site = clamp_build_site(logic, landmark + Vec3::new(80.0, 0.0, 40.0));
-    let names = ["GLA_CommandCenter", "GLACommandCenter", "GoldenEnemyCC"];
-    for name in names {
-        if logic.templates.contains_key(name) {
-            if let Some(id) = logic.create_object(name, Team::GLA, site) {
-                return Some(id);
-            }
-        }
-    }
-    // Last resort: install golden enemy template path.
-    if let Some(id) = logic.create_object("GoldenEnemyCC", Team::GLA, site) {
-        return Some(id);
-    }
-    None
+    let name = first_present_template(logic, &["GLA_CommandCenter", "GLACommandCenter"])?;
+    logic.create_object(&name, Team::GLA, site)
 }
 
 fn find_legal_build_site_near(
@@ -556,8 +438,7 @@ fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
         .map(|o| o.id);
     existing.or_else(|| {
         let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0));
-        let name = first_present_template(logic, &["AmericaVehicleDozer", "USA_Dozer"])
-            .unwrap_or_else(|| "GoldenDozer".into());
+        let name = first_present_template(logic, &["AmericaVehicleDozer", "USA_Dozer"])?;
         logic.create_object(&name, Team::USA, pos)
     })
 }
@@ -569,7 +450,7 @@ fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
 /// (`KindOf = ... DOZER` + DozerAIUpdate, AmericaVehicle.ini AmericaVehicleDozer),
 /// so the collector template must author KINDOF_HARVESTER for the live gather
 /// executor to engage (is_resource_collector gate). Prefers an existing live
-/// harvester, then the retail Chinook template, then the golden harvester fixture.
+/// harvester, then the retail Chinook (or China supply truck) template.
 fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
     if let Some(existing) = logic
         .host_objects()
@@ -586,8 +467,7 @@ fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
             "USA_Chinook",
             "ChinaVehicleSupplyTruck",
         ],
-    )
-    .unwrap_or_else(|| "GoldenHarvester".into());
+    )?;
     let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 12.0));
     logic.create_object(&name, Team::USA, pos)
 }
@@ -604,7 +484,7 @@ fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
 /// Main's host template type has no command-set field, so the fixture stamps the
 /// Object-level override (C++ Object::m_commandSetStringOverride channel) on
 /// every USA supply-center template name the slice spawns (USA_SupplyCenter /
-/// AmericaSupplyCenter / GoldenSupplyCenter — the port synthesizes both spellings
+/// AmericaSupplyCenter — the port synthesizes both spellings
 /// for the same retail producer).
 fn stamp_supply_center_producer_set(logic: &mut GameLogic, id: ObjectId) {
     let is_usa_supply_center = logic
@@ -655,15 +535,12 @@ fn is_retail_ranger_name(name: &str) -> bool {
 }
 
 fn is_produced_ranger(name: &str) -> bool {
-    is_retail_ranger_name(name) || name == "GoldenRanger" || name.contains("Ranger")
+    is_retail_ranger_name(name) || name.contains("Ranger")
 }
 
 /// Retail / map supply sources that USA_Dozer / Chinook gather from (not
-/// faction SupplyCenter drop-off buildings, not golden fixtures).
+/// faction SupplyCenter drop-off buildings).
 fn is_retail_supply_source_name(name: &str) -> bool {
-    if name == "GoldenSupply" || name == "GoldenSupplyCenter" {
-        return false;
-    }
     let lower = name.to_ascii_lowercase();
     lower == "supplydock"
         || lower == "supplypile"
@@ -699,42 +576,14 @@ fn ensure_object_gatherable(logic: &mut GameLogic, id: ObjectId) {
     }
 }
 
-/// Install host-safe retail SupplyDock/SupplyPile templates when missing.
-fn ensure_retail_supply_templates(logic: &mut GameLogic) {
-    for name in ["SupplyDock", "SupplyPile", "SupplyPileSmall"] {
-        if let Some(tpl) = logic.templates.get_mut(name) {
-            tpl.add_kind_of(KindOf::Resource);
-            tpl.add_kind_of(KindOf::Harvestable);
-            // Keep map docks as structures for placement parity without
-            // treating them as faction SupplyCenter drop-offs.
-            continue;
-        }
-        logic.templates.insert(
-            name.to_string(),
-            template(
-                name,
-                &[KindOf::Resource, KindOf::Harvestable, KindOf::Selectable],
-                1000.0,
-                0,
-                0.1,
-            ),
-        );
-    }
-}
-
-/// Prefer map-spawned SupplyDock/SupplyPile; else seed retail dock; else GoldenSupply.
-/// Returns `(target_id, retail_gather)` — retail_gather is false only for golden fallback.
+/// Prefer map-spawned SupplyDock/SupplyPile; else seed an admitted retail dock.
+/// Returns `(target_id, retail_gather)`.
 fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<ObjectId>, bool) {
-    // 1) Already-harvestable non-golden resources on the loaded map.
+    // 1) Already-harvestable resources on the loaded map.
     let existing_gatherable = logic
         .host_objects()
         .registered_values()
-        .find(|o| {
-            o.team != Team::USA
-                && is_gatherable_resource(o)
-                && o.template_name != "GoldenSupply"
-                && !o.template_name.starts_with("Golden")
-        })
+        .find(|o| o.team != Team::USA && is_gatherable_resource(o))
         .map(|o| o.id);
     if let Some(id) = existing_gatherable {
         ensure_object_gatherable(logic, id);
@@ -753,7 +602,6 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
     }
 
     // 3) Seed retail SupplyDock near base (USA_SupplyCenter already present for drop-off).
-    ensure_retail_supply_templates(logic);
     let pos = clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0));
     for name in ["SupplyDock", "SupplyPile", "SupplyPileSmall"] {
         if let Some(id) = logic.create_object(name, Team::Neutral, pos) {
@@ -761,10 +609,7 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
             return (Some(id), true);
         }
     }
-
-    // 4) Golden fixture fallback — keeps vertical slice green fail-closed.
-    let golden = logic.create_object("GoldenSupply", Team::Neutral, pos);
-    (golden, false)
+    (None, false)
 }
 
 fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
@@ -846,29 +691,14 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
     // C++ GameState::loadGame runs in an engine that booted its INI
     // definitions (GameEngine::init) and loads the saved map before the
     // snapshot xfers, so the restore target boots exactly like the source.
-    let admitted = logic.receiving_module_content.is_some();
     let booted_target = || {
-        let mut dest = boot_golden_world(admitted);
-        if admitted {
-            let _ = apply_skirmish_config(&mut dest, &golden_skirmish_config(map_identity));
-        }
-        install_templates(&mut dest);
+        let mut dest = boot_golden_world(true);
+        let _ = apply_skirmish_config(&mut dest, &golden_skirmish_config(map_identity));
         dest
     };
     let map_loaded_target = || {
         let mut dest = booted_target();
-        if admitted && !dest.load_map(map_identity) {
-            return None;
-        }
-        if !admitted {
-            // Synthetic soup has no admitted catalog: carry its host templates.
-            for (name, tpl) in logic.templates.iter() {
-                dest.templates
-                    .entry(name.clone())
-                    .or_insert_with(|| tpl.clone());
-            }
-        }
-        Some(dest)
+        dest.load_map(map_identity).then_some(dest)
     };
     let save_dir = std::env::temp_dir().join(format!(
         "golden_skirmish_{}_{}",
@@ -1605,296 +1435,12 @@ fn fight_enemies_with_rangers(
     ))
 }
 
-/// Synthetic host combat world: GoldenCC + GoldenEnemyCC soup (no map load).
-fn run_synthetic_host_skirmish(
-    logic: &mut GameLogic,
-    map_identity: &str,
-    frames: u32,
-) -> gamelogic::GameLogicResult<VerticalSliceOutcome> {
-    // The report counts every logic frame this slice simulated, not only the
-    // caller's trailing `frames` budget.
-    let slice_start_frame = logic.get_frame();
-    // Layout keeps STRUCTURE_PLACE_CLEARANCE_RESIDUAL (40) between pads.
-    // Barracks ~80 from CC; enemy CC ~200 (in GoldenRanger range 100 after march);
-    // supply pile far from build pads (SUPPLY_BUILD_BORDER 20 + radii).
-    logic.relocate_host_ai_base(1, Vec3::new(260.0, 0.0, 0.0));
-    logic.set_ai_active(1, true);
-    ensure_human_economy(logic, 20_000, 500);
-
-    let _cc = logic.create_object("GoldenCC", Team::USA, Vec3::ZERO);
-    let _power = logic.create_object("GoldenPower", Team::USA, Vec3::new(-50.0, 0.0, 0.0));
-    let supply_center =
-        logic.create_object("GoldenSupplyCenter", Team::USA, Vec3::new(-90.0, 0.0, 0.0));
-    if let Some(sc_id) = supply_center {
-        stamp_supply_center_producer_set(logic, sc_id);
-    }
-    let dozer = logic
-        .create_object("GoldenDozer", Team::USA, Vec3::new(60.0, 0.0, 0.0))
-        .expect("dozer");
-    let supply = logic
-        .create_object("GoldenSupply", Team::Neutral, Vec3::new(-140.0, 0.0, 40.0))
-        .expect("supply");
-    let enemy_cc = logic
-        .create_object("GoldenEnemyCC", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
-        .expect("enemy cc");
-
-    // Move dozer via production Move command.
-    logic.queue_command(command(
-        1,
-        0,
-        CommandType::Move {
-            destination: Vec3::new(70.0, 0.0, 0.0),
-        },
-        vec![dozer],
-    ));
-    logic.process_commands();
-    let moved_units = logic
-        .host_object(dozer)
-        .map(|o| {
-            o.ai_state() == AIState::Moving
-                || o.movement.target_position.is_some()
-                || o.status.moving
-        })
-        .unwrap_or(false);
-
-    // Construct barracks via DozerConstruct after a pure path march (no set_position).
-    let _ = march_unit_near(logic, dozer, Vec3::new(75.0, 0.0, 0.0), 180)?;
-    for _ in 0..3 {
-        logic.update();
-        logic.headless_camera_view_offer(33)?;
-    }
-    if logic.receiving_module_content.is_none() {
-        admit_golden_dozer_target(logic, dozer, "Barracks")
-            .map_err(gamelogic::GameLogicError::Configuration)?;
-    }
-    logic.queue_command(command(
-        2,
-        0,
-        CommandType::DozerConstruct {
-            template_name: "Barracks".into(),
-            location: Vec3::new(80.0, 0.0, 0.0),
-            orientation: 0.0,
-        },
-        vec![dozer],
-    ));
-    let constructed = run_until(logic, 360, |g| {
-        g.host_objects()
-            .registered_values()
-            .any(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
-    })?;
-
-    let barracks_id = logic
-        .host_objects()
-        .registered_values()
-        .find(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
-        .map(|o| o.id);
-
-    // Gather engages a HARVESTER, never the dozer: retail USA gathers with the
-    // Chinook (AmericaVehicleChinook authors `KindOf = ... HARVESTER` +
-    // ChinookAIUpdate, AmericaAir.ini) while the dozer authors
-    // `KindOf = ... DOZER` + DozerAIUpdate (AmericaVehicle.ini AmericaVehicleDozer).
-    // The gather executor's is_resource_collector gate is that parity, so the
-    // fixture must field a collector. Prefer the retail template; fall back to
-    // the golden harvester fixture (same KINDOF_HARVESTER authorship).
-    // Ground harvester first: the soup world exercises the generic ground
-    // gather→carry→deposit loop (GLA-worker parity: retail WorkerAIUpdate
-    // gathers on foot, GLAInfantry.ini:3749/3756). The Chinook is air — its
-    // helicopter pathing is not exercised by this fixture, so it engages
-    // Gathering without ever closing to accrual range (cash-backed gate).
-    let gatherer = logic
-        .create_object("GoldenHarvester", Team::USA, Vec3::new(60.0, 0.0, 12.0))
-        .or_else(|| {
-            logic.create_object(
-                "AmericaVehicleChinook",
-                Team::USA,
-                Vec3::new(60.0, 0.0, 12.0),
-            )
-        })
-        .unwrap_or(dozer);
-    // Retail SupplyPile authors stock via SupplyWarehouseDockUpdate
-    // `StartingBoxes = 150` (CivilianBuilding.ini SupplyPile block); stamp the
-    // golden pile so gather depletes authored stock instead of minting value.
-    if let Some(pile) = logic.host_object_mut(supply) {
-        pile.set_stored_supplies(2000);
-    }
-    // Gather via production Gather command.
-    logic.queue_command(command(
-        3,
-        0,
-        CommandType::Gather { target_id: supply },
-        vec![gatherer],
-    ));
-    logic.process_commands();
-    let gather_engaged = logic
-        .host_object(gatherer)
-        .map(|o| o.ai_state() == AIState::Gathering && o.target == Some(supply))
-        .unwrap_or(false);
-    // Cash-backed engagement: state authorship alone proved nothing (the old
-    // check read ai_state and masked a dead economy). C++ gather accrues by
-    // carry + SupplyCenter deposit crediting the owner's Money (WorkerAIUpdate /
-    // ChinookAIUpdate ferry, SupplyTruckAIUpdate::gainOneBox); require supplies
-    // to actually move into player 0's cash.
-    let cash_at_gather = logic
-        .get_player(0)
-        .map(|p| p.resources.supplies)
-        .unwrap_or(0);
-    let gathered = gather_engaged
-        && run_until(logic, 1200, |g| {
-            g.get_player(0)
-                .map(|p| p.resources.supplies > cash_at_gather)
-                .unwrap_or(false)
-        })?;
-
-    let system = CommandSystem::new();
-    let mut produced = false;
-    if let Some(bid) = barracks_id {
-        ensure_human_economy(logic, 5_000, 500);
-        let queue_cmd = command(
-            4,
-            0,
-            CommandType::QueueUnitCreate {
-                template_name: "GoldenRanger".into(),
-                quantity: 8,
-            },
-            vec![bid],
-        );
-        let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success || {
-            let mut any = false;
-            for _ in 0..8 {
-                any |= logic.enqueue_production(bid, "GoldenRanger".into());
-            }
-            any
-        };
-        produced = queue_ok
-            && run_until(logic, 360, |g| {
-                g.host_objects()
-                    .registered_values()
-                    .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
-                    .count()
-                    >= 1
-            })?;
-        let _ = run_until(logic, 360, |g| {
-            g.host_objects()
-                .registered_values()
-                .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
-                .count()
-                >= 4
-        })?;
-    }
-
-    // Upgrade claim honesty: the queue must be accepted by the authored
-    // producer AND the building-attached research must complete on the live
-    // tick (C++ ProductionUpdate::update PRODUCTION_UPGRADE progress,
-    // ProductionUpdate.cpp:596-660; research lives only on the producer's
-    // queue, ProductionUpdate.cpp:636-648).  A player-side queue entry alone
-    // proved nothing — with the fixture unauthored the command used to return
-    // InvalidCommand and research never started.
-    let mut upgraded = false;
-    if let Some(sc) = supply_center {
-        let up_cmd = command(
-            5,
-            0,
-            CommandType::QueueUpgrade {
-                upgrade_name: "Upgrade_AmericaSupplyLines".into(),
-            },
-            vec![sc],
-        );
-        let up_result = system.execute_command(&up_cmd, logic);
-        let queued_on_producer = logic
-            .host_object(sc)
-            .map(|o| {
-                o.building_data
-                    .as_ref()
-                    .map(|b| {
-                        b.production_queue.iter().any(|i| {
-                            i.is_upgrade()
-                                && i.template_name
-                                    .eq_ignore_ascii_case("Upgrade_AmericaSupplyLines")
-                        })
-                    })
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
-        upgraded = up_result == CommandResult::Success
-            && queued_on_producer
-            && run_until(logic, 1200, |g| {
-                g.get_player(0)
-                    .map(|p| p.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"))
-                    .unwrap_or(false)
-            })?;
-    }
-
-    let production_rangers: Vec<_> = logic
-        .host_objects()
-        .registered_values()
-        .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA && o.is_alive())
-        .map(|o| o.id)
-        .collect();
-    debug_assert!(
-        production_rangers.iter().all(|id| {
-            logic
-                .host_object(*id)
-                .map(|o| o.weapon.is_some())
-                .unwrap_or(false)
-        }),
-        "production rangers must receive template weapons at create"
-    );
-    // GoldenRanger template damage is 25 (not store 5); still no floor raise.
-    // Synthetic world is short-range — retail speed is fine.
-    let (
-        fought,
-        all_cleared,
-        combat_no_teleport_ok,
-        combat_realistic_speed_ok,
-        combat_store_damage_ok,
-    ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200)?;
-
-    run_frames(logic, frames.max(1) as usize)?;
-    let frames_advanced = logic.get_frame().saturating_sub(slice_start_frame).max(1);
-
-    let gla_alive = logic
-        .host_objects()
-        .registered_values()
-        .any(|o| o.team == Team::GLA && o.is_alive());
-    let victory = all_cleared
-        && !gla_alive
-        && matches!(
-            logic.evaluate_victory_condition(),
-            Some(VictoryCondition::Winner(0))
-        );
-
-    let save_load_ok = mid_match_save_load_ok(logic, map_identity);
-
-    Ok(VerticalSliceOutcome {
-        frames_advanced,
-        moved_units,
-        gathered,
-        constructed,
-        produced,
-        upgraded,
-        fought,
-        victory,
-        save_load_ok,
-        map_combat_ok: false,
-        same_world_production_ok: false,
-        same_world_victory_ok: false,
-        retail_production_chain_ok: false,
-        // Synthetic host always uses GoldenSupply — honesty fail-closed.
-        retail_gather_ok: false,
-        combat_no_teleport_ok,
-        // Synthetic path never calls mop-up destroy.
-        combat_no_mopup_ok: true,
-        combat_realistic_speed_ok,
-        combat_store_damage_ok,
-    })
-}
-
-/// Map-loaded main combat world: build/produce/fight map-spawned enemies (not GoldenEnemyCC).
+/// Map-loaded main combat world: build/produce/fight map-spawned enemies.
 ///
 /// Prefers retail USA production chain (PowerPlant → Barracks → Ranger) when
 /// templates exist; falls back to golden host fixtures fail-closed. Victory is
 /// always against map GLA structures via AttackObject (no take_damage/re-team).
-/// Gather prefers map SupplyDock / retail supply piles over GoldenSupply.
+/// Gather prefers map SupplyDock / retail supply piles.
 fn run_map_world_skirmish(
     logic: &mut GameLogic,
     map_identity: &str,
@@ -1929,28 +1475,12 @@ fn run_map_world_skirmish(
             "USA_PowerPlant",
             "AmericaColdFusionReactor",
             "ColdFusionReactor",
-            "GoldenPower",
         ],
     )
-    .unwrap_or_else(|| "GoldenPower".into());
-    let power_ok = logic
-        .create_object(
-            &power_name,
-            Team::USA,
-            clamp_build_site(logic, base + Vec3::new(-24.0, 0.0, 0.0)),
-        )
-        .is_some();
-    // If retail power placement failed, fall back to golden fixture.
-    let power_name = if power_ok {
-        power_name
-    } else {
-        let _ = logic.create_object(
-            "GoldenPower",
-            Team::USA,
-            clamp_build_site(logic, base + Vec3::new(-24.0, 0.0, 0.0)),
-        );
-        "GoldenPower".into()
-    };
+    .unwrap_or_default();
+    let power_site = clamp_build_site(logic, base + Vec3::new(-24.0, 0.0, 0.0));
+    let power_ok = !power_name.is_empty()
+        && logic.create_object(&power_name, Team::USA, power_site).is_some();
 
     // --- Supply center for QueueUpgrade path (retail USA_SupplyCenter preferred) ---
     let supply_name = first_present_template(
@@ -1958,51 +1488,20 @@ fn run_map_world_skirmish(
         &[
             "AmericaSupplyCenter",
             "USA_SupplyCenter",
-            "GoldenSupplyCenter",
         ],
-    )
-    .unwrap_or_else(|| "GoldenSupplyCenter".into());
-    let supply_center = logic
-        .create_object(
-            &supply_name,
-            Team::USA,
-            clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0)),
-        )
-        .or_else(|| {
-            logic.create_object(
-                "GoldenSupplyCenter",
-                Team::USA,
-                clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0)),
-            )
-        });
+    );
+    let supply_site = clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0));
+    let supply_center =
+        supply_name.and_then(|name| logic.create_object(&name, Team::USA, supply_site));
     if let Some(sc_id) = supply_center {
         stamp_supply_center_producer_set(logic, sc_id);
     }
 
-    // Gather target: map SupplyDock/pile → seed retail dock → GoldenSupply fallback.
+    // Gather target: map SupplyDock/pile → seed an admitted retail dock.
     let (supply, retail_supply_target) = resolve_map_gather_target(logic, base);
 
     let Some(dozer) = ensure_dozer(logic, base) else {
-        return Ok(VerticalSliceOutcome {
-            frames_advanced: 0,
-            moved_units: false,
-            gathered: false,
-            constructed: false,
-            produced: false,
-            upgraded: false,
-            fought: false,
-            victory: false,
-            save_load_ok: false,
-            map_combat_ok: false,
-            same_world_production_ok: false,
-            same_world_victory_ok: false,
-            retail_production_chain_ok: false,
-            retail_gather_ok: false,
-            combat_no_teleport_ok: false,
-            combat_no_mopup_ok: true,
-            combat_realistic_speed_ok: false,
-            combat_store_damage_ok: false,
-        });
+        return Ok(VerticalSliceOutcome::not_run());
     };
     let dozer_is_retail = logic
         .host_object(dozer)
@@ -2039,12 +1538,10 @@ fn run_map_world_skirmish(
         })
         .unwrap_or(false);
 
-    // Prefer retail USA_Barracks; fall back to golden Barracks if construct fails.
-    let retail_barracks = first_present_template(logic, &["AmericaBarracks", "USA_Barracks"]);
-    let barracks_candidates: Vec<String> = match retail_barracks {
-        Some(name) => vec![name, "Barracks".into()],
-        None => vec!["Barracks".into()],
-    };
+    let barracks_candidates: Vec<String> =
+        first_present_template(logic, &["AmericaBarracks", "USA_Barracks"])
+            .into_iter()
+            .collect();
 
     let mut constructed = false;
     let mut barracks_built_name = String::new();
@@ -2060,10 +1557,6 @@ fn run_map_world_skirmish(
         let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 240)?;
         logic.update();
         logic.headless_camera_view_offer(33)?;
-        if logic.receiving_module_content.is_none() {
-            admit_golden_dozer_target(logic, dozer, bname)
-                .map_err(gamelogic::GameLogicError::Configuration)?;
-        }
         logic.queue_command(command(
             2 + attempt as u32,
             0,
@@ -2124,38 +1617,8 @@ fn run_map_world_skirmish(
             .host_object(gatherer)
             .map(|o| o.ai_state() == AIState::Gathering && o.target == Some(sid))
             .unwrap_or(false);
-        // If retail/map target rejected, fall back to GoldenSupply so slice stays green.
-        if !gathered && retail_supply_target {
-            let pos = clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0));
-            if let Some(gid) = logic.create_object("GoldenSupply", Team::Neutral, pos) {
-                if let Some(pile) = logic.host_object_mut(gid) {
-                    // Retail SupplyPile stocks via SupplyWarehouseDockUpdate
-                    // `StartingBoxes = 150` (CivilianBuilding.ini SupplyPile).
-                    pile.set_stored_supplies(2000);
-                }
-                logic.queue_command(command(
-                    11,
-                    0,
-                    CommandType::Gather { target_id: gid },
-                    vec![gatherer],
-                ));
-                logic.process_commands();
-                gathered = logic
-                    .host_object(gatherer)
-                    .map(|o| o.ai_state() == AIState::Gathering && o.target == Some(gid))
-                    .unwrap_or(false);
-            }
-        }
     }
-    // Honesty: only true when Gather stuck on the retail/map target (not golden fallback).
-    let retail_gather_ok = gathered
-        && retail_supply_target
-        && logic
-            .host_object(gatherer)
-            .and_then(|o| o.target)
-            .and_then(|tid| logic.host_object(tid))
-            .map(|t| t.template_name != "GoldenSupply" && !t.template_name.starts_with("Golden"))
-            .unwrap_or(false);
+    let retail_gather_ok = gathered && retail_supply_target;
 
     let system = CommandSystem::new();
     let mut produced = false;
@@ -2163,10 +1626,9 @@ fn run_map_world_skirmish(
     if let Some(bid) = barracks_id {
         ensure_human_economy(logic, 10_000, 500);
         let ranger_candidates: Vec<String> =
-            match first_present_template(logic, &["AmericaInfantryRanger", "USA_Ranger"]) {
-                Some(name) => vec![name, "GoldenRanger".into()],
-                None => vec!["GoldenRanger".into()],
-            };
+            first_present_template(logic, &["AmericaInfantryRanger", "USA_Ranger"])
+                .into_iter()
+                .collect();
         for rname in &ranger_candidates {
             ensure_human_economy(logic, 15_000, 500);
             // More rangers compensate for store damage (~5) vs prior floor (40).
@@ -2565,18 +2027,11 @@ fn run_map_world_skirmish(
     })
 }
 
-fn admit_golden_dozer_target(logic: &mut GameLogic, dozer: ObjectId, target: &str) -> Result<(), String> {
-    let source = format!("CommandButton GoldenExplicitDozerBuildButton\n Command = DOZER_CONSTRUCT\n Object = {target}\nEnd\nCommandSet GoldenExplicitDozerBuildSet\n 1 = GoldenExplicitDozerBuildButton\nEnd\n");
-    logic.admit_fixture_command_action_source(&source)?;
-    logic.host_object_mut(dozer).ok_or_else(|| "Golden fixture dozer disappeared".to_string())?.command_set_override = Some("GoldenExplicitDozerBuildSet".into());
-    Ok(())
-}
-
 /// Production-linked golden skirmish scenario.
 /// A fresh world after application boot. With retail assets present the boot
 /// has already loaded GameData, PlayerTemplate and Object INI
-/// (GameEngine.cpp:428-458) before NewGame; without them the synthetic path
-/// stays fail-closed.
+/// (GameEngine.cpp:428-458) before NewGame; without them the slice reports
+/// `no_map`.
 fn boot_golden_world(map_exists: bool) -> GameLogic {
     let mut logic = GameLogic::new();
     if map_exists {
@@ -2597,7 +2052,6 @@ pub fn run_golden_skirmish(
 
     let mut logic = boot_golden_world(map_exists);
     let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
-    install_templates(&mut logic);
     logic.ensure_ai_faction_templates(Team::USA);
     logic.ensure_ai_faction_templates(Team::GLA);
 
@@ -2622,22 +2076,13 @@ pub fn run_golden_skirmish(
                 && logic.host_ai_player_count() >= ai_before;
             // Re-assert AI after load.
             logic.set_ai_active(1, true);
-            // Re-install host build/combat templates: load_map synthesizes asset
-            // definitions (e.g. USA_Barracks with non-zero power cost). Golden host
-            // templates keep zero-power build costs for deterministic construction;
-            // prepare_retail_usa_host_templates re-normalizes USA_* power costs.
-            install_templates(&mut logic);
             prepare_retail_usa_host_templates(&mut logic);
             ensure_human_economy(&mut logic, 25_000, 500);
         }
     }
 
-    // Combat world: golden templates + host AI on. Keep AI structure catalog
-    // (no mid-scenario strip residual).
-    install_templates(&mut logic);
-    if map_loaded {
-        prepare_retail_usa_host_templates(&mut logic);
-    }
+    // Combat world: host AI on. Keep AI structure catalog (no mid-scenario
+    // strip residual).
     debug_assert!(
         logic.templates.contains_key("GLA_CommandCenter"),
         "AI faction structure templates must remain installed (no catalog strip)"
@@ -2661,7 +2106,9 @@ pub fn run_golden_skirmish(
     let outcome = if map_loaded {
         run_map_world_skirmish(&mut logic, &map_identity, frames)?
     } else {
-        run_synthetic_host_skirmish(&mut logic, &map_identity, frames)?
+        // C++ GameLogic::startNewGame always loads a map; there is no
+        // map-less skirmish to simulate.
+        VerticalSliceOutcome::not_run()
     };
 
     // Deterministic config apply checkpoints (two fresh worlds, same config).
@@ -2714,15 +2161,12 @@ pub fn run_golden_skirmish(
     let combat_path_ok = outcome.fought
         && map_combat_required_ok
         && map_same_world_prod_required_ok
-        && (
-            // Synthetic host still needs victory (short soup world).
-            !map_loaded && outcome.victory
-                // Map path: either honest combat without mop-up, or mop-up-opted full wipe.
-                || (map_loaded
-                    && (outcome.combat_no_mopup_ok
-                        || (outcome.victory && map_same_world_victory_required_ok)))
-        );
-    let status = if config_applied
+        // Either honest combat without mop-up, or mop-up-opted full wipe.
+        && (outcome.combat_no_mopup_ok
+            || (outcome.victory && map_same_world_victory_required_ok));
+    let status = if !map_loaded {
+        "no_map".into()
+    } else if config_applied
         && outcome.frames_advanced > 0
         && outcome.moved_units
         && outcome.gathered
@@ -2767,9 +2211,8 @@ pub fn run_golden_skirmish(
         same_world_production_ok: outcome.same_world_production_ok,
         same_world_victory_ok: outcome.same_world_victory_ok,
         players_preserved_on_load,
-        // Only map-world can claim retail chain; synthetic host is golden soup.
+        // Only a loaded map can claim the retail chain or retail gather.
         retail_production_chain_ok: map_loaded && outcome.retail_production_chain_ok,
-        // Only map-world can claim retail/map gather; synthetic always GoldenSupply.
         retail_gather_ok: map_loaded && outcome.retail_gather_ok,
         // Honesty residual: true when fought without set_position range pull.
         // Not gated into playable_claim (fail-closed honesty only).
@@ -2859,10 +2302,8 @@ mod tests {
         }
         let config = golden_skirmish_config(&map_identity);
         let mut logic = boot_golden_world(map_exists);
-        install_templates(&mut logic);
         let _ = apply_skirmish_config(&mut logic, &config);
         assert!(logic.load_map(&map_identity));
-        install_templates(&mut logic);
         ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
             .host_objects()
@@ -2874,8 +2315,8 @@ mod tests {
         logic.update();
         logic.headless_camera_view_offer(33).unwrap();
         let bname =
-            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks", "Barracks"])
-                .unwrap_or_else(|| "Barracks".into());
+            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks"])
+                .expect("retail barracks template admitted");
         // Wave 829: reveal FOW then pick an LBC_OK pad (edge margin + shroud).
         for _ in 0..5 {
             logic.update();
@@ -2903,10 +2344,8 @@ mod tests {
         }
         let config = golden_skirmish_config(&map_identity);
         let mut logic = boot_golden_world(map_exists);
-        install_templates(&mut logic);
         let _ = apply_skirmish_config(&mut logic, &config);
         assert!(logic.load_map(&map_identity), "map load");
-        install_templates(&mut logic);
         ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
             .host_objects()
@@ -2924,8 +2363,8 @@ mod tests {
         logic.update();
         logic.headless_camera_view_offer(33).unwrap(); // apply vision for post-load spawned dozer
         let bname =
-            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks", "Barracks"])
-                .unwrap_or_else(|| "Barracks".into());
+            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks"])
+                .expect("retail barracks template admitted");
         for _ in 0..5 {
             logic.update();
             logic.headless_camera_view_offer(33).unwrap();
@@ -2946,40 +2385,11 @@ mod tests {
     /// hq-8u1u: default setup/cleanup warps stay behind GOLDEN_ALLOW_TELEPORT_PULL.
 
     #[test]
-    fn golden_synthetic_dozer_authors_constructor_capability() {
-        let mut logic = GameLogic::new();
-        let config = golden_skirmish_config("CatalogCapability");
-        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-        apply_skirmish_config(&mut logic, &config).unwrap();
-        install_templates(&mut logic);
-        let dozer = logic
-            .create_object_for_player("GoldenDozer", 0, Vec3::ZERO)
-            .unwrap();
-        let object = logic.host_object(dozer).unwrap();
-        assert!(
-            object.is_kind_of(KindOf::Dozer),
-            "golden authored constructor must carry DOZER"
-        );
-        assert!(object.can_construct());
-        assert!(object.can_repair());
-        assert!(
-            logic
-                .templates
-                .get("GoldenHarvester")
-                .unwrap()
-                .is_kind_of(KindOf::Harvester)
-        );
-        assert!(
-            !logic
-                .templates
-                .get("GoldenHarvester")
-                .unwrap()
-                .is_kind_of(KindOf::Dozer)
-        );
-    }
-
-    #[test]
     fn golden_skirmish_full_vertical_slice() {
+        if !resolve_map(None).1 {
+            eprintln!("retail map absent — skip golden vertical slice");
+            return;
+        }
         let result = run_golden_skirmish(None, 8).unwrap();
         assert!(result.config_applied, "skirmish config must apply");
         assert_eq!(result.slots_active, 2);
@@ -3015,7 +2425,7 @@ mod tests {
         if result.map_loaded {
             assert!(
                 !result.synthetic_combat,
-                "map-loaded main path must not use synthetic GoldenEnemyCC soup: {}",
+                "map-loaded main path must fight map armies: {}",
                 format_golden_report(&result)
             );
             assert!(
@@ -3057,17 +2467,17 @@ mod tests {
                 );
             }
             // Prefer retail USA chain when templates exist; do not fail the slice
-            // if golden fallback was required — honesty is the retail_prod flag.
+            // if a retail step failed — honesty is the retail_prod flag.
             if !result.retail_production_chain_ok {
                 eprintln!(
-                    "retail_production_chain_ok=false (golden fixture fallback used): {}",
+                    "retail_production_chain_ok=false (a retail production step failed): {}",
                     format_golden_report(&result)
                 );
             }
-            // Prefer map/retail SupplyDock gather; golden fallback keeps slice green.
+            // Prefer map/retail SupplyDock gather.
             if !result.retail_gather_ok {
                 eprintln!(
-                    "retail_gather_ok=false (GoldenSupply gather fallback used): {}",
+                    "retail_gather_ok=false (no retail supply target gathered): {}",
                     format_golden_report(&result)
                 );
             }
@@ -3091,23 +2501,6 @@ mod tests {
                     format_golden_report(&result)
                 );
             }
-        } else {
-            assert!(
-                result.synthetic_combat,
-                "absent-map host combat world (synthetic soup)"
-            );
-            assert!(
-                !result.playable_claim,
-                "synthetic_combat path must fail-closed for playable_claim"
-            );
-            assert!(
-                !result.retail_production_chain_ok,
-                "synthetic host must not claim retail production chain"
-            );
-            assert!(
-                !result.retail_gather_ok,
-                "synthetic host must not claim retail gather"
-            );
         }
         assert_eq!(
             result.checkpoint_hashes[0], result.checkpoint_hashes[1],
@@ -3183,14 +2576,14 @@ mod tests {
         // succeed (PowerPlant + Barracks + Ranger). Soft residual if it does not.
         if !result.retail_production_chain_ok {
             eprintln!(
-                "WARNING: retail USA production chain did not complete; golden fallback kept slice green (playable_claim stays false): {}",
+                "WARNING: retail USA production chain did not complete (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         }
         // Map SupplyDock / seeded retail dock should gather; soft residual if golden.
         if !result.retail_gather_ok {
             eprintln!(
-                "WARNING: retail/map gather did not complete; GoldenSupply fallback kept slice green (playable_claim stays false): {}",
+                "WARNING: retail/map gather did not complete (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         } else {
@@ -3223,33 +2616,6 @@ mod tests {
     }
 
     #[test]
-    fn golden_skirmish_synthetic_when_map_absent() {
-        // Force synthetic path with a non-existent map identity.
-        let result = run_golden_skirmish(Some("/nonexistent/no_such_map.map"), 8).unwrap();
-        assert!(!result.map_loaded, "missing map must not report loaded");
-        assert!(
-            result.synthetic_combat,
-            "absent map => synthetic host combat"
-        );
-        assert!(!result.playable_claim, "absent map => no playable_claim");
-        assert!(
-            !result.retail_production_chain_ok,
-            "absent map => no retail production claim"
-        );
-        assert!(
-            !result.retail_gather_ok,
-            "absent map => no retail gather claim"
-        );
-        assert_eq!(
-            result.status,
-            "success",
-            "{}",
-            format_golden_report(&result)
-        );
-        assert!(result.victory);
-    }
-
-    #[test]
     fn map_sides_list_army_spawn_residual() {
         let (map_identity, map_exists) = resolve_map(None);
         if !map_exists {
@@ -3257,7 +2623,6 @@ mod tests {
         }
         let config = golden_skirmish_config(&map_identity);
         let mut logic = boot_golden_world(map_exists);
-        install_templates(&mut logic);
         let _ = apply_skirmish_config(&mut logic, &config);
         assert!(logic.load_map(&map_identity));
         let mut by_team = std::collections::BTreeMap::<String, u32>::new();
