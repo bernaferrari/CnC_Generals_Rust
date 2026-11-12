@@ -1,6 +1,5 @@
-use game_engine::common::ini::ini_locomotor::{
-    LocomotorStore, LocomotorSurfaceTypeMask, get_locomotor_store_mut,
-};
+use game_engine::common::common_services::{CommonServices, install_common_services};
+use game_engine::common::ini::ini_locomotor::{LocomotorStore, LocomotorSurfaceTypeMask};
 use game_engine::common::system::DataChunkOutput;
 use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
 use generals_main::save_load::SnapshotBuilder;
@@ -284,9 +283,12 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
         expected_surfaces
     );
 
-    // A same-name foreign process catalog must never select either world’s data.
+    // A same-name foreign engine published on this thread must never select
+    // either world's data (C++ each GameEngine reads its own TheLocomotorStore).
+    let foreign_engine = std::sync::Arc::new(CommonServices::new());
+    let _ = install_common_services(std::sync::Arc::clone(&foreign_engine));
     {
-        let mut foreign = get_locomotor_store_mut();
+        let mut foreign = foreign_engine.ini.locomotor.write();
         foreign.apply_source("Locomotor SharedOwnerLoco\n Surfaces = GROUND\n Speed = 999\n PitchStiffness = 99\n AirborneTargetingHeight = 0\nEnd\n\
             Locomotor CliffOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
             Locomotor GroundOwnerLoco\n Surfaces = GROUND\n Speed = 999\nEnd\n\
