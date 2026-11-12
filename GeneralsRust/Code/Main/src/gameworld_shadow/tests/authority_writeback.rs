@@ -2049,6 +2049,9 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
         object.name = "SlowOwnerPhaseMember".into();
         object.refresh_model_condition_bits();
     }
+    // A named map object enters the ScriptEngine named-object cache
+    // (ScriptEngine::addObjectToCache); script requests resolve through it.
+    assert!(logic.add_receiving_named_script_object(slow));
 
     // Use the actual command executor to establish the authored formation
     // stamp; the later Move is processed by GameLogic::process_commands.
@@ -2253,6 +2256,16 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
         let attacker = logic
             .create_object_for_player("OwnedAttackReceiptInfantry", 0, Vec3::ZERO)
             .unwrap();
+        // AIAttackState needs a weapon able to engage the victim.
+        crate::fixture_content::arm_slot_with_stats(
+            logic.host_object_mut(attacker).unwrap(),
+            0,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..crate::game_logic::Weapon::default()
+            },
+        );
         let first = logic
             .create_object_for_player("OwnedAttackReceiptInfantry", 1, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
