@@ -1432,39 +1432,13 @@ impl PresentationFrame {
             self.local_science_purchase_points,
             manager,
         );
-        let ready_sp: Vec<String> = self
-            .selected_unit_display_infos()
-            .iter()
-            .filter_map(|info| {
-                self.objects
-                    .iter()
-                    .find(|o| {
-                        o.id == info.object_id
-                            && o.special_power_ready
-                            && !o.destroyed
-                            && !o.sold
-                            && !o.disabled
-                    })
-                    .map(|o| o.template_name.clone())
-            })
-            .collect();
-        // Also include any selected renderable with ready SP (selection flags path).
-        // Wave 1110: ready SP residual fail-closed on sold/disabled.
-        let mut ready_sp = ready_sp;
-        for o in self
-            .objects
-            .iter()
-            .filter(|o| usable_selected(o) && o.special_power_ready)
-        {
-            if !ready_sp.iter().any(|n| n == &o.template_name) {
-                ready_sp.push(o.template_name.clone());
-            }
-        }
-        control_bar.sync_radar_queues_and_specials_from_presentation(
+        // Special-power shortcut buttons come from the PlayerTemplate's
+        // SpecialPowerShortcutCommandSet (ControlBar.cpp:3256 populateSpecialPowerShortcut),
+        // admitted through the receiving shortcut snapshot, never from selection.
+        control_bar.sync_radar_and_queues_from_presentation(
             self.local_radar_count,
             self.local_radar_disabled,
             &self.local_queued_upgrades,
-            &ready_sp,
         );
         control_bar.sync_upgrade_cameos_from_presentation(
             &panel.upgrade_cameo_names,

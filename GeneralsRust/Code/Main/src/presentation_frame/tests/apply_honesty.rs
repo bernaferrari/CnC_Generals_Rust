@@ -767,14 +767,10 @@ fn presentation_feeds_control_bar_radar_and_queues() {
                         .iter()
                         .any(|u| u.contains("AdvancedTraining"))
                 );
-                assert!(
-                    !bar.get_special_power_shortcuts().is_empty(),
-                    "expected special power shortcuts from ready selection"
-                );
-                assert_eq!(
-                    bar.get_special_power_shortcuts()[0].availability,
-                    game_client::gui::control_bar::CommandAvailability::Available
-                );
+                // No SpecialPowerShortcutCommandSet is authored for this
+                // player, so a ready selection does not invent shortcut
+                // buttons (ControlBar.cpp:3256 populateSpecialPowerShortcut).
+                assert!(bar.get_special_power_shortcuts().is_empty());
             });
         });
     }
@@ -824,11 +820,14 @@ fn presentation_feeds_control_bar_sciences() {
                         .iter()
                         .any(|s| s == "SCIENCE_RedGuards")
                 );
+                // Purchase rows come only from the local PlayerTemplate's
+                // PurchaseScienceCommandSetRank1/3/8 (ControlBar.cpp:143
+                // populatePurchaseScience); none is authored here, so no
+                // button is invented from the unlocked list. The authored path
+                // is covered by tests/player_template_world_owner.rs.
                 assert!(
-                    sci.rank1_buttons
-                        .iter()
-                        .any(|b| b.is_purchased && b.command_name.contains("RedGuards")),
-                    "expected purchased science button, got {:?}",
+                    sci.rank1_buttons.iter().all(|b| b.command_name.is_empty()),
+                    "no purchase button without an authored command set: {:?}",
                     sci.rank1_buttons
                 );
             });

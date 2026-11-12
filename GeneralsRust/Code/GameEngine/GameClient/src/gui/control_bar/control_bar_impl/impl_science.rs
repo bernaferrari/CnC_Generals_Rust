@@ -2533,16 +2533,17 @@ impl ControlBar {
         self.gen_arrow = image;
     }
 
-    /// Feed radar, queued upgrades, and ready special-power shortcuts from PresentationFrame.
+    /// Feed radar and queued upgrades from PresentationFrame.
     ///
-    /// Prefer this over live player-list / OBJECT_REGISTRY for dual-tick host paths.
-    /// Fail-closed: shortcut command names are template placeholders (not full CommandSet art).
-    pub fn sync_radar_queues_and_specials_from_presentation(
+    /// Special-power shortcut buttons are not seeded here: C++
+    /// `ControlBar::populateSpecialPowerShortcut` (ControlBar.cpp:3256) builds them only from the
+    /// local PlayerTemplate's SpecialPowerShortcutCommandSet
+    /// (see `apply_receiving_shortcuts`).
+    pub fn sync_radar_and_queues_from_presentation(
         &mut self,
         radar_count: i32,
         radar_disabled: bool,
         queued_upgrades: &[String],
-        ready_special_power_templates: &[String],
     ) {
         self.presentation_radar_count = radar_count;
         self.presentation_radar_disabled = radar_disabled;
@@ -2550,41 +2551,6 @@ impl ControlBar {
         queued.sort();
         queued.dedup();
         self.presentation_queued_upgrades = queued;
-
-        // Seed shortcuts from presentation-ready special powers when empty.
-        if self.receiving_shortcuts.is_none()
-            && self.special_power_shortcuts.is_empty()
-            && !ready_special_power_templates.is_empty()
-        {
-            let mut names = ready_special_power_templates.to_vec();
-            names.sort();
-            names.dedup();
-            self.special_power_shortcuts = names
-                .into_iter()
-                .take(8)
-                .map(|command_name| SpecialPowerShortcutState {
-                    command_name,
-                    availability: CommandAvailability::Available,
-                    multiplier_count: 1,
-                    is_hidden: false,
-                })
-                .collect();
-            self.special_power_shortcut_count = self.special_power_shortcuts.len();
-        } else if self.receiving_shortcuts.is_none() && !ready_special_power_templates.is_empty() {
-            // Mark matching shortcuts available.
-            for sc in self.special_power_shortcuts.iter_mut() {
-                if ready_special_power_templates.iter().any(|n| {
-                    n.eq_ignore_ascii_case(&sc.command_name)
-                        || sc.command_name.eq_ignore_ascii_case(n)
-                }) {
-                    sc.availability = CommandAvailability::Available;
-                    sc.is_hidden = false;
-                }
-            }
-        }
-
-        // Gen-star flash is SPP-driven (sync_rank_progress + update_star_image).
-        // Queued upgrades are not C++ getStarImage.
         self.mark_ui_dirty();
     }
 
