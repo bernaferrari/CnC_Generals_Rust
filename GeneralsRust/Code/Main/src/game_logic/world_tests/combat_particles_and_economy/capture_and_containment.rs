@@ -1,6 +1,56 @@
 //! Behavior suite extracted from `combat_particles_and_economy`.
 use super::*;
 
+/// Retail Ranger capture authored as Object INI before the first Object
+/// (ThingFactory owns every definition): SpecialAbility `StartsPaused = Yes`
+/// plus an UnpauseSpecialPowerUpgrade triggered by the capture upgrade
+/// (AmericaInfantry.ini). Only that module unpauses the power
+/// (UnpauseSpecialPowerUpgrade.cpp upgradeImplementation). VisionRange is
+/// the captor's look (ShroudClearingRange -1 -> VisionRange), which the
+/// ActionManager::canCaptureBuilding FOW gate reads. Unauthored Geometry is
+/// the C++ ThingTemplate default, a radius-1 sphere.
+fn admit_ranger_capture_fixture(
+    world: &mut GameLogic,
+    target_radius: Option<f32>,
+    mut extra: Vec<crate::fixture_content::FixtureObject>,
+) {
+    use crate::fixture_content::FixtureObject;
+    use crate::game_logic::host_upgrades::UPGRADE_INFANTRY_CAPTURE;
+    const CAPTURE: &str = "SpecialAbilityRangerCaptureBuilding";
+    let mut target = FixtureObject::new(CAPTURE_TARGET)
+        .kind_of("STRUCTURE SELECTABLE CAPTURABLE")
+        .health(1200.0);
+    if let Some(radius) = target_radius {
+        target = target
+            .field("Geometry = CYLINDER")
+            .field(format!("GeometryMajorRadius = {radius}"))
+            .field(format!("GeometryMinorRadius = {radius}"))
+            .field("GeometryHeight = 20");
+    }
+    let mut objects = vec![
+        FixtureObject::new(CAPTOR)
+            .kind_of("INFANTRY SELECTABLE SCORE")
+            .health(80.0)
+            .field("VisionRange = 200")
+            .walker()
+            .module(format!(
+                "Behavior = SpecialAbility CaptureTag\n SpecialPowerTemplate = {CAPTURE}\n UpdateModuleStartsAttack = Yes\n StartsPaused = Yes\nEnd"
+            ))
+            .module(format!(
+                "Behavior = SpecialAbilityUpdate CaptureUpdateTag\n SpecialPowerTemplate = {CAPTURE}\n StartAbilityRange = 5\n UnpackTime = 3000\n PreparationTime = 20000\n PackTime = 2000\nEnd"
+            ))
+            .module(format!(
+                "Behavior = UnpauseSpecialPowerUpgrade CaptureUnpauseTag\n SpecialPowerTemplate = {CAPTURE}\n TriggeredBy = {UPGRADE_INFANTRY_CAPTURE}\nEnd"
+            )),
+        target,
+    ];
+    objects.append(&mut extra);
+    crate::fixture_content::admit_fixture_objects(world, &objects);
+}
+
+const CAPTOR: &str = "AuthoredRangerCaptor";
+const CAPTURE_TARGET: &str = "AuthoredCaptureTarget";
+
 #[test]
 fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     use crate::command_system::{CommandType, GameCommand};
@@ -21,36 +71,22 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     game_logic.add_player(player);
     // Object::defect requires the target's admitted controller/default team.
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
-    ensure_test_barracks_template(&mut game_logic);
-    // C++ retail ranger-style capture module: `StartsPaused = Yes` +
-    // `UnpauseSpecialPowerUpgrade` (parsed as capture_starts_paused /
-    // capture_upgrade_trigger).  Without it the capture power is ready
-    // before the research completes, and ActionManager::canCaptureBuilding
+    // Without the authored StartsPaused/Unpause pair the capture power is
+    // ready before the research completes, and ActionManager::canCaptureBuilding
     // (ActionManager.cpp:971-1069, getPercentReady < 1.0) would accept it.
-    let infantry_template = game_logic
-        .templates
-        .get_mut("TestInfantry")
-        .expect("TestInfantry template");
-    infantry_template.capture_starts_paused = true;
-    infantry_template.capture_upgrade_trigger = Some(UPGRADE_INFANTRY_CAPTURE.to_string());
-    // Retail infantry authors SightRange/ShroudClearingRange; without a
-    // non-zero look radius the captor registers no look and the building
-    // stays shrouded for the FOW gate.
-    infantry_template.sight_range = 200.0;
-    let mut barracks = ThingTemplate::new("AmericaBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSBarracks)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1000.0)
-        .set_cost(600, -1);
-    barracks.capturable = true;
-    game_logic
-        .templates
-        .insert("AmericaBarracks".to_string(), barracks);
+    // The target authors a radius-10 footprint so the captor at 12 starts
+    // inside StartAbilityRange 5 (edge 12 - 1 - 10 = 1).
+    admit_ranger_capture_fixture(
+        &mut game_logic,
+        Some(10.0),
+        vec![
+            crate::fixture_content::FixtureObject::new("AmericaBarracks")
+                .kind_of("STRUCTURE FS_BARRACKS SELECTABLE CAPTURABLE")
+                .health(1000.0)
+                .build_cost(600)
+                .module("Behavior = ProductionUpdate ProductionTag\nEnd"),
+        ],
+    );
 
     let barracks_id = game_logic
         .create_object("AmericaBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
@@ -64,10 +100,10 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     );
 
     let captor_id = game_logic
-        .create_object("TestInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .create_object(CAPTOR, Team::USA, Vec3::new(12.0, 0.0, 0.0))
         .expect("captor");
     let building_id = game_logic
-        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(CAPTURE_TARGET, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
 
     // C++ ActionManager::canCaptureBuilding runs isObjectShroudedForAction
@@ -75,16 +111,6 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     // host consults its map shroud, so this fixture registers the
     // captor's look and refreshes vision before issuing CaptureBuilding (a
     // live game would have run Object::look every frame since spawn).
-    game_logic
-        .host_object_mut(captor_id)
-        .expect("captor")
-        .vision_range = 200.0;
-    // The shroud look radius (Object::getShroudClearingRange) is what
-    // registers the look; vision_range alone does not.
-    game_logic
-        .host_object_mut(captor_id)
-        .expect("captor")
-        .shroud_range = 200.0;
     // A C++ match initializes the shroud grid at map load; without it every
     // look computes Hidden and the FOW gate would refuse the capture.
     game_logic
@@ -402,25 +428,15 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
     game_logic.add_player(player);
     // Object::defect requires the target's admitted controller/default team.
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
-    // C++ retail capture module: `StartsPaused = Yes` +
-    // `UnpauseSpecialPowerUpgrade` — the upgrade completion (applied directly
-    // below so the walk path is the unit under test) unpauses the power.
-    let infantry_template = game_logic
-        .templates
-        .get_mut("TestInfantry")
-        .expect("TestInfantry template");
-    infantry_template.capture_starts_paused = true;
-    infantry_template.capture_upgrade_trigger = Some(UPGRADE_INFANTRY_CAPTURE.to_string());
-    infantry_template.sight_range = 200.0;
+    admit_ranger_capture_fixture(&mut game_logic, None, Vec::new());
 
-    // Outside capture range (≈ 8+25+4 = 37) so Capturing must walk in.
+    // Outside capture range (edge 55 - 1 - 1 = 53 > 5; neither authors
+    // Geometry, so both keep the C++ radius-1 sphere) so Capturing must walk in.
     let captor_id = game_logic
-        .create_object("TestInfantry", Team::USA, Vec3::new(55.0, 0.0, 0.0))
+        .create_object(CAPTOR, Team::USA, Vec3::new(55.0, 0.0, 0.0))
         .expect("captor");
     let building_id = game_logic
-        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(CAPTURE_TARGET, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
 
     // Unlock the capture ability without research frames: the C++
@@ -439,14 +455,6 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
 
     // C++ canCaptureBuilding FOW gate (ActionManager.cpp:76-102): register
     // the captor's look + refresh its map shroud before issuing capture.
-    game_logic
-        .host_object_mut(captor_id)
-        .expect("captor")
-        .vision_range = 200.0;
-    game_logic
-        .host_object_mut(captor_id)
-        .expect("captor")
-        .shroud_range = 200.0;
     game_logic
         .world_services
         .shroud()
