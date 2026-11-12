@@ -105,7 +105,15 @@ End
     // A foreign producer clone has the same numeric parent/child IDs and may
     // carry a coincidentally equal generation. New admission must discard both
     // its foreign cached geometry and its source-world occupant leases.
-    let foreign = world.host_object(parent).unwrap().clone();
+    // Admission requires the receiving session's authored template, so the
+    // foreign producer is rebuilt on the peer's template while carrying the
+    // source world's cached geometry, occupant leases and generation.
+    let source = world.host_object(parent).unwrap();
+    let mut foreign = Object::new(peer.templates["GenerationHive"].clone(), parent, Team::GLA);
+    foreign.spawn_point_world_poses = source.spawn_point_world_poses.clone();
+    foreign.spawn_point_occupants = source.spawn_point_occupants.clone();
+    foreign.visual_object_generation = source.visual_object_generation;
+    assert!(foreign.spawn_point_world_poses.is_some() && !foreign.spawn_point_occupants.is_empty());
     peer.destroy_object(peer_parent).unwrap();
     peer.process_destroy_list();
     peer.try_add_object(foreign).unwrap();
