@@ -5,7 +5,7 @@ use super::*;
 fn launch_attack_installs_owned_attack_move_state_and_path() {
     // C++ AIAttackMoveToState / AIInternalMoveToState::onEnter (AIStates.cpp).
     // Observe the path request and attack-move state on the live host object.
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{GameLogic, Team};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
     // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
@@ -14,23 +14,29 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiSm");
 
-    logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object AiSmU\nEnd\nObject AiSmE\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
+    // Authored before NewGame: an armed walking USA infantry and the GLA
+    // command center that anchors the enemy base center.
+    crate::fixture_content::admit_fixture_content(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("AiSmU")
+                .kind_of("INFANTRY")
+                .health(100.0)
+                .walker()
+                .armed("AiSmGun"),
+            crate::fixture_content::FixtureObject::new("AiSmE")
+                .kind_of("STRUCTURE COMMANDCENTER")
+                .health(100.0),
+        ],
+        &[crate::fixture_content::FixtureWeapon::new("AiSmGun").damage(10.0).range(100.0)],
+    );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    for (name, team, x) in [("AiSmU", Team::USA, 0.0f32), ("AiSmE", Team::GLA, 80.0)] {
-        {
-            let mut tmpl = ThingTemplate::new(name);
-            tmpl.set_health(100.0);
-            if team == Team::GLA {
-                tmpl.add_kind_of(KindOf::Structure);
-                tmpl.add_kind_of(KindOf::CommandCenter);
-            } else {
-                tmpl.add_kind_of(KindOf::Infantry);
-            }
-            tmpl.add_kind_of(KindOf::Attackable);
-            logic.templates.insert(name.into(), tmpl);
-        }
-        let _ = logic.create_object(name, team, glam::Vec3::new(x, 0.0, 0.0));
-    }
+    let usa_unit = logic
+        .create_object("AiSmU", Team::USA, glam::Vec3::ZERO)
+        .expect("usa unit");
+    logic
+        .create_object("AiSmE", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+        .expect("gla command center");
     let usa_id = logic
         .get_players()
         .iter()
@@ -45,22 +51,6 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
     let mut ai = AIPlayer::new(usa_id, Team::USA, AIDifficulty::Medium);
     ai.enemy_player_id = gla_id;
     ai.is_active = true;
-    let usa_unit = logic
-        .host_objects()
-        .registered()
-        .find(|(_, o)| o.team == Team::USA && o.is_alive())
-        .map(|(id, _)| *id)
-        .expect("usa unit");
-    if let Some(o) = logic.host_object_mut(usa_unit) {
-        crate::fixture_content::arm_slot_with_stats(
-            o,
-            0,
-            Weapon {
-                damage: 10.0,
-                ..Weapon::default()
-            },
-        );
-    }
 
     let destination = ai.find_enemy_base_center(&logic, gla_id.expect("GLA player"));
     assert_eq!(destination, glam::Vec3::new(80.0, 0.0, 0.0));
