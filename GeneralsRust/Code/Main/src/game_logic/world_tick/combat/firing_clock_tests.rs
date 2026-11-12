@@ -159,6 +159,29 @@ fn world(name: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     world.add_player(Player::new(2, Team::GLA, "FiringTarget", false));
     let mut source = ThingTemplate::new(name);
     source.set_health(1000.0).add_kind_of(KindOf::Vehicle);
+    // The gun is authored on the template (WeaponSet -> TheWeaponStore), so a
+    // loading world that receives these templates rebuilds the same weapon.
+    let gun = Weapon {
+        damage: 1.0,
+        range: 1000.0,
+        clip_size: 6,
+        ..Default::default()
+    };
+    crate::fixture_content::arm_template(
+        &mut source,
+        [
+            Some(
+                crate::fixture_content::FixtureWeapon::from_stats("FiringClockGun", &gun)
+                    // WeaponTemplate ContinuousFireOne/Two/Coast: the tracker
+                    // reads them from the fired weapon (FiringTracker.cpp).
+                    .field("ContinuousFireOne = 2")
+                    .field("ContinuousFireTwo = 6")
+                    .field("ContinuousFireCoast = 1000"),
+            ),
+            None,
+            None,
+        ],
+    );
     let mut target = ThingTemplate::new("ClockTarget");
     target.set_health(1000.0).add_kind_of(KindOf::Attackable);
     world.templates.insert(name.into(), source);
@@ -171,11 +194,7 @@ fn world(name: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         .create_object_for_player("ClockTarget", 2, Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
     let actor = world.host_object_mut(source).unwrap();
-    actor.weapon = Some(Weapon {
-        damage: 1.0,
-        range: 1000.0,
-        ..Default::default()
-    });
+    assert!(actor.weapon.is_some(), "authored WeaponSet instantiates PRIMARY");
     actor.consecutive_shots_at_target = 4;
     actor.consecutive_shot_target = Some(first);
     actor.continuous_fire_level = 1;
@@ -248,13 +267,12 @@ fn normal_world_codec_retains_specialized_next_shot_and_omits_idle_reload_timer(
         .host_object_mut(source)
         .unwrap()
         .frame_to_force_reload = 101;
-    original.host_object_mut(source).unwrap().weapon = Some(Weapon {
-        damage: 1.0,
-        range: 1000.0,
-        clip_size: 6,
-        ammo: Some(2),
-        ..Default::default()
-    });
+    original
+        .host_object_mut(source)
+        .unwrap()
+        .weapon_slot_mut(0)
+        .unwrap()
+        .ammo = Some(2);
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&original).unwrap();
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
