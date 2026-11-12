@@ -120,7 +120,7 @@ impl XferData for WeatherSnapshot {
 impl Default for WeatherSnapshot {
     fn default() -> Self {
         Self {
-            current_weather: "clear".to_string(),
+            current_weather: "normal".to_string(),
             weather_intensity: 0.0,
             weather_duration: 0.0,
             next_weather_change: 0.0,

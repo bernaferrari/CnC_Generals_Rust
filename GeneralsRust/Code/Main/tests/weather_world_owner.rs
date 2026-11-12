@@ -81,7 +81,7 @@ fn world_info_weather_stays_with_each_world_through_presentation_reset_and_resto
     assert_eq!(snowy.weather_state().current_weather, "normal");
     assert_eq!(peer.weather_state().current_weather, "normal");
     snowy.reset();
-    assert_eq!(snowy.weather_state().current_weather, "clear");
+    assert_eq!(snowy.weather_state().current_weather, "normal");
     assert_eq!(peer.weather_state().current_weather, "normal");
 
     // Restore into receivers that have admitted the corresponding map and its

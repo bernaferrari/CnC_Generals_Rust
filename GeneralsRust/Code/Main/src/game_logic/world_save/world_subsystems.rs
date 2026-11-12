@@ -26,7 +26,7 @@ impl GameLogic {
         let mut weather = current_weather.into();
         weather = weather.trim().to_string();
         if weather.is_empty() {
-            weather = "clear".to_string();
+            weather = "normal".to_string();
         }
 
         self.weather_state.current_weather = weather;

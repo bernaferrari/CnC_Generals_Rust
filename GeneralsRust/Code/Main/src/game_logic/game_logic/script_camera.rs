@@ -11,7 +11,8 @@ use super::*;
 impl Default for RuntimeWeatherState {
     fn default() -> Self {
         Self {
-            current_weather: "clear".to_string(),
+            // C++ GlobalData::m_weather defaults to WEATHER_NORMAL.
+            current_weather: "normal".to_string(),
             intensity: 0.0,
             duration_remaining: 0.0,
             next_change_time: 0.0,
