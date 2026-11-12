@@ -1,14 +1,39 @@
 use super::dispatch_test_command;
 
-fn admit_test_build_action(logic: &mut crate::game_logic::GameLogic, id: crate::game_logic::ObjectId, target: &str, suffix: &str) {
+/// Authored build fixture: the structure and a DozerAIUpdate dozer whose
+/// CommandSet offers DOZER_CONSTRUCT for it. C++ BuildAssistant::buildObjectNow
+/// checks the constructor's live CommandSet and DozerAIUpdate owns the
+/// construction order; both come from INI admitted before NewGame.
+fn admit_build_fixture(
+    logic: &mut crate::game_logic::GameLogic,
+    structure: crate::fixture_content::FixtureObject,
+    structure_name: &str,
+    suffix: &str,
+    dozer_at: glam::Vec3,
+) -> crate::game_logic::ObjectId {
+    use crate::fixture_content::{FixtureObject, admit_fixture_content_with_actions};
     let set = format!("FixtureDozerBuildSet{suffix}");
     let button = format!("FixtureDozerBuildButton{suffix}");
-    logic.admit_fixture_command_action_source(&format!(
-        "CommandButton {button}\n Command = DOZER_CONSTRUCT\n Object = {target}\nEnd\nCommandSet {set}\n 1 = {button}\nEnd\n"
-    )).expect("admit local dozer command catalog");
-    logic.host_object_mut(id).expect("fixture dozer").command_set_override = Some(set);
+    admit_fixture_content_with_actions(
+        logic,
+        &[
+            structure,
+            FixtureObject::new("AmericaVehicleDozer")
+                .kind_of("VEHICLE DOZER SELECTABLE")
+                .health(200.0)
+                .field(format!("CommandSet = {set}"))
+                .walker()
+                .dozer(),
+        ],
+        &[],
+        &format!(
+            "CommandButton {button}\n Command = DOZER_CONSTRUCT\n Object = {structure_name}\nEnd\nCommandSet {set}\n 1 = {button}\nEnd\n"
+        ),
+    );
+    logic
+        .create_object_for_player("AmericaVehicleDozer", 0, dozer_at)
+        .expect("authored dozer")
 }
-
 
 #[test]
 fn switch_weapons_locks_button_slot_not_cycle() {
@@ -255,28 +280,17 @@ fn execute_build_clears_removable_and_map_trees() {
     player.resources.supplies = 100_000;
     logic.add_player(player);
 
-    let mut barracks = ThingTemplate::new("TestClearFootprintBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .set_cost(50, 0)
-        .set_health(1_000.0);
-    logic
-        .templates
-        .insert("TestClearFootprintBarracks".into(), barracks);
 
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
-    let mut dozer = Object::new(dozer_t, ObjectId(9101), Team::USA);
-    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
-    dozer.owner_player_id = Some(0);
-    logic.objects.insert(ObjectId(9101), dozer);
-    admit_test_build_action(&mut logic, ObjectId(9101), "TestClearFootprintBarracks", "ClearFootprint");
+    let dozer = admit_build_fixture(
+        &mut logic,
+        crate::fixture_content::FixtureObject::new("TestClearFootprintBarracks")
+            .kind_of("STRUCTURE")
+            .build_cost(50)
+            .health(1_000.0),
+        "TestClearFootprintBarracks",
+        "ClearFootprint",
+        Vec3::new(40.0, 0.0, 80.0),
+    );
 
     let mut shrub_t = ThingTemplate::new("TreeOakShrub");
     shrub_t.set_health(10.0);
@@ -295,7 +309,7 @@ fn execute_build_clears_removable_and_map_trees() {
                 ..Default::default()
 },
         );
-        exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0).unwrap()
+        exec.execute_build(&[dozer], "TestClearFootprintBarracks", site, 0.0).unwrap()
     };
     assert!(matches!(result, CommandResult::Success), "placement must succeed");
 
@@ -341,28 +355,17 @@ fn execute_build_clears_kindof_not_name_substrings() {
     player.resources.supplies = 100_000;
     logic.add_player(player);
 
-    let mut barracks = ThingTemplate::new("TestKindOfClearBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .set_cost(50, 0)
-        .set_health(1_000.0);
-    logic
-        .templates
-        .insert("TestKindOfClearBarracks".into(), barracks);
 
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
-    let mut dozer = Object::new(dozer_t, ObjectId(9201), Team::USA);
-    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
-    dozer.owner_player_id = Some(0);
-    logic.objects.insert(ObjectId(9201), dozer);
-    admit_test_build_action(&mut logic, ObjectId(9201), "TestKindOfClearBarracks", "KindOfClear");
+    let dozer = admit_build_fixture(
+        &mut logic,
+        crate::fixture_content::FixtureObject::new("TestKindOfClearBarracks")
+            .kind_of("STRUCTURE")
+            .build_cost(50)
+            .health(1_000.0),
+        "TestKindOfClearBarracks",
+        "KindOfClear",
+        Vec3::new(40.0, 0.0, 80.0),
+    );
 
     let mut cleared_t = ThingTemplate::new("NoTokenProp");
     cleared_t
@@ -387,7 +390,7 @@ fn execute_build_clears_kindof_not_name_substrings() {
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9201)], "TestKindOfClearBarracks", site, 0.0).unwrap()
+        exec.execute_build(&[dozer], "TestKindOfClearBarracks", site, 0.0).unwrap()
     };
     assert!(matches!(result, CommandResult::Success));
 
@@ -420,28 +423,17 @@ fn execute_build_refuses_human_on_unmovables() {
     player.resources.supplies = 10_000;
     logic.add_player(player);
 
-    let mut barracks = ThingTemplate::new("TestUnmovableBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .set_cost(50, 0)
-        .set_health(1_000.0);
-    logic
-        .templates
-        .insert("TestUnmovableBarracks".into(), barracks);
 
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
-    let mut dozer = Object::new(dozer_t, ObjectId(9301), Team::USA);
-    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
-    dozer.owner_player_id = Some(0);
-    logic.objects.insert(ObjectId(9301), dozer);
-    admit_test_build_action(&mut logic, ObjectId(9301), "TestUnmovableBarracks", "Unmovable");
+    let dozer = admit_build_fixture(
+        &mut logic,
+        crate::fixture_content::FixtureObject::new("TestUnmovableBarracks")
+            .kind_of("STRUCTURE")
+            .build_cost(50)
+            .health(1_000.0),
+        "TestUnmovableBarracks",
+        "Unmovable",
+        Vec3::new(40.0, 0.0, 80.0),
+    );
 
     // Neutral, no AI / not mobile — leftover moveObjects returns FALSE.
     let mut crate_t = ThingTemplate::new("UnmovableCrate");
@@ -457,7 +449,7 @@ fn execute_build_refuses_human_on_unmovables() {
         .unwrap_or(0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9301)], "TestUnmovableBarracks", site, 0.0).unwrap()
+        exec.execute_build(&[dozer], "TestUnmovableBarracks", site, 0.0).unwrap()
     };
     assert!(matches!(result, CommandResult::InvalidLocation), "hq-ys09u: human buildObjectNow must refuse when leftover moveObjects is FALSE");
     let money_after = logic
@@ -491,31 +483,22 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
     player.resources.supplies = 10;
     logic.add_player(player);
 
-    let mut barracks = ThingTemplate::new("TestPoorBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .set_cost(50, 0)
-        .set_health(1_000.0);
-    logic.templates.insert("TestPoorBarracks".into(), barracks);
 
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
-    let mut dozer = Object::new(dozer_t, ObjectId(9311), Team::USA);
-    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
-    dozer.owner_player_id = Some(0);
-    logic.objects.insert(ObjectId(9311), dozer);
-    admit_test_build_action(&mut logic, ObjectId(9311), "TestPoorBarracks", "Poor");
+    let dozer = admit_build_fixture(
+        &mut logic,
+        crate::fixture_content::FixtureObject::new("TestPoorBarracks")
+            .kind_of("STRUCTURE")
+            .build_cost(50)
+            .health(1_000.0),
+        "TestPoorBarracks",
+        "Poor",
+        Vec3::new(40.0, 0.0, 80.0),
+    );
 
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0).unwrap()
+        exec.execute_build(&[dozer], "TestPoorBarracks", site, 0.0).unwrap()
     };
     assert_eq!(result, CommandResult::InvalidCommand, "insufficient funds must refuse the placement");
     assert_eq!(logic
@@ -552,29 +535,17 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
     player.map_side.handicap_build_cost_buildings = 0.75;
     logic.add_player(player);
 
-    let mut barracks = ThingTemplate::new("TestHandicapBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1_000.0)
-        .set_cost(1_000, 0);
-    logic
-        .templates
-        .insert("TestHandicapBarracks".into(), barracks);
 
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
-    let mut dozer = Object::new(dozer_t, ObjectId(9201), Team::USA);
-    dozer.set_position(Vec3::new(0.0, 0.0, 0.0));
-    dozer.owner_player_id = Some(0);
-    logic.objects.insert(ObjectId(9201), dozer);
-    admit_test_build_action(&mut logic, ObjectId(9201), "TestHandicapBarracks", "Handicap");
+    let dozer = admit_build_fixture(
+        &mut logic,
+        crate::fixture_content::FixtureObject::new("TestHandicapBarracks")
+            .kind_of("STRUCTURE SELECTABLE")
+            .build_cost(1000)
+            .health(1_000.0),
+        "TestHandicapBarracks",
+        "Handicap",
+        Vec3::new(0.0, 0.0, 0.0),
+    );
 
     assert_eq!(
         logic.modified_build_cost_supplies(0, "TestHandicapBarracks", 1_000),
@@ -584,7 +555,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_build(
-            &[ObjectId(9201)],
+            &[dozer],
             "TestHandicapBarracks",
             Vec3::new(40.0, 0.0, 0.0),
             0.0,
@@ -603,8 +574,8 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
         .map(|o| o.id)
         .expect("placed barracks");
     let building = logic.host_object(building_id).expect("placed scaffold");
-    assert_eq!(building.producer_id, Some(ObjectId(9201)));
-    assert_eq!(building.builder_id, Some(ObjectId(9201)));
+    assert_eq!(building.producer_id, Some(dozer));
+    assert_eq!(building.builder_id, Some(dozer));
 
     // Keep this actual cancel's output separate from the paid scaffold birth.
     logic.economy_events.clear();
