@@ -1897,8 +1897,8 @@ pub fn run_golden_skirmish(
     // Combat world: host AI on. Keep AI structure catalog (no mid-scenario
     // strip residual).
     debug_assert!(
-        logic.templates.contains_key("GLA_CommandCenter"),
-        "AI faction structure templates must remain installed (no catalog strip)"
+        logic.templates.contains_key("GLACommandCenter"),
+        "retail GLA structure templates must remain installed (no catalog strip)"
     );
     let ai_disabled_for_slice = false;
     logic.set_ai_active(1, true);
@@ -1934,10 +1934,11 @@ pub fn run_golden_skirmish(
     let mut checkpoint_hashes = vec![ha, hb];
     checkpoint_hashes.push(AuthorityProbe::capture(&logic, 0).checkpoint_hash());
 
-    let ai_structure_templates_retained = logic.templates.contains_key("GLA_CommandCenter")
-        && logic.templates.contains_key("GLA_Barracks")
-        && logic.templates.contains_key("GLA_SupplyStash")
-        && logic.templates.contains_key("GLA_ArmsDealer");
+    // The retail INI names the GLA skirmish build list uses (ThingFactory
+    // admits only INI templates), not the port's GLA_* aliases.
+    let ai_structure_templates_retained = ["GLACommandCenter", "GLABarracks", "GLASupplyStash", "GLAArmsDealer"]
+        .iter()
+        .all(|name| logic.templates.contains_key(*name));
 
     // synthetic_combat=false when main combat ran on map objects (Wave 451: no mop-up wipe required).
     // Fail-closed: missing map combat keeps synthetic_combat=true so playable_claim stays false.
