@@ -85,13 +85,11 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         let unit_id = ObjectId(934204);
         let guard_id = ObjectId(934205);
         let mut unit = object(unit_id);
-        unit.set_guard_target_data(Some(guard_id));
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.close_enough_dist = Some(1.0);
         unit.movement.path = vec![endpoint; points];
         unit.movement.target_position = Some(endpoint);
         unit.can_path_through_units = true;
-        unit.set_adjust_destinations(false);
         world.add_object(unit);
         // A newly admitted AI starts Idle (AIUpdateInterface ctor); the
         // temporary exit's Moving state is entered on the admitted Object.
@@ -101,6 +99,11 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
             frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
+        // Guard data and AdjustsDestination live in the AI the admission
+        // just constructed (AIUpdateInterface ctor), so author them there.
+        let admitted = world.host_object_mut(unit_id).unwrap();
+        admitted.set_guard_target_data(Some(guard_id));
+        admitted.set_adjust_destinations(false);
         world.add_object(object(guard_id));
         world
             .unit_ai_runtime_mut(unit_id)
@@ -172,11 +175,9 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     let guard_id = ObjectId(934207);
     let endpoint = Vec3::new(10.0, 0.0, 0.0);
     let mut unit = object(unit_id);
-    unit.set_guard_target_data(Some(guard_id));
     unit.movement.path = vec![endpoint, endpoint];
     unit.movement.target_position = Some(endpoint);
     unit.can_path_through_units = true;
-    unit.set_adjust_destinations(false);
     world.add_object(unit);
     // A newly admitted AI starts Idle (AIUpdateInterface ctor); the
     // temporary exit's Moving state is entered on the admitted Object.
@@ -186,6 +187,11 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
         frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
+    // Guard data and AdjustsDestination live in the AI the admission just
+    // constructed (AIUpdateInterface ctor), so author them there.
+    let admitted = world.host_object_mut(unit_id).unwrap();
+    admitted.set_guard_target_data(Some(guard_id));
+    admitted.set_adjust_destinations(false);
     world.add_object(object(guard_id));
     world
         .unit_ai_runtime_mut(unit_id)
@@ -296,7 +302,6 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
         let id = ObjectId(934207);
         let mut unit = object(id);
         unit.can_path_through_units = true;
-        unit.set_adjust_destinations(false);
         world.add_object(unit);
         // A newly admitted AI starts Idle (AIUpdateInterface ctor); the
         // temporary exit's Moving state is entered on the admitted Object.
@@ -311,6 +316,8 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
             crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
         ));
         unit.unit_ai_runtime.set_quick_exit_deadline(Some(300));
+        // AdjustsDestination belongs to the AI admission constructed.
+        unit.set_adjust_destinations(false);
         assert!(unit.has_guard_quick_exit_overlay());
         match invalid {
             "dead" => unit.health.current = 0.0,
