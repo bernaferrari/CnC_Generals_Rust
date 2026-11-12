@@ -46,7 +46,7 @@ fn play_behavior_stealth_sound(object_id: ObjectID, stealth_on: bool) {
         obj.get_template().get_sound_stealth_off()
     };
     event.set_object_id(object_id);
-    if let Some(audio) = crate::helpers::TheAudio::get() {
+    if let Some(audio) = crate::helpers::TheAudio::of_object(&obj) {
         audio.add_audio_event(&event);
     }
 }

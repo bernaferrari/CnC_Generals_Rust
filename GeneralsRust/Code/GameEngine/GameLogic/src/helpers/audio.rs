@@ -559,6 +559,13 @@ impl TheAudio {
 
     /// C++ `TheAudio->getMiscAudio()`: this engine's MiscAudio as filled by
     /// its own MiscAudio.ini parse.
+    /// This engine's authored MiscAudio.ini (C++ `TheAudio->getMiscAudio()`).
+    pub fn misc_audio_ini(
+        &self,
+    ) -> parking_lot::RwLockReadGuard<'_, game_engine::common::ini::ini_misc_audio::MiscAudio> {
+        self.common.ini.misc_audio.read()
+    }
+
     pub fn misc_audio(&self) -> MiscAudioEvents {
         let misc_audio = self.common.ini.misc_audio.read();
         MiscAudioEvents {

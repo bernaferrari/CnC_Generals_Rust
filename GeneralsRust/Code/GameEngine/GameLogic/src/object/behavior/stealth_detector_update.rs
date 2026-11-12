@@ -46,24 +46,25 @@ fn eva_event_from_name(name: &str) -> Option<EvaEvent> {
     }
 }
 
-fn play_misc_stealth_sound(discovered: bool, player_index: i32) {
-    let Some(misc) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
+fn play_misc_stealth_sound(audio: Option<TheAudio>, discovered: bool, player_index: i32) {
+    let Some(audio) = audio else {
         return;
     };
-    let misc = misc.read();
-    let name = if discovered {
-        misc.stealth_discovered_sound.playable_event_name()
-    } else {
-        misc.stealth_neutralized_sound.playable_event_name()
+    let name = {
+        let misc = audio.misc_audio_ini();
+        if discovered {
+            misc.stealth_discovered_sound.playable_event_name()
+        } else {
+            misc.stealth_neutralized_sound.playable_event_name()
+        }
+        .to_string()
     };
     if name.is_empty() {
         return;
     }
-    if let Some(audio) = TheAudio::get() {
-        let mut event = crate::common::audio::AudioEventRts::new(name);
-        event.set_player_index(player_index as u32);
-        audio.add_audio_event(&event);
-    }
+    let mut event = crate::common::audio::AudioEventRts::new(&name);
+    event.set_player_index(player_index as u32);
+    audio.add_audio_event(&event);
 }
 
 fn emit_first_detection_feedback(
@@ -102,7 +103,7 @@ fn emit_first_detection_feedback(
             .unwrap_or(false);
         if do_feedback {
             if let Some(player_id) = detector.get_controlling_player_id() {
-                play_misc_stealth_sound(true, player_id as i32);
+                play_misc_stealth_sound(TheAudio::of_object(detector), true, player_id as i32);
             }
             TheInGameUI::display_message_for(
                 detector,
@@ -135,7 +136,7 @@ fn emit_first_detection_feedback(
         };
         if do_feedback {
             if let Some(player_id) = target.get_controlling_player_id() {
-                play_misc_stealth_sound(false, player_id as i32);
+                play_misc_stealth_sound(TheAudio::of_object(detector), false, player_id as i32);
             }
             TheInGameUI::display_message_for(
                 target,

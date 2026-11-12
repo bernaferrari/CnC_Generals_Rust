@@ -618,6 +618,8 @@ const PARTICLE_UPLINK_CANNON_UPDATE_FIELDS: &[FieldParse<ParticleUplinkCannonUpd
 crate::impl_behavior_module_data_via_base!(ParticleUplinkCannonUpdateModuleData, base);
 
 pub struct ParticleUplinkCannonUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<TheAudio>,
     object_id: ObjectID,
     module_data: ModuleDataView<ParticleUplinkCannonUpdateModuleData>,
 
@@ -699,6 +701,7 @@ impl ParticleUplinkCannonUpdate {
         drop(specific_data);
 
         Ok(Self {
+            audio: object.read().ok().and_then(|o| TheAudio::of_object(&o)),
             object_id: object
                 .read()
                 .ok()
@@ -812,10 +815,10 @@ impl ParticleUplinkCannonUpdate {
         // touches m_orbitToTargetBeamID. LaserStatus owns that beam; only
         // killEverything (cpp:187-200) and LASERSTATUS_DECAYING (cpp:453-467)
         // destroy it.
-        Self::stop_audio_event(&mut self.powerup_sound);
-        Self::stop_audio_event(&mut self.unpack_to_ready_sound);
-        Self::stop_audio_event(&mut self.firing_to_idle_sound);
-        Self::stop_audio_event(&mut self.annihilation_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.powerup_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.unpack_to_ready_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.firing_to_idle_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.annihilation_sound);
     }
 
     /// C++ `ParticleUplinkCannonUpdate::killEverything` (cpp:187-206).
@@ -827,10 +830,10 @@ impl ParticleUplinkCannonUpdate {
             }
             self.orbit_to_target_beam_id = INVALID_DRAWABLE_ID;
         }
-        Self::stop_audio_event(&mut self.powerup_sound);
-        Self::stop_audio_event(&mut self.unpack_to_ready_sound);
-        Self::stop_audio_event(&mut self.firing_to_idle_sound);
-        Self::stop_audio_event(&mut self.annihilation_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.powerup_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.unpack_to_ready_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.firing_to_idle_sound);
+        Self::stop_audio_event(self.audio.as_ref(), &mut self.annihilation_sound);
     }
     fn set_logical_status(&mut self, status: PUCStatus) {
         // Wave 299: empty dual-world → no-op.
@@ -903,16 +906,16 @@ impl ParticleUplinkCannonUpdate {
 
         match status {
             PUCStatus::Charging => {
-                Self::play_audio_event(&mut self.powerup_sound, object_id, &position);
+                Self::play_audio_event(self.audio.as_ref(), &mut self.powerup_sound, object_id, &position);
             }
             PUCStatus::ReadyToFire => {
-                Self::play_audio_event(&mut self.unpack_to_ready_sound, object_id, &position);
+                Self::play_audio_event(self.audio.as_ref(), &mut self.unpack_to_ready_sound, object_id, &position);
             }
             PUCStatus::Firing => {
-                Self::play_audio_event(&mut self.annihilation_sound, object_id, &position);
+                Self::play_audio_event(self.audio.as_ref(), &mut self.annihilation_sound, object_id, &position);
             }
             PUCStatus::Packing => {
-                Self::play_audio_event(&mut self.firing_to_idle_sound, object_id, &position);
+                Self::play_audio_event(self.audio.as_ref(), &mut self.firing_to_idle_sound, object_id, &position);
             }
             _ => {}
         }
@@ -935,7 +938,7 @@ impl ParticleUplinkCannonUpdate {
         Some((obj_guard.get_id(), Coord3D::new(pos.x, pos.y, pos.z)))
     }
 
-    fn play_audio_event(event: &mut AudioEventRts, object_id: ObjectID, position: &Coord3D) {
+    fn play_audio_event(audio: Option<&TheAudio>, event: &mut AudioEventRts, object_id: ObjectID, position: &Coord3D) {
         if event.is_currently_playing() || event.get_event_name().is_empty() {
             return;
         }
@@ -943,15 +946,15 @@ impl ParticleUplinkCannonUpdate {
         event.set_object_id(object_id);
         event.set_position(&(position.x, position.y, position.z));
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = audio {
             let handle = audio.add_audio_event(event);
             event.set_playing_handle(handle);
         }
     }
 
-    fn stop_audio_event(event: &mut AudioEventRts) {
+    fn stop_audio_event(audio: Option<&TheAudio>, event: &mut AudioEventRts) {
         if event.is_currently_playing() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = audio {
                 audio.remove_audio_event(event.get_playing_handle());
             }
             event.set_playing_handle(0);
@@ -1216,7 +1219,7 @@ impl ParticleUplinkCannonUpdate {
             return;
         };
         if self.orbit_to_target_beam_id != INVALID_DRAWABLE_ID {
-            Self::stop_audio_event(&mut self.annihilation_sound);
+            Self::stop_audio_event(self.audio.as_ref(), &mut self.annihilation_sound);
             client.destroy_drawable(self.orbit_to_target_beam_id);
             self.orbit_to_target_beam_id = INVALID_DRAWABLE_ID;
         }
