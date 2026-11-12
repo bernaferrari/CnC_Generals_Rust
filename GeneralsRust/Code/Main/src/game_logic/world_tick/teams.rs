@@ -3152,6 +3152,9 @@ mod tests {
             .write()
             .expect("owned terrain")
             .load_map_data(data);
+        // WeaponSet.cpp findWaypointFollowingCapableWeapon accepts only weapons
+        // authoring CapableOfFollowingWaypoints (Weapon.cpp:213), as retail's
+        // ScudStormWeapon does.
         // ScriptActions doNamedFireWeaponFollowingWaypointPath force-fires the
         // current Weapon and routes its last shot projectile, so the launcher
         // needs an authored projectile weapon in this world.
@@ -3163,7 +3166,7 @@ mod tests {
             assert_eq!(
                 parse_weapon_definitions_ini_into(
                     &mut rows,
-                    "Weapon ScudStormWeapon\n  PrimaryDamage = 1\n  PrimaryDamageRadius = 0\n  AttackRange = 1000\n  DamageType = EXPLOSION\n  ProjectileObject = Scr2ScudMissile\n  WeaponSpeed = 30\n  DelayBetweenShots = 0\n  ClipSize = 1\n  ClipReloadTime = 0\n  PreAttackDelay = 0\n  AntiGround = Yes\nEnd\n",
+                    "Weapon ScudStormWeapon\n  PrimaryDamage = 1\n  PrimaryDamageRadius = 0\n  AttackRange = 1000\n  DamageType = EXPLOSION\n  ProjectileObject = Scr2ScudMissile\n  WeaponSpeed = 30\n  DelayBetweenShots = 0\n  ClipSize = 1\n  ClipReloadTime = 0\n  PreAttackDelay = 0\n  AntiGround = Yes\n  CapableOfFollowingWaypoints = Yes\nEnd\n",
                     WeaponDefinitionLoadType::Normal,
                 ),
                 1
