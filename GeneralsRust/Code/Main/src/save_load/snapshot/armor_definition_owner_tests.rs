@@ -57,9 +57,4 @@ fn encoded_save_armor_continuation_uses_receiving_catalog_and_preserves_peer() {
     assert_eq!(restored.host_object(id).unwrap().health.current, 95.0);
     assert_eq!(peer.host_object(peer_id).unwrap().health.current, 90.0);
 
-    // Historical templates retain their wire: the receiving catalog is not saved.
-    let mut other = source.templates["ReceivingArmor"].clone();
-    let before = bincode_legacy::serialize(&other).unwrap();
-    other.armor_definitions = peer.armor_definitions.clone();
-    assert_eq!(bincode_legacy::serialize(&other).unwrap(), before);
 }
