@@ -1,15 +1,27 @@
 //! Behavior suite extracted from `combat_particles_and_economy`.
 use super::*;
 
+const SUPPLY_SPAWN_EXIT: &str = "Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:12 Y:-8 Z:0\n NaturalRallyPoint = X:24 Y:0 Z:0\n End\n";
+
+/// A finite warehouse authored in the same content as the supply center
+/// (SupplyWarehouseDockUpdate StartingBoxes; ThingFactory loads every
+/// definition before the first Object exists).
+const FINITE_WAREHOUSE: &str = "Object FiniteWarehouse\n KindOf = SUPPLY_SOURCE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyWarehouseDockUpdate DockTag\n StartingBoxes = 100\n End\nEnd\n";
+
 fn admit_supply_spawn_fixture(logic: &mut GameLogic, center: &str, child: &str, exit: bool) {
-    let exit_module = if exit {
-        "Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:12 Y:-8 Z:0\n NaturalRallyPoint = X:24 Y:0 Z:0\n End\n"
-    } else {
-        ""
-    };
+    admit_supply_spawn_fixture_with(logic, center, child, if exit { SUPPLY_SPAWN_EXIT } else { "" }, "");
+}
+
+fn admit_supply_spawn_fixture_with(
+    logic: &mut GameLogic,
+    center: &str,
+    child: &str,
+    exit_module: &str,
+    other_objects: &str,
+) {
     logic.admit_object_ini_sources([(
         "SupplySpawnFixture.ini".into(),
-        format!("Object {center}\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SupplyCenterCreate CenterCreate\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {child}\n End\n {exit_module}End\nObject {child}\n KindOf = VEHICLE HARVESTER SCORE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n"),
+        format!("Object {center}\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SupplyCenterCreate CenterCreate\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {child}\n End\n {exit_module}End\nObject {child}\n KindOf = VEHICLE HARVESTER SCORE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n{other_objects}"),
     )]).expect("authored supply fixture");
 }
 
@@ -89,45 +101,22 @@ fn authored_supply_spawn_save_continuation_does_not_create_a_second_collector() 
 
 #[test]
 fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passive_income() {
-    use crate::game_logic::{DockKind, ProductionExitMetadata, ProductionExitStyle};
 
     let mut logic = GameLogic::new();
-    admit_supply_spawn_fixture(&mut logic, "AmericaSupplyCenter", "AmericaVehicleChinook", true);
+    admit_supply_spawn_fixture_with(
+        &mut logic,
+        "AmericaSupplyCenter",
+        "AmericaVehicleChinook",
+        "Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:20 Y:0 Z:0\n End\n",
+        FINITE_WAREHOUSE,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 500;
     logic.add_player(player);
 
-    let mut truck = logic.templates["AmericaVehicleChinook"].clone();
-    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
-    logic.templates.insert(truck.name.clone(), truck);
-
-    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
-    warehouse
-        .add_kind_of(KindOf::SupplySource)
-        .set_health(100.0);
-    warehouse.dock_kind = DockKind::SupplyWarehouse;
-    warehouse.dock_starting_boxes = Some(100);
-    logic.templates.insert(warehouse.name.clone(), warehouse);
     let source = logic
         .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
         .expect("finite supply source");
-
-    let mut center = logic.templates["AmericaSupplyCenter"].clone();
-    center
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::SupplyCenter)
-        .set_health(100.0);
-    center.production_exit_metadata = Some(ProductionExitMetadata {
-        style: ProductionExitStyle::SupplyCenter,
-        unit_create_point: [0.0, 0.0, 0.0],
-        natural_rally_point: [20.0, 0.0, 0.0],
-        exit_delay_frames: 0,
-        allow_airborne_creation: false,
-        initial_burst: 0,
-        use_spawn_rally_point: false,
-        grant_temporary_stealth_frames: 0,
-    });
-    logic.templates.insert(center.name.clone(), center);
 
     let cash_before = logic.get_player(0).expect("player").resources.supplies;
     let center_id = logic
@@ -157,45 +146,24 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
 }
 #[test]
 fn supply_center_one_shot_collector_uses_exit_interface() {
-    use crate::game_logic::{DockKind, ProductionExitMetadata, ProductionExitStyle};
 
     let mut logic = GameLogic::new();
-    admit_supply_spawn_fixture(&mut logic, "GLASupplyStash", "GLAInfantryWorker", true);
+    // GrantTemporaryStealth is an INI duration: 20000 ms = 600 logic frames.
+    admit_supply_spawn_fixture_with(
+        &mut logic,
+        "GLASupplyStash",
+        "GLAInfantryWorker",
+        "Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:12 Y:-8 Z:0\n NaturalRallyPoint = X:24 Y:0 Z:0\n GrantTemporaryStealth = 20000\n End\n",
+        FINITE_WAREHOUSE,
+    );
     logic.add_player(Player::new(0, Team::GLA, "GLA", true));
 
-    let mut worker = logic.templates["GLAInfantryWorker"].clone();
-    worker.add_kind_of(KindOf::Harvester).set_health(100.0);
-    logic.templates.insert(worker.name.clone(), worker);
-
-    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
-    warehouse
-        .add_kind_of(KindOf::SupplySource)
-        .set_health(100.0);
-    warehouse.dock_kind = DockKind::SupplyWarehouse;
-    warehouse.dock_starting_boxes = Some(100);
-    logic.templates.insert(warehouse.name.clone(), warehouse);
     let _source = logic
         .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
         .expect("finite supply source");
 
     let unit_create = [12.0, -8.0, 0.0];
     let natural = [24.0, 0.0, 0.0];
-    let mut stash = logic.templates["GLASupplyStash"].clone();
-    stash
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::SupplyCenter)
-        .set_health(100.0);
-    stash.production_exit_metadata = Some(ProductionExitMetadata {
-        style: ProductionExitStyle::SupplyCenter,
-        unit_create_point: unit_create,
-        natural_rally_point: natural,
-        exit_delay_frames: 0,
-        allow_airborne_creation: false,
-        initial_burst: 0,
-        use_spawn_rally_point: false,
-        grant_temporary_stealth_frames: 600,
-    });
-    logic.templates.insert(stash.name.clone(), stash);
 
     let center_pos = Vec3::new(50.0, 0.0, 50.0);
     let center_id = logic
@@ -3085,9 +3053,10 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     let mut player = Player::new(1, Team::GLA, "GLA", true);
     player.resources.supplies = 10_000;
     game_logic.add_player(player);
-    ensure_test_tank_template(&mut game_logic);
 
-    let source = "Object GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
+    // The enemies are Objects of the same admitted content as the mob
+    // (ThingFactory definitions load before any Object exists).
+    let source = "Object TestTank\nKindOf = VEHICLE SELECTABLE SCORE\nTransportSlotCount = 3\nBuildCost = 600\nBody = ActiveBody Body\nMaxHealth = 250\nInitialHealth = 250\nEnd\nEnd\nObject GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
     let content = crate::assets::ReceivingObjectContent::from_sources([
         ("combat-mob.ini".into(), source.into())
     ]).unwrap();
