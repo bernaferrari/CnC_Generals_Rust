@@ -539,6 +539,11 @@ fn same_id_structure_topple_uses_each_receiving_solo_bonus_set() {
                 .create_object_for_player("OwnedCrushStructure", 7, position)
                 .unwrap();
             assert_eq!(first_victim, second_victim);
+            // C++ registerObject only dirties the PartitionData (PartitionManager.cpp:2237);
+            // a newborn victim enters cells at the next PartitionManager::update, which
+            // always runs before a later topple crush iterates objects in range.
+            first.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+            second.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             kill(&mut first, first_source);
             kill(&mut second, second_source);
             first.host_object_mut(first_source).unwrap().weapon_bonus_solo = 16;
@@ -587,6 +592,11 @@ fn crushing_fires_each_authored_weapon_point_and_includes_structures() {
                 .create_object_for_player("OwnedCrushStructure", 7, position)
                 .unwrap();
             assert_eq!(victim, peer_victim);
+            // C++ registerObject only dirties the PartitionData (PartitionManager.cpp:2237);
+            // a newborn victim enters cells at the next PartitionManager::update, which
+            // always runs before a later topple crush iterates objects in range.
+            owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+            peer.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             for (world, id) in [(&owner, victim), (&peer, peer_victim)] {
                 let object = world.host_object(id).unwrap();
                 assert!(object.is_kind_of(KindOf::Structure));
@@ -640,6 +650,10 @@ fn crushing_completes_actual_victim_on_die_before_point_fx_and_next_shot() {
             let victim = owner
                 .create_object_for_player("AuthoredOwnTopple", 0, position)
                 .unwrap();
+            // C++ registerObject only dirties the PartitionData (PartitionManager.cpp:2237);
+            // a newborn victim enters cells at the next PartitionManager::update, which
+            // always runs before a later topple crush iterates objects in range.
+            owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             owner
                 .apply_structure_topple_crush_samples(
                     source,

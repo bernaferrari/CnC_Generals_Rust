@@ -208,6 +208,10 @@ fn damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion() {
                 (*admitted.geometry_info()),
                 crate::game_logic::HostGeometryInfo::default()
             );
+            // C++ registerObject only dirties the PartitionData (PartitionManager.cpp:2237);
+            // a newborn victim enters cells at the next PartitionManager::update, which
+            // always runs before a later topple crush iterates objects in range.
+            owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             owner
                 .apply_structure_topple_crush_samples(
                     id,
