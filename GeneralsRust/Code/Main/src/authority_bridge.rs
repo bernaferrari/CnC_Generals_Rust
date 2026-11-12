@@ -231,6 +231,11 @@ mod tests {
         let cfg = golden_skirmish_config("HonestCombat");
         admit_host_content(&mut logic);
         let _ = apply_skirmish_config(&mut logic, &cfg);
+        // Keep-alive command center: the skirmish victory check would otherwise
+        // retire a structure-less USA army before the fight.
+        logic
+            .create_object("HostCC", Team::USA, Vec3::new(-60.0, 0.0, 0.0))
+            .expect("keep-alive command center");
         let ranger = logic
             .create_object("HostRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
