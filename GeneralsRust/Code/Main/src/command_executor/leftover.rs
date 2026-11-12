@@ -285,6 +285,13 @@ impl<'a> CommandExecutor<'a> {
                     !unit.movement.path.is_empty() || unit.movement.target_position.is_some()
                 });
                 if pathed {
+                    // C++ AIUpdateInterface::aiDock: the collector runs its dock
+                    // approach in the dock state, not the idle state it left.
+                    self.game_logic.set_ai_state_decision_aware_with_effects(
+                        unit_id,
+                        AIState::Gathering,
+                        &mut self.ui,
+                    )?;
                     any = true;
                     self.accepted_gather_carrier_ids.push(unit_id);
                     continue;
