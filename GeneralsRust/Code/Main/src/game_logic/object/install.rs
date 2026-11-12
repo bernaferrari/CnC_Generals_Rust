@@ -38,7 +38,7 @@ impl Object {
         health_events.record_disable_audio(
             self.id,
             [pos.x, pos.y, pos.z],
-            crate::game_logic::host_economy_log::resolve_misc_audio_event(token),
+            token,
         );
     }
 
@@ -54,9 +54,7 @@ impl Object {
         health_events.record_disable_audio(
             self.id,
             [pos.x, pos.y, pos.z],
-            crate::game_logic::host_economy_log::resolve_misc_audio_event(
-                "SplatterVehiclePilotsBrain",
-            ),
+            "SplatterVehiclePilotsBrain",
         );
     }
 

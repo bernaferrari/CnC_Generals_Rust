@@ -445,11 +445,9 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_BATTLE_CRY") {
-        if get_global_audio_manager().is_some() {
-            let Some(audio) = TheAudio::get() else {
-                return Some(GameMessageDisposition::DestroyMessage);
-            };
-            let misc = TheAudio::get_misc_audio();
+        // C++ `if (TheAudio)`: the engine this client's UI presents.
+        if let Some(audio) = ui.state.the_audio() {
+            let misc = audio.misc_audio();
             let _ = audio.add_misc_audio_event(&misc.battle_cry_sound);
         }
         return Some(GameMessageDisposition::DestroyMessage);

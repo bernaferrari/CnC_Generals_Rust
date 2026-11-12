@@ -517,6 +517,13 @@ pub trait Gadget {
     /// Handle input events
     fn handle_input(&mut self, event: &InputEvent) -> Vec<GadgetMessage>;
 
+    /// The GUI feedback sound the last input asked for (C++ gadgets call
+    /// `TheAudio->addAudioEvent`); the window layer plays it in its client's
+    /// engine.
+    fn take_gui_sound(&mut self) -> Option<&'static str> {
+        None
+    }
+
     /// Update gadget state (called each frame)
     fn update(&mut self, delta_time: f32);
 

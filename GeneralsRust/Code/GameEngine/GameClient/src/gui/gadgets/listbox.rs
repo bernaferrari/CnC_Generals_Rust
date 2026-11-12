@@ -4,8 +4,6 @@
 
 use super::*;
 use crate::gui::Color;
-use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::TheAudio;
 use std::time::{Duration, Instant};
 
 /// List box item
@@ -167,6 +165,8 @@ pub struct ListBox {
     auto_purge: bool,
     auto_scroll: bool,
     audio_feedback: bool,
+    /// GUI sound requested by the last input, played by the window layer.
+    pending_gui_sound: Option<&'static str>,
     scroll_if_at_end: bool,
     force_select: bool,
     up_button: bool,
@@ -207,6 +207,7 @@ impl ListBox {
             auto_purge: false,
             auto_scroll: false,
             audio_feedback: false,
+            pending_gui_sound: None,
             scroll_if_at_end: false,
             force_select: false,
             columns: 1,
@@ -1244,10 +1245,7 @@ impl ListBox {
         }
 
         if self.audio_feedback {
-            if let Some(audio) = TheAudio::get() {
-                let event = AudioEventRts::new("GUIComboBoxClick");
-                audio.add_audio_event(&event);
-            }
+            self.pending_gui_sound = Some("GUIComboBoxClick");
         }
 
         let deselected = self.selection_mode == SelectionMode::Single
@@ -1283,10 +1281,7 @@ impl ListBox {
 
     fn handle_keyboard_activate(&mut self) -> Vec<GadgetMessage> {
         if self.audio_feedback {
-            if let Some(audio) = TheAudio::get() {
-                let event = AudioEventRts::new("GUIComboBoxClick");
-                audio.add_audio_event(&event);
-            }
+            self.pending_gui_sound = Some("GUIComboBoxClick");
         }
 
         self.last_double_click_index = self.selected_indices.first().copied();
@@ -1507,6 +1502,10 @@ impl ListBox {
 }
 
 impl Gadget for ListBox {
+    fn take_gui_sound(&mut self) -> Option<&'static str> {
+        self.pending_gui_sound.take()
+    }
+
     fn id(&self) -> GadgetId {
         self.id
     }
@@ -1586,10 +1585,7 @@ impl Gadget for ListBox {
                     self.set_focus(true);
                     self.state = GadgetState::Pressed;
                     if self.audio_feedback {
-                        if let Some(audio) = TheAudio::get() {
-                            let event = AudioEventRts::new("GUIComboBoxClick");
-                            audio.add_audio_event(&event);
-                        }
+                        self.pending_gui_sound = Some("GUIComboBoxClick");
                     }
                     return vec![GadgetMessage::FocusChanged {
                         gadget_id: self.id,
@@ -1598,10 +1594,7 @@ impl Gadget for ListBox {
                 }
                 if *button == MouseButton::Right {
                     if self.audio_feedback {
-                        if let Some(audio) = TheAudio::get() {
-                            let event = AudioEventRts::new("GUIComboBoxClick");
-                            audio.add_audio_event(&event);
-                        }
+                        self.pending_gui_sound = Some("GUIComboBoxClick");
                     }
                     // C++ GWM_RIGHT_DOWN consumes the input but calls
                     // winSetFocus only on GWM_RIGHT_UP.

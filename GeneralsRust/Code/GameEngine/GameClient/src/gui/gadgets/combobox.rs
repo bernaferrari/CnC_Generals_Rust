@@ -3,8 +3,6 @@
 //! Dropdown list selection control.
 
 use super::*;
-use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::TheAudio;
 
 /// ComboBox item
 #[derive(Debug, Clone)]
@@ -100,6 +98,8 @@ pub struct ComboBox {
     ascii_only: bool,
     letters_and_numbers: bool,
     dont_hide_next: bool,
+    /// GUI sound requested by the last input, played by the window layer.
+    pending_gui_sound: Option<&'static str>,
 }
 
 impl ComboBox {
@@ -126,6 +126,7 @@ impl ComboBox {
             ascii_only: false,
             letters_and_numbers: false,
             dont_hide_next: false,
+            pending_gui_sound: None,
         }
     }
 
@@ -382,20 +383,14 @@ impl ComboBox {
         }
     }
 
-    /// C++ `GadgetComboBox.cpp:124-129` plays `GUIClick` on every body LeftUp.
-    fn play_gui_click() {
-        if let Some(audio) = TheAudio::get() {
-            let event = AudioEventRts::new("GUIClick");
-            audio.add_audio_event(&event);
-        }
-    }
 
     /// C++ `GadgetComboBoxInput` `GWM_LEFT_UP` (`GadgetComboBox.cpp:115-181`):
     /// `dontHide = FALSE`, play `GUIClick`, `winSetLoneWindow(window)`, then
     /// show or hide the list.
     fn handle_body_left_up(&mut self) -> Vec<GadgetMessage> {
         self.dont_hide_next = false;
-        Self::play_gui_click();
+        // C++ GadgetComboBox.cpp:124-129 plays `GUIClick` on every body LeftUp.
+        self.pending_gui_sound = Some("GUIClick");
         self.toggle();
         vec![
             GadgetMessage::Custom {
@@ -545,6 +540,10 @@ impl ComboBox {
 }
 
 impl Gadget for ComboBox {
+    fn take_gui_sound(&mut self) -> Option<&'static str> {
+        self.pending_gui_sound.take()
+    }
+
     fn id(&self) -> GadgetId {
         self.id
     }

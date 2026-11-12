@@ -1602,7 +1602,11 @@ impl GameLogic {
             );
             // C++ CommandXlat.cpp:690-728 — IS_CARBOMB layers MiscAudio TerroristInCar*.
             if is_carbomb {
-                if let Some(extra) = resolve_terrorist_in_car_voice(slot) {
+                let extra = resolve_terrorist_in_car_voice(
+                    &self.world_services.common().ini.misc_audio.read(),
+                    slot,
+                );
+                if let Some(extra) = extra {
                     self.queue_audio_event(
                         AudioEventRequest::new(&extra)
                             .with_object(id)

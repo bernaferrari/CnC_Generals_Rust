@@ -29,8 +29,6 @@ use game_network::gamespy::peer_defs::{
 use game_network::gamespy::persistent_storage_thread::{
     PSRequest, PSRequestType, get_ps_message_queue,
 };
-use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::TheAudio;
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -523,10 +521,9 @@ pub fn handle_buddy_responses(owner: Option<&crate::gui::window_manager::WindowM
                     drop(info);
                     insert_chat_with_local(buddy_msg.clone(), local_profile, local_name, owner);
 
-                    if let Some(audio) = TheAudio::get() {
-                        let event = AudioEventRts::new("GUIMessageReceived".to_string());
-                        let _ = audio.add_audio_event(&event);
-                    }
+                    if let Some(owner) = owner {
+        owner.play_gui_sound("GUIMessageReceived");
+    }
 
                     let mut snippet = buddy_msg.message.clone();
                     if snippet.len() > 11 {
@@ -682,9 +679,8 @@ fn show_notification_box(nick: AsciiString, message: &str, owner: Option<&crate:
     drop(state);
     layout.borrow_mut().bring_forward();
 
-    if let Some(audio) = TheAudio::get() {
-        let event = AudioEventRts::new("GUICommunicatorIncoming".to_string());
-        let _ = audio.add_audio_event(&event);
+    if let Some(owner) = owner {
+        owner.play_gui_sound("GUICommunicatorIncoming");
     }
 }
 
@@ -918,9 +914,8 @@ fn request_buddy_add(profile_id: GPProfile, nick: &AsciiString, owner: Option<&c
         }
     }
 
-    if let Some(audio) = TheAudio::get() {
-        let event = AudioEventRts::new("GUIMessageReceived".to_string());
-        let _ = audio.add_audio_event(&event);
+    if let Some(owner) = owner {
+        owner.play_gui_sound("GUIMessageReceived");
     }
 
     let state_slot = wol_buddy_state(owner);

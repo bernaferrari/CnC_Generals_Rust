@@ -17,7 +17,8 @@ pub(super) fn pick_and_play_unit_voice_response(
     info: &VoicePlayInfo,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) {
-    let Some(audio) = TheAudio::get() else {
+    // The engine this client's UI presents.
+    let Some(audio) = ui.state.the_audio() else {
         return;
     };
 

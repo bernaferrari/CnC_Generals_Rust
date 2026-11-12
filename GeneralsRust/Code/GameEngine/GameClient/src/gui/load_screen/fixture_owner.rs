@@ -84,6 +84,12 @@ impl MenuAudioEffects for Observe<'_> {
     fn fade_out_music(&mut self) {
         self.inner.fade_out_music();
     }
+    fn stop_the_music_fade(&mut self) {
+        self.inner.stop_the_music_fade();
+    }
+    fn set_system_volume(&mut self, volume: f32, affect: game_engine::common::audio::AudioAffect) {
+        self.inner.set_system_volume(volume, affect);
+    }
 }
 /// Explicit unavailable physical playback; Common admission still allocates its
 /// real AR_Play receipt. These fixtures certify UI/admission ordering only.

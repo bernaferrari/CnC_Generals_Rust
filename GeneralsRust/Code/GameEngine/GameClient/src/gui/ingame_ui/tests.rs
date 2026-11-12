@@ -1112,6 +1112,31 @@ mod tests {
     }
 
     #[test]
+    fn live_military_caption_asks_its_ui_for_one_typing_sound_per_typed_character() {
+        crate::test_support::ensure_ambient_host();
+        init_global_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("SCRIPT:Typed", "Go.");
+        let mut hud = crate::gui::ingame_ui::live_hud::LiveHud::default();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        apply_military_caption_style(&mut hud, (10.0, 340.0), 0xFFFF_FFFF, 12);
+        start_military_subtitle(&mut hud, "SCRIPT:Typed", 5000, 1, &mut wm);
+        let mut visible = 0;
+        for frame in 1..200 {
+            if let Some((text, ..)) = live_military_subtitle_draw(&mut hud, frame) {
+                visible = text.chars().count();
+            }
+        }
+        assert_eq!(visible, 3, "the caption must finish typing");
+        assert_eq!(
+            take_live_hud_typing_sounds(&mut hud),
+            3,
+            "C++ plays MilitarySubtitlesTyping once per typed character"
+        );
+        assert_eq!(take_live_hud_typing_sounds(&mut hud), 0);
+    }
+
+    #[test]
     fn live_military_caption_uses_delay_and_ini_pose() {
         crate::test_support::ensure_ambient_host();
         init_global_language();

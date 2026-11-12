@@ -12,8 +12,6 @@ use super::ui_renderer::UIRect;
 use super::window_manager::TransitionWindowAccess;
 use crate::display::image::get_mapped_image_collection;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::TheAudio;
 
 const TRANSITION_FLASH: i32 = 0;
 const BUTTON_TRANSITION_FLASH: i32 = 1;
@@ -153,13 +151,6 @@ fn draw_named_image(
     drawn
 }
 
-fn play_sound(event_name: &str) {
-    if let Some(audio) = TheAudio::get() {
-        let event = AudioEventRts::new(event_name);
-        audio.add_audio_event(&event);
-    }
-}
-
 trait Transition {
     fn init(
         &mut self,
@@ -250,7 +241,7 @@ impl Transition for FlashTransition {
             }
             1 => {
                 if self.is_forward {
-                    play_sound("GUIBoarderFadeIn");
+                    window_access.play_sound("GUIBoarderFadeIn");
                 }
                 if let Some(win_rc) = self.with_window() {
                     let _ = window_access.hide_window(&win_rc, true);
@@ -423,7 +414,7 @@ impl Transition for ButtonFlashTransition {
                 if let Some(win_rc) = self.with_window() {
                     let _ = window_access.hide_window(&win_rc, true);
                     if self.is_forward {
-                        play_sound("GUIButtonsFadeIn");
+                        window_access.play_sound("GUIButtonsFadeIn");
                         self.draw_state = frame;
                     } else {
                         self.draw_state = 7;
@@ -957,7 +948,7 @@ impl Transition for ScaleUpTransition {
             }
             1 => {
                 if self.is_forward {
-                    play_sound("GUILogoMouseOver");
+                    window_access.play_sound("GUILogoMouseOver");
                 }
                 if let Some(win_rc) = self.with_window() {
                     window_access.hide_window(&win_rc, true);
@@ -1058,7 +1049,7 @@ impl Transition for ScoreScaleUpTransition {
             }
             1 => {
                 if self.inner.is_forward {
-                    play_sound("GUIScoreScreenPictures");
+                    window_access.play_sound("GUIScoreScreenPictures");
                 }
                 if let Some(win_rc) = self.inner.with_window() {
                     window_access.hide_window(&win_rc, true);
@@ -1245,7 +1236,7 @@ impl Transition for MainMenuScaleUpTransition {
             _ => {}
         }
         if frame == 1 {
-            play_sound("GUILogoSelect");
+            window_access.play_sound("GUILogoSelect");
         }
     }
 
@@ -1401,7 +1392,7 @@ impl Transition for MainMenuMediumScaleUpTransition {
             }
             1 | 2 => {
                 if frame == 1 && self.is_forward {
-                    play_sound("GUILogoMouseOver");
+                    window_access.play_sound("GUILogoMouseOver");
                 }
                 if let Some(win_rc) = self.with_window() {
                     window_access.hide_window(&win_rc, true);
@@ -1712,7 +1703,7 @@ impl Transition for TextTypeTransition {
                 window_access.hide_window(&win_rc, true);
             }
             self.draw_state = frame;
-            play_sound("GUITypeText");
+            window_access.play_sound("GUITypeText");
             if self.is_forward {
                 let idx = frame as usize - 1;
                 if let Some(&unit) = self.full_text_utf16.get(idx) {
@@ -1885,7 +1876,7 @@ impl Transition for CountUpTransition {
                 window_access.hide_window(&win_rc, false);
             }
             self.draw_state = frame;
-            play_sound("GUIScoreScreenTick");
+            window_access.play_sound("GUIScoreScreenTick");
             self.current_value += self.count_state;
             if self.current_value > self.int_value {
                 self.current_value = self.int_value;
@@ -2443,7 +2434,7 @@ impl Transition for ReverseSoundTransition {
                 self.is_finished = true;
             }
             1 => {
-                play_sound("GUITransitionFade");
+                window_access.play_sound("GUITransitionFade");
             }
             2 => {
                 if !self.is_forward {
@@ -2993,11 +2984,13 @@ mod tests {
         let mut modal_stack = None;
         let mut mouse_capture = None;
         let mut capture_flags = CaptureFlags::empty();
+        let mut sounds = Vec::new();
         let mut access = TransitionWindowAccess::new(
             &mut keyboard_focus,
             &mut modal_stack,
             &mut mouse_capture,
             &mut capture_flags,
+            &mut sounds,
             None,
         );
         f(&mut access)

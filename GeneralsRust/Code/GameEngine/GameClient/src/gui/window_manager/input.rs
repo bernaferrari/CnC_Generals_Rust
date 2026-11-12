@@ -204,7 +204,13 @@ impl WindowManager {
                 match msg {
                     WindowMessage::LeftUp => {
                         // C++ winProcessMouseEvent: m_grabWindow->winPointInChild(x, y, FALSE, TRUE)
-                        let _ = GameWindow::point_in_child_ex(&grab_window, x, y, false, true);
+                        let _ = GameWindow::point_in_child_ex(
+                            &grab_window,
+                            x,
+                            y,
+                            false,
+                            emitted_messages.as_deref(),
+                        );
                         let should_send_release = {
                             let mut window = grab_window.borrow_mut();
                             window.clear_status(WindowStatus::ACTIVE);

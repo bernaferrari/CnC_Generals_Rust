@@ -126,8 +126,8 @@ impl CommandTranslator {
                 if TheGameLogic::is_in_multiplayer_game() {
                     // C++ CommandXlat.cpp:3468-3476 — play MiscAudio AllCheerSound
                     // before appending MSG_DO_CHEER.
-                    if let Some(audio) = TheAudio::get() {
-                        let _ = audio.add_audio_event(&TheAudio::get_misc_audio().all_cheer_sound);
+                    if let Some(audio) = ui.state.the_audio() {
+                        let _ = audio.add_audio_event(&audio.misc_audio().all_cheer_sound);
                     }
                     dispatch_translated_message(&GameMessageType::DoCheer);
                 }

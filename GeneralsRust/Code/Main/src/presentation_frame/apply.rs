@@ -745,8 +745,10 @@ impl PresentationFrame {
 
         // C++ Money.cpp withdraw/deposit — MiscAudio tokens, not invented MoneyTick.
         for ev in &self.money_audio_receipts {
-            let token = crate::game_logic::host_economy_log::money_audio_token(ev.kind);
-            let name = crate::game_logic::host_economy_log::resolve_misc_audio_event(token);
+            let name = &self.money_audio_event_names[match ev.kind {
+                crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw => 0,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Deposit => 1,
+            }];
             // Money.cpp32/56 sets the owning player on the event before
             // AudioManager applies its authored locality policy.
             out.push(AudioEventRequest::new(name.as_str()).with_player_index(ev.player_id as i32));

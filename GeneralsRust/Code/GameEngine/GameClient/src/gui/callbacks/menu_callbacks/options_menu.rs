@@ -1443,15 +1443,16 @@ impl OptionsMenu {
         }
         game_engine::common::game_lod::set_ideal_static_lod_from_string(detail_name);
 
-        if let Some(audio) = TheAudio::get() {
-            // C++ OptionsMenu.cpp:1188/1214/1215/1235 AudioAffect_*|SystemSetting.
-            audio.set_volume(
+        if effects.has_menu_audio() {
+            // C++ OptionsMenu.cpp:1188/1214/1215/1235 AudioAffect_*|SystemSetting,
+            // on this client's audio device.
+            effects.set_system_volume(
                 music_volume as f32 / 100.0,
                 EngineAudioAffect::MusicSystemSetting,
             );
-            audio.set_volume(sfx_2d_factor, EngineAudioAffect::SoundSystemSetting);
-            audio.set_volume(sfx_3d_factor, EngineAudioAffect::Sound3DSystemSetting);
-            audio.set_volume(
+            effects.set_system_volume(sfx_2d_factor, EngineAudioAffect::SoundSystemSetting);
+            effects.set_system_volume(sfx_3d_factor, EngineAudioAffect::Sound3DSystemSetting);
+            effects.set_system_volume(
                 voice_volume as f32 / 100.0,
                 EngineAudioAffect::SpeechSystemSetting,
             );

@@ -1897,7 +1897,25 @@ impl PresentationFrame {
             asset_owner: PresentationAssetOwner(application_assets),
             frame: LogicFrame(logic.get_frame()),
             money_audio_receipts: logic.economy_events.take_money_audio(),
-            disable_audio_receipts: logic.health_events.take_disable_audio(),
+            // C++ TheAudio->getMiscAudio() of the engine that owns this match.
+            money_audio_event_names: {
+                let misc = logic.world_services.common().ini.misc_audio.read();
+                [crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw, crate::game_logic::host_economy_log::HostMoneyAudio::Deposit].map(|kind| {
+                    crate::game_logic::host_economy_log::resolve_misc_audio_event(
+                        &misc,
+                        crate::game_logic::host_economy_log::money_audio_token(kind),
+                    )
+                })
+            },
+            disable_audio_receipts: {
+                let misc = logic.world_services.common().ini.misc_audio.read();
+                logic
+                    .health_events
+                    .take_disable_audio()
+                    .into_iter()
+                    .map(|cue| cue.resolve(&misc))
+                    .collect()
+            },
             native_ghost_scale_sources,
             #[cfg(feature = "game_client")]
             w3d_ghost_scene,

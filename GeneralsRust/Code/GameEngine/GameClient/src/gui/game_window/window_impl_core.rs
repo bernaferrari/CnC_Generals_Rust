@@ -322,16 +322,17 @@ impl GameWindow {
         y: i32,
         ignore_enabled: bool,
     ) -> Rc<RefCell<GameWindow>> {
-        Self::point_in_child_ex(window, x, y, ignore_enabled, false)
+        Self::point_in_child_ex(window, x, y, ignore_enabled, None)
     }
 
-    /// C++ `GameWindow::winPointInChild(..., playDisabledSound)`.
+    /// C++ `GameWindow::winPointInChild(..., playDisabledSound)`; the
+    /// disabled click plays in the engine of `play_disabled_sound`'s client.
     pub fn point_in_child_ex(
         window: &Rc<RefCell<GameWindow>>,
         x: i32,
         y: i32,
         ignore_enabled: bool,
-        play_disabled_sound: bool,
+        play_disabled_sound: Option<&crate::gui::game_window::WindowEventEffects<'_>>,
     ) -> Rc<RefCell<GameWindow>> {
         let children = window.borrow().children().to_vec();
         for child in children {
@@ -351,12 +352,8 @@ impl GameWindow {
                         ignore_enabled,
                         play_disabled_sound,
                     );
-                } else if play_disabled_sound {
-                    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-                        let event =
-                            gamelogic::common::audio::AudioEventRts::new("GUIClickDisabled");
-                        audio.add_audio_event(&event);
-                    }
+                } else if let Some(effects) = play_disabled_sound {
+                    effects.play_gui_sound("GUIClickDisabled");
                 }
             }
         }
@@ -1430,13 +1427,6 @@ impl GameWindow {
             let base_height = edit_box.borrow().get_size().1;
             let (width, _) = self.get_size();
             let _ = self.set_size(width, base_height, effects);
-        }
-    }
-
-    pub(crate) fn play_gui_click() {
-        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-            let event = gamelogic::common::audio::AudioEventRts::new("GUIClick");
-            audio.add_audio_event(&event);
         }
     }
 

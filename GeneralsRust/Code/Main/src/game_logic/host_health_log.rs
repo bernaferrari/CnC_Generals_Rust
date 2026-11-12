@@ -22,7 +22,7 @@ pub struct HostHealthEvents {
     events: Vec<HostHealthEvent>,
     last_damage: Vec<super::host_damage_log::HostDamageEvent>,
     last_heal: Vec<super::host_heal_log::HostHealEvent>,
-    disable_audio: Vec<super::host_disable_timers_log::HostDisableAudioEvent>,
+    disable_audio: Vec<super::host_disable_timers_log::HostDisableAudioCue>,
     cumulative_damage: f32,
     cumulative_kills: u32,
 }
@@ -32,21 +32,19 @@ impl HostHealthEvents {
         &mut self,
         object: ObjectId,
         position: [f32; 3],
-        event_name: String,
+        token: &'static str,
     ) {
-        if !event_name.is_empty() {
-            self.disable_audio
-                .push(super::host_disable_timers_log::HostDisableAudioEvent {
-                    object,
-                    position,
-                    event_name,
-                });
-        }
+        self.disable_audio
+            .push(super::host_disable_timers_log::HostDisableAudioCue {
+                object,
+                position,
+                token,
+            });
     }
 
     pub(crate) fn take_disable_audio(
         &mut self,
-    ) -> Vec<super::host_disable_timers_log::HostDisableAudioEvent> {
+    ) -> Vec<super::host_disable_timers_log::HostDisableAudioCue> {
         std::mem::take(&mut self.disable_audio)
     }
 

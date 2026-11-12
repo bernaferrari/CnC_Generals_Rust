@@ -1265,7 +1265,10 @@ impl ControlBar {
         input_provenance: super::HostControlBarInputProvenance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // C++ processCommandUI plays UnitSpecificSound before dispatch.
-        crate::gui::control_bar::commands::play_command_button_unit_specific_sound(button);
+        crate::gui::control_bar::commands::play_command_button_unit_specific_sound(
+            button,
+            ui.the_audio().as_ref(),
+        );
 
         // Main owns the authoritative Rust simulation.  When it has explicitly
         // enabled the bridge, do not also route this click through the legacy

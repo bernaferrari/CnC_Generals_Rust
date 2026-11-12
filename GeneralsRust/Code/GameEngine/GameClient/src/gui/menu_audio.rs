@@ -47,6 +47,12 @@ pub trait MenuAudioEffects {
     fn stop(&mut self, handle: MenuAudioHandle) -> MenuAudioStop;
     fn pump(&mut self);
     fn fade_out_music(&mut self);
+    /// C++ `TheAudio->removeAudioEvent(AHSV_StopTheMusicFade)`: fade every
+    /// playing music track on this client's device, not only menu-owned ones.
+    fn stop_the_music_fade(&mut self);
+    /// C++ `TheAudio->setVolume(volume, affect | AudioAffect_SystemSetting)`
+    /// on this client's device.
+    fn set_system_volume(&mut self, volume: f32, affect: game_engine::common::audio::AudioAffect);
 }
 
 /// Deliberate device-less service for actual headless clients and fixtures.
@@ -73,6 +79,8 @@ impl MenuAudioEffects for SilentMenuAudio {
     }
     fn pump(&mut self) {}
     fn fade_out_music(&mut self) {}
+    fn stop_the_music_fade(&mut self) {}
+    fn set_system_volume(&mut self, _: f32, _: game_engine::common::audio::AudioAffect) {}
 }
 
 use game_engine::common::audio::audio_event_rts::{AudioEventSelection, Coord3D};
@@ -254,6 +262,24 @@ impl<V: MenuAudioView> MenuAudioEffects for CommonMenuAudio<'_, V> {
             .update_with_view(view.observation(), &mut |position| {
                 view.is_on_screen(position)
             });
+    }
+    fn stop_the_music_fade(&mut self) {
+        self.service
+            .device
+            .as_ref()
+            .expect("bound menu audio service")
+            .lock()
+            .expect("receiving menu audio device poisoned")
+            .remove_audio_event(game_engine::common::audio::game_audio::AHSV_STOP_THE_MUSIC_FADE);
+    }
+    fn set_system_volume(&mut self, volume: f32, affect: game_engine::common::audio::AudioAffect) {
+        self.service
+            .device
+            .as_ref()
+            .expect("bound menu audio service")
+            .lock()
+            .expect("receiving menu audio device poisoned")
+            .set_volume(volume, affect);
     }
     fn fade_out_music(&mut self) {
         let handles: Vec<_> = self.service.handles.iter().copied().collect();

@@ -9,6 +9,29 @@ pub struct HostDisableAudioEvent {
     pub event_name: String,
 }
 
+/// A disabled-state cue named by its C++ `MiscAudio` member; the frame
+/// builder resolves it in the owning engine's MiscAudio (C++
+/// `TheAudio->getMiscAudio()` of that engine).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostDisableAudioCue {
+    pub object: ObjectId,
+    pub position: [f32; 3],
+    pub token: &'static str,
+}
+
+impl HostDisableAudioCue {
+    pub fn resolve(
+        self,
+        misc: &game_engine::common::ini::ini_misc_audio::MiscAudio,
+    ) -> HostDisableAudioEvent {
+        HostDisableAudioEvent {
+            object: self.object,
+            position: self.position,
+            event_name: super::host_economy_log::resolve_misc_audio_event(misc, self.token),
+        }
+    }
+}
+
 #[cfg(test)]
 mod owned_audio_tests {
     use super::*;
@@ -30,8 +53,8 @@ mod owned_audio_tests {
             .unwrap();
         (world, id)
     }
-    fn cue(token: &str) -> String {
-        crate::game_logic::host_economy_log::resolve_misc_audio_event(token)
+    fn cue(world: &GameLogic, token: &str) -> String {
+        world.misc_audio_event(token)
     }
 
     #[test]
@@ -78,12 +101,12 @@ mod owned_audio_tests {
                 HostDisableAudioEvent {
                     object: id,
                     position: [2.0, 3.0, 4.0],
-                    event_name: cue("VehicleDisabled")
+                    event_name: cue(&owner, "VehicleDisabled")
                 },
                 HostDisableAudioEvent {
                     object: id,
                     position: [8.0, 9.0, 10.0],
-                    event_name: cue("VehicleReenabled")
+                    event_name: cue(&owner, "VehicleReenabled")
                 },
             ]
         );
@@ -162,9 +185,9 @@ mod owned_audio_tests {
                 .map(|e| e.event_name.clone())
                 .collect::<Vec<_>>(),
             vec![
-                cue("VehicleDisabled"),
-                cue("VehicleReenabled"),
-                cue("SplatterVehiclePilotsBrain")
+                cue(&owner, "VehicleDisabled"),
+                cue(&owner, "VehicleReenabled"),
+                cue(&owner, "SplatterVehiclePilotsBrain")
             ]
         );
         let (mut drone, id) = world(true);
@@ -218,7 +241,7 @@ mod owned_audio_tests {
         assert_eq!(restored_frame.disable_audio_receipts.len(), 1);
         assert_eq!(
             restored_frame.disable_audio_receipts[0].event_name,
-            cue("VehicleReenabled")
+            cue(&peer, "VehicleReenabled")
         );
         assert!(owner.host_object(id).unwrap().status.disabled_emp);
         assert_eq!(

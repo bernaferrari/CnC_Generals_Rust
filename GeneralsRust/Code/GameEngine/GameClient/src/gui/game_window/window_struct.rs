@@ -713,6 +713,14 @@ impl<'effects> WindowEventEffects<'effects> {
 
     /// A leaf callback borrows the actual driving manager for exactly its call.
     /// The outer dispatcher cannot inspect it until the callback returns.
+    /// C++ `TheAudio->addAudioEvent` of this client's engine for GUI
+    /// feedback (clicks), through the client's own audio service.
+    pub(crate) fn play_gui_sound(&self, name: &str) {
+        if let Some(owner) = self.window_manager_owner {
+            owner.play_gui_sound(name);
+        }
+    }
+
     pub fn require_menu_audio(&self) -> Result<(), String> {
         match self.menu_audio.as_deref() {
             Some(audio) if audio.is_bound() => Ok(()),
@@ -760,6 +768,21 @@ impl<'effects> WindowEventEffects<'effects> {
             .as_deref_mut()
             .expect("menu audio admission must be checked before callback")
             .fade_out_music();
+    }
+    /// C++ `removeAudioEvent(AHSV_StopTheMusicFade)` on this client's device.
+    pub fn stop_the_music_fade(&mut self) {
+        self.menu_audio
+            .as_deref_mut()
+            .expect("menu audio admission must be checked before callback")
+            .stop_the_music_fade();
+    }
+    /// C++ `TheAudio->setVolume(..., AudioAffect_SystemSetting)` on this
+    /// client's device.
+    pub fn set_system_volume(&mut self, volume: f32, affect: game_engine::common::audio::AudioAffect) {
+        self.menu_audio
+            .as_deref_mut()
+            .expect("menu audio admission must be checked before callback")
+            .set_system_volume(volume, affect);
     }
     pub fn with_menu_audio<R>(
         &mut self,

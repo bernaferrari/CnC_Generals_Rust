@@ -57,12 +57,7 @@ pub(crate) fn init(layout: &WindowLayout, effects: &mut WindowEventEffects<'_>) 
     effects.with_manager(|manager, effects| {
         let _ = manager.set_focus(Some(&parent), effects);
     });
-    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-        audio.remove_audio_event(0xFFFF_FFF1);
-        let mut event = gamelogic::common::audio::AudioEventRts::new("Credits");
-        event.set_should_fade(true);
-        let _ = audio.add_audio_event(&event);
-    }
+    start_credits_music(effects);
 }
 pub(crate) fn update(layout: &WindowLayout, effects: &mut WindowEventEffects<'_>) {
     let Some(parent) = parent(layout) else {
@@ -110,8 +105,20 @@ pub(crate) fn shutdown(layout: &WindowLayout, effects: &mut WindowEventEffects<'
                 log::warn!("credits shutdown failed: {error}");
             }
         });
-    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-        audio.remove_audio_event(0xFFFF_FFF1);
+    stop_credits_music(effects);
+}
+/// C++ CreditsMenuInit: `removeAudioEvent(AHSV_StopTheMusicFade)`, then the
+/// fading "Credits" track, in this client's menu audio service.
+pub(crate) fn start_credits_music(effects: &mut WindowEventEffects<'_>) {
+    if effects.has_menu_audio() {
+        effects.stop_the_music_fade();
+        effects.play_fading_menu_audio("Credits");
+    }
+}
+/// C++ CreditsMenuShutdown: `removeAudioEvent(AHSV_StopTheMusicFade)`.
+pub(crate) fn stop_credits_music(effects: &mut WindowEventEffects<'_>) {
+    if effects.has_menu_audio() {
+        effects.stop_the_music_fade();
     }
 }
 pub(crate) fn draw(window: &GameWindow, context: &mut WindowDrawContext<'_>) {
@@ -180,4 +187,63 @@ pub fn with_credits_for_owner<R>(
             Some(operation(&mut state.credits, size))
         })
         .flatten()
+}
+
+#[cfg(test)]
+mod credits_music_tests {
+    use super::*;
+    use crate::gui::menu_audio::{MenuAudioEffects, MenuAudioHandle, MenuAudioStop};
+
+    #[derive(Default)]
+    struct Recorder(Vec<String>);
+    impl MenuAudioEffects for Recorder {
+        fn is_bound(&self) -> bool {
+            true
+        }
+        fn play(&mut self, name: &str) -> Option<MenuAudioHandle> {
+            self.0.push(format!("play {name}"));
+            None
+        }
+        fn play_fading(&mut self, name: &str) -> Option<MenuAudioHandle> {
+            self.0.push(format!("fade-in {name}"));
+            None
+        }
+        fn stop(&mut self, _: MenuAudioHandle) -> MenuAudioStop {
+            MenuAudioStop::NotOwned
+        }
+        fn pump(&mut self) {}
+        fn fade_out_music(&mut self) {
+            self.0.push("fade-menu-music".into());
+        }
+        fn stop_the_music_fade(&mut self) {
+            self.0.push("stop-music-fade".into());
+        }
+        fn set_system_volume(&mut self, _: f32, _: game_engine::common::audio::AudioAffect) {}
+    }
+
+    #[test]
+    fn credits_music_fades_out_the_menu_track_then_fades_in_credits_in_its_client() {
+        crate::test_support::ensure_ambient_host();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        let mut audio = Recorder::default();
+        effects.with_menu_audio(&mut audio, |effects| {
+            start_credits_music(effects);
+            stop_credits_music(effects);
+        });
+        assert_eq!(
+            audio.0,
+            ["stop-music-fade", "fade-in Credits", "stop-music-fade"],
+            "CreditsMenu.cpp init/shutdown order"
+        );
+    }
+
+    #[test]
+    fn credits_music_without_a_client_audio_service_plays_nowhere() {
+        crate::test_support::ensure_ambient_host();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        start_credits_music(&mut effects);
+        stop_credits_music(&mut effects);
+    }
 }

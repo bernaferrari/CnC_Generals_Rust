@@ -370,8 +370,7 @@ impl GameLogic {
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.jet_ai.landing_sound_played = true;
         }
-        let event =
-            crate::game_logic::host_economy_log::resolve_misc_audio_event(JET_WHEEL_SCREECH_SOUND);
+        let event = self.misc_audio_event(JET_WHEEL_SCREECH_SOUND);
         self.queue_audio_event(
             crate::game_logic::AudioEventRequest::new(&event)
                 .with_object(jet_id)

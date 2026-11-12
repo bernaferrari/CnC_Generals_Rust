@@ -12,7 +12,10 @@ fn frozen_money_audio_preserves_cpp_player_identity_for_native_locality() {
     let (player, output) = world.player_and_economy_events_mut(7).unwrap();
     player.credit_supplies(25, output);
     let frame = PresentationFrame::build_from_logic(&mut world, 0);
-    let name = resolve_misc_audio_event(money_audio_token(HostMoneyAudio::Deposit));
+    let name = resolve_misc_audio_event(
+        &world.world_services.common().ini.misc_audio.read(),
+        money_audio_token(HostMoneyAudio::Deposit),
+    );
     let requests = frame.collect_audio_events();
     let deposits: Vec<_> = requests
         .iter()

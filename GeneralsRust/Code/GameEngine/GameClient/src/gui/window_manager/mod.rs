@@ -205,6 +205,9 @@ pub struct WindowManager {
 
     // Capture state
     capture_flags: CaptureFlags,
+    /// GUI sounds transitions asked for, played by the next update in this
+    /// manager's client engine.
+    transition_sounds: Vec<&'static str>,
 
     // Layouts
     layouts: Vec<Rc<RefCell<WindowLayout>>>,
@@ -305,6 +308,7 @@ impl WindowManager {
             modal_stack: None,
             tab_list: Vec::new(),
             capture_flags: CaptureFlags::empty(),
+            transition_sounds: Vec::new(),
             layouts: Vec::new(),
             window_count: 0,
             next_window_id: 1,
@@ -449,6 +453,9 @@ impl WindowManager {
         {
             let (transitions, _, mut window_access) = self.transition_parts(None);
             transitions.update(&mut window_access);
+        }
+        for sound in std::mem::take(&mut self.transition_sounds) {
+            effects.play_gui_sound(sound);
         }
         self.sync_widget_states();
     }

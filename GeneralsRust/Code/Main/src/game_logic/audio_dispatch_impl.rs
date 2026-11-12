@@ -704,9 +704,10 @@ pub fn is_generic_eva_sfx_name(name: &str) -> bool {
 }
 
 /// C++ MiscAudio `TerroristInCar*Voice` (CommandXlat.cpp:690-728).
-pub fn terrorist_in_car_voice_event(slot: UnitVoiceSlot) -> Option<String> {
-    let misc = game_engine::common::ini::ini_misc_audio::get_misc_audio()?;
-    let misc = misc.read();
+pub fn terrorist_in_car_voice_event(
+    misc: &game_engine::common::ini::ini_misc_audio::MiscAudio,
+    slot: UnitVoiceSlot,
+) -> Option<String> {
     let event = match slot {
         UnitVoiceSlot::Select => &misc.terrorist_in_car_select_voice,
         UnitVoiceSlot::Move | UnitVoiceSlot::Crush | UnitVoiceSlot::Repair => {
@@ -735,8 +736,11 @@ pub fn terrorist_in_car_voice_token(slot: UnitVoiceSlot) -> Option<&'static str>
     }
 }
 
-pub fn resolve_terrorist_in_car_voice(slot: UnitVoiceSlot) -> Option<String> {
-    terrorist_in_car_voice_event(slot)
+pub fn resolve_terrorist_in_car_voice(
+    misc: &game_engine::common::ini::ini_misc_audio::MiscAudio,
+    slot: UnitVoiceSlot,
+) -> Option<String> {
+    terrorist_in_car_voice_event(misc, slot)
         .or_else(|| terrorist_in_car_voice_token(slot).map(str::to_string))
 }
 
@@ -1163,7 +1167,8 @@ mod tests {
             Some("TerroristInCarAttackVoice")
         );
         assert!(terrorist_in_car_voice_token(UnitVoiceSlot::Guard).is_none());
-        let name = resolve_terrorist_in_car_voice(UnitVoiceSlot::Select).unwrap();
+        let misc = game_engine::common::ini::ini_misc_audio::MiscAudio::new();
+        let name = resolve_terrorist_in_car_voice(&misc, UnitVoiceSlot::Select).unwrap();
         assert!(!is_invented_unit_voice_name(&name));
     }
 }

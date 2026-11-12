@@ -433,6 +433,11 @@ impl WindowManagerOwner {
         *self.state.button_audio.borrow_mut() = Some(hook);
     }
 
+    /// C++ `TheAudio->addAudioEvent` of a GUI sound, in this client's engine.
+    pub(crate) fn play_gui_sound(&self, name: &str) {
+        let _ = self.with_button_audio_mut(|hook| hook(name));
+    }
+
     pub(crate) fn take_button_audio_hook(&self) -> Option<crate::gui::gadgets::ButtonAudioHook> {
         self.state.button_audio.borrow_mut().take()
     }

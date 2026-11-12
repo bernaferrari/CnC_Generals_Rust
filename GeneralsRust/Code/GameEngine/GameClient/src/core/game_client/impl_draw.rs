@@ -264,6 +264,7 @@ client_random: &mut self.client_random,
         let subtitle =
             crate::gui::ingame_ui::live_military_subtitle_draw(&mut guard.live_hud, frame)
                 .map(|(text, _, _, _, _)| text);
+        guard.play_live_hud_typing_sounds();
         // C++ draws named timers (0.05,0.7) and superweapon timers (0.7,0.7)
         // independently. Named lines must not replace the SW strip.
         let timers: Vec<(String, String, bool)> = guard
@@ -315,6 +316,7 @@ client_random: &mut self.client_random,
                 let caption =
                     crate::gui::ingame_ui::live_military_subtitle_draw(&mut ui.live_hud, frame);
                 let named = crate::gui::ingame_ui::live_named_timer_draw(&mut ui.live_hud, frame);
+                ui.play_live_hud_typing_sounds();
                 let styles: Vec<_> = timers
                     .iter()
                     .map(|(_, _, ready)| {

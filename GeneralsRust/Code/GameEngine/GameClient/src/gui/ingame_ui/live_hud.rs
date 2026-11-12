@@ -7,8 +7,6 @@
 use super::{MilitarySubtitle, NamedTimerData};
 use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
-use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::TheAudio;
 use std::collections::HashMap;
 
 /// C++ `MAX_SUBTITLE_LINES` (InGameUI.h:235).
@@ -29,6 +27,9 @@ const DEFAULT_SUPERWEAPON_FLASH_FRAMES: u32 = 15;
 
 pub struct LiveHud {
     counter_values: HashMap<String, i32>,
+    /// Typed caption characters whose C++ `MilitarySubtitlesTyping` sound
+    /// the owning UI has not played yet.
+    pending_typing_sounds: u32,
     subtitle: Option<MilitarySubtitle>,
     caption_speed: i32,
     caption_point_size: i32,
@@ -69,6 +70,7 @@ impl LiveHud {
             superweapon_flash_duration: DEFAULT_SUPERWEAPON_FLASH_FRAMES,
             superweapon_flash_color: DEFAULT_SUPERWEAPON_FLASH,
             last_step_frame: 0,
+            pending_typing_sounds: 0,
         }
     }
 }
@@ -101,11 +103,10 @@ fn military_caption_text(label: &str) -> String {
     GameText::fetch(label)
 }
 
-fn play_typing_sound() {
-    if let Some(audio) = TheAudio::get() {
-        let event = AudioEventRts::new("MilitarySubtitlesTyping");
-        let _ = audio.add_audio_event(&event);
-    }
+/// Typing sounds the caption asked for since the last call; the owning UI
+/// plays them in its client's engine.
+pub fn take_live_hud_typing_sounds(hud: &mut LiveHud) -> u32 {
+    std::mem::take(&mut hud.pending_typing_sounds)
 }
 
 /// C++ InGameUI::militarySubtitle — start typewriter from empty displayStrings[0].
@@ -244,7 +245,7 @@ fn step_subtitle(hud: &mut LiveHud, frame: u32) {
         subtitle.block_pos.0 =
             subtitle.position.0 + printed as f32 * hud.caption_point_size.max(1) as f32 * 0.6;
         subtitle.increment_on_frame = frame + hud.caption_speed.max(1) as u32;
-        play_typing_sound();
+        hud.pending_typing_sounds += 1;
     }
     subtitle.index += 1;
     if subtitle.index >= subtitle.text.chars().count() {

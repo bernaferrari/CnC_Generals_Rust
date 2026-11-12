@@ -20,11 +20,15 @@ fn local_player_index() -> Option<PlayerIndex> {
 /// C++ ControlBarCommandProcessing.cpp:183-189.
 /// `AudioEventRTS sound = *commandButton->getUnitSpecificSound();`
 /// `sound.setPlayerIndex(localPlayer); TheAudio->addAudioEvent(&sound);`
-pub(crate) fn play_command_button_unit_specific_sound(button: &CommandButton) {
+/// `audio` is the TheAudio of the engine the clicking UI presents.
+pub(crate) fn play_command_button_unit_specific_sound(
+    button: &CommandButton,
+    audio: Option<&gamelogic::helpers::TheAudio>,
+) {
     let Some(player_index) = local_player_index() else {
         return;
     };
-    let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+    let Some(audio) = audio else {
         return;
     };
     let name = button.unit_specific_sound.playable_event_name();
@@ -51,7 +55,7 @@ mod tests {
         button.command_name = "Command_BlackLotusHackBuilding".into();
         button.unit_specific_sound =
             game_engine::ini::AudioEventRTS::from_event_name("BlackLotusVoiceModeBuilding".into());
-        play_command_button_unit_specific_sound(&button);
+        play_command_button_unit_specific_sound(&button, None);
         assert_eq!(
             button.unit_specific_sound.playable_event_name(),
             "BlackLotusVoiceModeBuilding"
@@ -68,7 +72,7 @@ mod tests {
             list.set_local_player_index(0);
         }
         let button = CommandButton::default();
-        play_command_button_unit_specific_sound(&button);
+        play_command_button_unit_specific_sound(&button, None);
         assert!(button.unit_specific_sound.playable_event_name().is_empty());
         if let Ok(mut list) = logic_player_list().write() {
             list.set_local_player_index(PLAYER_INDEX_INVALID);

@@ -820,7 +820,7 @@ impl InGameUI {
         self.current_frame = TheGameLogic::get_frame();
         self.update_movie_playback(input.manager);
         self.expire_messages();
-        self.update_military_subtitle();
+        self.update_military_subtitle(ui.state.the_audio().as_ref());
         self.update_floating_texts();
         self.update_named_timers();
         self.update_superweapon_timers(self.current_frame, &mut ui.state.eva);
@@ -841,7 +841,7 @@ impl InGameUI {
         self.update_floating_texts();
         self.update_superweapon_timers(frame, &mut ui.state.eva);
         self.update_named_timers();
-        self.update_military_subtitle();
+        self.update_military_subtitle(ui.state.the_audio().as_ref());
         self.handle_build_placements(mouse_position, ui);
         let renderer = self.renderer.clone();
         if let Ok(mut renderer) = renderer.write() {

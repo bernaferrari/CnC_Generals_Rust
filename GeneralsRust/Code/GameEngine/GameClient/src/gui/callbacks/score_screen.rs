@@ -37,7 +37,7 @@ use game_engine::common::skirmish_battle_honors::{
     BH_CHALLENGE_MASK_6, BH_CHALLENGE_MASK_7, SkirmishBattleHonors,
 };
 use game_network::{GameInfo, GameSlot, MAX_SLOTS as NETWORK_MAX_SLOTS, SlotState};
-use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine, TheVictoryConditions};
+use gamelogic::helpers::{TheGameLogic, TheScriptEngine, TheVictoryConditions};
 use gamelogic::player::{Player, PlayerType, ThePlayerList};
 use gamelogic::system::game_logic::{GAME_INTERNET, GAME_LAN, GAME_SINGLE_PLAYER, GAME_SKIRMISH};
 use std::cell::RefCell;
@@ -46,7 +46,6 @@ use std::rc::Rc;
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 const MAX_SLOTS: i32 = 8;
-const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ScoreScreenType {
@@ -246,18 +245,18 @@ fn update_score_screen_music(effects: &mut WindowEventEffects<'_>) {
         return;
     }
     effects.score_screen_mut().play_music = false;
-    let Some(audio) = TheAudio::get() else {
+    if !effects.has_menu_audio() {
         return;
-    };
+    }
     let lobby = get_skirmish_setup(effects.window_manager_owner);
     let music_name =
         score_screen_music_from_game_info_slot(&lobby, effects.campaign_manager.as_deref());
     if !music_name.is_empty() {
-        audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
-        let mut event = gamelogic::common::audio::AudioEventRts::new(music_name);
-        event.set_should_fade(true);
-        let _ = audio.add_audio_event(&event);
-        audio.update();
+        // C++ ScoreScreen.cpp: StopTheMusicFade, fading play, update, in this
+        // client's menu audio service.
+        effects.stop_the_music_fade();
+        effects.play_fading_menu_audio(&music_name);
+        effects.pump_menu_audio();
     }
 }
 
@@ -2646,8 +2645,9 @@ pub fn score_screen_shutdown(
     effects.with_manager(|manager, _effects| layout.hide(manager, true));
     queue_shell_shutdown_complete(effects, false);
 
-    if let Some(audio) = TheAudio::get() {
-        audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
+    // C++ ScoreScreen shutdown: StopTheMusicFade in this client's menu audio.
+    if effects.has_menu_audio() {
+        effects.stop_the_music_fade();
     }
 }
 
@@ -2928,12 +2928,6 @@ mod tests {
         let window = window.borrow();
         assert_eq!(window.get_enabled_text_color(), 0xaabbccdd);
         assert_eq!(window.get_enabled_text_border_color(), 0x55667788);
-    }
-
-    #[test]
-    fn score_screen_music_uses_cpp_fade_stop_sentinel() {
-        crate::test_support::ensure_ambient_host();
-        assert_eq!(AHSV_STOP_THE_MUSIC_FADE, 0xFFFF_FFF1);
     }
 
     #[test]

@@ -38,7 +38,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
 use gamelogic::helpers::{
-    TerrainTreeRegistration, TheAudio, TheFXList, TheGameLogic, TheScriptEngine,
+    TerrainTreeRegistration, TheFXList, TheGameLogic, TheScriptEngine,
 };
 use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
@@ -1180,10 +1180,9 @@ impl SubsystemInterface for HeaderTemplateManagerSubsystem {
         crate::gui::header_template::HeaderTemplateManager::load_ini_unlocked()
     }
 
+    /// C++ HeaderTemplateManager has no per-frame work; TheAudio is updated
+    /// by its own engine's frame (GameEngine.cpp), never by this manager.
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(audio) = TheAudio::get() {
-            audio.update();
-        }
         Ok(())
     }
 }
@@ -1758,6 +1757,22 @@ impl InGameUISubsystem {
     /// C++ `TheAudio` of the engine this UI receives.
     pub fn the_audio(&self) -> Option<gamelogic::helpers::TheAudio> {
         self.logic_world().map(|world| gamelogic::helpers::TheAudio::of(&world))
+    }
+
+    /// C++ `InGameUI::militarySubtitle` typing clicks for the live HUD
+    /// caption, in the engine this UI presents.
+    pub(crate) fn play_live_hud_typing_sounds(&mut self) {
+        let typed = crate::gui::ingame_ui::take_live_hud_typing_sounds(&mut self.live_hud);
+        if typed == 0 {
+            return;
+        }
+        let Some(audio) = self.the_audio() else {
+            return;
+        };
+        let event = gamelogic::common::audio::AudioEventRts::new("MilitarySubtitlesTyping");
+        for _ in 0..typed {
+            let _ = audio.add_audio_event(&event);
+        }
     }
 
     pub fn admit_game_text(&mut self, store: Arc<std::sync::RwLock<GameText>>) {

@@ -65,6 +65,8 @@ pub struct PresentationFrame {
         Vec<crate::game_logic::host_disable_timers_log::HostDisableAudioEvent>,
     #[serde(skip)]
     pub(crate) money_audio_receipts: Vec<crate::game_logic::host_economy_log::HostMoneyAudioEvent>,
+    /// Withdraw/deposit event names in the owning engine's MiscAudio.
+    pub(crate) money_audio_event_names: [String; 2],
     /// Native ModelDraw scale components, bound to the exact admitted actor.
     #[serde(skip)]
     pub(crate) native_ghost_scale_sources: std::collections::HashMap<

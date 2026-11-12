@@ -4,8 +4,6 @@ use super::game_message::{GameMessage, GameMessageArgumentType, GameMessageType}
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
 use crate::game_text::GameText;
 use crate::gui::game_window::{GameWindow, WindowMessage, WindowMsgData};
-use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::TheAudio;
 use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::rc::Weak;
@@ -231,13 +229,11 @@ impl HotKeyActivation {
                 effects,
             );
         }
-        if let Some(audio) = TheAudio::get() {
-            audio.add_audio_event(&AudioEventRts::with_event_name(if self.enabled {
-                "GUIClick"
-            } else {
-                "GUIClickDisabled"
-            }));
-        }
+        effects.play_gui_sound(if self.enabled {
+            "GUIClick"
+        } else {
+            "GUIClickDisabled"
+        });
         self.enabled
     }
 }

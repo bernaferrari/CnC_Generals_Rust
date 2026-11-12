@@ -170,25 +170,6 @@ pub fn play_illegal_place_feedback(builder: &Object) {
     }
 }
 
-pub fn play_illegal_place_feedback_for_id(builder_id: u32) {
-    let Some(builder_arc) = TheGameLogic::find_object_by_id(builder_id) else {
-        play_no_can_do_beep();
-        return;
-    };
-    let Ok(builder) = builder_arc.read() else {
-        play_no_can_do_beep();
-        return;
-    };
-    play_illegal_place_feedback(&builder);
-}
-
-fn play_no_can_do_beep() {
-    if let Some(audio) = TheAudio::get() {
-        let no_can_do = AudioEventRts::new("NoCanDoSound");
-        let _ = audio.add_audio_event(&no_can_do);
-    }
-}
-
 /// Convert a message-stream world coord to GameLogic space.
 pub fn logic_world(world: &Coord3D) -> LogicCoord3D {
     LogicCoord3D::new(world.x, world.y, world.z)

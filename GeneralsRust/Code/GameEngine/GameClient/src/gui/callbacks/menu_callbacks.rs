@@ -588,12 +588,7 @@ impl MenuCallbacks for CreditsMenu {
             }
         });
 
-        if let Some(audio) = TheAudio::get() {
-            audio.remove_audio_event(0xFFFF_FFF1);
-            let mut event = AudioEventRts::new("Credits");
-            event.set_should_fade(true);
-            let _ = audio.add_audio_event(&event);
-        }
+        crate::gui::callbacks::owned_credits_menu::start_credits_music(effects);
 
         self.initialized = true;
         Ok(())
@@ -659,9 +654,7 @@ impl MenuCallbacks for CreditsMenu {
         layout.hide_receiving(true, effects);
         queue_shell_shutdown_complete(effects, false);
 
-        if let Some(audio) = TheAudio::get() {
-            audio.remove_audio_event(0xFFFF_FFF1);
-        }
+        crate::gui::callbacks::owned_credits_menu::stop_credits_music(effects);
 
         self.initialized = false;
         self.credits = None;

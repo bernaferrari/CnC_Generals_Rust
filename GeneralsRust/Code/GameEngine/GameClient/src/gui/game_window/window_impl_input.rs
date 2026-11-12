@@ -94,7 +94,44 @@ impl GameWindow {
         );
         (result, notification)
     }
+    /// [`Self::handle_widget_input_phase_inner`], then the GUI sound its
+    /// gadget asked for plays in this client's engine.
     pub(crate) fn handle_widget_input_phase(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        owned_control_bar: bool,
+        owned_options: bool,
+        owned_replay: bool,
+        owned_restart: bool,
+        notification: &mut Option<ControlBarNotification>,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+        pending_control_bar_clicks: Option<&mut Vec<crate::helpers::LiveControlBarClick>>,
+    ) -> WindowMsgHandled {
+        let handled = self.handle_widget_input_phase_inner(
+            msg,
+            data1,
+            data2,
+            owned_control_bar,
+            owned_options,
+            owned_replay,
+            owned_restart,
+            notification,
+            effects,
+            pending_control_bar_clicks,
+        );
+        self.play_pending_gui_sound(effects);
+        handled
+    }
+
+    fn play_pending_gui_sound(&mut self, effects: &crate::gui::game_window::WindowEventEffects<'_>) {
+        if let Some(sound) = self.widget.as_mut().and_then(WindowWidget::take_gui_sound) {
+            effects.play_gui_sound(sound);
+        }
+    }
+
+    fn handle_widget_input_phase_inner(
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
@@ -112,7 +149,7 @@ impl GameWindow {
             && msg == WindowMessage::LeftUp
             && self.combobox_links.is_some()
         {
-            Self::play_gui_click();
+            effects.play_gui_sound("GUIClick");
             self.toggle_combobox_dropdown(effects);
             return WindowMsgHandled::Handled;
         }
@@ -733,6 +770,18 @@ impl GameWindow {
         data2: WindowMsgData,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
+        let handled = self.handle_widget_system_inner(msg, data1, data2, effects);
+        self.play_pending_gui_sound(effects);
+        handled
+    }
+
+    fn handle_widget_system_inner(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+    ) -> WindowMsgHandled {
         if matches!(
             msg,
             WindowMessage::RightDown | WindowMessage::RightUp | WindowMessage::RightDrag
@@ -933,7 +982,7 @@ impl GameWindow {
             if let Some(links) = self.combobox_links {
                 if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as WindowMsgData
                 {
-                    Self::play_gui_click();
+                    effects.play_gui_sound("GUIClick");
                     self.toggle_combobox_dropdown(effects);
                     return WindowMsgHandled::Handled;
                 }

@@ -469,7 +469,8 @@ impl InGameUI {
         self.current_frame < self.tooltips_disabled_until
     }
 
-    fn update_military_subtitle(&mut self) {
+    /// `audio` is the TheAudio of the engine this UI's client presents.
+    fn update_military_subtitle(&mut self, audio: Option<&TheAudio>) {
         let had_subtitle = self.current_military_subtitle.is_some();
         if let Some(subtitle) = self.current_military_subtitle.as_mut() {
             if gamelogic::helpers::TheScriptEngine::is_time_frozen_script() {
@@ -490,7 +491,10 @@ impl InGameUI {
             char_width,
             delay_frames,
         ) {
-            Self::play_military_subtitle_typing_sound();
+            if let Some(audio) = audio {
+                let event = AudioEventRts::new("MilitarySubtitlesTyping");
+                let _ = audio.add_audio_event(&event);
+            }
         }
         // C++ removeMilitarySubtitle (InGameUI.cpp:4099) clears tooltips on fade-out.
         if had_subtitle && self.current_military_subtitle.is_none() {
@@ -572,13 +576,6 @@ impl InGameUI {
             subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
         }
         typed_visible_char
-    }
-
-    fn play_military_subtitle_typing_sound() {
-        if let Some(audio) = TheAudio::get() {
-            let event = AudioEventRts::new("MilitarySubtitlesTyping");
-            let _ = audio.add_audio_event(&event);
-        }
     }
 
     fn caption_char_width(&self) -> f32 {

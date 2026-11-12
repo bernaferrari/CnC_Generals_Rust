@@ -46,6 +46,15 @@ impl WindowWidget {
         }
     }
 
+    /// The GUI feedback sound the last input asked for.
+    pub(crate) fn take_gui_sound(&mut self) -> Option<&'static str> {
+        match self {
+            WindowWidget::ListBox(widget) => widget.take_gui_sound(),
+            WindowWidget::ComboBox(widget) => widget.take_gui_sound(),
+            _ => None,
+        }
+    }
+
     pub(crate) fn handle_input(&mut self, event: &InputEvent) -> Vec<GadgetMessage> {
         match self {
             WindowWidget::PushButton(widget) => widget.handle_input(event),

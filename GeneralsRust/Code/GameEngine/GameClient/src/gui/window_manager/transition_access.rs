@@ -61,6 +61,7 @@ pub(crate) struct TransitionWindowAccess<'state, 'selected> {
     modal_stack: &'state mut Option<Box<ModalWindow>>,
     mouse_capture: &'state mut Option<Weak<RefCell<GameWindow>>>,
     capture_flags: &'state mut CaptureFlags,
+    sounds: &'state mut Vec<&'static str>,
     selected: Option<&'selected mut GameWindow>,
     lent: Option<&'selected mut [&'selected mut GameWindow]>,
 }
@@ -70,6 +71,7 @@ impl<'state, 'selected> TransitionWindowAccess<'state, 'selected> {
         modal_stack: &'state mut Option<Box<ModalWindow>>,
         mouse_capture: &'state mut Option<Weak<RefCell<GameWindow>>>,
         capture_flags: &'state mut CaptureFlags,
+        sounds: &'state mut Vec<&'static str>,
         selected: Option<&'selected mut GameWindow>,
     ) -> Self {
         Self {
@@ -77,9 +79,15 @@ impl<'state, 'selected> TransitionWindowAccess<'state, 'selected> {
             modal_stack,
             mouse_capture,
             capture_flags,
+            sounds,
             selected,
             lent: None,
         }
+    }
+    /// C++ transitions' `TheAudio->addAudioEvent`; the manager plays it in
+    /// its client's engine.
+    pub(crate) fn play_sound(&mut self, name: &'static str) {
+        self.sounds.push(name);
     }
     pub(crate) fn borrow_window<'a>(
         &'a self,
@@ -194,6 +202,7 @@ impl WindowManager {
                 &mut self.modal_stack,
                 &mut self.mouse_capture,
                 &mut self.capture_flags,
+                &mut self.transition_sounds,
                 selected,
             ),
         )

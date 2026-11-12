@@ -242,9 +242,8 @@ impl GameLogic {
                 .position_jet_lockon(&runtime.source, &runtime.receipt, position, orientation)
                 .map_err(Configuration)?;
             if tick_sound {
-                let event = crate::game_logic::host_economy_log::resolve_misc_audio_event(
-                    crate::game_logic::object::JET_LOCKON_TICK_SOUND,
-                );
+                let event =
+                    self.misc_audio_event(crate::game_logic::object::JET_LOCKON_TICK_SOUND);
                 self.queue_audio_event(
                     crate::game_logic::AudioEventRequest::new(&event)
                         .with_object(jet_id)

@@ -68,11 +68,10 @@ pub fn money_audio_token(kind: HostMoneyAudio) -> &'static str {
 ///
 /// C++ `TheAudio->getMiscAudio()->m_*` then `addAudioEvent` of that event
 /// (`INI::parseAudioEventRTS` stores the value token as the event name).
-pub fn resolve_misc_audio_event(token: &str) -> String {
-    let Some(misc) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
-        return token.to_string();
-    };
-    let misc = misc.read();
+pub fn resolve_misc_audio_event(
+    misc: &game_engine::common::ini::ini_misc_audio::MiscAudio,
+    token: &str,
+) -> String {
     let Some(event) = misc.get_audio_event(token) else {
         return token.to_string();
     };
@@ -81,6 +80,14 @@ pub fn resolve_misc_audio_event(token: &str) -> String {
         token.to_string()
     } else {
         name.to_string()
+    }
+}
+
+impl crate::game_logic::GameLogic {
+    /// [`resolve_misc_audio_event`] in this match's own MiscAudio (C++
+    /// `TheAudio->getMiscAudio()` of the owning engine).
+    pub(crate) fn misc_audio_event(&self, token: &str) -> String {
+        resolve_misc_audio_event(&self.world_services.common().ini.misc_audio.read(), token)
     }
 }
 

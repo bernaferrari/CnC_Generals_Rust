@@ -504,8 +504,7 @@ impl GameLogic {
                 None,
                 particle_owner,
             );
-            let event =
-                crate::game_logic::host_economy_log::resolve_misc_audio_event("RepairSparks");
+            let event = self.misc_audio_event("RepairSparks");
             self.queue_audio_event(AudioEventRequest::new(&event).with_position(pose));
             // Emitted-particle lifetime override remains a separately tracked
             // native presentation provider, not a fake system expiration.
