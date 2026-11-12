@@ -287,7 +287,12 @@ fn actual_chinook_idle_replays_before_auto_land_without_touching_peer() {
             .pending_ai_idle
     );
     assert_eq!(world.objects[&id].ai_state(), AIState::Idle);
-    assert!(world.objects[&id].active_guard_position().is_none());
+    // AIUpdate.cpp privateIdle clears only the state machine; m_guardTargetType
+    // and m_locationToGuard are never reset after construction.
+    assert_eq!(
+        world.objects[&id].active_guard_position(),
+        Some(Vec3::new(19.0, 0.0, 7.0))
+    );
     assert!(
         !peer.objects[&peer_id]
             .chinook_ai
