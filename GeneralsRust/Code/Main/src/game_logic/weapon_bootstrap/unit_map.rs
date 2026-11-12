@@ -267,9 +267,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_sentry_drone::is_sentry_drone_template(template_name) {
                 return None;
             }
-            if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
-                return Some(BUGGY_ROCKET_WEAPON);
-            }
+            // Rocket Buggy: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.289).
             // SCUD: explicit retail rows above only (hq-2qedt.250).
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 return Some(TECHNICAL_MACHINE_GUN);
@@ -586,6 +585,23 @@ mod quad_cannon_unit_map_peel_tests {
         assert_eq!(
             secondary_weapon_name_for_unit("GLAVehicleQuadCannon"),
             Some(QUAD_CANNON_GUN_AIR)
+        );
+    }
+}
+
+#[cfg(test)]
+mod rocket_buggy_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.289: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "RocketBuggy" must not
+    /// pick up BuggyRocketWeapon from a fuzzy name peel.
+    #[test]
+    fn unlisted_rocket_buggy_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_GLAVehicleRocketBuggyDecoy"), None);
+        assert_eq!(
+            primary_weapon_name_for_unit("GLAVehicleRocketBuggy"),
+            Some(BUGGY_ROCKET_WEAPON)
         );
     }
 }

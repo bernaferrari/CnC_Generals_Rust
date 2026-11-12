@@ -145,26 +145,6 @@ pub fn rocket_buggy_range_ok(distance: f32) -> bool {
     distance >= BUGGY_MIN_RANGE && distance <= BUGGY_ATTACK_RANGE
 }
 
-/// Whether template is a residual Rocket Buggy vehicle.
-///
-/// Fail-closed: name residual (not full INI WeaponSet / Salvage matrix).
-/// Excludes missiles / projectiles.
-pub fn is_rocket_buggy_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    if n.contains("missile") || n.contains("projectile") || n.contains("shell") {
-        return false;
-    }
-    // Avoid false positive on "buggy" alone from combat bike etc.
-    n.contains("rocketbuggy")
-        || n.contains("rocket_buggy")
-        || n == "gla_rocketbuggy"
-        || n == "testrocketbuggy"
-        || n.contains("vehiclerocketbuggy")
-}
-
 /// Whether combat should apply Rocket Buggy residual splash path.
 pub fn should_apply_rocket_buggy_residual(is_buggy: bool) -> bool {
     is_buggy
@@ -382,20 +362,6 @@ mod tests {
         assert!(rocket_buggy_scatter_misses_infantry(true, 67, 0.5));
         assert!(!rocket_buggy_scatter_misses_infantry(true, 67, 100.0));
         assert!(!rocket_buggy_scatter_misses_infantry(false, 67, 0.5));
-    }
-
-    #[test]
-    fn rocket_buggy_name_matrix() {
-        assert!(is_rocket_buggy_template("GLAVehicleRocketBuggy"));
-        assert!(is_rocket_buggy_template("Chem_GLAVehicleRocketBuggy"));
-        assert!(is_rocket_buggy_template("Demo_GLAVehicleRocketBuggy"));
-        assert!(is_rocket_buggy_template("Slth_GLAVehicleRocketBuggy"));
-        assert!(is_rocket_buggy_template("TestRocketBuggy"));
-        assert!(is_rocket_buggy_template("GLA_RocketBuggy"));
-        assert!(!is_rocket_buggy_template("RocketBuggyMissile"));
-        assert!(!is_rocket_buggy_template("GLAVehicleQuadCannon"));
-        assert!(!is_rocket_buggy_template("GLAVehicleScudLauncher"));
-        assert!(!is_rocket_buggy_template("USA_Ranger"));
     }
 
     #[test]
