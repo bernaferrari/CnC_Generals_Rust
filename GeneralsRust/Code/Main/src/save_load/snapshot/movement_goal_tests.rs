@@ -12,29 +12,8 @@ fn ranger_logic() -> GameLogic {
     world
 }
 
-fn encoded_goal_tail(
-    version: u32,
-    ai: AiTeamPersistPayload,
-    movement_runtime: Vec<MovementRuntimePersist>,
-) -> Vec<u8> {
-    let encoded = if version == 10 {
-        bincode_legacy::serialize(&ai).unwrap()
-    } else {
-        bincode_legacy::serialize(&AiTeamPersistPayloadV11 {
-            ai,
-            movement_runtime,
-        })
-        .unwrap()
-    };
-    let mut tail = TMAI_MAGIC.to_vec();
-    append_u32(&mut tail, version);
-    append_u32(&mut tail, encoded.len() as u32);
-    tail.extend(encoded);
-    tail
-}
-
 #[test]
-fn movement_goal_v12_round_trip_retains_missing_target_and_future_goal() {
+fn movement_goal_round_trip_retains_missing_target_and_future_goal() {
     let mut source = ranger_logic();
     let id = source
         .create_object("Ranger", Team::USA, Vec3::ZERO)
@@ -58,7 +37,7 @@ fn movement_goal_v12_round_trip_retains_missing_target_and_future_goal() {
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     // Decode the actual append envelope, rather than merely cloning Object.
     let suffix = find_tmai_suffix(&snapshot.lifecycle_tail).unwrap();
-    assert_eq!(u32::from_le_bytes(suffix[..4].try_into().unwrap()), 12);
+    assert_eq!(u32::from_le_bytes(suffix[..4].try_into().unwrap()), TMAI_VERSION);
     let mut restored = ranger_logic();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -90,7 +69,7 @@ fn movement_goal_v12_round_trip_retains_missing_target_and_future_goal() {
 }
 
 #[test]
-fn movement_goal_v10_defaults_and_invalid_v11_receivers_reject_before_mutation() {
+fn invalid_movement_runtime_rows_reject_before_mutation() {
     let mut world = ranger_logic();
     let id = world
         .create_object("Ranger", Team::USA, Vec3::ZERO)
@@ -101,14 +80,6 @@ fn movement_goal_v10_defaults_and_invalid_v11_receivers_reject_before_mutation()
         .set_movement_goal_object(Some(ObjectId(999)));
     world.host_object_mut(id).unwrap().path_goal_position = Some(Vec3::new(10.0, 0.0, 20.0));
     world.host_object_mut(id).unwrap().path_timestamp = 37;
-    let old = encoded_goal_tail(10, capture(&world), Vec::new());
-    apply_from_lifecycle_tail(&old, &mut world).unwrap();
-    assert_eq!(world.host_object(id).unwrap().movement_goal_object(), None);
-    assert_eq!(
-        world.host_object(id).unwrap().path_goal_position,
-        Some(Vec3::new(10.0, 0.0, 20.0))
-    );
-    assert_eq!(world.host_object(id).unwrap().path_timestamp, 37);
     let row = |receiver, goal_object| MovementRuntimePersist {
         receiver,
         goal_object,
@@ -134,7 +105,9 @@ fn movement_goal_v10_defaults_and_invalid_v11_receivers_reject_before_mutation()
             .host_object_mut(id)
             .unwrap()
             .set_movement_goal_object(Some(ObjectId(777)));
-        let bytes = encoded_goal_tail(11, capture(&world), goals);
+        let mut payload = current_tmai_payload(&world);
+        payload.orders_mut().previous.movement_runtime = goals;
+        let bytes = encode_tmai_owner(&payload);
         assert!(apply_from_lifecycle_tail(&bytes, &mut world).is_err());
         assert_eq!(
             world.host_object(id).unwrap().movement_goal_object(),

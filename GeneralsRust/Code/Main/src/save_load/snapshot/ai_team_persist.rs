@@ -1005,6 +1005,37 @@ fn arr_to_vec3(v: [f32; 3]) -> Vec3 {
 
 #[path = "ai_team_framing.rs"]
 pub(super) mod framing;
+
+/// The current TMAI owner a world writes, decoded (tests corrupt it in place).
+#[cfg(test)]
+fn current_tmai_payload(game_logic: &GameLogic) -> AiTeamPersistPayloadV19 {
+    let mut bytes = Vec::new();
+    append_to_lifecycle_tail(&mut bytes, game_logic);
+    let mut rest = framing::find(&bytes).unwrap().unwrap();
+    assert_eq!(take_u32(&mut rest).unwrap(), TMAI_VERSION);
+    let length = take_u32(&mut rest).unwrap() as usize;
+    bincode_legacy::deserialize(&rest[..length]).unwrap()
+}
+
+/// One framed current TMAI owner record.
+#[cfg(test)]
+fn encode_tmai_owner(payload: &AiTeamPersistPayloadV19) -> Vec<u8> {
+    let encoded = bincode_legacy::serialize(payload).unwrap();
+    let mut owner = TMAI_MAGIC.to_vec();
+    append_u32(&mut owner, TMAI_VERSION);
+    append_u32(&mut owner, encoded.len() as u32);
+    owner.extend(encoded);
+    owner
+}
+
+#[cfg(test)]
+impl AiTeamPersistPayloadV19 {
+    /// The orders + waypoint-identity layer inside the current envelope.
+    fn orders_mut(&mut self) -> &mut AiTeamPersistPayloadV12 {
+        &mut self.previous.previous.previous.previous.previous.previous
+    }
+}
+
 #[cfg(test)]
 fn find_tmai_suffix(bytes: &[u8]) -> Option<&[u8]> {
     framing::find(bytes).ok().flatten()

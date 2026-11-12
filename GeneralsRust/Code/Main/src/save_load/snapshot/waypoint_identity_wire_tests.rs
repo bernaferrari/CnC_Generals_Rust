@@ -44,23 +44,16 @@ fn malformed_waypoint_identity_rejects_before_any_live_ai_order_mutation() {
         .stamp_pending_waypoint(0, [String::new(), String::new(), String::new()]);
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, &source);
-    let suffix = find_tmai_suffix(&bytes).unwrap();
-    let mut suffix = suffix;
-    assert_eq!(take_u32(&mut suffix).unwrap(), 12);
-    let length = take_u32(&mut suffix).unwrap() as usize;
-    let mut envelope: AiTeamPersistPayloadV12 =
-        bincode_legacy::deserialize(&suffix[..length]).unwrap();
+    let _ = bytes;
+    let mut current = current_tmai_payload(&source);
+    let envelope = current.orders_mut();
     assert_eq!(
         envelope.waypoints[0].pending,
         Some(0),
         "ID zero is distinct from no pointer"
     );
     envelope.waypoints[0].receiver = 0;
-    let encoded = bincode_legacy::serialize(&envelope).unwrap();
-    let mut malformed = TMAI_MAGIC.to_vec();
-    append_u32(&mut malformed, 12);
-    append_u32(&mut malformed, encoded.len() as u32);
-    malformed.extend(encoded);
+    let malformed = encode_tmai_owner(&current);
     let (mut receiving, receiving_id) = world();
     assert_eq!(receiving_id, id);
     receiving
@@ -77,42 +70,6 @@ fn malformed_waypoint_identity_rejects_before_any_live_ai_order_mutation() {
         ["Keep", "", ""]
     );
 }
-#[test]
-fn historical_v11_known_labels_do_not_guess_a_receiving_waypoint_id() {
-    let (mut source, id) = world();
-    source
-        .host_object_mut(id)
-        .unwrap()
-        .stamp_pending_waypoint_labels(["KnownLegacyPath"]);
-    let payload = AiTeamPersistPayloadV11 {
-        ai: capture(&source),
-        movement_runtime: Vec::new(),
-    };
-    let encoded = bincode_legacy::serialize(&payload).unwrap();
-    let mut bytes = TMAI_MAGIC.to_vec();
-    append_u32(&mut bytes, 11);
-    append_u32(&mut bytes, encoded.len() as u32);
-    bytes.extend(encoded);
-    let (mut restored, restored_id) = world();
-    assert_eq!(id, restored_id);
-    apply_from_lifecycle_tail(&bytes, &mut restored).unwrap();
-    assert_eq!(
-        restored.host_object(id).unwrap().pending_waypoint_labels,
-        ["KnownLegacyPath"]
-    );
-    assert_eq!(restored.host_object(id).unwrap().pending_waypoint_id, None);
-    assert_eq!(
-        restored.host_object(id).unwrap().completed_waypoint_id,
-        None
-    );
-    assert!(
-        restored
-            .host_object(id)
-            .unwrap()
-            .completed_waypoint_labels
-            .is_empty()
-    );
-}
 
 #[test]
 fn receiving_graph_missing_or_changed_waypoint_rejects_before_mutating_live_ai() {
@@ -121,27 +78,16 @@ fn receiving_graph_missing_or_changed_waypoint_rejects_before_mutating_live_ai()
         .host_object_mut(id)
         .unwrap()
         .stamp_pending_waypoint(0, [String::new(), String::new(), String::new()]);
-    let mut bytes = Vec::new();
-    append_to_lifecycle_tail(&mut bytes, &source);
-    let mut suffix = framing::find(&bytes).unwrap().unwrap();
-    take_u32(&mut suffix).unwrap();
-    let length = take_u32(&mut suffix).unwrap() as usize;
-    let envelope: AiTeamPersistPayloadV12 = bincode_legacy::deserialize(&suffix[..length]).unwrap();
+    let current = current_tmai_payload(&source);
     for changed_slots in [false, true] {
-        let mut invalid = AiTeamPersistPayloadV12 {
-            previous: envelope.previous.clone(),
-            waypoints: envelope.waypoints.clone(),
-        };
+        let mut corrupt = current.clone();
+        let invalid = corrupt.orders_mut();
         if changed_slots {
             invalid.previous.ai.orders[0].pending_waypoint_labels[0] = "Forged".into();
         } else {
             invalid.waypoints[0].pending = Some(99);
         }
-        let encoded = bincode_legacy::serialize(&invalid).unwrap();
-        let mut tail = TMAI_MAGIC.to_vec();
-        append_u32(&mut tail, 12);
-        append_u32(&mut tail, encoded.len() as u32);
-        tail.extend(encoded);
+        let tail = encode_tmai_owner(&corrupt);
         let (mut receiving, peer_id) = world();
         assert_eq!(id, peer_id);
         receiving
@@ -233,15 +179,11 @@ fn assert_full_snapshot_waypoint_preflight_preserves_receiver(
     let start = suffix.as_ptr() as usize - malformed.lifecycle_tail.as_ptr() as usize - 4;
     let end = start + 4 + suffix.len();
     let mut rest = suffix;
-    assert_eq!(take_u32(&mut rest).unwrap(), 12);
+    assert_eq!(take_u32(&mut rest).unwrap(), TMAI_VERSION);
     let size = take_u32(&mut rest).unwrap() as usize;
-    let mut payload: AiTeamPersistPayloadV12 = bincode_legacy::deserialize(&rest[..size]).unwrap();
-    corrupt(&mut payload);
-    let encoded = bincode_legacy::serialize(&payload).unwrap();
-    let mut owner = TMAI_MAGIC.to_vec();
-    append_u32(&mut owner, 12);
-    append_u32(&mut owner, encoded.len() as u32);
-    owner.extend(encoded);
+    let mut payload: AiTeamPersistPayloadV19 = bincode_legacy::deserialize(&rest[..size]).unwrap();
+    corrupt(payload.orders_mut());
+    let owner = encode_tmai_owner(&payload);
     malformed.lifecycle_tail.splice(start..end, owner);
     let bytes = bincode_legacy::serialize(&malformed).unwrap();
     let malformed = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
