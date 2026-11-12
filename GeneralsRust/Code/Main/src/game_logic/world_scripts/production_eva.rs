@@ -1648,11 +1648,14 @@ mod tests {
             .expect("local detector");
         logic.fire_stealth_discover_feedback(hero_a, &[det]);
         assert!(logic.honesty_eva_hero_detected_ok());
-        let events = logic.take_eva_requests();
+        // The admitted StealthUpdate EnemyDetectionEvaEvent is an authored name,
+        // so it is delivered as a named operation, not a typed EvaEvent request.
+        let events = logic.eva_announcements.take_delivery().operations;
         assert!(
-            events
-                .iter()
-                .any(|e| *e == EvaEvent::EnemyBlackLotusDetected),
+            events.iter().any(|e| *e
+                == crate::game_logic::host_eva_log::EvaOperation::RequestNamed(
+                    "EnemyBlackLotusDetected".into()
+                )),
             "{events:?}"
         );
         let before = logic.eva_hero_detected;
