@@ -749,7 +749,24 @@ mod tests {
     }
 
     fn callback_world() -> GameLogic {
+        callback_world_with(&[])
+    }
+
+    /// `callback_world` whose Object content is authored and admitted before
+    /// any Object exists (GameEngine.cpp:428-458). Once a world has admitted
+    /// content its ThingFactory serves only declared templates, so the
+    /// roster's Ranger and Barracks are declared alongside `content`.
+    fn callback_world_with(content: &[crate::fixture_content::FixtureObject]) -> GameLogic {
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
         let mut world = GameLogic::new();
+        if !content.is_empty() {
+            let mut declared = vec![
+                FixtureObject::new("AmericaInfantryRanger").kind_of("INFANTRY"),
+                FixtureObject::new("AmericaBarracks").kind_of("STRUCTURE"),
+            ];
+            declared.extend(content.iter().cloned());
+            admit_fixture_objects(&mut world, &declared);
+        }
         for (id, name) in [(1, "CurrentOwner"), (2, "PeerOwner")] {
             let mut player = Player::new(id, Team::USA, name, false);
             player.resources.supplies = 10_000;
@@ -1108,7 +1125,19 @@ mod tests {
 
     #[test]
     fn startup_factory_collector_callback_observes_its_canonical_ai_owner() {
-        let mut world = callback_world();
+        // Retail AmericaSupplyCenter authors its free Chinook through
+        // SpawnBehavior plus SupplyCenterProductionExitUpdate; all of it is
+        // admitted before NewGame (GameEngine.cpp:428-458).
+        use crate::fixture_content::FixtureObject;
+        let mut world = callback_world_with(&[
+            FixtureObject::new("AmericaCommandCenter")
+                .kind_of("STRUCTURE COMMANDCENTER"),
+            FixtureObject::new("AmericaSupplyCenter")
+                .kind_of("STRUCTURE FS_SUPPLY_CENTER")
+                .module("Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\nEnd")
+                .module("Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\nEnd"),
+            FixtureObject::new("AmericaVehicleChinook").kind_of("HARVESTER VEHICLE"),
+        ]);
         let mut definitions = game_engine::common::ini::AIData::default();
         definitions.side_build_lists.clear();
         let mut list = game_engine::common::ini::AiSideBuildList::new("America".into());
@@ -1129,25 +1158,6 @@ mod tests {
         }
         definitions.side_build_lists.push(list);
         world.set_ai_definition_base(definitions);
-        // Retail AmericaSupplyCenter authors its free Chinook through
-        // SpawnBehavior plus SupplyCenterProductionExitUpdate; all of it is
-        // admitted before NewGame (GameEngine.cpp:428-458).
-        {
-            use crate::fixture_content::{admit_fixture_objects, FixtureObject};
-            admit_fixture_objects(
-                &mut world,
-                &[
-                    FixtureObject::new("AmericaCommandCenter")
-                        .kind_of("STRUCTURE COMMANDCENTER"),
-                    FixtureObject::new("AmericaSupplyCenter")
-                        .kind_of("STRUCTURE FS_SUPPLY_CENTER")
-                        .module("Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\nEnd")
-                        .module("Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\nEnd"),
-                    FixtureObject::new("AmericaVehicleChinook").kind_of("HARVESTER VEHICLE"),
-                    FixtureObject::new("AmericaInfantryRanger").kind_of("INFANTRY"),
-                ],
-            );
-        }
         let original_cc = world
             .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(10., 0., 20.))
             .unwrap();
@@ -1155,11 +1165,11 @@ mod tests {
             .create_object_for_player("AmericaInfantryRanger", 1, Vec3::new(90., 0., 0.))
             .unwrap();
         let mut peer = GameLogic::new();
-        peer.add_player(Player::new(1, Team::USA, "SameIdPeer", false));
-        peer.templates.insert(
-            "AmericaCommandCenter".into(),
-            world.templates["AmericaCommandCenter"].clone(),
+        crate::fixture_content::admit_fixture_objects(
+            &mut peer,
+            &[FixtureObject::new("AmericaCommandCenter").kind_of("STRUCTURE COMMANDCENTER")],
         );
+        peer.add_player(Player::new(1, Team::USA, "SameIdPeer", false));
         peer.set_next_object_id_for_restore(original_cc);
         let peer_cc = peer
             .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(110., 0., 120.))
