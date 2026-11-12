@@ -1298,7 +1298,9 @@ mod map_singleton_owner_tests {
         let mut inserted = Dict::new();
         inserted.set_ascii_string(key_team_name(), "BeforeDefault");
         inserted.set_ascii_string(key_team_owner(), "MapOwner");
-        inserted.set_bool(key_team_is_singleton(), false);
+        // C++ TeamFactory::initTeam creates a Team (and consumes a TeamID)
+        // only for singleton prototypes; reset restarts m_uniqueTeamID.
+        inserted.set_bool(key_team_is_singleton(), true);
         assert!(world.sync_legacy_team_factory_from_team_dicts(&[inserted]));
         let second = world.host_default_team_id(1).expect("rebound default Team");
         assert_ne!(first, second, "new factory admission order changes Team ID");
@@ -1368,9 +1370,11 @@ mod map_singleton_owner_tests {
         assert_eq!(owner.objects.registered_len(), 1);
         let created = owner.objects.registered_keys().next().copied().unwrap();
         assert_eq!(owner.host_object(created).unwrap().owner_player_id, Some(1));
+        // C++ SidesList::validateSides appends each player's missing
+        // default team after the authored teams.
         assert_eq!(
             owner.team_factory.lock().unwrap().prototype_names(),
-            ["SpawnTeam", "FirstSingleton", "SecondSingleton"]
+            ["SpawnTeam", "FirstSingleton", "SecondSingleton", "teamMapOwner"]
         );
 
         assert!(owner.finish_map_script_foundation());
