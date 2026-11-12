@@ -2551,12 +2551,16 @@ fn waypoint_follow_clears_adjust_for_aircraft() {
         "waypoint_follow_clears_adjust_for_aircraft",
         || {
             use crate::game_logic::{GameLogic, Team};
-            use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
             // CPP AIUpdate.cpp:2339–2380 rejects a NULL current locomotor even
             // for infantry. Bind real authored locomotors through normal creation;
             // a KindOf-only Object::new fixture cannot model ground movement.
-            assert_eq!(
-                load_locomotors_from_str(
+            // Locomotor.ini loads before Object templates (GameEngine.cpp:428-458),
+            // into the receiving world's own store.
+            let mut logic = GameLogic::new();
+            let mut locomotors =
+                game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+            locomotors
+                .apply_source(
                     r#"
 Locomotor WaypointFixtureGround
   Surfaces = GROUND
@@ -2580,12 +2584,12 @@ Locomotor WaypointFixtureAir
   PreferredHeight = 50
   AllowAirborneMotiveForce = Yes
 End
-"#
+"#,
                 )
-                .expect("authored waypoint locomotors"),
-                2
-            );
-            let mut logic = GameLogic::new();
+                .expect("authored waypoint locomotors");
+            logic
+                .admit_locomotor_definitions(locomotors)
+                .expect("Locomotors admitted before Object content");
             // Use the actual registered C++ class, not the old projection-only
             // AIUpdate shorthand (ModuleFactory.cpp:396).
             logic

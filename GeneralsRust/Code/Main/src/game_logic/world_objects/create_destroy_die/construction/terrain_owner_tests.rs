@@ -291,6 +291,17 @@ fn constructed_raw_height_survives_native_encoded_restore_and_next_creation() {
 const DEFAULT_SCAFFOLD_GEOMETRY: &str = "Geometry = BOX\nGeometryIsSmall = No\nGeometryHeight = 1\nGeometryMajorRadius = 13\nGeometryMinorRadius = 9\n";
 
 fn admit_construction_content(world: &mut GameLogic, scaffold_geometry: &str) {
+    // Locomotor.ini loads before Object templates (GameEngine.cpp:428-458),
+    // into the receiving world's own store.
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors
+        .apply_source(
+            "Locomotor OwnedFlattenGroupLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n",
+        )
+        .expect("group member Locomotor");
+    world
+        .admit_locomotor_definitions(locomotors)
+        .expect("Locomotors admitted before Object content");
     world
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
@@ -307,9 +318,6 @@ fn admit_construction_content(world: &mut GameLogic, scaffold_geometry: &str) {
 const GROUP_MEMBER_SOURCE: &str = "Object OwnedFlattenGroupMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL OwnedFlattenGroupLocomotor\nEnd\n";
 
 fn admit_group_member(world: &mut GameLogic) -> ObjectId {
-    game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
-        "Locomotor OwnedFlattenGroupLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n",
-    ).unwrap();
     let owner = authored_owner_id(world);
     let id = world
         .create_object_for_player("OwnedFlattenGroupMember", owner, Vec3::new(60., 0., 30.))
