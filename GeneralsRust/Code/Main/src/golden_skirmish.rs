@@ -843,15 +843,32 @@ fn prepare_retail_usa_host_templates(logic: &mut GameLogic) {
 }
 
 fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
-    // Carry the live world's template catalog into the restore target — mirrors
-    // retail where ThingTemplate INI data is loaded at startup before any load.
-    let seed_templates = |dest: &mut GameLogic| {
-        install_templates(dest);
-        for (name, tpl) in logic.templates.iter() {
-            dest.templates
-                .entry(name.clone())
-                .or_insert_with(|| tpl.clone());
+    // C++ GameState::loadGame runs in an engine that booted its INI
+    // definitions (GameEngine::init) and loads the saved map before the
+    // snapshot xfers, so the restore target boots exactly like the source.
+    let admitted = logic.receiving_module_content.is_some();
+    let booted_target = || {
+        let mut dest = boot_golden_world(admitted);
+        if admitted {
+            let _ = apply_skirmish_config(&mut dest, &golden_skirmish_config(map_identity));
         }
+        install_templates(&mut dest);
+        dest
+    };
+    let map_loaded_target = || {
+        let mut dest = booted_target();
+        if admitted && !dest.load_map(map_identity) {
+            return None;
+        }
+        if !admitted {
+            // Synthetic soup has no admitted catalog: carry its host templates.
+            for (name, tpl) in logic.templates.iter() {
+                dest.templates
+                    .entry(name.clone())
+                    .or_insert_with(|| tpl.clone());
+            }
+        }
+        Some(dest)
     };
     let save_dir = std::env::temp_dir().join(format!(
         "golden_skirmish_{}_{}",
@@ -865,7 +882,7 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
     let mut mgr = SaveFileManager::with_save_directory(&save_dir);
     let file_ok = if mgr.init().is_ok() {
         let info = SaveGameInfo {
-            pristine_map_name: None,
+            pristine_map_name: logic.map_definition_source.clone(),
             filename: "golden_mid".into(),
             display_name: "Golden Mid".into(),
             description: "golden mid-match".into(),
@@ -883,8 +900,7 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
             log::warn!("golden SaveFileManager save failed: {e}");
         }
         if saved.is_ok() {
-            let mut logic2 = GameLogic::new();
-            seed_templates(&mut logic2);
+            let mut logic2 = booted_target();
             match mgr.load_game("golden_mid", &mut logic2) {
                 Ok(_) => logic2.get_player(0).is_some(),
                 Err(e) => {
@@ -901,12 +917,10 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
     let snap_ok = {
         let builder = crate::save_load::snapshot::SnapshotBuilder::new();
         match builder.create_world_snapshot(logic) {
-            Ok(snap) => {
-                let mut logic2 = GameLogic::new();
-                seed_templates(&mut logic2);
+            Ok(snap) => map_loaded_target().is_some_and(|mut logic2| {
                 builder.restore_from_snapshot(&snap, &mut logic2).is_ok()
                     && logic2.get_player(0).is_some()
-            }
+            }),
             Err(e) => {
                 log::warn!("golden snapshot save failed: {e}");
                 false
