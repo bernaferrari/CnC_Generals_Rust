@@ -554,13 +554,18 @@ fn real_attack_move_child_attack_returns_to_idle_without_losing_parent_goal() {
         ..Weapon::default()
     });
     attacker.requested_destination = Some(goal);
-    attacker.attack_move_command_src = Some(13);
-    attacker.last_command_source = crate::game_logic::HUNT_CMD_FROM_AI;
+    // C++ AIAttackMoveToState::onEnter captures m_commandSrc from
+    // getLastCommandSource() (AIStates.cpp:3557); the AI-acquired child
+    // attack then overwrites the last source, and child return restores
+    // m_commandSrc (AIStates.cpp:3598).
+    attacker.last_command_source = 13;
     attacker.set_ai_state(
         AIState::AttackMoving,
         world.frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
+    assert_eq!(attacker.attack_move_command_src, Some(13));
+    attacker.last_command_source = crate::game_logic::HUNT_CMD_FROM_AI;
     let mut victim = Object::new(ThingTemplate::new("AttackMoveVictim"), victim_id, Team::GLA);
     victim.set_position(Vec3::new(30., 0., 0.));
     world.objects.insert(id, attacker);
