@@ -584,19 +584,24 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
         }
     }
     let far = Vec3::new(80.0, 0.0, 80.0);
-    assert!(!logic.assign_unit_path_for_test(id, far, &[]));
+    // A mobile unit that is not stuck drops its path (AIUpdate.cpp:1654-1656);
+    // the invalid destination skips findPath (:1698-1701), and with no path
+    // left findClosestPath runs and sets m_retryPath (:1713-1718). From an
+    // invalid start cell that search tunnels (AIPathfind.cpp:8726-8737,
+    // 6221-6249) to the clipped goal cell and builds a path (:8790-8830), so
+    // the request succeeds and nothing snaps.
+    assert!(logic.assign_unit_path_for_test(id, far, &[]));
     let unit = logic.objects.get(&id).expect("ranger");
-    assert!(unit.movement.path.is_empty());
+    assert!(!unit.movement.path.is_empty());
     assert!(!unit.do_final_position);
     assert_eq!(unit.queue_for_path_frame, 0);
     assert!(!unit.waiting_for_path);
+    assert!(unit.retry_path, "AIUpdate.cpp:1717 after findClosestPath");
     assert!(!unit.is_blocked_and_stuck);
     assert_eq!(unit.num_frames_blocked, 0);
-    assert_eq!(unit.path_extra_distance, 100.0);
-    assert_eq!(unit.desired_speed, 5.0);
     assert_eq!(
         unit.locomotor_goal_type,
-        crate::game_logic::object::LocoGoalType::None
+        crate::game_logic::object::LocoGoalType::PositionOnPath
     );
     let mut stuck_tmpl = ThingTemplate::new("Ranger");
     stuck_tmpl.add_kind_of(KindOf::Infantry);
@@ -621,19 +626,6 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     assert_eq!(stuck.path_extra_distance, 100.0);
     assert_eq!(stuck.desired_speed, 5.0);
 
-    let mut free_tmpl = ThingTemplate::new("Ranger");
-    free_tmpl.add_kind_of(KindOf::Infantry);
-    let mut free = Object::new(free_tmpl, ObjectId(9711), Team::USA);
-    hand_locomotor(&mut free, LocomotorAppearance::Other);
-    free.movement.max_speed = 20.0;
-    free.is_final_goal = true;
-    free.set_position(Vec3::new(10.0, 0.0, 10.0));
-    free.movement.path = kept.clone();
-    logic.objects.insert(ObjectId(9711), free);
-    assert!(!logic.assign_unit_path_for_test(ObjectId(9711), far, &[]));
-    let free = logic.objects.get(&ObjectId(9711)).expect("free");
-    assert!(free.movement.path.is_empty());
-
     let mut open_tmpl = ThingTemplate::new("Ranger");
     open_tmpl.add_kind_of(KindOf::Infantry);
     let mut open = Object::new(open_tmpl, ObjectId(9712), Team::USA);
@@ -644,14 +636,15 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     open.num_frames_blocked = 6;
     open.is_blocked_and_stuck = true;
     logic.objects.insert(ObjectId(9712), open);
-    assert!(!logic.assign_unit_path_for_test(ObjectId(9712), far, &[]));
+    // Stuck without a path: there is nothing to snap back from (the snap needs
+    // m_path, AIUpdate.cpp:1733), so findClosestPath runs with blocked=TRUE
+    // (:1713-1718) and tunnels to the goal like the first unit.
+    assert!(logic.assign_unit_path_for_test(ObjectId(9712), far, &[]));
     let open = logic.objects.get(&ObjectId(9712)).expect("open");
-    assert!(open.movement.path.is_empty());
+    assert!(!open.movement.path.is_empty());
     assert!(!open.do_final_position);
-    assert!(
-        open.retry_path,
-        "C++ retries after an unsuccessful closest-path attempt"
-    );
+    assert_eq!(open.queue_for_path_frame, 0);
+    assert!(open.retry_path, "AIUpdate.cpp:1717 after findClosestPath");
     assert_eq!(open.num_frames_blocked, 0);
     assert!(!open.is_blocked_and_stuck);
 

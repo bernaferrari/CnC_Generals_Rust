@@ -735,7 +735,9 @@ fn landing_from_last_frame_air_deals_falling_damage() {
         obj.health.current
     );
     assert!(!obj.was_airborne_last_frame);
-    assert!(obj.pending_ground_collide);
+    // The landing's onCollide(NULL) runs inside the same Physics update
+    // (PhysicsUpdate.cpp:822-831), so the ground contact is already consumed.
+    assert!(!obj.pending_ground_collide);
     assert!(obj.bounce_land_events > 0);
     assert!(obj.last_bounce_fall_dy.abs() < 0.05);
 }
