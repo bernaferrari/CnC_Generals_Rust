@@ -2216,13 +2216,20 @@ fn run_map_world_skirmish(
         && constructed
         && produced;
 
+    // Zero Hour retail researches Upgrade_AmericaSupplyLines at the Strategy
+    // Center (CommandSet AmericaStrategyCenterCommandSet slot 13); the Supply
+    // Center's set has no upgrade button, so C++ Object::canProduceUpgrade
+    // refuses it there. The barracks this slice built researches the PLAYER
+    // upgrade Upgrade_AmericaRangerFlashBangGrenade
+    // (AmericaBarracksCommandSet slot 7).
+    const MAP_UPGRADE: &str = "Upgrade_AmericaRangerFlashBangGrenade";
     let mut upgraded = false;
-    if let Some(sc) = supply_center {
+    if let Some(sc) = barracks_id {
         let up_cmd = command(
             5,
             0,
             CommandType::QueueUpgrade {
-                upgrade_name: "Upgrade_AmericaSupplyLines".into(),
+                upgrade_name: MAP_UPGRADE.into(),
             },
             vec![sc],
         );
@@ -2230,7 +2237,7 @@ fn run_map_world_skirmish(
         let player = logic.get_player(0);
         upgraded = up_result == CommandResult::Success
             || player
-                .map(|p| p.queued_upgrades.contains("Upgrade_AmericaSupplyLines"))
+                .map(|p| p.queued_upgrades.contains(MAP_UPGRADE))
                 .unwrap_or(false);
     }
 
