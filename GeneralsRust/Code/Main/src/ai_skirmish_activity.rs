@@ -18,7 +18,9 @@
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::ai::AIDifficulty;
 use crate::game_logic::{AIState, GameLogic, KindOf};
-use crate::parallel_harness::{HARNESS_MAP, HeadlessSkirmish, SharedSkirmishAssets};
+use crate::parallel_harness::{
+    HARNESS_MAP, HarnessAssetError, HeadlessSkirmish, SharedSkirmishAssets,
+};
 use glam::Vec3;
 
 // --- Wave 77: AI skirmish residual pack (AIPlayer / AIData defaults) ---
@@ -114,8 +116,7 @@ pub struct AiLoadMapActivityResult {
     pub status: String,
 }
 
-/// Why a retail run could not start: the retail definitions or map are not
-/// installed, or the admitted world refused the match.
+/// Status of a run whose retail definitions or map are not installed.
 pub const RETAIL_MISSING: &str = "retail_missing";
 
 /// The AI slot of [`crate::skirmish_config::golden_skirmish_config`]
@@ -127,10 +128,17 @@ const HUMAN_PLAYER: u32 = 0;
 /// Start the retail Lone Eagle skirmish exactly as the application does:
 /// every definition admitted before NewGame (GameEngine.cpp:428-458), the
 /// golden lobby applied, the map loaded and its starting buildings placed
-/// (GameLogic.cpp:1949-1961). `Err` names why the retail content is absent.
+/// (GameLogic.cpp:1949-1961). `Err` names the user-provided retail content
+/// that is not installed. Installed content the world refuses is a defect,
+/// not an absence, so it panics rather than reading as a skip.
 fn start_retail_skirmish() -> Result<HeadlessSkirmish, String> {
-    let assets = SharedSkirmishAssets::load_retail().map_err(|error| format!("{error:?}"))?;
-    HeadlessSkirmish::start(&assets, 0)
+    let assets = match SharedSkirmishAssets::load_retail() {
+        Ok(assets) => assets,
+        Err(HarnessAssetError::Missing(what)) => return Err(what),
+        Err(error) => panic!("retail skirmish content refused: {error}"),
+    };
+    Ok(HeadlessSkirmish::start(&assets, 0)
+        .unwrap_or_else(|error| panic!("retail skirmish failed to start: {error}")))
 }
 
 fn map_identity() -> String {
