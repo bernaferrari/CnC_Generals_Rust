@@ -1114,18 +1114,25 @@ mod tests {
         }
         definitions.side_build_lists.push(list);
         world.set_ai_definition_base(definitions);
-        let mut cc = ThingTemplate::new("AmericaCommandCenter");
-        cc.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::CommandCenter);
-        world.templates.insert(cc.name.clone(), cc);
-        let mut supply = ThingTemplate::new("AmericaSupplyCenter");
-        supply
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::SupplyCenter);
-        world.templates.insert(supply.name.clone(), supply);
-        let mut collector = ThingTemplate::new("AmericaVehicleChinook");
-        collector.add_kind_of(KindOf::Harvester);
-        world.templates.insert(collector.name.clone(), collector);
+        // Retail AmericaSupplyCenter authors its free Chinook through
+        // SpawnBehavior plus SupplyCenterProductionExitUpdate; all of it is
+        // admitted before NewGame (GameEngine.cpp:428-458).
+        {
+            use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+            admit_fixture_objects(
+                &mut world,
+                &[
+                    FixtureObject::new("AmericaCommandCenter")
+                        .kind_of("STRUCTURE COMMANDCENTER"),
+                    FixtureObject::new("AmericaSupplyCenter")
+                        .kind_of("STRUCTURE FS_SUPPLY_CENTER")
+                        .module("Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\nEnd")
+                        .module("Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\nEnd"),
+                    FixtureObject::new("AmericaVehicleChinook").kind_of("HARVESTER VEHICLE"),
+                    FixtureObject::new("AmericaInfantryRanger").kind_of("INFANTRY"),
+                ],
+            );
+        }
         let original_cc = world
             .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(10., 0., 20.))
             .unwrap();
@@ -1151,6 +1158,12 @@ mod tests {
         let peer_timer = world.ai_manager.ai_players[&2].next_team_queue_time;
         let data = AiDataView::from_world(&world);
         world.initialize_owned_skirmish_ai(1, &data);
+        // SpawnBehavior creates the free collector on its first update
+        // (SpawnBehavior.cpp:186-247), not inside newMap.
+        world.frame += 1;
+        world
+            .update_spawn_behavior_with_effects(&mut Default::default())
+            .unwrap();
         assert_eq!(world.ai_manager.ai_players[&1].next_team_queue_time, 0.0);
         assert_eq!(
             world.ai_manager.ai_players[&2].next_team_queue_time,
