@@ -1888,91 +1888,131 @@ mod select_object_cpp_parity_tests {
 
     #[test]
     fn inspect_enemy_select_is_silent() {
-        // C++ CommandXlat.cpp:3502-3516 weeds to isLocallyControlled.
-        bind_select_voice();
-        let mut logic = two_player_logic();
-        let theirs = spawn(&mut logic, "SelectParityUnit", 1, 20.0);
-        logic.queued_audio_events.clear();
-        logic.select_objects(0, vec![theirs]);
-        assert_eq!(
-            logic.get_player(0).expect("p0").selected_objects,
-            vec![theirs]
+        // The template-voice test registry is process-wide; run in a
+        // child so a parallel test's clear cannot race this binding.
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "inspect_enemy_select_is_silent",
+            || {
+                // C++ CommandXlat.cpp:3502-3516 weeds to isLocallyControlled.
+                bind_select_voice();
+                let mut logic = two_player_logic();
+                let theirs = spawn(&mut logic, "SelectParityUnit", 1, 20.0);
+                logic.queued_audio_events.clear();
+                logic.select_objects(0, vec![theirs]);
+                assert_eq!(
+                    logic.get_player(0).expect("p0").selected_objects,
+                    vec![theirs]
+                );
+                assert!(
+                    queued_select_voices(&logic).is_empty(),
+                    "inspect-select enemy must not VoiceSelect: {:?}",
+                    logic.queued_audio_events
+                );
+                clear_test_template_voices();
+            },
         );
-        assert!(
-            queued_select_voices(&logic).is_empty(),
-            "inspect-select enemy must not VoiceSelect: {:?}",
-            logic.queued_audio_events
-        );
-        clear_test_template_voices();
     }
 
     #[test]
     fn local_select_plays_voice_select() {
-        bind_select_voice();
-        let mut logic = two_player_logic();
-        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
-        logic.queued_audio_events.clear();
-        logic.select_objects(0, vec![mine]);
-        assert_eq!(queued_select_voices(&logic), vec![TEST_VOICE_SELECT]);
-        clear_test_template_voices();
+        // The template-voice test registry is process-wide; run in a
+        // child so a parallel test's clear cannot race this binding.
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "local_select_plays_voice_select",
+            || {
+                bind_select_voice();
+                let mut logic = two_player_logic();
+                let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+                logic.queued_audio_events.clear();
+                logic.select_objects(0, vec![mine]);
+                assert_eq!(queued_select_voices(&logic), vec![TEST_VOICE_SELECT]);
+                clear_test_template_voices();
+            },
+        );
     }
 
     #[test]
     fn mixed_select_weeds_to_local_voice() {
-        bind_select_voice();
-        let mut logic = two_player_logic();
-        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
-        let theirs = spawn(&mut logic, "SelectParityUnit", 1, 20.0);
-        logic.queued_audio_events.clear();
-        logic.select_objects(0, vec![theirs, mine]);
-        let voices: Vec<_> = logic
-            .queued_audio_events
-            .iter()
-            .filter(|e| e.event_type == TEST_VOICE_SELECT)
-            .map(|e| e.object_id)
-            .collect();
-        assert_eq!(voices, vec![Some(mine)]);
-        clear_test_template_voices();
+        // The template-voice test registry is process-wide; run in a
+        // child so a parallel test's clear cannot race this binding.
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "mixed_select_weeds_to_local_voice",
+            || {
+                bind_select_voice();
+                let mut logic = two_player_logic();
+                let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+                let theirs = spawn(&mut logic, "SelectParityUnit", 1, 20.0);
+                logic.queued_audio_events.clear();
+                logic.select_objects(0, vec![theirs, mine]);
+                let voices: Vec<_> = logic
+                    .queued_audio_events
+                    .iter()
+                    .filter(|e| e.event_type == TEST_VOICE_SELECT)
+                    .map(|e| e.object_id)
+                    .collect();
+                assert_eq!(voices, vec![Some(mine)]);
+                clear_test_template_voices();
+            },
+        );
     }
 
     #[test]
     fn select_objects_no_sound_is_silent() {
-        // C++ MSG_CREATE_SELECTED_GROUP_NO_SOUND / ADD_TEAM / REMOVE_FROM_SELECTED_GROUP.
-        bind_select_voice();
-        let mut logic = two_player_logic();
-        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
-        logic.queued_audio_events.clear();
-        logic.select_objects_no_sound(0, vec![mine]);
-        assert_eq!(
-            logic.get_player(0).expect("p0").selected_objects,
-            vec![mine]
+        // The template-voice test registry is process-wide; run in a
+        // child so a parallel test's clear cannot race this binding.
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "select_objects_no_sound_is_silent",
+            || {
+                // C++ MSG_CREATE_SELECTED_GROUP_NO_SOUND / ADD_TEAM / REMOVE_FROM_SELECTED_GROUP.
+                bind_select_voice();
+                let mut logic = two_player_logic();
+                let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+                logic.queued_audio_events.clear();
+                logic.select_objects_no_sound(0, vec![mine]);
+                assert_eq!(
+                    logic.get_player(0).expect("p0").selected_objects,
+                    vec![mine]
+                );
+                assert!(
+                    queued_select_voices(&logic).is_empty(),
+                    "NO_SOUND / ADD_TEAM / deselect must not VoiceSelect: {:?}",
+                    logic.queued_audio_events
+                );
+                clear_test_template_voices();
+            },
         );
-        assert!(
-            queued_select_voices(&logic).is_empty(),
-            "NO_SOUND / ADD_TEAM / deselect must not VoiceSelect: {:?}",
-            logic.queued_audio_events
-        );
-        clear_test_template_voices();
     }
 
     #[test]
     fn reclick_create_selected_group_replays_voice() {
-        // C++ always posts MSG_CREATE_SELECTED_GROUP on re-click.
-        bind_select_voice();
-        let mut logic = two_player_logic();
-        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
-        logic.select_objects(0, vec![mine]);
-        logic.queued_audio_events.clear();
-        logic.queue_create_selected_group_voice(&[mine]);
-        assert_eq!(queued_select_voices(&logic), vec![TEST_VOICE_SELECT]);
-        logic.queued_audio_events.clear();
-        logic.queue_create_selected_group_voice(&[mine]);
-        assert_eq!(
-            queued_select_voices(&logic),
-            vec![TEST_VOICE_SELECT],
-            "re-click already-selected must replay VoiceSelect"
+        // The template-voice test registry is process-wide; run in a
+        // child so a parallel test's clear cannot race this binding.
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "reclick_create_selected_group_replays_voice",
+            || {
+                // C++ always posts MSG_CREATE_SELECTED_GROUP on re-click.
+                bind_select_voice();
+                let mut logic = two_player_logic();
+                let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+                logic.select_objects(0, vec![mine]);
+                logic.queued_audio_events.clear();
+                logic.queue_create_selected_group_voice(&[mine]);
+                assert_eq!(queued_select_voices(&logic), vec![TEST_VOICE_SELECT]);
+                logic.queued_audio_events.clear();
+                logic.queue_create_selected_group_voice(&[mine]);
+                assert_eq!(
+                    queued_select_voices(&logic),
+                    vec![TEST_VOICE_SELECT],
+                    "re-click already-selected must replay VoiceSelect"
+                );
+                clear_test_template_voices();
+            },
         );
-        clear_test_template_voices();
     }
 
     #[test]
