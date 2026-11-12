@@ -3526,6 +3526,16 @@ mod owned_out_of_ammo_tests {
             ..Weapon::default()
         });
         assert!(object.needs_return_to_base_rearm());
+        // Circling damage belongs to JetAIUpdate's CIRCLING_DEAD_AIRFIELD,
+        // entered when RETURN_TO_DEAD_AIRFIELD has finished its move. Put the
+        // jet in that return state with no remaining path or goal.
+        object.enter_jet_return_control(
+            true,
+            None,
+            frame,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        assert!(object.movement.path.is_empty() && object.movement.target_position.is_none());
         (world, jet, source)
     }
 
