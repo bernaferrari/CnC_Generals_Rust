@@ -26,13 +26,9 @@ fn admit_fixture_source(logic: &mut GameLogic, path: &str, text: &str, names: &[
     admit_fixture_content(logic, content, names);
 }
 
-fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingObjectContent {
-    use std::collections::BTreeSet;
+/// The licensed retail archive the receiving fixtures read their INI from.
+fn retail_archive() -> crate::assets::ArchiveFileSystem {
     use std::path::Path;
-    use std::sync::Arc;
-    // GameEngine.cpp:458 loads Default/Object.ini then the complete Object
-    // directory. Partial retail files cannot supply prerequisite/reskin
-    // identity. The archive, Science facts, and receiving owner stay local.
     let retail = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
@@ -45,6 +41,35 @@ fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingO
     let mut files = crate::assets::ArchiveFileSystem::new();
     files.add_search_path(retail.join("Command & Conquer Generals Zero Hour/Data"));
     pollster::block_on(files.init()).expect("licensed retail archive mounts");
+    files
+}
+
+/// Retail CommandButton.ini and CommandSet.ini. C++ loads both into the
+/// engine's own TheControlBar before NewGame (GameEngine.cpp:428-458,
+/// ControlBar.cpp:1060-1120); presentation reads only that catalog.
+fn retail_command_ini() -> String {
+    let mut files = retail_archive();
+    ["Data/INI/CommandButton.ini", "Data/INI/CommandSet.ini"]
+        .into_iter()
+        .map(|path| {
+            let bytes = files
+                .read_optional_definition_source(path)
+                .expect("retail command source read")
+                .unwrap_or_else(|| panic!("retail {path} exists"));
+            String::from_utf8(bytes).expect("retail command UTF-8")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingObjectContent {
+    use std::collections::BTreeSet;
+    use std::path::Path;
+    use std::sync::Arc;
+    // GameEngine.cpp:458 loads Default/Object.ini then the complete Object
+    // directory. Partial retail files cannot supply prerequisite/reskin
+    // identity. The archive, Science facts, and receiving owner stay local.
+    let mut files = retail_archive();
     let mut current = BTreeSet::new();
     let mut nested = BTreeSet::new();
     for path in files.list_all_files() {

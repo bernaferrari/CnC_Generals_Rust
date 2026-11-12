@@ -382,6 +382,7 @@ End
             "AmericaParticleCannonUplinkNamedButNoModule",
         ],
     );
+    logic.load_own_command_ini_for_test(&retail_command_ini());
 
     // Inspect the exact template produced by actual receiving admission,
     // including its immutable SpecialPower catalog and typed module roster.
