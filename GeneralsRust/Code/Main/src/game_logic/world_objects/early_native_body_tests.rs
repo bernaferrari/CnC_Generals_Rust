@@ -58,6 +58,13 @@ fn world_with_birth_mode(
     mode: GameMode,
 ) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
+    if mode == GameMode::SinglePlayer {
+        // GlobalData defaults every solo factor to 1.0; the 150% human Easy
+        // factor is retail GameData.ini content admitted at startup.
+        world
+            .admit_combat_bonus_ini_sources(["GameData\nHumanSoloPlayerHealthBonus_Easy = 150%\nEnd\n"])
+            .unwrap();
+    }
     world.prepare_native_command_mode(mode);
     world.prepare_native_command_difficulty(0);
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
