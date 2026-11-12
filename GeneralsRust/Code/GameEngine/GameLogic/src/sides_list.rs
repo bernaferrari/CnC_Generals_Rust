@@ -391,7 +391,11 @@ impl SidesList {
             };
             let mut input = DataChunkInput::new(data);
             let mut context = SkirmishScriptContext::default();
-            input.register_parser("PlayerScriptsList", "", parse_player_scripts_list_chunk);
+            input.register_parser(
+                "PlayerScriptsList",
+                "",
+                parse_skirmish_player_scripts_list_chunk,
+            );
             input.register_parser("ScriptsPlayers", "", parse_players_data_chunk);
             input.register_parser("ScriptTeams", "", parse_teams_data_chunk);
             if !input.parse(&mut context) {
@@ -815,7 +819,24 @@ fn parse_players_data_chunk(
             let _ = input.read_dict();
         }
     }
-    input.at_end_of_chunk()
+    // C++ only DEBUG_ASSERTCRASHes on leftover data and returns true.
+    debug_assert!(input.at_end_of_chunk(), "Unexpected data left over.");
+    true
+}
+
+/// C++ registers `ScriptList::ParseScriptsDataChunk`, which reads into
+/// ScriptList's own read state regardless of the parse user data
+/// (SidesList.cpp:494, Scripts.cpp:499-531). Here that state is the
+/// context's `script_lists`.
+fn parse_skirmish_player_scripts_list_chunk(
+    input: &mut DataChunkInput,
+    info: &DataChunkInfo,
+    user_data: &mut dyn std::any::Any,
+) -> bool {
+    let Some(context) = user_data.downcast_mut::<SkirmishScriptContext>() else {
+        return false;
+    };
+    parse_player_scripts_list_chunk(input, info, &mut context.script_lists)
 }
 
 fn parse_teams_data_chunk(
