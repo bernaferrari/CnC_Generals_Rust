@@ -147,7 +147,9 @@ impl FixtureObject {
             }
             text.push_str(" End\n");
         }
-        if self.walker {
+        // An Object has one AIUpdate; an authored specialised one (e.g.
+        // DozerAIUpdate) is the walker's brain (AIUpdate.h getAIUpdateInterface).
+        if self.walker && !self.modules.iter().any(|m| m.contains("AIUpdate")) {
             text.push_str(" Behavior = AIUpdateInterface FixtureBrain\n End\n");
         }
         for module in &self.modules {

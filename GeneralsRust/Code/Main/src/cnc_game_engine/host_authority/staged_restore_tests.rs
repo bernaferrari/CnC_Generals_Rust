@@ -981,14 +981,11 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                     Some([0.1, 0.2, 0.3])
                 );
                 let source_definitions = source.ai_definitions.snapshot();
-                let mut mover = crate::game_logic::ThingTemplate::new("StagedMovementUnit");
-                mover
-                    .add_kind_of(crate::game_logic::KindOf::Infantry)
-                    .set_health(100.0);
-                source.templates.insert(mover.name.clone(), mover);
+                // The mover is an Object of the admitted retail boot content
+                // (GameEngine.cpp:428-458), not a template inserted after it.
                 let mover_id = source
-                    .create_object("StagedMovementUnit", Team::USA, glam::Vec3::ZERO)
-                    .unwrap();
+                    .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+                    .expect("retail Ranger in the admitted boot content");
                 let saved_destination = glam::Vec3::new(23.0, 0.0, 24.0);
                 let frame = source.frame;
                 let (object, mut writer) = source

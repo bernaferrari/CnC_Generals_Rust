@@ -281,7 +281,7 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
         &[
             FixtureObject::new("OwnedFramePower").kind_of("STRUCTURE").energy(10).health(1000.0),
             FixtureObject::new("OwnedFrameBuilding").kind_of("STRUCTURE").build_time(1.0).health(500.0),
-            FixtureObject::new("OwnedFrameDozer").kind_of("VEHICLE DOZER").health(200.0).dozer(),
+            FixtureObject::new("OwnedFrameDozer").kind_of("VEHICLE DOZER").health(200.0).walker().dozer(),
         ],
     );
     // C++ Energy returns zero production for an unpowered player even when
@@ -289,40 +289,38 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     logic
         .create_object("OwnedFramePower", Team::USA, Vec3::new(40.0, 0.0, 40.0))
         .expect("actual power admission");
-    let id = logic
-        .create_object("OwnedFrameBuilding", Team::USA, Vec3::new(80.0, 0.0, 80.0))
-        .unwrap();
-    // Admit a real exclusive builder at the ACTION dock. C++ DozerAIUpdate
-    // advances construction only from this task; no ghost builder is permitted.
+    // The real BUILD request (DozerAIUpdate.cpp:1948-2008 newTask): the
+    // builder places an authored scaffold and its own DozerAIUpdate enters
+    // the construction phase; no target/AI state is written by hand.
     let dozer = logic
         .create_object("OwnedFrameDozer", Team::USA, Vec3::new(80.0, 0.0, 80.0))
-        .expect("actual docked builder");
-    let object = logic.host_object_mut(id).unwrap();
-    object.set_status_under_construction(true);
-    object.construction_percent = 0.99;
-    object.builder_id = Some(dozer);
-    let frame = logic.frame;
-    let (builder, attack_events) = logic.host_object_and_attack_events_mut(dozer).unwrap();
-    builder.set_target(
-        Some(id),
-        frame,
-        attack_events,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    builder.set_ai_state(
-        AIState::Constructing,
-        frame,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    builder.set_dozer_task_build_target(Some(id));
-    builder.status.moving = false;
-    builder.set_dozer_dock_action(Some(builder.get_position()));
+        .expect("actual builder");
+    let owner = logic.host_object(dozer).unwrap().owner_player_id.expect("builder owner");
+    let id = logic
+        .create_dozer_scaffold(
+            "OwnedFrameBuilding",
+            owner,
+            dozer,
+            Vec3::new(80.0, 0.0, 80.0),
+            0.0,
+            crate::game_logic::Resources::default(),
+        )
+        .expect("scaffold factory")
+        .expect("authored scaffold");
+    assert!(logic.dozer_new_task_build(dozer, id).unwrap());
     shadow.sync_from_host(&logic);
-    // Sleepy UpdateModules cannot wake before frame 1. Frame 0 preserves the
-    // scaffold; the next actual frame performs completion and its observation.
-    advance_owned(&mut logic, Some(&mut shadow));
+    // Advance owned frames until the builder's first BUILD contribution.
+    for _ in 0..600 {
+        advance_owned(&mut logic, Some(&mut shadow));
+        if logic.host_object(id).unwrap().construction_percent > 0.0 {
+            break;
+        }
+    }
+    assert!(logic.host_object(id).unwrap().construction_percent > 0.0);
     assert!(logic.host_object(id).unwrap().status.under_construction);
     assert!(!logic.construction_events.has_pending(id));
+    // One more BUILD frame (1 / 30 of a one-second BuildTime) completes it.
+    logic.host_object_mut(id).unwrap().construction_percent = 0.99;
     advance_owned(&mut logic, Some(&mut shadow));
     assert!(!logic.host_object(id).unwrap().status.under_construction);
     assert!(logic.construction_events.has_pending(id));
