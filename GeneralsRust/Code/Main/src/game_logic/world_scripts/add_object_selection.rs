@@ -101,6 +101,7 @@ impl GameLogic {
         self.validate_host_object_admission(object.id)?;
         let prepared = self.prepare_external_host_object_team(&object, interpreter, effects)?;
         let id = self.admit_external_object_to_prepared_team(object, prepared)?;
+        self.choose_admitted_ai_locomotor(id);
         self.partition_manager.attach_receiving_object(
             self.objects
                 .get_mut(&id)
@@ -108,6 +109,32 @@ impl GameLogic {
         );
         self.host_radar_add_object_with_effects(id, effects);
         Ok(id)
+    }
+
+    /// C++ `AIUpdateInterface` ctor (AIUpdate.cpp:278) calls
+    /// `chooseLocomotorSet(LOCOMOTORSET_NORMAL)`, which jams the authored set
+    /// and runs `chooseGoodLocomotorFromCurrentSet` (AIUpdate.cpp:792-872): a
+    /// newborn AI owns `m_curLocomotor` before any movement phase. Only an
+    /// authored INI Locomotor set qualifies (no name heuristics), and an
+    /// Object that already carries a current Locomotor keeps it.
+    pub(in crate::game_logic) fn choose_admitted_ai_locomotor(&mut self, id: ObjectId) {
+        let Some((pos, layer)) = self
+            .objects
+            .get(&id)
+            .filter(|unit| {
+                unit.selected_locomotor_definition.is_none()
+                    && unit.thing().template.authored_locomotor_sets.is_some()
+                    && unit.has_ai_update_interface()
+            })
+            .map(|unit| (unit.get_position(), unit.pathfind_layer))
+        else {
+            return;
+        };
+        let cell_type = self.pathfinding_system.grid.locomotor_cell_type(pos, layer);
+        let store = self.locomotor_definitions.receiving();
+        if let Some(mut unit) = self.objects.get_mut(&id) {
+            unit.choose_good_locomotor_from_current_set(cell_type, store);
+        }
     }
 
     /// Compatibility ingress: duplicate IDs are a caller error, never an

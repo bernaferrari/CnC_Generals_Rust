@@ -2363,6 +2363,9 @@ impl GameLogic {
                 object.set_drawable_hidden(true);
             }
             self.try_admit_host_object(object)?;
+            // C++ AIUpdateInterface ctor chooses the NORMAL Locomotor set and
+            // its current member before any onCreate callback (AIUpdate.cpp:278).
+            self.choose_admitted_ai_locomotor(id);
             // Capture the admitted object's birth before any factory/onCreate
             // callback can synchronously remove it and reuse its numeric ID.
             let birth = (self.objects.get(&id)
