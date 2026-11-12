@@ -556,14 +556,9 @@ fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
         .map(|o| o.id);
     existing.or_else(|| {
         let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0));
-        // Prefer retail USA_Dozer when the catalog has it.
-        if logic.templates.contains_key("USA_Dozer") {
-            logic
-                .create_object("USA_Dozer", Team::USA, pos)
-                .or_else(|| logic.create_object("GoldenDozer", Team::USA, pos))
-        } else {
-            logic.create_object("GoldenDozer", Team::USA, pos)
-        }
+        let name = first_present_template(logic, &["AmericaVehicleDozer", "USA_Dozer"])
+            .unwrap_or_else(|| "GoldenDozer".into());
+        logic.create_object(&name, Team::USA, pos)
     })
 }
 
@@ -629,11 +624,17 @@ fn stamp_supply_center_producer_set(logic: &mut GameLogic, id: ObjectId) {
     }
 }
 
-/// First catalog template name that exists, in preference order.
+/// First template, in preference order, that this world's ThingFactory can
+/// build. C++ ThingFactory::findTemplate knows only INI-loaded templates, so
+/// once Object content is admitted a host-synthesized alias (USA_*, Golden*)
+/// is not a candidate even when the host catalog carries a projection of it.
 fn first_present_template(logic: &GameLogic, candidates: &[&str]) -> Option<String> {
     candidates
         .iter()
-        .find(|name| logic.templates.contains_key(**name))
+        .find(|name| match &logic.receiving_module_content {
+            Some(content) => content.admitted_template(name).is_some(),
+            None => logic.templates.contains_key(**name),
+        })
         .map(|s| (*s).to_string())
 }
 
@@ -1905,8 +1906,8 @@ fn run_map_world_skirmish(
     let power_name = first_present_template(
         logic,
         &[
-            "USA_PowerPlant",
             "AmericaPowerPlant",
+            "USA_PowerPlant",
             "AmericaColdFusionReactor",
             "ColdFusionReactor",
             "GoldenPower",
@@ -1936,8 +1937,8 @@ fn run_map_world_skirmish(
     let supply_name = first_present_template(
         logic,
         &[
-            "USA_SupplyCenter",
             "AmericaSupplyCenter",
+            "USA_SupplyCenter",
             "GoldenSupplyCenter",
         ],
     )
@@ -2020,7 +2021,7 @@ fn run_map_world_skirmish(
         .unwrap_or(false);
 
     // Prefer retail USA_Barracks; fall back to golden Barracks if construct fails.
-    let retail_barracks = first_present_template(logic, &["USA_Barracks", "AmericaBarracks"]);
+    let retail_barracks = first_present_template(logic, &["AmericaBarracks", "USA_Barracks"]);
     let barracks_candidates: Vec<String> = match retail_barracks {
         Some(name) => vec![name, "Barracks".into()],
         None => vec!["Barracks".into()],
@@ -2143,7 +2144,7 @@ fn run_map_world_skirmish(
     if let Some(bid) = barracks_id {
         ensure_human_economy(logic, 10_000, 500);
         let ranger_candidates: Vec<String> =
-            match first_present_template(logic, &["USA_Ranger", "AmericaInfantryRanger"]) {
+            match first_present_template(logic, &["AmericaInfantryRanger", "USA_Ranger"]) {
                 Some(name) => vec![name, "GoldenRanger".into()],
                 None => vec!["GoldenRanger".into()],
             };
@@ -2848,7 +2849,7 @@ mod tests {
         logic.update();
         logic.headless_camera_view_offer(33).unwrap();
         let bname =
-            first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
+            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks", "Barracks"])
                 .unwrap_or_else(|| "Barracks".into());
         // Wave 829: reveal FOW then pick an LBC_OK pad (edge margin + shroud).
         for _ in 0..5 {
@@ -2898,7 +2899,7 @@ mod tests {
         logic.update();
         logic.headless_camera_view_offer(33).unwrap(); // apply vision for post-load spawned dozer
         let bname =
-            first_present_template(&logic, &["USA_Barracks", "AmericaBarracks", "Barracks"])
+            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks", "Barracks"])
                 .unwrap_or_else(|| "Barracks".into());
         for _ in 0..5 {
             logic.update();
