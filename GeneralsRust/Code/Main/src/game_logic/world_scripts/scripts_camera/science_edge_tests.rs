@@ -5,8 +5,11 @@
 use super::*;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::science::{
-    SCIENCE_INVALID, ScienceInfo, ScienceStore, get_science_store, get_science_store_mut,
-    init_science_store,
+    SCIENCE_INVALID, ScienceInfo, ScienceNameFacts, ScienceStore, get_science_store,
+    get_science_store_mut,
+};
+use game_engine::common::thing::{
+    module_factory::ModuleFactory, receiving_module_content::ReceivingModuleContent,
 };
 use gamelogic::player::{Player as LogicPlayer, PlayerList, player_list};
 use gamelogic::scripting::core::{
@@ -57,7 +60,7 @@ fn flag_action(name: &str) -> Box<ScriptAction> {
 
 fn grant_action() -> Box<ScriptAction> {
     // The core action resolves the side by name and the science through the
-    // initialized ScienceStore, exactly like the authored script parameters.
+    // world's own ScienceStore, exactly like the authored script parameters.
     let mut action = ScriptAction::new(ScriptActionType::PlayerGrantScience);
     action
         .add_parameter(Parameter::with_string(ParameterType::Side, SIDE.into()))
@@ -89,31 +92,35 @@ fn set_named_indexed_legacy_player() {
     list.add_player(Arc::new(RwLock::new(player)));
 }
 
-struct ScienceStoreRestore(Option<ScienceStore>);
-
-impl ScienceStoreRestore {
-    fn install() -> Self {
-        // Exact-test child process isolates this real typed store fixture from
-        // other tests without relying on retail INI assets being loaded there.
-        if get_science_store_mut().is_none() {
-            init_science_store();
-        }
-        let mut store = get_science_store_mut().expect("ScienceStore initialized");
-        let previous = std::mem::replace(&mut *store, ScienceStore::new());
-        store.add_science(ScienceInfo::new(SCIENCE_INVALID, SCIENCE));
-        Self(Some(previous))
-    }
+fn science_definitions() -> ScienceStore {
+    let mut store = ScienceStore::new();
+    store.add_science(ScienceInfo::new(SCIENCE_INVALID, SCIENCE));
+    store
 }
 
-impl Drop for ScienceStoreRestore {
-    fn drop(&mut self) {
-        let Some(prev) = self.0.take() else {
-            return;
-        };
-        if let Some(mut slot) = get_science_store_mut() {
-            *slot = prev;
-        }
-    }
+/// C++ has one TheScienceStore per engine. Here the world owns it twice over:
+/// its receiving science facts (host grant) and its own CommonServices store
+/// (core PLAYER_GRANT_SCIENCE lookup, ScriptActions.cpp doPlayerGrantScience).
+fn world_with_science() -> GameLogic {
+    let mut modules = ModuleFactory::new();
+    modules.replace_receiving_science_facts(Arc::new(ScienceNameFacts::from_store(
+        &science_definitions(),
+    )));
+    let mut world = GameLogic::new();
+    world.receiving_module_content = Some(ReceivingModuleContent::new(modules));
+    world.with_own_services(|| {
+        *get_science_store_mut().expect("world ScienceStore") = science_definitions();
+    });
+    world.add_player(Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE));
+    world
+}
+
+fn engine_with(scripts: ScriptList) -> ScriptEngine {
+    let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .expect("script list");
+    engine
 }
 
 fn engine_flag(world: &GameLogic, name: &str) -> bool {
@@ -132,16 +139,7 @@ fn one_acquisition_edge_triggers_only_one_of_two_one_shot_observers() {
         module_path!(),
         "one_acquisition_edge_triggers_only_one_of_two_one_shot_observers",
         || {
-            let _science_store = ScienceStoreRestore::install();
-            let store = get_science_store().expect("ScienceStore initialized by test harness");
-            let science = store.get_science_from_internal_name(SCIENCE);
-            assert_ne!(science, game_engine::common::rts::science::SCIENCE_INVALID);
-            assert!(store.is_science_grantable(science));
-            drop(store);
-
-            let mut world = GameLogic::new();
-            world.add_player(Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE));
-            set_named_indexed_legacy_player();
+            let mut world = world_with_science();
 
             let mut scripts = ScriptList::new();
             scripts.append_script(script("grant_once", truth_condition(), grant_action()));
@@ -163,10 +161,15 @@ fn one_acquisition_edge_triggers_only_one_of_two_one_shot_observers() {
                 flag_action(OBSERVER_B),
             ));
 
-            let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
-            engine
-                .set_script_list_for_player(0, Some(Box::new(scripts)))
-                .expect("script list");
+            let engine = world.with_own_services(|| {
+                let store = get_science_store().expect("world ScienceStore");
+                let science = store.get_science_from_internal_name(SCIENCE);
+                assert_ne!(science, SCIENCE_INVALID);
+                assert!(store.is_science_grantable(science));
+                drop(store);
+                set_named_indexed_legacy_player();
+                engine_with(scripts)
+            });
             world.install_owned_script_engine(engine);
             world.scripts_loaded = true;
 
@@ -203,15 +206,8 @@ fn persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired() {
         module_path!(),
         "persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired",
         || {
-            let _science_store = ScienceStoreRestore::install();
-            let mut world = GameLogic::new();
-            let mut host = Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE);
-            assert!(host.grant_science(SCIENCE));
-            world.add_player(host);
-
-            // The live census says the science is owned, but the matching
-            // name/indexed legacy player is absent. C++ playerFromParam fails.
-            *player_list().write().expect("legacy player list") = PlayerList::new();
+            let mut world = world_with_science();
+            assert!(world.grant_player_science(0, SCIENCE));
 
             let mut scripts = ScriptList::new();
             scripts.append_script(script(
@@ -219,10 +215,12 @@ fn persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired() {
                 acquired_condition(),
                 flag_action(OBSERVER_A),
             ));
-            let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
-            engine
-                .set_script_list_for_player(0, Some(Box::new(scripts)))
-                .expect("script list");
+            // The live census says the science is owned, but the matching
+            // name/indexed legacy player is absent. C++ playerFromParam fails.
+            let engine = world.with_own_services(|| {
+                *player_list().write().expect("legacy player list") = PlayerList::new();
+                engine_with(scripts)
+            });
             world.install_owned_script_engine(engine);
             world.scripts_loaded = true;
             world.evaluate_and_execute_scripts(0.0);
@@ -242,50 +240,38 @@ fn owned_science_before_fresh_engine_has_no_acquisition_event() {
         module_path!(),
         "owned_science_before_fresh_engine_has_no_acquisition_event",
         || {
-            let _science_store = ScienceStoreRestore::install();
-
-            let mut world = GameLogic::new();
-            let mut host = Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE);
-            assert!(host.grant_science(SCIENCE));
-            world.add_player(host);
+            let mut world = world_with_science();
+            assert!(world.grant_player_science(0, SCIENCE));
 
             // Grant into a named/indexed legacy Player while there is no
             // ScriptEngine installed, then start a fresh owner with an empty
             // acquired-science queue. This is persistent ownership only.
-            let mut legacy = LogicPlayer::new(0);
-            legacy.set_player_name_key(NameKeyGenerator::name_to_key(SIDE));
-            {
-                let handle = player_list();
-                let mut list = handle.write().expect("legacy player list");
-                *list = PlayerList::new();
-                let player = Arc::new(RwLock::new(legacy));
-                let science = get_science_store()
-                    .unwrap()
-                    .get_science_from_internal_name(SCIENCE);
-                assert!(player.write().unwrap().grant_science(science));
-                list.add_player(player);
-            }
-
             let mut scripts = ScriptList::new();
             scripts.append_script(script(
                 "observe_no_new_acquisition",
                 acquired_condition(),
                 flag_action(OBSERVER_A),
             ));
-            let mut fresh = ScriptEngine::new_in_published_world().expect("fresh script engine");
-            assert!(
-                !fresh.is_science_acquired(
-                    0,
-                    get_science_store()
-                        .unwrap()
-                        .get_science_from_internal_name(SCIENCE),
-                    false
-                ),
-                "fresh engine starts with no event tail"
-            );
-            fresh
-                .set_script_list_for_player(0, Some(Box::new(scripts)))
-                .expect("script list");
+            let fresh = world.with_own_services(|| {
+                let science = get_science_store()
+                    .unwrap()
+                    .get_science_from_internal_name(SCIENCE);
+                let mut legacy = LogicPlayer::new(0);
+                legacy.set_player_name_key(NameKeyGenerator::name_to_key(SIDE));
+                let player = Arc::new(RwLock::new(legacy));
+                assert!(player.write().unwrap().grant_science(science));
+                let handle = player_list();
+                let mut list = handle.write().expect("legacy player list");
+                *list = PlayerList::new();
+                list.add_player(player);
+                drop(list);
+                let fresh = engine_with(scripts);
+                assert!(
+                    !fresh.is_science_acquired(0, science, false),
+                    "fresh engine starts with no event tail"
+                );
+                fresh
+            });
             world.install_owned_script_engine(fresh);
             world.scripts_loaded = true;
             world.evaluate_and_execute_scripts(0.0);
