@@ -282,19 +282,19 @@ fn compute_ground_path_infantry_line_passable_fallback() {
 fn script_formation_move_keeps_shared_obstacle_spine_and_group_speed() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
-    use crate::game_logic::{GameLogic, GridPos, KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, GridPos, Team};
     use glam::{Vec2, Vec3};
 
     let mut logic = GameLogic::new();
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("ScriptFormationInfantry")
+            .kind_of("INFANTRY SELECTABLE")
+            .health(100.0)
+            .walker()],
+    );
     logic.override_world_size(1024.0, 1024.0);
     logic.force_map_loaded_for_path_test(true);
-    let mut template = ThingTemplate::new("ScriptFormationInfantry");
-    template.add_kind_of(KindOf::Infantry);
-    template.add_kind_of(KindOf::Selectable);
-    template.set_health(100.0);
-    logic
-        .templates
-        .insert("ScriptFormationInfantry".to_string(), template.clone());
     let destination = Vec3::new(0.0, 0.0, 420.0);
     let wall_start = logic
         .pathfinding_system
@@ -312,13 +312,14 @@ fn script_formation_move_keeps_shared_obstacle_spine_and_group_speed() {
     }
 
     let mut members = Vec::new();
-    for (id, x, speed, offset) in [(8800, -5.0, 10.0, -20.0), (8801, 5.0, 20.0, 20.0)] {
-        let mut unit = Object::new(template.clone(), ObjectId(id), Team::USA);
-        unit.set_position(Vec3::new(x, 0.0, 5.0));
+    for (x, speed, offset) in [(-5.0, 10.0, -20.0), (5.0, 20.0, 20.0)] {
+        let id = logic
+            .create_object("ScriptFormationInfantry", Team::USA, Vec3::new(x, 0.0, 5.0))
+            .expect("authored formation member");
+        let unit = logic.host_object_mut(id).unwrap();
         unit.movement.max_speed = speed;
         unit.set_formation(91, Vec2::new(offset, 0.0));
-        logic.objects.insert(ObjectId(id), unit);
-        members.push(ObjectId(id));
+        members.push(id);
     }
 
     assert!(CommandExecutor::new(&mut logic, 0)
