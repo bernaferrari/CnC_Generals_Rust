@@ -233,15 +233,16 @@ fn authored(
     assert_eq!(owner.health.current, health as f32);
     assert!(owner.is_trainable());
     if armed {
+        let expected = if name.starts_with("Ground") { "DamagePromotionOrderBlast" } else { RULE };
         let rule = owner
             .selected_native_weapon_rule(0)
             .expect("admitted receiving weapon rule");
-        assert_eq!(rule.name, RULE);
+        assert_eq!(rule.name, expected);
         assert_eq!(rule.primary_damage, 100.0);
         assert_eq!(rule.projectile_name, "NONE");
         assert_eq!(owner.weapon.as_ref().unwrap().damage, 100.0);
         assert_eq!(owner.weapon.as_ref().unwrap().ammo, Some(8));
-        assert_eq!(owner.weapon_name_for_slot(0).as_deref(), Some(RULE));
+        assert_eq!(owner.weapon_name_for_slot(0).as_deref(), Some(expected));
     }
     id
 }
