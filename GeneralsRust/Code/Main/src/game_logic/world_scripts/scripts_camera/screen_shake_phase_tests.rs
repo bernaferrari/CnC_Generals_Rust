@@ -10,6 +10,11 @@ use gamelogic::scripting::engine::ScriptEngine;
 use std::sync::Arc;
 
 fn world() -> (GameLogic, [ObjectId; 2]) {
+    world_fx(None)
+}
+/// FXList.ini is receiving-session content; the world admits it before
+/// any Object exists.
+fn world_fx(catalog: Option<&game_client::fx_list::FXListStore>) -> (GameLogic, [ObjectId; 2]) {
     let source = r#"Object ImmediateShakeVictim
 KindOf = INERT IMMOBILE
 Body = ActiveBody Body
@@ -31,6 +36,9 @@ End
 End
 "#;
     let mut world = GameLogic::new();
+    if let Some(catalog) = catalog {
+        world.admit_fx_catalog(catalog.clone());
+    }
     world
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
@@ -68,16 +76,18 @@ End
     world.initialize_receiving_named_cache_for_fixture();
     (world, ids)
 }
-fn install_death_fx() {
+fn install_death_fx() -> game_client::fx_list::FXListStore {
     use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXList, FXNugget};
     let mut definition = FXList::new("FX_ImmediateShakeDeath".into());
     definition.add_nugget(FXNugget::ViewShake {
         shake_type: CameraShakeType::Normal,
     });
-    game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(
+    let mut catalog = game_client::fx_list::FXListStore::new();
+    catalog.add_fx_list(
         "FX_ImmediateShakeDeath".into(),
         game_client::fx_list::FXList::from_definition(&definition),
-    ); });
+    );
+    catalog
 }
 fn action(kind: ScriptActionType, parameter: Parameter) -> Box<ScriptAction> {
     let mut action = ScriptAction::new(kind);
@@ -115,9 +125,9 @@ fn actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_froz
         module_path!(),
         "actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_frozen_output",
         || {
-            install_death_fx();
-            let (mut source, ids) = world();
-            let (mut peer, peer_ids) = world();
+            let catalog = install_death_fx();
+            let (mut source, ids) = world_fx(Some(&catalog));
+            let (mut peer, peer_ids) = world_fx(Some(&catalog));
             assert_eq!(ids, peer_ids);
             let peer_before = peer.capture_camera_continuation().unwrap();
             let mut engine = ScriptEngine::new_in_published_world().unwrap();
@@ -171,7 +181,7 @@ fn actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_froz
             assert_eq!(source.session_view.capture(), source_before);
 
             // The ordinary Main evaluator uses the same full authored chain.
-            let (mut ordinary, _) = world();
+            let (mut ordinary, _) = world_fx(Some(&catalog));
             let mut script = Script::new();
             script.script_name = "ImmediateShakeChain".into();
             script.is_one_shot = true;

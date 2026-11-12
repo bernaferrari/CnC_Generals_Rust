@@ -30,8 +30,9 @@ impl game_client::fx_list::FXNugget for Observe {
             .unwrap();
     }
 }
-fn install() -> Receiver<(&'static str, Option<u32>)> {
+fn install() -> (Receiver<(&'static str, Option<u32>)>, game_client::fx_list::FXListStore) {
     let (send, receive) = channel();
+    let mut catalog = game_client::fx_list::FXListStore::new();
     for name in [DIE, ARMOR] {
         let mut definition = fx::FXList::new(name.into());
         definition.add_nugget(fx::FXNugget::ViewShake {
@@ -39,7 +40,7 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
         });
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(name, send.clone())));
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); });
+        catalog.add_fx_list(name.into(), list);
     }
     let mut rules = damage::DamageFX::new();
     for kind in [
@@ -52,9 +53,14 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
     damage::get_damage_fx_store_mut()
         .unwrap()
         .add_damage_fx(RULES.into(), rules);
-    receive
+    (receive, catalog)
 }
 fn world() -> (GameLogic, ObjectId) {
+    world_fx(None)
+}
+/// C++ FXList.ini is session content: the receiving world admits its
+/// catalog before any Object exists.
+fn world_fx(catalog: Option<&game_client::fx_list::FXListStore>) -> (GameLogic, ObjectId) {
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "physics_landing_phase.ini".into(),
         format!(
@@ -89,6 +95,9 @@ End
     let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
     definitions.register_template(ZERO_ARMOR, armor);
     let mut world = GameLogic::new();
+    if let Some(catalog) = catalog {
+        world.admit_fx_catalog(catalog.clone());
+    }
     world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
     world.add_player(Player::new(1, Team::USA, "Local", true));
     world.admit_receiving_module_content(content).unwrap();
@@ -156,9 +165,9 @@ fn bulk_stamp_kill_bit_runs_installed_die_before_armor_and_survives_encoded_cont
         module_path!(),
         "bulk_stamp_kill_bit_runs_installed_die_before_armor_and_survives_encoded_continuation",
         || {
-            let events = install();
-            let (mut owner, id) = world();
-            let (peer, peer_id) = world();
+            let (events, catalog) = install();
+            let (mut owner, id) = world_fx(Some(&catalog));
+            let (peer, peer_id) = world_fx(Some(&catalog));
             assert_eq!(id, peer_id);
             resting(&mut owner, id);
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -166,7 +175,7 @@ fn bulk_stamp_kill_bit_runs_installed_die_before_armor_and_survives_encoded_cont
             let bytes = bincode_legacy::serialize(&saved).unwrap();
             let decoded =
                 crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-            let (mut restored, restored_id) = world();
+            let (mut restored, restored_id) = world_fx(Some(&catalog));
             assert_eq!(id, restored_id);
             builder
                 .restore_from_snapshot(&decoded, &mut restored)
@@ -206,9 +215,9 @@ fn actual_shock_stun_fall_completes_installed_die_before_self_source_armor() {
         module_path!(),
         "actual_shock_stun_fall_completes_installed_die_before_self_source_armor",
         || {
-            let events = install();
-            let (mut owner, id) = world();
-            let (peer, peer_id) = world();
+            let (events, catalog) = install();
+            let (mut owner, id) = world_fx(Some(&catalog));
+            let (peer, peer_id) = world_fx(Some(&catalog));
             assert_eq!(id, peer_id);
             let (object, fixture_partition_object) =
                 owner.host_object_and_partition_mut(id).unwrap();

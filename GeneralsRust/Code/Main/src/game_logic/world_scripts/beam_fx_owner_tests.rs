@@ -22,14 +22,19 @@ fn native_particle_ground_hit_uses_receiving_camera_not_core_view() {
             definition.add_nugget(FXNugget::ViewShake {
                 shake_type: CameraShakeType::Normal,
             });
-            game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(
+            // FXList.ini is receiving-session content (FXList.cpp); each world
+            // admits the catalog before it dispatches.
+            let mut catalog = game_client::fx_list::FXListStore::new();
+            catalog.add_fx_list(
                 definition.name.to_string(),
                 game_client::fx_list::FXList::from_definition(&definition),
-            ); });
+            );
             let rules = game_engine::common::global_data::read().clone();
             assert!(rules.max_shake_range > 0. && rules.shake_normal_intensity > 0.);
             let mut owner = world();
             let mut peer = world();
+            owner.admit_fx_catalog(catalog.clone());
+            peer.admit_fx_catalog(catalog);
             let position = Vec3::new(10., 0., 12.);
             owner.session_view.target = position;
             peer.session_view.target = position + Vec3::X * rules.max_shake_range * 2.;

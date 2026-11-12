@@ -31,11 +31,16 @@ impl game_client::fx_list::FXNugget for ExpiryWitness {
 }
 
 #[cfg(feature = "game_client")]
-fn install_expiry_witness() -> std::sync::mpsc::Receiver<gamelogic::helpers::HostFxObjectPose> {
+fn install_expiry_witness(
+    world: &mut GameLogic,
+) -> std::sync::mpsc::Receiver<gamelogic::helpers::HostFxObjectPose> {
     let (send, receive) = std::sync::mpsc::channel();
     let mut fx = game_client::fx_list::FXList::new();
     fx.add_fx_nugget(Box::new(ExpiryWitness(send)));
-    game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list("OwnedFieldExpiryWitness".into(), fx); });
+    // FXList.ini is receiving-session content; this world admits the witness.
+    let mut catalog = game_client::fx_list::FXListStore::new();
+    catalog.add_fx_list("OwnedFieldExpiryWitness".into(), fx);
+    world.admit_fx_catalog(catalog);
     receive
 }
 
@@ -190,7 +195,7 @@ fn normal_lifetime_die(field: Field) {
         let (mut world, id, due) = spawned(field, inactive);
         #[cfg(feature = "game_client")]
         let events = {
-            let events = install_expiry_witness();
+            let events = install_expiry_witness(&mut world);
             world.add_player(Player::new(1, Team::USA, "FieldObserver", true));
             world
                 .world_services

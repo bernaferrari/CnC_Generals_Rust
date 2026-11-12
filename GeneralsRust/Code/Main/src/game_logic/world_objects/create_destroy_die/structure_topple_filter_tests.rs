@@ -7,15 +7,15 @@ fn frame_zero_topple_uses_receiving_active_body_constructor_damage_record() {
         module_path!(),
         "frame_zero_topple_uses_receiving_active_body_constructor_damage_record",
         || {
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             for (filter, expected) in [
                 ("DamageFXTypes = NONE", false),
                 ("DamageFXTypes = NONE +FLAME", false),
                 ("DamageFXTypes = NONE +EXPLOSION", true),
             ] {
-                let (mut owner, id) = world_with_filters(0, 10.0, None, filter);
+                let (mut owner, id) = world_fx(0, 10.0, None, filter, Some(&catalog));
                 let (mut peer, peer_id) =
-                    world_with_filters(7, 30.0, None, "DamageFXTypes = NONE +EXPLOSION");
+                    world_fx(7, 30.0, None, "DamageFXTypes = NONE +EXPLOSION", Some(&catalog));
                 assert_eq!(id, peer_id);
                 assert!(!owner.host_object(id).unwrap().is_inactive_body());
                 assert_eq!(owner.host_object(id).unwrap().last_damage_info_type, None);
@@ -49,14 +49,14 @@ fn owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation() {
         module_path!(),
         "owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation",
         || {
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             for (filter, hijacked, raw_hijacked) in [
                 ("DeathTypes = NONE", false, false),
                 ("VeterancyLevels = ALL -REGULAR", false, false),
                 ("RequiredStatus = HIJACKED", false, true),
                 ("ExemptStatus = HIJACKED", true, false),
             ] {
-                let (mut owner, id) = world_with_filters(0, 10.0, None, filter);
+                let (mut owner, id) = world_fx(0, 10.0, None, filter, Some(&catalog));
                 let object = owner.host_object_mut(id).unwrap();
                 object.selected = true;
                 object.status.selected = true;
@@ -78,11 +78,12 @@ fn owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation() {
                 assert_eq!(object.get_transform_matrix(), before);
                 assert_eq!(effects.try_iter().count(), 0, "{filter}");
             }
-            let (mut admitted, id) = world_with_filters(
+            let (mut admitted, id) = world_fx(
                 0,
                 10.0,
                 None,
                 "DeathTypes = NONE +NORMAL\nVeterancyLevels = NONE +VETERAN\nRequiredStatus = HIJACKED\nExemptStatus = BOOBY_TRAPPED",
+                Some(&catalog),
             );
             let object = admitted.host_object_mut(id).unwrap();
             object.status.hijacked = true;
@@ -106,10 +107,10 @@ fn actual_on_die_reads_death_type_from_its_same_id_owner() {
         module_path!(),
         "actual_on_die_reads_death_type_from_its_same_id_owner",
         || {
-            let effects = install_fx();
-            let (mut owner, id) = world_with_filters(0, 10.0, None, "DeathTypes = NONE +CRUSHED");
+            let (effects, catalog) = install_fx();
+            let (mut owner, id) = world_fx(0, 10.0, None, "DeathTypes = NONE +CRUSHED", Some(&catalog));
             let (mut peer, peer_id) =
-                world_with_filters(7, 30.0, None, "DeathTypes = NONE +CRUSHED");
+                world_fx(7, 30.0, None, "DeathTypes = NONE +CRUSHED", Some(&catalog));
             assert_eq!(id, peer_id);
             // The default kill helper deliberately asserts an admitted
             // toppler. Here the original DieMux must reject NORMAL after
@@ -180,9 +181,9 @@ fn damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion() {
         "damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion",
         || {
             const WEAPON: &str = "OwnedFilteredToppleWeapon";
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             install_crushing_weapon(WEAPON, 10.0);
-            let (mut owner, id) = world_with_filters(0, 10.0, Some(WEAPON), "DamageFXTypes = NONE");
+            let (mut owner, id) = world_fx(0, 10.0, Some(WEAPON), "DamageFXTypes = NONE", Some(&catalog));
             kill(&mut owner, id);
             // The source-less frame-zero kill retains CPP's constructor
             // record; do not invent a damage timestamp to apply the filter.
@@ -249,9 +250,9 @@ fn current_damage_type_is_observed_again_and_active_body_defaults_to_explosion()
         module_path!(),
         "current_damage_type_is_observed_again_and_active_body_defaults_to_explosion",
         || {
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             let (mut owner, id) =
-                world_with_filters(0, 10.0, None, "DamageFXTypes = NONE +FLAME +EXPLOSION");
+                world_fx(0, 10.0, None, "DamageFXTypes = NONE +FLAME +EXPLOSION", Some(&catalog));
             owner.frame = 1;
             assert!(
                 owner
@@ -312,8 +313,8 @@ fn filtered_saved_future_restores_actual_body_history_and_own_phase_state() {
         module_path!(),
         "filtered_saved_future_restores_actual_body_history_and_own_phase_state",
         || {
-            let effects = install_fx();
-            let (mut source, id) = world_with_filters(0, 10.0, None, "DamageFXTypes = NONE +FLAME");
+            let (effects, catalog) = install_fx();
+            let (mut source, id) = world_fx(0, 10.0, None, "DamageFXTypes = NONE +FLAME", Some(&catalog));
             source.frame = 1;
             kill(&mut source, id);
             assert_eq!(
@@ -332,7 +333,7 @@ fn filtered_saved_future_restores_actual_body_history_and_own_phase_state() {
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
             let (mut receiving, other) =
-                world_with_filters(0, 10.0, None, "DamageFXTypes = NONE +FLAME");
+                world_fx(0, 10.0, None, "DamageFXTypes = NONE +FLAME", Some(&catalog));
             assert_eq!(id, other);
             receiving.host_object_mut(id).unwrap().last_damage_info_type =
                 Some(crate::game_logic::combat::DamageType::Flame);

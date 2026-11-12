@@ -39,9 +39,6 @@ fn install() -> (Receiver<(&'static str, Option<u32>)>, game_client::fx_list::FX
         definition.add_nugget(fx::FXNugget::ViewShake {
             shake_type: fx::CameraShakeType::Normal,
         });
-        let mut list = game_client::fx_list::FXList::from_definition(&definition);
-        list.add_fx_nugget(Box::new(Observe(name, send.clone())));
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); });
         let mut owned = game_client::fx_list::FXList::from_definition(&definition);
         owned.add_fx_nugget(Box::new(Observe(name, send.clone())));
         catalog.add_fx_list(name.into(), owned);

@@ -36,8 +36,9 @@ impl game_client::fx_list::FXNugget for Observe {
             .unwrap();
     }
 }
-fn install() -> Receiver<Observation> {
+fn install() -> (Receiver<Observation>, game_client::fx_list::FXListStore) {
     let (sent, received) = channel();
+    let mut catalog = game_client::fx_list::FXListStore::new();
     for (name, die) in [
         ("FX_PhysicsReceivingTransition", false),
         ("FX_PhysicsReceivingDie", true),
@@ -48,14 +49,22 @@ fn install() -> Receiver<Observation> {
         });
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(die, sent.clone())));
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); });
+        catalog.add_fx_list(name.into(), list);
     }
-    received
+    (received, catalog)
 }
 const VICTIM: ObjectId = ObjectId(9701);
 const CRUSHER: ObjectId = ObjectId(9702);
 fn world(far: bool) -> GameLogic {
+    world_fx(far, None)
+}
+/// C++ FXList.ini is session content: the receiving world admits its
+/// catalog before any Object exists.
+fn world_fx(far: bool, catalog: Option<&game_client::fx_list::FXListStore>) -> GameLogic {
     let mut world = GameLogic::new();
+    if let Some(catalog) = catalog {
+        world.admit_fx_catalog(catalog.clone());
+    }
     world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
     world.add_player(Player::new(1, Team::USA, "Local", true));
     world.add_player(Player::new(2, Team::China, "Crusher", false));
@@ -159,9 +168,9 @@ fn crush_zero_then_huge_keeps_inline_owned_effects_and_receiving_crusher_pose() 
         module_path!(),
         "crush_zero_then_huge_keeps_inline_owned_effects_and_receiving_crusher_pose",
         || {
-            let events = install();
-            let mut owner = world(false);
-            let mut peer = world(true);
+            let (events, catalog) = install();
+            let mut owner = world_fx(false, Some(&catalog));
+            let mut peer = world_fx(true, Some(&catalog));
             for world in [&mut peer, &mut owner] {
                 assert!(world.apply_overlap_crush_check(CRUSHER, VICTIM, false));
                 assert_eq!(world.objects[&VICTIM].health.current, 100.);
@@ -196,7 +205,7 @@ fn movement_landing_self_fx_survives_reconstruction_without_replay_or_peer_mutat
         module_path!(),
         "movement_landing_self_fx_survives_reconstruction_without_replay_or_peer_mutation",
         || {
-            let events = install();
+            let (events, catalog) = install();
             // Keep a real, distinguishable compatibility View installed. Its
             // target, current impulse and committed offset must all survive
             // native construction, contact, restore and peer reset untouched.
@@ -229,8 +238,8 @@ fn movement_landing_self_fx_survives_reconstruction_without_replay_or_peer_mutat
                 })
             };
             let foreign_before = foreign_state();
-            let mut owner = world(false);
-            let mut peer = world(true);
+            let mut owner = world_fx(false, Some(&catalog));
+            let mut peer = world_fx(true, Some(&catalog));
             prepare_fall(&mut owner, false, true);
             prepare_fall(&mut peer, false, true);
             // Decode the actual PRE-contact object state into a detached
@@ -239,7 +248,7 @@ fn movement_landing_self_fx_survives_reconstruction_without_replay_or_peer_mutat
             let pre_contact_view = owner.session_view.capture();
             let pre_contact_objects =
                 [VICTIM, CRUSHER].map(|id| (id, serde_json::to_vec(&owner.objects[&id]).unwrap()));
-            let mut restored = world(false);
+            let mut restored = world_fx(false, Some(&catalog));
             restored.frame = owner.frame;
             restored.session_view.admit(pre_contact_view).unwrap();
             for (id, encoded) in pre_contact_objects {
@@ -308,8 +317,8 @@ fn rest_kill_fx_uses_null_request_source_after_retained_self_fall_source() {
         module_path!(),
         "rest_kill_fx_uses_null_request_source_after_retained_self_fall_source",
         || {
-            let events = install();
-            let mut owner = world(false);
+            let (events, catalog) = install();
+            let mut owner = world_fx(false, Some(&catalog));
             prepare_fall(&mut owner, false, false);
             owner.stamp_airborne_targets_from_locomotor(&[VICTIM]);
             assert!(owner.objects[&VICTIM].health.current > 70.);
@@ -338,9 +347,9 @@ fn shipping_motion_and_shock_destruction_route_actual_receiving_view_effects() {
         module_path!(),
         "shipping_motion_and_shock_destruction_route_actual_receiving_view_effects",
         || {
-            let events = install();
-            let mut owner = world(false);
-            let mut peer = world(true);
+            let (events, catalog) = install();
+            let mut owner = world_fx(false, Some(&catalog));
+            let mut peer = world_fx(true, Some(&catalog));
             prepare_fall(&mut owner, true, true);
             prepare_fall(&mut peer, true, true);
             for world in [&mut peer, &mut owner] {
@@ -350,7 +359,7 @@ fn shipping_motion_and_shock_destruction_route_actual_receiving_view_effects() {
             }
             assert_eq!(peer.session_view.impulse.intensity, 0.);
             assert!(owner.session_view.impulse.intensity > 0.);
-            let mut stunned = world(false);
+            let mut stunned = world_fx(false, Some(&catalog));
             let object = stunned.objects.get_mut(&VICTIM).unwrap();
             object.set_transform_matrix(Mat4::from_scale_rotation_translation(
                 Vec3::ONE,

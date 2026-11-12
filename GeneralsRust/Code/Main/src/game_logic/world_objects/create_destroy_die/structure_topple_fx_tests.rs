@@ -47,8 +47,9 @@ impl game_client::fx_list::FXNugget for Nugget {
             .unwrap();
     }
 }
-fn install_fx() -> Receiver<Effect> {
+fn install_fx() -> (Receiver<Effect>, game_client::fx_list::FXListStore) {
     let (events, received) = mpsc::channel();
+    let mut catalog = game_client::fx_list::FXListStore::new();
     for name in [
         "FX_OwnToppleStart",
         "FX_OwnToppleDelay",
@@ -62,10 +63,10 @@ fn install_fx() -> Receiver<Effect> {
             name,
             events: events.clone(),
         }));
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), fx); });
+        catalog.add_fx_list(name.into(), fx);
     }
     game_client::fx_list::register_fx_list_manager_bridge();
-    received
+    (received, catalog)
 }
 fn world(local: u32, x: f32) -> (GameLogic, ObjectId) {
     world_with_crushing(local, x, None)
@@ -78,6 +79,17 @@ fn world_with_filters(
     x: f32,
     weapon: Option<&str>,
     filters: &str,
+) -> (GameLogic, ObjectId) {
+    world_fx(local, x, weapon, filters, None)
+}
+/// FXList.ini is receiving-session content: the world admits its catalog
+/// before the toppling Object exists.
+fn world_fx(
+    local: u32,
+    x: f32,
+    weapon: Option<&str>,
+    filters: &str,
+    catalog: Option<&game_client::fx_list::FXListStore>,
 ) -> (GameLogic, ObjectId) {
     let crushing = weapon.map_or(String::new(), |weapon| {
         format!("    CrushingWeaponName = {weapon}\n    CrushingFX = FX_OwnToppleCrush\n")
@@ -123,6 +135,9 @@ End
         crate::assets::ReceivingObjectContent::from_sources([("owned-topple.ini".into(), source)])
             .unwrap();
     let mut world = GameLogic::new();
+    if let Some(catalog) = catalog {
+        world.admit_fx_catalog(catalog.clone());
+    }
     world.admit_receiving_module_content(content).unwrap();
     let definition = world.templates["AuthoredOwnTopple"]
         .structure_topple_definition
@@ -226,9 +241,9 @@ fn structure_topple_real_on_die_and_first_update_use_owned_visibility_pose_and_c
         module_path!(),
         "structure_topple_real_on_die_and_first_update_use_owned_visibility_pose_and_cpp_nudge",
         || {
-            let events = install_fx();
-            let (mut left, id) = world(0, 10.0);
-            let (mut right, other) = world(7, 100.0);
+            let (events, catalog) = install_fx();
+            let (mut left, id) = world_fx(0, 10.0, None, "", Some(&catalog));
+            let (mut right, other) = world_fx(7, 100.0, None, "", Some(&catalog));
             assert_eq!(id, other);
             let (_factory, _foreign) = foreign_core(id);
             shroud(&left, 0, id, ObjectShroudStatus::Clear);
@@ -324,8 +339,8 @@ fn structure_topple_saved_future_preserves_actual_phase_fx_and_incremental_matri
         module_path!(),
         "structure_topple_saved_future_preserves_actual_phase_fx_and_incremental_matrix",
         || {
-            let events = install_fx();
-            let (mut source, id) = world(0, 10.0);
+            let (events, catalog) = install_fx();
+            let (mut source, id) = world_fx(0, 10.0, None, "", Some(&catalog));
             shroud(&source, 0, id, ObjectShroudStatus::Clear);
             kill(&mut source, id);
             for frame in 0..6 {
@@ -335,7 +350,7 @@ fn structure_topple_saved_future_preserves_actual_phase_fx_and_incremental_matri
             let _: Vec<_> = events.try_iter().collect();
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
-            let (mut receiving, other) = world(0, 10.0);
+            let (mut receiving, other) = world_fx(0, 10.0, None, "", Some(&catalog));
             assert_eq!(id, other);
             builder
                 .restore_from_snapshot(&snapshot, &mut receiving)
@@ -391,8 +406,8 @@ fn structure_topple_done_fx_observes_pre_rotation_pose_and_finishes_once_this_fr
         module_path!(),
         "structure_topple_done_fx_observes_pre_rotation_pose_and_finishes_once_this_frame",
         || {
-            let events = install_fx();
-            let (mut owner, id) = world(0, 10.0);
+            let (events, catalog) = install_fx();
+            let (mut owner, id) = world_fx(0, 10.0, None, "", Some(&catalog));
             shroud(&owner, 0, id, ObjectShroudStatus::Clear);
             kill(&mut owner, id);
             let _: Vec<_> = events.try_iter().collect();
@@ -493,10 +508,10 @@ fn same_id_structure_topple_uses_each_receiving_solo_bonus_set() {
         "same_id_structure_topple_uses_each_receiving_solo_bonus_set",
         || {
             const WEAPON: &str = "OwnedSoloBonusToppleWeapon";
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             install_crushing_weapon(WEAPON, 10.0);
-            let (mut first, first_source) = world_with_crushing(0, 10.0, Some(WEAPON));
-            let (mut second, second_source) = world_with_crushing(7, 100.0, Some(WEAPON));
+            let (mut first, first_source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
+            let (mut second, second_source) = world_fx(7, 100.0, Some(WEAPON), "", Some(&catalog));
             assert_eq!(first_source, second_source);
             let entry = |value| game_engine::common::ini::ini_game_data::WeaponBonusEntry {
                 condition: "SOLO_HUMAN_EASY".into(),
@@ -546,10 +561,10 @@ fn crushing_fires_each_authored_weapon_point_and_includes_structures() {
         "crushing_fires_each_authored_weapon_point_and_includes_structures",
         || {
             const WEAPON: &str = "OwnedRepeatedToppleWeapon";
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             install_crushing_weapon(WEAPON, 10.0);
-            let (mut owner, source) = world_with_crushing(0, 10.0, Some(WEAPON));
-            let (mut peer, peer_source) = world_with_crushing(7, 100.0, Some(WEAPON));
+            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
+            let (mut peer, peer_source) = world_fx(7, 100.0, Some(WEAPON), "", Some(&catalog));
             assert_eq!(source, peer_source);
             let (_factory, _foreign) = foreign_core(source);
             kill(&mut owner, source);
@@ -607,9 +622,9 @@ fn crushing_completes_actual_victim_on_die_before_point_fx_and_next_shot() {
         "crushing_completes_actual_victim_on_die_before_point_fx_and_next_shot",
         || {
             const WEAPON: &str = "OwnedLethalToppleWeapon";
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             install_crushing_weapon(WEAPON, 100.0);
-            let (mut owner, source) = world_with_crushing(0, 10.0, Some(WEAPON));
+            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
             kill(&mut owner, source);
             effects.try_iter().for_each(drop);
             let position = glam::Vec3::new(20.0, 0.0, 12.0);
@@ -653,7 +668,7 @@ fn unsupported_crushing_template_rejects_before_owned_phase_cursor_or_fx() {
         "unsupported_crushing_template_rejects_before_owned_phase_cursor_or_fx",
         || {
             const WEAPON: &str = "OwnedUnsupportedToppleWeapon";
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             install_crushing_weapon(WEAPON, 100.0);
             gamelogic::weapon::with_weapon_store_mut(|store| {
                 let mut weapon = store.find_weapon_template(WEAPON).unwrap().as_ref().clone();
@@ -661,7 +676,7 @@ fn unsupported_crushing_template_rejects_before_owned_phase_cursor_or_fx() {
                 store.add_weapon_template(weapon);
             })
             .unwrap();
-            let (mut owner, source) = world_with_crushing(0, 10.0, Some(WEAPON));
+            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
             kill(&mut owner, source);
             effects.try_iter().for_each(drop);
             let before = bincode_legacy::serialize(
@@ -704,9 +719,9 @@ fn absent_crushing_source_never_uses_foreign_core_identity() {
         "absent_crushing_source_never_uses_foreign_core_identity",
         || {
             const WEAPON: &str = "OwnedAbsentToppleWeapon";
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             install_crushing_weapon(WEAPON, 100.0);
-            let (mut owner, source) = world_with_crushing(0, 10.0, Some(WEAPON));
+            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
             let (_factory, _foreign) = foreign_core(source);
             owner.objects.remove(&source);
             let position = glam::Vec3::new(20.0, 0.0, 12.0);
@@ -729,9 +744,9 @@ fn crushing_uses_actual_ground_below_a_receiving_world_bridge_deck() {
         "crushing_uses_actual_ground_below_a_receiving_world_bridge_deck",
         || {
             const WEAPON: &str = "OwnedGroundToppleWeapon";
-            let effects = install_fx();
+            let (effects, catalog) = install_fx();
             install_crushing_weapon(WEAPON, 10.0);
-            let (mut owner, source) = world_with_crushing(0, 10.0, Some(WEAPON));
+            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
             let mut map = gamelogic::system::map_loader::MapData::new();
             map.width = 30;
             map.height = 30;

@@ -570,8 +570,11 @@ impl crate::game_logic::GameLogic {
                     &mut client_real,
                 );
             };
+        // Same receiving-session catalog the production runtimes read
+        // (HostFxRuntime/ObjectFxRuntime::find_list), never a process store.
+        let catalog = &session_view.fx.catalog;
         let mut find_list =
-            |name: &str| game_client::fx_list::with_fx_list_store(|s| s.find_fx_list(name));
+            |name: &str| catalog.as_ref().and_then(|catalog| catalog.find_fx_list(name));
         let mut position_visible = |position: Option<&gamelogic::common::Coord3D>| {
             let (Some(player), Some(position)) = (player, position) else {
                 return false;

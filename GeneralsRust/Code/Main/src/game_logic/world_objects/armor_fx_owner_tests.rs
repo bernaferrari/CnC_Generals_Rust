@@ -39,8 +39,20 @@ impl game_client::fx_list::FXNugget for Observe {
             .unwrap();
     }
 }
-fn install() -> Receiver<Observed> {
+/// Session-owned FX content: C++ loads FXList.ini and DamageFX.ini into the
+/// running game's stores, so each receiving world admits its own catalogs.
+struct Content {
+    fx: game_client::fx_list::FXListStore,
+    damage_fx: rules::DamageFXStore,
+}
+impl Content {
+    fn world(&self) -> GameLogic {
+        world_admitting(Some(self), &[])
+    }
+}
+fn install() -> (Receiver<Observed>, Content) {
     let (sender, receiver) = channel();
+    let mut fx = game_client::fx_list::FXListStore::new();
     for name in [MINOR, MAJOR, VETERAN] {
         let mut definition = fx::FXList::new(name.into());
         definition.add_nugget(fx::FXNugget::ViewShake {
@@ -48,9 +60,7 @@ fn install() -> Receiver<Observed> {
         });
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(name, sender.clone())));
-        game_client::fx_list::with_fx_list_store_mut(|s| {
-            s.add_fx_list(name.into(), list);
-        });
+        fx.add_fx_list(name.into(), list);
     }
     let mut definition = rules::DamageFX::new();
     for dt in [
@@ -74,16 +84,14 @@ fn install() -> Receiver<Observed> {
     rules::parse_time(&mut ini, &mut definition, &["Default", "1000"]).unwrap();
     rules::parse_veterancy_time(&mut ini, &mut definition, &["VETERAN", "Default", "2000"])
         .unwrap();
-    rules::init_global_damage_fx_store();
-    rules::get_damage_fx_store_mut()
-        .unwrap()
-        .add_damage_fx(DEFINITION.into(), definition);
-    receiver
+    let mut damage_fx = rules::DamageFXStore::new();
+    damage_fx.add_damage_fx(DEFINITION.into(), definition);
+    (receiver, Content { fx, damage_fx })
 }
 fn world() -> GameLogic {
-    world_admitting(&[])
+    world_admitting(None, &[])
 }
-fn world_admitting(sources: &[(&str, &str)]) -> GameLogic {
+fn world_admitting(content: Option<&Content>, sources: &[(&str, &str)]) -> GameLogic {
     let mut world = GameLogic::new();
     if !sources.is_empty() {
         world
@@ -94,9 +102,9 @@ fn world_admitting(sources: &[(&str, &str)]) -> GameLogic {
             )
             .unwrap();
     }
-    world.admit_fx_definitions();
-    if let Some(definitions) = rules::get_damage_fx_store() {
-        world.damage_fx_definitions = definitions.clone();
+    if let Some(content) = content {
+        world.admit_fx_catalog(content.fx.clone());
+        world.damage_fx_definitions = content.damage_fx.clone();
     }
     world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
     world.add_player(Player::new(1, Team::USA, "Owner", true));
@@ -199,7 +207,7 @@ fn native_armor_fx_uses_receiving_camera_source_rank_and_current_source_pose() {
         module_path!(),
         "native_armor_fx_uses_receiving_camera_source_rank_and_current_source_pose",
         || {
-            let events = install();
+            let (events, content) = install();
             game_client::display::view::with_tactical_view(|view| {
                 use game_client::display::view::{CameraShakeType, Point3};
                 let at = Point3::new(-100000., -200000., 9.);
@@ -213,8 +221,8 @@ fn native_armor_fx_uses_receiving_camera_source_rank_and_current_source_pose() {
                 view.tick_impulse_shake();
             });
             let foreign = foreign_state();
-            let mut owner = world();
-            let mut peer = world();
+            let mut owner = content.world();
+            let mut peer = content.world();
             peer.session_view.target = Vec3::splat(100000.);
             owner.objects.get_mut(&SOURCE).unwrap().experience.level = VeterancyLevel::Veteran;
             owner.frame = 123;
@@ -248,8 +256,8 @@ fn native_armor_zero_throttle_and_healing_continue_after_object_view_restore() {
         module_path!(),
         "native_armor_zero_throttle_and_healing_continue_after_object_view_restore",
         || {
-            let events = install();
-            let mut owner = world();
+            let (events, content) = install();
+            let mut owner = content.world();
             owner.frame = 10;
             hit(&mut owner, 0., None, DamageType::Bullet);
             assert!(events.try_recv().is_err());
@@ -262,7 +270,7 @@ fn native_armor_zero_throttle_and_healing_continue_after_object_view_restore() {
             let before = owner.session_view.capture();
             let objects =
                 [VICTIM, SOURCE].map(|id| (id, serde_json::to_vec(&owner.objects[&id]).unwrap()));
-            let mut restored = world();
+            let mut restored = content.world();
             restored.frame = 10;
             restored.session_view.admit(before).unwrap();
             for (id, bytes) in objects {
@@ -318,8 +326,8 @@ fn native_armor_early_status_missing_source_and_capped_healing_keep_original_amo
         module_path!(),
         "native_armor_early_status_missing_source_and_capped_healing_keep_original_amounts",
         || {
-            let events = install();
-            let mut owner = world();
+            let (events, content) = install();
+            let mut owner = content.world();
             owner.objects.get_mut(&VICTIM).unwrap().last_damage_source = Some(SOURCE);
             owner.frame = 17;
             owner.objects.get_mut(&SOURCE).unwrap().experience.level = VeterancyLevel::Veteran;
@@ -361,8 +369,8 @@ fn native_armor_selection_observes_kill_credit_promotion_before_fx() {
         module_path!(),
         "native_armor_selection_observes_kill_credit_promotion_before_fx",
         || {
-            let events = install();
-            let mut owner = world();
+            let (events, content) = install();
+            let mut owner = content.world();
             owner.players.get_mut(&1).unwrap().alliance_team = 1;
             owner.players.get_mut(&2).unwrap().alliance_team = 2;
             assert_eq!(
@@ -403,8 +411,8 @@ fn native_residual_and_physics_armor_tails_use_their_receiving_services() {
         module_path!(),
         "native_residual_and_physics_armor_tails_use_their_receiving_services",
         || {
-            let events = install();
-            let mut owner = world();
+            let (events, content) = install();
+            let mut owner = content.world();
             owner.objects.get_mut(&SOURCE).unwrap().experience.level = VeterancyLevel::Veteran;
             owner.frame = 100;
             assert!(!owner.apply_residual_damage_owned(
@@ -417,7 +425,7 @@ fn native_residual_and_physics_armor_tails_use_their_receiving_services() {
             ));
             one(&events, VETERAN, Some(SOURCE));
             assert!(owner.session_view.impulse.intensity > 0.);
-            let mut falling = world();
+            let mut falling = content.world();
             falling.frame = 101;
             let victim = falling.objects.get_mut(&VICTIM).unwrap();
             victim.experience.level = VeterancyLevel::Veteran;
@@ -446,11 +454,11 @@ fn forwarded_hive_hit_runs_the_riders_own_armor_fx_and_kill_credit() {
         module_path!(),
         "forwarded_hive_hit_runs_the_riders_own_armor_fx_and_kill_credit",
         || {
-            let _definitions = install();
+            let (_events, content) = install();
             // Admitted HiveStructureBody + Contain, no SpawnBehavior: the
             // forwarded target is the real world-owned rider (VICTIM).
             let ini = "Object HiveArmorBunker\n KindOf = STRUCTURE SELECTABLE\n Body = HiveStructureBody BunkerBody\n PropagateDamageTypesToSlavesWhenExisting = SMALL_ARMS\n SwallowDamageTypesIfSlavesNotExisting = SMALL_ARMS\n MaxHealth = 5000\n InitialHealth = 5000\n End\n Behavior = TransportContain BunkerContain\n Slots = 5\n End\nEnd\n";
-            let mut owner = world_admitting(&[("HiveArmorBunker.ini", ini)]);
+            let mut owner = world_admitting(Some(&content), &[("HiveArmorBunker.ini", ini)]);
             owner.players.get_mut(&1).unwrap().alliance_team = 1;
             owner.players.get_mut(&2).unwrap().alliance_team = 2;
             let hive = owner
