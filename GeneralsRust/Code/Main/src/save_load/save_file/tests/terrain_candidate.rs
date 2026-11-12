@@ -145,6 +145,9 @@ fn prepared_terrain_candidate_changes_no_native_scorches_until_explicit_commit()
             use game_client::terrain::scorch_mesh::{
                 ScorchMark, add_terrain_scorch, clear_terrain_scorches, terrain_scorch_marks,
             };
+            // The native scorch owner is the client's TerrainVisual (C++
+            // GameClient constructs TheTerrainVisual before any load).
+            game_client::terrain::terrain_visual::init_terrain_visual().unwrap();
             clear_terrain_scorches();
             assert!(add_terrain_scorch([700., 800., 9.], 18., 1));
             let foreign_native = terrain_scorch_marks();
