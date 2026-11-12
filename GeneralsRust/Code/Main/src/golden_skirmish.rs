@@ -17,9 +17,8 @@
 //! - `combat_no_mopup_ok`: default true — mop-up destroy is opt-in (Wave 451).
 //! - `combat_no_teleport_ok`: pure `assign_unit_path` / Move into range + AttackObject;
 //!   no `set_position` range pull. Teleport pull is opt-in via `GOLDEN_ALLOW_TELEPORT_PULL=1`.
-//! - `combat_realistic_speed_ok`: march speed ≤ retail BasicHumanLocomotor (20 u/s).
-//!   Prefer host `locomotor_bootstrap` / Locomotor.ini bind at create_object; slice
-//!   lift remains only if create still used Movement::default (10).
+//! - `combat_realistic_speed_ok`: every ranger's own locomotor speed is positive and
+//!   ≤ retail BasicHumanLocomotor (20 u/s). The slice never writes speed or velocity.
 //! - `combat_store_damage_ok`: weapons keep WeaponStore/template damage (retail ranger ~5);
 //!   no slice-only damage floor (was 40).
 
@@ -89,8 +88,8 @@ pub struct GoldenSkirmishResult {
     pub combat_no_teleport_ok: bool,
     /// Wave 451: true when mop-up destroy was not used (default honest path).
     pub combat_no_mopup_ok: bool,
-    /// Honesty: true when slice march speed stayed ≤ retail infantry (~20 u/s).
-    /// Gates playable_claim on map path with combat_no_teleport_ok.
+    /// Honesty: every ranger's bound locomotor speed is in (0, retail 20 u/s];
+    /// the slice never writes speed. Gates playable_claim on map path with combat_no_teleport_ok.
     pub combat_realistic_speed_ok: bool,
     /// Honesty: true when weapons used store/template damage without a slice
     /// damage floor (retail RangerAdvancedCombatRifle ~5). Fail-closed residual.
@@ -121,7 +120,7 @@ struct VerticalSliceOutcome {
     combat_no_teleport_ok: bool,
     /// Wave 451: mop-up destroy not used (default honest path).
     combat_no_mopup_ok: bool,
-    /// March speed ≤ retail BasicHumanLocomotor (no 80 u/s assist).
+    /// Ranger locomotor speeds in (0, retail BasicHumanLocomotor], as bound.
     combat_realistic_speed_ok: bool,
     /// No slice damage floor above WeaponStore/template stats.
     combat_store_damage_ok: bool,
@@ -720,34 +719,25 @@ fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_po
     })
 }
 
-/// Retail BasicHumanLocomotor Speed (AmericaInfantryRanger). Host path should
-/// already bind ~20 via locomotor_bootstrap at create_object; this residual
-/// only lifts Movement::default (10) when a ranger lacks catalog bind.
+/// Retail BasicHumanLocomotor Speed (AmericaInfantryRanger, Locomotor.ini).
 const RETAIL_INFANTRY_SPEED: f32 = 20.0;
-/// Retail BasicHumanLocomotor Acceleration (dist/sec²).
-const RETAIL_INFANTRY_ACCEL: f32 = 100.0;
-/// Slice march speed cap = retail. Do not raise above 20 without clearing
-/// `combat_realistic_speed_ok` (honesty residual — see flags).
-const SLICE_MARCH_SPEED: f32 = RETAIL_INFANTRY_SPEED;
 /// Slice damage floor. 0 = keep WeaponStore/template damage (retail ranger ~5).
 /// Non-zero reintroduces the old clear assist and clears `combat_store_damage_ok`.
 const SLICE_DAMAGE_FLOOR: f32 = 0.0;
 
-/// Residual safety net: if create_object did not bind Locomotor catalog speed,
-/// lift host default (10) toward retail BasicHuman (20). No-op when catalog
-/// already set ~20. Also records damage-floor honesty. Returns
-/// `(combat_realistic_speed_ok, combat_store_damage_ok)`.
-fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) -> (bool, bool) {
-    let mut max_applied_speed = 0.0_f32;
+/// Reads each ranger's bound locomotor speed (never writes it) and applies
+/// the opt-in damage floor. Returns `(combat_realistic_speed_ok,
+/// combat_store_damage_ok, slowest_speed)`; a zero or above-retail speed is a
+/// real port gap the report surfaces instead of hiding.
+fn ranger_combat_residuals(logic: &mut GameLogic, rangers: &[ObjectId]) -> (bool, bool, f32) {
+    let mut speeds_ok = true;
+    let mut slowest = f32::INFINITY;
     let mut raised_damage = false;
     for &rid in rangers {
         if let Some(r) = logic.host_object_mut(rid) {
-            // Prefer create_object Locomotor.ini/seed bind; only fill gaps.
-            if r.movement.max_speed < SLICE_MARCH_SPEED {
-                r.movement.max_speed = SLICE_MARCH_SPEED;
-                r.movement.acceleration = r.movement.acceleration.max(RETAIL_INFANTRY_ACCEL);
-            }
-            max_applied_speed = max_applied_speed.max(r.movement.max_speed);
+            let speed = r.movement.max_speed;
+            speeds_ok &= speed > 0.0 && speed <= RETAIL_INFANTRY_SPEED + 0.01;
+            slowest = slowest.min(speed);
             if SLICE_DAMAGE_FLOOR > 0.0 {
                 if let Some(w) = r.weapon.as_mut() {
                     if w.damage < SLICE_DAMAGE_FLOOR {
@@ -758,11 +748,8 @@ fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) -> (boo
             }
         }
     }
-    let realistic_speed_ok =
-        max_applied_speed <= RETAIL_INFANTRY_SPEED + 0.01 || rangers.is_empty();
-    // Store damage honesty: no floor raise above template/WeaponStore values.
-    let store_damage_ok = !raised_damage;
-    (realistic_speed_ok, store_damage_ok)
+    let slowest = if slowest.is_finite() { slowest } else { 0.0 };
+    (speeds_ok && !rangers.is_empty(), !raised_damage, slowest)
 }
 
 /// Approach point well inside default weapon range (100) of an enemy.
@@ -915,8 +902,9 @@ fn fight_enemies_with_rangers(
         return Ok((false, false, false, false, false));
     }
 
-    // Prefer retail infantry speed + store weapon damage (no 80/40 assists).
-    let (realistic_speed_ok, store_damage_ok) = boost_ranger_march_speed(logic, rangers);
+    // Retail locomotor speed + store weapon damage as bound (no assists).
+    let (realistic_speed_ok, store_damage_ok, slowest_speed) =
+        ranger_combat_residuals(logic, rangers);
 
     let primary_hp_before = primary_target
         .and_then(|id| logic.host_object(id).map(|o| o.health.current))
@@ -935,8 +923,8 @@ fn fight_enemies_with_rangers(
     // before residual pull (prior 200 rounds was tuned for 80 u/s).
     const STALL_BEFORE_TELEPORT: u32 = 400;
     let mut cmd_id: u32 = 600;
-    // Matches boost_ranger_march_speed / SLICE_MARCH_SPEED.
-    const MARCH_SPEED: f32 = SLICE_MARCH_SPEED;
+    // Frame budgets follow the squad's real (slowest) bound speed.
+    let march_speed = slowest_speed.max(1.0);
     // Hard wall: large maps + multi-focus mini-marches hung the gate.
     const MAX_FIGHT_SIM_FRAMES: usize = 3_000;
     let mut fight_sim_frames: usize = 0;
@@ -966,16 +954,6 @@ fn fight_enemies_with_rangers(
                 for (i, rid) in live.iter().enumerate() {
                     let dest = approach_point(ep, i);
                     let _ = logic.assign_unit_path(*rid, dest, &[]);
-                    // Kick full speed immediately so accel ramp does not burn budget.
-                    if let Some(r) = logic.host_object_mut(*rid) {
-                        let pos = r.get_position();
-                        let dir = {
-                            let mut d = dest - pos;
-                            d.y = 0.0;
-                            d.normalize_or_zero()
-                        };
-                        r.movement.velocity = dir * r.movement.max_speed;
-                    }
                 }
 
                 // Distance-scaled march budget (cap so tests stay bounded).
@@ -986,7 +964,7 @@ fn fight_enemies_with_rangers(
                     / (live.len() as f32).max(1.0);
                 let dist = horiz_distance(centroid, ep);
                 // frames ≈ dist/speed * 30 + buffer; retail 20 u/s needs ~5250 for 3.5k maps.
-                let march_frames = ((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 300;
+                let march_frames = ((dist / march_speed) * 30.0) as usize + 300;
                 // 2400 frames at 20 u/s ≈ 1600 world units. 600 was shorter than
                 // typical skirmish spawn-to-CC distance, so the harness blamed
                 // pathfinding and teleported.
@@ -1079,7 +1057,7 @@ fn fight_enemies_with_rangers(
                 / (live.len() as f32).max(1.0);
             let dist = horiz_distance(centroid, ep);
             // Bound per-focus thrash so multi-base retarget cannot hang.
-            let mini = (((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 180).clamp(30, 450);
+            let mini = (((dist / march_speed) * 30.0) as usize + 180).clamp(30, 450);
             let used = run_until_budget(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep))?;
             materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(used);
@@ -1099,15 +1077,6 @@ fn fight_enemies_with_rangers(
                 for (i, rid) in live.iter().enumerate() {
                     let dest = approach_point(ep, i);
                     let _ = logic.assign_unit_path(*rid, dest, &[]);
-                    if let Some(r) = logic.host_object_mut(*rid) {
-                        let pos = r.get_position();
-                        let dir = {
-                            let mut d = dest - pos;
-                            d.y = 0.0;
-                            d.normalize_or_zero()
-                        };
-                        r.movement.velocity = dir * r.movement.max_speed;
-                    }
                 }
                 logic.queue_command(command(
                     cmd_id,
@@ -1343,20 +1312,10 @@ fn run_map_world_skirmish(
     // caller's trailing `frames` budget.
     let slice_start_frame = logic.get_frame();
     logic.set_ai_active(1, true);
-    // Colocate host AI rebuild soup with the map army so residual rebuilds
-    // (default GLA base is (200,0,200)) are not a second full-HP CC across the
-    // map that wipes the ranger squad after the primary map kill. AI stays
-    // active during production and may still rebuild — just near the fight.
 
     let base = usa_base_position(logic);
     // The map's own hostile primary; none means combat fails honestly.
     let map_enemy = find_map_enemy_structure(logic);
-    if let Some(eid) = map_enemy {
-        if let Some(ep) = logic.host_object(eid).map(|o| o.get_position()) {
-            // Offset slightly so AI soup does not stack on the map CC footprint.
-            logic.relocate_host_ai_base(1, ep + Vec3::new(40.0, 0.0, 40.0));
-        }
-    }
 
     let Some(dozer) = find_human_dozer(logic) else {
         return Ok(VerticalSliceOutcome::not_run());
@@ -1977,7 +1936,7 @@ pub fn run_golden_skirmish(
         && players_preserved_on_load
         && ai_structure_templates_retained
         && !ai_disabled_for_slice
-        // Fail-closed combat residuals: no set_position range pull, retail-ish march speed.
+        // Fail-closed combat residuals: no set_position range pull, retail locomotor speed.
         && outcome.combat_no_teleport_ok
         && outcome.combat_realistic_speed_ok;
     // Always fail-closed for full playability (shell_smoke parity).
@@ -2320,7 +2279,7 @@ mod tests {
             }
             if !result.combat_realistic_speed_ok {
                 eprintln!(
-                    "WARNING: combat_realistic_speed_ok=false (slice march speed above retail ~20): {}",
+                    "WARNING: combat_realistic_speed_ok=false (a ranger's bound locomotor speed is 0 or above retail 20): {}",
                     format_golden_report(&result)
                 );
             }
@@ -2432,7 +2391,7 @@ mod tests {
         }
         if !result.combat_realistic_speed_ok {
             eprintln!(
-                "WARNING: combat_realistic_speed_ok=false (slice speed assist > retail infantry); honesty residual only (playable_claim stays false): {}",
+                "WARNING: combat_realistic_speed_ok=false (a ranger's bound locomotor speed is 0 or above retail 20); honesty residual only (playable_claim stays false): {}",
                 format_golden_report(&result)
             );
         }
