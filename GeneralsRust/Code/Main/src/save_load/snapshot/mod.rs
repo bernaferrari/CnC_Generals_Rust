@@ -196,8 +196,7 @@ pub use terrain::*;
 pub use terrain_visual_save::{
     CHUNK_TERRAIN_VISUAL, PreparedTerrainVisual, admit_receiving_terrain_visual,
     capture_receiving_terrain_visual_with_water, capture_receiving_terrain_visual_xfer_bytes,
-    capture_terrain_visual_xfer_bytes, prepare_receiving_terrain_visual,
-    restore_terrain_visual_from_xfer_bytes,
+    prepare_receiving_terrain_visual,
 };
 pub use types::*;
 pub use w3d_ghost_save::{

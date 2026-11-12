@@ -64,14 +64,3 @@ pub fn admit_receiving_terrain_visual(
         .admit_logical(&mut terrain)
         .map_err(SaveLoadError::Corrupted)
 }
-
-// Standalone compatibility test/service APIs; actual archive paths never use
-// these ambient owner adapters. Native renderer ownership remains x3l7v work.
-pub fn capture_terrain_visual_xfer_bytes() -> SaveLoadResult<Vec<u8>> {
-    game_client::terrain::capture_live_terrain_visual_xfer_bytes()
-        .map_err(SaveLoadError::Serialization)
-}
-pub fn restore_terrain_visual_from_xfer_bytes(bytes: &[u8]) -> SaveLoadResult<()> {
-    game_client::terrain::restore_live_terrain_visual_from_xfer_bytes(bytes)
-        .map_err(SaveLoadError::Serialization)
-}

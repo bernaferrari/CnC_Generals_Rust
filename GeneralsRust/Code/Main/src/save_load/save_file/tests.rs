@@ -120,13 +120,6 @@ fn host_pause_save_writes_cpp_17_named_chunks_and_v2_header() {
 
 #[test]
 fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
-    game_client::terrain::clear_terrain_scorches();
-    assert!(game_client::terrain::add_terrain_scorch(
-        [88.0, 16.0, 4.0],
-        22.0,
-        1
-    ));
-
     let mut snapshot = WorldSnapshot::default();
     let particle_bytes =
         particle_candidate::local_particle_bytes("SavedFxFixture", Vec3::new(4.0, 5.0, 6.0));
@@ -172,15 +165,13 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
     );
     assert_eq!(particles.1, particle_bytes);
 
-    game_client::terrain::clear_terrain_scorches();
-    assert!(game_client::terrain::terrain_scorch_marks().is_empty());
-    restore_terrain_visual_from_xfer_bytes(&terrain.1).expect("restore scorches from chunk");
-    let marks = game_client::terrain::terrain_scorch_marks();
-    assert_eq!(marks.len(), 1);
-    assert_eq!(marks[0].location, [88.0, 16.0, 4.0]);
-    assert_eq!(marks[0].radius, 22.0);
-    assert_eq!(marks[0].scorch_type, 1);
-    game_client::terrain::clear_terrain_scorches();
+    // The receiving world prepares the chunk against its own terrain; the
+    // scorch tail survives for the native owner to commit after admission.
+    let prepared = prepare_receiving_terrain_visual(&terrain_owner, Some(&terrain.1))
+        .expect("prepare scorches from chunk")
+        .expect("terrain visual chunk present");
+    let marks = prepared.scorches().expect("scorch tail");
+    assert_eq!(marks, &explicit_marks[..]);
 }
 
 #[test]
@@ -763,10 +754,16 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
             let snapshot = WorldSnapshot::default();
             let mut save_info = fixture_save_info();
             save_info.save_type = SaveFileType::Mission;
-            let mission_bytes = SaveFileManager::write_common_sav_chunks(
+            // The writer saves the campaign owner it is handed (C++
+            // TheCampaignManager->xfer for CHUNK_Campaign).
+            let mission_bytes = SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
                 &snapshot,
                 &save_info,
+                &[],
+                None,
+                Path::new("Save"),
                 CPP_GAME_SINGLE_PLAYER,
+                &archive_campaign,
             )
             .expect("write mission sav");
             let decoded = SaveFileManager::read_common_sav_chunks(&mission_bytes, Path::new(""))
