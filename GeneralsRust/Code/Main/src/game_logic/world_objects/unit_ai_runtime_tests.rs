@@ -81,11 +81,18 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         ("still exiting", 9, Vec3::new(10.0, 0.0, 0.0), 2, false),
     ] {
         let mut world = GameLogic::new();
+        // Arrival is the current Locomotor's close-enough test (AIUpdate
+        // reads its engine's TheLocomotorStore), so the unit walks on an
+        // authored locomotor rather than a bare name.
+        crate::fixture_content::admit_fixture_objects(
+            &mut world,
+            &[crate::fixture_content::FixtureObject::new("UnitAiLifetime").walker()],
+        );
         world.frame = frame;
         let unit_id = ObjectId(934204);
         let guard_id = ObjectId(934205);
-        let mut unit = object(unit_id);
-        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        let template = world.templates["UnitAiLifetime"].clone();
+        let mut unit = Object::new(template, unit_id, Team::USA);
         unit.close_enough_dist = Some(1.0);
         unit.movement.path = vec![endpoint; points];
         unit.movement.target_position = Some(endpoint);
@@ -104,7 +111,8 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         let admitted = world.host_object_mut(unit_id).unwrap();
         admitted.set_guard_target_data(Some(guard_id));
         admitted.set_adjust_destinations(false);
-        world.add_object(object(guard_id));
+        let guard_template = world.templates["UnitAiLifetime"].clone();
+        world.add_object(Object::new(guard_template, guard_id, Team::USA));
         world
             .unit_ai_runtime_mut(unit_id)
             .unwrap()
