@@ -717,7 +717,12 @@ impl HostMineData {
     /// the body is destroyed. A 0-HP pad with remaining virtual mines must
     /// still chain-detonate (not silently vanish).
     pub fn defers_lethal_body_destroy(&self) -> bool {
-        matches!(self.kind, HostMineKind::LandMine) && !self.detonated && self.has_virtual_charge()
+        // MinefieldBehavior::onDamage runs before ActiveBody's die check. It
+        // either detonates remaining charges or, for an empty regenerating pad,
+        // restores MIN_HEALTH, so neither case dies on the Body hit itself.
+        matches!(self.kind, HostMineKind::LandMine)
+            && !self.detonated
+            && (self.has_virtual_charge() || self.regenerates)
     }
 
     /// C++ MinefieldBehavior::detonateOnce decrement + destroy gate.
