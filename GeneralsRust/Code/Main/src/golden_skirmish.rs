@@ -557,6 +557,18 @@ fn existing_or_dozer_built(
     }
     let site = find_legal_build_site_near(logic, base, &name, Some(dozer));
     let _ = march_unit_near(logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240)?;
+    // The world moved during the walk (the previous site finished, the Supply
+    // Center's factory exit and its Chinook appeared). A player clicks a pad
+    // that is legal when the order is given (C++ BuildAssistant::
+    // isLocationLegalToBuild runs on DozerConstruct), so re-pick if it went bad.
+    let site = {
+        use crate::game_logic::host_production_buildable_command_residual::LBC_OK;
+        if logic.legal_build_code_at_for_builder(Team::USA, site, &name, Some(dozer)) == LBC_OK {
+            site
+        } else {
+            find_legal_build_site_near(logic, base, &name, Some(dozer))
+        }
+    };
     logic.queue_command(command(
         command_id,
         0,
