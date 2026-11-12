@@ -79,8 +79,9 @@ fn cold_world_handlers_do_not_create_grid_or_reset_peer_admission() {
             // The peer uses the existing receiving-grid initializer with a
             // non-default admitted cell size. A query in `cold` must not touch it.
             let mut peer = GameLogic::new();
-            peer.world_width = 256.0;
-            peer.world_height = 192.0;
+            // PartitionManager::init sizes the grid from the map extent
+            // (TheTerrainLogic->getExtent), so author the extent itself.
+            peer.override_world_size(256.0, 192.0);
             peer.admit_camera_application_movement(
                 game_engine::common::ini::ini_game_data::CameraMovementRules {
                     partition_cell_size: 64.0,
