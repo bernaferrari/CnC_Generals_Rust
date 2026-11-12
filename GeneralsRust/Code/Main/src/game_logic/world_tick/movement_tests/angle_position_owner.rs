@@ -35,6 +35,9 @@ fn angle_min_speed_uses_same_thrust_position_kernel_without_changing_canonical_g
     object.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
     object.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     object.allow_motive_force_while_airborne = true;
+    // An airborne jet keeps its air Locomotor (JetAIUpdate
+    // friend_setAllowAirLoco(TRUE)); only a grounded jet swaps to TAXIING.
+    object.jet_ai.allow_air_loco = true;
     object.movement.max_speed = 30.0;
     object.movement.acceleration = 900.0;
     object.movement.turn_rate = 1.0;
