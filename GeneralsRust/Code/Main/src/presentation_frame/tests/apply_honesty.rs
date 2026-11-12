@@ -911,23 +911,27 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
 #[test]
 fn presentation_feeds_control_bar_garrison_inventory() {
     use crate::game_logic::{
-        KindOf, Player, Team, ThingTemplate,
+        Player, Team,
         buildings::{BuildingData, BuildingType},
     };
     let mut logic = crate::game_logic::GameLogic::new();
     // C++ ControlBar.cpp:1716-1778 — non-local selection is CB_CONTEXT_NONE
     // except beacons / neutral garrison peek; the local player owns this bunker.
+    // The bunker is garrisonable because it authors a GarrisonContain module
+    // (ControlBar.cpp:1850-1865 reads getContain()->isGarrisonable()).
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("GarrisonBunker")
+                .kind_of("STRUCTURE SELECTABLE")
+                .health(800.0)
+                .module("Behavior = GarrisonContain FixtureGarrison\n ContainMax = 5\nEnd"),
+            crate::fixture_content::FixtureObject::new("GarrisonRanger")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0),
+        ],
+    );
     logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut tb = ThingTemplate::new("GarrisonBunker");
-    tb.set_health(800.0);
-    tb.add_kind_of(KindOf::Structure);
-    tb.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("GarrisonBunker".into(), tb);
-    let mut tu = ThingTemplate::new("GarrisonRanger");
-    tu.set_health(100.0);
-    tu.add_kind_of(KindOf::Infantry);
-    tu.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("GarrisonRanger".into(), tu);
     let bunker = logic
         .create_object("GarrisonBunker", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("bunker");
@@ -1158,9 +1162,12 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
     let mut logic = GameLogic::new();
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
+        // A C++ Object leaves the world only through an authored DieModule
+        // (Object::onDie -> InstantDeathBehavior.cpp:150 destroyObject).
         &[crate::fixture_content::FixtureObject::new("FxTank")
             .kind_of("VEHICLE SELECTABLE")
-            .health(50.0)],
+            .health(50.0)
+            .instant_death()],
     );
 
     let attacker = logic

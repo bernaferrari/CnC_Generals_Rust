@@ -1489,26 +1489,10 @@ mod presentation_selection_tests {
                 unit.position.y
             );
         }
-        let opaque = include_str!(
-            "../../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/shader_system/opaque.wgsl"
-        );
-        assert!(
-            opaque.contains("fn sample_projected_shadow"),
-            "forward pass must sample a live projected shadow"
-        );
-        assert!(
-            opaque.contains("fn sample_csm_pcf"),
-            "forward pass must PCF-sample the live cascade map"
-        );
-        assert!(
-            opaque.contains("textureSampleCompare"),
-            "CSM PCF must sample the bound depth array"
-        );
-        assert!(
-            opaque.contains("@group(1) @binding(3)"),
-            "cascade shadow map must be a live bind, not a comment"
-        );
-        assert!(opaque.contains("shadow_factor"));
+        // W3D mesh lighting has no shadow term; C++ shadows are stencil
+        // volumes and projected decals (W3DShadow.cpp), so the forward pass
+        // samples no cascade map (asserted by the renderer crate's
+        // live_cascade_shadow tests). The blob discs above are that decal pass.
     }
 
     #[test]

@@ -121,14 +121,14 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("HudUnit").kind_of("INFANTRY").health(75.0).walker(),
+            crate::fixture_content::FixtureObject::new("HudUnit").kind_of("INFANTRY").health(75.0).walker().model("HudUnitModel"),
             victory_keep_alive(),
         ],
     );
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     seed_victory_keep_alive(&mut logic);
     let id = logic
-        .create_object("HudUnit", Team::USA, glam::Vec3::new(9.0, 0.0, -4.0))
+        .create_object("HudUnit", Team::USA, glam::Vec3::new(9.0, 0.0, 4.0))
         .expect("unit");
     if let Some(o) = logic.host_object_mut(id) {
         o.selected = true;
@@ -145,12 +145,12 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
         .find(|o| o.id == id)
         .expect("object in snapshot");
     assert!((obj.position.x - 9.0).abs() < 0.01);
-    assert!((obj.position.z + 4.0).abs() < 0.01);
+    assert!((obj.position.z - 4.0).abs() < 0.01);
     assert_eq!(obj.health_current, 75.0);
     assert_eq!(obj.health_max, 75.0);
     assert_eq!(obj.team, Team::USA);
     assert!(obj.selected);
-    assert_eq!(obj.model_key.as_deref(), Some("HudUnit"));
+    assert_eq!(obj.model_key.as_deref(), Some("HudUnitModel"));
 
     let mut ui = crate::ui::GameUIState::default();
     snap.apply_to_ui_state(&mut ui);
