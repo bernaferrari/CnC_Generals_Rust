@@ -363,6 +363,11 @@ impl HeadlessSkirmish {
         Ok(game)
     }
 
+    /// The instance's world, for read-only observation between frames.
+    pub fn logic(&self) -> &GameLogic {
+        &self.logic
+    }
+
     /// Advance one logic frame.
     pub fn advance(&mut self) {
         self.logic.with_own_services_mut(GameLogic::update);

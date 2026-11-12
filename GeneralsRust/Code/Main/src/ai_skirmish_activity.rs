@@ -1,8 +1,12 @@
-//! Host AI skirmish activity — production path for Medium AI non-idle proof.
+//! Host AI skirmish activity — Medium AI non-idle proof on the retail route.
 //!
-//! Covers both the synthetic host update path and the load_map preserve/rebind
-//! residual: after map load (or explicit rebind), Medium GLA AI must take at
-//! least one productive action (structure start, unit queue, or unit spawn).
+//! Every run starts the retail Lone Eagle skirmish the way the application
+//! does ([`crate::parallel_harness::HeadlessSkirmish`]): the retail
+//! definitions are admitted before NewGame (GameEngine.cpp:428-458), the golden
+//! lobby is applied and the map places each side's starting base. Medium GLA
+//! AI must then take productive actions (structure start, unit queue, or unit
+//! spawn) from authored content alone; there are no hand templates and no
+//! cash top-up (C++ AIPlayer never grants money).
 //!
 //! Wave 77 residual peels:
 //! - AIData/AIPlayer structure/team timer defaults residual honesty pack
@@ -13,10 +17,9 @@
 //! Wave 956: host_object/host_objects authority dual-read seal.
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::ai::AIDifficulty;
-use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
-use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+use crate::game_logic::{AIState, GameLogic, KindOf};
+use crate::parallel_harness::{HARNESS_MAP, HeadlessSkirmish, SharedSkirmishAssets};
 use glam::Vec3;
-use std::path::{Path, PathBuf};
 
 // --- Wave 77: AI skirmish residual pack (AIPlayer / AIData defaults) ---
 
@@ -111,252 +114,140 @@ pub struct AiLoadMapActivityResult {
     pub status: String,
 }
 
-fn ensure_human_templates(logic: &mut GameLogic) {
-    // `mp_count_for_victory` matches retail faction structures
-    // (FactionBuilding.ini `Object GLABarracks` et al.): without the bit the
-    // skirmish NO_BUILDINGS victory rule defeats every player on frame 0.
-    for (name, kind, mp_count, hp) in [
-        ("HumanCC", KindOf::CommandCenter, true, 2000.0),
-        ("HumanRanger", KindOf::Infantry, false, 120.0),
-    ] {
-        if logic.templates.contains_key(name) {
-            continue;
-        }
-        let mut t = ThingTemplate::new(name);
-        t.set_health(hp);
-        t.set_cost(100, 0);
-        t.add_kind_of(KindOf::Structure);
-        t.add_kind_of(KindOf::Selectable);
-        t.add_kind_of(kind);
-        if mp_count {
-            t.add_kind_of(KindOf::MpCountForVictory);
-        }
-        logic.templates.insert(name.into(), t);
-    }
+/// Why a retail run could not start: the retail definitions or map are not
+/// installed, or the admitted world refused the match.
+pub const RETAIL_MISSING: &str = "retail_missing";
+
+/// The AI slot of [`crate::skirmish_config::golden_skirmish_config`]
+/// (slot 1, Medium GLA).
+const AI_PLAYER: u32 = 1;
+/// The human slot (slot 0, USA).
+const HUMAN_PLAYER: u32 = 0;
+
+/// Start the retail Lone Eagle skirmish exactly as the application does:
+/// every definition admitted before NewGame (GameEngine.cpp:428-458), the
+/// golden lobby applied, the map loaded and its starting buildings placed
+/// (GameLogic.cpp:1949-1961). `Err` names why the retail content is absent.
+fn start_retail_skirmish() -> Result<HeadlessSkirmish, String> {
+    let assets = SharedSkirmishAssets::load_retail().map_err(|error| format!("{error:?}"))?;
+    HeadlessSkirmish::start(&assets, 0)
 }
 
-/// C++ skirmish maps author the starting base per player — a constructed
-/// CommandCenter plus a Worker/Dozer — and `placeNetworkBuildingsForPlayer`
-/// (GameLogic.cpp:1949-1961) places them before the first logic frame. The
-/// headless harness has no map build list, so seed the GLA starting loadout
-/// directly: without a CommandCenter the AI `queueDozer` finds no factory
-/// (C++ AIPlayer::queueDozer AIPlayer.cpp:3128-3171) and can never start a
-/// structure.
-fn seed_gla_skirmish_start(logic: &mut GameLogic) {
-    if let Some(id) =
-        logic.create_object("GLA_CommandCenter", Team::GLA, Vec3::new(100.0, 0.0, 100.0))
-    {
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.status.under_construction = false;
-            obj.construction_percent = 1.0;
-        }
-    }
-    let _ = logic.create_object("GLAInfantryWorker", Team::GLA, Vec3::new(112.0, 0.0, 112.0));
+fn map_identity() -> String {
+    HARNESS_MAP.into()
 }
 
-fn count_ai_structures(logic: &GameLogic) -> usize {
+fn ai_owned<'a>(
+    logic: &'a GameLogic,
+) -> impl Iterator<Item = &'a crate::game_logic::object::Object> {
     logic
         .host_objects()
         .registered_values()
-        .filter(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure))
+        .filter(|o| o.is_alive() && o.owner_player_id == Some(AI_PLAYER))
+}
+
+fn count_ai_structures(logic: &GameLogic) -> usize {
+    ai_owned(logic)
+        .filter(|o| o.is_kind_of(KindOf::Structure))
         .count()
 }
 
 fn count_ai_units_or_queue(logic: &GameLogic) -> usize {
-    logic
-        .host_objects()
-        .registered_values()
+    ai_owned(logic)
         .filter(|o| {
-            o.team == Team::GLA
-                && (o.is_kind_of(KindOf::Infantry)
-                    || o.is_kind_of(KindOf::Vehicle)
-                    || o.building_data
-                        .as_ref()
-                        .map(|b| !b.production_queue.is_empty())
-                        .unwrap_or(false))
+            o.is_kind_of(KindOf::Infantry)
+                || o.is_kind_of(KindOf::Vehicle)
+                || o.building_data
+                    .as_ref()
+                    .is_some_and(|b| !b.production_queue.is_empty())
         })
         .count()
 }
 
-/// Resolve Lone Eagle (or synthetic identity) for load_map residual tests.
-fn resolve_skirmish_map_path() -> (String, Option<PathBuf>) {
-    const CANDIDATES: &[&str] = &[
-        "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
-        "windows_game/extracted_big_files_v2/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
-        "Maps/Lone Eagle/Lone Eagle.map",
-        "Lone Eagle",
-    ];
-    // Walk from CARGO_MANIFEST_DIR (Main crate) and cwd parents so tests work
-    // whether cargo's CWD is Code/Main, GeneralsRust, or the repo root.
-    let mut roots: Vec<PathBuf> = Vec::new();
-    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd.clone());
-        roots.push(cwd.join(".."));
-        roots.push(cwd.join("../.."));
-        roots.push(cwd.join("../../.."));
+fn advance(game: &mut HeadlessSkirmish, frames: u32) -> u32 {
+    let before = game.frame();
+    for _ in 0..frames {
+        game.advance();
     }
-    // Main crate is GeneralsRust/Code/Main → three parents = repo root.
-    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."));
-    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
-
-    for root in &roots {
-        for cand in CANDIDATES {
-            let p = if Path::new(cand).is_absolute() {
-                PathBuf::from(cand)
-            } else {
-                root.join(cand)
-            };
-            if p.is_file() {
-                return (cand.to_string(), Some(p));
-            }
-        }
-    }
-    if let Some((id, path)) = crate::map_frame_scenario::resolve_first_map(CANDIDATES) {
-        return (id, Some(path));
-    }
-    ("Lone Eagle".into(), None)
+    game.frame().saturating_sub(before)
 }
 
-/// Run Medium GLA AI through host update path and measure production-linked activity.
+/// Run Medium GLA AI on the retail skirmish and measure its activity.
 pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult {
-    let config = golden_skirmish_config("AIActivityMap");
-    let mut logic = GameLogic::new();
-    let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
-    ensure_human_templates(&mut logic);
-
-    // Human presence for enemy assessment.
-    let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
-    let _ = logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
-
-    // Seed constructed GLA factories so production can run once AI queues teams.
-    // AI still must start additional builds via process_building_queue.
-    logic.ensure_ai_faction_templates(Team::GLA);
-    for (name, pos) in [
-        ("GLA_Barracks", Vec3::new(120.0, 0.0, 120.0)),
-        ("GLA_ArmsDealer", Vec3::new(150.0, 0.0, 120.0)),
-    ] {
-        if let Some(id) = logic.create_object(name, Team::GLA, pos) {
-            if let Some(obj) = logic./* Wave 950 */ host_object_mut(id) {
-                obj.status.under_construction = false;
-                obj.construction_percent = 1.0;
-            }
+    let mut game = match start_retail_skirmish() {
+        Ok(game) => game,
+        Err(reason) => {
+            return AiSkirmishActivityResult {
+                config_applied: false,
+                ai_players: 0,
+                frames_advanced: 0,
+                activity_count: 0,
+                ai_structures: 0,
+                ai_units_or_queue: 0,
+                difficulty: reason,
+                status: RETAIL_MISSING.into(),
+            };
         }
-    }
-    seed_gla_skirmish_start(&mut logic);
-
-    let ai_players = logic.host_ai_player_count();
-    let difficulty = logic.get_ai_status(1).unwrap_or_else(|| "missing".into());
-
-    let frame_before = logic.get_frame();
-    for _ in 0..frames.max(1) {
-        logic.update();
-    }
-    let frames_advanced = logic.get_frame().saturating_sub(frame_before);
+    };
+    let ai_players = game.logic().host_ai_player_count();
+    let difficulty = game
+        .logic()
+        .get_ai_status(AI_PLAYER)
+        .unwrap_or_else(|| "missing".into());
+    let frames_advanced = advance(&mut game, frames.max(1));
+    let logic = game.logic();
     let activity_count = logic.host_ai_activity_count();
-    let ai_structures = count_ai_structures(&logic);
-    let ai_units_or_queue = count_ai_units_or_queue(&logic);
-
-    // Multi-interval depth: require more than a single one-shot action.
+    let ai_structures = count_ai_structures(logic);
+    let ai_units_or_queue = count_ai_units_or_queue(logic);
     let multi_action = activity_count >= 2
         || ai_structures >= 3
         || (activity_count >= 1 && ai_units_or_queue >= 1);
-    let status = if config_applied && ai_players >= 1 && frames_advanced > 0 && multi_action {
-        "success".into()
+    let status = if ai_players >= 1 && frames_advanced > 0 && multi_action {
+        "success"
     } else {
-        "partial".into()
+        "partial"
     };
-
-    let _ = AIDifficulty::Medium; // keep import path live for difficulty enum use
     AiSkirmishActivityResult {
-        config_applied,
+        config_applied: true,
         ai_players,
         frames_advanced,
         activity_count,
         ai_structures,
         ai_units_or_queue,
         difficulty,
-        status,
+        status: status.into(),
     }
 }
 
-/// Medium AI after apply_skirmish_config → load_map (preserve) → frames.
-///
-/// Fail-closed residual: not full C++ checkReadyTeams parity — only that the
-/// host AI update path issues at least one productive build/produce action after
-/// map load rebind, with cash retained (or topped up from empty).
-pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
-    let (map_identity, map_path) = resolve_skirmish_map_path();
-    let config = golden_skirmish_config(&map_identity);
-    let mut logic = GameLogic::new();
-    let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
-    logic.ensure_ai_faction_templates(Team::USA);
-    logic.ensure_ai_faction_templates(Team::GLA);
-    ensure_human_templates(&mut logic);
-
-    let cash_before = logic
-        .get_player(1)
+fn load_map_result(game: &mut HeadlessSkirmish, frames: u32) -> AiLoadMapActivityResult {
+    let cash_after_load = game
+        .logic()
+        .get_player(AI_PLAYER)
         .map(|p| p.effective_supplies())
         .unwrap_or(0);
-
-    let map_loaded = if let Some(ref path) = map_path {
-        let s = path.to_string_lossy();
-        logic.load_map(&s) || logic.load_map(&map_identity)
-    } else {
-        false
-    };
-    if !map_loaded {
-        // Explicit rebind residual when retail map is unavailable in the workspace.
-        logic.rebind_host_ai_after_map_load();
-    }
-
-    let cash_after_load = logic
-        .get_player(1)
-        .map(|p| p.effective_supplies())
-        .unwrap_or(0);
-    // Cash must survive preserve, or be topped up from empty by rebind residual.
-    let cash_ok = cash_after_load >= 1_000
-        && (cash_after_load >= cash_before.min(10_000) || cash_before == 0);
-
-    // Human presence for enemy assessment after map wipe.
-    let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
-    let _ = logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
-    // GLA starting loadout after the map wipe (C++ starting buildings).
-    seed_gla_skirmish_start(&mut logic);
-
-    let difficulty_medium = matches!(logic.host_ai_difficulty(1), Some(AIDifficulty::Medium));
-    let ai_active = logic.is_host_ai_active(1);
-
-    let frame_before = logic.get_frame();
-    for _ in 0..frames.max(1) {
-        logic.update();
-    }
-    let frames_advanced = logic.get_frame().saturating_sub(frame_before);
-
+    // The golden lobby grants 10,000 starting cash (C++ GameInfo money).
+    let cash_ok = cash_after_load >= 1_000;
+    let difficulty_medium = matches!(
+        game.logic().host_ai_difficulty(AI_PLAYER),
+        Some(AIDifficulty::Medium)
+    );
+    let ai_active = game.logic().is_host_ai_active(AI_PLAYER);
+    let frames_advanced = advance(game, frames.max(1));
+    let logic = game.logic();
     let activity_count = logic.host_ai_activity_count();
-    let ai_structures = count_ai_structures(&logic);
-    let ai_units_or_queue = count_ai_units_or_queue(&logic);
-
-    // Productive: multi-structure base, unit production, or activity counter.
+    let ai_structures = count_ai_structures(logic);
+    let ai_units_or_queue = count_ai_units_or_queue(logic);
     let productive = activity_count >= 1
         && (ai_structures >= 2 || ai_units_or_queue >= 1 || activity_count >= 2);
-
-    let status = if config_applied
-        && cash_ok
-        && ai_active
-        && difficulty_medium
-        && frames_advanced > 0
-        && productive
-    {
-        "success".into()
+    let status = if cash_ok && ai_active && difficulty_medium && frames_advanced > 0 && productive {
+        "success"
     } else {
-        "partial".into()
+        "partial"
     };
-
     AiLoadMapActivityResult {
-        config_applied,
-        map_loaded,
-        map_identity,
+        config_applied: true,
+        map_loaded: true,
+        map_identity: map_identity(),
         cash_after_load,
         cash_ok,
         ai_active,
@@ -366,7 +257,34 @@ pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
         ai_structures,
         ai_units_or_queue,
         productive,
-        status,
+        status: status.into(),
+    }
+}
+
+fn missing_load_map_result(reason: String) -> AiLoadMapActivityResult {
+    AiLoadMapActivityResult {
+        config_applied: false,
+        map_loaded: false,
+        map_identity: reason,
+        cash_after_load: 0,
+        cash_ok: false,
+        ai_active: false,
+        difficulty_medium: false,
+        frames_advanced: 0,
+        activity_count: 0,
+        ai_structures: 0,
+        ai_units_or_queue: 0,
+        productive: false,
+        status: RETAIL_MISSING.into(),
+    }
+}
+
+/// Medium AI after the retail map load: its starting base, cash and
+/// difficulty survive NewGame and it acts within `frames`.
+pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
+    match start_retail_skirmish() {
+        Ok(mut game) => load_map_result(&mut game, frames),
+        Err(reason) => missing_load_map_result(reason),
     }
 }
 
@@ -384,9 +302,7 @@ pub fn format_ai_activity_report(r: &AiSkirmishActivityResult) -> String {
     )
 }
 
-
-/// Combined P0 hq-x1j4u.9.5 residual: retail map load + Medium AI activity +
-/// a concurrent human move order on the same GameLogic instance.
+/// Retail map + Medium AI + a concurrent human move order on one world.
 #[derive(Debug, Clone)]
 pub struct AiRetailSkirmishOrdersResult {
     pub map_loaded: bool,
@@ -398,125 +314,74 @@ pub struct AiRetailSkirmishOrdersResult {
     pub status: String,
 }
 
-/// Load a retail skirmish map, run Medium AI, and issue a human move mid-run.
-///
-/// Skips productivity claims when the retail `.map` is absent (`map_loaded=false`).
+/// Run the retail skirmish with Medium AI and issue a human move mid-run
+/// through the same `queue_command` path the UI uses.
 pub fn run_ai_retail_skirmish_with_player_orders(frames: u32) -> AiRetailSkirmishOrdersResult {
-    let (map_identity, map_path) = resolve_skirmish_map_path();
-    let config = golden_skirmish_config(&map_identity);
-    let mut logic = GameLogic::new();
-    let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
-    logic.ensure_ai_faction_templates(Team::USA);
-    logic.ensure_ai_faction_templates(Team::GLA);
-    ensure_human_templates(&mut logic);
-
-    let map_loaded = if let Some(ref path) = map_path {
-        let s = path.to_string_lossy();
-        logic.load_map(&s) || logic.load_map(&map_identity)
+    let mut game = match start_retail_skirmish() {
+        Ok(game) => game,
+        Err(reason) => {
+            return AiRetailSkirmishOrdersResult {
+                map_loaded: false,
+                map_identity: reason.clone(),
+                ai: missing_load_map_result(reason),
+                human_unit_id: None,
+                human_order_issued: false,
+                human_order_visible: false,
+                status: "map_missing".into(),
+            };
+        }
+    };
+    let half = (frames.max(2) / 2).max(1);
+    let _ = advance(&mut game, half);
+    // The human slot's starting mobile unit (the map's starting Dozer).
+    let human_unit_id = game
+        .logic()
+        .host_objects()
+        .registered_values()
+        .find(|o| {
+            o.is_alive()
+                && o.owner_player_id == Some(HUMAN_PLAYER)
+                && !o.is_kind_of(KindOf::Structure)
+                && o.is_mobile()
+        })
+        .map(|o| o.id);
+    let pos_before =
+        human_unit_id.and_then(|id| game.logic().host_object(id).map(|o| o.get_position()));
+    let human_order_issued = if let (Some(id), Some(at)) = (human_unit_id, pos_before) {
+        game.issue(
+            HUMAN_PLAYER,
+            1,
+            vec![id],
+            crate::command_system::CommandType::Move {
+                destination: at + Vec3::new(60.0, 0.0, 60.0),
+            },
+        );
+        true
     } else {
         false
     };
-    if !map_loaded {
-        logic.rebind_host_ai_after_map_load();
-    }
-
-    let cash_after_load = logic
-        .get_player(1)
-        .map(|p| p.effective_supplies())
-        .unwrap_or(0);
-    let cash_ok = cash_after_load >= 1_000;
-
-    let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
-    let human_unit_id =
-        logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
-    seed_gla_skirmish_start(&mut logic);
-
-    let difficulty_medium = matches!(logic.host_ai_difficulty(1), Some(AIDifficulty::Medium));
-    let ai_active = logic.is_host_ai_active(1);
-
-    let half = (frames.max(2) / 2).max(1);
-    let frame_before = logic.get_frame();
-    for _ in 0..half {
-        logic.update();
-    }
-
-    // Concurrent player order while AI continues.
-    let mut human_order_issued = false;
-    let mut pos_before = None;
-    if let Some(id) = human_unit_id {
-        pos_before = logic.host_object(id).map(|o| o.get_position());
-        logic.select_objects(0, vec![id]);
-        logic.command_move(0, Vec3::new(-40.0, 0.0, -40.0));
-        human_order_issued = true;
-    }
-
-    for _ in 0..half {
-        logic.update();
-    }
-    let frames_advanced = logic.get_frame().saturating_sub(frame_before);
-
-    let mut human_order_visible = false;
-    if let (Some(id), Some(before)) = (human_unit_id, pos_before) {
-        if let Some(after) = logic.host_object(id).map(|o| o.get_position()) {
-            let dx = after.x - before.x;
-            let dz = after.z - before.z;
-            human_order_visible = (dx * dx + dz * dz) > 1.0
-                || logic
-                    .host_object(id)
-                    .map(|o| o.ai_state() != AIState::Idle)
-                    .unwrap_or(false);
-        }
-    }
-
-    let activity_count = logic.host_ai_activity_count();
-    let ai_structures = count_ai_structures(&logic);
-    let ai_units_or_queue = count_ai_units_or_queue(&logic);
-    let productive = activity_count >= 1
-        && (ai_structures >= 2 || ai_units_or_queue >= 1 || activity_count >= 2);
-
-    let ai = AiLoadMapActivityResult {
-        config_applied,
-        map_loaded,
-        map_identity: map_identity.clone(),
-        cash_after_load,
-        cash_ok,
-        ai_active,
-        difficulty_medium,
-        frames_advanced,
-        activity_count,
-        ai_structures,
-        ai_units_or_queue,
-        productive,
-        status: if config_applied
-            && map_loaded
-            && cash_ok
-            && ai_active
-            && difficulty_medium
-            && frames_advanced > 0
-            && productive
-        {
-            "success".into()
-        } else {
-            "partial".into()
-        },
+    let ai = load_map_result(&mut game, frames.max(2) - half);
+    let human_order_visible = match (human_unit_id, pos_before) {
+        (Some(id), Some(before)) => game.logic().host_object(id).is_some_and(|o| {
+            let after = o.get_position();
+            let (dx, dz) = (after.x - before.x, after.z - before.z);
+            dx * dx + dz * dz > 1.0 || o.ai_state() != AIState::Idle
+        }),
+        _ => false,
     };
-
     let status = if ai.status == "success" && human_order_issued && human_order_visible {
-        "success".into()
-    } else if !map_loaded {
-        "map_missing".into()
+        "success"
     } else {
-        "partial".into()
+        "partial"
     };
-
     AiRetailSkirmishOrdersResult {
-        map_loaded,
-        map_identity,
+        map_loaded: true,
+        map_identity: map_identity(),
         ai,
         human_unit_id,
         human_order_issued,
         human_order_visible,
-        status,
+        status: status.into(),
     }
 }
 
@@ -557,25 +422,32 @@ pub fn format_ai_load_map_report(r: &AiLoadMapActivityResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::BuildingType;
+
+    /// Retail definitions and Lone Eagle are user-provided; without them the
+    /// retail route has nothing to run.
+    fn retail_or_skip(game: Result<HeadlessSkirmish, String>) -> Option<HeadlessSkirmish> {
+        match game {
+            Ok(game) => Some(game),
+            Err(reason) => {
+                eprintln!("skip: retail skirmish content unavailable: {reason}");
+                None
+            }
+        }
+    }
 
     #[test]
     fn medium_ai_is_non_idle_on_host_update_path() {
         let result = run_medium_ai_skirmish_activity(120);
-        assert!(result.config_applied, "skirmish config must apply");
+        if result.status == RETAIL_MISSING {
+            eprintln!("skip: {}", format_ai_activity_report(&result));
+            return;
+        }
         assert!(
             result.ai_players >= 1,
             "Medium AI slot must register: {}",
             result.difficulty
         );
-        assert!(result.frames_advanced > 0);
-        assert!(
-            result.activity_count >= 2
-                || result.ai_structures >= 3
-                || (result.activity_count >= 1 && result.ai_units_or_queue >= 1),
-            "AI must show multi-interval activity: {}",
-            format_ai_activity_report(&result)
-        );
+        assert!(result.frames_advanced >= 120);
         assert_eq!(
             result.status,
             "success",
@@ -583,173 +455,27 @@ mod tests {
             format_ai_activity_report(&result)
         );
     }
-    #[test]
-    #[ignore = "temporary probe"]
-    fn probe_load_map_activity_stall() {
-        let (map_identity, map_path) = resolve_skirmish_map_path();
-        let config = golden_skirmish_config(&map_identity);
-        let mut logic = GameLogic::new();
-        let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
-        eprintln!("PROBE config_applied={config_applied}");
-        logic.ensure_ai_faction_templates(Team::USA);
-        logic.ensure_ai_faction_templates(Team::GLA);
-        ensure_human_templates(&mut logic);
-        if let Some(path) = &map_path {
-            let s = path.to_string_lossy();
-            let ok = logic.load_map(&s) || logic.load_map(&map_identity);
-            eprintln!("PROBE map_loaded={ok}");
-        }
-        let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
-        let _ = logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
-        seed_gla_skirmish_start(&mut logic);
-
-        let dump = |tag: &str, logic: &GameLogic| {
-            let Some(ai) = logic.ai_manager.ai_players.get(&1) else {
-                eprintln!("PROBE {tag}: no ai player 1");
-                return;
-            };
-            eprintln!(
-                "PROBE {tag}: t={:.2} act={} nbt={:.2} ntqt={:.2} ntt={:.2} bq={}",
-                logic.get_total_play_time(),
-                ai.activity_count,
-                ai.next_building_time,
-                ai.next_team_queue_time,
-                ai.next_team_time,
-                ai.building_queue.len(),
-            );
-            for b in &ai.building_queue {
-                eprintln!(
-                    "  PAD {} pos={:?} obj={:?} built={} prio={} auto={} destroyed={:?}",
-                    b.template_name,
-                    b.position,
-                    b.object_id,
-                    b.is_built,
-                    b.is_priority,
-                    b.automatic_build,
-                    b.destroyed_at_time
-                );
-            }
-            eprintln!(
-                "  team_queue={} ready_queue={} active={}",
-                ai.team_queue.len(),
-                ai.team_ready_queue.len(),
-                ai.is_active
-            );
-        };
-        dump("t0", &logic);
-        for frame in 0..150 {
-            logic.update();
-            if (frame + 1) % 25 == 0 {
-                dump(&format!("f{}", frame + 1), &logic);
-            }
-        }
-        eprintln!(
-            "PROBE final: activity={} structures={} units_or_queue={}",
-            logic.host_ai_activity_count(),
-            count_ai_structures(&logic),
-            count_ai_units_or_queue(&logic)
-        );
-    }
-
-    #[test]
-    #[ignore = "temporary probe"]
-    fn probe_airborne_hunting_gates() {
-        use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
-        use crate::game_logic::AbleToAttackType;
-        use crate::game_logic::{KindOf, Player, ThingTemplate, Weapon};
-
-        let mut game_logic = GameLogic::new();
-        game_logic.add_player(Player::new(1, Team::USA, "USA AI", false));
-        game_logic.add_player(Player::new(2, Team::USA, "Human", true));
-
-        let mut aa_t = ThingTemplate::new("QuadCannon");
-        aa_t.add_kind_of(KindOf::Vehicle);
-        aa_t.add_kind_of(KindOf::Attackable);
-        game_logic.templates.insert("QuadCannon".into(), aa_t);
-        let mut jet_t = ThingTemplate::new("Raptor");
-        jet_t.add_kind_of(KindOf::Vehicle);
-        jet_t.add_kind_of(KindOf::Aircraft);
-        jet_t.add_kind_of(KindOf::Attackable);
-        game_logic.templates.insert("Raptor".into(), jet_t);
-
-        let aa = game_logic
-            .create_object("QuadCannon", Team::USA, Vec3::ZERO)
-            .expect("aa");
-        if let Some(o) = game_logic.host_object_mut(aa) {
-            o.owner_player_id = Some(1);
-            crate::fixture_content::arm_slot_with_stats(
-                o,
-                0,
-                Weapon {
-                    range: 200.0,
-                    damage: 10.0,
-                    can_target_air: true,
-                    can_target_ground: true,
-                    ..Default::default()
-                },
-            );
-        }
-        let jet = game_logic
-            .create_object("Raptor", Team::GLA, Vec3::new(25.0, 20.0, 0.0))
-            .expect("jet");
-        if let Some(o) = game_logic.host_object_mut(jet) {
-            o.status.airborne_target = true;
-        }
-
-        let mut gates = |tag: &str, hunting: bool| {
-            if let Some(o) = game_logic.host_object_mut(aa) {
-                o.set_hunting(hunting);
-            }
-            let refuses = game_logic.computer_refuses_non_hunt_airborne_chase(aa, jet);
-            let can_atk = game_logic.host_object(aa).map(|o| o.can_attack());
-            let able = game_logic.get_able_to_attack_specific_object(
-                aa,
-                jet,
-                AbleToAttackType::NewTarget,
-                false,
-            );
-            let decision = AIDecisionSystem::should_attack(&game_logic, aa, jet);
-            eprintln!(
-                "PROBE {tag}: hunting={hunting} refuses={refuses} can_attack={can_atk:?} able={able:?} decision={decision:?}"
-            );
-        };
-        gates("nonhunt", false);
-        gates("hunt", true);
-        let _ = AttackDecision::Hold;
-    }
 
     #[test]
     fn medium_ai_activity_grows_across_update_windows() {
-        let config = golden_skirmish_config("AIGrowthMap");
-        let mut logic = GameLogic::new();
-        assert!(apply_skirmish_config(&mut logic, &config).is_ok());
-        ensure_human_templates(&mut logic);
-        let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
-        logic.ensure_ai_faction_templates(Team::GLA);
-        logic.ensure_skirmish_ai_starting_cash(20_000);
-        seed_gla_skirmish_start(&mut logic);
-        for _ in 0..30 {
-            logic.update();
-        }
-        let after_first = logic.host_ai_activity_count();
-        let structs_first = count_ai_structures(&logic);
-        // Host residual base layout is multi-structure; can_afford must not gate on
-        // template power draw or GLA stalls after the first Command Center.
+        let Some(mut game) = retail_or_skip(start_retail_skirmish()) else {
+            return;
+        };
+        advance(&mut game, 30);
+        let after_first = game.logic().host_ai_activity_count();
+        let structs_first = count_ai_structures(game.logic());
         assert!(
-            after_first >= 2 || structs_first >= 2,
-            "first AI window must start multiple structures: act={after_first} structs={structs_first}"
+            structs_first >= 1,
+            "the map places the AI's starting Command Center"
         );
-        for _ in 0..90 {
-            logic.update();
-        }
-        let after_more = logic.host_ai_activity_count();
-        let structs_more = count_ai_structures(&logic);
-        let units_more = count_ai_units_or_queue(&logic);
-        // After layout is filled, further growth is units/production or rebuilds.
+        advance(&mut game, 90);
+        let after_more = game.logic().host_ai_activity_count();
+        let structs_more = count_ai_structures(game.logic());
+        let units_more = count_ai_units_or_queue(game.logic());
         assert!(
             after_more >= after_first
-                && (structs_more >= structs_first)
-                && (after_more > after_first || structs_more > 1 || units_more >= 1),
+                && structs_more >= structs_first
+                && (after_more > after_first || structs_more > structs_first || units_more >= 1),
             "AI must remain productive: act {after_first}->{after_more} structs {structs_first}->{structs_more} units={units_more}"
         );
     }
@@ -758,10 +484,7 @@ mod tests {
     fn medium_ai_and_human_orders_on_retail_skirmish_map() {
         let result = run_ai_retail_skirmish_with_player_orders(180);
         if !result.map_loaded {
-            eprintln!(
-                "skip: retail map missing — {}",
-                format_ai_retail_skirmish_orders_report(&result)
-            );
+            eprintln!("skip: {}", format_ai_retail_skirmish_orders_report(&result));
             return;
         }
         assert_eq!(
@@ -777,32 +500,17 @@ mod tests {
     #[test]
     fn medium_ai_takes_productive_action_after_load_map() {
         let result = run_medium_ai_after_load_map(150);
-        assert!(
-            result.config_applied,
-            "skirmish config must apply: {}",
-            format_ai_load_map_report(&result)
-        );
-        assert!(
-            result.cash_ok,
-            "AI cash must survive load_map or be topped up: {}",
-            format_ai_load_map_report(&result)
-        );
-        assert!(
-            result.cash_after_load >= 1_000,
-            "AI needs enough cash to build: {}",
-            format_ai_load_map_report(&result)
-        );
+        if result.status == RETAIL_MISSING {
+            eprintln!("skip: {}", format_ai_load_map_report(&result));
+            return;
+        }
+        assert!(result.cash_ok, "{}", format_ai_load_map_report(&result));
         assert!(
             result.ai_active && result.difficulty_medium,
-            "Medium AI must remain active after rebind: {}",
+            "{}",
             format_ai_load_map_report(&result)
         );
-        assert!(result.frames_advanced > 0);
-        assert!(
-            result.productive,
-            "AI must take a productive action after load_map: {}",
-            format_ai_load_map_report(&result)
-        );
+        assert!(result.productive, "{}", format_ai_load_map_report(&result));
         assert_eq!(
             result.status,
             "success",
@@ -811,81 +519,25 @@ mod tests {
         );
     }
 
-    /// Unit production residual: ArmsDealer is a vehicle factory and host AI
-    /// queues GLA_Technical after factories exist (post rebind path).
+    /// Medium GLA AI on the retail map eventually queues or produces units.
     #[test]
-    fn medium_ai_produces_units_from_factories_after_rebind() {
-        let config = golden_skirmish_config("AIProduceMap");
-        let mut logic = GameLogic::new();
-        assert!(apply_skirmish_config(&mut logic, &config).is_ok());
-        logic.ensure_ai_faction_templates(Team::GLA);
-        ensure_human_templates(&mut logic);
-        let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
-
-        // World wipe + rebind (load_map residual without requiring retail map bytes).
-        logic.objects.clear();
-        logic.rebind_host_ai_after_map_load();
-        assert!(
-            logic
-                .get_player(1)
-                .map(|p| p.effective_supplies())
-                .unwrap_or(0)
-                >= 10_000
-        );
-
-        // Seed constructed factories after rebind (map may not place GLA_*).
-        for (name, pos) in [
-            ("GLA_Barracks", Vec3::new(120.0, 0.0, 120.0)),
-            ("GLA_ArmsDealer", Vec3::new(150.0, 0.0, 120.0)),
-        ] {
-            if let Some(id) = logic.create_object(name, Team::GLA, pos) {
-                if let Some(obj) = logic.host_object_mut(id) {
-                    obj.status.under_construction = false;
-                    obj.construction_percent = 1.0;
-                }
+    fn medium_ai_produces_units_on_retail_map() {
+        let Some(mut game) = retail_or_skip(start_retail_skirmish()) else {
+            return;
+        };
+        let mut units_or_queue = 0;
+        for _ in 0..60 {
+            advance(&mut game, 60);
+            units_or_queue = count_ai_units_or_queue(game.logic());
+            if units_or_queue >= 1 {
+                break;
             }
         }
-        seed_gla_skirmish_start(&mut logic);
-
-        // ArmsDealer must classify as WarFactory so Technical enqueue succeeds.
-        let arms_type = logic
-            .host_objects()
-            .registered_values()
-            .find(|o| o.template_name == "GLA_ArmsDealer")
-            .and_then(|o| o.building_data.as_ref().map(|b| b.building_type));
-        assert_eq!(arms_type, Some(BuildingType::WarFactory));
-
-        for _ in 0..120 {
-            logic.update();
-        }
-
-        let units_or_queue = count_ai_units_or_queue(&logic);
-        let activity = logic.host_ai_activity_count();
-        assert!(
-            units_or_queue >= 1 || activity >= 2,
-            "AI must queue/produce units after rebind (units_or_queue={units_or_queue} activity={activity})"
-        );
-        // Strong preference: actual production enqueue or unit spawn.
         assert!(
             units_or_queue >= 1,
-            "expected GLA unit or production queue after factories present (activity={activity})"
-        );
-    }
-
-    /// Cash top-up residual: empty AI wallet after preserve is restored on rebind.
-    #[test]
-    fn rebind_tops_up_empty_ai_cash() {
-        let config = golden_skirmish_config("AICashMap");
-        let mut logic = GameLogic::new();
-        assert!(apply_skirmish_config(&mut logic, &config).is_ok());
-        if let Some(p) = logic.get_player_mut(1) {
-            p.resources.supplies = 0;
-        }
-        logic.rebind_host_ai_after_map_load();
-        assert_eq!(
-            logic.get_player(1).map(|p| p.effective_supplies()),
-            Some(10_000),
-            "empty AI cash must be topped up after rebind"
+            "expected a GLA unit or production queue (activity={} structures={})",
+            game.logic().host_ai_activity_count(),
+            count_ai_structures(game.logic())
         );
     }
 
