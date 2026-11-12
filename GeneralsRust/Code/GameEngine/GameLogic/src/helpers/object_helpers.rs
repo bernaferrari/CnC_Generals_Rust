@@ -13,6 +13,8 @@ pub struct FiringTracker {
     frame_to_force_reload: UnsignedInt,
     frame_to_stop_looping_sound: UnsignedInt,
     audio_handle: crate::common::audio::AudioHandle,
+    /// The engine whose TheAudio is playing `audio_handle`.
+    audio: Option<TheAudio>,
     last_shot_frame: UnsignedInt,
     next_call_frame_and_phase: UnsignedInt,
 }
@@ -20,7 +22,7 @@ pub struct FiringTracker {
 impl Drop for FiringTracker {
     fn drop(&mut self) {
         if self.audio_handle != 0 {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.take() {
                 audio.remove_audio_event(self.audio_handle);
             }
             self.audio_handle = 0;
@@ -38,6 +40,7 @@ impl FiringTracker {
             frame_to_force_reload: 0,
             frame_to_stop_looping_sound: 0,
             audio_handle: 0,
+            audio: None,
             last_shot_frame: 0,
             next_call_frame_and_phase: crate::modules::UpdateSleepTime::Forever.to_u32(),
         }
@@ -220,18 +223,12 @@ impl FiringTracker {
 
         let fire_sound_loop_time = template.fire_sound_loop_time;
         if fire_sound_loop_time != 0 {
-            let mut needs_restart = self.frame_to_stop_looping_sound == 0;
-            if !needs_restart {
-                if self.audio_handle == 0 {
-                    needs_restart = true;
-                } else {
-                    let _manager =
-                        get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-                    if self.audio_handle == 0 {
-                        needs_restart = true;
-                    }
-                }
-            }
+            // C++ `m_frameToStopLoopingSound == 0 || !TheAudio->isCurrentlyPlaying(m_audioHandle)`.
+            let needs_restart = self.frame_to_stop_looping_sound == 0
+                || !self
+                    .audio
+                    .as_ref()
+                    .is_some_and(|audio| audio.is_currently_playing(self.audio_handle));
 
             if needs_restart {
                 let sound = template.fire_sound.clone();
@@ -240,6 +237,7 @@ impl FiringTracker {
                     event.set_object_id(self.object_id);
                     if let Some(audio) = TheAudio::of_object(owner_guard) {
                         self.audio_handle = audio.add_audio_event(&event);
+                        self.audio = Some(audio);
                     }
                 }
             }
@@ -290,7 +288,7 @@ impl FiringTracker {
         }
 
         if self.frame_to_stop_looping_sound != 0 && now >= self.frame_to_stop_looping_sound {
-            if let Some(audio) = TheAudio::of_object(owner) {
+            if let Some(audio) = self.audio.take() {
                 audio.remove_audio_event(self.audio_handle);
             }
             self.audio_handle = 0;

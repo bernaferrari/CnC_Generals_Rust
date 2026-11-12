@@ -404,6 +404,7 @@ impl Drawable {
 
         if let Some(audio) = TheAudio::of_object(object) {
             self.ambient_sound_handle = audio.add_audio_event_for_owner(&audio_event, object);
+            self.ambient_sound_audio = Some(audio);
         }
     }
 
@@ -427,7 +428,7 @@ impl Drawable {
         if self.ambient_sound_handle == 0 {
             return;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.ambient_sound_audio.take() {
             audio.remove_audio_event(self.ambient_sound_handle);
         }
         self.ambient_sound_handle = 0;

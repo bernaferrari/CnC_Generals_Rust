@@ -119,6 +119,7 @@ impl Drawable {
 
             attached_sounds: Vec::new(),
             ambient_sound_handle: 0,
+            ambient_sound_audio: None,
             ambient_sound_enabled: true,
             ambient_sound_enabled_from_script: true,
             custom_sound_ambient_off: false,

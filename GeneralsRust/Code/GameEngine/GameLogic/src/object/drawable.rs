@@ -1312,6 +1312,8 @@ pub struct Drawable {
     /// Audio integration
     attached_sounds: Vec<AttachedSound>,
     ambient_sound_handle: u32,
+    /// The engine whose TheAudio plays `ambient_sound_handle`.
+    ambient_sound_audio: Option<crate::helpers::TheAudio>,
     ambient_sound_enabled: Bool,
     ambient_sound_enabled_from_script: Bool,
     custom_sound_ambient_off: Bool,

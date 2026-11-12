@@ -32,6 +32,8 @@ pub struct AIInternalMoveToState {
     try_one_more_repath: bool,
     adjusts_destination: bool,
     ambient_playing_handle: u32,
+    /// The engine whose TheAudio plays `ambient_playing_handle`.
+    ambient_playing_audio: Option<TheAudio>,
 }
 
 const MIN_REPATH_TIME: UnsignedInt = 10;
@@ -61,6 +63,7 @@ impl AIInternalMoveToState {
             try_one_more_repath: true,
             adjusts_destination: true,
             ambient_playing_handle: 0,
+            ambient_playing_audio: None,
         }
     }
 
@@ -421,7 +424,7 @@ impl AIInternalMoveToState {
 
     fn stop_move_sound(&mut self) {
         if self.ambient_playing_handle != 0 {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.ambient_playing_audio.take() {
                 audio.remove_audio_event(self.ambient_playing_handle);
             }
             self.ambient_playing_handle = 0;
@@ -459,6 +462,7 @@ impl AIInternalMoveToState {
             } else if !loop_sound.get_event_name().is_empty() {
                 loop_sound.set_object_id(owner_guard.get_id());
                 self.ambient_playing_handle = audio.add_audio_event(&loop_sound);
+                self.ambient_playing_audio = Some(audio.clone());
             }
         }
     }
