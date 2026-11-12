@@ -11,17 +11,21 @@ fn world(admit: bool) -> (GameLogic, ObjectId) {
     owner.world_max = Vec3::splat(1000.0);
     owner.add_player(Player::new(1, Team::USA, "FirstFactionPeer", true));
     owner.add_player(Player::new(2, Team::USA, "ActualController", false));
-    let mut template = ThingTemplate::new("NamedUpgradeActor");
-    template
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(100.0);
-    owner.templates.insert(template.name.clone(), template);
     if admit {
         crate::game_logic::host_upgrade_rules::register_test_upgrade(
             &mut owner, KEY, "OBJECT", 500, 30,
         );
     }
+    // C++ CostModifierUpgrade.cpp: the player's production cost changes only
+    // through an authored CostModifierUpgrade module on the upgraded object.
+    owner
+        .admit_object_ini_sources([(
+            "named_upgrade_owner.ini".to_owned(),
+            format!(
+                "Object NamedUpgradeActor\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody ActorBody\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = CostModifierUpgrade ActorCost\n  TriggeredBy = {KEY}\n  EffectKindOf = VEHICLE\n  Percentage = -10%\n End\nEnd\n"
+            ),
+        )])
+        .expect("admit authored CostModifierUpgrade actor");
     let id = owner
         .create_object_for_player("NamedUpgradeActor", 2, Vec3::ZERO)
         .unwrap();
