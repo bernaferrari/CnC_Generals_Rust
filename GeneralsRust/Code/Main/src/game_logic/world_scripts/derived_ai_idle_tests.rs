@@ -293,12 +293,12 @@ fn actual_chinook_idle_replays_before_auto_land_without_touching_peer() {
         world.objects[&id].active_guard_position(),
         Some(Vec3::new(19.0, 0.0, 7.0))
     );
+    // The peer never installs a Chinook runtime; it only must not gain a replay.
     assert!(
-        !peer.objects[&peer_id]
+        peer.objects[&peer_id]
             .chinook_ai
             .as_ref()
-            .unwrap()
-            .pending_ai_idle
+            .is_none_or(|ai| !ai.pending_ai_idle)
     );
     assert_eq!(peer.objects[&peer_id].ai_state(), AIState::GuardingArea);
     assert_eq!(
