@@ -12,6 +12,9 @@ fn world() -> GameLogic {
     enemy.alliance_team = 2;
     logic.get_players_mut().insert(0, local);
     logic.get_players_mut().insert(1, enemy);
+    // C++ PlayerList::setLocalPlayer runs at game start; MSG_PLACE_BEACON
+    // hides a beacon from a local player that is not allied with its placer.
+    assert!(logic.select_local_player(Some(0)));
     logic
 }
 fn place(logic: &mut GameLogic, player: u32, text: &str) -> ObjectId {
@@ -110,7 +113,16 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
     assert!(
         place_result(&mut one, 0, 21., "overflow") == CommandResult::InvalidCommand);
     assert!(place_result(&mut two, 0, 21., "second") == CommandResult::Success);
-    assert!(!host_object_is_beacon(&one, two_id));
+    let two_second = *two
+        .host_objects()
+        .registered_keys()
+        .find(|&&id| id != two_id)
+        .expect("second world's second beacon");
+    assert!(host_object_is_beacon(&two, two_second));
+    assert!(
+        !host_object_is_beacon(&one, two_second),
+        "the refused overflow beacon never exists in the first world"
+    );
     assert_eq!(host_beacon_caption(&one, one_id).as_deref(), Some("one"));
     assert_eq!(host_beacon_caption(&two, two_id).as_deref(), Some("two"));
 
