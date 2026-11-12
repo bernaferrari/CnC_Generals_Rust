@@ -310,8 +310,13 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let epoch = self.visual_world_epoch;
+        // GameLogic::update gates sleepy modules only on disabled flags, and
+        // SpawnBehavior keeps UpdateModule's DISABLEDMASK_NONE
+        // (GameLogic.cpp:3716-3725, UpdateModule.h:154). An effectively dead
+        // nexus still runs: an empty AggregateHealth roster sets health 0
+        // (SpawnBehavior.cpp:984-987) and the next spawn revives it.
         let actors: Vec<_> = self.objects.registered()
-            .filter(|(_, object)| !object.status.destroyed && !object.status.effectively_dead
+            .filter(|(_, object)| !object.status.destroyed && !object.has_disabled_type()
                 && object.get_template().receiving_client_template.as_ref().is_some_and(|template| {
                     template.behavior_modules().iter().any(|module| module.name.as_str().eq_ignore_ascii_case("SpawnBehavior"))
                 }))
