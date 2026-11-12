@@ -15,13 +15,15 @@ fn complete_impl_method<'a>(source: &'a str, signature: &str) -> &'a str {
 /// (VictoryConditions.cpp). Real players start with a victory-counting
 /// structure, so tests that run logic.update() seed one to keep the pinned
 /// units alive (shell_smoke dual_tick.rs / transform_health.rs precedent).
+/// `victory_keep_alive()` authors that structure; it is admitted with the
+/// test's other content before NewGame.
+fn victory_keep_alive() -> crate::fixture_content::FixtureObject {
+    crate::fixture_content::FixtureObject::new("VictoryKeepAlive")
+        .kind_of("STRUCTURE MP_COUNT_FOR_VICTORY")
+        .health(100.0)
+}
+
 fn seed_victory_keep_alive(logic: &mut GameLogic) {
-    {
-        let mut t = ThingTemplate::new("VictoryKeepAlive");
-        t.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::MpCountForVictory);
-        logic.templates.insert("VictoryKeepAlive".into(), t);
-    }
     logic
         .create_object(
             "VictoryKeepAlive",
@@ -120,7 +122,7 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
         &mut logic,
         &[
             crate::fixture_content::FixtureObject::new("HudUnit").kind_of("INFANTRY").health(75.0).walker(),
-            crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
+            victory_keep_alive(),
         ],
     );
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
@@ -190,7 +192,7 @@ fn dual_tick_build_and_apply_after_logic_step_seeds_hud() {
         &mut logic,
         &[
             crate::fixture_content::FixtureObject::new("DualUnit").kind_of("INFANTRY SELECTABLE").health(88.0).walker(),
-            crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
+            victory_keep_alive(),
         ],
     );
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
@@ -236,7 +238,7 @@ fn dual_tick_applies_selection_panel_to_shell_ui_consumers() {
         &mut logic,
         &[
             crate::fixture_content::FixtureObject::new("MultiUiUnit").kind_of("INFANTRY SELECTABLE").health(64.0).walker(),
-            crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
+            victory_keep_alive(),
         ],
     );
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
@@ -311,18 +313,10 @@ fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("USA_Ranger").kind_of("INFANTRY").health(60.0).walker(),
+            crate::fixture_content::FixtureObject::new("USA_Ranger").kind_of("INFANTRY").health(60.0).walker().model("AIRngr_SKN"),
         ],
     );
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-    // Prefer host setup template when present; otherwise inject retail-like key.
-    {
-        let mut t = ThingTemplate::new("USA_Ranger");
-        t.set_health(60.0);
-        t.set_model("airanger"); // legacy alias must remap
-        t.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("USA_Ranger".into(), t);
-    }
     let id = logic
         .create_object("USA_Ranger", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
         .expect("ranger");
@@ -425,16 +419,10 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("MeshUnit").kind_of("VEHICLE SELECTABLE").health(60.0).walker(),
+            crate::fixture_content::FixtureObject::new("MeshUnit").kind_of("VEHICLE SELECTABLE").health(60.0).walker().model("AVTank"),
         ],
     );
     crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-    let mut t = ThingTemplate::new("MeshUnit");
-    t.set_health(60.0);
-    t.set_model("AVTank");
-    t.add_kind_of(KindOf::Vehicle);
-    t.add_kind_of(KindOf::Selectable);
-    logic.templates.insert("MeshUnit".into(), t);
     let id = logic
         .create_object("MeshUnit", Team::USA, glam::Vec3::new(3.0, 0.0, -8.0))
         .expect("unit");

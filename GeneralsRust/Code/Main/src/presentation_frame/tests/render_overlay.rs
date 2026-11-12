@@ -1151,42 +1151,12 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
             .iter()
             .any(|s| s == "SCIENCE_TestRank")
     );
-    // Superweapon timers get remaining from shadow shared cooldowns by power_key.
-    frame.superweapon_timers.push(PresentationSuperweaponTimer {
-        name: "PUC".into(),
-        template_name: "T".into(),
-        icon: "I".into(),
-        recharge_time: 300.0,
-        remaining: 1.0,
-        unlocked: true,
-        ready: false,
-        power_key: "ParticleCannon".into(),
-    });
-    frame.superweapon_timers.push(PresentationSuperweaponTimer {
-        name: "SCUD".into(),
-        template_name: "T2".into(),
-        icon: "I2".into(),
-        recharge_time: 360.0,
-        remaining: 99.0,
-        unlocked: true,
-        ready: false,
-        power_key: "ScudStorm".into(),
-    });
+    // Superweapon PublicTimer rows are built from the owning world's
+    // SpecialPowerModule ready frame (SpecialPowerModule.cpp:756-765), not
+    // rewritten from the shadow: the overlay leaves them as built.
+    let built_timers = frame.superweapon_timers.clone();
     let _ = frame.overlay_gameworld_shadow(&shadow);
-    let puc = frame
-        .superweapon_timers
-        .iter()
-        .find(|t| t.power_key == "ParticleCannon")
-        .expect("puc timer");
-    assert!((puc.remaining - 42.0).abs() < 1e-5, "got {}", puc.remaining);
-    assert!(!puc.ready);
-    let scud = frame
-        .superweapon_timers
-        .iter()
-        .find(|t| t.power_key == "ScudStorm")
-        .expect("scud timer");
-    assert!(scud.remaining <= 0.0, "got {}", scud.remaining);
-    assert!(scud.ready);
+    assert_eq!(frame.superweapon_timers, built_timers);
     if let Some(pi) = frame.players.iter().find(|p| p.id == frame.local_player_id) {
         assert!(!pi.is_alive);
         assert_eq!(pi.color_rgb, (9, 8, 7));
