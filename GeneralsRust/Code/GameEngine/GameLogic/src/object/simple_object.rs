@@ -755,7 +755,7 @@ impl SimpleObject {
         if let Some(base_arc) = self.get_base_object() {
             if let Ok(base_guard) = base_arc.read() {
                 let pos = *base_guard.get_position();
-                if let Some(audio) = crate::helpers::TheAudio::get() {
+                if let Some(audio) = crate::helpers::TheAudio::of_object(&base_guard) {
                     let mut event = crate::common::audio::AudioEventRts::new(sound);
                     event.set_object_id(base_guard.get_id() as u32);
                     event.set_position(&(pos.x, pos.y, pos.z));

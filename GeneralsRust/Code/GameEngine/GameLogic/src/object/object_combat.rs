@@ -464,7 +464,7 @@ impl Object {
                 _ => crate::common::audio::AudioEventRts::default(),
             };
             sound.set_object_id(self.id as u32);
-            if let Some(audio) = crate::helpers::TheAudio::get() {
+            if let Some(audio) = crate::helpers::TheAudio::of_object(self) {
                 audio.add_audio_event_for_owner(&sound, self);
             }
             let __player_list_arc = crate::player::player_list();
@@ -574,8 +574,9 @@ impl Object {
                 }
             }
 
-            if let Some(audio) = crate::helpers::TheAudio::get() {
-                let mut sound = crate::helpers::TheAudio::get_misc_audio()
+            if let Some(audio) = crate::helpers::TheAudio::of_object(self) {
+                let mut sound = audio
+                    .misc_audio()
                     .unit_promoted
                     .clone();
                 sound.set_object_id(self.id as u32);

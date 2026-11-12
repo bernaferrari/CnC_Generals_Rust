@@ -745,7 +745,11 @@ impl ProductionUpdate {
             .unwrap_or(crate::common::INVALID_ID);
         let first_of_batch = self.production_queue[idx].production_quantity_total
             == self.production_queue[idx].get_production_quantity_remaining();
-        if let Some(audio) = crate::helpers::TheAudio::get() {
+        let producer_audio = building
+            .read()
+            .ok()
+            .and_then(|guard| crate::helpers::TheAudio::of_object(&guard));
+        if let Some(audio) = producer_audio {
             let mut voice = template.get_voice_created();
             voice.set_object_id(unit_id);
             audio.add_audio_event(&voice);

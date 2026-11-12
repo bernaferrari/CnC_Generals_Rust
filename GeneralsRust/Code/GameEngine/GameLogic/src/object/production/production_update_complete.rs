@@ -1281,6 +1281,7 @@ impl ProductionUpdateComplete {
                 .as_ref()
                 .is_some_and(|p| p.quantity_total == p.quantity_remaining());
             let producer_id = owner.read().ok().map(|guard| guard.get_id()).unwrap_or(0);
+            let producer_audio = owner.read().ok().and_then(|guard| TheAudio::of_object(&guard));
             if let Ok(mut new_guard) = new_obj.write() {
                 new_guard.set_producer_id(producer_id);
             }
@@ -1291,7 +1292,7 @@ impl ProductionUpdateComplete {
                 prod.exit_door = -1;
             }
 
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = producer_audio.clone() {
                 let mut voice = template.get_voice_created();
                 voice.set_object_id(new_id);
                 audio.add_audio_event(&voice);
@@ -1309,7 +1310,7 @@ impl ProductionUpdateComplete {
                 new_guard.on_build_complete();
             }
             if first_of_batch {
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = producer_audio.clone() {
                     if let Some(mut sound) = template.get_per_unit_sound("VoiceCreate") {
                         sound.set_object_id(new_id);
                         audio.add_audio_event(&sound);
@@ -1443,7 +1444,7 @@ impl ProductionUpdateComplete {
                             .record_upgrade(upgrade.as_ref(), false);
                         player_guard.get_score_keeper_mut().add_money_spent(cost);
                     }
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = owner.read().ok().and_then(|guard| TheAudio::of_object(&guard)) {
                         let mut sound = crate::common::audio::AudioEventRts::new(
                             upgrade.get_research_sound().event_name.clone(),
                         );

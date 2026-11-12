@@ -89,7 +89,7 @@ impl Object {
     pub(super) fn defect_play_voice(&self) {
         let mut voice = self.get_template().get_voice_defect();
         voice.set_object_id(self.id);
-        if let Some(audio) = crate::helpers::TheAudio::get() {
+        if let Some(audio) = crate::helpers::TheAudio::of_object(self) {
             audio.add_audio_event(&voice);
         }
     }
