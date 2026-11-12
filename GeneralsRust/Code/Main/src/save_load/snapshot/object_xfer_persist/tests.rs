@@ -542,7 +542,7 @@ fn absent_suffix_keeps_template_safe_occlusion_frame() {
 }
 
 #[test]
-fn oxob_round_trips_health_box_last_fire_recruit_scan_ignore() {
+fn oxob_round_trips_health_box_last_fire_recruit_ignore() {
     let mut source = GameLogic::new();
     source.templates.insert(
         "AmericaInfantryRanger".to_string(),
@@ -580,14 +580,8 @@ fn oxob_round_trips_health_box_last_fire_recruit_scan_ignore() {
         object.wander_offset_increment = 0.15;
         object.wander_offset_increasing = true;
     }
-    source
-        .unit_ai_runtime_mut(id)
-        .expect("unit")
-        .set_guard_scan_deadline(Some(90));
-    source
-        .unit_ai_runtime_mut(id)
-        .expect("unit")
-        .set_hunt_scan_deadline(Some(120));
+    // Guard/hunt scan clocks travel in the BaseAI capsule (AIUpdateInterface::xfer),
+    // not in the OXOB record; snapshot_round_trips_object_xfer_clocks covers them.
 
     let mut bytes = Vec::new();
     append_to_lifecycle_tail(&mut bytes, &source);
@@ -608,12 +602,6 @@ fn oxob_round_trips_health_box_last_fire_recruit_scan_ignore() {
         object.locomotor_surfaces = 0x40;
         object.cur_locomotor_name = Some("CreateTime".to_string());
     }
-    dest.unit_ai_runtime_mut(dest_id)
-        .expect("unit")
-        .set_guard_scan_deadline(Some(1));
-    dest.unit_ai_runtime_mut(dest_id)
-        .expect("unit")
-        .set_hunt_scan_deadline(Some(2));
     apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply");
 
     let loaded = dest.host_object(dest_id).expect("loaded");
@@ -658,16 +646,4 @@ fn oxob_round_trips_health_box_last_fire_recruit_scan_ignore() {
     assert!((loaded.wander_angle_offset - 0.7).abs() < 0.001);
     assert!((loaded.wander_offset_increment - 0.15).abs() < 0.001);
     assert!(loaded.wander_offset_increasing);
-    assert_eq!(
-        dest.unit_ai_runtime(dest_id)
-            .and_then(|runtime| runtime.guard_scan_deadline()),
-        Some(90),
-        "AIGuardIdleState scan clock must survive load"
-    );
-    assert_eq!(
-        dest.unit_ai_runtime(dest_id)
-            .and_then(|runtime| runtime.hunt_scan_deadline()),
-        Some(120),
-        "AIHuntState scan clock must survive load"
-    );
 }
