@@ -6,19 +6,27 @@
 use super::collision_geometry::{GeometryInfo, GeometryType};
 use super::partition_manager::{CellCoord, PARTITION_CELL_SIZE};
 
-/// C++ `PartitionManager::worldToCellDist` — `ceil(world / cellSize)`.
+/// C++ `m_cellSizeInv = (Real)(1.0 / m_cellSize)` (PartitionManager.cpp:2571).
+#[inline]
+fn cell_size_inv() -> f32 {
+    (1.0_f64 / f64::from(PARTITION_CELL_SIZE)) as f32
+}
+
+/// C++ `PartitionManager::worldToCellDist` — `REAL_TO_INT_CEIL(w * m_cellSizeInv)`
+/// (PartitionManager.h:1513-1516).
 #[inline]
 pub fn world_to_cell_dist(world: f32) -> i32 {
-    (world / PARTITION_CELL_SIZE).ceil() as i32
+    game_engine::base_type::real_to_int_ceil(world * cell_size_inv())
 }
 
 /// C++ `PartitionManager::worldToCell` without map-origin offset (crate cells
 /// are origin-at-zero, matching `CellCoord::from_world_pos`).
 #[inline]
 pub fn world_to_cell(wx: f32, wy: f32) -> CellCoord {
+    // PartitionManager.h:1506-1510 REAL_TO_INT_FLOOR(w * m_cellSizeInv).
     CellCoord {
-        x: (wx / PARTITION_CELL_SIZE).floor() as i32,
-        y: (wy / PARTITION_CELL_SIZE).floor() as i32,
+        x: game_engine::base_type::real_to_int_floor(wx * cell_size_inv()),
+        y: game_engine::base_type::real_to_int_floor(wy * cell_size_inv()),
     }
 }
 
@@ -111,8 +119,9 @@ pub fn do_rect_fill(
     let xdx = c * step_size;
     let xdy = s * step_size;
     let step_size_inv_times_2 = 2.0 / step_size;
-    let num_steps_x = (halfsize_x * step_size_inv_times_2).ceil() as i32;
-    let num_steps_y = (halfsize_y * step_size_inv_times_2).ceil() as i32;
+    // PartitionManager.cpp:1769-1770 REAL_TO_INT_CEIL.
+    let num_steps_x = game_engine::base_type::real_to_int_ceil(halfsize_x * step_size_inv_times_2);
+    let num_steps_y = game_engine::base_type::real_to_int_ceil(halfsize_y * step_size_inv_times_2);
     let mut tl_x = center_x - halfsize_x * c - halfsize_y * s;
     let mut tl_y = center_y + halfsize_y * c - halfsize_x * s;
     let mut cells = Vec::new();

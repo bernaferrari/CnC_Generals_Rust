@@ -148,11 +148,9 @@ pub struct CellCoord {
 }
 
 impl CellCoord {
+    /// C++ `worldToCell` (PartitionManager.h:1506-1510).
     pub fn from_world_pos(pos: &Coord3D) -> Self {
-        Self {
-            x: (pos.x / PARTITION_CELL_SIZE).floor() as i32,
-            y: (pos.y / PARTITION_CELL_SIZE).floor() as i32,
-        }
+        super::partition_coi::world_to_cell(pos.x, pos.y)
     }
 
     /// Get neighboring cells (including this one)

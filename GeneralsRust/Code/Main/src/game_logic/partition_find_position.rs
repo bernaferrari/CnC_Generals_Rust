@@ -18,7 +18,9 @@ fn find_position_around(
         } else {
             (5. / (distance + 1.)) * (tau / 6.)
         };
-        let samples = ((tau / spacing) / 2.).ceil() as i32;
+        // PartitionManager.cpp:3906 REAL_TO_INT_CEIL: an exact integral
+        // quotient takes one more sample than f32::ceil.
+        let samples = game_engine::base_type::real_to_int_ceil((tau / spacing) / 2.);
         for i in 0..samples {
             let angle = start + spacing * i as f32;
             let pos = Vec3::new(
