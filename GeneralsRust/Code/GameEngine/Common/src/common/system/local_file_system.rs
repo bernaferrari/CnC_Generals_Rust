@@ -161,6 +161,18 @@ impl LocalFileSystem {
 
     /// Find a file in the search paths
     fn find_file_path(&self, filename: &str) -> Option<PathBuf> {
+        // C++ engine paths are Win32 (`Data\\Scripts\\SkirmishScripts.scb`);
+        // Win32LocalFileSystem hands them to the OS where `\\` is a separator.
+        // On other hosts `\\` is an ordinary filename byte, so treat it as the
+        // separator here or every loose retail file under a subdirectory is
+        // invisible.
+        let separated;
+        let filename = if filename.contains('\\') && std::path::MAIN_SEPARATOR != '\\' {
+            separated = filename.replace('\\', "/");
+            separated.as_str()
+        } else {
+            filename
+        };
         let requests_ini = Path::new(filename)
             .extension()
             .and_then(|ext| ext.to_str())
@@ -555,6 +567,22 @@ mod tests {
         assert!(
             fs.does_file_exist("GensecZH.big"),
             "LocalFileSystem must see GensecZH.big after install discovery"
+        );
+    }
+
+    #[test]
+    fn win32_separators_find_loose_files_in_subdirectories() {
+        let root = std::env::temp_dir().join(format!("lfs_win32_sep_{}", std::process::id()));
+        let scripts = root.join("Data").join("Scripts");
+        fs::create_dir_all(&scripts).unwrap();
+        fs::write(scripts.join("SkirmishScripts.scb"), b"CkMp").unwrap();
+        let mut fs_backend = LocalFileSystem::new();
+        fs_backend.add_search_path(&root);
+        let found = fs_backend.find_file_path("Data\\Scripts\\SkirmishScripts.scb");
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(
+            found.map(|p| p.file_name().map(|n| n.to_os_string())),
+            Some(Some("SkirmishScripts.scb".into()))
         );
     }
 
