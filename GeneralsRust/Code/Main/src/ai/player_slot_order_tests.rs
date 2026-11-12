@@ -75,17 +75,24 @@ fn fixed_tick_enemy_ties_choose_lower_slot_in_independent_worlds() {
 
 #[test]
 fn fixed_tick_scaffold_admission_follows_numeric_ai_slots() {
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
     let mut world = GameLogic::new();
-    let mut dozer = ThingTemplate::new("SlotDozer");
-    dozer
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Worker)
-        .add_kind_of(KindOf::Dozer);
-    world.templates.insert("SlotDozer".into(), dozer);
-    let mut plan = ThingTemplate::new("SlotPlan");
-    plan.add_kind_of(KindOf::Structure).set_cost(100, 0);
-    plan.build_time = 10.0;
-    world.templates.insert("SlotPlan".into(), plan);
+    // AIPlayer::findDozer hands the plan only to a DOZER whose AIUpdate
+    // exposes a DozerAIInterface; both Objects are authored before NewGame
+    // (GameEngine.cpp:428-458).
+    admit_fixture_objects(
+        &mut world,
+        &[
+            FixtureObject::new("SlotDozer")
+                .kind_of("VEHICLE WORKER DOZER")
+                .walker()
+                .dozer(),
+            FixtureObject::new("SlotPlan")
+                .kind_of("STRUCTURE")
+                .build_cost(100)
+                .build_time(10.0),
+        ],
+    );
     // Opposite registration order: actual scaffold ObjectIds must still reflect 1,3.
     for (id, team, x) in [(3, Team::China, 180.0), (1, Team::USA, -180.0)] {
         let mut player = Player::new(id, team, "Builder slot", false);
