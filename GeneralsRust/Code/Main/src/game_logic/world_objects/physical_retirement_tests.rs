@@ -27,8 +27,24 @@ struct Observe {
     calls: usize,
     reject: bool,
     particles: Option<ParticleSystemManager>,
+    /// `Some(count)` when this receiver is also lent to Object births.
+    births: Option<usize>,
 }
 impl Observe {
+    /// A Drawable owner lent to a birth before the Object exists; its team
+    /// identity is filled in from the admitted Object afterwards.
+    fn birth_owner(id: ObjectId) -> Self {
+        Self {
+            id,
+            team_name: String::new(),
+            team_id: None,
+            calls: 0,
+            reject: false,
+            particles: None,
+            births: Some(0),
+        }
+    }
+
     fn new(world: &GameLogic, id: ObjectId, reject: bool) -> Self {
         let object = &world.objects[&id];
         Self {
@@ -38,6 +54,7 @@ impl Observe {
             calls: 0,
             reject,
             particles: None,
+            births: None,
         }
     }
 }
@@ -76,7 +93,12 @@ impl NativeViewEffects for Observe {
         _: game_client::core::game_client::NativeDrawableBirthContext,
         _: &mut game_engine::common::thing::module_factory::ModuleFactory,
     ) -> Result<(), String> {
-        panic!("this headless probe is attached only after creation")
+        let births = self
+            .births
+            .as_mut()
+            .expect("this headless probe is attached only after creation");
+        *births += 1;
+        Ok(())
     }
     fn retire_physical_object_drawable(
         &mut self,
@@ -637,11 +659,28 @@ fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
             // Reset clears the sides (PlayerList::reset); the next game admits
             // them again before any Object exists (GameLogic.cpp:1468).
             owner.add_player(Player::new(1, Team::USA, "PhysicalOwner", true));
+            // A world that requires its native Drawable owner lends it to
+            // every birth too (ThingFactory::newObject creates the Drawable),
+            // so the next birth receives the same kind of owner as reset.
+            let mut next_receiver = Observe::birth_owner(id);
             let new_id = owner
-                .create_object("PhysicalOwner", Team::USA, Vec3::ZERO)
-                .unwrap();
+                .create_object_with_script_effects_checked(
+                    "PhysicalOwner",
+                    Team::USA,
+                    Vec3::ZERO,
+                    None,
+                    &mut ScriptPresentationEffects {
+                        view: Some(&mut next_receiver),
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+                .expect("ObjectId");
             assert_eq!(new_id, id);
-            let mut next_receiver = Observe::new(&owner, new_id, false);
+            assert_eq!(next_receiver.births, Some(1));
+            let reborn = &owner.objects[&new_id];
+            next_receiver.team_name = reborn.team_instance_name.clone();
+            next_receiver.team_id = reborn.team_instance_id;
             owner
                 .reset_with_effects_checked(&mut ScriptPresentationEffects {
                     view: Some(&mut next_receiver),
