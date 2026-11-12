@@ -78,11 +78,15 @@ impl PartitionShroudGrid {
         self.levels.contains_key(&(x, y))
     }
 
-    /// C++ `worldToCell` — floor(wx / cellSize). Extents origin is 0 on host maps.
+    /// C++ `worldToCell` (PartitionManager.h:1506-1510):
+    /// `REAL_TO_INT_FLOOR(w * m_cellSizeInv)` with `m_cellSizeInv =
+    /// (Real)(1.0 / m_cellSize)` (PartitionManager.cpp:2571). Extents origin
+    /// is 0 on host maps.
     pub fn world_to_cell(&self, wx: f32, wy: f32) -> (i32, i32) {
+        let inv = (1.0_f64 / f64::from(self.cell_size)) as f32;
         (
-            (wx / self.cell_size).floor() as i32,
-            (wy / self.cell_size).floor() as i32,
+            game_engine::base_type::real_to_int_floor(wx * inv),
+            game_engine::base_type::real_to_int_floor(wy * inv),
         )
     }
 

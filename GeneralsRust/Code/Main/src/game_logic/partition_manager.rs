@@ -235,10 +235,10 @@ impl PartitionManager {
         self.revealed_players.contains(&player_id)
     }
 
-    /// World XZ → cell indices residual.
+    /// World XZ → cell indices before a grid is admitted: C++ `worldToCell`
+    /// at the residual cell size (REAL_TO_INT_FLOOR of w * m_cellSizeInv).
     pub fn cell_coords(x: f32, z: f32) -> (i32, i32) {
-        let s = PARTITION_CELL_SIZE_RESIDUAL;
-        ((x / s).floor() as i32, (z / s).floor() as i32)
+        super::partition_coi::world_to_cell(x, z)
     }
 
     /// C++ `registerObject` residual — stamp the object's authored geometry COI

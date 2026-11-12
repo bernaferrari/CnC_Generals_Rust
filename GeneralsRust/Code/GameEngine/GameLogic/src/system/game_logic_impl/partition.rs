@@ -386,10 +386,13 @@ impl PartitionManager {
         self.add_object(object_id, (x, y, 0.0));
     }
 
+    /// C++ `worldToCell` (PartitionManager.h:1506-1510, cpp:2571).
     fn position_to_cell(&self, position: Coord3D) -> (i32, i32) {
-        let x = (position.x / self.cell_size).floor() as i32;
-        let y = (position.y / self.cell_size).floor() as i32;
-        (x, y)
+        let inv = (1.0_f64 / f64::from(self.cell_size)) as f32;
+        (
+            game_engine::base_type::real_to_int_floor(position.x * inv),
+            game_engine::base_type::real_to_int_floor(position.y * inv),
+        )
     }
 
     pub fn cell_size(&self) -> Real {
@@ -615,5 +618,25 @@ mod ghost_transition_tests {
 
         assert_eq!(partition.ghost_link_scene_id(8), None);
         assert_eq!(manager.used_count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod world_to_cell_tests {
+    use super::PartitionManager;
+
+    #[test]
+    fn object_cells_use_cpp_real_to_int_floor_at_integral_boundaries() {
+        // PartitionManager.h:1506-1510 REAL_TO_INT_FLOOR(w * m_cellSizeInv):
+        // the almost-one subtract (BaseType.h:195-201) puts an exact negative
+        // boundary one cell lower than f32::floor, and tiny negatives in cell 0.
+        let mut partition = PartitionManager::new();
+        let size = partition.cell_size();
+        partition.add_object(1, (-size, 0.0, 0.0));
+        partition.add_object(2, (-1.0e-6, 3.0 * size, 0.0));
+        partition.add_object(3, (2.5 * size, size, 0.0));
+        assert_eq!(partition.object_cells[&1], (-2, 0));
+        assert_eq!(partition.object_cells[&2], (0, 3));
+        assert_eq!(partition.object_cells[&3], (2, 1));
     }
 }
