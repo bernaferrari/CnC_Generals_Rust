@@ -259,9 +259,12 @@ fn admitted_sparse_lobby_and_replay_names_drive_tech_queries_after_restore() {
                     "the authored dictionary's side ordinal differs from the host ID"
                 );
 
+                // ScriptConditions.cpp:2240-2242 latches the search in the
+                // Condition's custom data, so each world owns its own engine.
                 let engine = observing_engine(condition("player0", "HomeBase", 0.0), 1);
+                let ally_engine = observing_engine(condition("player0", "HomeBase", 0.0), 1);
                 assert_eq!(tick(&engine, &mut enemy_world), 1);
-                assert_eq!(tick(&engine, &mut ally_world), 0);
+                assert_eq!(tick(&ally_engine, &mut ally_world), 0);
 
                 let snapshotter = SnapshotBuilder::new();
                 let snapshot = snapshotter.create_world_snapshot(&enemy_world).unwrap();
