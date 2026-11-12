@@ -2141,6 +2141,32 @@ mod tests {
     }
 
     #[test]
+    fn audio_feedback_click_asks_the_window_layer_for_one_combo_click() {
+        crate::test_support::ensure_ambient_host();
+        let mut silent = ListBox::new(7, 0, 0, 100, 40);
+        silent.handle_input(&InputEvent::MouseDown {
+            x: 1,
+            y: 1,
+            button: MouseButton::Left,
+        });
+        assert_eq!(silent.take_gui_sound(), None, "no AudioFeedback, no sound");
+
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.set_audio_feedback(true);
+        listbox.handle_input(&InputEvent::MouseDown {
+            x: 1,
+            y: 1,
+            button: MouseButton::Left,
+        });
+        assert_eq!(
+            listbox.take_gui_sound(),
+            Some("GUIComboBoxClick"),
+            "GadgetListBox.cpp plays GUIComboBoxClick for its client's engine"
+        );
+        assert_eq!(listbox.take_gui_sound(), None, "played once");
+    }
+
+    #[test]
     fn right_mouse_down_is_handled_like_cpp_listbox() {
         crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
