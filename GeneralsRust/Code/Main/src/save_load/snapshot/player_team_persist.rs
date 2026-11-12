@@ -1661,7 +1661,7 @@ mod tests {
         assert_eq!(parsed_teams.prototypes[0].production_priority, 42);
         assert_eq!(parsed_teams.prototypes[0].controller, Some(Some(2)));
         assert_eq!(parsed_teams.prototypes[0].owner_order, Some(0));
-        assert_eq!(parsed_teams.version, 7);
+        assert_eq!(parsed_teams.version, TEAM_FACTORY_CHUNK_VERSION);
         let _ = parsed_players;
     }
 
