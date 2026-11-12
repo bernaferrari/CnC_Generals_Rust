@@ -807,9 +807,31 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
     );
 }
 
+/// Supply truck + center (+ optional warehouse) authored as INI content:
+/// SupplyTruckAIUpdate, SupplyCenterDockUpdate and SupplyWarehouseDockUpdate
+/// make these Objects a collector and docks; the center's dock ring is its
+/// authored GeometryMajorRadius (C++ default geometry is a radius-1 sphere).
+fn supply_deposit_fixture_ini(
+    truck: &str,
+    center: &str,
+    center_health: u32,
+    warehouse: Option<&str>,
+) -> String {
+    let mut ini = format!(
+        "Object {truck}\n KindOf = HARVESTER\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n  MaxBoxes = 4\n  SupplyWarehouseScanDistance = 700\n  SupplyWarehouseActionDelay = 0\n  SupplyCenterActionDelay = 0\n  UpgradedSupplyBoost = 0\n End\nEnd\n\
+         Object {center}\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 25.0\n GeometryMinorRadius = 25.0\n GeometryHeight = 20.0\n Body = ActiveBody BodyTag\n  MaxHealth = {center_health}\n  InitialHealth = {center_health}\n End\n Behavior = SupplyCenterDockUpdate DockTag\n End\nEnd\n"
+    );
+    if let Some(warehouse) = warehouse {
+        ini.push_str(&format!(
+            "Object {warehouse}\n KindOf = SUPPLY_SOURCE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = SupplyWarehouseDockUpdate DockTag\n End\nEnd\n"
+        ));
+    }
+    ini
+}
+
 #[test]
 fn supply_center_deposits_credit_center_owner_and_reject_allies() {
-    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+    use crate::game_logic::SupplyTruckState;
 
     let mut logic = GameLogic::new();
     let mut usa = Player::new(0, Team::USA, "USA", true);
@@ -821,24 +843,15 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
     china.alliance_team = 1;
     logic.add_player(china);
 
-    let mut truck = ThingTemplate::new("AmericaVehicleChinook");
-    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
-    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
-        max_boxes: 4,
-        warehouse_scan_distance: 700.0,
-        warehouse_delay_frames: 0,
-        center_delay_frames: 0,
-        upgraded_supply_boost: 0,
-    });
-    logic.templates.insert(truck.name.clone(), truck);
-
-    let mut center = ThingTemplate::new("ChinaSupplyCenter");
-    center
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::SupplyCenter)
-        .set_health(100.0);
-    center.dock_kind = DockKind::SupplyCenter;
-    logic.templates.insert(center.name.clone(), center);
+    // Authored before the first Object (ThingFactory owns every definition).
+    // The center's dock ring is its authored geometry (DockUpdate.cpp approach
+    // positions sit on the bounding circle), not a default selection radius.
+    logic
+        .admit_object_ini_sources([(
+            "SupplyDepositFixture.ini".into(),
+            supply_deposit_fixture_ini("AmericaVehicleChinook", "ChinaSupplyCenter", 100, None),
+        )])
+        .expect("authored supply deposit fixture");
 
     // C++ ActionManager::canTransferSuppliesAt (ActionManager.cpp:224-230):
     // a supply center must be controlled by the SAME player as the docking
@@ -896,7 +909,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         .expect("own center");
     // Dock approach residual: the collector must sit on the dock's approach
     // ring to claim it in one tick — goal = dock + dir * (radius * 0.5);
-    // radius (selection_radius) 25 → 12.5 east of the center at (8, 0, 0).
+    // authored GeometryMajorRadius 25 → 12.5 east of the center at (8, 0, 0).
     let own_collector_id = logic
         .create_object_for_player("AmericaVehicleChinook", 1, Vec3::new(20.5, 0.0, 0.0))
         .expect("china collector");
@@ -1372,7 +1385,7 @@ fn supply_warehouse_scan_uses_cpp_strict_radius_and_zero_semantics() {
 
 #[test]
 fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() {
-    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+    use crate::game_logic::SupplyTruckState;
     use gamelogic::common::Relationship;
 
     let mut logic = GameLogic::new();
@@ -1383,29 +1396,17 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
     former_source_player.set_map_relationship(0, Relationship::Enemies);
     logic.add_player(former_source_player);
 
-    let mut truck = ThingTemplate::new("PostDepositTruck");
-    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
-    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
-        max_boxes: 4,
-        warehouse_scan_distance: 700.0,
-        warehouse_delay_frames: 0,
-        center_delay_frames: 0,
-        upgraded_supply_boost: 0,
-    });
-    logic.templates.insert(truck.name.clone(), truck);
-    let mut warehouse = ThingTemplate::new("PostDepositWarehouse");
-    warehouse
-        .add_kind_of(KindOf::SupplySource)
-        .set_health(100.0);
-    warehouse.dock_kind = DockKind::SupplyWarehouse;
-    logic.templates.insert(warehouse.name.clone(), warehouse);
-    let mut center = ThingTemplate::new("PostDepositCenter");
-    center
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::SupplyCenter)
-        .set_health(1000.0);
-    center.dock_kind = DockKind::SupplyCenter;
-    logic.templates.insert(center.name.clone(), center);
+    logic
+        .admit_object_ini_sources([(
+            "SupplyDepositFixture.ini".into(),
+            supply_deposit_fixture_ini(
+                "PostDepositTruck",
+                "PostDepositCenter",
+                1000,
+                Some("PostDepositWarehouse"),
+            ),
+        )])
+        .expect("authored supply deposit fixture");
 
     let former_source = logic
         .create_object_for_player("PostDepositWarehouse", 1, Vec3::new(40.0, 0.0, 0.0))
