@@ -3169,19 +3169,15 @@ impl GameLogic {
         if entered != AttackMachineResult::Continue {
             return Ok(false);
         }
-        // AIUpdate.cpp:3395-3417 only installs the attack state/goal. An
-        // already-in-range turning turret must not manufacture a movement path
-        // while its AIM state owns the shot. Keep existing fallback and chase
-        // requests unchanged, and do not clear a previously installed path.
-        let selected_turning_turret = self.objects.get(&unit_id).is_some_and(|u| {
-            u.selected_weapon_slot()
-                .is_some_and(|slot| u.is_weapon_slot_on_turret(slot))
-                && u.turret_ai.turret_turn_rate_rad != 0.0
-        });
-        let turret_aim_only = selected_turning_turret
-            && !self.out_of_weapon_range_object(unit_id, victim_id)
+        // AIUpdate.cpp:3395-3417 only installs the attack state/goal. The
+        // approach state's onEnter succeeds at once, computing no path, when
+        // the current weapon is within range with an unblocked view
+        // (AIStates.cpp:2570-2580; out_of_weapon_range_object folds in the view
+        // check). Only a chase (or a squish) requests one, and an existing path
+        // is never cleared here.
+        let in_clear_range = !self.out_of_weapon_range_object(unit_id, victim_id)
             && !self.want_to_squish_target(unit_id, victim_id);
-        if !turret_aim_only {
+        if !in_clear_range {
             self.request_attack_path(unit_id, Some(victim_id), victim_pos)?;
         }
         Ok(true)
