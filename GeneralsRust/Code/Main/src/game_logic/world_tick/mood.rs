@@ -399,6 +399,17 @@ impl GameLogic {
                 .expect("Team prototype");
         }
         let team = factory.create_inactive_team(name).expect("Team instance");
+        // Object::setOrRestoreTeam removes the object from its old Team's
+        // member list before joining the new one (Object.cpp:836-840).
+        let previous = self
+            .objects
+            .get(&actor)
+            .expect("actor")
+            .team_instance_id
+            .and_then(|identity| factory.find_team_by_id(identity));
+        if let Some(previous) = previous {
+            previous.write().expect("previous Team").remove_member(actor.0);
+        }
         let mut team = team.write().expect("Team");
         let object = self.objects.get_mut(&actor).expect("actor");
         team.set_controlling_player_id_for_owned_members(object.owner_player_id);
