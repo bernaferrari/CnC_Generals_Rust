@@ -358,9 +358,6 @@ impl ReceivingLocomotors {
 
 /// Each unadmitted match gets its own copy of the fallback catalog.
 fn fallback_locomotor_store() -> LocomotorStore {
-    #[cfg(test)]
-    return fixture_locomotor_store().clone();
-    #[cfg(not(test))]
     default_host_locomotor_store()
 }
 
@@ -381,18 +378,16 @@ pub fn fixture_locomotor_binding(name: &str) -> Option<HostLocomotorBinding> {
     resolve_host_locomotor_binding_from_store(&default_host_locomotor_store(), name)
 }
 
-/// Lib tests share one read-only copy of the default catalog; nothing can
-/// write to it, so worlds still cannot observe each other through it.
+/// Each lib-test fixture builds its own copy of the default catalog; no
+/// process-wide catalog exists for worlds to observe each other through.
 #[cfg(test)]
-pub(crate) fn fixture_locomotor_store() -> &'static LocomotorStore {
-    static STORE: std::sync::LazyLock<LocomotorStore> =
-        std::sync::LazyLock::new(default_host_locomotor_store);
-    &STORE
+pub(crate) fn fixture_locomotor_store() -> LocomotorStore {
+    default_host_locomotor_store()
 }
 
 #[cfg(test)]
 pub fn fixture_locomotor_binding(name: &str) -> Option<HostLocomotorBinding> {
-    resolve_host_locomotor_binding_from_store(fixture_locomotor_store(), name)
+    resolve_host_locomotor_binding_from_store(&fixture_locomotor_store(), name)
 }
 
 /// Add the existing headless fallback definitions only where content is absent.
@@ -708,10 +703,9 @@ pub(crate) fn resolve_host_locomotor_binding_in(
     // A storeless call has no owning world. Production fails closed; lib
     // tests read the immutable fixture catalog instead.
     #[cfg(test)]
-    let store: Option<&LocomotorStore> = Some(match store {
-        Some(store) => store,
-        None => fixture_locomotor_store(),
-    });
+    if store.is_none() {
+        return resolve_host_locomotor_binding_from_store(&fixture_locomotor_store(), name);
+    }
     resolve_host_locomotor_binding_from_store(store?, name)
 }
 

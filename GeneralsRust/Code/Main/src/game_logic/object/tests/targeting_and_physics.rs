@@ -2150,7 +2150,7 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
             use game_engine::common::ini::ini_locomotor::parse_locomotor_template_definition;
             // This jet's own catalog: retail fallback plus the authored lift pair.
             let mut catalog =
-                crate::game_logic::locomotor_bootstrap::fixture_locomotor_store().clone();
+                crate::game_logic::locomotor_bootstrap::fixture_locomotor_store();
             for (name, surfaces, speed, lift) in [
                 ("FixtureRaptorFlight", "AIR", "175", "120"),
                 ("FixtureRaptorTaxi", "GROUND", "50", "0"),
