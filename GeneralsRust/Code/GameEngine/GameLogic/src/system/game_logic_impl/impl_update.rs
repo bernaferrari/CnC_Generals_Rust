@@ -1343,23 +1343,29 @@ impl GameLogic {
         let Ok(mut manager) = __w3d_ghosts.write() else {
             return;
         };
-        let statuses: Vec<(ObjectID, crate::common::ObjectShroudStatus)> = self
+        let statuses: Vec<(
+            crate::object::w3d_ghost_object::W3DGhostSceneId,
+            crate::common::ObjectShroudStatus,
+        )> = self
             .partition_manager
-            .orphan_ghost_object_ids()
+            .orphan_ghost_scene_ids()
             .into_iter()
-            .map(|object_id| {
+            .map(|scene_id| {
                 (
-                    object_id,
-                    self.ghost_shroud_status_for_link(object_id, local_player),
+                    scene_id,
+                    Self::ghost_shroud_status_at(
+                        self.partition_manager.orphan_ghost_frozen_position(scene_id),
+                        local_player,
+                    ),
                 )
             })
             .collect();
         self.partition_manager.update_orphaned_ghosts(
             local_player,
-            |object_id| {
+            |scene_id| {
                 statuses
                     .iter()
-                    .find(|(id, _)| *id == object_id)
+                    .find(|(id, _)| *id == scene_id)
                     .map(|(_, status)| *status)
                     .unwrap_or(crate::common::ObjectShroudStatus::Fogged)
             },
@@ -1380,7 +1386,18 @@ impl GameLogic {
                 );
             }
         }
-        let Some(position) = self.partition_manager.ghost_frozen_position(object_id) else {
+        Self::ghost_shroud_status_at(
+            self.partition_manager.ghost_frozen_position(object_id),
+            player_index,
+        )
+    }
+
+    /// Cell shroud at a ghost's frozen pose (W3DGhostObject::getShroudStatus).
+    fn ghost_shroud_status_at(
+        position: Option<Coord3D>,
+        player_index: usize,
+    ) -> crate::common::ObjectShroudStatus {
+        let Some(position) = position else {
             return crate::common::ObjectShroudStatus::Fogged;
         };
         use crate::system::shroud_manager::{ShroudState, get_shroud_manager};

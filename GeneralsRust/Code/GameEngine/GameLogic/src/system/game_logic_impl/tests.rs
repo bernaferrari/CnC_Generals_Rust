@@ -2131,18 +2131,13 @@ mod tests {
         );
 
         assert!(partition.detach_object_ghost(52, &mut manager));
-        assert_eq!(partition.ghost_link_scene_id(52), Some(scene_id));
+        assert_eq!(partition.ghost_link_scene_id(52), None);
+        assert_eq!(partition.orphan_ghost_scene_ids(), vec![scene_id]);
         assert_eq!(manager.used_count(), 1);
         assert_eq!(manager.used()[0].parent_object_id(), None);
 
-        partition.apply_object_ghost_shroud_status(
-            52,
-            0,
-            ObjectShroudStatus::Shrouded,
-            None,
-            &mut manager,
-        );
-        assert_eq!(partition.ghost_link_scene_id(52), None);
+        partition.update_orphaned_ghosts(0, |_| ObjectShroudStatus::Shrouded, &mut manager);
+        assert!(partition.orphan_ghost_scene_ids().is_empty());
         assert_eq!(manager.used_count(), 0);
         assert_eq!(manager.free_count(), 1);
     }
