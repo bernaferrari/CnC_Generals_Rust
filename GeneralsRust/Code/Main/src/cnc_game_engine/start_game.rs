@@ -2938,8 +2938,26 @@ End
         };
         assert_eq!(config.rules.starting_cash, 10_000);
 
+        // The receiving world owns the three sides' PlayerTemplates and their
+        // StartingBuildings before NewGame (GameEngine.cpp:428-458); each slot
+        // selects its template by index in that catalog (GameLogic.cpp:1318-1319).
+        use crate::skirmish_config::lobby_definition_tests as slots_fixture;
+        let mut definitions = slots_fixture::slot_definitions();
+        definitions
+            .apply_source(
+                "PlayerTemplate FactionChina\n Side = China\n BaseSide = China\n StartingBuilding = ChinaCommandCenter\nEnd\n",
+                game_engine::common::ini::INILoadType::Overwrite,
+            )
+            .expect("China PlayerTemplate");
         let mut logic = crate::game_logic::GameLogic::new();
-        logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
+        slots_fixture::admit_slot_world_with_objects(
+            &mut logic,
+            &definitions,
+            &[crate::fixture_content::FixtureObject::new("ChinaCommandCenter")
+                .kind_of("STRUCTURE COMMANDCENTER")
+                .health(5000.0)],
+        );
+        let config = slots_fixture::slot_config(&logic, &config);
         crate::skirmish_config::apply_skirmish_config(&mut logic, &config)
             .expect("synthesized config applies through the skirmish authority");
 

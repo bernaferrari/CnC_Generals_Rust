@@ -113,14 +113,14 @@ fn new_world_shroud_does_not_inherit_process_match_state() {
 
 fn world_with_enemy() -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
-    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("ShroudOwnerUnit").kind_of("INFANTRY")],
+    );
     logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     logic.add_player(Player::new(0, Team::USA, "Local", true));
     logic.add_player(Player::new(1, Team::China, "Enemy", false));
-    let mut template = ThingTemplate::new("ShroudOwnerUnit");
-    template.add_kind_of(KindOf::Infantry);
-    logic.templates.insert(template.name.clone(), template);
     let id = logic
         .create_object("ShroudOwnerUnit", Team::China, Vec3::ZERO)
         .unwrap();

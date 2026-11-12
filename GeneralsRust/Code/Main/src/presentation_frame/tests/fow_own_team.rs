@@ -6,7 +6,16 @@ use glam::Vec3;
 #[test]
 fn own_team_objects_are_fully_visible_in_presentation_fow() {
     let mut logic = GameLogic::new();
-    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    // The dozer is authored startup content (GameEngine.cpp:428-458): a real
+    // mobile builder has AIUpdate, a locomotor and DozerAIUpdate.
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("USA_Dozer")
+            .kind_of("VEHICLE DOZER SELECTABLE")
+            .health(250.0)
+            .walker()
+            .dozer()],
+    );
     logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     let mut p0 = Player::new(0, Team::USA, "Human", true);

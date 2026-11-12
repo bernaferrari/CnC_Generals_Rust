@@ -550,9 +550,29 @@ fn map_select_new_game_dispatch_consumes_the_exact_runtime_pending_map() {
     });
 }
 
+/// The session's PlayerTemplate catalog, loaded before any NewGame
+/// (GameEngine.cpp:428 PlayerTemplate.ini). Campaign and Challenge launch
+/// resolve the selected faction in the starting session's own catalog.
+#[cfg(feature = "game_client")]
+fn campaign_player_templates() -> game_engine::common::rts::player_template::PlayerTemplateStore {
+    let mut definitions =
+        game_engine::common::rts::player_template::PlayerTemplateStore::new_owned();
+    definitions
+        .apply_source(
+            "PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\n StartingBuilding = AmericaCommandCenter\nEnd\n\
+             PlayerTemplate FactionChina\n Side = China\n BaseSide = China\n StartingBuilding = ChinaCommandCenter\nEnd\n\
+             PlayerTemplate FactionAmericaAirForceGeneral\n Side = AmericaAirForceGeneral\n BaseSide = America\n StartingBuilding = AirF_AmericaCommandCenter\nEnd\n\
+             PlayerTemplate FactionChinaTankGeneral\n Side = ChinaTankGeneral\n BaseSide = China\n StartingBuilding = Tank_ChinaCommandCenter\nEnd\n",
+            game_engine::common::ini::INILoadType::Overwrite,
+        )
+        .expect("campaign PlayerTemplate catalog");
+    definitions
+}
+
 #[cfg(feature = "game_client")]
 #[test]
 fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
+    let definitions = campaign_player_templates();
     use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
 
     let descriptor = HostCampaignLaunchDescriptor {
@@ -572,7 +592,7 @@ fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
     };
 
     let overrides =
-        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&descriptor))
+        CnCGameEngine::campaign_launch_start_overrides_in(GameMode::SinglePlayer, Some(&descriptor), Some(&definitions))
             .expect("ordinary campaign descriptor must resolve");
     assert_eq!(
         overrides.map.as_deref(),
@@ -589,7 +609,7 @@ fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
     );
 
     let overrides =
-        CnCGameEngine::campaign_launch_start_overrides(GameMode::Skirmish, Some(&descriptor))
+        CnCGameEngine::campaign_launch_start_overrides_in(GameMode::Skirmish, Some(&descriptor), Some(&definitions))
             .expect("non-single-player dispatch ignores the campaign descriptor");
     assert!(overrides.map.is_none());
     assert!(overrides.faction.is_none());
@@ -599,6 +619,7 @@ fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
 #[cfg(feature = "game_client")]
 #[test]
 fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
+    let definitions = campaign_player_templates();
     use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
 
     let descriptor = HostCampaignLaunchDescriptor {
@@ -616,7 +637,7 @@ fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
     };
 
     assert!(
-        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&descriptor),)
+        CnCGameEngine::campaign_launch_start_overrides_in(GameMode::SinglePlayer, Some(&descriptor), Some(&definitions))
             .is_err()
     );
 }
@@ -626,18 +647,15 @@ fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
 fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
     use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
 
-    game_engine::common::ini::ensure_player_templates_loaded();
-    let (tank_index, air_force_index) = {
-        let store = game_engine::common::rts::player_template::get_player_template_store();
-        (
-            store
-                .find_template_index("FactionChinaTankGeneral")
-                .expect("retail Tank General template") as i32,
-            store
-                .find_template_index("FactionAmericaAirForceGeneral")
-                .expect("retail Air Force General template") as i32,
-        )
-    };
+    let definitions = campaign_player_templates();
+    let (tank_index, air_force_index) = (
+        definitions
+            .find_template_index("FactionChinaTankGeneral")
+            .expect("authored Tank General template") as i32,
+        definitions
+            .find_template_index("FactionAmericaAirForceGeneral")
+            .expect("authored Air Force General template") as i32,
+    );
 
     let descriptor = HostCampaignLaunchDescriptor {
         map_name: "Maps\\Challenge\\ExactTank.map".to_string(),
@@ -654,7 +672,7 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
     };
 
     let overrides =
-        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&descriptor))
+        CnCGameEngine::campaign_launch_start_overrides_in(GameMode::SinglePlayer, Some(&descriptor), Some(&definitions))
             .expect("matched Challenge template must resolve");
     let identity = overrides
         .player_template
@@ -672,7 +690,7 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
         ..descriptor.clone()
     };
     assert!(
-        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&missing_cash))
+        CnCGameEngine::campaign_launch_start_overrides_in(GameMode::SinglePlayer, Some(&missing_cash), Some(&definitions))
             .is_err()
     );
 
@@ -681,7 +699,7 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
         ..descriptor
     };
     assert!(
-        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&stale),)
+        CnCGameEngine::campaign_launch_start_overrides_in(GameMode::SinglePlayer, Some(&stale), Some(&definitions))
             .is_err()
     );
 }

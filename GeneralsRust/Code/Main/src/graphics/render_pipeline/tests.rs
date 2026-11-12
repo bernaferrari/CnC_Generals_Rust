@@ -751,7 +751,7 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
     // position/model/selected when a frame is available.
     use crate::game_logic::{GameLogic, Team};
     use crate::presentation_frame::PresentationFrame;
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("UnitMeshPres");
@@ -765,7 +765,7 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
                 .model("avhummer"),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let id = logic
         .create_object("PresMeshUnit", Team::USA, Vec3::new(15.0, 0.0, -3.0))
         .expect("unit");
@@ -807,12 +807,12 @@ fn presentation_fow_never_explored_skip_is_snapshot_owned() {
     use crate::fow_rendering::ObjectVisibility;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::presentation_frame::{PresentationFrame, UnitRenderInput};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowSnapSkip");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FowSkipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("FowSkipUnit");
     t.set_health(40.0);
     t.add_kind_of(KindOf::Infantry);

@@ -33,7 +33,7 @@ fn fixture_with(
     ];
     objects.extend_from_slice(extra);
     admit_fixture_objects(&mut logic, &objects);
-    crate::skirmish_config::apply_skirmish_config(&mut logic, &config).expect("content admission");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &config).expect("content admission");
     // Retail short-game rules defeat structure-less players and remove their
     // armies. Admit both players' real victory-counting structures so these
     // fixed-step witnesses survive ordinary victory processing.

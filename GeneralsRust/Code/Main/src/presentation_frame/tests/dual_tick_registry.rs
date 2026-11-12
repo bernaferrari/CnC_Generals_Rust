@@ -36,7 +36,7 @@ fn presentation_frame_is_built_from_authority_without_arc() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresMap");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object PresUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("PresUnit");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Infantry);
@@ -83,7 +83,7 @@ fn client_reads_snapshot_not_live_world() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ClientSnap");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SnapUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("SnapUnit");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Infantry);
@@ -123,7 +123,7 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
             crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     seed_victory_keep_alive(&mut logic);
     let id = logic
         .create_object("HudUnit", Team::USA, glam::Vec3::new(9.0, 0.0, -4.0))
@@ -193,7 +193,7 @@ fn dual_tick_build_and_apply_after_logic_step_seeds_hud() {
             crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     seed_victory_keep_alive(&mut logic);
     let id = logic
         .create_object("DualUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
@@ -239,7 +239,7 @@ fn dual_tick_applies_selection_panel_to_shell_ui_consumers() {
             crate::fixture_content::FixtureObject::new("VictoryKeepAlive"),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     seed_victory_keep_alive(&mut logic);
     let id = logic
         .create_object("MultiUiUnit", Team::USA, glam::Vec3::new(2.0, 0.0, 3.0))
@@ -282,7 +282,7 @@ fn presentation_snapshot_includes_selection_radius_for_cull() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SelRadius");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object RadiusUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("RadiusUnit");
     t.set_health(50.0);
     t.add_kind_of(KindOf::Infantry);
@@ -314,7 +314,7 @@ fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
             crate::fixture_content::FixtureObject::new("USA_Ranger").kind_of("INFANTRY").health(60.0).walker(),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     // Prefer host setup template when present; otherwise inject retail-like key.
     {
         let mut t = ThingTemplate::new("USA_Ranger");
@@ -357,7 +357,7 @@ fn mesh_scale_presentation_residual_wave75() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MeshScalePres");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object USA_Humvee\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     {
         let mut t = ThingTemplate::new("USA_Humvee");
         t.set_health(240.0);
@@ -390,7 +390,7 @@ fn ground_height_presentation_residual_wave77() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GroundHeightPres");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object USA_Ranger\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     {
         let mut t = ThingTemplate::new("USA_Ranger");
         t.set_health(120.0);
@@ -428,7 +428,7 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
             crate::fixture_content::FixtureObject::new("MeshUnit").kind_of("VEHICLE SELECTABLE").health(60.0).walker(),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("MeshUnit");
     t.set_health(60.0);
     t.set_model("AVTank");
@@ -514,7 +514,7 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowSnapConsistency");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object FowUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("FowUnit");
     t.set_health(50.0);
     t.add_kind_of(KindOf::Infantry);
@@ -630,11 +630,11 @@ fn presentation_fow_shell_bypass_forces_fully_visible() {
 
 #[test]
 fn presentation_world_env_freezes_bounds_and_map_name() {
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WorldEnvMap");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     let snap = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(snap.world_env.map_name, logic.get_current_map_name().trim());
     let (a, b) = logic.world_bounds();
@@ -650,11 +650,11 @@ fn presentation_world_env_freezes_bounds_and_map_name() {
 
 #[test]
 fn world_env_height_grid_is_self_consistent() {
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HeightGridMap");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     let snap = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(snap.world_env.height_grid_w, 64);
     assert_eq!(snap.world_env.height_grid_h, 64);
@@ -681,7 +681,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowGridSnap");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
 
     // Activate FOW runtime (visible membership) without permanent map reveal so
     // baseline is not fail-open fully-visible and reveal can change fingerprint.
@@ -832,7 +832,7 @@ fn unit_render_inputs_keep_resident_direct_destroyed_drawable_without_duplicate(
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("UnitRenderSkip");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object SkipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("SkipUnit");
     t.set_health(40.0);
     t.add_kind_of(KindOf::Infantry);
@@ -897,7 +897,7 @@ fn direct_host_drawable_roster_survives_gameworld_rebuild_and_uses_visual_identi
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DirectHostVisualRoster");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DirectHostVisualActual\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut template = ThingTemplate::new("DirectHostVisualActual");
     template.set_health(40.0);
     template.add_kind_of(KindOf::Infantry);

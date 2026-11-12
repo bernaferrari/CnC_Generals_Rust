@@ -131,13 +131,16 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
     assert!((m.w_axis.x - 10.0).abs() < 1e-4 && (m.w_axis.z - 20.0).abs() < 1e-4);
 
     u.mesh_scale = 0.0; // C++ setInstanceScale accepts a collapsed zero scale.
-    // A real post-scale local translation must remain collapsed too; factoring
-    // geometry may not replace the source full translation with scale-one's.
+    // W3DModelDraw::doDrawModule (W3DModelDraw.cpp:2022-2026) scales the
+    // Drawable transform (Object * instance * Physics, Drawable.cpp) with
+    // Matrix3D::Scale, which multiplies only the 3x3 (matrix3d.h:897-911):
+    // a zero scale collapses the axes while the physics-local translation
+    // stays whole. Factoring geometry may not replace that translation.
     u.physics_visual_local = Some(glam::Mat4::from_translation(glam::Vec3::new(5.0, 7.0, 9.0)));
     let m1 = u.world_matrix();
     assert!(m1.is_finite());
     assert_eq!(m1.x_axis.truncate(), glam::Vec3::ZERO);
-    assert_eq!(m1.w_axis, m.w_axis);
+    assert_eq!(m1.w_axis, m.w_axis + glam::Vec4::new(5.0, 7.0, 9.0, 0.0));
     let native_parent = u.world_matrix_without_geometry_scale();
     assert!(native_parent.is_finite());
     assert_eq!(
@@ -743,11 +746,11 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
 fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
     use crate::gameworld_shadow::GameWorldShadow;
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
 
     let mut logic = GameLogic::new();
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DrawableShroudFreezeUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &golden_skirmish_config("DrawableShroudFreeze"))
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &golden_skirmish_config("DrawableShroudFreeze"))
         .expect("config");
     let mut template = ThingTemplate::new("DrawableShroudFreezeUnit");
     template.set_health(100.0);
@@ -868,13 +871,13 @@ fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records()
 #[test]
 fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
     let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
     let mut logic = GameLogic::new();
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object DirectShroudMembershipUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(
         &mut logic,
         &golden_skirmish_config("DirectShroudMembership"),
     )
@@ -969,11 +972,11 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
 fn overlay_gameworld_shadow_copies_entity_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::GameWorldShadow;
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayShadowRes");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object OvlU\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     {
         let mut t = ThingTemplate::new("OvlU");
         t.set_health(100.0);
@@ -1054,7 +1057,7 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
 fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::GameWorldShadow;
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     use crate::unit_control::UnitControlSystem;
 
     let mut logic = GameLogic::new();
@@ -1065,7 +1068,7 @@ fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
             crate::fixture_content::FixtureObject::new("UnattackableVictim").kind_of("INFANTRY UNATTACKABLE").health(100.0).walker(),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     let id = logic
         .create_object(
             "UnattackableVictim",
@@ -1086,13 +1089,13 @@ fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
 fn overlay_gameworld_shadow_applies_local_economy_power() {
     use crate::game_logic::GameLogic;
     use crate::gameworld_shadow::GameWorldShadow;
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     // Ensure economy authority path is on for this process (gate default).
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayEconPower");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     // Host starting cash from golden config.
     let host_cash = logic
         .get_player(0)
@@ -1192,10 +1195,10 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
 
 fn unit_display_info_carries_command_set_override_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HudCmdSetInfo");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("HudBarracks") {
         let mut t = ThingTemplate::new("HudBarracks");
         t.set_health(500.0);
@@ -1225,10 +1228,10 @@ fn unit_display_info_carries_command_set_override_residual() {
 
 fn presentation_freezes_detector_stealth_timing_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresDetStealth");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PresDS") {
         let mut t = ThingTemplate::new("PresDS");
         t.set_health(100.0);
@@ -1264,10 +1267,10 @@ fn presentation_freezes_detector_stealth_timing_residual() {
 
 fn presentation_freezes_transport_kind_damage_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresTransportKind");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PresTK") {
         let mut t = ThingTemplate::new("PresTK");
         t.set_health(100.0);
@@ -1312,10 +1315,10 @@ fn presentation_freezes_transport_kind_damage_residual() {
 
 fn presentation_freezes_hive_continuous_camo_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresHiveCamo");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PresHC") {
         let mut t = ThingTemplate::new("PresHC");
         t.set_health(100.0);
@@ -1352,10 +1355,10 @@ fn presentation_freezes_hive_continuous_camo_residual() {
 
 fn presentation_freezes_battle_plan_weapon_bonus_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresBattlePlan");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PresBP") {
         let mut t = ThingTemplate::new("PresBP");
         t.set_health(100.0);
@@ -1384,10 +1387,10 @@ fn apply_to_control_bar_syncs_command_set_from_presentation() {
 
     // Runtime residual: selected override name is visible on the frame.
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CbCmdSetPres");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("CbCS") {
         let mut t = ThingTemplate::new("CbCS");
         t.set_health(100.0);
@@ -1412,10 +1415,10 @@ fn apply_to_control_bar_syncs_command_set_from_presentation() {
 
 fn presentation_freezes_command_set_detector_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresCmdDet");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PresCD") {
         let mut t = ThingTemplate::new("PresCD");
         t.set_health(100.0);
@@ -1448,10 +1451,10 @@ fn presentation_freezes_command_set_detector_residual() {
 
 fn presentation_freezes_turret_and_weapon_bonus_residual() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresTurretBonus");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PresTB") {
         let mut t = ThingTemplate::new("PresTB");
         t.set_health(100.0);
@@ -1486,7 +1489,7 @@ fn presentation_freezes_turret_and_weapon_bonus_residual() {
 
 use super::super::*;
 use crate::game_logic::{GameMode, KindOf, Player, ThingTemplate};
-use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+use crate::skirmish_config::golden_skirmish_config;
 
 #[test]
 fn upgrade_complete_freezes_into_presentation_events() {

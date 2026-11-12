@@ -7,7 +7,7 @@ fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HudIdentity");
     logic.admit_object_ini_sources([("fixture-objects.ini".into(), "Object HudIdUnit\nEnd\n".into())]).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut t = ThingTemplate::new("HudIdUnit");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Infantry);
@@ -1065,7 +1065,7 @@ fn presentation_feeds_control_bar_selection_panel_health() {
             crate::fixture_content::FixtureObject::new("CbPanelUnit").kind_of("INFANTRY SELECTABLE").health(77.0).walker(),
         ],
     );
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let id = logic
         .create_object("CbPanelUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 5.0))
         .expect("unit");
@@ -1293,7 +1293,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
         .expect("inert definition admission");
     let cfg = golden_skirmish_config("FloatPres");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
 
     // Empty residual when host has no cash events.
     let empty = PresentationFrame::build_from_logic(&mut logic, 0);
@@ -1416,7 +1416,7 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("LaserPres");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
 
     // Empty lasers when host has none.
     let empty = PresentationFrame::build_from_logic(&mut logic, 0);
@@ -1498,7 +1498,7 @@ fn dual_tick_residual_counters_increment_on_apply() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DualTickCtr");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut hud = crate::ui::GameHUD::new();
     let mut ui = crate::ui::GameUIState::default();
     let mut rts = crate::ui::RTSInterface::new();
@@ -1534,7 +1534,7 @@ fn spectre_orbit_decal_presentation_residual_wave73() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpectreDecalPres");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let snap = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(snap.spectre_orbit_decal_presentation_residual_ok());
 }
@@ -1547,7 +1547,7 @@ fn presentation_dual_tick_residual_deepen_wave102() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Pres102");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
     let mut hud = crate::ui::GameHUD::new();
     let mut ui = crate::ui::GameUIState::default();
     let mut rts = crate::ui::RTSInterface::new();

@@ -109,6 +109,21 @@ pub(crate) fn slot_config(
     config
 }
 
+/// Start a skirmish fixture the way the application does: the receiving world
+/// owns the slot PlayerTemplate catalog (GameEngine.cpp:428 loads
+/// PlayerTemplate.ini before any NewGame) and every slot selects its template
+/// by index in that catalog (GameLogic.cpp:1318-1319 resolves the GameSlot's
+/// PlayerTemplate index with ThePlayerTemplateStore->getNthPlayerTemplate). Fixtures
+/// that author their own catalog call `slot_config` + `apply_skirmish_config`.
+pub(crate) fn start_slot_skirmish(
+    world: &mut crate::game_logic::GameLogic,
+    config: &crate::skirmish_config::SkirmishMatchConfig,
+) -> Result<(), String> {
+    world.admit_player_template_definitions(slot_definitions())?;
+    let config = slot_config(world, config);
+    crate::skirmish_config::apply_skirmish_config(world, &config)
+}
+
 /// Give each receiving test world the same ordered authored startup content.
 pub(crate) fn admit_slot_world(
     world: &mut crate::game_logic::GameLogic,

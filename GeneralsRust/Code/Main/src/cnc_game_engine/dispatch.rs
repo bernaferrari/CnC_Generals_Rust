@@ -948,16 +948,6 @@ impl CnCGameEngine {
         })
     }
 
-    #[cfg(all(test, feature = "game_client"))]
-    pub(super) fn campaign_launch_start_overrides(
-        mode: GameMode,
-        descriptor: Option<
-            &game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor,
-        >,
-    ) -> std::result::Result<CampaignLaunchStartOverrides, &'static str> {
-        Self::campaign_launch_start_overrides_in(mode, descriptor, None)
-    }
-
     /// Drop the map writes paired with a rejected typed campaign descriptor.
     /// Challenge publishers intentionally mirror `pending_file` into both
     /// GlobalData residences before queuing NewGame. Leaving either copy after

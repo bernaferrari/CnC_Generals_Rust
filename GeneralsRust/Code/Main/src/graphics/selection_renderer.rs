@@ -1394,7 +1394,7 @@ mod presentation_selection_tests {
     use super::*;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::presentation_frame::PresentationFrame;
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::skirmish_config::golden_skirmish_config;
     use glam::Vec3;
 
     #[test]
@@ -1408,7 +1408,7 @@ mod presentation_selection_tests {
                 crate::fixture_content::FixtureObject::new("SelUnit").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
             ],
         );
-        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("SelUnit");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Infantry);
@@ -1527,7 +1527,7 @@ mod presentation_selection_tests {
                 crate::fixture_content::FixtureObject::new("AirBlobJet").kind_of("AIRCRAFT").health(100.0),
             ],
         );
-        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("AirBlobJet");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Aircraft);
@@ -1578,7 +1578,7 @@ mod presentation_selection_tests {
                 crate::fixture_content::FixtureObject::new("FogBlobUnit").kind_of("INFANTRY").health(100.0).walker(),
             ],
         );
-        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("FogBlobUnit");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Infantry);
@@ -1651,7 +1651,7 @@ mod presentation_selection_tests {
                 crate::fixture_content::FixtureObject::new("DecalOffUnit").kind_of("INFANTRY").health(100.0).walker(),
             ],
         );
-        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("DecalOffUnit");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Infantry);
@@ -1701,7 +1701,7 @@ mod presentation_selection_tests {
                 crate::fixture_content::FixtureObject::new("VolBlobTank").kind_of("VEHICLE").health(100.0).walker(),
             ],
         );
-        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
         let mut t = ThingTemplate::new("VolBlobTank");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Vehicle);

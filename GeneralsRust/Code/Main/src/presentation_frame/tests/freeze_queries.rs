@@ -94,7 +94,7 @@ fn player_roster_frozen_from_host() {
     let mut logic = GameLogic::new();
     let cfg = crate::skirmish_config::golden_skirmish_config("PlayerRosterFreeze");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let (host_name, host_team) = {
         let host = logic.get_player(pid).expect("p");
@@ -118,7 +118,7 @@ fn local_team_frozen_from_host_player() {
     let mut logic = GameLogic::new();
     let cfg = crate::skirmish_config::golden_skirmish_config("LocalTeamFreeze");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
-    crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let host_team = logic.get_player(pid).expect("p").team;
     let frame = PresentationFrame::build_from_logic(&mut logic, pid);
