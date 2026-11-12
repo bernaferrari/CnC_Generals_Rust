@@ -918,36 +918,34 @@ fn object_attack_skips_vehicle_transport_riders() {
     // C++ TransportContain::isPassengerAllowedToFire + isAbleToAttack:
     // vehicle riders never receive the group attack order.
     use super::CommandExecutor;
-    use crate::command_system::CommandResult;
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::{GameLogic, Team, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
-    let mut chin = ThingTemplate::new("AT_CC");
-    chin.add_kind_of(KindOf::Vehicle);
-    chin.add_kind_of(KindOf::Aircraft);
-    chin.add_kind_of(KindOf::Selectable);
-    chin.set_health(300.0);
-    logic.templates.insert("AT_CC".to_string(), chin);
-    let mut veh = ThingTemplate::new("AT_V");
-    veh.add_kind_of(KindOf::Vehicle);
-    veh.add_kind_of(KindOf::Selectable);
-    veh.set_health(200.0);
-    logic.templates.insert("AT_V".to_string(), veh);
-    let mut tgt = ThingTemplate::new("AT_VE");
-    tgt.add_kind_of(KindOf::Vehicle);
-    tgt.add_kind_of(KindOf::Selectable);
-    tgt.set_health(100.0);
-    logic.templates.insert("AT_VE".to_string(), tgt);
+    // Retail Combat Chinook: TransportContain with PassengersAllowedToFire
+    // that admits INFANTRY and VEHICLE riders.
+    admit_fixture_objects(
+        &mut logic,
+        &[
+            FixtureObject::new("AT_CC")
+                .kind_of("VEHICLE AIRCRAFT SELECTABLE CAN_ATTACK")
+                .health(300.0)
+                .module(
+                    "Behavior = TransportContain FixtureContain\n Slots = 8\n PassengersAllowedToFire = Yes\n AllowInsideKindOf = INFANTRY VEHICLE\n ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE\nEnd",
+                ),
+            // The rider owns AI, so only the vehicle passenger rule can refuse it.
+            FixtureObject::new("AT_V").kind_of("VEHICLE SELECTABLE").health(200.0).walker(),
+            FixtureObject::new("AT_VE").kind_of("VEHICLE SELECTABLE").health(100.0),
+        ],
+    );
     let chinook = logic.create_object("AT_CC", Team::USA, Vec3::ZERO).unwrap();
     let rider = logic.create_object("AT_V", Team::USA, Vec3::ZERO).unwrap();
     let enemy = logic
         .create_object("AT_VE", Team::China, Vec3::new(40.0, 0.0, 0.0))
         .unwrap();
     {
-        let frame = logic.get_current_frame() as u32;
         let h = logic.host_object_mut(chinook).unwrap();
-        h.install_combat_chinook_transport(frame);
         let _ = h.add_occupant(rider);
         crate::fixture_content::arm_slot_with_stats(
             h,
