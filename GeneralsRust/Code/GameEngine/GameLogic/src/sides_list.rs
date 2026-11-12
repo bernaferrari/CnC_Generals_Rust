@@ -333,6 +333,28 @@ impl SidesList {
     }
 
     pub fn prepare_for_mp_or_skirmish(&mut self) {
+        self.prepare_for_mp_or_skirmish_decoding(None);
+    }
+
+    /// Decodes the default skirmish scripts against the receiving
+    /// interpreter's templates and NameKey namespace, as C++
+    /// ScriptList::ParseScriptsDataChunk resolves conditions and actions
+    /// through TheScriptEngine (Scripts.cpp:499-531).
+    pub fn prepare_for_mp_or_skirmish_with_definitions(
+        &mut self,
+        templates: ScriptTemplateLookup,
+        names: &std::sync::Mutex<game_engine::common::name_key_generator::NameKeyNamespace>,
+    ) {
+        self.prepare_for_mp_or_skirmish_decoding(Some((templates, names)));
+    }
+
+    fn prepare_for_mp_or_skirmish_decoding(
+        &mut self,
+        definitions: Option<(
+            ScriptTemplateLookup,
+            &std::sync::Mutex<game_engine::common::name_key_generator::NameKeyNamespace>,
+        )>,
+    ) {
         self.skirmish_teamrec.clear();
         for team in &self.teamrec.teams {
             self.skirmish_teamrec.add_team(team.get_dict());
@@ -389,18 +411,38 @@ impl SidesList {
                     Err(_) => return,
                 }
             };
-            let mut input = DataChunkInput::new(data);
-            let mut context = SkirmishScriptContext::default();
-            input.register_parser(
-                "PlayerScriptsList",
-                "",
-                parse_skirmish_player_scripts_list_chunk,
-            );
-            input.register_parser("ScriptsPlayers", "", parse_players_data_chunk);
-            input.register_parser("ScriptTeams", "", parse_teams_data_chunk);
-            if !input.parse(&mut context) {
+            let (templates, names) = match definitions {
+                Some((templates, names)) => (Some(templates), Some(names)),
+                None => (None, None),
+            };
+            // Hold the namespace only for the decode: Dict key lookups after
+            // it resolve through the same session namespace.
+            let context = {
+                let mut guard =
+                    names.map(|names| names.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+                let (mut input, script_lists) = match (guard.as_deref_mut(), templates) {
+                    (Some(names), Some(templates)) => (
+                        DataChunkInput::with_namespace(data, names),
+                        ScriptListReadInfo::with_templates(templates),
+                    ),
+                    _ => (DataChunkInput::new(data), ScriptListReadInfo::default()),
+                };
+                let mut context = SkirmishScriptContext {
+                    script_lists,
+                    ..SkirmishScriptContext::default()
+                };
+                input.register_parser(
+                    "PlayerScriptsList",
+                    "",
+                    parse_skirmish_player_scripts_list_chunk,
+                );
+                input.register_parser("ScriptsPlayers", "", parse_players_data_chunk);
+                input.register_parser("ScriptTeams", "", parse_teams_data_chunk);
+                input.parse(&mut context).then_some(context)
+            };
+            let Some(context) = context else {
                 return;
-            }
+            };
 
             for (index, scripts) in context.script_lists.lists.into_iter().enumerate() {
                 if let Some(name) = context.player_names.get(index) {

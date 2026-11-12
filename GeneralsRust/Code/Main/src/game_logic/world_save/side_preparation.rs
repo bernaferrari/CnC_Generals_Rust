@@ -69,7 +69,17 @@ impl GameLogic {
         sides.validate_sides();
 
         if self.uses_lobby_side_foundation() {
-            sides.prepare_for_mp_or_skirmish();
+            match self.owned_script_engine.as_ref() {
+                Some(engine) => {
+                    let templates =
+                        gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(engine);
+                    sides.prepare_for_mp_or_skirmish_with_definitions(
+                        templates,
+                        &self.world_services.common().name_key_namespace,
+                    );
+                }
+                None => sides.prepare_for_mp_or_skirmish(),
+            }
             self.add_host_players_as_sides(&mut sides);
             sides.validate_sides();
         }
@@ -188,7 +198,10 @@ impl GameLogic {
         // Player::initFromDict runs inside PlayerList::newGame, before
         // TeamFactory::initFromSides and ScriptEngine::newMap read the sides.
         if self.uses_lobby_side_foundation() {
-            qualify_skirmish_side_scripts(&mut prepared, &controllers, catalog);
+            // Key accessors resolve through this namespace; lock it only to
+            // spell the generic hook keys.
+            let hook_keys = key_team_generic_script_hook_keys(&self.world_services);
+            qualify_skirmish_side_scripts(&mut prepared, &controllers, catalog, &hook_keys);
         }
 
         // TeamFactory::initFromSides consumes this exact prepared order, not
@@ -214,6 +227,23 @@ impl GameLogic {
     }
 }
 
+/// `TheKey_teamGenericScriptHook` + 0..MAX_GENERIC_SCRIPTS (Player.cpp:950-960)
+/// in this world's NameKey namespace.
+fn key_team_generic_script_hook_keys(
+    services: &gamelogic::system::engine_stores::WorldServices,
+) -> Vec<game_engine::common::name_key_generator::NameKeyType> {
+    let base_key = game_engine::common::well_known_keys::key_team_generic_script_hook();
+    let mut names = services
+        .common()
+        .name_key_namespace
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let base = names.key_to_name(base_key).unwrap_or_default();
+    (0..gamelogic::team::MAX_GENERIC_SCRIPTS)
+        .map(|hook| names.name_to_key(&format!("{base}{hook}")))
+        .collect()
+}
+
 /// C++ Player::initFromDict (Player.cpp:823-966): a human copies the Civilian
 /// skirmish scripts; a skirmish AI copies its side's skirmish scripts and
 /// teams, qualified by its multiplayer start index.
@@ -221,9 +251,10 @@ fn qualify_skirmish_side_scripts(
     prepared: &mut gamelogic::sides_list::SidesList,
     controllers: &crate::game_logic::player_controllers::PreparedControllers,
     catalog: &HashMap<String, String>,
+    generic_hook_keys: &[game_engine::common::name_key_generator::NameKeyType],
 ) {
     use game_engine::common::well_known_keys::{
-        key_team_all_clear_script, key_team_enemy_sighted_script, key_team_generic_script_hook,
+        key_team_all_clear_script, key_team_enemy_sighted_script,
         key_team_on_create_script, key_team_on_destroyed_script, key_team_on_idle_script,
         key_team_on_unit_destroyed_script, key_team_production_condition,
     };
@@ -338,11 +369,7 @@ fn qualify_skirmish_side_scripts(
                 key_team_all_clear_script(),
                 key_team_production_condition(),
             ];
-            let generic = NameKeyGenerator::key_to_name(key_team_generic_script_hook())
-                .unwrap_or_default();
-            keys.extend((0..gamelogic::team::MAX_GENERIC_SCRIPTS).map(|hook| {
-                NameKeyGenerator::name_to_key(&format!("{generic}{hook}"))
-            }));
+            keys.extend_from_slice(generic_hook_keys);
             for key in keys {
                 if team_dict.get_type(key).is_some() {
                     let value = team_dict.get_ascii_string(key);
