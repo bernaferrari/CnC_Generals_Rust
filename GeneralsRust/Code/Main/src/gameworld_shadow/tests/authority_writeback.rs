@@ -2239,7 +2239,23 @@ fn host_logic_step_active_guard_restores_on_return_and_unwind() {
 #[test]
 fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
     fn world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
         let mut logic = GameLogic::new();
+        // Only an Object with an AIUpdateInterface can hold an attack state
+        // (AIUpdateInterface::privateAttackObject), and AIAttackState needs a
+        // WeaponSet weapon able to engage the victim; both are authored
+        // before NewGame (GameEngine.cpp:428-458).
+        admit_fixture_content(
+            &mut logic,
+            &[FixtureObject::new("OwnedAttackReceiptInfantry")
+                .kind_of("INFANTRY ATTACKABLE")
+                .health(100.0)
+                .walker()
+                .armed("OwnedAttackReceiptRifle")],
+            &[FixtureWeapon::new("OwnedAttackReceiptRifle")
+                .damage(10.0)
+                .range(100.0)],
+        );
         logic.add_player(crate::game_logic::Player::new(
             0,
             Team::USA,
@@ -2247,25 +2263,9 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
             true,
         ));
         logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "Enemy", false));
-        let mut template = ThingTemplate::new("OwnedAttackReceiptInfantry");
-        template
-            .add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(100.0);
-        logic.templates.insert(template.name.clone(), template);
         let attacker = logic
             .create_object_for_player("OwnedAttackReceiptInfantry", 0, Vec3::ZERO)
             .unwrap();
-        // AIAttackState needs a weapon able to engage the victim.
-        crate::fixture_content::arm_slot_with_stats(
-            logic.host_object_mut(attacker).unwrap(),
-            0,
-            crate::game_logic::Weapon {
-                damage: 10.0,
-                range: 100.0,
-                ..crate::game_logic::Weapon::default()
-            },
-        );
         let first = logic
             .create_object_for_player("OwnedAttackReceiptInfantry", 1, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
