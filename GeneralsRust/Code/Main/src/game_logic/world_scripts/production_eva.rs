@@ -1585,15 +1585,9 @@ mod tests {
     #[test]
     fn fire_stealth_discover_skips_hero_eva_when_detector_not_local() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
-        logic
-            .players
-            .insert(1, Player::new(1, Team::China, "China", false));
-        logic
-            .players
-            .insert(2, Player::new(2, Team::GLA, "GLA", false));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(1, Team::China, "China", false));
+        logic.add_player(Player::new(2, Team::GLA, "GLA", false));
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
         lotus.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
         lotus
@@ -1622,12 +1616,8 @@ mod tests {
     #[test]
     fn fire_stealth_discover_enemy_hero_eva_throttled_by_try_event() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
-        logic
-            .players
-            .insert(1, Player::new(1, Team::China, "China", false));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(1, Team::China, "China", false));
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
         lotus.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
         lotus
@@ -1695,9 +1685,7 @@ mod tests {
         required_science: Option<&str>,
     ) -> ObjectId {
         if !logic.players.contains_key(&0) {
-            logic
-                .players
-                .insert(0, Player::new(0, Team::USA, "Local", true));
+            logic.add_player(Player::new(0, Team::USA, "Local", true));
         }
         let mut template = ThingTemplate::new("AmericaParticleUplinkCannon");
         template
@@ -1726,9 +1714,7 @@ mod tests {
     #[test]
     fn superweapon_ready_skips_hidden_by_script_timer() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
         logic.hide_script_superweapon_object_for_test(ObjectId(1));
         logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
         assert!(
@@ -1740,9 +1726,7 @@ mod tests {
     #[test]
     fn superweapon_ready_ignores_global_display_hide() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
         let source_id = spawn_local_particle_cannon(&mut logic, None);
         assert!(logic.is_object_locally_controlled(source_id));
         logic.set_script_superweapon_display_enabled_for_test(false);
@@ -1785,9 +1769,7 @@ mod tests {
     #[test]
     fn superweapon_ready_announces_when_science_owned_at_creation() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
         assert!(logic
             .players
             .get_mut(&0)
@@ -1810,9 +1792,7 @@ mod tests {
     #[test]
     fn superweapon_ready_resumes_after_script_show() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
         logic.hide_script_superweapon_object_for_test(ObjectId(1));
         logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
         assert!(!logic.honesty_eva_superweapon_ready_ok());

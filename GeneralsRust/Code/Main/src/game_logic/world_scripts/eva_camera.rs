@@ -1426,9 +1426,7 @@ mod tests {
     fn black_market_with_mp_count_fires_base_under_attack() {
         // C++ Radar.cpp:1194 — STRUCTURE + MP_COUNT_FOR_VICTORY, not FS union.
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::GLA, "Local", true));
+        logic.add_player(Player::new(0, Team::GLA, "Local", true));
         let mut st = ThingTemplate::new("GLABlackMarket");
         st.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::FSBlackMarket)
@@ -1454,9 +1452,7 @@ mod tests {
     #[test]
     fn structure_without_mp_count_does_not_fire_base_under_attack() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
         let mut st = ThingTemplate::new("AmericaCommandCenter");
         st.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::CommandCenter)
@@ -1509,15 +1505,9 @@ mod tests {
     #[test]
     fn try_under_attack_from_damage_skips_non_local() {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
-        logic
-            .players
-            .insert(1, Player::new(1, Team::China, "China", false));
-        logic
-            .players
-            .insert(2, Player::new(2, Team::GLA, "GLA", false));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(1, Team::China, "China", false));
+        logic.add_player(Player::new(2, Team::GLA, "GLA", false));
         let mut t = ThingTemplate::new("ChinaTankBattleMaster");
         t.add_kind_of(KindOf::Vehicle).set_health(400.0);
         logic.templates.insert("ChinaTankBattleMaster".into(), t);
@@ -1573,12 +1563,8 @@ mod tests {
     fn same_faction_ally_death_does_not_fire_unit_lost() {
         // C++ isLocallyControlled, not faction Team. USA 2v2 ally deaths stay silent.
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
-        logic
-            .players
-            .insert(1, Player::new(1, Team::USA, "Ally", false));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(1, Team::USA, "Ally", false));
         let mut t = ThingTemplate::new("AmericaInfantryRanger");
         t.add_kind_of(KindOf::Infantry).set_health(100.0);
         logic.templates.insert("AmericaInfantryRanger".into(), t);
@@ -1608,12 +1594,8 @@ mod tests {
     fn same_faction_teamkill_of_local_unit_fires_unit_lost() {
         // C++ selfInflicted is sourceID == victim ID, not same-faction killer Team.
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
-        logic
-            .players
-            .insert(1, Player::new(1, Team::USA, "Ally", false));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(1, Team::USA, "Ally", false));
         let mut t = ThingTemplate::new("AmericaInfantryRanger");
         t.add_kind_of(KindOf::Infantry).set_health(100.0);
         logic.templates.insert("AmericaInfantryRanger".into(), t);
@@ -1646,9 +1628,7 @@ mod tests {
         // C++ ControlBarCommandProcessing setShouldPlay every failed click.
         // Eva.ini TimeBetweenChecksMS is leftover Eva, not a 900-frame host gate.
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
         logic.try_eva_insufficient_funds(0);
         logic.frame = 1;
         logic.try_eva_insufficient_funds(0);
