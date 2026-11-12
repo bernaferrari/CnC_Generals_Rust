@@ -497,7 +497,11 @@ impl GameLogic {
             gamelogic::common::Color::rgb(day.0, day.1, day.2),
             gamelogic::common::Color::rgb(night.0, night.1, night.2),
         );
-        let existing = ThePlayerList()
+        // This world's own PlayerList (its WorldServices), never the
+        // published one: a staged candidate must not seed the live list.
+        let existing = self
+            .world_services
+            .players()
             .read()
             .ok()
             .and_then(|list| list.get_player(host_id as i32).cloned());
@@ -532,7 +536,7 @@ impl GameLogic {
                 logic_player.set_player_type(LogicPlayerType::Observer, false);
             }
             logic_player.set_colors(core_colors.0, core_colors.1);
-            let __arc_bind = ThePlayerList();
+            let __arc_bind = std::sync::Arc::clone(self.world_services.players());
 if let Ok(mut list) = __arc_bind.write() {
                 list.add_player(std::sync::Arc::new(std::sync::RwLock::new(logic_player)));
             }
@@ -561,7 +565,7 @@ if let Ok(mut list) = __arc_bind.write() {
         let observer_id = self.ensure_replay_observer_player();
         self.select_local_player(Some(observer_id));
         // Temporary native consumer adapter; Main selected the identity above.
-        let __arc_bind = ThePlayerList();
+        let __arc_bind = std::sync::Arc::clone(self.world_services.players());
 if let Ok(mut list) = __arc_bind.write() {
             if list.get_player(observer_id as i32).is_some() {
                 list.set_local_player_index(observer_id as i32);

@@ -671,7 +671,9 @@ impl GameLogic {
         // every side exists so name lookup can resolve.
         apply_logic_player_list_relationships(&mut logic_list, side_dicts);
 
-        match ThePlayerList().try_write() {
+        // The owning world's PlayerList (its WorldServices), not whichever
+        // services happen to be published on this thread.
+        match self.world_services.players().try_write() {
             Ok(mut guard) => *guard = logic_list,
             Err(_) => {
                 log::warn!(
