@@ -473,22 +473,26 @@ impl ObjectFactory {
         if publish {
             TheGameLogic::register_object(base_object.clone())
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
-            // C++ ThingFactory::newObject (ThingFactory.cpp:313-317): every
-            // Object joins the partition (and gets its ghost) before initObject.
-            crate::system::game_logic::get_game_logic()
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .register_object_with_partition(object_id, &base_object);
         }
 
         // new_with_id has already installed modules and run onObjectCreated,
         // before GameLogic admission, as in C++ Object.cpp:388-476.
-        // Run onCreate hooks on those same instances.
+        // C++ ThingFactory::newObject (ThingFactory.cpp:303-319): onCreate on
+        // those same instances, then PartitionManager::registerObject (ghost,
+        // collision, pathfinding), then initObject.
         if publish {
-            let mut obj_guard = base_object
+            base_object
                 .write()
-                .map_err(|e| format!("object write lock poisoned: {}", e))?;
-            obj_guard.init_object()?;
+                .map_err(|e| format!("object write lock poisoned: {}", e))?
+                .run_on_create();
+            crate::system::game_logic::get_game_logic()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .register_object_with_partition(object_id, &base_object);
+            base_object
+                .write()
+                .map_err(|e| format!("object write lock poisoned: {}", e))?
+                .init_object_after_create();
         }
 
         // Create appropriate specialized object

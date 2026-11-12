@@ -500,8 +500,18 @@ impl Object {
         }
     }
 
-    /// Initialize object after creation
+    /// onCreate then initObject with nothing between them, for Objects that
+    /// do not join a partition in between. Births that do use `run_on_create`,
+    /// partition registration, then `init_object_after_create`.
     pub fn init_object(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.run_on_create();
+        self.init_object_after_create();
+        Ok(())
+    }
+
+    /// C++ ThingFactory::newObject (ThingFactory.cpp:303-311): every
+    /// CreateModule's onCreate, before partition registration.
+    pub fn run_on_create(&mut self) {
         self.install_template_weapons();
         self.run_create_hooks(false);
         if self.firing_tracker.is_none()
@@ -510,10 +520,11 @@ impl Object {
         {
             self.firing_tracker = Some(Box::new(FiringTracker::new(self.id)));
         }
+    }
 
+    /// C++ `Object::initObject` (Object.cpp:495), after partition registration.
+    pub fn init_object_after_create(&mut self) {
         self.init_object_cpp_sequence();
-
-        Ok(())
     }
 
     fn install_template_weapons(&mut self) {

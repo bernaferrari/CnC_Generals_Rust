@@ -150,7 +150,23 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Admission plus partition membership in one step, for an Object whose
+    /// CreateModules have already run (load, placement, fixtures). Births
+    /// use `admit_object`, onCreate, then `register_object_with_partition`,
+    /// the C++ ThingFactory::newObject order.
     pub fn register_object(
+        &mut self,
+        object: Arc<RwLock<Object>>,
+    ) -> Result<ObjectID, GameLogicError> {
+        let object_id = self.admit_object(Arc::clone(&object))?;
+        self.register_object_with_partition(object_id, &object);
+        Ok(object_id)
+    }
+
+    /// C++ `GameLogic::registerObject` via `friend_createObject`
+    /// (GameLogic.cpp:3850-3880): the Object joins this world's object list.
+    /// Partition membership is a separate, later step (ThingFactory.cpp:313).
+    pub fn admit_object(
         &mut self,
         object: Arc<RwLock<Object>>,
     ) -> Result<ObjectID, GameLogicError> {
@@ -206,9 +222,6 @@ impl GameLogic {
         // C++ Object::initObject → sendObjectCreated after the object exists.
         // Dual-world: bind a client drawable when the logic object has none.
         send_object_created(object_id);
-
-        // C++ ThingFactory::newObject -> PartitionManager::registerObject.
-        self.register_object_with_partition(object_id, &object);
 
         // Fire creation event
         self.event_queue.push(GameEvent::ObjectCreated(object_id));

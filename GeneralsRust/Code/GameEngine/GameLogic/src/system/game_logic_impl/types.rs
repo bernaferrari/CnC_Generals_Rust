@@ -161,16 +161,23 @@ impl TheObjectFactory {
                 .lock()
                 .map_err(|_| "GameLogic mutex poisoned when registering object")?;
             logic
-                .register_object(object.clone())
+                .admit_object(object.clone())
                 .map_err(|err| format!("Failed to register object: {:?}", err))?;
         }
 
-        {
-            let mut obj_guard = object
-                .write()
-                .map_err(|e| format!("object write lock poisoned: {}", e))?;
-            obj_guard.init_object()?;
-        }
+        // ThingFactory.cpp:303-319: onCreate, partition registration, initObject.
+        object
+            .write()
+            .map_err(|e| format!("object write lock poisoned: {}", e))?
+            .run_on_create();
+        get_game_logic()
+            .lock()
+            .map_err(|_| "GameLogic mutex poisoned when registering object partition")?
+            .register_object_with_partition(object_id, &object);
+        object
+            .write()
+            .map_err(|e| format!("object write lock poisoned: {}", e))?
+            .init_object_after_create();
 
         Ok(object)
     }
