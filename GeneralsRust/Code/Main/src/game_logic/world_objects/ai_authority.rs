@@ -1131,8 +1131,9 @@ impl GameLogic {
                 object_id,
                 position,
             } => {
-                let installed = self.move_object_with_pathfinding(object_id, position, None);
-                {}
+                // C++ AIUpdateInterface::privateMoveToPosition sets the goal
+                // position and enters the move; the void call has no result.
+                let _ = self.private_move_to_position(object_id, position);
             }
             AICommand::SetAIState { object_id, state } => {
                 // Player Hunt (`hunting`) must survive transient Idle so the

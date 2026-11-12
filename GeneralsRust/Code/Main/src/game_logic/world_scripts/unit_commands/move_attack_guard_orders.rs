@@ -52,6 +52,15 @@ impl GameLogic {
         destination: glam::Vec3,
         from_player: bool,
     ) -> bool {
+        // GameLogicDispatch.cpp:780-788 moves through the group's AI
+        // interfaces; an Object without AIUpdateInterface receives nothing.
+        if !self
+            .objects
+            .get(&id)
+            .is_some_and(|object| object.has_ai_update_interface())
+        {
+            return false;
+        }
         if !self.unit_can_move(id) {
             return false;
         }
