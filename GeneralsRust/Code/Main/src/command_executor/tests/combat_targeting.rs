@@ -654,16 +654,25 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
-    let mut clearer = ThingTemplate::new("AuthoredMineDetailClearer");
-    clearer
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(300.0)
-        .set_primary_weapon_none()
-        .set_mine_clearing_primary_weapon_name("DozerMineDisarmingWeapon");
-    logic
-        .templates
-        .insert("AuthoredMineDetailClearer".to_string(), clearer);
+    // Retail AmericaVehicleDozer: PRIMARY None by default, and the
+    // MINE_CLEARING_DETAIL WeaponSet's PRIMARY DozerMineDisarmingWeapon
+    // (DamageType = DISARM), all authored before NewGame.
+    crate::fixture_content::admit_fixture_content(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("AuthoredMineDetailClearer")
+            .kind_of("VEHICLE SELECTABLE")
+            .health(300.0)
+            .walker()
+            .module(
+                "WeaponSet\n Conditions = None\n Weapon = PRIMARY None\nEnd\nWeaponSet\n Conditions = MINE_CLEARING_DETAIL\n Weapon = PRIMARY DozerMineDisarmingWeapon\n AutoChooseSources = PRIMARY NONE\nEnd",
+            )],
+        &[crate::fixture_content::FixtureWeapon::new("DozerMineDisarmingWeapon")
+            .damage(100.0)
+            .radius(5.0)
+            .range(100.0)
+            .damage_type("DISARM")
+            .field("WeaponSpeed = 999999")],
+    );
 
     let clearer_id = logic
         .create_object("AuthoredMineDetailClearer", Team::USA, Vec3::ZERO)
