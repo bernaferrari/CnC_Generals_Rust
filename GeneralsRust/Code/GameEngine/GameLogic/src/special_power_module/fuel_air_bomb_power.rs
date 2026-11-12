@@ -248,7 +248,7 @@ impl FuelAirBombPower {
             .saturating_add((self.data.impact_delay * GAME_FPS).max(0.0) as UnsignedInt);
         self.impact_pending = true;
 
-        self.play_warning_sound();
+        self.play_warning_sound(TheAudio::of_object(&owner_guard));
         self.show_radar_event(targeting);
         Ok(())
     }
@@ -393,12 +393,12 @@ impl FuelAirBombPower {
 
     /// Play warning sound before impact
     /// Matches C++ audio event handling
-    fn play_warning_sound(&self) {
+    fn play_warning_sound(&self, audio: Option<TheAudio>) {
         if self.data.base.sound_effect.is_empty() {
             return;
         }
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = audio {
             let event =
                 crate::common::audio::AudioEventRts::new(self.data.base.sound_effect.as_str());
             audio.add_audio_event(&event);

@@ -133,9 +133,9 @@ impl DemoralizeSpecialPower {
         Ok(())
     }
 
-    fn play_sound(&self) {
+    fn play_sound(&self, audio: Option<TheAudio>) {
         if !self.data.base.sound_effect.is_empty() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = audio {
                 let event =
                     crate::common::audio::AudioEventRts::new(self.data.base.sound_effect.as_str());
                 audio.add_audio_event(&event);
@@ -347,7 +347,8 @@ impl SpecialPowerModuleInterface for DemoralizeSpecialPower {
             };
         }
 
-        self.play_sound();
+        let audio = Some(self.owner_object_id).and_then(|id| crate::object::registry::OBJECT_REGISTRY.with_object(id, TheAudio::of_object).flatten());
+        self.play_sound(audio);
         self.cooldown.start_cooldown(current_frame);
         self.stats
             .record_activation(current_frame, self.data.base.cost);

@@ -246,7 +246,7 @@ impl A10StrikePower {
         self.strike_active = true;
 
         // Play sound effect
-        self.play_sound_effect();
+        self.play_sound_effect(TheAudio::of_object(&owner_guard));
 
         // Display radar event
         self.show_radar_event(targeting);
@@ -304,12 +304,12 @@ impl A10StrikePower {
 
     /// Play A-10 strike sound effect
     /// Matches C++ audio event handling
-    fn play_sound_effect(&self) {
+    fn play_sound_effect(&self, audio: Option<TheAudio>) {
         if self.data.base.sound_effect.is_empty() {
             return;
         }
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = audio {
             let event =
                 crate::common::audio::AudioEventRts::new(self.data.base.sound_effect.as_str());
             audio.add_audio_event(&event);

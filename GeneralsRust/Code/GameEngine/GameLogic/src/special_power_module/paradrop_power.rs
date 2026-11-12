@@ -323,7 +323,7 @@ impl ParadropPower {
         }
 
         // Play sound effect
-        self.play_sound_effect();
+        self.play_sound_effect(TheAudio::of_object(&owner_guard));
 
         Ok(())
     }
@@ -466,12 +466,12 @@ impl ParadropPower {
     }
 
     /// Play paradrop sound effect
-    fn play_sound_effect(&self) {
+    fn play_sound_effect(&self, audio: Option<TheAudio>) {
         if self.data.base.sound_effect.is_empty() {
             return;
         }
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = audio {
             let event =
                 crate::common::audio::AudioEventRts::new(self.data.base.sound_effect.as_str());
             audio.add_audio_event(&event);

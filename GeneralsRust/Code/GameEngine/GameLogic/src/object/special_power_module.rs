@@ -744,9 +744,11 @@ impl SpecialPowerModule {
             }
         }
 
-        // Play initiate sound
+        // Play initiate sound through the launching Object's engine.
         if let Some(template) = &self.special_power_template() {
-            if let Some(audio) = TheAudio::get() {
+            let audio = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id)
+                .and_then(|owner| owner.read().ok().and_then(|guard| TheAudio::of_object(&guard)));
+            if let Some(audio) = audio {
                 let mut audio_event = template.get_initiate_sound().clone();
                 audio_event.set_object_id(self.owner_object_id);
                 audio.add_audio_event(&audio_event);
