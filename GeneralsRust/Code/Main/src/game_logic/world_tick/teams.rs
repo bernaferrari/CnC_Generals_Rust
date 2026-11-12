@@ -3152,15 +3152,6 @@ mod tests {
             .write()
             .expect("owned terrain")
             .load_map_data(data);
-        // ObjectCreationList/forceFire creates the ProjectileObject through the
-        // world's ThingFactory, so the missile is an admitted Object template
-        // (PROJECTILE KindOf, MissileAIUpdate), not only a projectile row.
-        logic
-            .admit_object_ini_sources([(
-                "scr2-scud-missile-object.ini".to_owned(),
-                "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd\n".to_owned(),
-            )])
-            .expect("admit authored Scr2ScudMissile object");
         // WeaponSet.cpp findWaypointFollowingCapableWeapon accepts only weapons
         // authoring CapableOfFollowingWaypoints (Weapon.cpp:213), as retail's
         // ScudStormWeapon does.
@@ -3199,12 +3190,16 @@ mod tests {
                 )
                 .unwrap();
         }
+        // forceFire creates the ProjectileObject through the world's
+        // ThingFactory, so the launcher and its missile are admitted Object
+        // templates (PROJECTILE KindOf, MissileAIUpdate), not host stubs.
+        logic
+            .admit_object_ini_sources([(
+                "scr2-scud-objects.ini".to_owned(),
+                "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd\nObject Scr2ScudLauncher\n KindOf = VEHICLE\n WeaponSet\n  Conditions = None\n  Weapon = PRIMARY ScudStormWeapon\n End\n Body = ActiveBody BodyTag\n  MaxHealth = 400\n  InitialHealth = 400\n End\nEnd\n".to_owned(),
+            )])
+            .expect("admit authored Scr2Scud objects");
         logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
-        let mut launcher = ThingTemplate::new("Scr2ScudLauncher");
-        launcher.add_kind_of(KindOf::Vehicle);
-        launcher.set_health(400.0);
-        launcher.primary_weapon_name = Some("ScudStormWeapon".into());
-        logic.templates.insert("Scr2ScudLauncher".into(), launcher);
 
         let id = logic
             .create_object(
