@@ -377,7 +377,13 @@ impl GameLogic {
         }
         let ok = self.attack_state_enter_with_effects(object_id, target_id, effects)?
             == AttackMachineResult::Continue;
-        if !ok {
+        if ok {
+            // C++ AIGuard.cpp:163,635-636: Return/Idle acquisition fails out to
+            // AI_GUARD_INNER, so the nested Return/Idle continuation has exited.
+            if let Some(runtime) = self.unit_ai_runtime_mut(object_id) {
+                runtime.set_guard_phase(None);
+            }
+        } else {
             if self.objects.get(&object_id).is_some_and(|unit| {
                 matches!(
                     unit.retained_ai_root_state(),
