@@ -71,6 +71,14 @@ fn garrison_world() -> (GameLogic, ObjectId, ObjectId) {
             .add_occupant(passenger)
     );
     world.set_fixture_object_contained_by(passenger, Some(garrison));
+    // A garrisoned rider's AI is parked inside the container (the state the
+    // garrison enter path stamps); capture must not disturb it.
+    let frame = world.frame;
+    world.objects.get_mut(&passenger).unwrap().set_ai_state(
+        AIState::Garrisoned,
+        frame,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    );
     (world, garrison, passenger)
 }
 
