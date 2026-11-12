@@ -1,6 +1,7 @@
 //! Actual factory containment and physical hive forwarding; CPP AIGroup2102–2174.
-use super::named_command_test_support::{execute, world};
+use super::named_command_test_support::{execute, named_infantry, world_with};
 use super::*;
+use crate::fixture_content::FixtureObject;
 use gamelogic::scripting::core::ScriptActionType;
 
 fn roster(owner: &GameLogic, members: &[ObjectId]) {
@@ -14,22 +15,39 @@ fn roster(owner: &GameLogic, members: &[ObjectId]) {
         team.add_member(member.0);
     }
 }
+/// A garrison authored with an InitialRoster of two named infantry
+/// (GarrisonContain/OpenContain ContainMax, InitialRoster).
+fn garrison(name: &str) -> FixtureObject {
+    FixtureObject::new(name).kind_of("STRUCTURE").health(100.0).module(
+        "Behavior = GarrisonContain ModuleTag_Contain\n ContainMax = 2\n InitialRoster = OwnedNamedInfantry 2\nEnd",
+    )
+}
+/// Startup content: both garrisons, a jet whose JetAIUpdate keeps a targeter
+/// list (nonzero LockonTime, JetAIUpdate.cpp:1667), and a Stinger-style site
+/// whose SpawnBehavior slaves are its weapons.
+fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_with(
+        &[
+            garrison("ForwardNear"),
+            garrison("ForwardFar"),
+            FixtureObject::new("ForwardJet")
+                .kind_of("AIRCRAFT")
+                .health(100.0)
+                .module("Behavior = JetAIUpdate ModuleTag_AI\n LockonTime = 1000\nEnd"),
+            FixtureObject::new("ForwardStingerSite")
+                .kind_of("STRUCTURE IMMOBILE SPAWNS_ARE_THE_WEAPONS")
+                .health(100.0)
+                .module("Behavior = DefaultProductionExitUpdate ModuleTag_Exit\nEnd")
+                .module(
+                    "Behavior = SpawnBehavior ModuleTag_Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = ForwardStingerSoldier\nEnd",
+                ),
+            named_infantry("ForwardStingerSoldier"),
+        ],
+        &[],
+        "",
+    )
+}
 fn container(owner: &mut GameLogic, name: &str, pos: Vec3) -> ObjectId {
-    let mut template = ThingTemplate::new(name);
-    template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(100.0);
-    template.set_authored_ai_update_interface(Some(false));
-    template.contain_module = ContainModuleMetadata {
-        kind: ContainModuleKind::Garrison,
-        slots: Some(2),
-        is_enclosing_container: true,
-        initial_roster_template: "OwnedNamedInfantry".into(),
-        initial_roster_count: 2,
-        ..Default::default()
-    };
-    owner.templates.insert(name.into(), template);
     owner.create_object_for_player(name, 1, pos).unwrap()
 }
 #[test]
@@ -46,38 +64,26 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
     assert_eq!(near_passengers.len(), 2);
     assert_eq!(far_passengers.len(), 2);
     // A real native target's targeter list exposes actual admitted order order.
-    let mut target_template = ThingTemplate::new("AmericaJetStealthFighter");
-    target_template
-        .add_kind_of(KindOf::Aircraft)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(100.0);
-    owner
-        .templates
-        .insert(target_template.name.clone(), target_template);
     let target = owner
-        .create_object_for_player("AmericaJetStealthFighter", 2, Vec3::new(70.0, 0.0, 70.0))
+        .create_object_for_player("ForwardJet", 2, Vec3::new(70.0, 0.0, 70.0))
         .unwrap();
     owner.host_object_mut(target).unwrap().name = "ForwardTarget".into();
     owner.host_object_mut(target).unwrap().status.stealthed = false;
-    let mut hive_template = ThingTemplate::new("GLAStingerSite");
-    hive_template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(100.0);
-    owner
-        .templates
-        .insert(hive_template.name.clone(), hive_template);
     let hive = owner
-        .create_object_for_player("GLAStingerSite", 1, Vec3::new(50.0, 0.0, 50.0))
+        .create_object_for_player("ForwardStingerSite", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();
-    assert!(
-        owner
-            .host_object(hive)
-            .unwrap()
-            .hive_slaves
-            .iter()
-            .any(|slave| slave.alive)
-    );
+    owner.frame = 1;
+    owner
+        .update_spawn_behavior_with_effects(&mut Default::default())
+        .unwrap();
+    let slaves: Vec<ObjectId> = owner
+        .host_object(hive)
+        .unwrap()
+        .spawn_behavior_children()
+        .into_iter()
+        .map(|(slave, _)| slave)
+        .collect();
+    assert_eq!(slaves.len(), 1, "the site spawned its slave");
     // Reverse insertion order calibrates the original near-to-far pass.
     roster(&owner, &[far, hive, near]);
     roster(&peer, &[peer_far, peer_near]);
@@ -113,15 +119,11 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
             .copied()
             .collect::<Vec<_>>()
     );
-    assert!(
-        owner
-            .host_object(hive)
-            .unwrap()
-            .hive_slaves
-            .iter()
-            .filter(|slave| slave.alive)
-            .all(|slave| slave.ai_attacking && slave.attack_target_id == target.0)
-    );
+    // SpawnBehavior::orderSlavesToAttackTarget force-attacks each m_spawnIDs
+    // slave (SpawnBehavior.cpp).
+    for slave in &slaves {
+        assert_eq!(owner.host_object(*slave).unwrap().target, Some(target));
+    }
     // Held excludes a whole owner's forwarding before the sort, while subdued
     // garrison disables passenger forwarding without changing its roster.
     owner.host_object_mut(near).unwrap().status.disabled_held = true;
