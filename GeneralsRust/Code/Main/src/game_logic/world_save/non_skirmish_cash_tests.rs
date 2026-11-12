@@ -9,23 +9,27 @@ fn isolated(name: &str, run: impl FnOnce()) {
 }
 
 fn world(game_info: Option<u32>, definition_base: u32) -> GameLogic {
-    crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+    world_with_template_cash(game_info, definition_base, 0)
+}
+
+/// The world owns its PlayerTemplate catalog (GameEngine.cpp:428 loads it
+/// before NewGame); `cash` is FactionCivilian's authored StartMoney.
+fn world_with_template_cash(game_info: Option<u32>, definition_base: u32, cash: u32) -> GameLogic {
+    let mut definitions = crate::skirmish_config::lobby_definition_tests::slot_definitions();
+    definitions
+        .apply_source(
+            &format!(
+                "PlayerTemplate FactionCivilian\n Side = Civilian\n BaseSide = Civilian\n StartMoney = {cash}\nEnd\n"
+            ),
+            game_engine::common::ini::INILoadType::Overwrite,
+        )
+        .unwrap();
     let mut world = GameLogic::new();
+    world.admit_player_template_definitions(definitions).unwrap();
     world.admit_object_ini_sources(std::iter::empty()).unwrap();
     world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.admit_new_game_starting_cash(game_info, definition_base);
     world
-}
-
-fn template_cash(cash: u32) {
-    let mut ini = game_engine::common::ini::INI::new();
-    ini.with_inline_source(
-        &format!(
-            "PlayerTemplate FactionCivilian\n Side = Civilian\n BaseSide = Civilian\n StartMoney = {cash}\nEnd\n"
-        ),
-        |ini| ini.parse_current_file(),
-    )
-    .unwrap();
 }
 
 fn map(dir: &Path, deposit: i32, map_ini: Option<&str>, solo_ini: Option<&str>) -> PathBuf {
@@ -93,7 +97,6 @@ fn absent_game_info_uses_base_then_map_then_solo_before_authored_deposit() {
         || {
             let dir = tempfile::tempdir().unwrap();
             let mut world = world(None, 17_321);
-            template_cash(0);
             for (name, map_ini, solo_ini, expected) in [
                 ("base", None, None, 18_021),
                 (
@@ -133,7 +136,6 @@ fn present_zero_and_unsigned_game_info_ignore_map_definition_cash() {
             );
             for cash in [0, u32::MAX] {
                 let mut world = world(Some(cash), 17_321);
-                template_cash(0);
                 let id = load(&mut world, &path);
                 assert_eq!(world.players[&id].resources.supplies, cash.wrapping_add(2));
                 assert_eq!(world.skirmish_rules.starting_cash, cash);
@@ -156,8 +158,7 @@ fn nonzero_template_cash_wins_before_authored_deposit_for_both_sources() {
                 None,
             );
             for game_info in [None, Some(0)] {
-                let mut world = world(game_info, 17_321);
-                template_cash(4_500);
+                let mut world = world_with_template_cash(game_info, 17_321, 4_500);
                 let id = load(&mut world, &path);
                 assert_eq!(world.players[&id].resources.supplies, 7_000);
             }
@@ -172,7 +173,6 @@ fn failed_companion_parse_preserves_admission_input_and_current_wallet() {
         || {
             let dir = tempfile::tempdir().unwrap();
             let mut world = world(None, 17_321);
-            template_cash(0);
             let admitted = map(&dir.path().join("admitted"), 700, None, None);
             let id = load(&mut world, &admitted);
             world.players.get_mut(&id).unwrap().resources.supplies = 9;
@@ -197,7 +197,6 @@ fn retry_without_override_uses_definition_base_not_previous_map_cash() {
         || {
             let dir = tempfile::tempdir().unwrap();
             let mut world = world(None, 17_321);
-            template_cash(0);
             let first = map(
                 &dir.path().join("first"),
                 700,
@@ -232,10 +231,8 @@ fn same_id_worlds_keep_cash_isolated_across_foreign_reset_and_drop() {
             let dir = tempfile::tempdir().unwrap();
             let path = map(dir.path(), 700, None, None);
             let mut first = world(None, 17_321);
-            template_cash(0);
             let a = load(&mut first, &path);
             let mut second = world(Some(0), 93_000);
-            template_cash(0);
             let b = load(&mut second, &path);
             assert_eq!(a, b, "same host identity in distinct sessions");
             assert_eq!(second.players[&b].resources.supplies, 700);
@@ -269,7 +266,6 @@ fn encoded_restore_retains_base_resolved_cash_and_spent_wallet_separately() {
                 None,
             );
             let mut source = world(None, 17_321);
-            template_cash(0);
             let id = load(&mut source, &initial);
             source.players.get_mut(&id).unwrap().resources.supplies = 3;
             let builder = SnapshotBuilder::new();
@@ -315,8 +311,7 @@ fn no_object_map_cash_matches_executed_original_cpp_component() {
         let template: u32 = fields[3].parse().unwrap();
         let deposit: i32 = fields[4].parse().unwrap();
         let expected: u32 = fields[5].parse().unwrap();
-        let mut world = world((has_game_info == 1).then_some(info_cash), definition_base);
-        template_cash(template);
+        let mut world = world_with_template_cash((has_game_info == 1).then_some(info_cash), definition_base, template);
         let path = map(&dir.path().join(index.to_string()), deposit, None, None);
         let id = load(&mut world, &path);
         assert_eq!(
@@ -353,7 +348,6 @@ fn reset_and_direct_restart_clear_the_previous_cash_source() {
                     Some(Player::DEFAULT_STARTING_MONEY)
                 );
                 current.start_new_game(GameMode::SinglePlayer).unwrap();
-                template_cash(0);
                 let id = load(&mut current, &path);
                 assert_eq!(
                     current.players[&id].resources.supplies, 14_700,
