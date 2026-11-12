@@ -5,6 +5,13 @@ use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOw
 use gamelogic::scripting::executor::ScriptContext;
 const KEY: &str = "Upgrade_CostReduction";
 const ACTOR: &str = "SameNamedUpgradeActor";
+/// CostModifierUpgrade adds an EffectKindOf mask; Player::getProductionCostChangeBasedOnKindOf
+/// matches it against a template's KindOf bits, never a KindOf name.
+fn vehicle_mask() -> u128 {
+    1u128
+        << crate::game_logic::host_enum_table_residual::kindof_bit_name_index("VEHICLE")
+            .expect("VEHICLE KindOf ordinal")
+}
 fn world(admit: bool) -> (GameLogic, ObjectId) {
     let mut owner = GameLogic::new();
     owner.world_min = Vec3::ZERO;
@@ -90,14 +97,14 @@ impl ScriptExecutionDriver for NextActionProbe<'_> {
             .world
             .get_player(2)
             .unwrap()
-            .production_cost_factor(&["VEHICLE"]);
+            .production_cost_factor_for_kindof_mask(vehicle_mask());
         assert!((actual - 0.9).abs() < 0.0001);
         assert_eq!(
             self.inner
                 .world
                 .get_player(1)
                 .unwrap()
-                .production_cost_factor(&["VEHICLE"]),
+                .production_cost_factor_for_kindof_mask(vehicle_mask()),
             1.0,
             "same-faction first player is not the recipient"
         );
@@ -147,7 +154,7 @@ fn actual_action_chain_applies_before_next_callback_on_retained_controller_and_n
             assert_eq!(
                 peer.get_player(2)
                     .unwrap()
-                    .production_cost_factor(&["VEHICLE"]),
+                    .production_cost_factor_for_kindof_mask(vehicle_mask()),
                 1.0
             );
             assert_eq!(
