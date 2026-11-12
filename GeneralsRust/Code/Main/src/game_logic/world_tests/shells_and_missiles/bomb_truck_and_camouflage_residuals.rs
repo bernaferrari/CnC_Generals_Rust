@@ -325,6 +325,63 @@ fn bomb_truck_disguise_residual_rejects_non_bomb_truck_caster() {
 }
 
 
+/// hq-2qedt.296: C++ SPECIAL_DISGUISE_AS_VEHICLE disguises through the
+/// caster's authored StealthUpdate (DisguisesAsTeam); the template name
+/// neither grants nor denies the ability.
+#[test]
+fn disguise_as_vehicle_follows_authored_stealth_update_not_template_name() {
+    use crate::command_system::{CommandType, GameCommand};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_bomb_truck_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+    let authored = game_logic.templates["TestBombTruck"].clone();
+    let mut opaque = authored.clone();
+    opaque.name = "OpaqueDisguiseHauler".to_string();
+    game_logic
+        .templates
+        .insert("OpaqueDisguiseHauler".to_string(), opaque);
+    let mut unauthored = authored;
+    unauthored.name = "GLAVehicleBombTruckNoStealth".to_string();
+    unauthored.stealth_update = None;
+    game_logic
+        .templates
+        .insert("GLAVehicleBombTruckNoStealth".to_string(), unauthored);
+
+    let opaque_id = game_logic
+        .create_object("OpaqueDisguiseHauler", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("opaque disguiser");
+    let named_id = game_logic
+        .create_object("GLAVehicleBombTruckNoStealth", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("bomb-truck-named vehicle");
+    let target_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("disguise target");
+
+    for (command_id, unit) in [(1, opaque_id), (2, named_id)] {
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DisguiseAsVehicle { target_id },
+            player_id: 2,
+            command_id,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![unit],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+    }
+    game_logic.process_commands();
+    game_logic
+        .update_ai(&[opaque_id, named_id, target_id], 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
+    advance_disguise_halfpoint(&mut game_logic, &[opaque_id, named_id, target_id]);
+
+    let opaque = game_logic.host_object(opaque_id).expect("opaque");
+    assert!(opaque.status.disguised, "authored DisguisesAsTeam disguises any name");
+    assert_eq!(opaque.disguise_as_template.as_deref(), Some("TestTank"));
+    let named = game_logic.host_object(named_id).expect("named");
+    assert!(!named.status.disguised, "a bomb-truck name without StealthUpdate cannot disguise");
+    assert_ne!(named.ai_state(), AIState::SpecialAbility);
+}
+
 /// Residual: HelixNapalmBomb special power blasts area + spawns FirestormSmall DoT.
 #[test]
 fn helix_napalm_bomb_special_power_residual_blast_and_firestorm() {

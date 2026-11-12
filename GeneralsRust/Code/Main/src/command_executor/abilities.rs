@@ -955,9 +955,7 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
-        use crate::game_logic::host_bomb_truck_disguise::{
-            is_bomb_truck_template, is_legal_disguise_target,
-        };
+        use crate::game_logic::host_bomb_truck_disguise::is_legal_disguise_target;
 
         let (
             target_alive,
@@ -1006,7 +1004,10 @@ impl<'a> CommandExecutor<'a> {
                     unit.is_alive()
                         && unit.can_move()
                         && unit_id != target_id
-                        && is_bomb_truck_template(&unit.template_name)
+                        // C++ SpecialAbilityUpdate SPECIAL_DISGUISE_AS_VEHICLE acts
+                        // through the caster's authored StealthUpdate
+                        // (DisguisesAsTeam), never its template name.
+                        && unit.stealth_can_disguise()
                 })
                 .unwrap_or(false);
             if !can_issue {
