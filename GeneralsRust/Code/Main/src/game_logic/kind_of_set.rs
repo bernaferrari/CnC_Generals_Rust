@@ -117,7 +117,14 @@ impl Extend<KindOf> for KindOfSet {
 
 impl Serialize for KindOfSet {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.iter().copied())
+        // Length-prefixed formats (bincode) need the element count up front;
+        // the filtering iterator has no exact size hint.
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+        for kind in self {
+            seq.serialize_element(kind)?;
+        }
+        seq.end()
     }
 }
 
