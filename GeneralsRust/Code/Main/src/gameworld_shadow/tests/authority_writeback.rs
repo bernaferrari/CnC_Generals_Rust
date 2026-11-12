@@ -2061,9 +2061,13 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let slow_eid = shadow.entity_for_host(slow).expect("slow shadow mapping");
-    request_host_script_kill_delete_damage(HostScriptKillDeleteDamageRequest::NamedDamage {
-        unit: "SlowOwnerPhaseMember".into(),
-        amount: 70,
+    // The NAMED_DAMAGE request queues on this world's own script services,
+    // the queue its next ScriptEngine pass drains.
+    logic.with_own_services(|| {
+        request_host_script_kill_delete_damage(HostScriptKillDeleteDamageRequest::NamedDamage {
+            unit: "SlowOwnerPhaseMember".into(),
+            amount: 70,
+        })
     });
     logic.queue_command(GameCommand {
         command_type: CommandType::Move {
