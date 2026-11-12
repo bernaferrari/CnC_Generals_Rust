@@ -1247,7 +1247,10 @@ fn attack_position_own_location_and_max_shots() {
     let u = logic.host_object(id).unwrap();
     assert_eq!(u.ai_state(), AIState::AttackingGround);
     assert_eq!(u.max_shots_to_fire, 3);
-    assert!(u.force_attack);
+    // AIStates.cpp:686 builds AI_ATTACK_POSITION as AIAttackState(follow=false,
+    // attackingObject=false, forceAttacking=false): a ground target is not a
+    // forced object attack.
+    assert!(!u.force_attack);
 }
 
 #[test]
@@ -1408,6 +1411,8 @@ Object OrderLockedNest
   End
   Behavior = AIUpdateInterface Brain
   End
+  Behavior = DefaultProductionExitUpdate Exit
+  End
   Behavior = SpawnBehavior Spawn
     OneShot = Yes
     SpawnNumber = 1
@@ -1422,6 +1427,8 @@ Object OrderFreeNest
     InitialHealth = 200
   End
   Behavior = AIUpdateInterface Brain
+  End
+  Behavior = DefaultProductionExitUpdate Exit
   End
   Behavior = SpawnBehavior Spawn
     OneShot = Yes
@@ -1462,6 +1469,12 @@ End
             .unwrap();
         let free = world
             .create_object_for_player("OrderFreeNest", 1, Vec3::new(0.0, 0.0, 5.0))
+            .unwrap();
+        // SpawnBehavior::update creates the OneShot child on the first logic
+        // frame through the nest's ExitInterface (SpawnBehavior.cpp:186-247).
+        world.frame = 1;
+        world
+            .update_spawn_behavior_with_effects(&mut Default::default())
             .unwrap();
         let child = |world: &GameLogic, parent| {
             world.host_object(parent).unwrap().spawn_behavior_children()[0].0
