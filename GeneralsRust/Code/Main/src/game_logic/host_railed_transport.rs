@@ -502,6 +502,12 @@ impl GameLogic {
         }
         let source = self.current_native_slave_source(ferry, self.local_player_id().unwrap_or(0))
             .map_err(|error| format!("rail dock source: {error}"))?;
+        // Drawable::getPristineBonePositions over a drawable whose Draw
+        // modules author no model finds no bones; DockUpdate then keeps its
+        // zero positions. No model assets are needed to learn that.
+        if source.receiving_draw_models.select(source.condition_bits).is_empty() {
+            return Ok(None);
+        }
         let transforms = if let Some(assets) = effects.pristine_bones {
             assets.pristine_bone_transforms(&source, name, 0, 1)
         } else {
