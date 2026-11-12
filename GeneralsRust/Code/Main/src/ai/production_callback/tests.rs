@@ -117,6 +117,17 @@ fn factory_exit_callback_observes_completed_owned_order_before_authored_create()
     ai.apply_queue_persist(serde_json::from_slice(&bytes).unwrap());
 
     let unit = spawn_finished_output(&mut world, factory, name);
+    // The Ranger owns its PRIMARY weapon: C++ WeaponSet::setWeaponLock (behind
+    // LockWeaponCreate) refuses an empty slot.
+    crate::fixture_content::arm_slot_with_stats(
+        world.host_object_mut(unit).unwrap(),
+        0,
+        crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..crate::game_logic::Weapon::default()
+        },
+    );
     assert_eq!(
         world.host_object(unit).unwrap().weapon_lock_type,
         WeaponLockType::NotLocked,
@@ -303,19 +314,33 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
         || {
             let name = "AmericaVehicleChinook";
             let mut world = GameLogic::new();
-            world.admit_object_ini_sources([(
-                "SupplyCallback.ini".into(),
-                "Object CallbackSupplyCenter\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\n End\n Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\n End\nEnd\nObject AmericaVehicleChinook\n KindOf = HARVESTER VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n".into(),
-            )]).expect("authored supply fixture");
+            // Retail AmericaSupplyCenter's one-shot SpawnBehavior Chinook, a
+            // paid barracks-style factory, and the armed collector whose
+            // LockWeaponCreate runs on build completion, authored before NewGame.
+            use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
+            admit_fixture_content(
+                &mut world,
+                &[
+                    FixtureObject::new("CallbackSupplyCenter")
+                        .kind_of("STRUCTURE FS_SUPPLY_CENTER SELECTABLE")
+                        .health(1000.0)
+                        .module("Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\nEnd")
+                        .module("Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\nEnd"),
+                    FixtureObject::new(name)
+                        .kind_of("HARVESTER VEHICLE SELECTABLE")
+                        .health(100.0)
+                        .armed("CallbackCollectorGun")
+                        .module("Behavior = SupplyTruckAIUpdate TruckAI\nEnd")
+                        .module("Behavior = LockWeaponCreate LockTag\n SlotToLock = PRIMARY\nEnd"),
+                    FixtureObject::new("DeliveryFactory")
+                        .kind_of("STRUCTURE FS_BARRACKS")
+                        .health(1000.0),
+                ],
+                &[FixtureWeapon::new("CallbackCollectorGun").damage(10.0).range(100.0)],
+            );
             let mut player = Player::new(1, Team::USA, "Production AI", false);
             player.resources.supplies = 10_000;
             world.add_player(player);
-            let mut factory = ThingTemplate::new("DeliveryFactory");
-            factory.add_kind_of(KindOf::Structure).add_kind_of(KindOf::FSBarracks);
-            world.templates.insert(factory.name.clone(), factory);
-            let unit = world.templates.get_mut(name).unwrap();
-            unit.lock_weapon_slot = Some(0);
-            unit.locomotor_name = Some("BasicHumanLocomotor".into());
             let paid_factory = world.create_object_for_player("DeliveryFactory", 1, Vec3::ZERO).unwrap();
             world.ai_manager.add_ai_player(1, Team::USA, AIDifficulty::Medium);
             let center_id = world.create_object_for_player("CallbackSupplyCenter", 1, Vec3::ZERO).unwrap();
