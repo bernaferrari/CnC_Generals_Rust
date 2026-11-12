@@ -1023,8 +1023,8 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
             let first =
                 GameMessage::with_player(GameMessageType::DoMoveTo(Coord3D::new(12., 0., 4.)), 0);
             let second = GameMessage::with_player(GameMessageType::DoStop, 3);
-            append_game_message_to_stream(&first);
-            append_game_message_to_stream(&second);
+            client.message_stream_mut().append_message_value(first.clone());
+            client.message_stream_mut().append_message_value(second.clone());
             let mut deliveries = 0;
             client
                 .pump_message_stream_to_receiving_owner(
@@ -1062,7 +1062,7 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
                 )
                 .unwrap();
             owner.replay_pending.clear();
-            append_game_message_to_stream(&second);
+            client.message_stream_mut().append_message_value(second.clone());
             client
                 .pump_message_stream_to_receiving_owner(
                     owner.replay_pending.recorder_owned(),
@@ -1078,7 +1078,7 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
                 .unwrap();
             assert_eq!(owner.replay_pending.take_incoming().len(), 1);
             assert!(peer.replay_pending.take_incoming().is_empty());
-            append_game_message_to_stream(&first);
+            client.message_stream_mut().append_message_value(first.clone());
             let error = client
                 .pump_message_stream_to_receiving_owner(
                     owner.replay_pending.recorder_owned(),
@@ -1154,7 +1154,7 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
             assert!(first.replay_pending.take_incoming().is_empty());
             assert!(second.replay_pending.take_incoming().is_empty());
             let native_first = GameMessage::with_player(GameMessageType::DoStop, 3);
-            append_game_message_to_stream(&native_first);
+            client.message_stream_mut().append_message_value(native_first.clone());
             client
                 .pump_message_stream_to_receiving_owner(
                     first.replay_pending.recorder_owned(),
@@ -1173,7 +1173,7 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
             assert_eq!(first_batch[0].get_player_index(), 3);
             assert!(second.replay_pending.take_incoming().is_empty());
             let native_second = GameMessage::with_player(GameMessageType::DoStop, 4);
-            append_game_message_to_stream(&native_second);
+            client.message_stream_mut().append_message_value(native_second.clone());
             client
                 .pump_message_stream_to_receiving_owner(
                     second.replay_pending.recorder_owned(),
@@ -1254,7 +1254,7 @@ fn native_client_culls_by_actual_receiving_replay_reader_while_global_recorder_i
             with_recorder_mut(|recorder| recorder.reset());
             assert!(!host_recorder_is_playback());
             let mut client = game_client::core::GameClient::new().unwrap();
-            append_game_message_to_stream(&GameMessage::with_player(GameMessageType::DoStop, 7));
+            client.message_stream_mut().append_message_value(GameMessage::with_player(GameMessageType::DoStop, 7));
             let mut delivered = 0;
             client
                 .pump_message_stream_to_receiving_owner(
