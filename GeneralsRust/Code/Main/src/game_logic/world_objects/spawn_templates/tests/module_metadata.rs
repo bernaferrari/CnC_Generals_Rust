@@ -774,12 +774,9 @@ End
         !logic.player_satisfies_build_prerequisites(0, "GLABlackMarket"),
         "Black Market must not fail-open without Palace"
     );
-    assert!(
-        logic
-            .create_object_under_construction("GLABlackMarket", Team::GLA, glam::Vec3::ZERO)
-            .is_err(),
-        "under-construction Black Market requires Palace"
-    );
+    // Player::canBuild gates the build command (BuildAssistant::canMakeUnit,
+    // BuildAssistant.cpp:1266); buildObjectNow and ThingFactory::newObject
+    // never consult prerequisites, so the scaffold adapter is not the gate.
     let palace = logic
         .create_object("GLAPalace", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
         .expect("palace");
