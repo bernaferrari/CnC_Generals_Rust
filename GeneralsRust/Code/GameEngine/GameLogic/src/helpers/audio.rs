@@ -542,18 +542,6 @@ impl TheAudio {
         object.owning_world_services().map(|world| Self::of(&world))
     }
 
-    /// Transitional: TheAudio of the engine published on this thread.
-    /// Callers that know their world use [`Self::of`] / [`Self::of_object`].
-    pub fn get() -> Option<Self> {
-        let common = game_engine::common::common_services::try_common_services()?;
-        let world = crate::system::engine_stores::try_active_services()
-            .filter(|world| Arc::ptr_eq(world.common(), &common));
-        Some(Self {
-            common,
-            world: world.as_ref().map(Arc::downgrade),
-        })
-    }
-
     /// Register this world as its engine's audio owner/locality/view
     /// resolver and create its AudioManager (C++ `AudioManager::init`).
     pub fn install_resolvers(&self) {
@@ -573,11 +561,6 @@ impl TheAudio {
                 get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
             f(&manager)
         })
-    }
-
-    /// Transitional: [`Self::misc_audio`] of the published engine.
-    pub fn get_misc_audio() -> MiscAudioEvents {
-        Self::get().map(|audio| audio.misc_audio()).unwrap_or_default()
     }
 
     /// C++ `TheAudio->getMiscAudio()`: this engine's MiscAudio as filled by

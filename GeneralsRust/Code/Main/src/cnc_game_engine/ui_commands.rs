@@ -78,10 +78,11 @@ fn play_host_illegal_place_feedback(
                 .host_object(builder_id)
                 .map(|o| o.template_name.clone())
         });
+    let audio = gamelogic::helpers::TheAudio::of(&engine.game_logic.world_services);
     if let Some(name) = template.as_deref().and_then(resolve_voice_no_build) {
-        let _ = crate::assets::audio::play_sound_through_the_audio(&name);
+        let _ = crate::assets::audio::play_sound_through_the_audio(&audio, &name);
     }
-    let _ = crate::assets::audio::play_sound_through_the_audio("NoCanDoSound");
+    let _ = crate::assets::audio::play_sound_through_the_audio(&audio, "NoCanDoSound");
 }
 
 /// Shared construct-builder identity predicate (audit-7 S-3): mirrors

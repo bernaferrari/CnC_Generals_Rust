@@ -174,18 +174,22 @@ pub fn leftover_the_audio_is_live() -> bool {
 /// Live UI/SFX play API. Routes only when Common `AudioManager` already has a
 /// live handle (`get_global_audio_manager`). Special values
 /// (`AHSV_NO_SOUND`/`AHSV_ERROR`/…) are treated as “no handle”.
-pub fn play_sound_through_the_audio(event_name: &str) -> Option<u32> {
-    play_sound_through_the_audio_at(event_name, None, None)
+pub fn play_sound_through_the_audio(
+    audio: &gamelogic::helpers::TheAudio,
+    event_name: &str,
+) -> Option<u32> {
+    play_sound_through_the_audio_at(audio, event_name, None, None)
 }
 
 /// Same as [`play_sound_through_the_audio`] with a world pose / object owner.
+/// `audio` is the TheAudio of the engine that plays it.
 pub fn play_sound_through_the_audio_at(
+    audio: &gamelogic::helpers::TheAudio,
     event_name: &str,
     position_host_yup: Option<(f32, f32, f32)>,
     object_id: Option<u32>,
 ) -> Option<u32> {
     game_engine::common::audio::game_audio::get_global_audio_manager()?;
-    let audio = gamelogic::helpers::TheAudio::get()?;
     let event = leftover_world_sfx_event(event_name, position_host_yup, object_id);
     let handle = audio.add_audio_event(&event);
     // C++ `AHSV_FIRST_HANDLE` is 1000; sentinels occupy the 0xFFFF_FFF0 band.
@@ -319,9 +323,21 @@ pub struct AudioManager {
     max_concurrent_sounds: usize,
     last_update_time: f32,
     cleanup_accumulator: f32,
+    /// TheAudio of the engine owning these assets; unbound assets have no
+    /// TheAudio to route authored events through.
+    engine_audio: Option<gamelogic::helpers::TheAudio>,
 }
 
 impl AudioManager {
+    /// Bind the TheAudio of the engine that owns these assets.
+    pub fn bind_engine_audio(&mut self, audio: gamelogic::helpers::TheAudio) {
+        self.engine_audio = Some(audio);
+    }
+
+    fn play_through_engine_audio(&self, event_name: &str) -> Option<u32> {
+        play_sound_through_the_audio(self.engine_audio.as_ref()?, event_name)
+    }
+
     /// Initialize AudioManager (matches C++ constructor)
     pub fn new() -> Result<Self> {
         let mut audio_channels = HashMap::new();
@@ -364,6 +380,7 @@ impl AudioManager {
             max_concurrent_sounds: 32, // Match typical C++ limits
             last_update_time: 0.0,
             cleanup_accumulator: 0.0,
+            engine_audio: None,
         })
     }
 
@@ -522,7 +539,7 @@ impl AudioManager {
         if volume_scale <= 0.0 {
             return Ok(());
         }
-        if play_sound_through_the_audio(sound_name).is_some() {
+        if self.play_through_engine_audio(sound_name).is_some() {
             return Ok(());
         }
 
@@ -1018,7 +1035,7 @@ impl AudioManager {
         if let Some(music) = self.background_music.take() {
             music.stop();
         }
-        if play_sound_through_the_audio("Shell").is_some() {
+        if self.play_through_engine_audio("Shell").is_some() {
             info!("Playing boot/menu music through TheAudio event Shell");
         } else {
             info!("Boot/menu music silent until scripted TheAudio event");
@@ -1222,12 +1239,11 @@ mod tests {
         // Pre-fix Main assets::audio opened its own rodio sink and never
         // consulted Common THE_AUDIO. A missing handle must not initialize
         // Miles/rodio from the UI play wrapper.
-        if game_engine::common::audio::game_audio::get_global_audio_manager().is_none() {
-            assert!(
-                play_sound_through_the_audio("UnitSelect").is_none(),
-                "UI SFX must not invent a TheAudio handle"
-            );
-        }
+        let unbound = AudioManager::new().expect("AudioManager constructs without a device");
+        assert!(
+            unbound.play_through_engine_audio("UnitSelect").is_none(),
+            "assets of no engine have no TheAudio to play through"
+        );
 
         // Same addAudioEvent contract the live wrapper uses once a handle exists.
         // Local manager: no global init, no OutputStream::try_default hang.

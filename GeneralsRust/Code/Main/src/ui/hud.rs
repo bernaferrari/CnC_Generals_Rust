@@ -656,6 +656,8 @@ pub struct GameHUD {
     command_buttons: Vec<CommandButton>,
     /// UI events raised from hotkeys (drained by UIManager).
     pending_ui_events: Vec<crate::ui::UIEvent>,
+    /// GUI sounds the HUD asked for; its engine plays them in its TheAudio.
+    pending_gui_sounds: Vec<&'static str>,
     /// InGameUI PublicTimer residual freeze from PresentationFrame.
     presentation_superweapon_timers: Vec<PresentationSwTimer>,
     /// Options residual: show health on selection strip.
@@ -894,6 +896,7 @@ impl GameHUD {
             visible: true,
             command_buttons: Vec::new(),
             pending_ui_events: Vec::new(),
+            pending_gui_sounds: Vec::new(),
             presentation_superweapon_timers: Vec::new(),
             show_selection_health: true,
             messages: Vec::new(),
@@ -1438,6 +1441,11 @@ impl GameHUD {
     /// fire on RAW_KEY_UP when the mapped control-bar button is visible.
     /// Hidden bar is inert. Disabled visible button plays GUIClickDisabled
     /// and does not consume. Enabled button issues the command and GUIClick.
+    /// GUI sounds asked for since the last drain.
+    pub fn drain_gui_sounds(&mut self) -> Vec<&'static str> {
+        std::mem::take(&mut self.pending_gui_sounds)
+    }
+
     pub fn handle_letter_hotkey(&mut self, key: KeyCode) -> bool {
         if !self.visible {
             return false;
@@ -1462,11 +1470,11 @@ impl GameHUD {
                 .push(crate::ui::UIEvent::IssueCommand {
                     command_name: button.command.clone(),
                 });
-            let _ = crate::assets::audio::play_sound_through_the_audio("GUIClick");
+            self.pending_gui_sounds.push("GUIClick");
             return true;
         }
         if disabled_hit {
-            let _ = crate::assets::audio::play_sound_through_the_audio("GUIClickDisabled");
+            self.pending_gui_sounds.push("GUIClickDisabled");
         }
         false
     }
@@ -2180,6 +2188,11 @@ mod tests {
             pending.first(),
             Some(UIEvent::IssueCommand { command_name }) if command_name == "Command_HqD1a8xZap"
         ));
+        assert_eq!(
+            hud.drain_gui_sounds(),
+            ["GUIClick"],
+            "HotKey.cpp plays GUIClick for its engine on an enabled hit"
+        );
 
         // Without a CommandButton TextLabel `&` marker, fail-closed (no invented X).
     }
@@ -2208,6 +2221,7 @@ mod tests {
             "F9-hidden control bar must not fire letters (HotKey.cpp:150-151)"
         );
         assert!(hud.drain_pending_ui_events().is_empty());
+        assert!(hud.drain_gui_sounds().is_empty(), "hidden bar plays nothing");
 
         hud.toggle_visibility();
         hud.apply_presentation_unit_commands_with(Some(&defs), &[crate::ui::UnitCommandButton {
@@ -2220,6 +2234,7 @@ mod tests {
             "disabled visible button must not consume (HotKey.cpp:166-171)"
         );
         assert!(hud.drain_pending_ui_events().is_empty());
+        assert_eq!(hud.drain_gui_sounds(), ["GUIClickDisabled"]);
     }
 
     #[test]

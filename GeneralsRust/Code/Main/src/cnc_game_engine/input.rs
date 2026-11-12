@@ -489,6 +489,17 @@ impl CnCGameEngine {
                         {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
                                 self.ui_manager.handle_hud_letter_hotkey(ui_key);
+                                let sounds = self.ui_manager.drain_hud_gui_sounds();
+                                if !sounds.is_empty() {
+                                    let audio = gamelogic::helpers::TheAudio::of(
+                                        &self.game_logic.world_services,
+                                    );
+                                    for sound in sounds {
+                                        let _ = crate::assets::audio::play_sound_through_the_audio(
+                                            &audio, sound,
+                                        );
+                                    }
+                                }
                             }
                         }
                     }

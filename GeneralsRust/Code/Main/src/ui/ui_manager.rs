@@ -626,6 +626,11 @@ impl UIManager {
 
     /// Retail HotKeyTranslator letter bindings run on key-up. Keep their event
     /// drain beside the single HUD owner so host and HUD cannot emit duplicates.
+    /// GUI sounds the HUD asked for since the last drain.
+    pub fn drain_hud_gui_sounds(&mut self) -> Vec<&'static str> {
+        self.game_hud.drain_gui_sounds()
+    }
+
     pub fn handle_hud_letter_hotkey(&mut self, key: KeyCode) -> bool {
         let handled = self.game_hud.handle_letter_hotkey(key);
         if handled {

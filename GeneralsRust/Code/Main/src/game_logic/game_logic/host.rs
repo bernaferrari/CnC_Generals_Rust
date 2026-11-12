@@ -1465,6 +1465,11 @@ impl GameLogic {
         self.main_services.asset_manager.lock().ok()?.clone()
     }
     pub(crate) fn bind_application_assets(&mut self, assets: std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>) {
+        // These assets' authored sounds play in this engine's TheAudio.
+        assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .bind_engine_audio(gamelogic::helpers::TheAudio::of(&self.world_services));
         *self.main_services.asset_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(assets);
     }
 

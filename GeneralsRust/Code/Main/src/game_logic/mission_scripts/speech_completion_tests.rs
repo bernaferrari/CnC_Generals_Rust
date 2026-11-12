@@ -59,8 +59,7 @@ pub(super) fn isolated(module: &str, test: &str, run: impl FnOnce()) {
 fn unknown_speech(hooks: &Arc<MissionScriptHooks>, name: &str) -> MissionScriptActionHandler {
     let event = gamelogic::common::audio::AudioEventRts::new(name);
     assert_eq!(
-        gamelogic::helpers::TheAudio::get()
-            .unwrap()
+        gamelogic::helpers::TheAudio::of(&gamelogic::system::engine_stores::active_services())
             .get_audio_length_ms(&event),
         0.0,
         "fresh child uses a missing sound with zero C++ length"

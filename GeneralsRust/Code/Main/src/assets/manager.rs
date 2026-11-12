@@ -1765,6 +1765,11 @@ impl AssetManager {
             .await
     }
 
+    /// Bind the TheAudio of the engine that owns these assets.
+    pub fn bind_engine_audio(&mut self, audio: gamelogic::helpers::TheAudio) {
+        self.audio_manager.bind_engine_audio(audio);
+    }
+
     /// Play sound effect from archives
     pub async fn play_sound_effect(&mut self, sound_name: &str) -> Result<()> {
         self.play_sound_effect_scaled(sound_name, 1.0).await

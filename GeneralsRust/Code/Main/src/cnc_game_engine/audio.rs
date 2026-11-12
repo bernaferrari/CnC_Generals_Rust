@@ -185,7 +185,8 @@ impl CnCGameEngine {
             SoundType::Explosion => "Explosion",
             SoundType::Build => "BuildingComplete",
         };
-        if crate::assets::audio::play_sound_through_the_audio(kind).is_some() {
+        let audio = gamelogic::helpers::TheAudio::of(&self.game_logic.world_services);
+        if crate::assets::audio::play_sound_through_the_audio(&audio, kind).is_some() {
             log::trace!("🔊 UI SFX via TheAudio: {kind}");
             return;
         }
