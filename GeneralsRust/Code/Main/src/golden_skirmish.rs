@@ -568,14 +568,42 @@ fn existing_or_dozer_built(
         vec![dozer],
     ));
     logic.process_commands();
-    // The dozer walks to the pad, then builds for the authored BuildTime.
-    let budget = 300 + authored_build_frames(logic, &name, 1);
-    let mut built = None;
-    run_until(logic, budget, |g| {
-        built = finished_human(g);
-        built.is_some()
+    // C++ DozerConstruct places the site under construction and charges the
+    // BuildCost at placement; the dozer then walks over and builds it. Track
+    // that exact site object, not a kind or template lookup.
+    let mut site_id = None;
+    run_until(logic, 60, |g| {
+        site_id = g
+            .host_objects()
+            .registered_values()
+            .filter(|o| {
+                o.owner_player_id == Some(0)
+                    && o.is_alive()
+                    && o.template_name == name
+                    && o.status.under_construction
+            })
+            .min_by(|a, b| {
+                a.get_position()
+                    .distance_squared(site)
+                    .total_cmp(&b.get_position().distance_squared(site))
+            })
+            .map(|o| o.id);
+        site_id.is_some()
     })?;
-    Ok(built)
+    let Some(site_id) = site_id else {
+        return Ok(None);
+    };
+    // C++ ThingTemplate::calcTimeToBuild divides BuildTime by the low-energy
+    // penalty rate, floored at GameData MinLowEnergyProductionSpeed (retail
+    // 0.5), so an unpowered base builds at half speed. The cap covers that
+    // floor plus the walk; the site's own completion ends the wait.
+    let budget = 300 + authored_build_frames(logic, &name, 1) * 2;
+    let finished = |g: &GameLogic| {
+        g.host_object(site_id)
+            .is_some_and(|o| o.is_alive() && o.is_constructed())
+    };
+    let built = run_until(logic, budget, finished)?;
+    Ok(built.then(|| (name, site_id)))
 }
 
 fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
