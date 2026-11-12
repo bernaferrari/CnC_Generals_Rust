@@ -116,10 +116,9 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
             first
                 .tick_guard_retaliate_states()
                 .expect("valid guard retaliation fixture");
-            assert_eq!(
-                first.host_object(id).unwrap().ai_state(),
-                AIState::GuardingArea
-            );
+            // AIStates.cpp:701: AI_GUARD_RETALIATE exits to AI_IDLE on both
+            // success and failure; it does not resume an earlier guard.
+            assert_eq!(first.host_object(id).unwrap().ai_state(), AIState::Idle);
             assert!(first.movement_events.snapshot_pending().is_empty());
         },
     );
