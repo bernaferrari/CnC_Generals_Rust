@@ -477,7 +477,7 @@ impl ObjectFactory {
             // Object joins the partition (and gets its ghost) before initObject.
             crate::system::game_logic::get_game_logic()
                 .lock()
-                .map_err(|_| "Object partition owner poisoned")?
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .register_object_with_partition(object_id, &base_object);
         }
 
