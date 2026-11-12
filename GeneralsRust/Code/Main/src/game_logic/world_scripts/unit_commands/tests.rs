@@ -247,42 +247,55 @@ fn production_exit_interface_keeps_priority_over_open_contain() {
 
 /// hq-9fqep: player attack/move replaces AI_HUNT; hunt does not resume.
 fn hunting_infantry_pair() -> (GameLogic, ObjectId, ObjectId) {
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
     let mut logic = GameLogic::new();
-    let hunter_id = ObjectId(3203);
-    let mut hunter_template = ThingTemplate::new("HuntAttackSource");
-    hunter_template.add_kind_of(KindOf::Infantry);
+    admit_fixture_objects(
+        &mut logic,
+        &[
+            FixtureObject::new("HuntAttackSource")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0)
+                .walker(),
+            FixtureObject::new("HuntAttackTarget")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0),
+        ],
+    );
+    logic.add_player(Player::new(1, Team::USA, "Hunter", true));
+    logic.add_player(Player::new(2, Team::GLA, "Enemy", false));
+    // C++ Player relationships default to NEUTRAL; the map authors enemies.
+    for (player, other) in [(1, 2), (2, 1)] {
+        logic
+            .get_player_mut(player)
+            .expect("fixture player")
+            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+    }
+    let hunter_id = logic
+        .create_object_for_player("HuntAttackSource", 1, glam::Vec3::ZERO)
+        .expect("hunter");
+    let enemy_id = logic
+        .create_object_for_player("HuntAttackTarget", 2, glam::Vec3::new(10.0, 0.0, 0.0))
+        .expect("enemy");
     let frame = logic.frame;
-    logic.objects.insert(hunter_id, {
-        let mut hunter = Object::new(hunter_template, hunter_id, Team::USA);
-        hunter.set_position(glam::Vec3::ZERO);
-        crate::fixture_content::arm_with_slot_stats(&mut hunter, [Some(Weapon {
-            range: 100.0,
-            damage: 10.0,
-            can_target_ground: true,
-            ..Weapon::default()
-        }), Some(Weapon {
-            range: 80.0,
-            damage: 5.0,
-            can_target_ground: true,
-            ..Weapon::default()
-        }), None]);
-        hunter.set_hunting(true);
-        hunter.set_ai_state(
-            AIState::Patrolling,
-            frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        let _ = hunter.set_weapon_lock(1, WeaponLockType::LockedTemporarily);
-        hunter
-    });
-    let enemy_id = ObjectId(3204);
-    let mut enemy_template = ThingTemplate::new("HuntAttackTarget");
-    enemy_template.add_kind_of(KindOf::Infantry);
-    logic.objects.insert(enemy_id, {
-        let mut enemy = Object::new(enemy_template, enemy_id, Team::GLA);
-        enemy.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
-        enemy
-    });
+    let hunter = logic.objects.get_mut(&hunter_id).expect("hunter");
+    crate::fixture_content::arm_with_slot_stats(hunter, [Some(Weapon {
+        range: 100.0,
+        damage: 10.0,
+        can_target_ground: true,
+        ..Weapon::default()
+    }), Some(Weapon {
+        range: 80.0,
+        damage: 5.0,
+        can_target_ground: true,
+        ..Weapon::default()
+    }), None]);
+    hunter.set_hunting(true);
+    hunter.set_ai_state(
+        AIState::Patrolling,
+        frame,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    );
+    let _ = hunter.set_weapon_lock(1, WeaponLockType::LockedTemporarily);
     (logic, hunter_id, enemy_id)
 }
 
