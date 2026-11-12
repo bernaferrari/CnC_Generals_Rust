@@ -795,25 +795,6 @@ pub fn drone_armor_add_max_health(kind: SlaveDroneKind) -> f32 {
     }
 }
 
-/// Apply DroneArmor MaxHealthUpgrade residual: +AddMaxHealth current+max
-/// (`ADD_CURRENT_HEALTH_TOO`, same as C++ `setMaxHealth` at initObject).
-pub fn apply_drone_armor_health(
-    kind: SlaveDroneKind,
-    max_health: &mut f32,
-    current: &mut f32,
-    maximum: &mut f32,
-) {
-    let add = drone_armor_add_max_health(kind);
-    *max_health = (*max_health + add).max(1.0);
-    if *maximum > 0.0 {
-        *maximum = (*maximum + add).max(1.0);
-        *current = (*current + add).min(*maximum);
-    } else {
-        *maximum = *max_health;
-        *current = (*current + add).min(*max_health);
-    }
-}
-
 // --- Wave 61 residual honesty packs ---
 
 /// Wave 61 residual honesty: SlavedUpdate wander residual.
