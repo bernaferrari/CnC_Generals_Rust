@@ -39,7 +39,9 @@ const OXOB_MAGIC: &[u8; 4] = b"OXOB";
 /// The only OXOB layout read or written. Older Rust-only layouts are not C++
 /// save data and are rejected (C++ AIUpdateInterface::xfer alone owns the
 /// guard/hunt scan and quick-exit deadlines; v25 drops their duplicate here).
-const OXOB_VERSION: u32 = 25;
+/// v26 drops the always-true Locomotor-body presence flags: the active
+/// Locomotor's xfer scalars are always saved (C++ Locomotor::xfer).
+const OXOB_VERSION: u32 = 26;
 
 #[cfg(test)]
 mod tests;
@@ -154,16 +156,12 @@ struct ObjectXferPersist {
     locomotor_upgrade: bool,
     /// C++ `m_curLocomotorSet` token (`SET_NORMAL`, `SET_TAXIING`, ...).
     cur_locomotor_set: Option<String>,
-    /// False on upgrades from versions that did not store Locomotor::xfer scalars.
-    has_locomotor_motion: bool,
     /// Main's effective braking in host sec²; preserve explicit saved values.
     braking: f32,
     /// C++ `Locomotor::m_maxLift`.
     max_lift: f32,
     /// C++ `Locomotor::m_brakingFactor`.
     braking_factor: f32,
-    /// False on saves that did not store close-enough distance or preferred height.
-    has_locomotor_arrival: bool,
     /// C++ `Locomotor::m_closeEnoughDist` (None = leave the create-time value).
     close_enough_dist: Option<f32>,
     /// C++ close-enough-is-3D flag.
@@ -174,8 +172,6 @@ struct ObjectXferPersist {
     preferred_height: f32,
     /// C++ `Locomotor::m_preferredHeightDamping`.
     preferred_height_damping: f32,
-    /// False on saves that did not store `m_flags`, maintain position, or wander offset.
-    has_locomotor_pose: bool,
     /// C++ `Locomotor::m_flags` (`LocoFlag` bit order).
     loco_flags: u32,
     /// C++ `Locomotor::m_maintainPos` (None = invalid / unset).
@@ -184,8 +180,6 @@ struct ObjectXferPersist {
     wander_angle_offset: f32,
     /// C++ `Locomotor::m_offsetIncrement`.
     wander_offset_increment: f32,
-    /// False on saves that did not store the active locomotor template name.
-    has_locomotor_template: bool,
     /// C++ `Locomotor::getTemplateName`, reloaded by `LocomotorSet::xfer`.
     cur_locomotor_name: Option<String>,
     /// C++ `LocomotorSet::m_validLocomotorSurfaces`.
@@ -459,14 +453,12 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     if game_logic.locomotor_definitions.is_some() {
         for entry in &payload.objects {
-            if entry.has_locomotor_template {
-                if let Some(name) = entry.cur_locomotor_name.as_deref() {
-                    if game_logic.resolve_receiving_locomotor(name).is_none() {
-                        return Err(SaveLoadError::Corrupted(format!(
-                            "saved object {} references an unavailable receiving locomotor {name}",
-                            entry.object_id
-                        )));
-                    }
+            if let Some(name) = entry.cur_locomotor_name.as_deref() {
+                if game_logic.resolve_receiving_locomotor(name).is_none() {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "saved object {} references an unavailable receiving locomotor {name}",
+                        entry.object_id
+                    )));
                 }
             }
         }
@@ -539,22 +531,18 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             last_command_source: object.last_command_source,
             locomotor_upgrade: object.locomotor_upgrade,
             cur_locomotor_set: object.jet_ai.cur_locomotor_set.clone(),
-            has_locomotor_motion: true,
             braking: object.braking,
             max_lift: object.max_lift,
             braking_factor: object.braking_factor,
-            has_locomotor_arrival: true,
             close_enough_dist: object.close_enough_dist,
             close_enough_dist_3d: object.close_enough_dist_3d,
             donut_timer: object.donut_timer,
             preferred_height: object.loco_preferred_height,
             preferred_height_damping: object.loco_preferred_height_damping,
-            has_locomotor_pose: true,
             loco_flags: pack_loco_flags(object),
             maintain_pos: object.maintain_pos.map(|p| [p.x, p.y, p.z]),
             wander_angle_offset: object.wander_angle_offset,
             wander_offset_increment: object.wander_offset_increment,
-            has_locomotor_template: true,
             cur_locomotor_name: object.cur_locomotor_name.clone(),
             valid_locomotor_surfaces: object.locomotor_surfaces,
             downhill_only: object.downhill_only,
@@ -898,11 +886,9 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
     for entry in payload.objects {
         let id = ObjectId(entry.object_id);
         let selected_locomotor = entry
-            .has_locomotor_template
-            .then(|| entry.cur_locomotor_name.as_deref())
-            .flatten()
+            .cur_locomotor_name
+            .as_deref()
             .and_then(|name| game_logic.resolve_receiving_locomotor(name));
-        let locomotors = game_logic.locomotor_definitions.as_ref();
         if let Some(object) = game_logic.objects.get_mut(&id) {
             object.status.disabled_held = entry.disabled_held;
             object.single_use_command_used = entry.single_use_command_used;
@@ -950,68 +936,38 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.ignored_obstacle_id = entry.ignored_obstacle_id.map(ObjectId);
             object.can_path_through_units = entry.can_path_through_units;
             object.last_command_source = entry.last_command_source;
-            if entry.has_locomotor_template {
-                object.selected_locomotor_definition = None;
-                object.cur_locomotor_name = entry.cur_locomotor_name;
-                // Definition facts come from the receiving world; transferred
-                // motion, arrival, and pose remain runtime state below.
-                if let Some(binding) = selected_locomotor {
-                    // Older guard/panic module capsules already restored their
-                    // explicit width projection. Keep it through this definition
-                    // reconstruction; v11 later restores the canonical row.
-                    let saved_width = (object.panic_runtime.is_some()
-                        || object.unit_ai_runtime.guard_phase().is_some())
-                    .then_some(object.wander_width_factor);
-                    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_template_facts(
-                        object, &binding,
-                    );
-                    if let Some(width) = saved_width {
-                        object.wander_width_factor = width;
-                    }
+            object.selected_locomotor_definition = None;
+            object.cur_locomotor_name = entry.cur_locomotor_name;
+            // Definition facts come from the receiving world; transferred
+            // motion, arrival, and pose remain runtime state below.
+            if let Some(binding) = selected_locomotor {
+                // Guard/panic capsules restored their explicit wander width
+                // first; keep it through this definition reconstruction.
+                let saved_width = (object.panic_runtime.is_some()
+                    || object.unit_ai_runtime.guard_phase().is_some())
+                .then_some(object.wander_width_factor);
+                crate::game_logic::locomotor_bootstrap::apply_host_locomotor_template_facts(
+                    object, &binding,
+                );
+                if let Some(width) = saved_width {
+                    object.wander_width_factor = width;
                 }
             }
             object.restore_saved_locomotor(entry.locomotor_upgrade, entry.cur_locomotor_set);
-            if entry.has_locomotor_motion {
-                object.braking = entry.braking;
-                object.max_lift = entry.max_lift;
-                object.braking_factor = entry.braking_factor;
-            }
-            if entry.has_locomotor_arrival {
-                object.close_enough_dist = entry.close_enough_dist;
-                object.close_enough_dist_3d = entry.close_enough_dist_3d;
-                object.donut_timer = entry.donut_timer;
-                object.loco_preferred_height = entry.preferred_height;
-                object.loco_preferred_height_damping = entry.preferred_height_damping;
-            }
-            if entry.has_locomotor_pose {
-                apply_loco_flags(object, entry.loco_flags);
-                object.maintain_pos = entry.maintain_pos.map(glam::Vec3::from_array);
-                object.wander_angle_offset = entry.wander_angle_offset;
-                object.wander_offset_increment = entry.wander_offset_increment;
-            }
-            if entry.has_locomotor_template {
-                object.locomotor_surfaces = entry.valid_locomotor_surfaces;
-                object.downhill_only = entry.downhill_only;
-            }
-            let locomotor_body_saved = entry.has_locomotor_template
-                || entry.has_locomotor_motion
-                || entry.has_locomotor_pose
-                || entry.has_locomotor_arrival;
-            if !locomotor_body_saved {
-                if let Some(token) = object.jet_ai.cur_locomotor_set.clone() {
-                    if let Some(kind) = crate::game_logic::host_upgrade_module_residuals::locomotor_set_kind_from_token(&token)
-                    {
-                        object.jet_ai.cur_locomotor_set = None;
-                        crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces_in(
-                            object,
-                            kind,
-                            0,
-                            locomotors,
-                        );
-                        object.jet_ai.cur_locomotor_set = Some(token);
-                    }
-                }
-            }
+            object.braking = entry.braking;
+            object.max_lift = entry.max_lift;
+            object.braking_factor = entry.braking_factor;
+            object.close_enough_dist = entry.close_enough_dist;
+            object.close_enough_dist_3d = entry.close_enough_dist_3d;
+            object.donut_timer = entry.donut_timer;
+            object.loco_preferred_height = entry.preferred_height;
+            object.loco_preferred_height_damping = entry.preferred_height_damping;
+            apply_loco_flags(object, entry.loco_flags);
+            object.maintain_pos = entry.maintain_pos.map(glam::Vec3::from_array);
+            object.wander_angle_offset = entry.wander_angle_offset;
+            object.wander_offset_increment = entry.wander_offset_increment;
+            object.locomotor_surfaces = entry.valid_locomotor_surfaces;
+            object.downhill_only = entry.downhill_only;
         }
     }
 }
