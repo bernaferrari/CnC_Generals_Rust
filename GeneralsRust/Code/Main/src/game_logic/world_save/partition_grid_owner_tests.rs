@@ -38,13 +38,9 @@ fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, run);
 }
 
-fn map(
-    dir: &Path,
-    origin: [f32; 2],
-    span: f32,
-    map_cell: Option<f32>,
-    solo_cell: Option<f32>,
-) -> PathBuf {
+/// C++ W3DTerrainLogic::getExtent: the partition extent is always
+/// zero-origin and spans the active heightmap boundary (41 * 10 = 410).
+fn map(dir: &Path, map_cell: Option<f32>, solo_cell: Option<f32>) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join("ReceivingGrid.map");
     let mut out = game_engine::common::system::DataChunkOutput::new();
@@ -54,18 +50,6 @@ fn map(
     }
     for _ in 0..1681 {
         out.write_byte(0);
-    }
-    out.close_data_chunk();
-    // Exercise the existing admitted map-bounds metadata with nonzero XZ.
-    out.open_data_chunk("WaypointsList", 1);
-    out.write_int(2);
-    for point in [
-        [origin[0], 0., origin[1]],
-        [origin[0] + span, 0., origin[1] + span],
-    ] {
-        for value in point {
-            out.write_real(value);
-        }
     }
     out.close_data_chunk();
     out.open_data_chunk("SidesList", 2);
@@ -97,9 +81,8 @@ fn map(
     out.close_data_chunk();
     out.open_data_chunk("ObjectsList", 3);
     out.open_data_chunk("Object", 3);
-    let offset = 110_f32.min(span * 0.5);
-    // Object placement is original Z-up XY, unlike the bounds helper above.
-    for value in [origin[0] + offset, origin[1] + offset, 0., 0.] {
+    // Object placement is original Z-up XY.
+    for value in [110., 110., 0., 0.] {
         out.write_real(value);
     }
     out.write_int(0);
@@ -176,34 +159,34 @@ fn grid(world: &GameLogic) -> ((usize, usize, f32), [f32; 2]) {
     )
 }
 
-fn query_loaded_probe(world: &mut GameLogic, id: ObjectId, origin: [f32; 2]) {
+fn query_loaded_probe(world: &mut GameLogic, id: ObjectId) {
     // Real loaded placement: (110,110) belongs to cell(1,1) at64 and
     // cell(2,2) at40. A corner cell0 query's nine cells reach only the former.
     // Both query and stamp wrongly using40 must fail this composed witness.
     assert_eq!(
         world.host_object(id).unwrap().get_position(),
-        Vec3::new(origin[0] + 110., 0., origin[1] + 110.)
+        Vec3::new(110., 0., 110.)
     );
     world.tick_physics_collisions_all();
     assert!(world.partition_manager.is_registered(id.0));
     assert_eq!(
         world
             .partition_manager
-            .neighbor_object_ids(origin[0] + 1., origin[1] + 1.),
+            .neighbor_object_ids(1., 1.),
         vec![id.0]
     );
     assert!(
         world
             .partition_manager
-            .ids_in_radius(origin[0] + 110., origin[1] + 110., 0.)
+            .ids_in_radius(110., 110., 0.)
             .contains(&id.0)
     );
     assert!(
         world
             .partition_manager
-            .ids_in_radius(origin[0] - 256., origin[1] + 110., 0.)
+            .ids_in_radius(-256., 110., 0.)
             .is_empty(),
-        "off-map queries cannot sample an origin-zero fallback"
+        "off-map queries cannot sample a clamped edge cell"
     );
 }
 
@@ -227,20 +210,8 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
         "actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset",
         || {
             let temp = tempfile::tempdir().unwrap();
-            let first = map(
-                &temp.path().join("First"),
-                [-140., 480.],
-                400.,
-                Some(32.),
-                Some(64.),
-            );
-            let second = map(
-                &temp.path().join("Second"),
-                [960., -400.],
-                400.,
-                Some(64.),
-                Some(128.),
-            );
+            let first = map(&temp.path().join("First"), Some(32.), Some(64.));
+            let second = map(&temp.path().join("Second"), Some(64.), Some(128.));
             let mut owner = prepared(256.);
             let mut peer = prepared(256.);
             let old_global = game_engine::common::global_data::read().partition_cell_size;
@@ -253,27 +224,22 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
                 owner_id, peer_id,
                 "equal raw IDs belong to distinct receiving worlds"
             );
-            // Nonintegral, binary-exact ratios: 400/64=6.25 and400/128=3.125.
+            // Nonintegral ratios: 410/64=6.40625 and 410/128=3.203125.
             // These witnesses do not assert nominal ceil at the original macro's
             // exact-integer rounding discontinuities.
-            assert_eq!(grid(&owner), ((7, 7, 64.), [-140., 480.]));
-            assert_eq!(grid(&peer), ((4, 4, 128.), [960., -400.]));
+            assert_eq!(grid(&owner), ((7, 7, 64.), [0., 0.]));
+            assert_eq!(grid(&peer), ((4, 4, 128.), [0., 0.]));
             assert_eq!(owner.camera_follow_partition_cell_size(), 64.);
             assert_eq!(peer.camera_follow_partition_cell_size(), 128.);
-            query_loaded_probe(&mut owner, owner_id, [-140., 480.]);
-            query_loaded_probe(&mut peer, peer_id, [960., -400.]);
-            assert!(
-                peer.partition_manager
-                    .ids_in_radius(-136., 484., 0.)
-                    .is_empty()
-            );
+            query_loaded_probe(&mut owner, owner_id);
+            query_loaded_probe(&mut peer, peer_id);
             let local = viewer(&owner);
             let peer_local = viewer(&peer);
             let owner_looker = owner
-                .create_object_for_player(LOOKER, local, Vec3::new(-136., 0., 484.))
+                .create_object_for_player(LOOKER, local, Vec3::new(4., 0., 4.))
                 .unwrap();
             let peer_looker = peer
-                .create_object_for_player(LOOKER, peer_local, Vec3::new(964., 0., -396.))
+                .create_object_for_player(LOOKER, peer_local, Vec3::new(4., 0., 4.))
                 .unwrap();
             assert_eq!(owner_looker, peer_looker);
             owner.update_main_crate_vision();
@@ -308,16 +274,16 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
                 .fow_grid()
                 .clone();
             assert_eq!((frozen.width, frozen.height, frozen.cell_size), (7, 7, 64.));
-            assert_eq!(frozen.world_origin_xy, [-140., 480.]);
+            assert_eq!(frozen.world_origin_xy, [0., 0.]);
             assert_eq!(
-                frozen.state_at_world_xy(-30., 590.),
+                frozen.state_at_world_xy(110., 110.),
                 crate::fow_rendering::PresentationFowGrid::CELL_HIDDEN
             );
             let peer_frozen = PresentationFrame::build_from_logic(&mut peer, peer_local)
                 .fow_grid()
                 .clone();
             assert_eq!(
-                peer_frozen.state_at_world_xy(1070., -290.),
+                peer_frozen.state_at_world_xy(110., 110.),
                 crate::fow_rendering::PresentationFowGrid::CELL_VISIBLE
             );
 
@@ -356,8 +322,8 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
             std::fs::remove_file(first.parent().unwrap().join("Map.ini")).unwrap();
             std::fs::remove_file(first.parent().unwrap().join("Solo.ini")).unwrap();
             load(&mut owner, &first);
-            assert_eq!(grid(&owner), ((2, 2, 256.), [-140., 480.]));
-            assert_eq!(grid(&peer), ((4, 4, 128.), [960., -400.]));
+            assert_eq!(grid(&owner), ((2, 2, 256.), [0., 0.]));
+            assert_eq!(grid(&peer), ((4, 4, 128.), [0., 0.]));
         },
     );
 }
@@ -368,20 +334,8 @@ fn actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index() {
         "actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index",
         || {
             let temp = tempfile::tempdir().unwrap();
-            let path = map(
-                &temp.path().join("Saved"),
-                [960., -400.],
-                400.,
-                Some(32.),
-                Some(64.),
-            );
-            let peer_path = map(
-                &temp.path().join("Peer"),
-                [-140., 480.],
-                400.,
-                Some(128.),
-                None,
-            );
+            let path = map(&temp.path().join("Saved"), Some(32.), Some(64.));
+            let peer_path = map(&temp.path().join("Peer"), Some(128.), None);
             let mut source = prepared(256.);
             let source_id = load(&mut source, &path);
             let mut receiver = prepared(256.);
@@ -390,7 +344,7 @@ fn actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index() {
             let peer_id = load(&mut peer, &peer_path);
             assert_eq!(source_id, receiver_id);
             assert_eq!(source_id, peer_id);
-            let center = Coord3D::new(976., -384., 0.);
+            let center = Coord3D::new(16., 16., 0.);
             let player = viewer(&source);
             {
                 let mut shroud = source.world_services.shroud().lock().unwrap();
@@ -414,7 +368,7 @@ fn actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index() {
             builder
                 .restore_from_snapshot(&decoded, &mut receiver)
                 .unwrap();
-            assert_eq!(grid(&receiver), ((7, 7, 64.), [960., -400.]));
+            assert_eq!(grid(&receiver), ((7, 7, 64.), [0., 0.]));
             for frame in [15, 16] {
                 for world in [&mut source, &mut receiver] {
                     world
@@ -436,7 +390,7 @@ fn actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index() {
                             ShroudState::Explored
                         }
                     );
-                    query_loaded_probe(world, source_id, [960., -400.]);
+                    query_loaded_probe(world, source_id);
                 }
                 assert_eq!(
                     source
@@ -550,7 +504,7 @@ fn actual_non40_map_snapshot_continues_shroud_expiry_and_receiving_index() {
                     .snapshot_state(),
                 before_rejection
             );
-            assert_eq!(grid(&peer), ((4, 4, 128.), [-140., 480.]));
+            assert_eq!(grid(&peer), ((4, 4, 128.), [0., 0.]));
         },
     );
 }
@@ -562,17 +516,12 @@ fn actual_map_grid_clamps_subunit_definition_without_mutating_raw_camera_rule() 
         || {
             let temp = tempfile::tempdir().unwrap();
             for (index, raw) in [0., -8., 0.5].into_iter().enumerate() {
-                let origin = [120. + index as f32 * 32., -160.];
-                let path = map(
-                    &temp.path().join(format!("Clamp{index}")),
-                    origin,
-                    2.5,
-                    None,
-                    None,
-                );
+                let path = map(&temp.path().join(format!("Clamp{index}")), None, None);
                 let mut world = prepared(raw);
                 load(&mut world, &path);
-                assert_eq!(grid(&world), ((3, 3, 1.), origin));
+                // C++ PM clamps the cell to 1; the exact-integer 410 extent
+                // takes the original ceil macro's +1 step.
+                assert_eq!(grid(&world), ((411, 411, 1.), [0., 0.]));
                 assert_eq!(
                     world.camera_follow_partition_cell_size(),
                     raw,

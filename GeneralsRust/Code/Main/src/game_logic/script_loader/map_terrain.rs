@@ -518,7 +518,10 @@ pub fn install_runtime_polygon_triggers(
     terrain.replace_receiving_trigger_areas(triggers.iter().cloned());
 }
 
-/// Parse world bounds from the map's GlobalLighting or Waypoints chunk.
+/// Parse the map's logical world bounds.
+///
+/// C++ `W3DTerrainLogic::getExtent` is zero-origin and spans the heightmap's
+/// playable area. `WaypointsList` holds waypoint links, never world bounds.
 pub fn parse_world_bounds(map_name: &str) -> LoaderResult<Option<(Coord3D, Coord3D)>> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(None);
@@ -529,43 +532,6 @@ pub fn parse_world_bounds(map_name: &str) -> LoaderResult<Option<(Coord3D, Coord
 pub fn parse_world_bounds_from_chunky(
     chunky: &ChunkyMap,
 ) -> LoaderResult<Option<(Coord3D, Coord3D)>> {
-    let body = &chunky.bytes[chunky.body_offset..];
-
-    let mut waypoint_bounds = None;
-    if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "WaypointsList")? {
-        let mut reader = BinaryReader::new(payload);
-        if reader.remaining() >= 4 {
-            let count = reader.read_i32()? as usize;
-            let mut min = Coord3D::new(f32::MAX, f32::MAX, f32::MAX);
-            let mut max = Coord3D::new(f32::MIN, f32::MIN, f32::MIN);
-            for _ in 0..count {
-                if reader.remaining() < 12 {
-                    break;
-                }
-                let x = reader.read_f32()?;
-                let y = reader.read_f32()?;
-                let z = reader.read_f32()?;
-                min.x = min.x.min(x);
-                min.y = min.y.min(y);
-                min.z = min.z.min(z);
-                max.x = max.x.max(x);
-                max.y = max.y.max(y);
-                max.z = max.z.max(z);
-            }
-            if min.x < f32::MAX / 2.0 && max.x > f32::MIN / 2.0 {
-                waypoint_bounds = Some((min, max));
-            }
-        }
-    }
-
-    if let Some((min, max)) = waypoint_bounds {
-        let extent_x = (max.x - min.x).abs();
-        let extent_z = (max.z - min.z).abs();
-        if extent_x >= 1.0 && extent_z >= 1.0 {
-            return Ok(Some((min, max)));
-        }
-    }
-
     if let Some((width, height, border_size)) = parse_heightmap_dimensions_from_chunky(chunky)? {
         let playable_w = (width - 2 * border_size).max(1) as f32;
         let playable_h = (height - 2 * border_size).max(1) as f32;

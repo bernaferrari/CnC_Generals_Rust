@@ -8,7 +8,10 @@ use crate::save_load::{
 use gamelogic::common::{Coord3D, ObjectShroudStatus};
 use gamelogic::system::shroud_manager::ShroudState;
 
-fn map_bytes(origin: [f32; 2]) -> Vec<u8> {
+/// C++ W3DTerrainLogic::getExtent: the map extent is zero-origin and spans
+/// the active heightmap boundary (41 * 10 = 410). WaypointsList carries
+/// waypoint links, never world bounds.
+fn map_bytes() -> Vec<u8> {
     let mut out = game_engine::common::system::DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 0, 1681] {
@@ -16,18 +19,6 @@ fn map_bytes(origin: [f32; 2]) -> Vec<u8> {
     }
     for _ in 0..1681 {
         out.write_byte(0);
-    }
-    out.close_data_chunk();
-    // Exercise the loader's admitted bounds metadata, including negative XZ.
-    out.open_data_chunk("WaypointsList", 1);
-    out.write_int(2);
-    for position in [
-        [origin[0], 0.0, origin[1]],
-        [origin[0] + 400.0, 0.0, origin[1] + 400.0],
-    ] {
-        for component in position {
-            out.write_real(component);
-        }
     }
     out.close_data_chunk();
     out.into_ckmp_bytes()
@@ -75,11 +66,10 @@ fn replacing_partition_grid_reestablishes_stationary_unit_vision() {
         || {
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("Vision.map");
-            std::fs::write(&path, map_bytes([-140.0, 480.0])).unwrap();
+            std::fs::write(&path, map_bytes()).unwrap();
             let mut world = load(&path);
             let (looker, enemy) = admit_units(&mut world, 80.0);
-            // The authored heightmap's active boundary is zero-origin; the
-            // fixture's offset waypoints do not move that boundary.
+            // The authored heightmap's active boundary is zero-origin.
             let position = Vec3::new(200.0, 0.0, 200.0);
             world.set_fixture_object_position(looker, position);
             world.set_fixture_object_position(enemy, position);
@@ -111,12 +101,12 @@ fn offset_map_vision_and_frozen_grid_use_driving_map_cells() {
             let temp = tempfile::tempdir().unwrap();
             let a_path = temp.path().join("OffsetA.map");
             let b_path = temp.path().join("OffsetB.map");
-            std::fs::write(&a_path, map_bytes([-140.0, 480.0])).unwrap();
-            std::fs::write(&b_path, map_bytes([960.0, -400.0])).unwrap();
+            std::fs::write(&a_path, map_bytes()).unwrap();
+            std::fs::write(&b_path, map_bytes()).unwrap();
             let mut a = load(&a_path);
             let mut b = load(&b_path);
-            assert_eq!(a.world_min.x, -140.0);
-            assert_eq!(b.world_min.z, -400.0);
+            assert_eq!(a.world_min, Vec3::ZERO);
+            assert_eq!(b.world_min, Vec3::ZERO);
             let (a_looker, a_enemy) = admit_units(&mut a, 80.0);
             let (b_looker, b_enemy) = admit_units(&mut b, 0.0);
             assert_eq!((a_looker, a_enemy), (b_looker, b_enemy));
@@ -144,17 +134,18 @@ fn offset_map_vision_and_frozen_grid_use_driving_map_cells() {
             drop(foreign);
             let a_frame = PresentationFrame::build_from_logic(&mut a, 1);
             let frozen = a_frame.fow_grid();
-            assert_eq!(frozen.world_origin_xy, [-140.0, 480.0]);
-            assert_eq!((frozen.width, frozen.height), (10, 10));
+            assert_eq!(frozen.world_origin_xy, [0.0, 0.0]);
+            // 410 / 40 = 10.25 cells.
+            assert_eq!((frozen.width, frozen.height), (11, 11));
             assert_eq!(
-                frozen.state_at_world_xy(-120.0, 500.0),
+                frozen.state_at_world_xy(20.0, 20.0),
                 PresentationFowGrid::CELL_VISIBLE
             );
             assert_eq!(
-                frozen.state_at_world_xy(220.0, 840.0),
+                frozen.state_at_world_xy(360.0, 360.0),
                 PresentationFowGrid::CELL_HIDDEN
             );
-            a.set_fixture_object_position(a_looker, Vec3::new(220.0, 0.0, 840.0));
+            a.set_fixture_object_position(a_looker, Vec3::new(360.0, 0.0, 360.0));
             a.update_main_crate_vision();
             a.frame = 150;
             a.update_main_crate_vision();
@@ -181,7 +172,7 @@ fn offset_map_vision_and_frozen_grid_use_driving_map_cells() {
                 Some(ObjectShroudStatus::Shrouded)
             );
             assert_eq!(
-                frozen.state_at_world_xy(-120.0, 500.0),
+                frozen.state_at_world_xy(20.0, 20.0),
                 PresentationFowGrid::CELL_VISIBLE,
                 "a completed frame remains immutable after both worlds advance/reset"
             );
@@ -197,10 +188,10 @@ fn native_offset_map_restores_shroud_origin_and_pending_expiry() {
         || {
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("SavedOffset.map");
-            let bytes = map_bytes([960.0, -400.0]);
+            let bytes = map_bytes();
             std::fs::write(&path, &bytes).unwrap();
             let mut source = load(&path);
-            let center = Coord3D::new(980.0, -380.0, 0.0);
+            let center = Coord3D::new(20.0, 20.0, 0.0);
             {
                 let mut shroud = source.world_services.shroud().lock().unwrap();
                 shroud.do_shroud_reveal(&center, 80.0, 1 << 1);
