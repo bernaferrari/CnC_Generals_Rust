@@ -1172,7 +1172,7 @@ if let Ok(mut list) = __arc_bind.write() {
                     &self.pathfinding_system.grid,
                 );
                 self.pathfinding_system.apply_structure_static_blocks(
-                    self.objects.read(),
+                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                     wall_height,
                     &ground_source,
                 )
@@ -1224,7 +1224,7 @@ if let Ok(mut list) = __arc_bind.write() {
                 &self.pathfinding_system.grid,
             );
             self.pathfinding_system.apply_structure_static_blocks(
-                self.objects.read(),
+                self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                 wall_height,
                 &ground_source,
             )

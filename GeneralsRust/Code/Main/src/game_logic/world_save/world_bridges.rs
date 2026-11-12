@@ -168,7 +168,7 @@ impl GameLogic {
         );
         refresh_grid_bridge_states(
             &mut self.pathfinding_system.grid,
-            self.objects.read(),
+            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
             &self.bridge_behavior,
             &ground,
         );
@@ -182,7 +182,7 @@ impl GameLogic {
     ) {
         refresh_grid_bridge_states(
             &mut self.pathfinding_system.grid,
-            self.objects.read(),
+            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
             &self.bridge_behavior,
             ground,
         );

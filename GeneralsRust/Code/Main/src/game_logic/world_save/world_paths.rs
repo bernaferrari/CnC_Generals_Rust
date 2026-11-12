@@ -2833,7 +2833,7 @@ mod group_lane_tests {
             logic.pathfinding_system.find_group_ground_path(
                 start,
                 destination,
-                logic.objects.read(),
+                logic.objects.read().with_players(&logic.players).with_team_factory(&logic.team_factory),
                 &ground_source,
             )
         })
@@ -2931,7 +2931,7 @@ mod group_lane_tests {
             logic
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles_after_creation_events(logic.objects.read(), &ground_source)
+                .update_dynamic_obstacles_after_creation_events(logic.objects.read().with_players(&logic.players).with_team_factory(&logic.team_factory), &ground_source)
         });
         logic
     }

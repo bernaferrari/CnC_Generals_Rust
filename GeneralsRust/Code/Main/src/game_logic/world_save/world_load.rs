@@ -1216,7 +1216,7 @@ impl GameLogic {
                                     )
                                 };
                                 self.pathfinding_system.apply_structure_static_blocks(
-                                    self.objects.read(),
+                                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                     wall_height,
                                     &ground_source,
                                 )
@@ -1343,7 +1343,7 @@ impl GameLogic {
                                     )
                                 };
                                 self.pathfinding_system.apply_structure_static_blocks(
-                                    self.objects.read(),
+                                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                     wall_height,
                                     &ground_source,
                                 )

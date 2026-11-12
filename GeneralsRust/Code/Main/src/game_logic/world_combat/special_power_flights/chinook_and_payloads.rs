@@ -252,7 +252,7 @@ impl GameLogic {
                         );
                     self.pathfinding_system.adjust_landing_destination_for(
                         id.0,
-                        self.objects.read(),
+                        self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                         landing_from,
                         landing_dest,
                         &ground_source,
