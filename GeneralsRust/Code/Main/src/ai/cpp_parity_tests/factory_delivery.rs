@@ -339,36 +339,30 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     player.resources.supplies = 5_000;
     logic.add_player(player);
 
-    let mut supply_center = crate::game_logic::ThingTemplate::new("AmericaSupplyCenter");
-    supply_center
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::SupplyCenter)
-        .add_kind_of(crate::game_logic::KindOf::FSSupplyCenter)
-        .add_kind_of(crate::game_logic::KindOf::Selectable)
-        .set_cost(2_000, 0);
-    logic
-        .templates
-        .insert("AmericaSupplyCenter".into(), supply_center);
-
-    let mut chinook = crate::game_logic::ThingTemplate::new("AmericaVehicleChinook");
-    chinook
-        .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .add_kind_of(crate::game_logic::KindOf::Aircraft)
-        .add_kind_of(crate::game_logic::KindOf::Harvester)
-        .add_kind_of(crate::game_logic::KindOf::Selectable)
-        .set_cost(1_200, 0);
-    // Keep the focused test on the real production completion path without
-    // waiting ten retail seconds for the paid Chinook.
-    chinook.build_time = 0.001;
-    logic
-        .templates
-        .insert("AmericaVehicleChinook".into(), chinook);
-
-    let mut source = crate::game_logic::ThingTemplate::new("TestSupplySource");
-    source
-        .add_kind_of(crate::game_logic::KindOf::Resource)
-        .add_kind_of(crate::game_logic::KindOf::Harvestable);
-    logic.templates.insert("TestSupplySource".into(), source);
+    // Retail AmericaSupplyCenter / AmericaVehicleChinook, authored before
+    // NewGame (GameEngine.cpp:428-458).  The free Chinook comes from the
+    // supply center's SpawnBehavior through its ProductionExit.
+    {
+        use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("AmericaSupplyCenter")
+                    .kind_of("STRUCTURE FS_SUPPLY_CENTER SELECTABLE")
+                    .build_cost(2_000)
+                    .module("Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\nEnd")
+                    .module("Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\nEnd"),
+                // Keep the focused test on the real production completion
+                // path without waiting ten retail seconds for the paid Chinook.
+                FixtureObject::new("AmericaVehicleChinook")
+                    .kind_of("VEHICLE AIRCRAFT HARVESTER SELECTABLE")
+                    .build_cost(1_200)
+                    .build_time(0.001)
+                    .module("Behavior = SupplyTruckAIUpdate TruckAI\nEnd"),
+                FixtureObject::new("TestSupplySource").kind_of("SUPPLY_SOURCE"),
+            ],
+        );
+    }
     let source_id = logic
         .create_object("TestSupplySource", Team::Neutral, Vec3::new(32.0, 0.0, 0.0))
         .expect("typed supply source");
@@ -381,6 +375,12 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     let center_id = logic
         .create_object("AmericaSupplyCenter", Team::USA, Vec3::ZERO)
         .expect("constructed supply center");
+    // SpawnBehavior creates its first child on the first update
+    // (SpawnBehavior.cpp:186-247).
+    logic.frame += 1;
+    logic
+        .update_spawn_behavior_with_effects(&mut Default::default())
+        .unwrap();
     let free_collectors: Vec<ObjectId> = logic
         .host_objects()
         .registered()
