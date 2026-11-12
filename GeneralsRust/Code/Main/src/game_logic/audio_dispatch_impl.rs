@@ -379,58 +379,42 @@ pub fn enter_voice_slot(
     }
 }
 
-/// One selected unit's current / commanded weapon for attack-voice upgrade.
+/// One selected unit's current / commanded weapon for attack-voice upgrade:
+/// the Object's own `Weapon` (`getCurrentWeapon` / `getWeaponInWeaponSlot`).
 pub struct AttackVoiceWeapon {
     pub name: String,
+    pub damage: crate::game_logic::combat::DamageType,
     pub slot: u8,
 }
 
-/// C++ `CommandXlat.cpp:511-627` — upgrade VoiceAttack / VoiceAttackAir from the weapon.
+/// C++ `CommandXlat.cpp:511-627` — upgrade VoiceAttack / VoiceAttackAir from the
+/// weapon's own `getDamageType()`.
 ///
 /// `skip` is C++ `skip=true` (first specialty wins). Location DISARM / FLAME / POISON
 /// keep scanning.
 pub fn specialty_attack_voice_upgrade(
-    weapon_name: &str,
-    weapon_slot: u8,
+    weapon: &AttackVoiceWeapon,
     target_is_structure: bool,
     specialty_weapon: bool,
     at_location: bool,
 ) -> Option<(UnitVoiceSlot, bool)> {
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name;
-
-    if at_location && weapon_name.eq_ignore_ascii_case("ComancheRocketPodWeapon") {
-        return Some((UnitVoiceSlot::FireRocketPods, true));
-    }
-
-    let mut damage = host_damage_type_for_weapon_name(weapon_name)?;
-    if matches!(damage, DamageType::Bullet) {
-        let n = weapon_name.to_ascii_lowercase();
-        if n.contains("flashbang") {
-            damage = DamageType::Surrender;
-        } else if n.contains("melee") || n.contains("knife") || n.contains("stab") {
-            damage = DamageType::Melee;
-        } else if n.contains("flame") || n.contains("firewall") || n.contains("firestorm") {
-            damage = DamageType::Flame;
-        } else if n.contains("poison") || n.contains("toxin") {
-            damage = DamageType::Toxin;
-        }
-    }
 
     if at_location {
-        return match damage {
+        return match weapon.damage {
+            DamageType::Surrender => None,
             DamageType::Disarm => Some((UnitVoiceSlot::Disarm, false)),
-            DamageType::Flame | DamageType::Fire if weapon_slot != 0 => {
-                Some((UnitVoiceSlot::FlameLocation, false))
-            }
-            DamageType::Toxin | DamageType::Anthrax if weapon_slot != 0 => {
-                Some((UnitVoiceSlot::PoisonLocation, false))
+            DamageType::Flame if weapon.slot != 0 => Some((UnitVoiceSlot::FlameLocation, false)),
+            DamageType::Toxin if weapon.slot != 0 => Some((UnitVoiceSlot::PoisonLocation, false)),
+            DamageType::Flame | DamageType::Toxin => None,
+            _ if weapon.name == "ComancheRocketPodWeapon" => {
+                Some((UnitVoiceSlot::FireRocketPods, true))
             }
             _ => None,
         };
     }
 
-    match damage {
+    match weapon.damage {
         DamageType::Surrender => {
             let slot = if target_is_structure {
                 UnitVoiceSlot::ClearBuilding
@@ -461,8 +445,7 @@ pub fn pick_specialty_attack_voice(
             break;
         }
         if let Some((upgraded, stop)) = specialty_attack_voice_upgrade(
-            &weapon.name,
-            weapon.slot,
+            &weapon,
             target_is_structure,
             specialty_weapon,
             at_location,
@@ -954,54 +937,57 @@ mod tests {
 
     #[test]
     fn specialty_attack_voice_upgrades_from_weapon() {
+        use crate::game_logic::combat::DamageType as D;
+        let w = |name: &str, damage: D, slot: u8| AttackVoiceWeapon {
+            name: name.to_owned(),
+            damage,
+            slot,
+        };
+        let up = |weapon: AttackVoiceWeapon, structure, specialty, location| {
+            specialty_attack_voice_upgrade(&weapon, structure, specialty, location)
+        };
         assert_eq!(
-            specialty_attack_voice_upgrade("RangerFlashBangGrenadeWeapon", 1, true, false, false,),
+            up(w("RangerFlashBangGrenadeWeapon", D::Surrender, 1), true, false, false),
             Some((UnitVoiceSlot::ClearBuilding, true))
         );
         assert_eq!(
-            specialty_attack_voice_upgrade("RangerFlashBangGrenadeWeapon", 1, false, false, false,),
+            up(w("RangerFlashBangGrenadeWeapon", D::Surrender, 1), false, false, false),
             Some((UnitVoiceSlot::Subdue, true))
         );
+        assert_eq!(up(w("RangerFlashBangGrenadeWeapon", D::Surrender, 1), false, false, true), None);
         assert_eq!(
-            specialty_attack_voice_upgrade("DozerMineDisarmingWeapon", 0, false, false, false),
+            up(w("DozerMineDisarmingWeapon", D::Disarm, 0), false, false, false),
             Some((UnitVoiceSlot::Disarm, true))
         );
         assert_eq!(
-            specialty_attack_voice_upgrade("DozerMineDisarmingWeapon", 0, false, false, true),
+            up(w("DozerMineDisarmingWeapon", D::Disarm, 0), false, false, true),
             Some((UnitVoiceSlot::Disarm, false))
         );
         assert_eq!(
-            specialty_attack_voice_upgrade("BurtonKnifeWeapon", 2, false, true, false),
+            up(w("BurtonKnifeWeapon", D::Melee, 2), false, true, false),
             Some((UnitVoiceSlot::Melee, true))
         );
-        assert!(
-            specialty_attack_voice_upgrade("BurtonKnifeWeapon", 2, false, false, false).is_none()
-        );
+        assert!(up(w("BurtonKnifeWeapon", D::Melee, 2), false, false, false).is_none());
+        // The weapon's own DamageType decides; a knife-like name does not.
+        assert!(up(w("ColonelBurtonKnife", D::Bullet, 2), false, true, false).is_none());
         assert_eq!(
-            specialty_attack_voice_upgrade(
-                "GLAJarmenKellVehiclePilotSniperRifle",
-                1,
-                false,
-                true,
-                false,
-            ),
+            up(w("GLAJarmenKellVehiclePilotSniperRifle", D::KillPilot, 1), false, true, false),
             Some((UnitVoiceSlot::SnipePilot, true))
         );
         assert_eq!(
-            specialty_attack_voice_upgrade("DragonTankFireWallWeapon", 1, false, true, true),
+            up(w("DragonTankFireWallWeapon", D::Flame, 1), false, true, true),
             Some((UnitVoiceSlot::FlameLocation, false))
         );
-        assert!(
-            specialty_attack_voice_upgrade("DragonTankFlameWeapon", 0, false, true, true).is_none()
-        );
+        assert!(up(w("DragonTankFlameWeapon", D::Flame, 0), false, true, true).is_none());
         assert_eq!(
-            specialty_attack_voice_upgrade("ToxinTractorSprayWeapon", 1, false, true, true),
+            up(w("ToxinTractorSprayWeapon", D::Toxin, 1), false, true, true),
             Some((UnitVoiceSlot::PoisonLocation, false))
         );
         assert_eq!(
-            specialty_attack_voice_upgrade("ComancheRocketPodWeapon", 2, false, true, true),
+            up(w("ComancheRocketPodWeapon", D::Explosive, 2), false, true, true),
             Some((UnitVoiceSlot::FireRocketPods, true))
         );
+        assert!(up(w("ComancheRocketPodWeapon", D::Explosive, 2), false, true, false).is_none());
         assert_eq!(UnitVoiceSlot::ClearBuilding.ini_key(), "VoiceClearBuilding");
         assert_eq!(UnitVoiceSlot::Subdue.ini_key(), "VoiceSubdue");
         assert_eq!(UnitVoiceSlot::Disarm.ini_key(), "VoiceDisarm");

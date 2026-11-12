@@ -1492,8 +1492,12 @@ impl GameLogic {
                 let slot = forced_slot
                     .or_else(|| obj.selected_weapon_slot())
                     .unwrap_or(obj.active_weapon_slot);
-                let name = obj.weapon_name_for_slot(slot)?.to_string();
-                Some(AttackVoiceWeapon { name, slot })
+                let weapon = obj.selected_native_weapon_rule(slot)?;
+                Some(AttackVoiceWeapon {
+                    name: weapon.name.clone(),
+                    damage: crate::game_logic::combat::DamageType::from_store(weapon.damage_type),
+                    slot,
+                })
             })
             .collect();
         pick_specialty_attack_voice(default, weapons, structure, specialty_weapon, at_location)
