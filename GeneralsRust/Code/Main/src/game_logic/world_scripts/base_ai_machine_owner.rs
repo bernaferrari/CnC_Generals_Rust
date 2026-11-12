@@ -110,6 +110,11 @@ impl GameLogic {
                     goal,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
+                if state == AIState::Moving {
+                    // AIFollowWaypointPathExactState::onExit publishes its admitted
+                    // start when clear() leaves the path; ordinary Follow drops it.
+                    unit.clear_pending_waypoint_labels();
+                }
             }
             if matches!(state, AIState::Attacking | AIState::AttackingGround) || retaliate_attack {
                 unit.exit_base_ai_attack_owned();
