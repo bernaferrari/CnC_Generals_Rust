@@ -1073,7 +1073,13 @@ impl GameLogic {
     }
 
     /// C++ `startFacing`: idle, reset physics, face the target.
+    ///
+    /// SpecialAbilityUpdate.cpp:1880-1891 issues both orders CMD_FROM_AI, so
+    /// the module stays active (update:204). The active module's AI is the
+    /// SpecialAbility state, which keeps its face goal (`set_ai_state`); a
+    /// generic FacingObject order would read as a replacement command.
     fn leftover_start_facing(&mut self, object_id: ObjectId, target_id: ObjectId) {
+        let target_pos = self.objects.get(&target_id).map(|t| t.get_position());
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -1083,8 +1089,14 @@ impl GameLogic {
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
+            if let Some(target_pos) = target_pos.filter(|_| obj.is_mobile_for_ai_command()) {
+                obj.set_face_goal_pos(None);
+                obj.set_face_can_turn_in_place(obj.min_speed == 0.0);
+                obj.set_face_active(true);
+                obj.set_face_loco_frame(0);
+                let _ = obj.arm_face_locomotor_goal(target_pos);
+            }
         }
-        let _ = self.private_face_object(object_id, target_id);
     }
 
     /// Continue facing; returns true while the unit is still turning.
