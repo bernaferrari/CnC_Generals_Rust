@@ -608,13 +608,14 @@ fn presentation_fow_shell_bypass_forces_fully_visible() {
 
     let mut logic = GameLogic::new();
     // Shell map path: FOW bypass is frozen on the frame.
-    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("ShellFowUnit")
+            .kind_of("INFANTRY")
+            .health(10.0)],
+    );
     logic.start_new_game(GameMode::Shell).unwrap();
     assert!(logic.isInShellGame());
-    let mut t = ThingTemplate::new("ShellFowUnit");
-    t.set_health(10.0);
-    t.add_kind_of(KindOf::Infantry);
-    logic.templates.insert("ShellFowUnit".into(), t);
     let id = logic
         .create_object("ShellFowUnit", Team::USA, glam::Vec3::ZERO)
         .expect("unit");
