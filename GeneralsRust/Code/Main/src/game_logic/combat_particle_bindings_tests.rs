@@ -538,13 +538,24 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
     receiving_client
         .particle_systems_mut()
         .register_template(template);
-    if let Some(bytes) = decoded.snapshot.particle_system_companion.as_deref() {
-        crate::save_load::snapshot::restore_particle_system_from_xfer_bytes(
-            receiving_client.particle_systems_mut(),
-            bytes,
-        )
+    // The load adopts the companion's receipt into the restored world, as
+    // the staged load does (host_authority.rs:2957-2965 restore_particle_system_from_xfer_bytes
+    // then adopt_loaded_client_systems).
+    let bytes = decoded
+        .snapshot
+        .particle_system_companion
+        .as_deref()
+        .expect("paired save carries the ParticleSystemManager companion");
+    let receipt = crate::save_load::snapshot::restore_particle_system_from_xfer_bytes(
+        receiving_client.particle_systems_mut(),
+        bytes,
+    )
+    .unwrap()
+    .expect("companion restore receipt");
+    restored
+        .combat_particles_mut()
+        .adopt_loaded_client_systems(receiving_client.particle_systems_mut(), &receipt)
         .unwrap();
-    }
     let manager = receiving_client.particle_systems_mut();
     assert!(manager.find_particle_system(saved_ids[0]).is_some());
     assert!(manager.find_particle_system(saved_ids[1]).is_none());

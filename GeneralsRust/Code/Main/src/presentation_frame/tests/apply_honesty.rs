@@ -1154,7 +1154,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[crate::fixture_content::FixtureObject::new("FxTank")
-            .kind_of("VEHICLE SELECTABLE ATTACKABLE")
+            .kind_of("VEHICLE SELECTABLE")
             .health(50.0)],
     );
 

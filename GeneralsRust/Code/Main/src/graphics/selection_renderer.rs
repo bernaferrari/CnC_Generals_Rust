@@ -1405,16 +1405,10 @@ mod presentation_selection_tests {
         crate::fixture_content::admit_fixture_objects(
             &mut logic,
             &[
-                crate::fixture_content::FixtureObject::new("SelUnit").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
+                crate::fixture_content::FixtureObject::new("SelUnit").field("Shadow = SHADOW_DECAL").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
             ],
         );
         crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-        let mut t = ThingTemplate::new("SelUnit");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
-        logic.templates.insert("SelUnit".into(), t);
 
         let id = logic
             .create_object("SelUnit", Team::USA, Vec3::new(12.0, 4.0, -7.0))
@@ -1524,15 +1518,10 @@ mod presentation_selection_tests {
         crate::fixture_content::admit_fixture_objects(
             &mut logic,
             &[
-                crate::fixture_content::FixtureObject::new("AirBlobJet").kind_of("AIRCRAFT").health(100.0),
+                crate::fixture_content::FixtureObject::new("AirBlobJet").field("Shadow = SHADOW_DECAL").kind_of("AIRCRAFT").health(100.0),
             ],
         );
         crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-        let mut t = ThingTemplate::new("AirBlobJet");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Aircraft);
-        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
-        logic.templates.insert("AirBlobJet".into(), t);
 
         let id = logic
             .create_object("AirBlobJet", Team::USA, Vec3::new(20.0, 80.0, 15.0))
@@ -1575,15 +1564,10 @@ mod presentation_selection_tests {
         crate::fixture_content::admit_fixture_objects(
             &mut logic,
             &[
-                crate::fixture_content::FixtureObject::new("FogBlobUnit").kind_of("INFANTRY").health(100.0).walker(),
+                crate::fixture_content::FixtureObject::new("FogBlobUnit").field("Shadow = SHADOW_DECAL").kind_of("INFANTRY").health(100.0).walker(),
             ],
         );
         crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-        let mut t = ThingTemplate::new("FogBlobUnit");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
-        logic.templates.insert("FogBlobUnit".into(), t);
 
         let _id = logic
             .create_object("FogBlobUnit", Team::USA, Vec3::new(8.0, 0.0, 8.0))
@@ -1648,15 +1632,10 @@ mod presentation_selection_tests {
         crate::fixture_content::admit_fixture_objects(
             &mut logic,
             &[
-                crate::fixture_content::FixtureObject::new("DecalOffUnit").kind_of("INFANTRY").health(100.0).walker(),
+                crate::fixture_content::FixtureObject::new("DecalOffUnit").field("Shadow = SHADOW_DECAL").kind_of("INFANTRY").health(100.0).walker(),
             ],
         );
         crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-        let mut t = ThingTemplate::new("DecalOffUnit");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
-        logic.templates.insert("DecalOffUnit".into(), t);
         let _id = logic
             .create_object("DecalOffUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
             .expect("unit");
@@ -1698,15 +1677,10 @@ mod presentation_selection_tests {
         crate::fixture_content::admit_fixture_objects(
             &mut logic,
             &[
-                crate::fixture_content::FixtureObject::new("VolBlobTank").kind_of("VEHICLE").health(100.0).walker(),
+                crate::fixture_content::FixtureObject::new("VolBlobTank").field("Shadow = SHADOW_VOLUME").kind_of("VEHICLE").health(100.0).walker(),
             ],
         );
         crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-        let mut t = ThingTemplate::new("VolBlobTank");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Vehicle);
-        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_VOLUME;
-        logic.templates.insert("VolBlobTank".into(), t);
 
         let id = logic
             .create_object("VolBlobTank", Team::USA, glam::Vec3::new(4.0, 0.0, 6.0))
