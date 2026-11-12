@@ -2068,8 +2068,13 @@ mod common_target_parity {
             .expect("ranger");
         let frame = logic.frame;
         if let Some(o) = logic.host_object_mut(id) {
-            assert!(
-                o.idle_mood_reset_pending,
+            // AIUpdateInterface::onObjectCreated runs initDefaultState after
+            // Object caches m_ai (Object.cpp:426, AIUpdate.cpp:603-612), so
+            // AIIdleState::onEnter resets the mood check at spawn
+            // (AIStates.cpp:1297-1298, AIUpdate.cpp:4443-4448).
+            assert_eq!(
+                (o.next_mood_check_time, o.randomly_offset_mood_check),
+                (53, true),
                 "spawn starts in Idle and must arm resetNextMoodCheckTime"
             );
             o.set_ai_state(
@@ -2143,6 +2148,12 @@ mod common_target_parity {
     #[test]
     fn owned_idle_entry_commits_mood_now_and_doinit_consumes_only_receiving_leaf() {
         let mut logic = GameLogic::new();
+        // AIData ForceIdleMSEC authored as 3 frames; the C++ default is 1
+        // (AI.cpp:884).
+        logic.set_ai_definition_base(game_engine::common::ini::AIData {
+            force_idle_frames_count: 3,
+            ..Default::default()
+        });
         logic.frame = 50;
         let id = logic
             .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
@@ -2602,7 +2613,7 @@ mod get_able_weapon_parity {
                 "StingerSite.ini".into(),
                 "Object FixtureStingerSite\n KindOf = STRUCTURE IMMOBILE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = DefaultProductionExitUpdate Exit\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = FixtureStingerSoldier\n End\nEnd\n\
                  Object FixtureStingerSoldier\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
-                 Object FixtureStingerVictim\n KindOf = INFANTRY ATTACKABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+                 Object FixtureStingerVictim\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
                     .into(),
             )])
             .unwrap();
