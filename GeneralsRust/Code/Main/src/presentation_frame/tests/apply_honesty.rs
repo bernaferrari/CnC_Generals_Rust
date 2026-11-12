@@ -1146,15 +1146,17 @@ fn presentation_feeds_control_bar_selection_panel_health() {
 /// systems from the host registry (observe path for client / HUD).
 #[test]
 fn presentation_frame_observes_combat_kill_particle_systems() {
-    use crate::game_logic::{CombatParticleKind, ThingTemplate, Weapon};
+    use crate::game_logic::{CombatParticleKind, Weapon};
 
+    // FxTank is authored startup content (GameEngine.cpp:428-458); its gun is
+    // an authored WeaponSet PRIMARY (WeaponSet.cpp), never a bare instance field.
     let mut logic = GameLogic::new();
-    let mut tank = ThingTemplate::new("FxTank");
-    tank.add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(50.0);
-    logic.templates.insert("FxTank".into(), tank);
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("FxTank")
+            .kind_of("VEHICLE SELECTABLE ATTACKABLE")
+            .health(50.0)],
+    );
 
     let attacker = logic
         .create_object("FxTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -1169,16 +1171,19 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
             .expect("attacker");
         // Wave 562: weapon must be bound before attack_target — can_attack()
         // requires weapon.is_some(); ordering weapon-after-order was a no-op.
-        a.weapon = Some(Weapon {
-            damage: 9999.0,
-            range: 100.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            // Instant-hit residual (0 speed) so one update() can kill.
-            projectile_speed: 0.0,
-            pre_attack_delay: 0.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_with_stats(
+            a,
+            Weapon {
+                damage: 9999.0,
+                range: 100.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                // Instant-hit residual (0 speed) so one update() can kill.
+                projectile_speed: 0.0,
+                pre_attack_delay: 0.0,
+                ..Weapon::default()
+            },
+        );
         a.attack_target(
             victim,
             0,
