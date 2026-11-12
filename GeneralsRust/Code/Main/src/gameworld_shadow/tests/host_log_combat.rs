@@ -681,14 +681,11 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
     let tid = logic
         .create_object("GU", Team::USA, glam::Vec3::new(14.0, 0.0, 14.0))
         .expect("tid");
+    // C++ AIUpdateInterface keeps one m_guardTargetType: a position guard and
+    // an object guard are alternatives, never both active (AIGuard.cpp).
     let position = glam::Vec3::new(3.0, 0.0, 5.0);
     logic.host_object_mut(oid).unwrap().set_guard_position(
         Some(position),
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    logic.host_object_mut(oid).unwrap().set_guard_target(
-        Some(tid),
         0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -696,47 +693,36 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     assert_eq!(
-        shadow
-            .world()
-            .entity(entity)
-            .unwrap()
-            .guard_position,
+        shadow.world().entity(entity).unwrap().guard_position,
         Some([3.0, 0.0, 5.0])
     );
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().guard_target_host,
-        tid.0
-    );
-    let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-    copy.guard_position = None;
-    copy.guard_target_host = 0;
+    assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, 0);
+    // Shadow edits never write back to the canonical host guard.
+    shadow.world_mut().world_mut().entity_mut(entity).unwrap().guard_position = None;
     assert_eq!(
         logic.host_object(oid).unwrap().active_guard_position(),
         Some(position)
     );
-    assert_eq!(
-        logic.host_object(oid).unwrap().active_guard_target(),
-        Some(tid)
-    );
-    logic.host_object_mut(oid).unwrap().set_guard_position(
-        None,
+
+    logic.host_object_mut(oid).unwrap().set_guard_target(
+        Some(tid),
         0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
+    shadow.sync_from_host(&logic);
+    assert_eq!(shadow.world().entity(entity).unwrap().guard_position, None);
+    assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, tid.0);
+    shadow.world_mut().world_mut().entity_mut(entity).unwrap().guard_target_host = 0;
+    assert_eq!(logic.host_object(oid).unwrap().active_guard_target(), Some(tid));
+    assert_eq!(logic.host_object(oid).unwrap().active_guard_position(), None);
+
     logic.host_object_mut(oid).unwrap().set_guard_target(
         None,
         0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     shadow.sync_from_host(&logic);
-    assert_eq!(
-        shadow
-            .world()
-            .entity(entity)
-            .unwrap()
-            .guard_position,
-        None
-    );
+    assert_eq!(shadow.world().entity(entity).unwrap().guard_position, None);
     assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, 0);
     assert_eq!(logic.host_object(oid).unwrap().active_guard_target(), None);
 }

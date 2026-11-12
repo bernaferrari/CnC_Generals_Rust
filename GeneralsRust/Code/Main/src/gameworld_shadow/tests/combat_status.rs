@@ -1098,21 +1098,18 @@ fn host_veterancy_is_canonical_and_shadow_only_observes() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("VetU").kind_of("SELECTABLE").health(100.0),
+            // Low thresholds so gain_experience levels quickly.  C++
+            // ThingTemplate ctor default m_isTrainable=FALSE
+            // (ThingTemplate.cpp:994); a trainable unit is exactly what this
+            // veterancy channel models.
+            crate::fixture_content::FixtureObject::new("VetU")
+                .kind_of("SELECTABLE")
+                .health(100.0)
+                .field("ExperienceRequired = 0 10 20 30")
+                .field("IsTrainable = Yes"),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("VetU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        // Low thresholds so gain_experience levels quickly.
-        t.veterancy_xp_thresholds = [10.0, 20.0, 30.0];
-        // C++ ThingTemplate ctor default m_isTrainable=FALSE (ThingTemplate.cpp:994);
-        // a trainable unit is exactly what this veterancy channel models.
-        t.is_trainable = true;
-        logic.templates.insert("VetU".into(), t);
-    }
     let id = logic
         .create_object("VetU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
