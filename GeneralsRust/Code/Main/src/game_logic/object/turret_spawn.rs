@@ -68,16 +68,6 @@ impl TurretSpawnSpec {
             fires_while_turning: false,
         }
     }
-
-    fn enabled_with_turn_rate(turn_deg_s: f32) -> Self {
-        let rate = turret_deg_per_sec_to_rad_per_frame(turn_deg_s);
-        let mut spec = Self::absent();
-        spec.has_turret = true;
-        spec.enabled = true;
-        spec.turn_rate_rad = rate;
-        spec.pitch_rate_rad = rate;
-        spec
-    }
 }
 
 /// C++ `INI::parseAngularVelocityReal` — deg/s → rad/logic-frame.
@@ -91,14 +81,10 @@ pub fn turret_ms_to_frames(ms: u32) -> u32 {
     u32::try_from(frames).unwrap_or(u32::MAX)
 }
 
-/// Compatibility defaults for hand-built templates with no supplied data.
-pub fn turret_spawn_for_template(template_name: &str) -> TurretSpawnSpec {
-    turret_spawn_from_name_honesty(template_name)
-}
-
 /// Resolve one Object's turret spawn facts from its receiving definition when
 /// present. Templates built from an explicit definition retain its resolved
-/// turret facts; hand-built templates use the compatibility defaults.
+/// turret facts; hand-built templates have no turret (C++ TurretAI exists only
+/// for an authored AIUpdate Turret block).
 pub(super) fn turret_spawn_for_thing_template(
     template: &crate::game_logic::ThingTemplate,
 ) -> TurretSpawnSpec {
@@ -119,8 +105,7 @@ pub(super) fn turret_spawn_for_thing_template(
         .map(turret_spawn_for_receiving_definition)
         .or_else(|| template.turret_spawn_definition.clone())
         // Unadmitted/hand-built templates must not invent turret slots from a
-        // global name table (hq-qpg313.1). Explicit honesty callers still use
-        // turret_spawn_for_template directly.
+        // global name table (hq-qpg313.1).
         .unwrap_or_else(TurretSpawnSpec::absent)
 }
 
@@ -262,130 +247,6 @@ fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
     spec
 }
 
-fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
-    use crate::game_logic::host_base_defense::{
-        is_gattling_cannon_structure, is_patriot_battery_structure};
-    use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
-    use crate::game_logic::host_humvee::{
-        HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE, is_humvee_template,
-    };
-    use crate::game_logic::host_neutron_shell::is_nuke_cannon_template;
-    use crate::game_logic::host_nuke_cannon::NUKE_CANNON_TURRET_TURN_RATE;
-    use crate::game_logic::host_strategy_center::{
-        STRATEGY_CENTER_FIRE_PITCH_DEG, STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG,
-        STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG,
-        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
-        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_RECENTER_TIME_FRAMES,
-        STRATEGY_CENTER_TURRET_PITCH_RATE_DEG_PER_SEC,
-        STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC, is_strategy_center_template,
-    };
-    use crate::game_logic::host_technical::{TECHNICAL_TURRET_TURN_RATE, is_technical_template};
-    use crate::game_logic::host_usa_tanks::USA_TANK_TURRET_TURN_RATE;
-
-    if is_strategy_center_template(template_name) {
-        let mut spec =
-            TurretSpawnSpec::enabled_with_turn_rate(STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC);
-        spec.pitch_rate_rad =
-            turret_deg_per_sec_to_rad_per_frame(STRATEGY_CENTER_TURRET_PITCH_RATE_DEG_PER_SEC);
-        spec.natural_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-        spec.natural_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
-        spec.angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-        spec.pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
-        spec.enabled = false;
-        spec.allows_pitch = true;
-        spec.fire_pitch_rad = STRATEGY_CENTER_FIRE_PITCH_DEG.to_radians();
-        spec.min_idle_scan_angle_rad = STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG.to_radians();
-        spec.max_idle_scan_angle_rad = STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG.to_radians();
-        spec.min_idle_scan_interval = STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES;
-        spec.max_idle_scan_interval = STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES;
-        spec.recenter_frames = STRATEGY_CENTER_RECENTER_TIME_FRAMES;
-        return spec;
-    }
-
-    // Tomahawk turret comes from the authored AIUpdate Turret block
-    // (hq-2qedt.120); no name peel here.
-
-    if is_humvee_template(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(HUMVEE_TURRET_TURN_RATE);
-        spec.recenter_frames = HUMVEE_TURRET_RECENTER_FRAMES;
-        return spec;
-    }
-
-    if is_technical_template(template_name) {
-        return TurretSpawnSpec::enabled_with_turn_rate(TECHNICAL_TURRET_TURN_RATE);
-    }
-
-    if is_nuke_cannon_template(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(NUKE_CANNON_TURRET_TURN_RATE);
-        spec.allows_pitch = true;
-        return spec;
-    }
-
-
-    if is_gattling_cannon_structure(template_name) || is_gattling_tank_template(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
-        let sweep = GATTLING_FIRE_ANGLE_SWEEP_DEG.to_radians();
-        spec.fire_angle_sweep = [sweep, sweep, 0.0];
-        spec.fires_while_turning = true;
-        return spec;
-    }
-
-    if is_patriot_battery_structure(template_name) {
-        return TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
-    }
-
-    if is_quad_cannon_name(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
-        let sweep = GATTLING_FIRE_ANGLE_SWEEP_DEG.to_radians();
-        spec.fire_angle_sweep = [sweep, sweep, 0.0];
-        spec.fires_while_turning = true;
-        return spec;
-    }
-
-    if is_overlord_name(template_name)
-        || is_scorpion_name(template_name)
-        || is_inferno_name(template_name)
-    {
-        return TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
-    }
-
-    TurretSpawnSpec::absent()
-}
-
-
-fn is_quad_cannon_name(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    (n.contains("quadcannon") || n.contains("quadcannon"))
-        && !n.contains("weapon")
-        && !n.contains("shell")
-}
-
-fn is_overlord_name(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    n.contains("overlord")
-        && !n.contains("weapon")
-        && !n.contains("addon")
-        && !n.contains("gattling")
-        && !n.contains("helix")
-}
-
-fn is_scorpion_name(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    n.contains("scorpion") && !n.contains("weapon") && !n.contains("shell") && !n.contains("rocket")
-}
-
-fn is_inferno_name(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    n.contains("inferno") && (n.contains("tank") || n.contains("cannon") || n.contains("vehicle"))
-}
-
-fn alnum_lower(s: &str) -> String {
-    s.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect()
-}
-
 fn parse_f32_attr(module: &BehaviorModuleDefinition, name: &str) -> Option<f32> {
     let raw = module.attribute(name)?;
     let token = raw.split_whitespace().next()?;
@@ -495,9 +356,9 @@ mod tests {
             "hand-built templates without admitted turret facts stay absent"
         );
         assert!(!spec.enabled);
-        assert!(!turret_spawn_for_template("AmericaTankCrusader").has_turret);
-        assert!(!turret_spawn_for_template("ChinaTankBattleMaster").has_turret);
-        assert!(!turret_spawn_for_template("GLATunnelNetwork").has_turret);
+        for name in ["ChinaTankBattleMaster", "GLATunnelNetwork", "AmericaVehicleTomahawk"] {
+            assert!(!turret_spawn_for_thing_template(&ThingTemplate::new(name)).has_turret, "{name}");
+        }
     }
 
     #[test]
@@ -522,13 +383,5 @@ mod tests {
         let mut only_alt = AIUpdateModuleData::default();
         only_alt.set_turret_secondary(TurretAIData::default());
         assert!(alt_turret_spawn_from_ai(&only_alt).is_none());
-    }
-
-    /// hq-2qedt.120: C++ TurretAI facts come from the authored AIUpdate
-    /// Turret block (AIUpdate.cpp parse), never a template-name table. The
-    /// name-honesty table must not invent a Tomahawk turret.
-    #[test]
-    fn tomahawk_name_does_not_invent_turret_spawn() {
-        assert!(!turret_spawn_for_template("AmericaVehicleTomahawk").has_turret);
     }
 }

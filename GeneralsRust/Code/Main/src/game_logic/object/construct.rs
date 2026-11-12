@@ -2544,23 +2544,6 @@ mod tests {
     }
 
     #[test]
-    fn humvee_authors_recenter_time_not_idle_scan() {
-        use crate::game_logic::host_humvee::{
-            HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE,
-        };
-        let spec = turret_spawn_for_template("AmericaVehicleHumvee");
-        assert!(spec.has_turret);
-        assert!(spec.enabled);
-        assert_eq!(spec.recenter_frames, HUMVEE_TURRET_RECENTER_FRAMES);
-        assert!((spec.max_idle_scan_angle_rad).abs() < 1e-6);
-        assert!(
-            (spec.turn_rate_rad - turret_deg_per_sec_to_rad_per_frame(HUMVEE_TURRET_TURN_RATE))
-                .abs()
-                < 1e-5
-        );
-    }
-
-    #[test]
     fn construct_defaults_auto_acquire_idle_bits_off() {
         let obj = Object::new(ThingTemplate::new("NoAcquireUnit"), ObjectId(9), Team::USA);
         assert_eq!(obj.auto_acquire_idle_bits, 0);

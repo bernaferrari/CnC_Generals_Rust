@@ -127,7 +127,7 @@ mod tests {
     /// seeded from its own spawn spec (C++ m_turretAI[TURRET_ALT]).
     #[test]
     fn alt_slot_owns_independent_turret_ai_state() {
-        let mut primary = crate::game_logic::object::turret_spawn::turret_spawn_for_template("AmericaTankCrusader");
+        let mut primary = TurretSpawnSpec::absent();
         primary.turn_rate_rad = 0.1;
         primary.natural_angle_deg = -90.0;
         let mut alt = primary.clone();
