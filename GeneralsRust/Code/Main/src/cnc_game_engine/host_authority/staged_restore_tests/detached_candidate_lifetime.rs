@@ -89,8 +89,10 @@ fn actual_main_holds_a_while_staging_b_and_malformed_c_then_drops_b_commits_a_an
             let mut saves = SaveFileManager::with_save_directory(temp.path());
             saves.init().unwrap();
             let mut live = GameLogic::new();
-            live.admit_sell_percentage(0.37);
             admit_skirmish_fixture(&mut live, &map, "CandidateLifetimeHuman", false);
+            // A non-retail SellPercentage admitted after the boot GameData
+            // (which authors 0.5), so the save carries a distinguishable value.
+            live.admit_sell_percentage(0.37);
             assert!(
                 live.load_map(&map),
                 "actual licensed map decoder and factory foundation"

@@ -13,15 +13,20 @@ fn retail_map_path_for_test() -> String {
 // GameStateMap restores resolved initial participants before loading map sides.
 // Admit a real native configuration once instead of guessing a source roster
 // after map creation (which fabricates unmatched default team prototypes).
+/// The retail map's Objects and the China AI's PlayerTemplate are the
+/// application boot's definitions (GameEngine.cpp:428-458). A fixture that
+/// overrides a boot rule (GameData energy, AIData) admits the boot first.
+fn admit_retail_boot(source: &mut GameLogic) {
+    let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
+        .expect("retail boot definitions for staged restore");
+    source
+        .with_own_services_mut(|source| definitions.admit(source))
+        .expect("admit retail boot definitions");
+}
+
 fn admit_skirmish_fixture(source: &mut GameLogic, map_name: &str, human: &str, china_ai: bool) {
-    // The retail map's Objects and the China AI's PlayerTemplate are the
-    // application boot's definitions (GameEngine.cpp:428-458), admitted once.
     if source.receiving_module_content.is_none() {
-        let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
-            .expect("retail boot definitions for staged restore");
-        source
-            .with_own_services_mut(|source| definitions.admit(source))
-            .expect("admit retail boot definitions");
+        admit_retail_boot(source);
     }
     // Real staged-map fixtures include the app's admitted retail grid policy.
     let rules = source
@@ -289,6 +294,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
             saves.init().expect("initialize temporary save directory");
 
             let mut source = GameLogic::new();
+            admit_retail_boot(&mut source);
             const CATALOG_PROBE: &str = "Upgrade_HostRestoreCatalogProbe";
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
                 &mut source,
@@ -517,6 +523,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
             saves.init().expect("initialize temporary save directory");
 
             let mut source = GameLogic::new();
+            admit_retail_boot(&mut source);
             let mut ai_base = source.ai_definitions.baseline().clone();
             ai_base.resources_poor = 7654;
             source.set_ai_definition_base(ai_base);
@@ -960,6 +967,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                     original_map.canonicalize().unwrap()
                 );
                 let mut source = GameLogic::new();
+                admit_retail_boot(&mut source);
                 let mut base = source.ai_definitions.baseline().clone();
                 base.resources_poor = 4321;
                 base.guard_enemy_scan_rate = 15;
