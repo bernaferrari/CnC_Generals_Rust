@@ -29,8 +29,9 @@ impl PresentationFrame {
         };
         if !self.is_owned_by_local(ro) {
             let mut cmds = Vec::new();
-            let n = ro.template_name.to_ascii_lowercase();
-            if n.contains("beacon") {
+            // C++ ControlBar.cpp:1736-1741: the beacon context is for the
+            // Object whose template is its controller's authored BeaconName.
+            if ro.is_beacon {
                 cmds.push(UnitCommandButton {
                     command_name: "Command_BeaconDelete".into(),
                     enabled: true,
@@ -85,7 +86,6 @@ impl PresentationFrame {
             command_set_slots_for(
                 self.command_definitions.as_ref(),
                 &cs_name,
-                &ro.template_name,
                 &self.control_bar_overrides,
             )
                 .unwrap_or_default()
@@ -642,29 +642,28 @@ fn leftover_to_unit_availability(
     }
 }
 
+/// C++ `ControlBar::populateCommand` reads `Object::getCommandSetString`
+/// (the authored ThingTemplate CommandSet or its script override). An Object
+/// with neither has no command set; no retail name is inferred from its template.
 fn command_set_name_for_object(ro: &RenderableObject) -> String {
     if !ro.command_set_name.is_empty() {
         ro.command_set_name.clone()
-    } else if !ro.command_set_override.is_empty() {
-        ro.command_set_override.clone()
     } else {
-        residual_command_set_name_for_template(&ro.template_name)
-            .unwrap_or("")
-            .to_string()
+        ro.command_set_override.clone()
     }
 }
 
 /// C++ `ControlBar::populateCommand` — 14 WND slots, empty/SCRIPT_ONLY stay holes.
 /// `CommandSet::getCommandButton` consults leftover `GameLogic::findControlBarOverride`
-/// before INI / residual buttons so COMMANDBAR_ADD/REMOVE hide or replace slots.
+/// before the INI buttons so COMMANDBAR_ADD/REMOVE hide or replace slots.
 fn command_set_slots_for(
     defs: Defs<'_>,
     set_name: &str,
-    template_name: &str,
     overrides: &crate::game_logic::game_logic::command_overrides::ControlBarOverrides,
 ) -> Option<Vec<Option<String>>> {
-    let mut slots = command_set_slots_from_ini(defs, set_name)
-        .or_else(|| residual_command_set_slots(defs, set_name, template_name))?;
+    // C++ TheControlBar->findCommandSet (ControlBar.cpp) resolves only the
+    // session's loaded CommandSet.ini; a missing set shows no buttons.
+    let mut slots = command_set_slots_from_ini(defs, set_name)?;
     apply_receiving_control_bar_overrides(defs, set_name, &mut slots, overrides);
     Some(slots)
 }
@@ -719,37 +718,6 @@ fn command_set_slots_from_ini(defs: Defs<'_>, set_name: &str) -> Option<Vec<Opti
     Some(slots)
 }
 
-fn residual_command_set_slots(
-    defs: Defs<'_>,
-    set_name: &str,
-    template_name: &str,
-) -> Option<Vec<Option<String>>> {
-    let aliased = if set_name.eq_ignore_ascii_case("CommandSetAmericaDozer") {
-        "AmericaDozerCommandSet"
-    } else {
-        set_name
-    };
-    for (name, template, pack) in HUD_COMMAND_SET_RESIDUAL_PACKS {
-        if name.eq_ignore_ascii_case(aliased)
-            || template.eq_ignore_ascii_case(template_name)
-            || template.eq_ignore_ascii_case(set_name)
-        {
-            let mut slots = vec![None; 14];
-            for (idx, button) in *pack {
-                let i = (*idx as usize).saturating_sub(1);
-                if i < 14 && !command_is_script_only(defs, button) {
-                    slots[i] = Some((*button).to_string());
-                }
-            }
-            if slots.iter().all(|s| s.is_none()) {
-                return None;
-            }
-            return Some(slots);
-        }
-    }
-    None
-}
-
 /// C++ `ControlBar::addCommonCommands` — slot intersection, OK_FOR_MULTI_SELECT only.
 fn intersect_command_set_slots(
     defs: Defs<'_>,
@@ -763,7 +731,7 @@ fn intersect_command_set_slots(
         if name.is_empty() {
             return vec![None; 14];
         }
-        let Some(slots) = command_set_slots_for(defs, name, name, overrides) else {
+        let Some(slots) = command_set_slots_for(defs, name, overrides) else {
             // C++ clears the shared set when a selected object has no CommandSet.
             return vec![None; 14];
         };
@@ -844,196 +812,6 @@ fn host_command_uses_special_power_ready(n: &str) -> bool {
         || n.contains("ciaintelligence")
         || n.contains("gpsscrambler")
 }
-
-fn residual_command_set_name_for_template(template_name: &str) -> Option<&'static str> {
-    HUD_COMMAND_SET_RESIDUAL_PACKS
-        .iter()
-        .find(|(_, template, _)| template.eq_ignore_ascii_case(template_name))
-        .map(|(set_name, _, _)| *set_name)
-}
-
-/// Retail CommandSet.ini slots 1-14 used when the live INI manager is empty.
-const HUD_COMMAND_SET_RESIDUAL_PACKS: &[(&str, &str, &[(u8, &str)])] = &[
-    (
-        "AmericaInfantryRangerCommandSet",
-        "AmericaInfantryRanger",
-        &[
-            (1, "Command_AmericaRangerCaptureBuilding"),
-            (2, "Command_AmericaRangerSwitchToMachineGun"),
-            (4, "Command_AmericaRangerSwitchToFlagBangGrenades"),
-            (11, "Command_AttackMove"),
-            (13, "Command_Guard"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "AmericaVehicleSentryDroneCommandSet",
-        "AmericaVehicleSentryDrone",
-        &[
-            (11, "Command_AttackMove"),
-            (13, "Command_Guard"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "AmericaVehicleChinookCommandSet",
-        "AmericaVehicleChinook",
-        &[
-            (1, "Command_TransportExit"),
-            (9, "Command_ChinookUnload"),
-            (10, "Command_CombatDrop"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "AmericaInfantryColonelBurtonCommandSet",
-        "AmericaInfantryColonelBurton",
-        &[
-            (1, "Command_ColonelBurtonKnifeAttack"),
-            (2, "Command_ColonelBurtonTimedDemoCharge"),
-            (4, "Command_ColonelBurtonRemoteDemoCharge"),
-            (6, "Command_ColonelBurtonDetonateCharges"),
-            (11, "Command_AttackMove"),
-            (13, "Command_Guard"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "AmericaBarracksCommandSet",
-        "AmericaBarracks",
-        &[
-            (1, "Command_ConstructAmericaInfantryRanger"),
-            (7, "Command_UpgradeAmericaRangerFlashBangGrenade"),
-            (8, "Command_UpgradeAmericaRangerCaptureBuilding"),
-            (13, "Command_SetRallyPoint"),
-            (14, "Command_Sell"),
-        ],
-    ),
-    (
-        "AmericaWarFactoryCommandSet",
-        "AmericaWarFactory",
-        &[
-            (1, "Command_ConstructAmericaTankCrusader"),
-            (13, "Command_SetRallyPoint"),
-            (14, "Command_Sell"),
-        ],
-    ),
-    (
-        "AmericaPowerPlantCommandSet",
-        "AmericaPowerPlant",
-        &[
-            (1, "Command_UpgradeAmericaAdvancedControlRods"),
-            (14, "Command_Sell"),
-        ],
-    ),
-    (
-        "ChinaPowerPlantCommandSet",
-        "ChinaPowerPlant",
-        &[
-            (1, "Command_Overcharge"),
-            (12, "Command_UpgradeChinaMines"),
-            (14, "Command_Sell"),
-        ],
-    ),
-    (
-        "AmericaParticleUplinkCannonCommandSet",
-        "AmericaParticleCannonUplink",
-        &[
-            (1, "Command_FireParticleUplinkCannon"),
-            (14, "Command_Sell"),
-        ],
-    ),
-    (
-        "AmericaCommandCenterCommandSet",
-        "AmericaCommandCenter",
-        &[
-            (1, "Command_ConstructAmericaDozer"),
-            (2, "Command_SpectreGunship"),
-            (4, "Command_LeafletDrop"),
-            (5, "Command_A10ThunderboltMissileStrike"),
-            (10, "Command_SpySatelliteScan"),
-            (13, "Command_SetRallyPoint"),
-            (14, "Command_Sell"),
-        ],
-    ),
-    (
-        "AmericaStrategyCenterCommandSet",
-        "AmericaStrategyCenter",
-        &[
-            (1, "Command_InitiateBattlePlanBombardment"),
-            (2, "Command_CIAIntelligence"),
-            (3, "Command_InitiateBattlePlanHoldTheLine"),
-            (5, "Command_InitiateBattlePlanSearchAndDestroy"),
-            (11, "Command_StrategyCenter_Stop"),
-            (14, "Command_Sell"),
-        ],
-    ),
-    (
-        "AmericaVehicleHumveeCommandSet",
-        "AmericaVehicleHumvee",
-        &[
-            (4, "Command_TransportExit"),
-            (9, "Command_Evacuate"),
-            (11, "Command_AttackMove"),
-            (13, "Command_Guard"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "GLAInfantryJarmenKellCommandSet",
-        "GLAInfantryJarmenKell",
-        &[
-            (1, "Command_GLAInfantryJarmenKellSnipeVehicleAttack"),
-            (11, "Command_AttackMove"),
-            (13, "Command_Guard"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "ChinaInfantryBlackLotusCommandSet",
-        "ChinaInfantryBlackLotus",
-        &[
-            (1, "Command_ChinaInfantryBlackLotusCaptureHack"),
-            (3, "Command_ChinaInfantryBlackLotusVehicleHack"),
-            (5, "Command_ChinaInfantryBlackLotusCashHack"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "GLAInfantryHijackerCommandSet",
-        "GLAInfantryHijacker",
-        &[(1, "Command_GLAInfantryHijack"), (14, "Command_Stop")],
-    ),
-    (
-        "AmericaVehicleAmbulanceCommandSet",
-        "AmericaVehicleAmbulance",
-        &[
-            (4, "Command_TransportExit"),
-            (8, "Command_Evacuate"),
-            (10, "Command_AmbulanceCleanupArea"),
-            (11, "Command_AttackMove"),
-            (13, "Command_Guard"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "ChinaInfantryHackerCommandSet",
-        "ChinaInfantryHacker",
-        &[
-            (1, "Command_ChinaInfantryHackerDisableBuilding"),
-            (3, "Command_ChinaInfantryHackerInternetHack"),
-            (14, "Command_Stop"),
-        ],
-    ),
-    (
-        "AmericaDozerCommandSet",
-        "AmericaVehicleDozer",
-        &[
-            (1, "Command_ConstructAmericaPowerPlant"),
-            (14, "Command_DisarmMinesAtPosition"),
-        ],
-    ),
-];
 
 fn command_button_build_target(defs: Defs<'_>, name: &str) -> Option<String> {
     let button = defs?.find_command_button(name)?;
