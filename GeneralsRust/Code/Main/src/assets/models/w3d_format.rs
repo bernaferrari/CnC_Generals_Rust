@@ -20,6 +20,14 @@ pub(super) const W3D_CHUNK_VERTEX_INFLUENCES: u32 = 0x0000000E;
 pub(super) const W3D_VERTEX_INFLUENCE_RECORD_SIZE: usize = 8;
 pub(super) const W3D_CHUNK_TRIANGLES: u32 = 0x00000020;
 pub(super) const W3D_CHUNK_VERTEX_SHADE_INDICES: u32 = 0x00000022;
+// w3d_file.h prelit material wrappers (mesh sub-chunks) and header flags.
+pub(super) const W3D_CHUNK_PRELIT_UNLIT: u32 = 0x00000023;
+pub(super) const W3D_CHUNK_PRELIT_VERTEX: u32 = 0x00000024;
+pub(super) const W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS: u32 = 0x00000025;
+pub(super) const W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE: u32 = 0x00000026;
+pub(super) const W3D_MESH_FLAG_PRELIT_MASK: u32 = 0x0F00_0000;
+pub(super) const W3D_MESH_FLAG_PRELIT_VERTEX: u32 = 0x0200_0000;
+pub(super) const W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS: u32 = 0x0400_0000;
 pub(super) const W3D_CHUNK_MATERIAL_INFO: u32 = 0x00000028;
 pub(super) const W3D_CHUNK_SHADERS: u32 = 0x00000029;
 pub(super) const W3D_CHUNK_VERTEX_MATERIALS: u32 = 0x0000002A;

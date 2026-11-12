@@ -2777,3 +2777,87 @@ fn canonical_compressed_main_single_frame_needs_no_delta_packet() {
         assert_eq!(&pose[1][12..15], &[2.5, 0.0, 0.0]);
     }
 }
+
+/// One triangle mesh whose header carries `attributes`, followed by the given
+/// prelit wrappers, each holding MATERIAL_PASS chunks with one shader id.
+fn prelit_mesh(attributes: u32, wrappers: &[(u32, &[u32])]) -> Vec<u8> {
+    let mut mesh_header = vec![0; 116];
+    mesh_header[0..4].copy_from_slice(&0x0004_0002u32.to_le_bytes());
+    mesh_header[4..8].copy_from_slice(&attributes.to_le_bytes());
+    mesh_header[8..24].copy_from_slice(&fixed_name("PRELIT", W3D_NAME_LEN));
+    mesh_header[40..44].copy_from_slice(&1u32.to_le_bytes());
+    mesh_header[44..48].copy_from_slice(&3u32.to_le_bytes());
+    let mut vertices = Vec::new();
+    for value in [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+        vertices.extend_from_slice(&value.to_le_bytes());
+    }
+    let mut triangle = Vec::new();
+    for index in [0u32, 1, 2] {
+        triangle.extend_from_slice(&index.to_le_bytes());
+    }
+    triangle.extend_from_slice(&[0u8; 20]);
+    let mut payload = [
+        chunk(W3D_CHUNK_MESH_HEADER, mesh_header, false),
+        chunk(W3D_CHUNK_VERTICES, vertices, false),
+        chunk(W3D_CHUNK_TRIANGLES, triangle, false),
+    ]
+    .concat();
+    for (wrapper, shader_ids) in wrappers {
+        let passes = shader_ids
+            .iter()
+            .map(|id| {
+                chunk(
+                    W3D_CHUNK_MATERIAL_PASS,
+                    chunk(W3D_CHUNK_SHADER_IDS, id.to_le_bytes().to_vec(), false),
+                    true,
+                )
+            })
+            .collect::<Vec<_>>()
+            .concat();
+        payload.extend_from_slice(&chunk(*wrapper, passes, true));
+    }
+    chunk(W3D_CHUNK_MESH, payload, true)
+}
+
+fn loaded_pass_shaders(bytes: &[u8]) -> Vec<u32> {
+    W3DLoader::new()
+        .load_model_from_bytes(bytes, "prelit")
+        .expect("prelit mesh parses")
+        .meshes[0]
+        .passes
+        .iter()
+        .map(|pass| pass.shader_id)
+        .collect()
+}
+
+#[test]
+fn prelit_wrapper_selected_like_cpp_lightmap_multi_pass_mode() {
+    // meshmdlio.cpp:256-293 under PRELIT_MODE_LIGHTMAP_MULTI_PASS
+    // (W3DDisplay.cpp:712); read_prelit_material skips other wrappers.
+    let wrappers: &[(u32, &[u32])] = &[
+        (W3D_CHUNK_PRELIT_UNLIT, &[7]),
+        (W3D_CHUNK_PRELIT_VERTEX, &[8]),
+        (W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS, &[1, 2]),
+        (W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE, &[9]),
+    ];
+    let all = 0x0F00_0000;
+    assert_eq!(
+        loaded_pass_shaders(&prelit_mesh(all, wrappers)),
+        vec![1, 2],
+        "baked lightmap passes load as extra material passes"
+    );
+    assert_eq!(
+        loaded_pass_shaders(&prelit_mesh(0x0100_0000 | 0x0200_0000, wrappers)),
+        vec![8],
+        "without the multi-pass flag the vertex-lit wrapper is next"
+    );
+    assert_eq!(
+        loaded_pass_shaders(&prelit_mesh(0x0100_0000, wrappers)),
+        vec![7],
+        "unlit is the last fallback"
+    );
+    assert!(
+        loaded_pass_shaders(&prelit_mesh(0, wrappers)).is_empty(),
+        "a mesh without prelit flags reads no wrapper"
+    );
+}
