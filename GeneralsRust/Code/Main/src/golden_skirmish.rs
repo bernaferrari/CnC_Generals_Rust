@@ -422,14 +422,6 @@ fn clamp_build_site(logic: &GameLogic, desired: Vec3) -> Vec3 {
     )
 }
 
-fn ensure_human_economy(logic: &mut GameLogic, supplies: u32, power: u32) {
-    if let Some(p) = logic.get_player_mut(0) {
-        p.resources.supplies = p.resources.supplies.max(supplies);
-        // power_available is signed (generation/consumption headroom).
-        p.power_available = p.power_available.max(power as i32);
-    }
-}
-
 fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
     let existing = logic
         .host_objects()
@@ -470,38 +462,6 @@ fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
     )?;
     let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 12.0));
     logic.create_object(&name, Team::USA, pos)
-}
-
-/// Author the retail producer CommandSet identity on a supply center object.
-///
-/// Retail AmericaSupplyCenter authors `CommandSet = AmericaSupplyCenterCommandSet`
-/// and `Behavior = ProductionUpdate` (FactionBuilding.ini AmericaSupplyCenter
-/// block); the set's slot 13 button Command_UpgradeAmericaSupplyLines carries
-/// `Upgrade = Upgrade_AmericaSupplyLines` (CommandSet.ini:785-789,
-/// CommandButton.ini:1080-1086).  C++ Object::canProduceUpgrade walks exactly
-/// that command set via getCommandSetString() (Object.cpp:6093-6106) before
-/// ProductionUpdate::queueUpgrade accepts research (ProductionUpdate.cpp:250-272).
-/// Main's host template type has no command-set field, so the fixture stamps the
-/// Object-level override (C++ Object::m_commandSetStringOverride channel) on
-/// every USA supply-center template name the slice spawns (USA_SupplyCenter /
-/// AmericaSupplyCenter — the port synthesizes both spellings
-/// for the same retail producer).
-fn stamp_supply_center_producer_set(logic: &mut GameLogic, id: ObjectId) {
-    let is_usa_supply_center = logic
-        .host_object(id)
-        .map(|o| {
-            o.team == Team::USA
-                && o.template_name
-                    .to_ascii_lowercase()
-                    .contains("supplycenter")
-        })
-        .unwrap_or(false);
-    if !is_usa_supply_center {
-        return;
-    }
-    if let Some(obj) = logic.host_object_mut(id) {
-        obj.set_command_set_override(Some("AmericaSupplyCenterCommandSet".to_string()));
-    }
 }
 
 /// First template, in preference order, that this world's ThingFactory can
@@ -604,12 +564,58 @@ fn authored_build_frames(logic: &GameLogic, template_name: &str, count: usize) -
     count * (per_item + crate::pick_ray::LOGIC_FRAMES_PER_SECOND as usize)
 }
 
-fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
-    // C++ FS_BARRACKS / KindOf — retail name helper is not a C++ factory gate.
-    o.team == Team::USA
-        && o.is_alive()
-        && o.is_constructed()
-        && o.is_kind_of(KindOf::FSBarracks)
+/// The human's finished building matching `is_kind`, else one the dozer
+/// builds from the first admitted `candidates` template via DozerConstruct
+/// (C++ DozerAIUpdate construct for the authored BuildTime / BuildCost).
+/// Returns `(template_name, id)`; `None` when no candidate could be built.
+fn existing_or_dozer_built(
+    logic: &mut GameLogic,
+    dozer: ObjectId,
+    base: Vec3,
+    candidates: &[&str],
+    command_id: u32,
+    is_kind: impl Fn(&crate::game_logic::object::Object) -> bool,
+) -> gamelogic::GameLogicResult<Option<(String, ObjectId)>> {
+    let finished_human = |g: &GameLogic| {
+        g.host_objects()
+            .registered_values()
+            .find(|o| {
+                o.owner_player_id == Some(0) && o.is_alive() && o.is_constructed() && is_kind(o)
+            })
+            .map(|o| (o.template_name.clone(), o.id))
+    };
+    if let Some(found) = finished_human(logic) {
+        return Ok(Some(found));
+    }
+    let Some(name) = first_present_template(logic, candidates) else {
+        return Ok(None);
+    };
+    // Wave 829: FOW + LBC_OK pad per template (edge/shroud residual).
+    for _ in 0..3 {
+        logic.update();
+        logic.headless_camera_view_offer(33)?;
+    }
+    let site = find_legal_build_site_near(logic, base, &name, Some(dozer));
+    let _ = march_unit_near(logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240)?;
+    logic.queue_command(command(
+        command_id,
+        0,
+        CommandType::DozerConstruct {
+            template_name: name.clone(),
+            location: site,
+            orientation: 0.0,
+        },
+        vec![dozer],
+    ));
+    logic.process_commands();
+    // The dozer walks to the pad, then builds for the authored BuildTime.
+    let budget = 300 + authored_build_frames(logic, &name, 1);
+    let mut built = None;
+    run_until(logic, budget, |g| {
+        built = finished_human(g);
+        built.is_some()
+    })?;
+    Ok(built)
 }
 
 fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
@@ -1380,7 +1386,6 @@ fn run_map_world_skirmish(
     // (default GLA base is (200,0,200)) are not a second full-HP CC across the
     // map that wipes the ranger squad after the primary map kill. AI stays
     // active during production and may still rebuild — just near the fight.
-    ensure_human_economy(logic, 25_000, 500);
 
     let base = usa_base_position(logic);
     // Wave 830: ensure a hostile primary exists (map army dict may be civilian-only).
@@ -1392,39 +1397,6 @@ fn run_map_world_skirmish(
         }
     }
 
-    // --- Power first (retail USA_PowerPlant / ColdFusion preferred) ---
-    let power_name = first_present_template(
-        logic,
-        &[
-            "AmericaPowerPlant",
-            "USA_PowerPlant",
-            "AmericaColdFusionReactor",
-            "ColdFusionReactor",
-        ],
-    )
-    .unwrap_or_default();
-    let power_site = clamp_build_site(logic, base + Vec3::new(-24.0, 0.0, 0.0));
-    let power_ok = !power_name.is_empty()
-        && logic.create_object(&power_name, Team::USA, power_site).is_some();
-
-    // --- Supply center for QueueUpgrade path (retail USA_SupplyCenter preferred) ---
-    let supply_name = first_present_template(
-        logic,
-        &[
-            "AmericaSupplyCenter",
-            "USA_SupplyCenter",
-        ],
-    );
-    let supply_site = clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0));
-    let supply_center =
-        supply_name.and_then(|name| logic.create_object(&name, Team::USA, supply_site));
-    if let Some(sc_id) = supply_center {
-        stamp_supply_center_producer_set(logic, sc_id);
-    }
-
-    // Gather target: map SupplyDock/pile → seed an admitted retail dock.
-    let (supply, retail_supply_target) = resolve_map_gather_target(logic, base);
-
     let Some(dozer) = ensure_dozer(logic, base) else {
         return Ok(VerticalSliceOutcome::not_run());
     };
@@ -1433,18 +1405,8 @@ fn run_map_world_skirmish(
         .map(|o| o.template_name == "USA_Dozer" || o.template_name.starts_with("America"))
         .unwrap_or(false);
 
-    let barracks_pos = clamp_build_site(logic, base + Vec3::new(40.0, 0.0, 0.0));
-    // Path the dozer to the pad — no set_position warp (hq-8u1u).
-    let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 400)?;
-    // Host FOW residual: push main-crate vision so build pads near the start
-    // are CELLSHROUD_CLEAR (LBC_SHROUD otherwise blocks DozerConstruct).
-    for _ in 0..3 {
-        logic.update();
-        logic.headless_camera_view_offer(33)?;
-    }
-
-    // Move dozer via production Move command.
-    let move_dest = clamp_build_site(logic, barracks_pos + Vec3::new(-2.0, 0.0, 0.0));
+    // Move the dozer via the production Move command.
+    let move_dest = clamp_build_site(logic, base + Vec3::new(38.0, 0.0, 0.0));
     logic.queue_command(command(
         1,
         0,
@@ -1462,66 +1424,53 @@ fn run_map_world_skirmish(
                 || o.status.moving
         })
         .unwrap_or(false);
+    let _ = march_unit_near(logic, dozer, move_dest, 400)?;
 
-    let barracks_candidates: Vec<String> =
-        first_present_template(logic, &["AmericaBarracks", "USA_Barracks"])
-            .into_iter()
-            .collect();
+    // Retail USA tech chain (FactionBuilding.ini Prerequisites): the Supply
+    // Center needs a Power Plant; the Barracks needs none. Each building the
+    // map does not already give the human is built by the dozer for its
+    // authored BuildTime and BuildCost, never spawned finished.
+    let power = existing_or_dozer_built(
+        logic,
+        dozer,
+        base,
+        &[
+            "AmericaPowerPlant",
+            "USA_PowerPlant",
+            "AmericaColdFusionReactor",
+            "ColdFusionReactor",
+        ],
+        2,
+        |o| o.is_kind_of(KindOf::FSPower),
+    )?;
+    let power_ok = power.is_some();
+    let power_name = power.map(|(name, _)| name).unwrap_or_default();
 
-    let mut constructed = false;
-    let mut barracks_built_name = String::new();
-    for (attempt, bname) in barracks_candidates.iter().enumerate() {
-        // Refresh economy so power-cost templates can spend after prior attempts.
-        ensure_human_economy(logic, 25_000, 500);
-        // Wave 829: FOW + LBC_OK pad per template (edge/shroud residual).
-        for _ in 0..3 {
-            logic.update();
-            logic.headless_camera_view_offer(33)?;
-        }
-        let barracks_pos = find_legal_build_site_near(logic, base, bname, Some(dozer));
-        let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 240)?;
-        logic.update();
-        logic.headless_camera_view_offer(33)?;
-        logic.queue_command(command(
-            2 + attempt as u32,
-            0,
-            CommandType::DozerConstruct {
-                template_name: bname.clone(),
-                location: barracks_pos,
-                orientation: 0.0,
-            },
-            vec![dozer],
-        ));
-        logic.process_commands();
-        // The dozer walks to the pad, then builds for the authored BuildTime.
-        let construct_budget = 300 + authored_build_frames(logic, bname, 1);
-        constructed = run_until(logic, construct_budget, |g| {
-            g.host_objects().registered_values().any(|o| {
-                is_barracks_object(o)
-                    && (o.template_name == *bname || o.is_kind_of(KindOf::FSBarracks))
-            })
-        })?;
-        if constructed {
-            barracks_built_name = bname.clone();
-            break;
-        }
-    }
+    // Supply Center: Chinook drop-off; its SpawnBehavior fields the
+    // AmericaVehicleChinook collector (FactionBuilding.ini ModuleTag_12).
+    let _supply_center = existing_or_dozer_built(
+        logic,
+        dozer,
+        base,
+        &["AmericaSupplyCenter", "USA_SupplyCenter"],
+        3,
+        |o| o.thing().template.dock_kind == crate::game_logic::DockKind::SupplyCenter,
+    )?;
 
-    let barracks_id = logic
-        .host_objects()
-        .registered_values()
-        .find(|o| is_barracks_object(o))
-        .map(|o| o.id);
-    if barracks_built_name.is_empty() {
-        if let Some(bid) = barracks_id {
-            barracks_built_name = logic
-                .host_object(bid)
-                .map(|o| o.template_name.clone())
-                .unwrap_or_default();
-            constructed = true;
-        }
-    }
+    // Gather target: map SupplyDock/pile → seed an admitted retail dock.
+    let (supply, retail_supply_target) = resolve_map_gather_target(logic, base);
 
+    let barracks = existing_or_dozer_built(
+        logic,
+        dozer,
+        base,
+        &["AmericaBarracks", "USA_Barracks"],
+        4,
+        |o| o.is_kind_of(KindOf::FSBarracks),
+    )?;
+    let constructed = barracks.is_some();
+    let barracks_id = barracks.as_ref().map(|(_, id)| *id);
+    let barracks_built_name = barracks.map(|(name, _)| name).unwrap_or_default();
     // Gather via production Gather command (map/retail supply preferred).
     // The collector must be a harvester (retail USA gatherer is the Chinook —
     // AmericaVehicleChinook `KindOf = ... HARVESTER` + ChinookAIUpdate,
@@ -1549,13 +1498,11 @@ fn run_map_world_skirmish(
     let mut produced = false;
     let mut ranger_name_used = String::new();
     if let Some(bid) = barracks_id {
-        ensure_human_economy(logic, 10_000, 500);
         let ranger_candidates: Vec<String> =
             first_present_template(logic, &["AmericaInfantryRanger", "USA_Ranger"])
                 .into_iter()
                 .collect();
         for rname in &ranger_candidates {
-            ensure_human_economy(logic, 15_000, 500);
             // More rangers compensate for store damage (~5) vs prior floor (40).
             // 16 rangers: store damage (~5) / flashbang secondary (~35) must clear
             // multi-CC maps while enemy AI may still hold a second base.
@@ -1761,7 +1708,6 @@ fn run_map_world_skirmish(
                 // when production already delivered 8–10 rangers (Lone Eagle hang).
                 let need = if wave == 0 { 8 } else { 6 };
                 if live_count < need {
-                    ensure_human_economy(logic, 20_000, 500);
                     let missing = need - live_count;
                     let top_up = command(
                         20 + wave,
@@ -2006,7 +1952,6 @@ pub fn run_golden_skirmish(
                 && logic.host_ai_player_count() >= ai_before;
             // Re-assert AI after load.
             logic.set_ai_active(1, true);
-            ensure_human_economy(&mut logic, 25_000, 500);
         }
     }
 
@@ -2233,7 +2178,6 @@ mod tests {
         let mut logic = boot_golden_world(map_exists);
         let _ = apply_skirmish_config(&mut logic, &config);
         assert!(logic.load_map(&map_identity));
-        ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
             .host_objects()
             .registered_values()
@@ -2243,9 +2187,8 @@ mod tests {
         let dozer = ensure_dozer(&mut logic, base).expect("dozer");
         logic.update();
         logic.headless_camera_view_offer(33).unwrap();
-        let bname =
-            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks"])
-                .expect("retail barracks template admitted");
+        let bname = first_present_template(&logic, &["AmericaBarracks", "USA_Barracks"])
+            .expect("retail barracks template admitted");
         // Wave 829: reveal FOW then pick an LBC_OK pad (edge margin + shroud).
         for _ in 0..5 {
             logic.update();
@@ -2275,7 +2218,6 @@ mod tests {
         let mut logic = boot_golden_world(map_exists);
         let _ = apply_skirmish_config(&mut logic, &config);
         assert!(logic.load_map(&map_identity), "map load");
-        ensure_human_economy(&mut logic, 25_000, 500);
         let base = logic
             .host_objects()
             .registered_values()
@@ -2291,9 +2233,8 @@ mod tests {
         }
         logic.update();
         logic.headless_camera_view_offer(33).unwrap(); // apply vision for post-load spawned dozer
-        let bname =
-            first_present_template(&logic, &["AmericaBarracks", "USA_Barracks"])
-                .expect("retail barracks template admitted");
+        let bname = first_present_template(&logic, &["AmericaBarracks", "USA_Barracks"])
+            .expect("retail barracks template admitted");
         for _ in 0..5 {
             logic.update();
             logic.headless_camera_view_offer(33).unwrap();
