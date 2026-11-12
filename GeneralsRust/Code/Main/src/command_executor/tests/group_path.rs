@@ -1250,10 +1250,11 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
                 .set_logical_extent(GridPos::new(5, 5), GridPos::new(10, 10));
             let human_path = ({
                 let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
-                world.pathfinding_system.find_path_ex(
+                let (pathfinder, objects) = world.pathfinder_with_host_objects();
+                pathfinder.find_path_ex(
                     from,
                     goal,
-                    world.objects.read(),
+                    objects,
                     false,
                     Some(human_id),
                     &ground_source,
@@ -1271,10 +1272,11 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             let computer_start = world.host_object(computer_id).unwrap().get_position();
             let computer_path = ({
                 let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
-                world.pathfinding_system.find_path_ex(
+                let (pathfinder, objects) = world.pathfinder_with_host_objects();
+                pathfinder.find_path_ex(
                     computer_start,
                     goal,
-                    world.objects.read(),
+                    objects,
                     false,
                     Some(computer_id),
                     &ground_source,
@@ -1297,10 +1299,11 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             world.refresh_pathfind_ally_masks();
             let no_humans = ({
                 let ground_source = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
-                world.pathfinding_system.find_path_ex(
+                let (pathfinder, objects) = world.pathfinder_with_host_objects();
+                pathfinder.find_path_ex(
                     from,
                     goal,
-                    world.objects.read(),
+                    objects,
                     false,
                     Some(human_id),
                     &ground_source,

@@ -826,3 +826,21 @@ mod lookup_registration_tests {
         assert!(store.ordered_ids().is_empty());
     }
 }
+
+impl super::GameLogic {
+    /// The pathfinder together with the player-aware Object read its queries
+    /// need: C++ Pathfinder reads `obj->getControllingPlayer()` (human vs
+    /// computer logical-extent rules, AIPathfind.cpp:5338-5341), so a path
+    /// request must never see a controller-less Object view.
+    pub(crate) fn pathfinder_with_host_objects(
+        &mut self,
+    ) -> (&mut PathfindingSystem, HostObjectRead<'_>) {
+        (
+            &mut self.pathfinding_system,
+            self.objects
+                .read()
+                .with_players(&self.players)
+                .with_team_factory(&self.team_factory),
+        )
+    }
+}
