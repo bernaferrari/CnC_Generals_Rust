@@ -14,11 +14,6 @@ fn flush(world: &mut GameLogic) {
 }
 
 fn seed(world: &GameLogic, value: f32, enabled: bool) {
-    #[cfg(feature = "game_client")]
-    game_client::display::view::with_tactical_view(|view| {
-        view.set_view_filter_mode(game_client::display::view::FilterMode::CrossfadeFbMask);
-        view.set_view_filter(game_client::display::view::FilterType::Crossfade);
-    });
     let hooks = &world.mission_scripts;
     for x in [value - 1.0, value] {
         hooks.push_view_guardband(ViewGuardbandRequest {
@@ -77,16 +72,9 @@ fn check(world: &mut GameLogic, value: f32, enabled: bool) {
             world.session_view.filter.mode(),
             game_client::display::view::FilterMode::MBEndPanAlpha
         );
-        game_client::display::view::with_tactical_view_ref(|view| {
-            assert_eq!(
-                view.get_view_filter_type(),
-                game_client::display::view::FilterType::Crossfade
-            );
-            assert_eq!(
-                view.get_view_filter_mode(),
-                game_client::display::view::FilterMode::CrossfadeFbMask
-            );
-        });
+        // The ownerless free View is a discarded value outside the client's
+        // own unit tests (view.rs with_tactical_view); only the receiving
+        // session view above is observable.
     }
 }
 

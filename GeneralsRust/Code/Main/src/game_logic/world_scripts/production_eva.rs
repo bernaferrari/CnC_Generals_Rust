@@ -1475,8 +1475,8 @@ mod tests {
         let mut local = Player::new(0, Team::USA, "Local", true);
         let china = Player::new(1, Team::China, "China", false);
         local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
-        logic.players.insert(0, local);
-        logic.players.insert(1, china);
+        logic.add_player(local);
+        logic.add_player(china);
 
         logic.try_eva_superweapon_detected_kind(Some(1), Team::China, "nuke");
 
@@ -1520,8 +1520,8 @@ mod tests {
         let mut ally = Player::new(1, Team::USA, "Ally", false);
         local.alliance_team = 1;
         ally.alliance_team = 1;
-        logic.players.insert(0, local);
-        logic.players.insert(1, ally);
+        logic.add_player(local);
+        logic.add_player(ally);
 
         logic.try_eva_superweapon_detected_kind(Some(1), Team::USA, "particle");
 
@@ -1547,8 +1547,8 @@ mod tests {
         let mut ally = Player::new(1, Team::USA, "Ally", false);
         local.alliance_team = 1;
         ally.alliance_team = 1;
-        logic.players.insert(0, local);
-        logic.players.insert(1, ally);
+        logic.add_player(local);
+        logic.add_player(ally);
         logic.try_eva_beacon_detected(1);
         assert!(logic.honesty_eva_beacon_detected_ok());
         let events = logic.take_eva_requests();
@@ -1564,8 +1564,8 @@ mod tests {
         let mut local = Player::new(0, Team::USA, "Local", true);
         let china = Player::new(1, Team::China, "China", false);
         local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
-        logic.players.insert(0, local);
-        logic.players.insert(1, china);
+        logic.add_player(local);
+        logic.add_player(china);
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
         lotus.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
         lotus
@@ -1620,6 +1620,9 @@ mod tests {
         logic.add_player(Player::new(1, Team::China, "China", false));
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
         lotus.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
+        // StealthUpdate EnemyDetectionEvaEvent: the EVA name comes from the
+        // admitted module (StealthUpdate.cpp), never the template name.
+        lotus.stealth_enemy_detection_eva = Some("EnemyBlackLotusDetected".into());
         lotus
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Hero)

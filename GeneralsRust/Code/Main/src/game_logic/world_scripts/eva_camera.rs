@@ -1477,8 +1477,8 @@ mod tests {
         local.alliance_team = 1;
         let mut ally = Player::new(1, Team::USA, "Ally", false);
         ally.alliance_team = 1;
-        logic.players.insert(0, local);
-        logic.players.insert(1, ally);
+        logic.add_player(local);
+        logic.add_player(ally);
         let mut st = ThingTemplate::new("AmericaCommandCenter");
         st.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::CommandCenter)
@@ -1538,8 +1538,8 @@ mod tests {
         let mut local = Player::new(0, Team::USA, "Local", true);
         let mut china = Player::new(1, Team::China, "China", false);
         local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
-        logic.players.insert(0, local);
-        logic.players.insert(1, china);
+        logic.add_player(local);
+        logic.add_player(china);
         let mut st = ThingTemplate::new("ChinaCommandCenter");
         st.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::CommandCenter)
