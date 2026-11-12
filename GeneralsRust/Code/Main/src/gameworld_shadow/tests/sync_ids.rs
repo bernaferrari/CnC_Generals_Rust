@@ -1327,7 +1327,7 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     use crate::game_logic::host_production_progress_log;
 
     use crate::game_logic::{
-        BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle,
+        BuildingData, BuildingType,
         ProductionItem, ProductionKind, Resources,
     };
 
@@ -1339,29 +1339,17 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("QueueSoleProducer").kind_of("STRUCTURE FS_BARRACKS").health(500.0),
+            // Retail ChinaBarracks exit: QueueProductionExitUpdate, 300 ms = 9 frames.
+            crate::fixture_content::FixtureObject::new("QueueSoleProducer")
+                .kind_of("STRUCTURE FS_BARRACKS")
+                .health(500.0)
+                .module(
+                    "Behavior = QueueProductionExitUpdate FixtureExit\n UnitCreatePoint = X:0.0 Y:-25.0 Z:0.0\n NaturalRallyPoint = X:36.0 Y:-25.0 Z:0.0\n ExitDelay = 300\n InitialBurst = 0\nEnd",
+                ),
             crate::fixture_content::FixtureObject::new("QueueSoleRanger").kind_of("SELECTABLE").health(100.0),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let mut producer = ThingTemplate::new("QueueSoleProducer");
-    producer
-        .set_health(500.0)
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSBarracks);
-    producer.production_exit_metadata = Some(ProductionExitMetadata {
-        style: ProductionExitStyle::Queue,
-        unit_create_point: [0.0, -25.0, 0.0],
-        natural_rally_point: [36.0, -25.0, 0.0],
-        exit_delay_frames: 9,
-        allow_airborne_creation: false,
-        initial_burst: 0,
-        use_spawn_rally_point: false,
-        grant_temporary_stealth_frames: 0,
-    });
-    logic
-        .templates
-        .insert("QueueSoleProducer".to_string(), producer);
     let producer_id = logic
         .create_object("QueueSoleProducer", Team::China, glam::Vec3::ZERO)
         .expect("producer");
