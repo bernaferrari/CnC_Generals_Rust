@@ -241,8 +241,10 @@ fn installed_path_registers_the_goal_cell() {
         false,
     ));
     let obj = logic.objects.get(&ObjectId(9603)).expect("ranger");
+    // AIPathfind.cpp getRadiusAndCenter sizes the goal square from the
+    // geometry bounding circle, not the selection radius.
     let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(
-        obj.selection_radius,
+        obj.geometry_info().bounding_circle_radius(),
         logic.pathfinding_system.grid.grid_size(),
     );
     let cell = logic
