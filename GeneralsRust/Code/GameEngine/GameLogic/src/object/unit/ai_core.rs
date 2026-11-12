@@ -51,6 +51,10 @@ pub(super) struct UnitAiRuntime {
     pub(super) components: UnitAiComponents,
     pub(super) dock_machine: Option<AIDockMachine>,
     pub(super) data: UnitAiData,
+    /// Fixture AIs built without an owning Object name their engine's
+    /// `TheLocomotorStore` explicitly (C++ AIUpdate always has getObject()).
+    #[cfg(test)]
+    pub(super) fixture_locomotors: Option<Arc<crate::locomotor::LocomotorStore>>,
 }
 
 impl std::fmt::Debug for UnitAIUpdate {
@@ -155,6 +159,8 @@ impl UnitAIUpdate {
                 components,
                 dock_machine: None,
                 data: UnitAiData::default(),
+                #[cfg(test)]
+                fixture_locomotors: None,
             },
         }
     }

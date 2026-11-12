@@ -63,6 +63,8 @@ impl Drop for Unregister {
 fn unpublished_owner(id: u32, health: f32) -> Arc<RwLock<crate::object::Object>> {
     let mut owner = crate::object::Object::new_test(id, health);
     owner.ambient_lifecycle_admitted = false;
+    // Unpublished in the legacy registry, still assembled in the fixture world.
+    owner.bind_owner_world_for_test(&crate::system::engine_stores::active_services());
     Arc::new(RwLock::new(owner))
 }
 fn prepare(owner: &Arc<RwLock<crate::object::Object>>) -> Arc<std::sync::Mutex<UnitAIUpdate>> {

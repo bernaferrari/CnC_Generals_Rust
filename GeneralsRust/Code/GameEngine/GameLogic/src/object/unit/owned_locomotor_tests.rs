@@ -39,10 +39,15 @@ fn definitions() {
         init_module_factory().unwrap();
     }
     crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+    register_definitions(&crate::system::engine_stores::active_services().locomotor_store());
+}
+
+/// The immutable catalog entries every case shares, authored into `store`.
+fn register_definitions(store: &crate::locomotor::LocomotorStore) {
     for (name, height) in [("OwnedNormalLoco", 10.0), ("OwnedOtherLoco", 90.0)] {
         let mut definition = LocomotorTemplate::new(name.to_string());
         definition.preferred_height = height;
-        crate::system::engine_stores::active_services().locomotor_store().register_template(definition);
+        store.register_template(definition);
     }
 }
 
@@ -64,6 +69,10 @@ fn runtime(id: u32, name: &str) -> UnitAIUpdate {
         None,
         None,
     );
+    // No owning Object: the fixture names its engine's catalog explicitly.
+    let store = std::sync::Arc::new(crate::locomotor::LocomotorStore::new());
+    register_definitions(&store);
+    runtime.runtime.fixture_locomotors = Some(store);
     let mut data = AIUpdateModuleData::default();
     data.set_locomotor_set_entries(LocomotorSetType::Normal, vec![AsciiString::from(name)]);
     runtime.apply_ai_update_module_data(&data);

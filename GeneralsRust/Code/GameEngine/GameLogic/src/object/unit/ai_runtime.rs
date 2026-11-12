@@ -44,6 +44,10 @@ impl UnitAiRuntime {
 
     /// C++ `TheLocomotorStore` of the engine that owns this unit's Object.
     pub(super) fn owning_locomotor_store(&self) -> Option<Arc<crate::locomotor::LocomotorStore>> {
+        #[cfg(test)]
+        if self.owner.is_none() {
+            return self.fixture_locomotors.clone();
+        }
         self.native_owner()?.read().ok()?.owning_locomotor_store()
     }
 

@@ -2931,21 +2931,42 @@ mod tests {
         }
     }
 
+    /// The fixture engine's catalog: only the generic movement classes these
+    /// cases author (C++ each AIUpdate reads its own engine's TheLocomotorStore).
+    fn stub_locomotor_store() -> Arc<crate::locomotor::LocomotorStore> {
+        use crate::locomotor::LocomotorTemplate as Template;
+        let store = Arc::new(crate::locomotor::LocomotorStore::new());
+        for template in [
+            Template::new_wheeled("Wheeled".to_string()),
+            Template::new_tracked("Tracked".to_string()),
+            Template::new_hover("Hover".to_string()),
+            Template::new_thrust("Thrust".to_string()),
+        ] {
+            store.register_template(template);
+        }
+        store
+    }
+
+    fn with_stub_locomotors(mut ai: AIUpdateInterface) -> AIUpdateInterface {
+        ai.bind_locomotor_store(stub_locomotor_store());
+        ai
+    }
+
     fn ai_update() -> AIUpdateInterface {
-        AIUpdateInterface::new(ModuleDataHandle::new(AIUpdateModuleData::default()))
+        with_stub_locomotors(AIUpdateInterface::new(ModuleDataHandle::new(AIUpdateModuleData::default())))
     }
 
     fn ai_update_with_locomotors() -> AIUpdateInterface {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
         data.add_locomotor_set_entry(LocomotorSetType::NormalUpgraded, "Tracked".into());
-        AIUpdateInterface::new(ModuleDataHandle::new(data))
+        with_stub_locomotors(AIUpdateInterface::new(ModuleDataHandle::new(data)))
     }
 
     fn ai_update_with_air_locomotor() -> AIUpdateInterface {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Supersonic, "Thrust".into());
-        AIUpdateInterface::new(ModuleDataHandle::new(data))
+        with_stub_locomotors(AIUpdateInterface::new(ModuleDataHandle::new(data)))
     }
 
     #[test]
@@ -3787,7 +3808,7 @@ mod tests {
         let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
-        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id);
+        let mut ai = with_stub_locomotors(AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id));
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.path = Some(vec![
             Coord3D::ZERO,
@@ -3810,7 +3831,7 @@ mod tests {
         let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
-        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id);
+        let mut ai = with_stub_locomotors(AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id));
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
 
         ai.set_locomotor_goal_orientation(std::f32::consts::FRAC_PI_2);
@@ -3865,7 +3886,7 @@ mod tests {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Thrust".into());
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
-        let mut ai = AIUpdateInterface::new(ModuleDataHandle::new(data));
+        let mut ai = with_stub_locomotors(AIUpdateInterface::new(ModuleDataHandle::new(data)));
         ai.cur_locomotor_set = LocomotorSetType::Normal;
 
         ai.choose_locomotor_from_current_set();
@@ -3897,7 +3918,7 @@ mod tests {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "Hover".into());
-        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), object_id);
+        let mut ai = with_stub_locomotors(AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), object_id));
         ai.cur_locomotor_set = LocomotorSetType::Normal;
 
         ai.choose_locomotor_from_current_set();
