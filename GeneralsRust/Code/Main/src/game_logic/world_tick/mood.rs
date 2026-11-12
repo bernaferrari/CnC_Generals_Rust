@@ -2157,15 +2157,24 @@ mod common_target_parity {
             force_idle_frames_count: 3,
             ..Default::default()
         });
+        // setCurrentVictim(NULL) drops the targeter through the victim's own
+        // AI (AIUpdate.cpp:4180-4183); JetAIUpdate keeps that list only for a
+        // nonzero LockonTime (JetAIUpdate.cpp:1667).
+        logic
+            .admit_object_ini_sources([(
+                "idle-entry.ini".into(),
+                "Object Ranger\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\nEnd\n\
+                 Object TestStealthFighter\n KindOf = AIRCRAFT\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate AI\n LockonTime = 1000\n End\nEnd\n"
+                    .into(),
+            )])
+            .unwrap();
+        let jet_id = logic
+            .create_object("TestStealthFighter", Team::GLA, glam::Vec3::new(500.0, 0.0, 500.0))
+            .expect("jet");
         logic.frame = 50;
         let id = logic
             .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
             .expect("ranger");
-        let jet_id = ObjectId(9109);
-        logic.objects.insert(
-            jet_id,
-            Object::new(ThingTemplate::new("IdleEntryTarget"), jet_id, Team::GLA),
-        );
         let frame = logic.frame;
         if let Some(unit) = logic.host_object_mut(id) {
             unit.set_ai_state(
