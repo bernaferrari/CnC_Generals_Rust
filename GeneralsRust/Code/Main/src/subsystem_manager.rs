@@ -213,8 +213,9 @@ impl SubsystemInterface for FileSystemSubsystem {
         // mounts after the Zero Hour archives (Win32BIGFileSystem.cpp:37-49).
         // Otherwise AssetManager can see Textures.big while the renderer's
         // FileSystem still reports TSMorning and road textures as missing.
-        search_paths.extend(crate::assets::archive::base_generals_mount_dirs());
-
+        // Loose files stay on the Zero Hour roots: Win32LocalFileSystem opens
+        // relative to the ZH install, so base Generals loose data (e.g. its
+        // older Data\\Scripts\\SkirmishScripts.scb) must not shadow ZH's.
         let mut deduped = Vec::new();
         let mut seen = HashSet::new();
         for path in search_paths {
@@ -224,6 +225,16 @@ impl SubsystemInterface for FileSystemSubsystem {
                 .to_ascii_lowercase();
             if seen.insert(key) {
                 deduped.push(path);
+            }
+        }
+        let mut big_paths = deduped.clone();
+        for path in crate::assets::archive::base_generals_mount_dirs() {
+            let key = path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .to_ascii_lowercase();
+            if seen.insert(key) {
+                big_paths.push(path);
             }
         }
 
@@ -244,7 +255,7 @@ impl SubsystemInterface for FileSystemSubsystem {
             {
                 let big_backend: &mut BigArchiveBackend =
                     fs_guard.ensure_backend(BigArchiveBackend::new);
-                for path in &deduped {
+                for path in &big_paths {
                     big_backend.add_search_path(path);
                 }
             }

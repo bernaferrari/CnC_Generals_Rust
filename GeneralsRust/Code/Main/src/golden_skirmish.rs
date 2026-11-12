@@ -1850,6 +1850,12 @@ fn run_map_world_skirmish(
 fn boot_golden_world(map_exists: bool) -> GameLogic {
     let mut logic = GameLogic::new();
     if map_exists {
+        // GameEngine::init brings up TheFileSystem (local + BIG) before INI
+        // and GameLogic (GameEngine.cpp:281-329, 481). SidesList::prepareForMP_or_Skirmish
+        // opens Data\\Scripts\\SkirmishScripts.scb through it (SidesList.cpp:487).
+        let _ = crate::subsystem_manager::SubsystemInterface::init(
+            &mut crate::subsystem_manager::FileSystemSubsystem::new(),
+        );
         if let Ok(definitions) = crate::parallel_harness::RetailWorldDefinitions::load() {
             let _ = logic.with_own_services_mut(|logic| definitions.admit(logic));
         }
