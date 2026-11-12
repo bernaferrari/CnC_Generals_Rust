@@ -392,10 +392,13 @@ impl GameLogic {
         dict.set_ascii_string(key_team_owner(), "");
         dict.set_bool(key_team_is_singleton(), false);
         dict.set_bool(key_team_attack_common_target(), true);
+        // A TeamPrototype has one owning player shared by every instance
+        // (TeamPrototype::m_owningPlayer, Team.h:634).
+        let controller = self.objects.get(&actor).expect("actor").owner_player_id;
         let mut factory = self.team_factory.lock().expect("session TeamFactory");
         if factory.find_team_prototype(name).is_none() {
             factory
-                .init_team_owned(name.into(), "".into(), false, Some(&dict), None)
+                .init_team_owned(name.into(), "".into(), false, Some(&dict), controller)
                 .expect("Team prototype");
         }
         let team = factory.create_inactive_team(name).expect("Team instance");
