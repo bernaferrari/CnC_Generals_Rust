@@ -665,7 +665,10 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
             .walker()
             .module(
                 "WeaponSet\n Conditions = None\n Weapon = PRIMARY None\nEnd\nWeaponSet\n Conditions = MINE_CLEARING_DETAIL\n Weapon = PRIMARY DozerMineDisarmingWeapon\n AutoChooseSources = PRIMARY NONE\nEnd",
-            )],
+            ),
+        crate::fixture_content::FixtureObject::new("TestLandMine")
+            .kind_of("MINE")
+            .health(100.0)],
         &[crate::fixture_content::FixtureWeapon::new("DozerMineDisarmingWeapon")
             .damage(100.0)
             .radius(5.0)
