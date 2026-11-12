@@ -320,6 +320,19 @@ fn zero_unpack_capture_clears_approach_goal_and_survives_preparation() {
         .get_mut("TestInfantry")
         .unwrap()
         .capture_unpack_time_ms = Some(0);
+    // Already in range: the target authors its footprint (C++ ThingTemplate
+    // default geometry is a radius-1 sphere).  Edge distance 12 - 1 - 10 = 1
+    // is within StartAbilityRange 5 and the LOS iterate range
+    // 5 - PATHFIND_CELL_SIZE_F/4 = 2.5 (SpecialAbilityUpdate.cpp).
+    logic.templates.get_mut("TestBuilding").unwrap().geometry_info =
+        crate::game_logic::HostGeometryInfo {
+            geom_type: crate::game_logic::HostGeometryType::Cylinder,
+            is_small: false,
+            height: 20.0,
+            major_radius: 10.0,
+            minor_radius: 10.0,
+            authored: true,
+        };
     let captor_id = logic
         .create_object_for_player("TestInfantry", 0, Vec3::new(12.0, 0.0, 0.0))
         .unwrap();
