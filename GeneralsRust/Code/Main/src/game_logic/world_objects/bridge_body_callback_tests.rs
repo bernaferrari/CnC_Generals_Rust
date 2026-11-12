@@ -965,6 +965,10 @@ fn repaired_bridge_begins_new_owned_score_episode_and_preserves_saved_future() {
         "repaired_bridge_begins_new_owned_score_episode_and_preserves_saved_future",
         || {
             let mut world = GameLogic::new();
+            // Object::scoreTheKill counts only a playable victim controller
+            // and an ENEMIES killer (Object.cpp scoreTheKill).
+            world.add_player(crate::game_logic::Player::new(1, Team::USA, "BridgeOwner", true));
+            world.add_player(crate::game_logic::Player::new(2, Team::China, "BridgeScorer", false));
             let (span, _, _, _) = bridge(&mut world, Vec3::new(50., 5., 50.));
             world
                 .templates
