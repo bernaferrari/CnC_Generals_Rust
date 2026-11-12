@@ -1548,10 +1548,13 @@ fn railed_evacuate_uses_dock_unload_not_open_contain_walk() {
     assert!(rider.is_held_disabled());
     assert!((rider.get_position() - hull).length() < 0.01);
     assert_eq!(rider.ignore_collisions_until_frame, 0);
-    assert_eq!(
-        logic.host_object(ferry).unwrap().dock_active_docker,
-        Some(pax)
-    );
+    // RailedTransportDockUpdate::unloadAll/unloadNext (RailedTransportDockUpdate.cpp:193-202,
+    // 428-494) track the rider in m_unloadingObjectID with m_unloadCount = UNLOAD_ALL;
+    // the base DockUpdate active-docker slot is not involved.
+    let dock = &logic.host_object(ferry).unwrap().railed_dock;
+    assert_eq!(dock.unloading.as_ref().map(|rider| rider.id), Some(pax));
+    assert_eq!(dock.unload_count, -1);
+    assert_eq!(logic.host_object(ferry).unwrap().dock_active_docker, None);
 }
 
 #[test]
