@@ -3,19 +3,15 @@
 //! calcTimeToBuild, one logic frame at a time.
 use super::*;
 
-fn world() -> GameLogic {
+fn world(builder_powered: bool) -> GameLogic {
     let mut world = GameLogic::new();
     world.set_scoring_enabled(true);
     let mut builder = Player::new(0, Team::USA, "Builder", true);
     builder.alliance_team = 7;
     builder.map_side.handicap_build_time_buildings = 2.0;
-    builder.power_produced = 0;
-    builder.power_consumed = 10;
     let mut owner = Player::new(1, Team::China, "SiteOwner", false);
     owner.alliance_team = 7;
     owner.map_side.handicap_build_time_buildings = 0.25;
-    owner.power_produced = 10;
-    owner.power_consumed = 10;
     world.add_player(builder);
     world.add_player(owner);
     let rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default()
@@ -45,8 +41,27 @@ fn world() -> GameLogic {
                 .health(100.0)
                 .field("Locomotor = SET_NORMAL AlliedTimingDozerLocomotor")
                 .dozer(),
+            crate::fixture_content::FixtureObject::new("AlliedTimingLoad")
+                .kind_of("STRUCTURE")
+                .health(100.0)
+                .field("EnergyProduction = -10"),
+            crate::fixture_content::FixtureObject::new("AlliedTimingPlant")
+                .kind_of("STRUCTURE")
+                .health(100.0)
+                .field("EnergyProduction = 10"),
         ],
     );
+    // Player energy is the sum of its Objects' EnergyProduction
+    // (Energy::objectEnteringInfluence), so the builder's brown-out is
+    // authored by its buildings, not by Player fields.
+    world
+        .create_object_for_player("AlliedTimingLoad", 0, Vec3::new(150.0, 0.0, 150.0))
+        .expect("builder consumer");
+    if builder_powered {
+        world
+            .create_object_for_player("AlliedTimingPlant", 0, Vec3::new(150.0, 0.0, 190.0))
+            .expect("builder plant");
+    }
     world
 }
 
@@ -78,8 +93,8 @@ fn first_piece(world: &mut GameLogic, site: ObjectId) {
 
 #[test]
 fn allied_resume_is_admitted_but_build_fails_on_controller_mismatch() {
-    let mut world = world();
-    let (site, _) = resumed(&mut world, 1);
+    let mut world = world(false);
+    let (site, builder) = resumed(&mut world, 1);
     let hp = world.host_object(site).unwrap().health.current;
     let cash = (
         world.get_player(0).unwrap().resources.supplies,
@@ -102,13 +117,16 @@ fn allied_resume_is_admitted_but_build_fails_on_controller_mismatch() {
         ),
         cash
     );
+    // ActionManager.cpp:446-449: once the sides are no longer ALLIES the
+    // same builder cannot resume.
+    world.players.get_mut(&0).unwrap().alliance_team = 8;
+    assert!(!world.can_resume_construction_of(builder, site));
 }
 
 #[test]
 fn builder_frames_use_builder_handicap_and_power() {
-    let mut first = world();
-    let mut peer = world();
-    peer.players.get_mut(&0).unwrap().power_produced = 10;
+    let mut first = world(false);
+    let mut peer = world(true);
     let (site, builder) = resumed(&mut first, 0);
     let (peer_site, _) = resumed(&mut peer, 0);
     let cash = first.get_player(0).unwrap().resources.supplies;
@@ -135,8 +153,8 @@ fn builder_frames_use_builder_handicap_and_power() {
 }
 
 #[test]
-fn active_builder_is_exclusive_and_enemy_cannot_resume() {
-    let mut world = world();
+fn active_builder_is_exclusive() {
+    let mut world = world(false);
     let (site, builder) = resumed(&mut world, 0);
     let second = world
         .create_object_for_player("AlliedTimingDozer", 0, Vec3::new(-2.0, 0.0, 0.0))
@@ -146,9 +164,4 @@ fn active_builder_is_exclusive_and_enemy_cannot_resume() {
     first_piece(&mut world, site);
     assert!(!world.can_resume_construction_of(second, site));
     assert_eq!(world.host_object(site).unwrap().builder_id, Some(builder));
-    let enemy = world
-        .create_object_for_player("AlliedTimingDozer", 1, Vec3::new(-2.0, 0.0, 0.0))
-        .unwrap();
-    world.players.get_mut(&1).unwrap().alliance_team = 8;
-    assert!(!world.can_resume_construction_of(enemy, site));
 }
