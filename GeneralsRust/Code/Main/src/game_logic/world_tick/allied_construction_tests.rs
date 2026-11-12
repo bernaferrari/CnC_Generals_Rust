@@ -1,7 +1,9 @@
-//! CPP DozerAIUpdate.cpp510-536: builder controls timing; site controls completion.
+//! CPP ActionManager.cpp:440-485 admits an ALLIES resume; DozerAIUpdate.cpp
+//! 476-536 contributes only for the site's controller, at the builder's
+//! calcTimeToBuild, one logic frame at a time.
 use super::*;
 
-fn world() -> (GameLogic, ObjectId, ObjectId) {
+fn world() -> GameLogic {
     let mut world = GameLogic::new();
     world.set_scoring_enabled(true);
     let mut builder = Player::new(0, Team::USA, "Builder", true);
@@ -21,7 +23,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         .unwrap();
     world.admit_production_energy_base(rules);
     // ScoreKeeper.cpp97-119 counts only STRUCTURE+SCORE/SCORE_CREATE; only an
-    // authored DozerAIUpdate advances construction (DozerAIUpdate.cpp).
+    // authored, mobile DozerAIUpdate reaches its BUILD dock (DozerAIUpdate.cpp).
     crate::fixture_content::admit_fixture_objects(
         &mut world,
         &[
@@ -32,90 +34,109 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
             crate::fixture_content::FixtureObject::new("AlliedTimingDozer")
                 .kind_of("VEHICLE DOZER")
                 .health(100.0)
+                .walker()
                 .dozer(),
         ],
     );
+    world
+}
+
+fn resumed(world: &mut GameLogic, site_owner: u32) -> (ObjectId, ObjectId) {
     let site = world
-        .create_object_under_construction_for_player("AlliedTimingSite", 1, Vec3::ZERO, 0.0)
-        .unwrap().expect("ObjectId");
+        .create_object_under_construction_for_player("AlliedTimingSite", site_owner, Vec3::ZERO, 0.0)
+        .unwrap()
+        .expect("ObjectId");
     let builder = world
         .create_object_for_player("AlliedTimingDozer", 0, Vec3::new(2.0, 0.0, 0.0))
         .unwrap();
     assert!(world.can_resume_construction_of(builder, site));
-    assert_eq!(world.resume_construction(&[builder], site).expect("result"), true);
-    (world, site, builder)
+    assert!(world.resume_construction(&[builder], site).expect("result"));
+    (site, builder)
+}
+
+fn first_piece(world: &mut GameLogic, site: ObjectId) {
+    for _ in 0..600 {
+        world.update_with_dt(1.0 / 30.0);
+        if world.host_object(site).unwrap().construction_percent > 0.0 {
+            return;
+        }
+    }
+    panic!("the builder never contributed a BUILD frame");
 }
 
 #[test]
-fn allied_resume_uses_builder_handicap_power_and_keeps_site_completion_owner() {
-    let (mut first, site, builder) = world();
-    let (mut peer, peer_site, _) = world();
-    assert_eq!(site, peer_site);
-    peer.players.get_mut(&0).unwrap().power_produced = 10;
-    let peer_before = peer.host_object(peer_site).unwrap().health.current;
+fn allied_resume_is_admitted_but_build_fails_on_controller_mismatch() {
+    let mut world = world();
+    let (site, _) = resumed(&mut world, 1);
+    let hp = world.host_object(site).unwrap().health.current;
     let cash = (
-        first.get_player(0).unwrap().resources.supplies,
-        first.get_player(1).unwrap().resources.supplies,
+        world.get_player(0).unwrap().resources.supplies,
+        world.get_player(1).unwrap().resources.supplies,
     );
-    first.frame = 1;
-    first.update_construction(&[site], 1.0 / 30.0);
-    let current = first.host_object(site).unwrap();
-    // Int(30*2) / 0.5 = 120 builder frames, not the owner's Int(30*.25)=7.
-    assert!((current.construction_percent - 1.0 / 120.0).abs() < 0.00001);
-    assert!((current.health.current - 2.0).abs() < 0.00001);
-    assert_eq!(current.owner_player_id, Some(1));
-    assert_eq!(current.producer_id, Some(builder));
-    assert_eq!(current.builder_id, Some(builder));
-    assert_eq!(
-        peer.host_object(peer_site).unwrap().health.current,
-        peer_before
-    );
-    peer.frame = 1;
-    peer.update_construction(&[peer_site], 1.0 / 30.0);
-    assert!(
-        (peer.host_object(peer_site).unwrap().construction_percent - 1.0 / 60.0).abs() < 0.00001
-    );
-    for frame in 2..=122 {
-        first.frame = frame;
-        first.update_construction(&[site], 1.0 / 30.0);
+    for _ in 0..300 {
+        world.update_with_dt(1.0 / 30.0);
     }
-    assert!(!first.host_object(site).unwrap().status.under_construction);
-    assert_eq!(
-        first.get_player(1).unwrap().statistics.structures_built(),
-        1
-    );
-    assert_eq!(
-        first.get_player(0).unwrap().statistics.structures_built(),
-        0
-    );
+    // DozerAIUpdate.cpp:478: "Somehow I have changed sides in mid build!"
+    let current = world.host_object(site).unwrap();
+    assert_eq!(current.construction_percent, 0.0);
+    assert_eq!(current.health.current, hp);
+    assert!(current.status.under_construction);
+    assert_eq!(current.owner_player_id, Some(1));
+    assert_eq!(world.get_player(1).unwrap().statistics.structures_built(), 0);
     assert_eq!(
         (
-            first.get_player(0).unwrap().resources.supplies,
-            first.get_player(1).unwrap().resources.supplies
+            world.get_player(0).unwrap().resources.supplies,
+            world.get_player(1).unwrap().resources.supplies
         ),
         cash
     );
-    assert!(
-        peer.host_object(peer_site)
-            .unwrap()
-            .status
-            .under_construction
-    );
 }
 
 #[test]
-fn exclusive_allied_builder_rejects_second_and_enemy_cannot_resume_or_contribute() {
-    let (mut world, site, builder) = world();
+fn builder_frames_use_builder_handicap_and_power() {
+    let mut first = world();
+    let mut peer = world();
+    peer.players.get_mut(&0).unwrap().power_produced = 10;
+    let (site, builder) = resumed(&mut first, 0);
+    let (peer_site, _) = resumed(&mut peer, 0);
+    let cash = first.get_player(0).unwrap().resources.supplies;
+    first_piece(&mut first, site);
+    first_piece(&mut peer, peer_site);
+    let current = first.host_object(site).unwrap();
+    // Int(30*2) / 0.5 = 120 frames; full power is Int(30*2) = 60.
+    assert!((current.construction_percent - 1.0 / 120.0).abs() < 0.00001);
+    assert!((current.health.current - 2.0).abs() < 0.0001);
+    assert_eq!(current.producer_id, Some(builder));
+    assert_eq!(current.builder_id, Some(builder));
+    assert!(
+        (peer.host_object(peer_site).unwrap().construction_percent - 1.0 / 60.0).abs() < 0.00001
+    );
+    for _ in 0..600 {
+        if !first.host_object(site).unwrap().status.under_construction {
+            break;
+        }
+        first.update_with_dt(1.0 / 30.0);
+    }
+    assert!(!first.host_object(site).unwrap().status.under_construction);
+    assert_eq!(first.get_player(0).unwrap().statistics.structures_built(), 1);
+    assert_eq!(first.get_player(0).unwrap().resources.supplies, cash);
+}
+
+#[test]
+fn active_builder_is_exclusive_and_enemy_cannot_resume() {
+    let mut world = world();
+    let (site, builder) = resumed(&mut world, 0);
     let second = world
-        .create_object_for_player("AlliedTimingDozer", 0, Vec3::ZERO)
+        .create_object_for_player("AlliedTimingDozer", 0, Vec3::new(-2.0, 0.0, 0.0))
         .unwrap();
+    // ActionManager.cpp:475-478 rejects only once the builder's current task
+    // is BUILD on this site, which DozerActionState::onEnter sets (cpp:1205).
+    first_piece(&mut world, site);
     assert!(!world.can_resume_construction_of(second, site));
     assert_eq!(world.host_object(site).unwrap().builder_id, Some(builder));
-    world.players.get_mut(&0).unwrap().alliance_team = 8;
-    assert!(!world.can_resume_construction_of(builder, site));
-    let hp = world.host_object(site).unwrap().health.current;
-    world.frame = 1;
-    world.update_construction(&[site], 1.0 / 30.0);
-    assert_eq!(world.host_object(site).unwrap().construction_percent, 0.0);
-    assert_eq!(world.host_object(site).unwrap().health.current, hp);
+    let enemy = world
+        .create_object_for_player("AlliedTimingDozer", 1, Vec3::new(-2.0, 0.0, 0.0))
+        .unwrap();
+    world.players.get_mut(&1).unwrap().alliance_team = 8;
+    assert!(!world.can_resume_construction_of(enemy, site));
 }
