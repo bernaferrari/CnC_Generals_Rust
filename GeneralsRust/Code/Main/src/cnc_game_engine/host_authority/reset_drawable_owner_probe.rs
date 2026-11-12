@@ -155,12 +155,18 @@ pub(crate) fn run() -> anyhow::Result<()> {
         ..Default::default()
     })?;
     eprintln!("reset probe: WGPU initialized");
-    let mut graphics = crate::graphics::GraphicsSystem::new(
-        engine.lock().device(),
-        engine.lock().queue(),
-        engine.lock().color_format(),
-        engine.lock().depth_format(),
-    )?;
+    // One guard for these reads: separate lock() temporaries in one call
+    // keep the first guard until the statement ends (non-reentrant Mutex).
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let mut graphics = crate::graphics::GraphicsSystem::new(device, queue, color_format, depth_format)?;
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         camera_model(),

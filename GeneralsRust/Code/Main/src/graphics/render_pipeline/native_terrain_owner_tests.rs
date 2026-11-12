@@ -15,13 +15,19 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
         ..Default::default()
     })
     .unwrap();
-    let graphics = GraphicsSystem::new(
-        engine.lock().device(),
-        engine.lock().queue(),
-        engine.lock().color_format(),
-        engine.lock().depth_format(),
-    )
-    .unwrap();
+    // One guard for these reads: separate lock() temporaries in one call
+    // keep the first guard until the statement ends (non-reentrant Mutex).
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let graphics = GraphicsSystem::new(device, queue, color_format, depth_format)
+        .unwrap();
     let mut a = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     assert!(
         a.native_terrain().is_none(),

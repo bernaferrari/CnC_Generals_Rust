@@ -128,13 +128,19 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
         ..Default::default()
     })
     .unwrap();
-    let mut graphics = GraphicsSystem::new(
-        engine.lock().device(),
-        engine.lock().queue(),
-        engine.lock().color_format(),
-        engine.lock().depth_format(),
-    )
-    .unwrap();
+    // One guard for these reads: separate lock() temporaries in one call
+    // keep the first guard until the statement ends (non-reentrant Mutex).
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format)
+        .unwrap();
     let mut owner = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut peer = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut world = generals_main::game_logic::GameLogic::new();

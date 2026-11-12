@@ -14,13 +14,19 @@ fn borrowed_filter_finishes_on_current_renderer_frame_and_peak_is_not_replayed()
     .expect("native filter acceptance requires a headless device");
     let _engine_scope = engine.clone();
     let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), WgpuMainRendererConfig::default()).unwrap();
-    let graphics = GraphicsSystem::new(
-        engine.lock().device(),
-        engine.lock().queue(),
-        engine.lock().color_format(),
-        engine.lock().depth_format(),
-    )
-    .unwrap();
+    // One guard for these reads: separate lock() temporaries in one call
+    // keep the first guard until the statement ends (non-reentrant Mutex).
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let graphics = GraphicsSystem::new(device, queue, color_format, depth_format)
+        .unwrap();
     let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut logic = crate::game_logic::GameLogic::new();
     let presentation =

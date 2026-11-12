@@ -166,13 +166,19 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
     })
     .expect("native receiver acceptance requires a headless device");
     let _engine_scope = engine.clone();
-    let mut graphics = GraphicsSystem::new(
-        engine.lock().device(),
-        engine.lock().queue(),
-        engine.lock().color_format(),
-        engine.lock().depth_format(),
-    )
-    .unwrap();
+    // One guard for these reads: separate lock() temporaries in one call
+    // keep the first guard until the statement ends (non-reentrant Mutex).
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format)
+        .unwrap();
     // Production canonicalization preserves authored case; the cache is an
     // exact-key map, so lowercase-only fixture insertion is a missing asset.
     graphics.cache_model(
