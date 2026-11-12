@@ -2573,29 +2573,50 @@ mod get_able_weapon_parity {
 
     #[test]
     fn stinger_site_falls_through_to_hive_slaves() {
+        // C++ WeaponSet::getAbleToUseWeaponAgainstTarget: a weaponless
+        // SPAWNS_ARE_THE_WEAPONS site asks its live SpawnBehavior slaves.
         let mut logic = GameLogic::new();
-        let mut st = ThingTemplate::new("GLAStingerSite");
-        st.add_kind_of(KindOf::Structure);
-        st.add_kind_of(KindOf::Immobile);
-        logic.objects.insert(ObjectId(4030), {
-            let mut o = Object::new(st, ObjectId(4030), Team::GLA);
-            o.set_position(Vec3::ZERO);
-            o.hive_slaves = crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
-            o.hive_slave_count = 3;
-            o
-        });
-        let mut vt = ThingTemplate::new("UsaRanger");
-        vt.add_kind_of(KindOf::Infantry);
-        vt.add_kind_of(KindOf::Attackable);
-        logic.objects.insert(ObjectId(4031), {
-            let mut o = Object::new(vt, ObjectId(4031), Team::USA);
-            o.set_position(Vec3::new(80.0, 0.0, 0.0));
-            o
-        });
+        logic
+            .admit_object_ini_sources([(
+                "StingerSite.ini".into(),
+                "Object FixtureStingerSite\n KindOf = STRUCTURE IMMOBILE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = DefaultProductionExitUpdate Exit\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = FixtureStingerSoldier\n End\nEnd\n\
+                 Object FixtureStingerSoldier\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+                 Object FixtureStingerVictim\n KindOf = INFANTRY ATTACKABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+                    .into(),
+            )])
+            .unwrap();
+        logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "Site", true));
+        logic.add_player(crate::game_logic::Player::new(2, Team::USA, "Victim", false));
+        for (player, other) in [(1, 2), (2, 1)] {
+            logic
+                .get_player_mut(player)
+                .unwrap()
+                .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+        }
+        let site = logic
+            .create_object_for_player("FixtureStingerSite", 1, Vec3::ZERO)
+            .unwrap();
+        let victim = logic
+            .create_object_for_player("FixtureStingerVictim", 2, Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
+        logic.frame = 1;
+        logic
+            .update_spawn_behavior_with_effects(&mut Default::default())
+            .unwrap();
+        let slaves = logic.host_object(site).unwrap().spawn_behavior_children();
+        assert_eq!(slaves.len(), 1, "the site spawned its slave");
+        crate::fixture_content::arm_with_stats(
+            logic.objects.get_mut(&slaves[0].0).unwrap(),
+            Weapon {
+                range: 200.0,
+                damage: 10.0,
+                ..Default::default()
+            },
+        );
         assert_eq!(
             logic.get_able_to_use_weapon_against_target(
-                ObjectId(4030),
-                Some(ObjectId(4031)),
+                site,
+                Some(victim),
                 None,
                 AbleToAttackType::NewTarget,
             ),
