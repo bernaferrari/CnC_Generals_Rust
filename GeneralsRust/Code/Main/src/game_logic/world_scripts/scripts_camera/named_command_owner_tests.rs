@@ -13,10 +13,17 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     world.world_max = Vec3::splat(1000.0);
     crate::fixture_content::admit_fixture_objects(
         &mut world,
-        &[crate::fixture_content::FixtureObject::new("OwnedNamedInfantry")
-            .kind_of("INFANTRY SELECTABLE")
-            .health(100.0)
-            .walker()],
+        &[
+            crate::fixture_content::FixtureObject::new("OwnedNamedInfantry")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0)
+                .walker(),
+            // ThingFactory builds every template before NewGame; the AI-less
+            // crate witness is startup content, not a late insertion.
+            crate::fixture_content::FixtureObject::new("OwnedNamedCrate")
+                .kind_of("CRATE")
+                .health(100.0),
+        ],
     );
     world.add_player(Player::new(1, Team::USA, "NamedOwner", true));
     world.add_player(Player::new(2, Team::China, "NamedVictim", false));
@@ -244,9 +251,6 @@ fn named_commands_missing_exact_names_and_no_ai_are_inert() {
     assert_eq!(world.host_object(unnamed).unwrap().formation_id, 43);
     assert_eq!(world.host_object(id).unwrap().formation_id, 19);
     assert_eq!(world.host_object(id).unwrap().target, None);
-    let mut template = ThingTemplate::new("OwnedNamedCrate");
-    template.add_kind_of(KindOf::Crate).set_health(100.0);
-    world.templates.insert(template.name.clone(), template);
     let crate_id = world
         .create_object("OwnedNamedCrate", Team::USA, Vec3::ZERO)
         .unwrap();
