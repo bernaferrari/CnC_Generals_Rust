@@ -125,7 +125,7 @@ impl GameLogic {
     ) -> Vec<Dict> {
         // Preparation may load faction scripts. Neither that IO nor host admission
         // needs to hold, or discover its owner through, the compatibility registry.
-        let prepared = self.prepare_map_sides(side_dicts, team_dicts, side_builds, script_lists);
+        let mut prepared = self.prepare_map_sides(side_dicts, team_dicts, side_builds, script_lists);
         let rows: Vec<_> = (0..prepared.get_num_sides())
             .filter_map(|i| {
                 prepared
@@ -183,6 +183,14 @@ impl GameLogic {
         // Creating only civilians here would make its roster-preservation check
         // skip that path. Complete map-player reconstruction remains separate.
 
+        let controllers =
+            crate::game_logic::player_controllers::PreparedControllers::capture(&prepared, catalog);
+        // Player::initFromDict runs inside PlayerList::newGame, before
+        // TeamFactory::initFromSides and ScriptEngine::newMap read the sides.
+        if self.uses_lobby_side_foundation() {
+            qualify_skirmish_side_scripts(&mut prepared, &controllers, catalog);
+        }
+
         // TeamFactory::initFromSides consumes this exact prepared order, not
         // the raw map dictionaries or a later ambient SidesList selection.
         let team_definitions = (0..prepared.get_num_teams())
@@ -192,8 +200,7 @@ impl GameLogic {
                     .map(|team| team.get_dict().clone())
             })
             .collect();
-        self.prepared_player_controllers =
-            crate::game_logic::player_controllers::PreparedControllers::capture(&prepared, catalog);
+        self.prepared_player_controllers = controllers;
         for player in self.players.values_mut() {
             if let Some(controller) = self
                 .prepared_player_controllers
@@ -204,6 +211,148 @@ impl GameLogic {
         }
         self.prepared_map_sides = prepared;
         team_definitions
+    }
+}
+
+/// C++ Player::initFromDict (Player.cpp:823-966): a human copies the Civilian
+/// skirmish scripts; a skirmish AI copies its side's skirmish scripts and
+/// teams, qualified by its multiplayer start index.
+fn qualify_skirmish_side_scripts(
+    prepared: &mut gamelogic::sides_list::SidesList,
+    controllers: &crate::game_logic::player_controllers::PreparedControllers,
+    catalog: &HashMap<String, String>,
+) {
+    use game_engine::common::well_known_keys::{
+        key_team_all_clear_script, key_team_enemy_sighted_script, key_team_generic_script_hook,
+        key_team_on_create_script, key_team_on_destroyed_script, key_team_on_idle_script,
+        key_team_on_unit_destroyed_script, key_team_production_condition,
+    };
+    if prepared.get_num_skirmish_sides() == 0 {
+        return;
+    }
+    let skirmish_source = |sides: &gamelogic::sides_list::SidesList, side: &str| {
+        (0..sides.get_num_skirmish_sides()).find(|&index| {
+            sides
+                .get_skirmish_side_info(index)
+                .and_then(|source| {
+                    catalog.get(&source.get_dict().get_ascii_string(key_player_faction()))
+                })
+                .is_some_and(|source_side| source_side == side)
+        })
+    };
+    for side_index in 0..prepared.get_num_sides() {
+        let Some(row) = prepared
+            .get_side_info(side_index)
+            .map(|side| side.get_dict().clone())
+        else {
+            continue;
+        };
+        let pname = row.get_ascii_string(key_player_name());
+        let Some(class) = controllers.for_side(&pname) else {
+            continue;
+        };
+        if class.human {
+            // Player.cpp:823-851 qualifies with m_mpStartIndex before line 859
+            // reads it from the dict: a fresh Player's 0.
+            let Some(source) = skirmish_source(prepared, "Civilian") else {
+                continue;
+            };
+            let source_info = prepared.get_skirmish_side_info(source).expect("found source");
+            let qual = format!(
+                "{}{}",
+                source_info.get_dict().get_ascii_string(key_player_name()),
+                0
+            );
+            let Some(scripts) = source_info
+                .get_script_list()
+                .map(|scripts| scripts.duplicate_and_qualify("0", &qual, &pname))
+            else {
+                continue;
+            };
+            if let Some(side) = prepared.get_side_info_mut(side_index) {
+                side.set_script_list(Some(scripts));
+            }
+            if let Some(source_info) = prepared.get_skirmish_side_info_mut(source) {
+                source_info.set_script_list(None);
+            }
+            continue;
+        }
+        if !class.skirmish {
+            continue;
+        }
+        let Some(my_side) = catalog.get(&row.get_ascii_string(key_player_faction())) else {
+            continue;
+        };
+        let Some(source) = skirmish_source(prepared, my_side) else {
+            continue;
+        };
+        let start_index = row.get_int(key_multiplayer_start_index());
+        let qualifier = start_index.to_string();
+        let (original_player_name, scripts) = {
+            let source_info = prepared.get_skirmish_side_info(source).expect("found source");
+            let original = source_info.get_dict().get_ascii_string(key_player_name());
+            let qual = format!("{original}{start_index}");
+            let scripts = source_info
+                .get_script_list()
+                .map(|scripts| scripts.duplicate_and_qualify(&qualifier, &qual, &pname));
+            (original, scripts)
+        };
+        if let Some(side) = prepared.get_side_info_mut(side_index) {
+            side.set_script_list(scripts);
+        }
+        let mut team_index = 0;
+        while team_index < prepared.get_num_teams() {
+            let owned = prepared
+                .get_team_info(team_index)
+                .is_some_and(|team| team.get_dict().get_ascii_string(key_team_owner()) == pname);
+            if owned {
+                prepared.remove_team(team_index);
+            } else {
+                team_index += 1;
+            }
+        }
+        for team_index in 0..prepared.get_num_skirmish_teams() {
+            let Some(team) = prepared.get_skirmish_team_info(team_index) else {
+                continue;
+            };
+            if team.get_dict().get_ascii_string(key_team_owner()) != original_player_name {
+                continue;
+            }
+            let mut team_dict = team.get_dict().clone();
+            let new_name = format!(
+                "{}{}",
+                team_dict.get_ascii_string(key_team_name()),
+                start_index
+            );
+            if prepared.find_team_info(&new_name).is_some() {
+                continue;
+            }
+            team_dict.set_ascii_string(key_team_owner(), pname.clone());
+            team_dict.set_ascii_string(key_team_name(), new_name);
+            let mut keys = vec![
+                key_team_on_create_script(),
+                key_team_on_idle_script(),
+                key_team_on_unit_destroyed_script(),
+                key_team_on_destroyed_script(),
+                key_team_enemy_sighted_script(),
+                key_team_all_clear_script(),
+                key_team_production_condition(),
+            ];
+            let generic = NameKeyGenerator::key_to_name(key_team_generic_script_hook())
+                .unwrap_or_default();
+            keys.extend((0..gamelogic::team::MAX_GENERIC_SCRIPTS).map(|hook| {
+                NameKeyGenerator::name_to_key(&format!("{generic}{hook}"))
+            }));
+            for key in keys {
+                if team_dict.get_type(key).is_some() {
+                    let value = team_dict.get_ascii_string(key);
+                    if !value.is_empty() {
+                        team_dict.set_ascii_string(key, format!("{value}{start_index}"));
+                    }
+                }
+            }
+            prepared.add_team(&team_dict);
+        }
     }
 }
 

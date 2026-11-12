@@ -14,6 +14,47 @@ fn host_slot_script_name(player: &Player) -> String {
 }
 
 impl GameLogic {
+    /// ScriptEngine::newMap installs each side's ScriptList, which for a
+    /// skirmish AI now holds its Player::initFromDict copy (Player.cpp:880-901).
+    /// This world's list ordinal is the Player id (ScriptEngine.cpp:5555-5557).
+    fn install_skirmish_ai_side_scripts(&mut self) {
+        if !self.uses_lobby_side_foundation() {
+            return;
+        }
+        let mut installs = Vec::new();
+        for (&id, player) in &self.players {
+            if player.map_side.role != PlayerSideRole::Participant || !player.map_side.is_skirmish_ai
+            {
+                continue;
+            }
+            let sides = &self.prepared_map_sides;
+            let Some(list) = sides
+                .find_side_info(&host_slot_script_name(player))
+                .and_then(|index| sides.get_side_info(index))
+                .and_then(|side| side.get_script_list())
+            else {
+                continue;
+            };
+            installs.push((id as usize, list.clone()));
+        }
+        installs.sort_by_key(|(id, _)| *id);
+        for (id, list) in installs {
+            if id >= gamelogic::common::MAX_PLAYER_COUNT {
+                continue;
+            }
+            if self.loaded_script_lists.len() <= id {
+                self.loaded_script_lists.resize_with(id + 1, ScriptList::new);
+            }
+            if let Some(engine) = &self.owned_script_engine {
+                if let Err(error) = engine.set_script_list_for_player(id, Some(Box::new(list.clone()))) {
+                    log::error!("Failed to admit skirmish script list {}: {:?}", id, error);
+                    continue;
+                }
+            }
+            self.loaded_script_lists[id] = list;
+        }
+    }
+
     /// Map `BlendTileData` decoded by the current load and not yet folded into
     /// `TerrainData` (native map admission runs before that fold).
     #[cfg(feature = "game_client")]
@@ -472,6 +513,7 @@ impl GameLogic {
             general_name.as_deref(),
         );
         self.loaded_script_lists = script_lists;
+        self.install_skirmish_ai_side_scripts();
         log::info!(
             "Fast legacy runtime sync sides write finished for '{}' in {:.2}s (stage={:.2}s, sides_dicts={:.2}s)",
             map_path.display(),
