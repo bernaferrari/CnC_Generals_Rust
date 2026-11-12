@@ -268,30 +268,25 @@ fn canonical_overlord_projects_without_writeback() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("OlU").kind_of("SELECTABLE VEHICLE").health(400.0).walker(),
-            crate::fixture_content::FixtureObject::new("ShadowPortableBunker").kind_of("PORTABLE_STRUCTURE").health(100.0),
+            // Retail Overlord: OverlordContain with one PORTABLE_STRUCTURE slot.
+            crate::fixture_content::FixtureObject::new("OlU")
+                .kind_of("SELECTABLE VEHICLE")
+                .health(400.0)
+                .walker()
+                .module(
+                    "Behavior = OverlordContain FixtureContain\n Slots = 1\n AllowInsideKindOf = PORTABLE_STRUCTURE\n PassengersAllowedToFire = Yes\nEnd",
+                ),
+            crate::fixture_content::FixtureObject::new("ShadowPortableBunker")
+                .kind_of("PORTABLE_STRUCTURE")
+                .health(100.0)
+                .module("Behavior = TransportContain FixtureContain\n Slots = 4\nEnd"),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("OlU");
-        t.set_health(400.0);
-        t.add_kind_of(KindOf::Selectable);
-        t.add_kind_of(KindOf::Vehicle);
-        t.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
-        t.contain_module.is_overlord_contain = true;
-        t.contain_module.slots = Some(1);
-        logic.templates.insert("OlU".into(), t);
-    }
     let oid = logic
         .create_object("OlU", Team::China, glam::Vec3::new(21.0, 0.0, 21.0))
         .expect("id");
 
-    let mut bunker = ThingTemplate::new("ShadowPortableBunker");
-    bunker.add_kind_of(KindOf::PortableStructure).set_health(100.0);
-    bunker.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
-    bunker.contain_module.slots = Some(4);
-    logic.templates.insert(bunker.name.clone(), bunker);
     let rider = logic.create_object("ShadowPortableBunker", Team::China, glam::Vec3::ZERO).unwrap();
     logic.attach_overlord_portable_occupant(oid, rider);
     logic.host_object_mut(oid).unwrap().is_helix_transport = true;
@@ -676,7 +671,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("GU").kind_of("SELECTABLE").health(100.0),
+            crate::fixture_content::FixtureObject::new("GU").kind_of("SELECTABLE").health(100.0).walker(),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
