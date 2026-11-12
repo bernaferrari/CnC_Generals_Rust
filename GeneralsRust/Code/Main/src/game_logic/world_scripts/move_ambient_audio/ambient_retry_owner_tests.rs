@@ -75,6 +75,9 @@ fn parse_rules() -> String {
     let mut ini = game_engine::common::ini::INI::new();
     ini.with_inline_source(
         r#"
+AudioSettings
+  TimeBetweenDrawableSounds = 1000
+End
 AudioEvent OwnedAmbientRetryPermanentLoop
   Sounds = OwnedAmbientRetryLoopSample
   Volume = 80
@@ -100,7 +103,7 @@ End
         assert_eq!(
             guard.get_audio_settings().drawable_ambient_frames,
             30,
-            "these controls preserve the current configured 30-frame retry policy"
+            "retail AudioSettings.ini TimeBetweenDrawableSounds = 1000 is 30 frames (GameAudio.cpp:93)"
         );
     }
     let object_rules = r#"
