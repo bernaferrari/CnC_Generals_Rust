@@ -268,10 +268,13 @@ fn held_interpreter_actions_change_victim_before_next_action_and_restore_owner()
             assert_eq!(observer.targets.len(), 6);
             assert_eq!(observer.targets[1], Some(near));
             assert_eq!(observer.targets[3], Some(far));
+            // C++ ScriptActions.cpp:4243-4262 resolves the button only through
+            // the unit's CommandSet; PolicyUnit authors none, so the re-enabled
+            // policy issues no new command and the far victim stays selected.
             assert_eq!(
                 observer.targets[5],
-                Some(near),
-                "after_action command-button dispatch reads the borrowed interpreter"
+                Some(far),
+                "a button outside the unit's CommandSet is a no-op"
             );
             assert!(engine.get_choose_victim_always_uses_normal());
         })
