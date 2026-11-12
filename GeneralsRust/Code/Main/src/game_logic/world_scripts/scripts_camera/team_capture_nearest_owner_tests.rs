@@ -1,6 +1,7 @@
 //! The capture-nearest action must command the receiving world's roster in
 //! the same action phase; no later TLS/team-tick drain is involved.
-use super::named_command_test_support::world;
+use super::named_command_test_support::world_with;
+use crate::fixture_content::FixtureObject;
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
@@ -19,10 +20,17 @@ fn install_roster(world: &mut GameLogic, name: &str, member: ObjectId) -> u32 {
     team.read().unwrap().get_id()
 }
 
+/// An authored infantry Object with no AIUpdate module; C++ builds every
+/// ThingTemplate from INI before NewGame.
+fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_with(
+        &[FixtureObject::new("CaptureNonAI").kind_of("INFANTRY").health(100.0)],
+        &[],
+        "",
+    )
+}
+
 fn add_non_ai_roster_member(world: &mut GameLogic, team_id: u32) -> ObjectId {
-    let mut template = ThingTemplate::new("CaptureNonAI");
-    template.add_kind_of(KindOf::Infantry).set_health(100.0);
-    world.templates.insert(template.name.clone(), template);
     let id = world
         .create_object_for_player("CaptureNonAI", 1, Vec3::new(300.0, 0.0, 300.0))
         .unwrap();
