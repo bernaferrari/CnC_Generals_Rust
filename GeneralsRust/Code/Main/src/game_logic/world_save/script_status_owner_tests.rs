@@ -139,9 +139,10 @@ fn main_script_and_map_flags_ignore_registered_foreign_core_id_and_survive_save(
             targetable.set_bool(well_known_keys::key_object_targetable(), false);
             receiving.apply_update_obj_values_from_map_properties(id, &targetable);
             assert!(!receiving.host_object(id).unwrap().is_script_targetable());
-            let restored = receiving.host_object_mut(id).unwrap();
-            restored.set_script_disabled(false);
-            restored.set_script_underpowered(false);
+            // Object::setScriptStatus dirties the receiving PartitionData.
+            let (restored, partition) = receiving.host_object_and_partition_mut(id).unwrap();
+            restored.set_script_disabled_with_partition_owner(false, partition);
+            restored.set_script_underpowered_with_partition_owner(false, partition);
             restored.set_status_masked(false);
             assert!(!restored.is_disabled());
             assert!(!restored.status.masked);
