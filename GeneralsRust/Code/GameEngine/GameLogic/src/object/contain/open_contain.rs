@@ -114,6 +114,7 @@ fn leftover_contain_sound_name_is_playable(name: &str) -> bool {
 
 /// C++ `OpenContain::doLoadSound` / `doUnloadSound` TheAudio add.
 fn leftover_play_contain_module_sound(
+    audio: Option<&TheAudio>,
     event_name: Option<&str>,
     object_id: ObjectID,
     now: UnsignedInt,
@@ -129,7 +130,7 @@ fn leftover_play_contain_module_sound(
     if object_id != 0 {
         event.set_object_id(object_id);
     }
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = audio {
         audio.add_audio_event(&event);
     }
     *last_frame = now;
@@ -137,6 +138,7 @@ fn leftover_play_contain_module_sound(
 
 /// C++ `OpenContain::doLoadSound` — module EnterSound once per frame.
 pub fn leftover_do_load_sound(
+    audio: Option<&TheAudio>,
     enter_sound: Option<&str>,
     object_id: ObjectID,
     load_sounds_enabled: bool,
@@ -146,41 +148,18 @@ pub fn leftover_do_load_sound(
     if !load_sounds_enabled {
         return;
     }
-    leftover_play_contain_module_sound(enter_sound, object_id, now, last_load_sound_frame);
+    leftover_play_contain_module_sound(audio, enter_sound, object_id, now, last_load_sound_frame);
 }
 
 /// C++ `OpenContain::doUnloadSound` — module ExitSound once per frame.
 pub fn leftover_do_unload_sound(
+    audio: Option<&TheAudio>,
     exit_sound: Option<&str>,
     object_id: ObjectID,
     now: UnsignedInt,
     last_unload_sound_frame: &mut UnsignedInt,
 ) {
-    leftover_play_contain_module_sound(exit_sound, object_id, now, last_unload_sound_frame);
-}
-
-/// Live host: C++ `doLoadSound` via leftover TheAudio, once per frame per container.
-/// `last_load_sound_frame` is `OpenContain::m_lastLoadSoundFrame` on the module
-/// (the host object mirrors the same field).
-pub fn leftover_play_container_enter_sound(
-    enter_sound: Option<&str>,
-    object_id: ObjectID,
-    now: UnsignedInt,
-    last_load_sound_frame: &mut UnsignedInt,
-) {
-    leftover_do_load_sound(enter_sound, object_id, true, now, last_load_sound_frame);
-}
-
-/// Live host: C++ `doUnloadSound` via leftover TheAudio, once per frame per container.
-/// `last_unload_sound_frame` is `OpenContain::m_lastUnloadSoundFrame` on the module
-/// (the host object mirrors the same field).
-pub fn leftover_play_container_exit_sound(
-    exit_sound: Option<&str>,
-    object_id: ObjectID,
-    now: UnsignedInt,
-    last_unload_sound_frame: &mut UnsignedInt,
-) {
-    leftover_do_unload_sound(exit_sound, object_id, now, last_unload_sound_frame);
+    leftover_play_contain_module_sound(audio, exit_sound, object_id, now, last_unload_sound_frame);
 }
 
 fn leftover_contain_module_sound_name(template_name: &str, enter: bool) -> Option<String> {
@@ -242,124 +221,6 @@ pub struct LeftoverScatterNearby {
     pub orientation: f32,
     pub min_radius: f32,
     pub max_radius: f32,
-}
-
-fn leftover_template_audio_event_name(
-    template_name: &str,
-    audio_type: game_engine::common::thing::thing_template::ThingTemplateAudioType,
-) -> Option<String> {
-    if template_name.is_empty() {
-        return None;
-    }
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    let event = tmpl.audio_event(audio_type)?;
-    let name = event.get_event_name();
-    leftover_contain_sound_name_is_playable(name).then(|| name.to_string())
-}
-
-/// Leftover ThingFactory Object `SoundEnter`.
-pub fn leftover_template_sound_enter(template_name: &str) -> Option<String> {
-    leftover_template_audio_event_name(
-        template_name,
-        game_engine::common::thing::thing_template::ThingTemplateAudioType::SoundEnter,
-    )
-}
-
-/// Leftover ThingFactory Object `SoundExit`.
-pub fn leftover_template_sound_exit(template_name: &str) -> Option<String> {
-    leftover_template_audio_event_name(
-        template_name,
-        game_engine::common::thing::thing_template::ThingTemplateAudioType::SoundExit,
-    )
-}
-
-/// Leftover ThingFactory Object `SoundFallingFromPlane`.
-pub fn leftover_template_sound_falling(template_name: &str) -> Option<String> {
-    leftover_template_audio_event_name(
-        template_name,
-        game_engine::common::thing::thing_template::ThingTemplateAudioType::SoundFalling,
-    )
-}
-
-fn leftover_play_template_audio_event(
-    event_name: Option<&str>,
-    object_id: ObjectID,
-) -> Option<String> {
-    let name = event_name.filter(|n| leftover_contain_sound_name_is_playable(n))?;
-    let mut event = AudioEventRts::new(name);
-    if object_id != 0 {
-        event.set_object_id(object_id);
-    }
-    if let Some(audio) = TheAudio::get() {
-        audio.add_audio_event(&event);
-    }
-    Some(name.to_string())
-}
-
-fn leftover_first_playable_template_sound(
-    leftover: Option<String>,
-    fallback: Option<&str>,
-) -> Option<String> {
-    leftover
-        .filter(|n| leftover_contain_sound_name_is_playable(n))
-        .or_else(|| {
-            fallback
-                .map(str::trim)
-                .filter(|n| leftover_contain_sound_name_is_playable(n))
-                .map(str::to_string)
-        })
-}
-
-/// C++ `OpenContain::onContaining` template `SoundEnter` (gated by load-sounds-enabled).
-pub fn leftover_play_on_containing_template_sounds(
-    container_template: &str,
-    container_id: ObjectID,
-    load_sounds_enabled: bool,
-    fallback_enter: Option<&str>,
-) -> Option<String> {
-    let played = if load_sounds_enabled {
-        leftover_play_template_audio_event(
-            leftover_first_playable_template_sound(
-                leftover_template_sound_enter(container_template),
-                fallback_enter,
-            )
-            .as_deref(),
-            container_id,
-        )
-    } else {
-        None
-    };
-    played
-}
-
-/// C++ `OpenContain::onRemoving` container `SoundExit` + rider `SoundFallingFromPlane`.
-pub fn leftover_play_on_removing_template_sounds(
-    container_template: &str,
-    container_id: ObjectID,
-    rider_template: &str,
-    rider_id: ObjectID,
-    fallback_exit: Option<&str>,
-    fallback_falling: Option<&str>,
-) -> (Option<String>, Option<String>) {
-    let played_exit = leftover_play_template_audio_event(
-        leftover_first_playable_template_sound(
-            leftover_template_sound_exit(container_template),
-            fallback_exit,
-        )
-        .as_deref(),
-        container_id,
-    );
-    let played_falling = leftover_play_template_audio_event(
-        leftover_first_playable_template_sound(
-            leftover_template_sound_falling(rider_template),
-            fallback_falling,
-        )
-        .as_deref(),
-        rider_id,
-    );
-    (played_exit, played_falling)
 }
 
 /// C++ `OpenContain::scatterToNearbyPosition` ring dest (leftover Z-up).
@@ -1641,9 +1502,10 @@ impl OpenContain {
                 if let Ok(owner) = owner_arc.try_read() {
                     let object_id = owner.get_id();
                     let mut event = owner.get_template().get_sound_enter();
+                    let audio = TheAudio::of_object(&owner);
                     drop(owner);
                     event.set_object_id(object_id);
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = audio {
                         audio.add_audio_event(&event);
                     }
                 }
@@ -1667,9 +1529,10 @@ impl OpenContain {
             if let Ok(owner) = owner_arc.try_read() {
                 let object_id = owner.get_id();
                 let mut event = owner.get_template().get_sound_exit();
+                let audio = TheAudio::of_object(&owner);
                 drop(owner);
                 event.set_object_id(object_id);
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = audio {
                     audio.add_audio_event(&event);
                 }
             }
@@ -1677,7 +1540,7 @@ impl OpenContain {
         if let Ok(obj_guard) = obj.try_read() {
             let mut falling = obj_guard.get_template().get_sound_falling();
             falling.set_object_id(obj_guard.get_id());
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = TheAudio::of_object(&obj_guard) {
                 audio.add_audio_event(&falling);
             }
         }
@@ -1714,7 +1577,9 @@ impl OpenContain {
             .as_ref()
             .map(|s| s.get_event_name().to_string());
         let now = self.logic_frame();
+        let audio = self.owning_world().map(|world| TheAudio::of(&world));
         leftover_do_load_sound(
+            audio.as_ref(),
             name.as_deref(),
             self.get_object_id(),
             self.load_sounds_enabled,
@@ -2724,7 +2589,9 @@ impl OpenContain {
             .as_ref()
             .map(|s| s.get_event_name().to_string());
         let now = self.logic_frame();
+        let audio = self.owning_world().map(|world| TheAudio::of(&world));
         leftover_do_unload_sound(
+            audio.as_ref(),
             name.as_deref(),
             self.get_object_id(),
             now,

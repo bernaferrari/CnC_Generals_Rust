@@ -776,7 +776,7 @@ impl ParachuteContain {
                         if let Some(sound) = &self.module_data.read().parachute_open_sound {
                             let mut event = sound.clone();
                             event.set_object_id(rider_guard.get_id());
-                            if let Some(audio) = TheAudio::get() {
+                            if let Some(audio) = TheAudio::of_object(&rider_guard) {
                                 audio.add_audio_event(&event);
                             }
                         }
