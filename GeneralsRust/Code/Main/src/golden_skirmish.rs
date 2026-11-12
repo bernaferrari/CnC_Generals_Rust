@@ -254,48 +254,25 @@ fn usa_base_position(logic: &GameLogic) -> Vec3 {
         .unwrap_or(Vec3::new(50.0, 0.0, 50.0))
 }
 
-fn is_hostile_map_object(o: &crate::game_logic::object::Object) -> bool {
-    if !o.is_alive() || o.team == Team::USA {
-        return false;
-    }
-    if o.team == Team::GLA || o.team == Team::China {
-        return true;
-    }
-    // Wave 830: some map spawns land as Neutral while templates are factional.
-    let n = o.template_name.to_ascii_lowercase();
-    n.contains("gla")
-        || n.contains("china")
-        || n.contains("china")
-        || n.starts_with("china")
-        || n.contains("terrorist")
-        || n.contains("rebel")
-        || n.contains("hijacker")
-        || n.contains("scud")
-        || n.contains("tunnelnetwork")
-        || n.contains("armsdealer")
-        || n.contains("blackmarket")
-        || n.contains("palace")
-        || n.contains("stinger")
-        || n.contains("demotrap")
-        || n.contains("quadcannon")
-        || n.contains("technical")
-        || n.contains("marauder")
-        || n.contains("scorpion")
-        || n.contains("battlemaster")
-        || n.contains("gatling")
-        || n.contains("inferno")
-        || n.contains("nuke")
-        || n.contains("nuclear")
+/// C++ `Object::getRelationship` / `Player::getRelationship` from the human
+/// (player 0): an object is hostile when its owner is ENEMIES to us. No
+/// template-name or faction-team guesses.
+fn enemy_of_human(logic: &GameLogic, o: &crate::game_logic::object::Object) -> bool {
+    o.owner_player_id.is_some_and(|owner| {
+        logic.player_relationship(0, owner) == gamelogic::common::Relationship::Enemies
+    })
+}
+
+fn is_hostile_map_object(logic: &GameLogic, o: &crate::game_logic::object::Object) -> bool {
+    o.is_alive() && enemy_of_human(logic, o)
 }
 
 fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
     // Prefer enemy command centers, then any enemy structure, then any living enemy.
-    // Wave 830: map objects may lack KindOf::Structure bits after load; also
-    // accept name/kind heuristics so primary_enemy is never None on Lone Eagle.
     let enemies: Vec<_> = logic
         .host_objects()
         .registered_values()
-        .filter(|o| is_hostile_map_object(o))
+        .filter(|o| is_hostile_map_object(logic, o))
         .collect();
     if enemies.is_empty() {
         return None;
@@ -305,20 +282,7 @@ fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
         if o.is_kind_of(KindOf::CommandCenter) {
             s += 1000;
         }
-        let n = o.template_name.to_ascii_lowercase();
-        if n.contains("commandcenter") || n.contains("command_center") || n.contains("cc") {
-            s += 800;
-        }
-        if o.is_kind_of(KindOf::Structure)
-            || n.contains("barracks")
-            || n.contains("palace")
-            || n.contains("armsdealer")
-            || n.contains("warfactory")
-            || n.contains("supply")
-            || n.contains("tunnel")
-            || n.contains("stinger")
-            || n.contains("base")
-        {
+        if o.is_kind_of(KindOf::Structure) {
             s += 200;
         }
         // Prefer tougher buildings as primary kill target.
@@ -332,7 +296,7 @@ fn find_any_enemy(logic: &GameLogic) -> Option<ObjectId> {
     logic
         .host_objects()
         .registered_values()
-        .find(|o| is_hostile_map_object(o))
+        .find(|o| is_hostile_map_object(logic, o))
         .map(|o| o.id)
 }
 
@@ -1022,7 +986,7 @@ fn fight_enemies_with_rangers(
             logic
                 .host_objects()
                 .registered_values()
-                .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+                .find(|o| is_hostile_map_object(logic, o))
                 .map(|o| o.id)
         });
     if let Some(tid) = initial_target {
@@ -1074,7 +1038,7 @@ fn fight_enemies_with_rangers(
         // finished a path toward one fixed goal.
         let focus_still_alive = focus_target
             .and_then(|id| logic.host_object(id))
-            .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+            .map(|o| is_hostile_map_object(logic, o))
             .unwrap_or(false);
         let tid = if focus_still_alive {
             focus_target.unwrap()
@@ -1082,7 +1046,7 @@ fn fight_enemies_with_rangers(
             let primary_alive = primary_target.filter(|id| {
                 logic
                     .host_object(*id)
-                    .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+                    .map(|o| is_hostile_map_object(logic, o))
                     .unwrap_or(false)
             });
             let chosen = primary_alive.or_else(|| {
@@ -1095,7 +1059,7 @@ fn fight_enemies_with_rangers(
                 logic
                     .host_objects()
                     .registered_values()
-                    .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+                    .filter(|o| is_hostile_map_object(logic, o))
                     .min_by(|a, b| {
                         let rank = |o: &crate::game_logic::Object| {
                             let structure = o.is_kind_of(KindOf::Structure)
@@ -1287,7 +1251,7 @@ fn fight_enemies_with_rangers(
         let enemy_damage_logged = dmg_events.iter().any(|e| {
             logic
                 .host_object(e.target)
-                .map(|o| o.team != Team::USA && o.team != Team::Neutral)
+                .map(|o| enemy_of_human(logic, o))
                 .unwrap_or(false)
                 && (e.amount > 0.0 || e.destroyed)
         });
@@ -1298,7 +1262,7 @@ fn fight_enemies_with_rangers(
             e.destroyed
                 && logic
                     .host_object(e.target)
-                    .map(|o| o.team != Team::USA && o.team != Team::Neutral)
+                    .map(|o| enemy_of_human(logic, o))
                     .unwrap_or(true)
         });
         if enemy_kill_logged {
@@ -1329,7 +1293,7 @@ fn fight_enemies_with_rangers(
         } else if !logic
             .host_objects()
             .registered_values()
-            .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+            .any(|o| is_hostile_map_object(logic, o))
         {
             combat_destroyed = true;
             any_damage = true;
@@ -1339,7 +1303,7 @@ fn fight_enemies_with_rangers(
             && !logic
                 .host_objects()
                 .registered_values()
-                .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+                .any(|o| is_hostile_map_object(logic, o))
         {
             break;
         }
@@ -1349,7 +1313,7 @@ fn fight_enemies_with_rangers(
     let enemies_left = logic
         .host_objects()
         .registered_values()
-        .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
+        .any(|o| is_hostile_map_object(logic, o));
     if !enemies_left {
         combat_destroyed = true;
     }
@@ -1379,7 +1343,7 @@ fn fight_enemies_with_rangers(
         e.amount > 0.0
             && logic
                 .host_object(e.target)
-                .map(|o| o.team != Team::USA && o.team != Team::Neutral)
+                .map(|o| enemy_of_human(logic, o))
                 .unwrap_or(false)
     }) {
         any_damage = true;
@@ -1612,7 +1576,7 @@ fn run_map_world_skirmish(
         .filter(|id| {
             logic
                 .host_object(*id)
-                .map(|o| is_hostile_map_object(o))
+                .map(|o| is_hostile_map_object(logic, o))
                 .unwrap_or(false)
         })
         .or_else(|| find_map_enemy_structure(logic))
@@ -1642,11 +1606,8 @@ fn run_map_world_skirmish(
     // progress (see fight_enemies_with_rangers). Rounds are 3-frame polls.
     let fight_rounds: u32 = 4_000;
     let cleanup_fight_rounds: u32 = 4_000;
-    // Pause AI rebuild + clear enemy combat targets so pure-march rangers are
-    // not racing production queues or structure auto-counterfire. set_ai_active
-    // alone left residual unit AI free to re-acquire and kill the squad.
-    // Also cancels enemy production and halts AI workers (see GameLogic).
-    logic.pause_skirmish_ai_and_clear_combat(1);
+    // The GLA skirmish AI stays live through the fight (C++ never pauses an
+    // AIPlayer for a skirmish): it rebuilds, produces and returns fire.
 
     // Combat starts from spawn via assign_unit_path / fight_enemies march.
     // Setup warp is opt-in only (GOLDEN_ALLOW_TELEPORT_PULL=1).
@@ -1745,7 +1706,7 @@ fn run_map_world_skirmish(
             .filter(|id| {
                 logic
                     .host_object(*id)
-                    .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+                    .map(|o| is_hostile_map_object(logic, o))
                     .unwrap_or(false)
             })
             .or_else(|| find_map_enemy_structure(logic))
@@ -1757,7 +1718,7 @@ fn run_map_world_skirmish(
             && !logic
                 .host_objects()
                 .registered_values()
-                .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
+                .any(|o| is_hostile_map_object(logic, o));
         combat_no_teleport_ok &= t;
         combat_realistic_speed_ok &= s;
         combat_store_damage_ok &= d;
@@ -1766,9 +1727,6 @@ fn run_map_world_skirmish(
         if all_cleared {
             break;
         }
-        // Re-assert pause between waves (combat clear may re-enable nothing, but
-        // residual production cancel stays honest if something requeued).
-        logic.pause_skirmish_ai_and_clear_combat(1);
     }
 
     // Cleanup: continue AttackObject without set_position hops unless opt-in.
@@ -1814,7 +1772,6 @@ fn run_map_world_skirmish(
             if find_map_enemy_structure(logic).is_none() {
                 break;
             }
-            logic.pause_skirmish_ai_and_clear_combat(1);
         }
 
         // Residual mop-up via destroy_object only when GOLDEN_ALLOW_MOPUP_DESTROY=1
@@ -1828,7 +1785,7 @@ fn run_map_world_skirmish(
         all_cleared = !logic
             .host_objects()
             .registered_values()
-            .any(|o| is_hostile_map_object(o));
+            .any(|o| is_hostile_map_object(logic, o));
     }
 
     let map_enemy_dead = {
@@ -1838,16 +1795,7 @@ fn run_map_world_skirmish(
         // Wave 830: also true if no living enemy command-center-class remains
         // (rebuild may allocate a new id; primary id alone is insufficient).
         let no_enemy_cc = !logic.host_objects().registered_values().any(|o| {
-            o.team != Team::USA
-                && o.team != Team::Neutral
-                && o.is_alive()
-                && (o.is_kind_of(KindOf::CommandCenter)
-                    || o.template_name
-                        .to_ascii_lowercase()
-                        .contains("commandcenter")
-                    || o.template_name
-                        .to_ascii_lowercase()
-                        .contains("command_center"))
+            is_hostile_map_object(logic, o) && o.is_kind_of(KindOf::CommandCenter)
         });
         id_dead || (primary_alive_before && no_enemy_cc)
     };
@@ -1855,8 +1803,6 @@ fn run_map_world_skirmish(
     let same_world_victory_ok =
         same_world_production_ok && primary_alive_before && map_enemy_dead && produced;
 
-    // Evaluate victory while AI remains paused so a residual rebuild in the
-    // trailing frames cannot re-spawn a CC after a proven clear.
     // C++ GameLogic::startNewGame sets VICTORY_NOBUILDINGS (GameLogic.cpp:1606):
     // a player is defeated once no KINDOF_MP_COUNT_FOR_VICTORY building is
     // left (VictoryConditions::hasSinglePlayerBeenDefeated); surviving units
@@ -1867,9 +1813,7 @@ fn run_map_world_skirmish(
             Some(VictoryCondition::Winner(0))
         );
 
-    // Trailing frames with AI re-enabled (honesty: AI was on for the slice).
-    // Victory already evaluated; do not let trailing rebuild flip the result.
-    logic.set_ai_active(1, true);
+    // Trailing frames (the AI was live for the whole slice).
     run_frames(logic, frames.max(1) as usize)?;
     let frames_advanced = logic.get_frame().saturating_sub(slice_start_frame).max(1);
 
