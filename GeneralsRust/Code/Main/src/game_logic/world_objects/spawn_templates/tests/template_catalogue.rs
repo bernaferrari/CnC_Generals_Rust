@@ -397,12 +397,13 @@ End
         )
         .expect("bunker");
     {
+        // WeaponSet::updateWeaponSet allocates only authored WeaponSet slots
+        // (WeaponSet.cpp updateWeaponSet); CAN_ATTACK invents no weapon.
         let bunker = logic.host_object(bunker_id).expect("bunker");
-        let weapon = bunker
-            .weapon
-            .as_ref()
-            .expect("kind-based default remains when Object INI has no AutoChoose NONE");
-        assert!((weapon.damage - 25.0).abs() < 0.01);
+        assert!(
+            bunker.weapon.is_none(),
+            "no authored WeaponSet means no weapon, not a kind-based default"
+        );
     }
 
     let spill_id = logic
