@@ -193,7 +193,23 @@ impl GameLogic {
 mod tests {
     use super::*;
     fn world() -> (GameLogic, ObjectId) {
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
         let mut world = GameLogic::new();
+        // AIPlayer::findDozer hands work only to a DOZER with an AIUpdate and
+        // its DozerAIInterface; both Objects are authored before NewGame
+        // (GameEngine.cpp:428-458).
+        admit_fixture_objects(
+            &mut world,
+            &[
+                FixtureObject::new("OwnedEconomyDozer")
+                    .kind_of("DOZER SELECTABLE")
+                    .walker()
+                    .dozer(),
+                FixtureObject::new("OwnedEconomyPad")
+                    .kind_of("STRUCTURE")
+                    .build_cost(100),
+            ],
+        );
         for (id, name) in [(1, "BuilderOwner"), (2, "PeerOwner")] {
             let mut player = Player::new(id, Team::USA, name, false);
             player.resources.supplies = 10_000;
@@ -207,15 +223,6 @@ mod tests {
                 .building_queue
                 .clear();
         }
-        let mut dozer = ThingTemplate::new("OwnedEconomyDozer");
-        dozer
-            .add_kind_of(KindOf::Dozer)
-            .add_kind_of(KindOf::Selectable);
-        dozer.locomotor_name = Some("BasicHumanLocomotor".into());
-        world.templates.insert(dozer.name.clone(), dozer);
-        let mut pad = ThingTemplate::new("OwnedEconomyPad");
-        pad.add_kind_of(KindOf::Structure).set_cost(100, 0);
-        world.templates.insert(pad.name.clone(), pad);
         let dozer = world
             .create_object_for_player("OwnedEconomyDozer", 1, Vec3::new(25.0, 0.0, 25.0))
             .unwrap();
