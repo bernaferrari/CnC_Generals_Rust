@@ -2038,6 +2038,19 @@ mod common_target_parity {
             force_idle_frames_count: 3,
             ..Default::default()
         });
+        // The victim jet authors JetAIUpdate LockonTime: JetAIUpdate::addTargeter
+        // keeps a targeter list only for a nonzero lockon (JetAIUpdate.cpp:1667).
+        logic
+            .admit_object_ini_sources([(
+                "idle-mood.ini".into(),
+                "Object Ranger\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\nEnd\n\
+                 Object TestStealthFighter\n KindOf = AIRCRAFT\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate AI\n LockonTime = 1000\n End\nEnd\n"
+                    .into(),
+            )])
+            .unwrap();
+        let jet_id = logic
+            .create_object("TestStealthFighter", Team::GLA, glam::Vec3::new(500.0, 0.0, 500.0))
+            .expect("jet");
         logic.frame = 50;
         let id = logic
             .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
@@ -2062,14 +2075,9 @@ mod common_target_parity {
             o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
             o.mood_attack_check_rate = 30;
             o.requested_victim_id = Some(ObjectId(4));
-            o.target = Some(ObjectId(9));
+            o.target = Some(jet_id);
             o.locomotor_goal_type = crate::game_logic::object::LocoGoalType::PositionOnPath;
         }
-        let jet_id = ObjectId(9);
-        logic.objects.insert(
-            jet_id,
-            Object::new(ThingTemplate::new("TestStealthFighter"), jet_id, Team::GLA),
-        );
         logic
             .host_object_mut(jet_id)
             .expect("jet")
@@ -2398,6 +2406,8 @@ mod common_target_parity {
         use crate::game_logic::PathfindingGrid;
         let mut heli_template = ThingTemplate::new("AmericaVehicleComanche");
         heli_template.add_kind_of(KindOf::Aircraft);
+        // Retail Comanche authors KindOf PRODUCED_AT_HELIPAD.
+        heli_template.add_kind_of(KindOf::ProducedAtHelipad);
         let mut heli = Object::new(heli_template, ObjectId(1), Team::USA);
         heli.loco_appearance = crate::game_logic::object::LocomotorAppearance::Thrust;
         heli.cur_locomotor_name = Some("ComancheLocomotor".into());
