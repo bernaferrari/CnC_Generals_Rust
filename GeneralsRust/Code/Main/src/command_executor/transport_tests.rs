@@ -39,6 +39,25 @@ fn contain_pair(logic: &mut GameLogic, transport: ObjectId, pax: ObjectId) {
     }
 }
 
+
+/// Retail AutoFerry modules (RailedTransportContain, RailedTransportAIUpdate,
+/// RailedTransportDockUpdate) and an infantry rider, admitted before NewGame.
+fn admit_railed_ferry(logic: &mut GameLogic, ferry: &str, rider: &str) {
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+    admit_fixture_objects(
+        logic,
+        &[
+            FixtureObject::new(ferry)
+                .kind_of("VEHICLE")
+                .health(400.0)
+                .module("Behavior = RailedTransportContain FixtureContain\n Slots = 10\n AllowInsideKindOf = INFANTRY VEHICLE\nEnd")
+                .module("Behavior = RailedTransportAIUpdate FixtureRailAI\n PathPrefixName = Ferry\nEnd")
+                .module("Behavior = RailedTransportDockUpdate FixtureRailDock\n NumberApproachPositions = 9\n PullInsideDuration = 4500\n PushOutsideDuration = 4500\n ToleranceDistance = 400.0\nEnd"),
+            FixtureObject::new(rider).kind_of("INFANTRY").health(100.0),
+        ],
+    );
+}
+
 #[test]
 fn execute_exit_unloads_only_the_selected_occupant() {
     // C++ GameLogicDispatch.cpp:978-1004 MSG_EXIT exits argument 0 occupant,
@@ -1510,21 +1529,7 @@ fn enter_from_container_does_not_yank_occupant() {
 #[test]
 fn railed_evacuate_uses_dock_unload_not_open_contain_walk() {
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("RAIL_F");
-    t.add_kind_of(KindOf::Vehicle);
-    t.set_health(400.0);
-    t.dock_kind = crate::game_logic::DockKind::RailedTransport;
-    t.railed_transport_slots = Some(10);
-    t.contain_module = ContainModuleMetadata {
-        kind: ContainModuleKind::RailedTransport,
-        slots: Some(10),
-        ..Default::default()
-    };
-    logic.templates.insert("RAIL_F".to_string(), t);
-    let mut p = ThingTemplate::new("RAIL_P");
-    p.add_kind_of(KindOf::Infantry);
-    p.set_health(100.0);
-    logic.templates.insert("RAIL_P".to_string(), p);
+    admit_railed_ferry(&mut logic, "RAIL_F", "RAIL_P");
     let ferry = logic
         .create_object("RAIL_F", Team::USA, Vec3::new(4.0, 0.0, 0.0))
         .unwrap();
@@ -1552,21 +1557,7 @@ fn railed_evacuate_uses_dock_unload_not_open_contain_walk() {
 #[test]
 fn railed_evacuate_refuses_while_in_transit() {
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("RAIL_FT");
-    t.add_kind_of(KindOf::Vehicle);
-    t.set_health(400.0);
-    t.dock_kind = crate::game_logic::DockKind::RailedTransport;
-    t.railed_transport_slots = Some(10);
-    t.contain_module = ContainModuleMetadata {
-        kind: ContainModuleKind::RailedTransport,
-        slots: Some(10),
-        ..Default::default()
-    };
-    logic.templates.insert("RAIL_FT".to_string(), t);
-    let mut p = ThingTemplate::new("RAIL_PT");
-    p.add_kind_of(KindOf::Infantry);
-    p.set_health(100.0);
-    logic.templates.insert("RAIL_PT".to_string(), p);
+    admit_railed_ferry(&mut logic, "RAIL_FT", "RAIL_PT");
     let ferry = logic
         .create_object("RAIL_FT", Team::USA, Vec3::new(4.0, 0.0, 0.0))
         .unwrap();
