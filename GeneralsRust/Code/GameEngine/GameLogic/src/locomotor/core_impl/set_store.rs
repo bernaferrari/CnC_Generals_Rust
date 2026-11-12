@@ -361,16 +361,5 @@ impl LocomotorStore {
 
 /// A world's locomotor store over its own authored `definitions`.
 pub fn new_locomotor_store(definitions: LocomotorDefinitions) -> Arc<LocomotorStore> {
-    let store = Arc::new(LocomotorStore::with_definitions(definitions));
-
-    // Fallback stubs used before / without INI. Retail names come from the
-    // world's own definitions.
-    store.register_template(LocomotorTemplate::new_infantry("Infantry".to_string()));
-    store.register_template(LocomotorTemplate::new_wheeled("Wheeled".to_string()));
-    store.register_template(LocomotorTemplate::new_tracked("Tracked".to_string()));
-    store.register_template(LocomotorTemplate::new_hover("Hover".to_string()));
-    store.register_template(LocomotorTemplate::new_thrust("Thrust".to_string()));
-    store.register_template(LocomotorTemplate::new_wings("Wings".to_string()));
-    store.register_template(LocomotorTemplate::new_climber("Climber".to_string()));
-    store
+    Arc::new(LocomotorStore::with_definitions(definitions))
 }

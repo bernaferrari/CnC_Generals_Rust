@@ -7,6 +7,16 @@ mod tests {
 
     struct RegisteredObjectCleanup(ObjectID);
 
+    /// A fixture-owned store holding the movement-class templates these
+    /// tests name; no world catalog invents them.
+    fn fixture_store() -> LocomotorStore {
+        let store = LocomotorStore::new();
+        store.register_template(LocomotorTemplate::new_infantry("Infantry".to_string()));
+        store.register_template(LocomotorTemplate::new_wheeled("Wheeled".to_string()));
+        store.register_template(LocomotorTemplate::new_hover("Hover".to_string()));
+        store
+    }
+
     #[test]
     fn other_motive_force_caps_acceleration_and_default_braking_to_speed_delta() {
         let mut template = LocomotorTemplate::new("SpeedDelta".into());
@@ -120,16 +130,16 @@ mod tests {
 
     #[test]
     fn test_locomotor_store() {
-        let template = crate::system::engine_stores::active_services().locomotor_store().get_template("Infantry");
+        let template = fixture_store().get_template("Infantry");
         assert!(template.is_some());
 
-        let loco = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Infantry");
+        let loco = fixture_store().create_locomotor("Infantry");
         assert!(loco.is_some());
     }
 
     #[test]
     fn locomotor_xfer_roundtrips_maintain_pos() {
-        let mut saved = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Hover").unwrap();
+        let mut saved = fixture_store().create_locomotor("Hover").unwrap();
         saved.maintain_pos = Coord3D::new(12.0, 34.0, 5.0);
 
         let mut bytes = Vec::new();
@@ -138,7 +148,7 @@ mod tests {
             saved.loco_xfer(&mut xfer).unwrap();
         }
 
-        let mut loaded = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Hover").unwrap();
+        let mut loaded = fixture_store().create_locomotor("Hover").unwrap();
         {
             let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
             loaded.loco_xfer(&mut xfer).unwrap();
@@ -149,9 +159,9 @@ mod tests {
 
     #[test]
     fn locomotor_set_xfer_roundtrips_current_locomotor_pointer() {
-        let store = std::sync::Arc::clone(crate::system::engine_stores::active_services().locomotor_store());
-        let infantry = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Infantry").unwrap();
-        let wheeled = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Wheeled").unwrap();
+        let store = std::sync::Arc::new(fixture_store());
+        let infantry = store.create_locomotor("Infantry").unwrap();
+        let wheeled = store.create_locomotor("Wheeled").unwrap();
         let mut saved = LocomotorSet::new();
         saved.add_locomotor("Infantry".to_string(), infantry);
         saved.add_locomotor("Wheeled".to_string(), wheeled);

@@ -50,6 +50,15 @@ pub struct TheAudio {
     world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
 }
 
+impl std::fmt::Debug for TheAudio {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TheAudio")
+            .field("common", &Arc::as_ptr(&self.common))
+            .field("bound_to_world", &self.world.is_some())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 static AUDIO_EVENTS_ENABLED_FOR_TESTS: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);

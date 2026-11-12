@@ -708,6 +708,8 @@ pub struct RailroadBehavior {
     whistle_sound: AudioEventRts,
     physics_handle: Arc<Mutex<RailroadPhysicsHandle>>,
     track: Option<Arc<Mutex<TrainTrack>>>,
+    /// C++ TheAudio of the engine this train was born into.
+    audio: Option<TheAudio>,
 }
 
 impl RailroadBehavior {
@@ -724,7 +726,9 @@ impl RailroadBehavior {
         let mut clickety_clack_sound = specific_data.clickety_clack_sound.clone();
         let mut whistle_sound = specific_data.whistle_sound.clone();
 
+        let mut audio = None;
         if let Ok(obj_guard) = object.read() {
+            audio = TheAudio::of_object(&obj_guard);
             let obj_id = obj_guard.get_id();
             running_sound.set_object_id(obj_id);
             clickety_clack_sound.set_object_id(obj_id);
@@ -778,6 +782,7 @@ impl RailroadBehavior {
             whistle_sound,
             physics_handle,
             track: None,
+            audio,
         })
     }
 
@@ -1596,7 +1601,7 @@ impl RailroadBehavior {
                                         if tp.is_station {
                                             self.conductor_state = ConductorState::ApplyBrakes;
                                             self.disembark = false;
-                                            if let Some(audio) = TheAudio::get() {
+                                            if let Some(audio) = self.audio.clone() {
                                                 audio.remove_audio_event(
                                                     self.running_sound.get_playing_handle(),
                                                 );
@@ -1604,7 +1609,7 @@ impl RailroadBehavior {
                                         } else if tp.is_disembark {
                                             self.conductor_state = ConductorState::ApplyBrakes;
                                             self.disembark = true;
-                                            if let Some(audio) = TheAudio::get() {
+                                            if let Some(audio) = self.audio.clone() {
                                                 audio.remove_audio_event(
                                                     self.running_sound.get_playing_handle(),
                                                 );
@@ -1619,7 +1624,7 @@ impl RailroadBehavior {
                                                 .most_recent_special_point_handle = handle_found;
                                             self.conductor_state = ConductorState::ApplyBrakes;
                                             self.disembark = false;
-                                            if let Some(audio) = TheAudio::get() {
+                                            if let Some(audio) = self.audio.clone() {
                                                 audio.remove_audio_event(
                                                     self.running_sound.get_playing_handle(),
                                                 );
@@ -1631,7 +1636,7 @@ impl RailroadBehavior {
                                 }
 
                                 if edge && !self.in_tunnel {
-                                    if let Some(audio) = TheAudio::get() {
+                                    if let Some(audio) = self.audio.clone() {
                                         let _ = audio.add_audio_event(&self.clickety_clack_sound);
                                     }
                                     if let Some(pos) =
@@ -1880,7 +1885,7 @@ impl RailroadBehavior {
 }
 impl Drop for RailroadBehavior {
     fn drop(&mut self) {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.audio.clone() {
             audio.remove_audio_event(self.running_sound.get_playing_handle());
         }
         if let Some(track) = self.track.take() {
@@ -1935,7 +1940,7 @@ impl UpdateModuleInterface for RailroadBehavior {
                     if self.wait_at_station_timer <= 0 && !self.held {
                         self.conductor_state = ConductorState::Accelerate;
                         self.conductor_pull_info.speed = 0.05 * self.conductor_pull_info.direction;
-                        if let Some(audio) = TheAudio::get() {
+                        if let Some(audio) = self.audio.clone() {
                             let handle = audio.add_audio_event(&self.running_sound);
                             self.running_sound.set_playing_handle(handle);
                         }
@@ -1943,7 +1948,7 @@ impl UpdateModuleInterface for RailroadBehavior {
                     } else if self.wait_at_station_timer
                         == (self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").wait_at_station_time / 4) as Int
                     {
-                        if let Some(audio) = TheAudio::get() {
+                        if let Some(audio) = self.audio.clone() {
                             let handle = audio.add_audio_event(&self.whistle_sound);
                             self.whistle_sound.set_playing_handle(handle);
                         }
@@ -1960,7 +1965,7 @@ impl UpdateModuleInterface for RailroadBehavior {
                         self.conductor_pull_info.speed = -data.speed_max;
                     }
 
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = self.audio.clone() {
                         if !self.running_sound.is_currently_playing() {
                             let handle = audio.add_audio_event(&self.running_sound);
                             self.running_sound.set_playing_handle(handle);
@@ -1978,7 +1983,7 @@ impl UpdateModuleInterface for RailroadBehavior {
         if self.is_lead_carriage {
             if self.conductor_state == ConductorState::Coast {
                 self.conductor_pull_info.speed *= self.module_data.read().downcast_ref::<RailroadBehaviorModuleData>().expect("RailroadBehavior data type").friction;
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = self.audio.clone() {
                     audio.remove_audio_event(self.running_sound.get_playing_handle());
                 }
             }
@@ -2102,7 +2107,7 @@ impl BehaviorModuleInterface for RailroadBehavior {
         &mut self,
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.audio.clone() {
             audio.remove_audio_event(self.running_sound.get_playing_handle());
         }
         self.track = None;
