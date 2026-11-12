@@ -159,9 +159,6 @@ fn supply_source_queries_use_canonical_map_player_identity() {
 
             gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
             assert!(gamelogic::object::registry::OBJECT_REGISTRY.is_empty());
-            let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("ScriptEngine");
-            let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-            let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
 
             fn world(identity: &str, attacked: bool) -> crate::game_logic::GameLogic {
                 let mut world = crate::game_logic::GameLogic::new();
@@ -196,6 +193,11 @@ fn supply_source_queries_use_canonical_map_player_identity() {
             first.inject_host_supply_source_queries();
             first.with_own_services(|| {
         let _players = PlayerListRestore::install(&["AuthoredSideA", "AuthoredSideB"]);
+        // Each game owns its ScriptEngine (C++ TheScriptEngine); its
+        // conditions read the receiving world's published host queries.
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("ScriptEngine");
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
     assert_eq!(
         gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("AuthoredSideA", 1_000),
         Some(true),
@@ -245,6 +247,11 @@ fn supply_source_queries_use_canonical_map_player_identity() {
             peer.inject_host_supply_source_queries();
             peer.with_own_services(|| {
                 let _players = PlayerListRestore::install(&["AuthoredSideA", "AuthoredSideB"]);
+                // Each game owns its ScriptEngine (C++ TheScriptEngine); its
+                // conditions read the receiving world's published host queries.
+                let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("ScriptEngine");
+                let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+                let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
                 assert_eq!(
                     gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_supply_source_safe("AuthoredSideA", 1_000),
                     None,
