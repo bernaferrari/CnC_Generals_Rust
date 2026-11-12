@@ -6,47 +6,26 @@ use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, run);
 }
-#[cfg(feature = "game_client")]
-fn admit_actual_multiplayer_palette() {
-    use game_engine::common::system::{archive_file_system::ArchiveFileSystem, install_layout};
-    use std::io::Read;
-    // Read the actual retail archive, not an unverified extracted INI copy.
-    // This owned reader neither publishes an asset service nor changes live mounts.
-    let archive = install_layout::zh_install_roots()
-        .into_iter()
-        .flat_map(|root| [root.clone(), root.join("Data")])
-        .find_map(|root| install_layout::find_file_case_insensitive(&root, "INIZH.big"))
-        .expect("licensed retail INIZH.big required");
-    let mut files = ArchiveFileSystem::new();
-    files.open_archive_file(archive.to_str().unwrap()).unwrap();
-    for path in [
-        "Data/INI/Default/Multiplayer.ini",
-        "Data/INI/Multiplayer.ini",
-    ] {
-        let mut text = String::new();
-        files
-            .open_file(path, 0)
-            .expect("retail Multiplayer.ini entry required")
-            .read_to_string(&mut text)
-            .unwrap();
-        let mut ini = game_engine::common::ini::INI::new();
-        ini.with_inline_source(&text, |ini| ini.parse_current_file())
-            .unwrap();
-    }
-    assert!(
-        game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|s| s.get_num_colors())
-            >= 2
-    );
-}
-
 fn map() -> String {
     crate::game_logic::script_loader::find_map_file("Lone Eagle")
         .expect("licensed Lone Eagle required")
         .to_string_lossy()
         .into_owned()
 }
+/// The definitions C++ GameEngine::init loads before any game
+/// (GameEngine.cpp:428-458): PlayerTemplate, Multiplayer palette, Object INI.
+fn retail_definitions() -> crate::parallel_harness::RetailWorldDefinitions {
+    crate::parallel_harness::RetailWorldDefinitions::load()
+        .expect("licensed retail boot definitions required")
+}
 fn retail_world() -> GameLogic {
+    retail_world_from(&retail_definitions())
+}
+fn retail_world_from(definitions: &crate::parallel_harness::RetailWorldDefinitions) -> GameLogic {
     let mut world = GameLogic::new();
+    world
+        .with_own_services_mut(|world| definitions.admit(world))
+        .expect("admit retail boot definitions");
     // Stand in for the real app's private retail GameData admission, not a
     // loader fallback or a process-global rule read.
     world.admit_camera_application_movement(
@@ -59,7 +38,13 @@ fn retail_world() -> GameLogic {
 fn world() -> GameLogic {
     let mut w = retail_world();
     let map = map();
-    apply_skirmish_config(&mut w, &golden_skirmish_config(&map)).unwrap();
+    // Slot template indices name the world's own PlayerTemplate catalog
+    // (GameLogic.cpp:1318-1319).
+    let config = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &w,
+        &golden_skirmish_config(&map),
+    );
+    apply_skirmish_config(&mut w, &config).unwrap();
     assert!(w.load_map(&map));
     w
 }
@@ -317,16 +302,18 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
     isolated(
         "actual_client_game_info_capture_survives_foreign_setup_and_original_archive_round_trip",
         || {
-            admit_actual_multiplayer_palette();
+            let boot = retail_definitions();
             let map = map();
             let lobby = std::sync::Arc::new(std::sync::Mutex::new(
                 game_client::gui::skirmish_setup::SkirmishSetup::default(),
             ));
-            game_engine::common::ini::ensure_player_templates_loaded();
-            let store = game_engine::common::rts::player_template::get_player_template_store();
-            let usa = store.find_template_index("FactionAmerica").unwrap() as i32;
-            let gla = store.find_template_index("FactionGLA").unwrap() as i32;
-            drop(store);
+            // The lobby selects by index in the receiving world's PlayerTemplate
+            // catalog and colors from its Multiplayer palette.
+            let mut source = retail_world_from(&boot);
+            let catalog = source.player_template_definitions.as_ref().unwrap();
+            let usa = catalog.find_template_index("FactionAmerica").unwrap() as i32;
+            let gla = catalog.find_template_index("FactionGLA").unwrap() as i32;
+            let palette = std::sync::Arc::clone(source.multiplayer_definitions.as_ref().unwrap());
             let author = |gi: &mut game_client::GameInfo| {
                 gi.set_map(map.clone());
                 gi.set_seed(317);
@@ -354,10 +341,10 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 author(gi);
             }
             let before_start =
-                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).unwrap();
+                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &palette).unwrap();
             let observed = &before_start.source_game_info.as_ref().unwrap().0;
             assert!(!observed.in_game && !observed.in_progress);
-            let mut native_pre_start = GameLogic::new();
+            let mut native_pre_start = retail_world_from(&boot);
             apply_skirmish_config(&mut native_pre_start, &before_start).unwrap();
             let initial = native_pre_start
                 .initial_skirmish_admission
@@ -381,20 +368,20 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 info.set_local_ip(1);
                 info.start_game(0);
             }
-            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).unwrap();
+            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &palette).unwrap();
             let observed = &config.source_game_info.as_ref().unwrap().0;
             assert!(observed.in_game && observed.in_progress);
             // A real native alias override differs from the raw GameInfo path.
             // Exact-agreement is intentionally conservative: keep this valid
             // typed input but do not claim that raw path as original currentMap.
             let overridden =
-                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), Some("Lone Eagle"), &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone))
+                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), Some("Lone Eagle"), &palette)
                     .unwrap();
             assert_ne!(
                 overridden.map,
                 overridden.source_game_info.as_ref().unwrap().0.map_name
             );
-            let mut overridden_world = GameLogic::new();
+            let mut overridden_world = retail_world_from(&boot);
             apply_skirmish_config(&mut overridden_world, &overridden).unwrap();
             let overridden_initial = overridden_world
                 .initial_skirmish_admission
@@ -405,7 +392,6 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             assert!(overridden_initial.local_slot_from_client);
             assert_eq!(overridden_initial.local_slot, Some(0));
             drop(overridden_world);
-            let mut source = retail_world();
             apply_skirmish_config(&mut source, &config).unwrap();
             assert!(source.load_map(&map));
             let initial = source.initial_skirmish_admission.as_ref().unwrap().clone();
@@ -598,16 +584,18 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
     isolated(
         "actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_authority",
         || {
-            admit_actual_multiplayer_palette();
+            let boot = retail_definitions();
             let map = map();
             let lobby = std::sync::Arc::new(std::sync::Mutex::new(
                 game_client::gui::skirmish_setup::SkirmishSetup::default(),
             ));
-            game_engine::common::ini::ensure_player_templates_loaded();
-            let store = game_engine::common::rts::player_template::get_player_template_store();
-            let usa = store.find_template_index("FactionAmerica").unwrap() as i32;
-            let gla = store.find_template_index("FactionGLA").unwrap() as i32;
-            drop(store);
+            // The lobby selects by index in the receiving world's PlayerTemplate
+            // catalog and colors from its Multiplayer palette.
+            let mut source = retail_world_from(&boot);
+            let catalog = source.player_template_definitions.as_ref().unwrap();
+            let usa = catalog.find_template_index("FactionAmerica").unwrap() as i32;
+            let gla = catalog.find_template_index("FactionGLA").unwrap() as i32;
+            let palette = std::sync::Arc::clone(source.multiplayer_definitions.as_ref().unwrap());
             {
                 let setup_handle = std::sync::Arc::clone(&lobby);
 
@@ -635,12 +623,11 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                 gi.set_in_game();
                 assert_eq!(gi.get_local_slot_num(), 1);
             }
-            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).unwrap();
+            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &palette).unwrap();
             let raw = config.source_game_info.as_ref().unwrap().0.clone();
             assert_eq!(config.source_game_info.as_ref().unwrap().1, 1);
             assert_eq!(raw.slots[0].color, -1);
             assert_eq!(raw.slots[1].color, -1);
-            let mut source = retail_world();
             apply_skirmish_config(&mut source, &config).unwrap();
             // Random is an authored selection request, not the converter's
             // provisional RGB. Save continuation must retain the value actually
@@ -666,16 +653,14 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                         "initial admission retains actual selected current color"
                     );
                     assert!(
-                        game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
-                            |settings| settings.color_definitions.iter().any(|definition| {
-                                let packed = definition.get_color();
-                                (
-                                    ((packed >> 16) & 255) as u8,
-                                    ((packed >> 8) & 255) as u8,
-                                    (packed & 255) as u8,
-                                ) == player.color_rgb
-                            })
-                        ),
+                        palette.color_definitions.iter().any(|definition| {
+                            let packed = definition.get_color();
+                            (
+                                ((packed >> 16) & 255) as u8,
+                                ((packed >> 8) & 255) as u8,
+                                (packed & 255) as u8,
+                            ) == player.color_rgb
+                        }),
                         "Random admission must choose an authored palette color"
                     );
                     (id, player.color_rgb, player.color_night_rgb)
