@@ -2926,10 +2926,12 @@ mod group_lane_tests {
                 logic.pathfinding_height_samples.as_ref(),
                 &logic.pathfinding_system.grid,
             );
+            // Raw inserts skip Object::setPosition / AI idle registration;
+            // deliver those C++ Pathfinder::updatePos/updateGoal events.
             logic
                 .pathfinding_system
                 .grid
-                .update_dynamic_obstacles(logic.objects.read(), &ground_source)
+                .update_dynamic_obstacles_after_creation_events(logic.objects.read(), &ground_source)
         });
         logic
     }
