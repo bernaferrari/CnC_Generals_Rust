@@ -52,11 +52,12 @@ fn change(world: &mut GameLogic, id: ObjectId, state: BodyDamageType) {
 }
 
 fn query(world: &GameLogic) -> (bool, bool) {
-    // Exercise the actual production snapshot admission plus condition reads.
+    // Exercise the actual production snapshot admission plus condition reads,
+    // through the same world-owned services the snapshot was published to.
     world.inject_host_script_query_snapshot();
     (
-        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_broken("Crossing"),
-        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_repaired("Crossing"),
+        gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("Crossing"),
+        gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("Crossing"),
     )
 }
 
@@ -139,12 +140,12 @@ fn one_bridge_damage_update_does_not_erase_another_bridge_break() {
             change(&mut world, first_id, BodyDamageType::Rubble);
             change(&mut world, second_id, BodyDamageType::Damaged);
             assert_eq!(query(&world), (true, false));
-            assert!(!gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_broken("OtherCrossing"));
-            assert!(!gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_repaired("OtherCrossing"));
+            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("OtherCrossing"));
+            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("OtherCrossing"));
             world.update_owned_water();
             assert_eq!(query(&world), (false, false));
-            assert!(!gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_broken("OtherCrossing"));
-            assert!(!gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_repaired("OtherCrossing"));
+            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("OtherCrossing"));
+            assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("OtherCrossing"));
         },
     );
 }
@@ -252,13 +253,13 @@ fn real_engine_bridge_conditions_read_the_driving_world_instead_of_foreign_snaps
             assert_eq!(id, other_id);
             change(&mut second, other_id, BodyDamageType::Rubble);
             second.inject_host_script_query_snapshot();
-            assert!(gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_broken("Crossing"));
+            assert!(gamelogic::scripting::HostScriptQuery::of(&second.world_services).host_bridge_broken("Crossing"));
             assert!(!execute_bridge_condition(&mut first, "Crossing", false));
             assert!(execute_bridge_condition(&mut second, "Crossing", false));
 
             // A published false is equally stale when this owner has changed.
             first.inject_host_script_query_snapshot();
-            assert!(!gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_broken("Crossing"));
+            assert!(!gamelogic::scripting::HostScriptQuery::of(&first.world_services).host_bridge_broken("Crossing"));
             assert!(execute_bridge_condition(&mut second, "Crossing", false));
             change(&mut second, other_id, BodyDamageType::Pristine);
             assert!(execute_bridge_condition(&mut second, "Crossing", true));
@@ -281,11 +282,11 @@ fn real_engine_missing_bridge_is_authoritative_even_when_snapshot_has_same_id() 
             first.host_object_mut(id).unwrap().name = "LocalCrossing".into();
             change(&mut second, other_id, BodyDamageType::Rubble);
             second.inject_host_script_query_snapshot();
-            assert!(gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_broken("Crossing"));
+            assert!(gamelogic::scripting::HostScriptQuery::of(&second.world_services).host_bridge_broken("Crossing"));
             assert!(!execute_bridge_condition(&mut first, "Crossing", false));
             change(&mut second, other_id, BodyDamageType::Pristine);
             second.inject_host_script_query_snapshot();
-            assert!(gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_bridge_repaired("Crossing"));
+            assert!(gamelogic::scripting::HostScriptQuery::of(&second.world_services).host_bridge_repaired("Crossing"));
             assert!(!execute_bridge_condition(&mut first, "Crossing", true));
         },
     );
