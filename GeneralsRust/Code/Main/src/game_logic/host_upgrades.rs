@@ -1145,64 +1145,6 @@ impl HostUpgradeRegistry {
     }
 }
 
-/// Template names that receive FlashBang secondary when research completes.
-pub fn is_flashbang_unit_template(name: &str) -> bool {
-    matches!(
-        name,
-        "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" | "TestRanger" | "TestInfantry"
-    ) || {
-        let n = name.to_ascii_lowercase();
-        n.contains("ranger") && !n.contains("humvee")
-    }
-}
-
-/// Template names that receive TOW secondary when research completes.
-pub fn is_tow_unit_template(name: &str) -> bool {
-    matches!(name, "USA_Humvee" | "AmericaVehicleHumvee" | "GoldenHumvee")
-        || name.to_ascii_lowercase().contains("humvee")
-}
-
-/// Template names that receive Neutron Shell secondary when research completes.
-pub fn is_neutron_shell_unit_template(name: &str) -> bool {
-    crate::game_logic::host_neutron_shell::is_nuke_cannon_template(name)
-}
-
-/// Template names that receive Capture upgrade tag (observability residual).
-pub fn is_capture_capable_infantry_template(name: &str) -> bool {
-    if name.to_ascii_lowercase().contains("worker")
-        || name.to_ascii_lowercase().contains("dozer")
-        || name.to_ascii_lowercase().contains("pilot")
-    {
-        return false;
-    }
-    matches!(
-        name,
-        "USA_Ranger"
-            | "GoldenRanger"
-            | "AmericaInfantryRanger"
-            | "GLA_Soldier"
-            | "GLA_Rebel"
-            | "GLAInfantryRebel"
-            | "China_RedGuard"
-            | "China_Soldier"
-            | "ChinaInfantryRedguard"
-            | "TestInfantry"
-            | "TestRanger"
-    ) || {
-        let n = name.to_ascii_lowercase();
-        n.contains("ranger")
-            || n.contains("rebel")
-            || n.contains("redguard")
-            || n.contains("infantry")
-    }
-}
-
-/// Supply-center templates for Supply Lines residual tag.
-pub fn is_supply_center_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("supplycenter") || n.contains("supply_center") || name == "AmericaSupplyCenter"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
