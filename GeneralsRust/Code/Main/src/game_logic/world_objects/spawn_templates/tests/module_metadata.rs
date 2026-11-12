@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[test]
 fn authored_produced_at_helipad_kindof_survives_object_ini_parsing() {
     // hq-mzd8i: C++ KINDOF_PRODUCED_AT_HELIPAD is an authored token, not a
     // basename heuristic. Tagged custom names keep the bit; aircraft without
