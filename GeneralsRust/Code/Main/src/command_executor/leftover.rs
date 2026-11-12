@@ -238,7 +238,12 @@ impl<'a> CommandExecutor<'a> {
                 Some(target) => (
                     target.get_position(),
                     target.is_alive(),
-                    target.is_kind_of(KindOf::Harvestable)
+                    // C++ ActionManager::canDockAt: a collector docks at an
+                    // object running a SupplyWarehouseDockUpdate (retail
+                    // SupplyDock authors SUPPLY_SOURCE, not RESOURCE).
+                    target.thing().template.dock_kind
+                        == crate::game_logic::DockKind::SupplyWarehouse
+                        || target.is_kind_of(KindOf::Harvestable)
                         || target.is_kind_of(KindOf::Resource)
                         || target.object_type == crate::game_logic::ObjectType::Supply,
                 ),
