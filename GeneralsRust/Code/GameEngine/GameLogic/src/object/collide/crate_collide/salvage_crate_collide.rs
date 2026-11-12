@@ -601,12 +601,12 @@ impl SalvageCrateCollide {
             return Ok(());
         };
 
-        let id = other
+        let other = other
             .read()
-            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
-            .get_id();
-        if let Some(audio) = TheAudio::get() {
-            let mut audio_event = TheAudio::get_misc_audio().crate_salvage.clone();
+            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
+        let id = other.get_id();
+        if let Some(audio) = TheAudio::of_object(&other) {
+            let mut audio_event = audio.misc_audio().crate_salvage.clone();
             audio_event.set_object_id(id);
             audio.add_audio_event(&audio_event);
         }
@@ -618,12 +618,12 @@ impl SalvageCrateCollide {
             return Ok(());
         };
 
-        let id = other
+        let other = other
             .read()
-            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
-            .get_id();
-        if let Some(audio) = TheAudio::get() {
-            let mut audio_event = TheAudio::get_misc_audio().crate_money.clone();
+            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
+        let id = other.get_id();
+        if let Some(audio) = TheAudio::of_object(&other) {
+            let mut audio_event = audio.misc_audio().crate_money.clone();
             audio_event.set_object_id(id);
             audio.add_audio_event(&audio_event);
         }

@@ -337,26 +337,23 @@ impl CrateCollide {
         // 2. Apply visual feedback (flashing, etc.)
         // 3. Handle special cases like fake buildings
 
-        let mut sound_to_play = match victim_type {
-            SabotageVictimType::FakeBuilding => {
-                // No additional feedback needed
-                return Ok(());
-            }
-            SabotageVictimType::CommandCenter | SabotageVictimType::Superweapon => {
-                TheAudio::get_misc_audio()
-                    .sabotage_reset_timer_building
-                    .clone()
-            }
-            SabotageVictimType::DropZone | SabotageVictimType::SupplyCenter => {
-                TheAudio::get_misc_audio().money_withdraw.clone()
-            }
-            _ => TheAudio::get_misc_audio()
-                .sabotage_shut_down_building
-                .clone(),
-        };
-        let position = other.get_position();
-        sound_to_play.set_position(&(position.x, position.y, position.z));
-        if let Some(audio) = TheAudio::get() {
+        if matches!(victim_type, SabotageVictimType::FakeBuilding) {
+            // No additional feedback needed
+            return Ok(());
+        }
+        if let Some(audio) = other.owning_audio() {
+            let misc_audio = audio.misc_audio();
+            let mut sound_to_play = match victim_type {
+                SabotageVictimType::CommandCenter | SabotageVictimType::Superweapon => {
+                    misc_audio.sabotage_reset_timer_building.clone()
+                }
+                SabotageVictimType::DropZone | SabotageVictimType::SupplyCenter => {
+                    misc_audio.money_withdraw.clone()
+                }
+                _ => misc_audio.sabotage_shut_down_building.clone(),
+            };
+            let position = other.get_position();
+            sound_to_play.set_position(&(position.x, position.y, position.z));
             audio.add_audio_event(&sound_to_play);
         }
 

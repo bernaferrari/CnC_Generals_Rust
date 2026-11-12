@@ -226,8 +226,8 @@ impl ShroudCrateCollide {
         }
         drop(shroud_manager);
 
-        if let Some(audio) = TheAudio::get() {
-            let mut event = TheAudio::get_misc_audio().crate_shroud.clone();
+        if let Some(audio) = other.owning_audio() {
+            let mut event = audio.misc_audio().crate_shroud.clone();
             event.object_id = other.get_id();
             audio.add_misc_audio_event(&event);
         }

@@ -565,17 +565,20 @@ impl MoneyCrateCollide {
     }
 
     fn play_money_audio(&self, other: &dyn GameObject) -> Result<(), CollisionError> {
-        let Some(audio) = TheAudio::get() else {
+        let Some(audio) = other.owning_audio() else {
             return Ok(());
         };
 
-        let audio_event = Self::money_audio_event_for(other);
+        let audio_event = Self::money_audio_event_for(&audio, other);
         audio.add_audio_event(&audio_event);
         Ok(())
     }
 
-    fn money_audio_event_for(other: &dyn GameObject) -> crate::common::audio::AudioEventRts {
-        let mut audio_event = TheAudio::get_misc_audio().crate_money.clone();
+    fn money_audio_event_for(
+        audio: &TheAudio,
+        other: &dyn GameObject,
+    ) -> crate::common::audio::AudioEventRts {
+        let mut audio_event = audio.misc_audio().crate_money.clone();
         audio_event.set_object_id(other.get_id());
         audio_event
     }
@@ -698,7 +701,8 @@ mod tests {
     fn money_audio_binds_to_collector_object_like_cpp() {
         let collector = Arc::new(RwLock::new(Object::new_test(12_345, 100.0)));
 
-        let event = MoneyCrateCollide::money_audio_event_for(&collector);
+        let world = crate::system::engine_stores::new_world_services();
+        let event = MoneyCrateCollide::money_audio_event_for(&TheAudio::of(&world), &collector);
 
         assert_eq!(event.object_id, 12_345);
         assert!(event.position.is_none());

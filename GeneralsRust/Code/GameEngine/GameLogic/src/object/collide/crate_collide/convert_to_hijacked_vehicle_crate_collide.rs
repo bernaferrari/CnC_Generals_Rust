@@ -320,6 +320,7 @@ impl ConvertToHijackedVehicleCrateCollide {
         let hijacker = self.base.get_object().map_err(GameError::from)?;
         let hijacker_lock = hijacker.read().map_err(|_| GameError::LockError)?;
         let hijacker_id = hijacker_lock.get_id();
+        let hijacker_audio = TheAudio::of_object(&hijacker_lock);
         let other_id = other.read().map_err(|_| GameError::LockError)?.get_id();
 
         // Require AI goal match to avoid accidental hijack.
@@ -383,7 +384,7 @@ impl ConvertToHijackedVehicleCrateCollide {
         }
 
         // Play hijack driver audio (event name from C++ data).
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = hijacker_audio {
             let mut event = crate::common::audio::AudioEventRts::new("HijackDriver");
             event.set_object_id(hijacker_id);
             audio.add_audio_event(&event);

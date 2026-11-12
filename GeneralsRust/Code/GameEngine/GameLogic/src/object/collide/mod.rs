@@ -285,6 +285,13 @@ pub trait GameObject: Send + Sync {
     fn as_object_handle(&self) -> Option<Arc<RwLock<Object>>> {
         None
     }
+
+    /// C++ `TheAudio` of the GameEngine that owns this Object.
+    fn owning_audio(&self) -> Option<crate::helpers::TheAudio> {
+        let handle = self.as_object_handle()?;
+        let guard = handle.read().ok()?;
+        crate::helpers::TheAudio::of_object(&guard)
+    }
 }
 
 impl GameObject for Arc<RwLock<Object>> {

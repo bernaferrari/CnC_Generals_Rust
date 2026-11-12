@@ -257,13 +257,14 @@ impl HealCrateCollide {
             return Ok(false);
         }
 
-        self.play_heal_audio(&other.get_position());
+        self.play_heal_audio(other);
         Ok(true)
     }
 
-    fn play_heal_audio(&self, position: &Coord3D) {
-        if let Some(audio) = TheAudio::get() {
-            let mut audio_event = TheAudio::get_misc_audio().crate_heal.clone();
+    fn play_heal_audio(&self, other: &dyn GameObject) {
+        if let Some(audio) = other.owning_audio() {
+            let position = other.get_position();
+            let mut audio_event = audio.misc_audio().crate_heal.clone();
             audio_event.set_position(&(position.x, position.y, position.z));
             audio.add_audio_event(&audio_event);
         }

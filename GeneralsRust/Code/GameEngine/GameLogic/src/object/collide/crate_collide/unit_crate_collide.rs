@@ -196,8 +196,8 @@ impl UnitCrateCollide {
         }
 
         // C++ parity: use MiscAudio::m_crateFreeUnit and bind to picker object ID.
-        if let Some(audio) = TheAudio::get() {
-            let mut audio_event = TheAudio::get_misc_audio().crate_free_unit.clone();
+        if let Some(audio) = other.owning_audio() {
+            let mut audio_event = audio.misc_audio().crate_free_unit.clone();
             audio_event.set_object_id(other.get_id());
             audio.add_audio_event(&audio_event);
         }
