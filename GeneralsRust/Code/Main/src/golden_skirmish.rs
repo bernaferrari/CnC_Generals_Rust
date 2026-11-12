@@ -349,10 +349,15 @@ fn find_legal_build_site_near(
     // Dense ring/grid residual — Lone Eagle CC pads often fail LBC_NOT_FLAT_ENOUGH
     // on the first few offsets; walk a wider flat search.
     let mut candidates: Vec<Vec3> = Vec::new();
-    for ring in 1..=8 {
+    // C++ checks the pad at the template's PlacementViewAngle (retail USA
+    // structures -45 deg), so a 110x90 Barracks box rotated next to the
+    // 120x140 Command Center and its 25-wide factory exit overlaps every pad
+    // within ~145 wu (true LBC_OBJECTS_IN_THE_WAY). Walk out far enough to
+    // reach genuinely clear ground; every pad still goes through the real LBC.
+    for ring in 1..=18 {
         let d = 25.0 + ring as f32 * 15.0;
-        for i in 0..12 {
-            let a = (i as f32) * std::f32::consts::TAU / 12.0;
+        for i in 0..16 {
+            let a = (i as f32) * std::f32::consts::TAU / 16.0;
             candidates.push(Vec3::new(a.cos() * d, 0.0, a.sin() * d));
         }
     }
@@ -575,7 +580,9 @@ fn existing_or_dozer_built(
         CommandType::DozerConstruct {
             template_name: name.clone(),
             location: site,
-            orientation: 0.0,
+            // C++ InGameUI arms placement at ThingTemplate::getPlacementViewAngle
+            // and DozerConstruct carries that angle; the pad was validated at it.
+            orientation: logic.placement_preview_facts(&name).0,
         },
         vec![dozer],
     ));
