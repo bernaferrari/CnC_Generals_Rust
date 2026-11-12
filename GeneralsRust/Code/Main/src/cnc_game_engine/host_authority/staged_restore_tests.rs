@@ -377,11 +377,39 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 19,
             );
 
-            let restored = CnCGameEngine::stage_saved_world_for_restore(
+            // A client save carries CHUNK_ParticleSystem (GameState.cpp
+            // snapshot blocks); the receiving particle manager is the detached
+            // native presentation owner the application stages with.
+            #[cfg(feature = "game_client")]
+            let (_gpu, mut native_graphics, mut native_pipeline) = staged_native_fixture_gpu();
+            let mut restored_native =
+                super::super::map_native_admission::NativeMapCandidate::with_epoch(904);
+            #[cfg(feature = "game_client")]
+            let mut restored_retirement =
+                game_client::core::game_client::NativeParticleRetirementService;
+            #[cfg(feature = "game_client")]
+            let mut restored_attempt = restored_native
+                .attempt(
+                    native_pipeline.borrow_native_draw_services(),
+                    &mut native_graphics,
+                    0,
+                    super::super::native_view_effects::receiving_native_drawable_policy(),
+                    &mut restored_retirement,
+                    None,
+                )
+                .unwrap();
+            #[cfg(feature = "game_client")]
+            let restored_receiver =
+                Some(&mut restored_attempt as &mut dyn crate::game_logic::NativeMapAdmission);
+            #[cfg(not(feature = "game_client"))]
+            let restored_receiver = None;
+            let mut restored = CnCGameEngine::stage_saved_world_for_restore_with_native(
                 &mut saves,
                 "valid_map",
                 GameMode::Shell,
-                std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
+                crate::save_load::CampaignMapContext::default().with_base_victory_rules(
+                    std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
+                ),
                 RestoreTemplateCatalog {
                     random_source: &source.session_view,
                     templates: &catalog,
@@ -422,8 +450,12 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 source.session_view.camera.movement_policy,
                 source.session_view.camera.input_policy,
                 &source.world_services,
+                restored_receiver,
             )
             .expect("saved map should load before restore");
+            #[cfg(feature = "game_client")]
+            drop(restored_attempt);
+            restored.native_map = restored_native;
             let restored_probe = restored
                 .logic
                 .upgrade_definitions
@@ -503,6 +535,12 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
             assert_eq!(
                 restored_ai.base_center,
                 Some(glam::Vec3::new(47.0, 0.0, -31.0))
+            );
+            #[cfg(feature = "game_client")]
+            discard_staged_native_fixture(
+                &mut restored.native_map,
+                &mut native_graphics,
+                &mut native_pipeline,
             );
         },
     );
