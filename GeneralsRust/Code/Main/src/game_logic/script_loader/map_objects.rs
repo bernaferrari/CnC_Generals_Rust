@@ -501,14 +501,17 @@ pub fn parse_objects_list_for_settings_from_chunky(
             return Ok(());
         }
 
-        if ver < 2 || reader.remaining() == 0 {
+        // C++ ParseObjectDataChunk reads the Dict only from K_OBJECTS_VERSION_2;
+        // an object without one is still a MapObject placement.
+        let properties = if ver >= 2 && reader.remaining() > 0 {
+            parse_chunk_dict_typed(&mut reader, &chunky.toc)?
+        } else {
             if camera.is_none() && template.eq_ignore_ascii_case("InitialCameraPosition") {
                 camera = Some(Coord3D::new(x, y, z));
+                return Ok(());
             }
-            return Ok(());
-        }
-
-        let properties = parse_chunk_dict_typed(&mut reader, &chunky.toc)?;
+            Dict::new()
+        };
         if properties.get_type(keys.waypoint_id).is_some() {
             let waypoint_id = if properties.get_type(keys.waypoint_id) == Some(DictType::Int) {
                 properties.get_int(keys.waypoint_id).max(0) as u32
