@@ -402,7 +402,7 @@ pub use super::host_stealth_fighter::{
     AMERICA_JET_STEALTH_FIGHTER, HostStealthFighterRegistry, SCIENCE_STEALTH_FIGHTER,
     STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_MIN_RANGE, STEALTH_FIGHTER_PRIMARY_RADIUS,
     STEALTH_FIGHTER_RANGE, STEALTH_JET_MISSILE_WEAPON as STEALTH_FIGHTER_MISSILE_WEAPON,
-    USA_STEALTH_FIGHTER, is_stealth_fighter_science, is_stealth_fighter_template,
+    USA_STEALTH_FIGHTER, is_stealth_fighter_science,
     player_may_produce_stealth_aircraft, requires_stealth_fighter_science,
     stealth_fighter_damage_at,
 };
