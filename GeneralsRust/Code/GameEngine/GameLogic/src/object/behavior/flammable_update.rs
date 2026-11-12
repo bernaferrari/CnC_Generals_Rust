@@ -156,6 +156,8 @@ const FLAMMABLE_UPDATE_FIELDS: &[FieldParse<FlammableUpdateModuleData>] = &[
 ];
 
 pub struct FlammableUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<crate::helpers::TheAudio>,
     object_id: ObjectID,
     owner: Weak<RwLock<GameObject>>,
     module_data: game_engine::common::thing::module::ModuleDataHandle,
@@ -184,6 +186,7 @@ impl FlammableUpdate {
             .ok_or("Invalid module data")?.flame_damage_limit;
 
         Ok(Self {
+            audio: object.read().ok().and_then(|o| crate::helpers::TheAudio::of_object(&o)),
             object_id: object
                 .read()
                 .ok()
@@ -219,8 +222,9 @@ impl FlammableUpdate {
 
     pub fn try_to_ignite(&mut self) {
         let frame = crate::helpers::TheGameLogic::get_frame();
+        let owner_audio = self.audio.clone();
         let mut audio = |event: &crate::common::audio::AudioEventRts| {
-            crate::helpers::TheAudio::get().map_or(0, |audio| audio.add_audio_event(event))
+            owner_audio.as_ref().map_or(0, |audio| audio.add_audio_event(event))
         };
         let mut spread = |object: &GameObject| -> Result<Option<UnsignedInt>, String> {
             let is_aflame = object
@@ -324,7 +328,7 @@ impl FlammableUpdate {
         if self.audio_handle == 0 {
             return;
         }
-        if let Some(audio) = crate::helpers::TheAudio::get() {
+        if let Some(audio) = self.audio.as_ref() {
             audio.remove_audio_event(self.audio_handle);
         }
         self.audio_handle = 0;

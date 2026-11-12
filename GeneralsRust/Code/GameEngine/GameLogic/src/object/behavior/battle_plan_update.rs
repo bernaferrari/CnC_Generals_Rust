@@ -66,33 +66,33 @@ fn named_audio_event(name: &str) -> AudioEventRts {
     }
 }
 
-fn play_object_audio(event: &mut AudioEventRts, object_id: ObjectID) {
+fn play_object_audio(audio: Option<&TheAudio>, event: &mut AudioEventRts, object_id: ObjectID) {
     if event.get_event_name().is_empty() {
         return;
     }
     event.set_object_id(object_id);
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = audio {
         let handle = audio.add_audio_event(event);
         event.set_playing_handle(handle);
     }
 }
 
-fn play_announcement_audio(event: &mut AudioEventRts, position: &Coord3D) {
+fn play_announcement_audio(audio: Option<&TheAudio>, event: &mut AudioEventRts, position: &Coord3D) {
     if event.get_event_name().is_empty() {
         return;
     }
     event.set_position(&(position.x, position.y, position.z));
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = audio {
         audio.add_audio_event(event);
     }
 }
 
-fn stop_audio(event: &mut AudioEventRts) {
+fn stop_audio(audio: Option<&TheAudio>, event: &mut AudioEventRts) {
     let handle = event.get_playing_handle();
     if handle == 0 {
         return;
     }
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = audio {
         audio.remove_audio_event(handle);
     }
     event.set_playing_handle(0);
@@ -408,6 +408,8 @@ const BATTLE_PLAN_UPDATE_FIELDS: &[FieldParse<BattlePlanUpdateModuleData>] = &[
 ];
 
 pub struct BattlePlanUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<TheAudio>,
     object_id: ObjectID,
     module_data: game_engine::common::thing::module::ModuleDataHandle,
     next_call_frame_and_phase: UnsignedInt,
@@ -453,6 +455,7 @@ impl BattlePlanUpdate {
         };
 
         Ok(Self {
+            audio: object.read().ok().and_then(|o| TheAudio::of_object(&o)),
             object_id: object
                 .read()
                 .ok()
@@ -644,22 +647,22 @@ impl BattlePlanUpdate {
 
         match old_status {
             TransitionStatus::Unpacking => match self.current_plan {
-                BattlePlanStatus::Bombardment => stop_audio(&mut self.bombardment_unpack),
-                BattlePlanStatus::HoldTheLine => stop_audio(&mut self.hold_the_line_unpack),
+                BattlePlanStatus::Bombardment => stop_audio(self.audio.as_ref(), &mut self.bombardment_unpack),
+                BattlePlanStatus::HoldTheLine => stop_audio(self.audio.as_ref(), &mut self.hold_the_line_unpack),
                 BattlePlanStatus::SearchAndDestroy => {
-                    stop_audio(&mut self.search_and_destroy_unpack)
+                    stop_audio(self.audio.as_ref(), &mut self.search_and_destroy_unpack)
                 }
                 _ => {}
             },
             TransitionStatus::Active => {
                 if self.current_plan == BattlePlanStatus::SearchAndDestroy {
-                    stop_audio(&mut self.search_and_destroy_idle);
+                    stop_audio(self.audio.as_ref(), &mut self.search_and_destroy_idle);
                 }
             }
             TransitionStatus::Packing => match self.current_plan {
-                BattlePlanStatus::Bombardment => stop_audio(&mut self.bombardment_pack),
-                BattlePlanStatus::HoldTheLine => stop_audio(&mut self.hold_the_line_pack),
-                BattlePlanStatus::SearchAndDestroy => stop_audio(&mut self.search_and_destroy_pack),
+                BattlePlanStatus::Bombardment => stop_audio(self.audio.as_ref(), &mut self.bombardment_pack),
+                BattlePlanStatus::HoldTheLine => stop_audio(self.audio.as_ref(), &mut self.hold_the_line_pack),
+                BattlePlanStatus::SearchAndDestroy => stop_audio(self.audio.as_ref(), &mut self.search_and_destroy_pack),
                 _ => {}
             },
             _ => {}
@@ -714,16 +717,16 @@ impl BattlePlanUpdate {
             display_plan_message(world.as_ref(), &message_label);
             match self.current_plan {
                 BattlePlanStatus::Bombardment => {
-                    play_object_audio(&mut self.bombardment_unpack, object_id);
-                    play_announcement_audio(&mut self.bombardment_announcement, &pos);
+                    play_object_audio(self.audio.as_ref(), &mut self.bombardment_unpack, object_id);
+                    play_announcement_audio(self.audio.as_ref(), &mut self.bombardment_announcement, &pos);
                 }
                 BattlePlanStatus::HoldTheLine => {
-                    play_object_audio(&mut self.hold_the_line_unpack, object_id);
-                    play_announcement_audio(&mut self.hold_the_line_announcement, &pos);
+                    play_object_audio(self.audio.as_ref(), &mut self.hold_the_line_unpack, object_id);
+                    play_announcement_audio(self.audio.as_ref(), &mut self.hold_the_line_announcement, &pos);
                 }
                 BattlePlanStatus::SearchAndDestroy => {
-                    play_object_audio(&mut self.search_and_destroy_unpack, object_id);
-                    play_announcement_audio(&mut self.search_and_destroy_announcement, &pos);
+                    play_object_audio(self.audio.as_ref(), &mut self.search_and_destroy_unpack, object_id);
+                    play_announcement_audio(self.audio.as_ref(), &mut self.search_and_destroy_announcement, &pos);
                 }
                 BattlePlanStatus::None => {}
             }
@@ -745,7 +748,7 @@ impl BattlePlanUpdate {
         });
 
         if self.current_plan == BattlePlanStatus::SearchAndDestroy {
-            play_object_audio(&mut self.search_and_destroy_idle, self.object_id);
+            play_object_audio(self.audio.as_ref(), &mut self.search_and_destroy_idle, self.object_id);
         }
     }
 
@@ -781,26 +784,26 @@ impl BattlePlanUpdate {
 
         match self.current_plan {
             BattlePlanStatus::Bombardment => {
-                play_object_audio(&mut self.bombardment_pack, object_id);
+                play_object_audio(self.audio.as_ref(), &mut self.bombardment_pack, object_id);
             }
             BattlePlanStatus::HoldTheLine => {
-                play_object_audio(&mut self.hold_the_line_pack, object_id);
+                play_object_audio(self.audio.as_ref(), &mut self.hold_the_line_pack, object_id);
             }
             BattlePlanStatus::SearchAndDestroy => {
-                play_object_audio(&mut self.search_and_destroy_pack, object_id);
+                play_object_audio(self.audio.as_ref(), &mut self.search_and_destroy_pack, object_id);
             }
             BattlePlanStatus::None => {}
         }
     }
 
     fn stop_all_transition_audio(&mut self) {
-        stop_audio(&mut self.bombardment_unpack);
-        stop_audio(&mut self.bombardment_pack);
-        stop_audio(&mut self.search_and_destroy_unpack);
-        stop_audio(&mut self.search_and_destroy_idle);
-        stop_audio(&mut self.search_and_destroy_pack);
-        stop_audio(&mut self.hold_the_line_unpack);
-        stop_audio(&mut self.hold_the_line_pack);
+        stop_audio(self.audio.as_ref(), &mut self.bombardment_unpack);
+        stop_audio(self.audio.as_ref(), &mut self.bombardment_pack);
+        stop_audio(self.audio.as_ref(), &mut self.search_and_destroy_unpack);
+        stop_audio(self.audio.as_ref(), &mut self.search_and_destroy_idle);
+        stop_audio(self.audio.as_ref(), &mut self.search_and_destroy_pack);
+        stop_audio(self.audio.as_ref(), &mut self.hold_the_line_unpack);
+        stop_audio(self.audio.as_ref(), &mut self.hold_the_line_pack);
     }
 
     fn army_plan_type(&self) -> Option<BattlePlanType> {
