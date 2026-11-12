@@ -519,6 +519,12 @@ fn unknown_authored_upgrade_names_cannot_be_supplied_by_another_world() {
         0,
         1,
     );
+    // Object::giveUpgrade needs the authored UpgradeTemplate
+    // (Object.cpp:3559-3567): the rejected unknown name left no upgrade bit,
+    // so only a grant after this world owns the template enables radar.
+    world.update_player_radar();
+    assert_eq!(world.players[&1].radar_count, 0);
+    world.apply_upgrade_to_object(id, "Upgrade_PeerOnly");
     world.update_player_radar();
     assert_eq!(world.players[&1].radar_count, 1);
 }
