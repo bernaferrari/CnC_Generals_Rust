@@ -2128,7 +2128,9 @@ impl GameLogic {
         }
         let mut best: Option<(ObjectId, f32)> = None;
         for (id, obj) in self.host_objects().registered() {
-            if *id == source_id || !obj.is_alive() || obj.status.destroyed {
+            // ScriptActions.cpp doMoveUnitTowardsNearest filters only by thing, trigger and
+            // map status: dead or queued bodies stay eligible until they leave the partition.
+            if *id == source_id {
                 continue;
             }
             let off_map = obj.get_position().x < self.world_min.x
