@@ -477,7 +477,8 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
         key.max_value = 1.0;
     }
     info.alpha_keys[1].frame = 100;
-    manager.register_template(Arc::new(template));
+    let template = Arc::new(template);
+    manager.register_template(template.clone());
     for _ in 0..3 {
         source(world.combat_particles_mut(), "PairedArchiveParticle", &mut *manager);
     }
@@ -531,6 +532,12 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
         .restore_game_snapshot(&decoded.snapshot, &mut restored)
         .unwrap();
     let mut receiving_client = GameClient::new().expect("receiving GameClient");
+    // ParticleSystemManager::xfer re-creates each saved system from the
+    // receiving manager's own templates, loaded from ParticleSystem.ini at
+    // init (ParticleSys.cpp:3292 ParticleSystemManager::xfer findTemplate).
+    receiving_client
+        .particle_systems_mut()
+        .register_template(template);
     if let Some(bytes) = decoded.snapshot.particle_system_companion.as_deref() {
         crate::save_load::snapshot::restore_particle_system_from_xfer_bytes(
             receiving_client.particle_systems_mut(),
