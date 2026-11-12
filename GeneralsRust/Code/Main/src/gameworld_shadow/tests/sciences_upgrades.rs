@@ -552,18 +552,15 @@ fn canonical_effective_model_mesh_is_projected_from_receiving_owner() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("RangerMesh").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
+            crate::fixture_content::FixtureObject::new("RangerMesh")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0)
+                .walker()
+                .field("Scale = 1.25")
+                .model("avtank"),
         ],
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    {
-        let mut t = ThingTemplate::new("RangerMesh");
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        t.model_name = Some("avtank".into());
-        t.asset_scale = 1.25;
-        logic.templates.insert("RangerMesh".into(), t);
-    }
     let oid = logic
         .create_object("RangerMesh", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
