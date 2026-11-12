@@ -1281,6 +1281,8 @@ pub struct AIMoveToState {
     pub(crate) is_move_to: bool,
     /// Handle for looping move sound
     pub(crate) ambient_playing_handle: u32,
+    /// The owner's engine, whose TheAudio stops `ambient_playing_handle`.
+    ambient_playing_audio: Option<TheAudio>,
     /// Optional repath limiter for derived states.
     pub(crate) repath_limit: Option<RepathLimit>,
     /// Owner when the caller already holds the state-machine mutex.
@@ -1312,6 +1314,7 @@ impl AIMoveToState {
             goal_layer: 0, // LAYER_INVALID. LAYER_GROUND is 1. Nothing assigns this yet.
             is_move_to: true,
             ambient_playing_handle: 0,
+            ambient_playing_audio: None,
             repath_limit: None,
             preset_owner: None,
         }
@@ -1439,19 +1442,21 @@ impl AIMoveToState {
         owner: &Arc<RwLock<Object>>,
         ai: &mut dyn AiStateRuntime,
     ) -> Result<(), String> {
-        let event = {
+        let (event, audio) = {
             let owner = owner.read().map_err(|_| "movement sound owner poisoned")?;
-            Self::movement_sound(&owner)
+            (Self::movement_sound(&owner), TheAudio::of_object(&owner))
         };
         if let Some((event, looping)) = event {
             let handle = match ai.world_mut() {
                 Some(world) => world.add_audio_event(&event),
-                None => TheAudio::get()
+                None => audio
+                    .as_ref()
                     .map(|audio| audio.add_audio_event(&event))
                     .unwrap_or(0),
             };
             if looping {
                 self.ambient_playing_handle = handle;
+                self.ambient_playing_audio = audio;
             }
         }
         Ok(())
@@ -1844,6 +1849,7 @@ impl CppState for AIMoveToState {
                 let handle = audio.add_audio_event(&event);
                 if looping {
                     self.ambient_playing_handle = handle;
+                    self.ambient_playing_audio = Some(audio);
                 }
             }
         }
@@ -1857,9 +1863,10 @@ impl CppState for AIMoveToState {
         // AIInternalMoveToState::onExit: sound, endingMove, exact ground
         // finalization. It does not destroyPath or reset path extra distance.
         if self.ambient_playing_handle != 0 {
+            let audio = self.ambient_playing_audio.take();
             if let Some(world) = ai.world_mut() {
                 world.remove_audio_event(self.ambient_playing_handle);
-            } else if let Some(audio) = TheAudio::get() {
+            } else if let Some(audio) = audio {
                 audio.remove_audio_event(self.ambient_playing_handle);
             }
             self.ambient_playing_handle = 0;
@@ -1901,7 +1908,7 @@ impl CppState for AIMoveToState {
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if self.ambient_playing_handle != 0 {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.ambient_playing_audio.take() {
                 audio.remove_audio_event(self.ambient_playing_handle);
             }
             self.ambient_playing_handle = 0;
