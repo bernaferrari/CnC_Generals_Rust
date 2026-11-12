@@ -883,7 +883,7 @@ impl JetStateMachine {
                             guard.get_template().get_per_unit_sound("VoiceLowFuel")
                         {
                             sound.set_object_id(jet_ai.object_id);
-                            if let Some(audio) = TheAudio::get() {
+                            if let Some(audio) = TheAudio::of_object(&guard) {
                                 audio.add_audio_event(&sound);
                             }
                         }
@@ -1167,7 +1167,7 @@ impl JetStateMachine {
                             }
                             // C++ JetTakeoffOrLandingState::update touchdown (JetAIUpdate.cpp:818-836)
                             if pos.z - 0.25 <= ground_z {
-                                if let Some(audio) = TheAudio::get() {
+                                if let Some(audio) = jet_ai.audio.clone() {
                                     if let Some(misc_audio) =
                                         game_engine::common::ini::ini_misc_audio::get_misc_audio()
                                     {
@@ -1660,6 +1660,8 @@ impl JetStateMachine {
 
 /// JetAIUpdate runtime state (port of C++ JetAIUpdate fields).
 pub struct JetAIUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<crate::helpers::TheAudio>,
     object_id: ObjectID,
     data: ModuleDataHandle,
     producer_location: Coord3D,
@@ -1680,9 +1682,15 @@ pub struct JetAIUpdate {
 }
 
 impl JetAIUpdate {
+    /// Bind the engine this module's Object was assembled in.
+    pub(crate) fn bind_audio(&mut self, audio: Option<crate::helpers::TheAudio>) {
+        self.audio = audio;
+    }
+
     pub fn new(data: ModuleDataHandle, object_id: ObjectID) -> Self {
         let needs_runway = data.read().downcast_ref::<JetAIUpdateModuleData>().expect("JetAIUpdate data type").needs_runway;
         Self {
+            audio: None,
             object_id,
             data,
             producer_location: Coord3D::new(0.0, 0.0, 0.0),
@@ -2533,7 +2541,7 @@ impl JetAIUpdate {
         let this_phase = ((factor * elapsed_time_sum_curr) as i32 & 1) != 0;
 
         if last_phase && !this_phase {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio()
                 {
                     let misc_audio = misc_audio.read();
@@ -2882,7 +2890,7 @@ impl Drop for JetAIUpdate {
         }
 
         if self.afterburner_sound.is_currently_playing() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 audio.remove_audio_event(self.afterburner_sound.get_playing_handle());
             }
             self.afterburner_sound.set_playing_handle(0);

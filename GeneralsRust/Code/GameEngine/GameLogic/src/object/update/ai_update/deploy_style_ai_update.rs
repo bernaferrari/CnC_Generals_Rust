@@ -347,6 +347,8 @@ impl Snapshotable for DeployStyleAIUpdateModule {
 /// Deploy style AI update logic.
 #[derive(Debug, Clone)]
 pub struct DeployStyleAIUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<crate::helpers::TheAudio>,
     data: ModuleDataHandle,
     owner_id: ObjectID,
     state: DeployStateType,
@@ -354,8 +356,14 @@ pub struct DeployStyleAIUpdate {
 }
 
 impl DeployStyleAIUpdate {
+    /// Bind the engine this module's Object was assembled in.
+    pub(crate) fn bind_audio(&mut self, audio: Option<crate::helpers::TheAudio>) {
+        self.audio = audio;
+    }
+
     pub fn new(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
         Self {
+            audio: None,
             data,
             owner_id,
             state: DeployStateType::ReadyToMove,
@@ -548,7 +556,7 @@ impl DeployStyleAIUpdate {
 
                 if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("Deploy") {
                     sound.set_object_id(owner_guard.get_id());
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = self.audio.clone() {
                         let _ = audio.add_audio_event(&sound);
                     }
                 }
@@ -579,7 +587,7 @@ impl DeployStyleAIUpdate {
 
                 if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("Undeploy") {
                     sound.set_object_id(owner_guard.get_id());
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = self.audio.clone() {
                         let _ = audio.add_audio_event(&sound);
                     }
                 }

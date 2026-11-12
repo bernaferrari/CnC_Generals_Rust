@@ -148,6 +148,13 @@ fn prepare_unit_ai_impl(
         .iter()
         .any(|entry| entry.name.as_str() == "JetAIUpdate");
 
+    // C++ modules play through the TheAudio of the engine their Object
+    // was assembled in.
+    let object_audio = base_object
+        .read()
+        .ok()
+        .and_then(|obj| crate::helpers::TheAudio::of_object(&obj));
+
     let supply_ai = if needs_supply_ai {
         let player_index = base_object
             .read()
@@ -199,7 +206,11 @@ fn prepare_unit_ai_impl(
     let dozer_ai = if needs_dozer_ai {
         template.get_behavior_module_info().iter()
             .find(|entry| entry.name.as_str() == "DozerAIUpdate")
-            .map(|entry| DozerAIUpdate::new(entry.data.clone(), object_id))
+            .map(|entry| {
+                let mut ai = DozerAIUpdate::new(entry.data.clone(), object_id);
+                ai.bind_audio(object_audio.clone());
+                ai
+            })
     } else {
         None
     };
@@ -225,7 +236,11 @@ fn prepare_unit_ai_impl(
     let jet_ai = if needs_jet_ai {
         template.get_behavior_module_info().iter()
             .find(|entry| entry.name.as_str() == "JetAIUpdate")
-            .map(|entry| JetAIUpdate::new(entry.data.clone(), object_id))
+            .map(|entry| {
+                let mut ai = JetAIUpdate::new(entry.data.clone(), object_id);
+                ai.bind_audio(object_audio.clone());
+                ai
+            })
     } else {
         None
     };
@@ -247,7 +262,11 @@ fn prepare_unit_ai_impl(
 
     let hack_internet_ai = template.get_behavior_module_info().iter()
         .find(|entry| entry.name.as_str() == "HackInternetAIUpdate")
-        .map(|entry| HackInternetAIUpdate::new(entry.data.clone(), object_id));
+        .map(|entry| {
+            let mut ai = HackInternetAIUpdate::new(entry.data.clone(), object_id);
+            ai.bind_audio(object_audio.clone());
+            ai
+        });
 
     let assault_transport_ai = template.get_behavior_module_info().iter()
         .find(|entry| entry.name.as_str() == "AssaultTransportAIUpdate")
@@ -259,7 +278,11 @@ fn prepare_unit_ai_impl(
 
     let deploy_style_ai = template.get_behavior_module_info().iter()
         .find(|entry| entry.name.as_str() == "DeployStyleAIUpdate")
-        .map(|entry| DeployStyleAIUpdate::new(entry.data.clone(), object_id));
+        .map(|entry| {
+            let mut ai = DeployStyleAIUpdate::new(entry.data.clone(), object_id);
+            ai.bind_audio(object_audio.clone());
+            ai
+        });
 
     let transport_ai = has_transport_ai.then(|| TransportAIUpdate::new(object_id));
     let wander_ai = has_wander_ai.then(|| WanderAIUpdate::new(object_id));

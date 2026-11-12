@@ -448,6 +448,8 @@ struct DozerActionTask {
 
 /// Dozer AI Update module (matches C++ DozerAIUpdate).
 pub struct DozerAIUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<crate::helpers::TheAudio>,
     data: ModuleDataHandle,
     object_id: ObjectID,
     dozer_task: Option<DozerActionTask>,
@@ -472,8 +474,14 @@ impl std::fmt::Debug for DozerAIUpdate {
 }
 
 impl DozerAIUpdate {
+    /// Bind the engine this module's Object was assembled in.
+    pub(crate) fn bind_audio(&mut self, audio: Option<crate::helpers::TheAudio>) {
+        self.audio = audio;
+    }
+
     pub fn new(data: ModuleDataHandle, object_id: ObjectID) -> Self {
         Self {
+            audio: None,
             data,
             object_id,
             dozer_task: None,
@@ -917,7 +925,7 @@ impl DozerAIUpdate {
     }
 
     pub fn start_building_sound(&mut self, sound: &AudioEventRts, construction_site_id: ObjectID) {
-        let Some(audio) = TheAudio::get() else {
+        let Some(audio) = self.audio.clone() else {
             return;
         };
         let mut event = sound.clone();
@@ -930,7 +938,7 @@ impl DozerAIUpdate {
 
     pub fn finish_building_sound(&mut self) {
         if let Some(sound) = self.building_sound.take() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 audio.remove_audio_event(sound.get_playing_handle());
             }
         }
@@ -1013,7 +1021,7 @@ impl DozerAIUpdate {
                     crate::helpers::TheInGameUI::display_message_for(&owner_guard, &message);
                 }
 
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = self.audio.clone() {
                     let mut event = owner_guard.get_template().get_voice_task_complete();
                     if !event.get_event_name().is_empty() {
                         event.set_object_id(owner_guard.get_id());

@@ -347,6 +347,8 @@ impl Snapshotable for HackInternetAIUpdateModule {
 /// HackInternet AI runtime logic.
 #[derive(Debug, Clone)]
 pub struct HackInternetAIUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<crate::helpers::TheAudio>,
     data: ModuleDataHandle,
     owner_id: ObjectID,
     state: HackInternetState,
@@ -354,6 +356,11 @@ pub struct HackInternetAIUpdate {
 }
 
 impl HackInternetAIUpdate {
+    /// Bind the engine this module's Object was assembled in.
+    pub(crate) fn bind_audio(&mut self, audio: Option<crate::helpers::TheAudio>) {
+        self.audio = audio;
+    }
+
     fn data(&self) -> parking_lot::MappedRwLockReadGuard<'_, HackInternetAIUpdateModuleData> {
         game_engine::common::thing::module::ModuleDataGuard::map(self.data.read(), |data| {
             data.downcast_ref::<HackInternetAIUpdateModuleData>().expect("HackInternet data type")
@@ -362,6 +369,7 @@ impl HackInternetAIUpdate {
 
     pub fn new(data: ModuleDataHandle, owner_id: ObjectID) -> Self {
         Self {
+            audio: None,
             data,
             owner_id,
             state: HackInternetState::Idle,
@@ -485,7 +493,7 @@ impl HackInternetAIUpdate {
 
         if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("UnitUnpack") {
             sound.set_object_id(owner_guard.get_id());
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 let _ = audio.add_audio_event(&sound);
             }
         }
@@ -523,7 +531,7 @@ impl HackInternetAIUpdate {
 
         if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("UnitPack") {
             sound.set_object_id(owner_guard.get_id());
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 let _ = audio.add_audio_event(&sound);
             }
         }
@@ -734,7 +742,7 @@ impl HackInternetAIUpdate {
             .get_per_unit_sound("UnitCashPing")
         {
             sound.set_object_id(owner_guard.get_id());
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 let _ = audio.add_audio_event(&sound);
             }
         }
