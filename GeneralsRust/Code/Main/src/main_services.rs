@@ -10,7 +10,6 @@ use crate::command_system::CommandSystem;
 use crate::copy_protection::CopyProtection;
 use crate::debug_system::DebugSystem;
 use crate::game_logic::host_destroy_log::HostDestroyEvent;
-use crate::game_logic::host_fire_intent_log::HostFireIntentEvent;
 use crate::game_logic::host_production_progress_log::HostProductionProgressEvent;
 use crate::localization::LocalizationManager;
 use crate::network::NetworkInterface;
@@ -62,7 +61,6 @@ pub struct MainServices {
     pub fow_test_lock: Arc<parking_lot::Mutex<()>>,
     pub resource_asset_manager: Mutex<Option<Arc<ResourceAssetManager>>>,
     pub host_destroy_log: Mutex<Vec<HostDestroyEvent>>,
-    pub host_fire_intent_log: Mutex<Vec<HostFireIntentEvent>>,
     pub host_production_progress_log: Mutex<Vec<HostProductionProgressEvent>>,
     pub hulk_max_lifetime_override: AtomicI32,
     pub next_live_popup_generation: AtomicUsize,
@@ -111,7 +109,6 @@ impl MainServices {
             fow_test_lock: Arc::new(parking_lot::Mutex::new(())),
             resource_asset_manager: Mutex::new(None),  // Option<Arc<ResourceAssetManager>>
             host_destroy_log: Mutex::new(Vec::new()),
-            host_fire_intent_log: Mutex::new(Vec::new()),
             host_production_progress_log: Mutex::new(Vec::new()),
             hulk_max_lifetime_override: AtomicI32::new(-1),
             next_live_popup_generation: AtomicUsize::new(1),

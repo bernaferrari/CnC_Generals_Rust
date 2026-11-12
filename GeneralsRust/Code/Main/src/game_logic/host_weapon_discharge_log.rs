@@ -1,6 +1,6 @@
 //! Host-owned accepted weapon-discharge transport.
 //!
-//! This is intentionally not the existing `host_fire_intent_log`: an AI
+//! This is intentionally not the object's last-fire record: an AI
 //! intent can be written back without a physical discharge, while a drawable
 //! recoil/muzzle event needs the exact WeaponSet slot and barrel that actually
 //! fired.  The log belongs to one `GameLogic` world, so replacing/resetting a

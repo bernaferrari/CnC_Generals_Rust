@@ -924,20 +924,6 @@ impl Object {
             );
     }
 
-    #[cfg(test)]
-    pub fn record_host_fire_intent(&self) {
-        crate::game_logic::host_fire_intent_log::record(
-            self.id,
-            self.last_fire_victim_host,
-            self.last_fire_slot,
-            self.last_fire_damage,
-            self.last_fire_range,
-            self.last_fire_sim_time,
-            self.last_fire_frame,
-            self.fire_intent_count,
-        );
-    }
-
     pub fn set_entity_power(&mut self, provided: i32, consumed: i32) {
         let provided = provided.max(0);
         let consumed = consumed.max(0);

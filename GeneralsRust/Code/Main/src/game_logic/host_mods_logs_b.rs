@@ -14,9 +14,6 @@ use super::combat;
 
 use super::host_structure_topple;
 
-#[path = "host_fire_intent_log.rs"]
-pub mod host_fire_intent_log;
-
 #[path = "host_weapon_discharge_log.rs"]
 pub mod host_weapon_discharge_log;
 

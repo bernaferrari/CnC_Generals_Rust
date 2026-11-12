@@ -526,6 +526,15 @@ impl GameWorldShadow {
         e.exit_delay_remaining = obj.production_exit_state.delay_frames as f32 / 30.0;
         e.exit_burst_remaining = obj.production_exit_state.burst_remaining;
         e.queue_exit_state_initialized = obj.production_exit_state.initialized;
+        // Last-fire state is the object's own record (it survives a weapon
+        // swap or an unarmed object), so it is projected outside the weapon.
+        e.last_fire_victim_host = obj.last_fire_victim_host;
+        e.last_fire_slot = obj.last_fire_slot;
+        e.last_fire_damage = obj.last_fire_damage;
+        e.last_fire_range = obj.last_fire_range;
+        e.last_fire_sim_time = obj.last_fire_sim_time;
+        e.last_fire_frame = obj.last_fire_frame;
+        e.fire_intent_count = obj.fire_intent_count;
         e.has_weapon = obj.weapon.is_some();
         if let Some(w) = obj.weapon.as_ref() {
             e.weapon_damage = w.damage;
@@ -533,13 +542,6 @@ impl GameWorldShadow {
             e.weapon_min_range = w.min_range;
             e.weapon_reload_time = w.reload_time;
             e.weapon_last_fire_time = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
-            e.last_fire_victim_host = obj.last_fire_victim_host;
-            e.last_fire_slot = obj.last_fire_slot;
-            e.last_fire_damage = obj.last_fire_damage;
-            e.last_fire_range = obj.last_fire_range;
-            e.last_fire_sim_time = obj.last_fire_sim_time;
-            e.last_fire_frame = obj.last_fire_frame;
-            e.fire_intent_count = obj.fire_intent_count;
             e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
             e.weapon_clip_size = w.clip_size;
             e.weapon_can_target_air = w.can_target_air;

@@ -1242,7 +1242,6 @@ fn constructed_host_birth_has_completed_percent_without_shadow_admission() {
 
 #[test]
 fn ai_attack_authority_gates_fire_intent_writeback() {
-    use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     if super::harness::isolated_shadow_case(
         module_path!(),
@@ -1251,7 +1250,6 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     ) {
         return;
     }
-    host_fire_intent_log::clear();
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiAtkAuth");

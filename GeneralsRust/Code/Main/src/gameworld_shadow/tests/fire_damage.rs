@@ -9,9 +9,7 @@ fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
 
 #[test]
 fn fire_at_records_fire_intent_residual() {
-    use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    host_fire_intent_log::clear();
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("FireAtRec");
@@ -57,13 +55,6 @@ fn fire_at_records_fire_intent_residual() {
         assert_eq!(o.last_fire_frame, 77);
         assert!(o.fire_intent_count >= 1, "counter still advances");
     }
-    let evs = host_fire_intent_log::drain();
-    assert!(
-        evs.iter().any(|e| e.object == oid
-            && e.last_fire_victim_host == vid.0
-            && e.last_fire_frame == 77),
-        "fire_at must log intent; got {evs:?}"
-    );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
 
@@ -74,7 +65,6 @@ fn fire_at_records_fire_intent_residual() {
 
     // A subsequent ordinary shot has the same immediate owner semantics.
 
-    host_fire_intent_log::clear();
     {
         let _ = logic.host_object_mut(oid).expect("o");
         let o = logic.objects.get_mut(&oid).expect("o");
@@ -98,7 +88,6 @@ fn fire_at_records_fire_intent_residual() {
         assert_eq!(o.last_fire_victim_host, vid.0);
         assert!(o.fire_intent_count >= 1);
     }
-    assert!(!host_fire_intent_log::drain().is_empty());
 }
 
 #[test]

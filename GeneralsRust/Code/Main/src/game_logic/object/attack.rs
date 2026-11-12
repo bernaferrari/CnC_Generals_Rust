@@ -1446,8 +1446,6 @@ impl Object {
                 self.last_fire_sim_time = current_time;
                 self.last_fire_frame = frame;
                 self.fire_intent_count = next_count;
-                #[cfg(test)]
-                self.record_host_fire_intent();
             }
         }
     }

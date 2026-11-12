@@ -39,9 +39,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
 
     #[cfg(test)]
     let _ = crate::game_logic::host_destroy_log::drain();
-
-    #[cfg(test)]
-    let _ = crate::game_logic::host_fire_intent_log::drain();
     logic
         .combat_system
         .fire_sound_loop_events

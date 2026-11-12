@@ -703,7 +703,6 @@ fn fire_intent_channel_via_set_fire_intent() {
     // authority (host sole writer default after 0c4d18623); the channel
     // under test is the shadow writeback, so opt in like the projectile
     // and movement authority tests.
-    use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
 
