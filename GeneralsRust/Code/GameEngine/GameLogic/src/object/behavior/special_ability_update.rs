@@ -467,6 +467,8 @@ const SPECIAL_ABILITY_UPDATE_FIELDS: &[FieldParse<SpecialAbilityUpdateModuleData
 
 #[derive(Debug)]
 pub struct SpecialAbilityUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<TheAudio>,
     base: SpecialPowerUpdateModule,
     module_data: game_engine::common::thing::module::ModuleDataView<SpecialAbilityUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -502,6 +504,9 @@ impl SpecialAbilityUpdate {
         });
 
         let behavior = Self {
+            audio: object_ptr
+                .upgrade()
+                .and_then(|obj| obj.read().ok().and_then(|guard| TheAudio::of_object(&guard))),
             base: SpecialPowerUpdateModule::new(object_id, object_ptr.clone()),
             module_data,
             next_call_frame_and_phase: UPDATE_SLEEP_FOREVER.to_u32(),
@@ -647,7 +652,7 @@ impl SpecialAbilityUpdate {
         });
 
         if let Some(sound) = self.prep_sound_loop.take() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 audio.remove_audio_event(sound.get_playing_handle());
             }
         }
@@ -1017,7 +1022,7 @@ impl SpecialAbilityUpdate {
         });
 
         if let Some(sound) = self.module_data.read().prep_sound_loop.as_ref() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 let object_id = self.get_object_id();
                 if object_id != INVALID_ID {
                     let mut event = sound.clone();
@@ -1110,20 +1115,16 @@ impl SpecialAbilityUpdate {
                                 if let Ok(mut draw_guard) = drawable.write() {
                                     draw_guard.flash_as_selected_with_color(flash);
                                 }
-                                if let Some(audio) = TheAudio::get() {
-                                    if let Some(misc_audio) =
-                                        game_engine::common::ini::ini_misc_audio::get_misc_audio()
-                                    {
-                                        let misc_audio = misc_audio.read();
-                                        let sound_name = misc_audio
-                                            .defector_timer_tick_sound
-                                            .playable_event_name()
-                                            .to_string();
-                                        if !sound_name.is_empty() {
-                                            let mut event = AudioEventRts::new(sound_name);
-                                            event.set_object_id(self.target_id);
-                                            audio.add_audio_event(&event);
-                                        }
+                                if let Some(audio) = self.audio.clone() {
+                                    let sound_name = audio
+                                        .misc_audio_ini()
+                                        .defector_timer_tick_sound
+                                        .playable_event_name()
+                                        .to_string();
+                                    if !sound_name.is_empty() {
+                                        let mut event = AudioEventRts::new(sound_name);
+                                        event.set_object_id(self.target_id);
+                                        audio.add_audio_event(&event);
                                     }
                                 }
                             }
@@ -1184,7 +1185,7 @@ impl SpecialAbilityUpdate {
         });
 
         if let Some(sound) = self.module_data.read().trigger_sound.as_ref() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 let object_id = self.get_object_id();
                 if object_id != INVALID_ID {
                     let mut event = sound.clone();
@@ -1786,7 +1787,7 @@ impl SpecialAbilityUpdate {
             }
         });
         if let Some(sound) = self.module_data.read().pack_sound.as_ref() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 if owner_id != INVALID_ID {
                     let mut event = sound.clone();
                     event.set_object_id(owner_id);
@@ -1828,7 +1829,7 @@ impl SpecialAbilityUpdate {
             }
         });
         if let Some(sound) = self.module_data.read().unpack_sound.as_ref() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 if owner_id != INVALID_ID {
                     let mut event = sound.clone();
                     event.set_object_id(owner_id);

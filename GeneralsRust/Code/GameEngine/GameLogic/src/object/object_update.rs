@@ -162,6 +162,7 @@ impl Object {
             });
             if let Some((clear_defector, play_tick, play_ding)) = helper_effect {
                 let object_id = self.id;
+                let audio = crate::helpers::TheAudio::of_object(self);
                 let flash = play_tick || play_ding;
                 let sound = if play_ding {
                     Some(crate::object::helper::object_defection_helper::DefectionTimerSound::Ding)
@@ -184,27 +185,23 @@ impl Object {
                         }
                     },
                     |sound| {
-                        if let Some(audio) = crate::helpers::TheAudio::get() {
-                            if let Some(misc_audio) =
-                                game_engine::common::ini::ini_misc_audio::get_misc_audio()
-                            {
-                                let misc_audio = misc_audio.read();
-                                let sound_name = match sound {
-                                    crate::object::helper::object_defection_helper::DefectionTimerSound::Ding => {
-                                        misc_audio.defector_timer_ding_sound.playable_event_name()
-                                    }
-                                    crate::object::helper::object_defection_helper::DefectionTimerSound::Tick => {
-                                        misc_audio.defector_timer_tick_sound.playable_event_name()
-                                    }
+                        if let Some(audio) = &audio {
+                            let misc_audio = audio.misc_audio_ini();
+                            let sound_name = match sound {
+                                crate::object::helper::object_defection_helper::DefectionTimerSound::Ding => {
+                                    misc_audio.defector_timer_ding_sound.playable_event_name()
                                 }
-                                .to_string();
-                                let mut event =
-                                    crate::object::special_power_template::AudioEventRts::new(
-                                        sound_name,
-                                    );
-                                event.set_object_id(object_id);
-                                audio.add_audio_event(&event);
+                                crate::object::helper::object_defection_helper::DefectionTimerSound::Tick => {
+                                    misc_audio.defector_timer_tick_sound.playable_event_name()
+                                }
                             }
+                            .to_string();
+                            let mut event =
+                                crate::object::special_power_template::AudioEventRts::new(
+                                    sound_name,
+                                );
+                            event.set_object_id(object_id);
+                            audio.add_audio_event(&event);
                         }
                     },
                 );

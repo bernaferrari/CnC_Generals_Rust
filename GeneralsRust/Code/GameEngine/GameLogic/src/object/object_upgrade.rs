@@ -149,34 +149,30 @@ impl Object {
 
             if !any_power_disable_remaining {
                 // Play appropriate audio event for re-enabled object
-                if let Some(audio) = crate::helpers::TheAudio::get() {
-                    if let Some(misc_audio) =
-                        game_engine::common::ini::ini_misc_audio::get_misc_audio()
-                    {
-                        let misc_audio = misc_audio.read();
-                        let sound_name = if self.is_kind_of(KindOf::Structure) {
-                            misc_audio
-                                .building_reenabled
-                                .playable_event_name()
-                                .to_string()
-                        } else if self.is_kind_of(KindOf::Vehicle) {
-                            misc_audio
-                                .vehicle_reenabled
-                                .playable_event_name()
-                                .to_string()
-                        } else {
-                            String::new()
-                        };
+                if let Some(audio) = crate::helpers::TheAudio::of_object(self) {
+                    let misc_audio = audio.misc_audio_ini();
+                    let sound_name = if self.is_kind_of(KindOf::Structure) {
+                        misc_audio
+                            .building_reenabled
+                            .playable_event_name()
+                            .to_string()
+                    } else if self.is_kind_of(KindOf::Vehicle) {
+                        misc_audio
+                            .vehicle_reenabled
+                            .playable_event_name()
+                            .to_string()
+                    } else {
+                        String::new()
+                    };
 
-                        if !sound_name.is_empty() {
-                            let mut event =
-                                crate::object::special_power_template::AudioEventRts::new(
-                                    sound_name,
-                                );
-                            let pos = self.get_position();
-                            event.set_position(&(pos.x, pos.y, pos.z));
-                            audio.add_audio_event(&event);
-                        }
+                    if !sound_name.is_empty() {
+                        let mut event =
+                            crate::object::special_power_template::AudioEventRts::new(
+                                sound_name,
+                            );
+                        let pos = self.get_position();
+                        event.set_position(&(pos.x, pos.y, pos.z));
+                        audio.add_audio_event(&event);
                     }
                 }
             }

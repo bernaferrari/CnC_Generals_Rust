@@ -117,13 +117,10 @@ impl Object {
         &self,
         pick: impl FnOnce(&game_engine::common::ini::ini_misc_audio::MiscAudio) -> String,
     ) {
-        let Some(audio) = crate::helpers::TheAudio::get() else {
+        let Some(audio) = crate::helpers::TheAudio::of_object(self) else {
             return;
         };
-        let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
-            return;
-        };
-        let misc_audio = misc_audio.read();
+        let misc_audio = audio.misc_audio_ini();
         let sound_name = pick(&misc_audio);
         if sound_name.is_empty() {
             return;
