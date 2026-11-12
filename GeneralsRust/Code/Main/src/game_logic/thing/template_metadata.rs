@@ -250,7 +250,8 @@ pub struct ContainModuleMetadata {
     #[serde(skip)]
     pub initial_transport_payload: Option<(String, i32)>,
     /// OverlordContain defaults to transferring rider experience to its host.
-    #[serde(skip)]
+    /// A skipped field takes its own serde default, so name the C++ TRUE.
+    #[serde(skip, default = "experience_sink_for_rider_default")]
     pub experience_sink_for_rider: bool,
     /// `Slots` for Transport/RiderChange/RailedTransport, or `ContainMax` for
     /// GarrisonContain / HealContain. `Some(0)` is an authored zero-capacity
@@ -430,6 +431,10 @@ const fn default_door_open_time() -> u32 {
 }
 
 const fn default_reset_mood_check_time_on_exit() -> bool {
+    true
+}
+
+fn experience_sink_for_rider_default() -> bool {
     true
 }
 
