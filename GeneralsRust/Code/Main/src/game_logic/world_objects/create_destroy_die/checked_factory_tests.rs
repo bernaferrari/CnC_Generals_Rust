@@ -73,9 +73,8 @@ End
 "#.to_owned())]).unwrap();
         let parent = world.templates["GenerationHive"].clone();
         let parent = world.add_object(Object::new(parent, ObjectId(701), Team::GLA));
-        let child = world.add_object(Object::new(
-            ThingTemplate::new("GenerationChild"), ObjectId(702), Team::GLA,
-        ));
+        let child_template = world.templates["GenerationChild"].clone();
+        let child = world.add_object(Object::new(child_template, ObjectId(702), Team::GLA));
         let generation = world.host_object(child).unwrap().visual_object_generation;
         world.host_object_mut(parent).unwrap().spawn_point_occupants =
             vec![Some((child, generation))];
@@ -98,9 +97,8 @@ End
     world.destroy_object(child).unwrap();
     world.process_destroy_list();
     assert!(world.host_object(child).is_none());
-    world.try_add_object(Object::new(
-        ThingTemplate::new("GenerationChild"), child, Team::GLA,
-    )).unwrap();
+    let child_template = world.templates["GenerationChild"].clone();
+    world.try_add_object(Object::new(child_template, child, Team::GLA)).unwrap();
     assert_ne!(world.host_object(child).unwrap().visual_object_generation, old_generation);
     assert_eq!(world.reserve_spawn_point_exit(parent, &bones).unwrap().2, Some(0));
     assert!(peer.reserve_spawn_point_exit(peer_parent, &bones).is_none());
