@@ -46,7 +46,8 @@ fn main() -> gamelogic::GameLogicResult<()> {
         ));
     }
     // Map present: !synthetic_combat && map_host_playable_ok; playable_claim always false.
-    // Map absent: synthetic_combat && !map_host_playable_ok; playable_claim always false.
+    // Map absent: status=no_map (slice not run), synthetic_combat && !map_host_playable_ok,
+    // so the golden step above fails closed.
     if golden.playable_claim {
         failed.push(format!(
             "golden playable_claim={} (must stay false; headless is not retail playthrough)",
@@ -269,7 +270,7 @@ fn main() -> gamelogic::GameLogicResult<()> {
 
     if failed.is_empty() {
         // PASS text reflects values already asserted above (not hardcoded-only).
-        // Golden uses synthetic combat when no map is available;
+        // Golden needs the retail map (no_map fails closed above);
         // retail_* / combat_no_teleport / combat_realistic_* are residual honesty only.
         // Campaign retail_campaign_map_loaded fail-closed when full MD_*/GC_* load hangs.
         println!(

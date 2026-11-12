@@ -32,7 +32,9 @@ fn main() -> gamelogic::GameLogicResult<()> {
     // Full vertical-slice gate: config, frames, all gameplay steps, victory, save/load.
     // Map present: main combat on map armies — synthetic_combat=false,
     // map_host_playable_ok=true, playable_claim always false.
-    // Map absent: synthetic host soup — synthetic_combat=true, map_host_ok=false.
+    // Map absent: the slice does not run (status=no_map, every step false,
+    // synthetic_combat=true, map_host_ok=false), so the gate fails closed —
+    // C++ has no map-less skirmish.
     let map_same_world_ok = !result.map_loaded
         || (result.map_combat_ok
             && result.same_world_production_ok
@@ -55,7 +57,7 @@ fn main() -> gamelogic::GameLogicResult<()> {
         && result.upgraded
         && result.fought
         // Wave 451: map path does not require mop-up wipe `victory`; same-world
-        // combat victory residual is the honesty signal. Synthetic still needs wipe.
+        // combat victory residual is the honesty signal. No map: victory is false.
         && (if result.map_loaded {
             result.same_world_victory_ok
         } else {

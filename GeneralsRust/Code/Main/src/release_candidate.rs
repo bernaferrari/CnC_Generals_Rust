@@ -449,6 +449,8 @@ pub fn run_release_candidate_package(
         .map(|(a, b)| a.checkpoint_hash() == b.checkpoint_hash())
         .unwrap_or(false);
 
+    // Without a retail map both runs report status=no_map from identical
+    // boots, so the cash compare stays a determinism check either way.
     let g1 = run_golden_skirmish(None, 4)?;
     let g2 = run_golden_skirmish(None, 4)?;
     let golden_cash_match = g1.human_cash == g2.human_cash && g1.ai_cash == g2.ai_cash;
