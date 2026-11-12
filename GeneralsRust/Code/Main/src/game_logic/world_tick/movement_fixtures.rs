@@ -26,6 +26,17 @@ pub(super) fn ranger_at(id: u32, pos: Vec3) -> Object {
 /// same speed/acceleration/turn values `Object::new` starts from, so tests that
 /// tune runtime fields afterwards keep their numbers.
 pub(super) fn hand_locomotor(unit: &mut Object, appearance: LocomotorAppearance) {
+    hand_locomotor_with(unit, appearance, &[]);
+}
+
+/// `hand_locomotor` with an authored template Lift. Lift is a Locomotor INI
+/// value (Locomotor::getMaxLift); the mutable cap the tests tune is
+/// `Object::max_lift` (Locomotor::setMaxLift), so the template stays above it.
+pub(super) fn hand_lift_locomotor(unit: &mut Object, appearance: LocomotorAppearance) {
+    hand_locomotor_with(unit, appearance, &["Lift = 1000000", "LiftDamaged = 1000000"]);
+}
+
+fn hand_locomotor_with(unit: &mut Object, appearance: LocomotorAppearance, extra: &[&str]) {
     let (surfaces, token) = match appearance {
         LocomotorAppearance::Other => ("GROUND", "OTHER"),
         LocomotorAppearance::LegsTwo => ("GROUND", "TWO_LEGS"),
@@ -39,19 +50,18 @@ pub(super) fn hand_locomotor(unit: &mut Object, appearance: LocomotorAppearance)
     };
     let surfaces = format!("Surfaces = {surfaces}");
     let appearance = format!("Appearance = {token}");
-    crate::fixture_content::locomote(
-        unit,
-        &[
-            &surfaces,
-            "Speed = 10",
-            "SpeedDamaged = 5",
-            "Acceleration = 5",
-            "AccelerationDamaged = 2.5",
-            "TurnRate = 180",
-            "TurnRateDamaged = 90",
-            &appearance,
-        ],
-    );
+    let mut fields = vec![
+        surfaces.as_str(),
+        "Speed = 10",
+        "SpeedDamaged = 5",
+        "Acceleration = 5",
+        "AccelerationDamaged = 2.5",
+        "TurnRate = 180",
+        "TurnRateDamaged = 90",
+        appearance.as_str(),
+    ];
+    fields.extend_from_slice(extra);
+    crate::fixture_content::locomote(unit, &fields);
 }
 
 // A current locomotor is required by C++ isDoingGroundMovement; appearance

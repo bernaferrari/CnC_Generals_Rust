@@ -207,7 +207,7 @@ fn lift_ignores_goal_y_without_precise_z_pos() {
     let mut tmpl = ThingTemplate::new("ComancheHill");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, ObjectId(9816), Team::USA);
-    hand_locomotor(&mut heli, LocomotorAppearance::Hover);
+    hand_lift_locomotor(&mut heli, LocomotorAppearance::Hover);
     heli.set_position(Vec3::new(0.0, 80.0, 0.0));
     heli.ground_height = 40.0;
     heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
@@ -242,7 +242,7 @@ fn landing_lift_tracks_runway_goal_y() {
     let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(tmpl, ObjectId(9818), Team::USA);
-    hand_locomotor(&mut jet, LocomotorAppearance::Wings);
+    hand_lift_locomotor(&mut jet, LocomotorAppearance::Wings);
     jet.set_position(Vec3::new(0.0, 80.0, 0.0));
     jet.ground_height = 0.0;
     jet.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
@@ -323,7 +323,7 @@ fn surface_relative_is_lift_not_kinematic_snap() {
     let mut tmpl = ThingTemplate::new("ComancheSnap");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, ObjectId(9819), Team::USA);
-    hand_locomotor(&mut heli, LocomotorAppearance::Hover);
+    hand_lift_locomotor(&mut heli, LocomotorAppearance::Hover);
     heli.set_position(Vec3::new(0.0, 0.0, 0.0));
     heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
     heli.loco_appearance = LocomotorAppearance::Hover;
@@ -333,7 +333,13 @@ fn surface_relative_is_lift_not_kinematic_snap() {
     heli.physics_mass = 1.0;
     heli.physics_accel = Vec3::ZERO;
     GameLogic::apply_live_handle_behavior_z_for_test(&mut heli, 20.0, None);
-    let y = heli.get_position().y;
+    // Lift is a motive force until PhysicsBehavior::update integrates it
+    // (Locomotor.cpp:2288-2316 applyMotiveForce, then one Euler step).
+    let id = heli.id;
+    let mut logic = GameLogic::new();
+    logic.objects.insert(id, heli);
+    logic.tick_physics_collisions_all();
+    let y = logic.objects[&id].get_position().y;
     assert!(
         (y - 30.0).abs() > 1.0,
         "must not teleport to preferred+surface=30; y={}",
@@ -352,7 +358,7 @@ fn absolute_height_is_lift_not_kinematic_snap() {
     let mut tmpl = ThingTemplate::new("ComancheAbs");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, ObjectId(9821), Team::USA);
-    hand_locomotor(&mut heli, LocomotorAppearance::Wings);
+    hand_lift_locomotor(&mut heli, LocomotorAppearance::Wings);
     heli.set_position(Vec3::new(0.0, 0.0, 0.0));
     heli.loco_behavior_z = LocomotorBehaviorZ::AbsoluteHeight;
     heli.loco_appearance = LocomotorAppearance::Wings;
@@ -362,7 +368,13 @@ fn absolute_height_is_lift_not_kinematic_snap() {
     heli.physics_mass = 1.0;
     heli.physics_accel = Vec3::ZERO;
     GameLogic::apply_live_handle_behavior_z_for_test(&mut heli, 20.0, None);
-    let y = heli.get_position().y;
+    // Lift is a motive force until PhysicsBehavior::update integrates it
+    // (Locomotor.cpp:2288-2316 applyMotiveForce, then one Euler step).
+    let id = heli.id;
+    let mut logic = GameLogic::new();
+    logic.objects.insert(id, heli);
+    logic.tick_physics_collisions_all();
+    let y = logic.objects[&id].get_position().y;
     assert!(
         (y - 10.0).abs() > 1.0,
         "must not teleport to preferredHeight=10; y={}",
@@ -597,7 +609,7 @@ fn wings_idle_maintain_z_uses_terrain_not_own_altitude() {
         tmpl.add_kind_of(KindOf::Aircraft);
         Object::new(tmpl, id, Team::USA)
     };
-    hand_locomotor(&mut jet, LocomotorAppearance::Wings);
+    hand_lift_locomotor(&mut jet, LocomotorAppearance::Wings);
     jet.set_position(Vec3::new(0.0, 50.0, 0.0));
     jet.ground_height = 0.0;
     jet.loco_appearance = LocomotorAppearance::Wings;
@@ -612,8 +624,10 @@ fn wings_idle_maintain_z_uses_terrain_not_own_altitude() {
     jet.movement.max_speed = 40.0;
     // Idle: no target. C++ maintain then handleBehaviorZ(terrain).
     logic.objects.insert(id, jet);
+    // Idle maintain applies lift as a force; Physics integrates it each frame.
     for _ in 0..8 {
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        logic.tick_physics_collisions_all();
     }
     let obj = logic.objects.get(&id).expect("jet");
     let y = obj.get_position().y;
