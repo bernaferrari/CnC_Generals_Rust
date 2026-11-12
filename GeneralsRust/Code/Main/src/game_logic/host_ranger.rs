@@ -322,16 +322,6 @@ pub fn is_flashbang_slot(active_weapon_slot: u8) -> bool {
     active_weapon_slot == 1
 }
 
-/// Prefer flashbang residual vs infantry / structure when secondary equipped.
-pub fn ranger_prefer_flashbang(
-    is_ranger: bool,
-    has_flashbang: bool,
-    target_is_infantry: bool,
-    target_is_structure: bool,
-) -> bool {
-    is_ranger && has_flashbang && (target_is_infantry || target_is_structure)
-}
-
 // --- Wave 66 residual honesty packs ---
 
 /// Wave 66 residual honesty: rifle residual peel.
@@ -512,17 +502,12 @@ mod tests {
     }
 
     #[test]
-    fn flashbang_equip_and_prefer() {
+    fn flashbang_equip() {
         let mut ups = HashSet::new();
         assert!(!has_flashbang_equipped(false, &ups));
         assert!(has_flashbang_equipped(true, &ups));
         ups.insert(UPGRADE_AMERICA_FLASHBANG.to_string());
         assert!(has_flashbang_equipped(false, &ups));
-        assert!(ranger_prefer_flashbang(true, true, true, false));
-        assert!(ranger_prefer_flashbang(true, true, false, true));
-        assert!(!ranger_prefer_flashbang(true, true, false, false));
-        assert!(!ranger_prefer_flashbang(true, false, true, false));
-        assert!(!ranger_prefer_flashbang(false, true, true, false));
     }
 
     #[test]
