@@ -3152,6 +3152,41 @@ mod tests {
             .write()
             .expect("owned terrain")
             .load_map_data(data);
+        // ScriptActions doNamedFireWeaponFollowingWaypointPath force-fires the
+        // current Weapon and routes its last shot projectile, so the launcher
+        // needs an authored projectile weapon in this world.
+        {
+            use crate::assets::ini_template_loader::{
+                WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+            };
+            let mut rows = std::collections::HashMap::new();
+            assert_eq!(
+                parse_weapon_definitions_ini_into(
+                    &mut rows,
+                    "Weapon ScudStormWeapon\n  PrimaryDamage = 1\n  PrimaryDamageRadius = 0\n  AttackRange = 1000\n  DamageType = EXPLOSION\n  ProjectileObject = Scr2ScudMissile\n  WeaponSpeed = 30\n  DelayBetweenShots = 0\n  ClipSize = 1\n  ClipReloadTime = 0\n  PreAttackDelay = 0\n  AntiGround = Yes\nEnd\n",
+                    WeaponDefinitionLoadType::Normal,
+                ),
+                1
+            );
+            let mut parser = crate::assets::ini_parser::IniParser::new();
+            parser
+                .parse_ini_content(
+                    "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd",
+                    "scr2-scud-missile.ini",
+                )
+                .unwrap();
+            let objects: Vec<_> = parser
+                .get_all_definitions()
+                .iter()
+                .map(|(name, row)| (name.clone(), row.clone()))
+                .collect();
+            logic
+                .admit_weapon_content_snapshot(
+                    rows.into_values().map(|row| (row.name.clone(), row)).collect(),
+                    &objects,
+                )
+                .unwrap();
+        }
         logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
         let mut launcher = ThingTemplate::new("Scr2ScudLauncher");
         launcher.add_kind_of(KindOf::Vehicle);
@@ -3169,9 +3204,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.owner_player_id = Some(1);
             obj.name = "NamedScud".into();
-            if obj.weapon.is_none() {
-                crate::fixture_content::arm_with_stats(obj, Weapon::default());
-            }
+            assert_eq!(obj.authored_weapon_name_for_slot(0), Some("ScudStormWeapon"));
         }
 
         // C++ seeds named requests on the interpreter's first update, after
