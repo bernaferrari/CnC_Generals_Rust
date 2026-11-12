@@ -325,6 +325,18 @@ impl FileSystemBackend for LocalFileSystem {
             }
 
             for install in crate::common::system::install_layout::zh_install_roots() {
+                // Win32LocalFileSystem opens `Data\\...` relative to the game
+                // root (the process cwd). When the archives were discovered in
+                // `<root>/Data`, that root is the parent.
+                if install
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("Data"))
+                {
+                    if let Some(root) = install.parent() {
+                        self.add_search_path(root);
+                    }
+                }
                 self.add_search_path(&install);
                 self.add_search_path(install.join("Data"));
                 self.add_search_path(install.join("Data").join("English"));
