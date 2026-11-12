@@ -337,6 +337,14 @@ impl W3DTruckDraw {
         self.base.owner_id()
     }
 
+    /// C++ `TheAudio` of the engine that owns this drawable's Object.
+    fn owner_audio(&self) -> Option<TheAudio> {
+        let owner_id = self.base.owner_id()?;
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, TheAudio::of_object)
+            .flatten()
+    }
+
     pub fn last_live_speed(&self) -> Real {
         self.last_live_speed
     }
@@ -589,7 +597,7 @@ impl W3DTruckDraw {
                             ps.trigger_particle_system(id);
                         }
                         if let (Some(audio), Some(mut sound)) =
-                            (TheAudio::get(), self.landing_sound.clone())
+                            (self.owner_audio(), self.landing_sound.clone())
                         {
                             if let Some(owner_id) = self.base.owner_id() {
                                 sound.set_object_id(owner_id);
@@ -621,7 +629,7 @@ impl W3DTruckDraw {
             self.enable_emitters(false);
         }
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.owner_audio() {
             if !was_powersliding && self.is_powersliding {
                 if let Some(mut sound) = self.powerslide_sound.clone() {
                     if let Some(owner_id) = self.base.owner_id() {

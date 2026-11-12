@@ -202,19 +202,22 @@ impl TheGameLogic {
 
     /// Set the paused state of the game (matches C++ TheGameLogic::setGamePaused).
     pub fn set_game_paused(paused: Bool, pause_music: Bool) {
-        let current = session().session_flags().game_paused.load(Ordering::Relaxed);
+        let world = session();
+        let current = world.session_flags().game_paused.load(Ordering::Relaxed);
         if current == paused {
             return;
         }
 
-        session().session_flags().game_paused.store(paused, Ordering::Relaxed);
-        session().session_flags().game_pause_music.store(paused && pause_music, Ordering::Relaxed);
+        world.session_flags().game_paused.store(paused, Ordering::Relaxed);
+        world.session_flags().game_pause_music.store(paused && pause_music, Ordering::Relaxed);
 
         if let Some(hooks) = game_pause_hooks() {
             hooks.on_game_pause_state_changed(paused);
         }
 
-        if let Some(audio) = TheAudio::get() {
+        // C++ GameLogic::setGamePaused pauses this engine's TheAudio.
+        {
+            let audio = TheAudio::of(&world);
             if paused {
                 if pause_music {
                     audio.pause_audio(EngineAudioAffect::All);

@@ -409,7 +409,7 @@ pub use wave_guide_update::{
     LeftoverWaveGuideAudio, WAVE_GUIDE_LOOPING_SOUND, WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY,
     WAVE_GUIDE_RANDOM_SPLASH_SOUND, WaveGuideUpdate, WaveGuideUpdateFactory,
     WaveGuideUpdateModuleData, leftover_play_wave_guide_audio_event,
-    leftover_play_wave_guide_named_audio, leftover_wave_guide_audio_from_template,
+    leftover_wave_guide_audio_from_template,
     leftover_wave_guide_splash_due, leftover_wave_guide_splash_roll,
 };
 pub use weapon_bonus_update::{

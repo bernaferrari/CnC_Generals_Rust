@@ -435,7 +435,30 @@ fn ensure_audio_event_resolvers_registered(audio: &TheAudio) {
         let _ = register_audio_shroud_resolver(Arc::new(GameLogicAudioShroudResolver));
         let _ = register_audio_locality_resolver(Arc::new(GameLogicAudioLocalityResolver));
         let _ = register_audio_view_resolver(Arc::new(GameLogicAudioViewResolver));
+        let _ = game_engine::common::system::radar::register_radar_event_feedback(Arc::new(
+            WorldRadarAudioFeedback {
+                world: audio.world.clone(),
+            },
+        ));
     });
+}
+
+/// Ownerless radar sounds (event chirps, infiltration) play in the engine
+/// whose CommonServices carries this feedback (C++ `TheAudio` of that engine).
+struct WorldRadarAudioFeedback {
+    world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
+}
+
+impl game_engine::common::system::radar::RadarEventFeedback for WorldRadarAudioFeedback {
+    fn play_radar_audio(&self, event_name: &str, player_index: i32) {
+        let Some(world) = self.world.as_ref().and_then(std::sync::Weak::upgrade) else {
+            return;
+        };
+        TheAudio::of(&world).add_audio_event(&crate::helpers::radar_notify_audio_event(
+            event_name,
+            player_index,
+        ));
+    }
 }
 
 /// C++ `INI::parseAudioEventRTS` stores the MiscAudio.ini token as the event name.
@@ -876,7 +899,7 @@ mod leftover_the_audio_tests {
         drop(shroud);
         assert!(crate::helpers::register_observer_audio_locality_hooks(Arc::new(TestObserver(index))));
         assert!(crate::helpers::register_observer_audio_view_hooks(Arc::new(TestObserver(index))));
-        TheAudio::get().unwrap();
+        TheAudio::of(&crate::system::engine_stores::active_services()).install_resolvers();
     }
 
     fn assert_observed_audio_world(index: i32) {
@@ -933,10 +956,10 @@ mod leftover_the_audio_tests {
     fn repeated_audio_get_preserves_later_resolver_registration() {
         let world = crate::system::engine_stores::new_for_world();
         crate::system::engine_stores::with_active_stores(&world, || {
-            TheAudio::get().unwrap();
+            TheAudio::of(world.services()).install_resolvers();
             let replacement: Arc<dyn AudioViewResolver> = Arc::new(GameLogicAudioViewResolver);
             assert!(!register_audio_view_resolver(Arc::clone(&replacement)));
-            TheAudio::get().unwrap();
+            TheAudio::of(world.services()).install_resolvers();
             let services = game_engine::common::common_services::common_services();
             let installed = services.system.audio_view_resolver.lock().unwrap().clone().unwrap();
             assert!(Arc::ptr_eq(&replacement, &installed));
@@ -961,30 +984,24 @@ mod leftover_the_audio_tests {
     #[test]
     fn leftover_get_misc_audio_reads_live_ini_event_name() {
         // C++ TheAudio->getMiscAudio() returns the live MiscAudio after INI parse.
-        let handle = game_engine::common::ini::ini_misc_audio::ensure_misc_audio();
-        {
-            let mut misc = handle.write();
-            misc.crate_heal =
-                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
-                    "CrateHeal".to_string(),
-                );
-        }
-        let events = TheAudio::get_misc_audio();
+        let world = crate::system::engine_stores::new_for_world();
+        world.services().common().ini.misc_audio.write().crate_heal =
+            game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+                "CrateHeal".to_string(),
+            );
+        let events = TheAudio::of(world.services()).misc_audio();
         assert_eq!(events.crate_heal.get_event_name(), "CrateHeal");
     }
 
     #[test]
     fn leftover_get_misc_audio_maps_all_cheer_sound() {
         // C++ MiscAudio.ini AllCheerSound = UI_AllCheerSound.
-        let handle = game_engine::common::ini::ini_misc_audio::ensure_misc_audio();
-        {
-            let mut misc = handle.write();
-            misc.all_cheer_sound =
-                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
-                    "UI_AllCheerSound".to_string(),
-                );
-        }
-        let events = TheAudio::get_misc_audio();
+        let world = crate::system::engine_stores::new_for_world();
+        world.services().common().ini.misc_audio.write().all_cheer_sound =
+            game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+                "UI_AllCheerSound".to_string(),
+            );
+        let events = TheAudio::of(world.services()).misc_audio();
         assert_eq!(events.all_cheer_sound.get_event_name(), "UI_AllCheerSound");
     }
 
@@ -1043,7 +1060,7 @@ mod leftover_the_audio_tests {
     #[test]
     fn leftover_the_audio_lose_focus_mutes_and_regain_restores() {
         // C++ WinMain WM_ACTIVATE → TheAudio->loseFocus / regainFocus.
-        let audio = TheAudio::get().unwrap();
+        let audio = TheAudio::of(&crate::system::engine_stores::active_services());
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         {
             let mut guard = manager.lock().unwrap();

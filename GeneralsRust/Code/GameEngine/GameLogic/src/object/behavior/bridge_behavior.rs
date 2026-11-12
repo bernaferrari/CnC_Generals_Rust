@@ -774,7 +774,8 @@ impl BridgeBehavior {
 
     fn play_audio_event(&self, event: &AudioEventRTS) {
         // C++ BridgeBehavior::onBodyDamageStateChange: TheAudio->addAudioEvent(...)
-        let Some(audio) = TheAudio::get() else {
+        // of the engine that owns this bridge.
+        let Some(audio) = self.with_object(TheAudio::of_object).ok().flatten() else {
             return;
         };
         let name = event.playable_event_name();

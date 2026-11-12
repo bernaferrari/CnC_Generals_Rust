@@ -395,7 +395,6 @@ pub struct TheRadar;
 impl TheRadar {
     pub fn get() -> Option<&'static Self> {
         static RADAR: TheRadar = TheRadar;
-        ensure_radar_event_feedback_registered();
         Some(&RADAR)
     }
 
@@ -499,9 +498,6 @@ impl TheRadar {
     }
 
     pub fn try_under_attack_event_for_object(target: &Object) -> Result<bool, GameError> {
-        // C++ TheRadar/TheInGameUI/TheAudio/TheEva are always live; the Rust
-        // client-side hooks must be registered before the pipeline fires.
-        ensure_radar_event_feedback_registered();
         if target.is_destroyed() {
             return Ok(false);
         }
@@ -602,21 +598,8 @@ impl game_engine::common::system::radar::RadarEventOwner for VictimRadarOwner {
     }
 }
 
-struct LeftoverRadarEventFeedback;
-
-impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEventFeedback {
-    fn play_radar_audio(&self, event_name: &str, player_index: i32) {
-        // Ownerless radar events (map-level chirps) play in the engine that
-        // installed this feedback on its CommonServices.
-        let Some(audio) = TheAudio::get() else {
-            return;
-        };
-        audio.add_audio_event(&radar_notify_audio_event(event_name, player_index));
-    }
-}
-
 /// C++ Radar.cpp: the radar sound names of an event, for `player_index`.
-fn radar_notify_audio_event(event_name: &str, player_index: i32) -> AudioEventRts {
+pub(crate) fn radar_notify_audio_event(event_name: &str, player_index: i32) -> AudioEventRts {
     {
         let mapped = match event_name {
             "RadarHarvesterUnderAttackSound" => "RadarNotifyHarvesterUnderAttackSound",
@@ -640,12 +623,6 @@ fn radar_eva_event(eva_name: &str) -> Option<EvaEvent> {
     }
 }
 
-/// Idempotent per Common bag: the radar slot keeps its first adapter.
-fn ensure_radar_event_feedback_registered() {
-    let _ = game_engine::common::system::radar::register_radar_event_feedback(Arc::new(
-        LeftoverRadarEventFeedback,
-    ));
-}
 
 /// C++ `TheTacticalView` camera constraint hook used by SWITCH_BORDER.
 pub struct TheTacticalView;

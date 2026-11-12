@@ -357,22 +357,15 @@ fn leftover_audio_event_playable(name: &str) -> bool {
     !name.is_empty() && !name.eq_ignore_ascii_case("NONE")
 }
 
-/// C++ `WaveGuideUpdate::startMoving` / splash `TheAudio->addAudioEvent`.
-pub fn leftover_play_wave_guide_audio_event(mut event: AudioEventRts, object_id: ObjectID) -> bool {
-    event.set_object_id(object_id);
-    let Some(audio) = TheAudio::get() else {
+/// C++ `WaveGuideUpdate::startMoving` / splash `TheAudio->addAudioEvent`
+/// in the engine that owns `waveguide`.
+pub fn leftover_play_wave_guide_audio_event(mut event: AudioEventRts, waveguide: &GameObject) -> bool {
+    event.set_object_id(waveguide.get_id());
+    let Some(audio) = TheAudio::of_object(waveguide) else {
         return false;
     };
     audio.add_audio_event(&event);
     true
-}
-
-/// Live host: leftover-play a named WaveGuide audio event on the object.
-pub fn leftover_play_wave_guide_named_audio(event_name: &str, object_id: ObjectID) -> bool {
-    if !leftover_audio_event_playable(event_name) {
-        return false;
-    }
-    leftover_play_wave_guide_audio_event(AudioEventRts::new(event_name), object_id)
 }
 
 /// C++ `getFrame() - m_splashSoundFrame > LOGICFRAMES_PER_SECOND / 2.0f`.
@@ -502,7 +495,7 @@ impl WaveGuideUpdate {
 
         let _ = leftover_play_wave_guide_audio_event(
             self.module_data.read().looping_sound.clone(),
-            waveguide.get_id(),
+            &waveguide,
         );
 
         let terrain = crate::terrain::get_terrain_logic();
@@ -984,7 +977,7 @@ impl UpdateModuleInterface for WaveGuideUpdate {
         {
             let _ = leftover_play_wave_guide_audio_event(
                 self.module_data.read().random_splash_sound.clone(),
-                waveguide.get_id(),
+                &waveguide,
             );
         }
 

@@ -675,6 +675,14 @@ impl TurretAI {
         }
     }
 
+    /// C++ `TheAudio` of the engine that owns this turret's Object, resolved
+    /// through `owner_id` like every other owner access here.
+    fn owner_audio(&self) -> Option<TheAudio> {
+        OBJECT_REGISTRY
+            .with_object(self.owner_id, TheAudio::of_object)
+            .flatten()
+    }
+
     fn ensure_turret_move_loop_sound(&mut self) {
         if !self.turret_rot_or_pitch_sound.get_event_name().is_empty() {
             return;
@@ -701,7 +709,7 @@ impl TurretAI {
             return;
         }
         self.turret_rot_or_pitch_sound.set_object_id(self.owner_id);
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.owner_audio() {
             let handle = audio.add_audio_event(&self.turret_rot_or_pitch_sound);
             self.turret_rot_or_pitch_sound.set_playing_handle(handle);
         }
@@ -711,7 +719,7 @@ impl TurretAI {
         if !self.turret_rot_or_pitch_sound.is_currently_playing() {
             return;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.owner_audio() {
             audio.remove_audio_event(self.turret_rot_or_pitch_sound.get_playing_handle());
         }
         self.turret_rot_or_pitch_sound.set_playing_handle(0);

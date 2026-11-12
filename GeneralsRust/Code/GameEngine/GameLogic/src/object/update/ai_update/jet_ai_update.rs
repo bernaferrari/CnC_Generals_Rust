@@ -1168,16 +1168,11 @@ impl JetStateMachine {
                             // C++ JetTakeoffOrLandingState::update touchdown (JetAIUpdate.cpp:818-836)
                             if pos.z - 0.25 <= ground_z {
                                 if let Some(audio) = jet_ai.audio.clone() {
-                                    if let Some(misc_audio) =
-                                        game_engine::common::ini::ini_misc_audio::get_misc_audio()
-                                    {
-                                        let misc_audio = misc_audio.read();
-                                        let mut sound = AudioEventRts::new(
-                                            misc_audio.aircraft_wheel_screech.playable_event_name(),
-                                        );
-                                        sound.set_position(&(pos.x, pos.y, pos.z));
-                                        audio.add_audio_event(&sound);
-                                    }
+                                    let mut sound = AudioEventRts::new(
+                                        audio.misc_audio_ini().aircraft_wheel_screech.playable_event_name(),
+                                    );
+                                    sound.set_position(&(pos.x, pos.y, pos.z));
+                                    audio.add_audio_event(&sound);
                                 }
                                 self.landing_sound_played = true;
                             }
@@ -2542,14 +2537,11 @@ impl JetAIUpdate {
 
         if last_phase && !this_phase {
             if let Some(audio) = self.audio.clone() {
-                if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio()
-                {
-                    let misc_audio = misc_audio.read();
-                    let mut lockon_sound =
-                        AudioEventRts::new(misc_audio.lockon_tick_sound.playable_event_name());
-                    lockon_sound.set_object_id(self.object_id);
-                    audio.add_audio_event(&lockon_sound);
-                }
+                let mut lockon_sound = AudioEventRts::new(
+                    audio.misc_audio_ini().lockon_tick_sound.playable_event_name(),
+                );
+                lockon_sound.set_object_id(self.object_id);
+                audio.add_audio_event(&lockon_sound);
             }
             if self.data().lockon_blinky {
                 if let Some(client) = TheGameClient::get() {

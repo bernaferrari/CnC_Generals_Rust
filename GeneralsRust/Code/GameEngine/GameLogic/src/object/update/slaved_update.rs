@@ -1028,16 +1028,14 @@ impl SlavedUpdate {
         let lifetime = (self.frames_to_wait.max(0) as f32) * LOGICFRAMES_PER_SECOND as f32;
         manager.set_particle_lifetime_range(particle_id, lifetime, lifetime);
 
-        if let Some(audio) = TheAudio::get() {
-            if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio() {
-                let misc_audio = misc_audio.read();
-                if !misc_audio.repair_sparks.playable_event_name().is_empty() {
-                    let mut sound = crate::common::audio::AudioEventRts::new(
-                        misc_audio.repair_sparks.playable_event_name(),
-                    );
-                    sound.set_position(&(pos.x, pos.y, pos.z));
-                    audio.add_audio_event(&sound);
-                }
+        // C++ SlavedUpdate::doRepair: TheAudio->getMiscAudio()->m_repairSparks
+        // of the engine that owns this slave.
+        if let Some(audio) = TheAudio::of_object(&object) {
+            let name = audio.misc_audio_ini().repair_sparks.playable_event_name().to_string();
+            if !name.is_empty() {
+                let mut sound = crate::common::audio::AudioEventRts::new(name.as_str());
+                sound.set_position(&(pos.x, pos.y, pos.z));
+                audio.add_audio_event(&sound);
             }
         }
     }

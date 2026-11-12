@@ -12,7 +12,7 @@ struct Services {
 }
 impl Services {
     fn install() -> Self {
-        crate::helpers::TheAudio::get().unwrap();
+        crate::helpers::TheAudio::of(&crate::system::engine_stores::active_services()).install_resolvers();
         let players = std::mem::replace(&mut *player_list().write().unwrap(), PlayerList::new());
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let mut replacement = AudioManager::new();
@@ -53,7 +53,7 @@ fn admit(list: &mut PlayerList, index: Int, cash: Int) -> Arc<RwLock<Player>> {
     player
 }
 fn register_money_sounds() -> (String, String) {
-    let misc = crate::helpers::TheAudio::get_misc_audio();
+    let misc = crate::helpers::TheAudio::of(&crate::system::engine_stores::active_services()).misc_audio();
     let withdraw = misc.money_withdraw.get_event_name().to_string();
     let deposit = misc.money_deposit.get_event_name().to_string();
     let manager = get_global_audio_manager().unwrap();

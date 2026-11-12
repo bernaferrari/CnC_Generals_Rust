@@ -166,7 +166,7 @@ fn canonical_audio_deadlines_wrap_like_cpp_unsigned_frames() {
     std::fs::write(filename, wav).unwrap();
     let leftover = crate::common::audio::AudioEventRts::new(name);
     assert_eq!(
-        TheAudio::get().unwrap().get_audio_length_ms(&leftover),
+        TheAudio::of(&crate::system::engine_stores::active_services()).get_audio_length_ms(&leftover),
         100.0
     );
     let engine = ScriptEngine::new_in_published_world().unwrap();

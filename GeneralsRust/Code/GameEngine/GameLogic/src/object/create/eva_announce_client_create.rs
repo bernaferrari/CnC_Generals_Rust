@@ -171,7 +171,11 @@ impl CreateInterface for EvaAnnounceClientCreate {
             return;
         }
 
-        if let Some(audio) = TheAudio::get() {
+        // C++ TheAudio of the engine that owns the announcing Object.
+        let audio = crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, TheAudio::of_object)
+            .flatten();
+        if let Some(audio) = audio {
             let mut event_to_play = AudioEventRts::new(event.as_str());
             event_to_play.set_object_id(object_id);
             audio.add_audio_event(&event_to_play);
