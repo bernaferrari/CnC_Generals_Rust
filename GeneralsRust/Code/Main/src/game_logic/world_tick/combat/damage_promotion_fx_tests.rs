@@ -126,10 +126,24 @@ Weapon DamagePromotionOrderWeapon
   PreAttackDelay = 0
   AntiGround = Yes
 End
+
+Weapon DamagePromotionOrderBlast
+  PrimaryDamage = 100
+  PrimaryDamageRadius = 5
+  AttackRange = 200
+  DamageType = SMALL_ARMS
+  ProjectileObject = NONE
+  WeaponSpeed = 30000000
+  DelayBetweenShots = 1000
+  ClipSize = 8
+  ClipReloadTime = 1000
+  PreAttackDelay = 0
+  AntiGround = Yes
+End
 "#,
             crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
         ),
-        1
+        2
     );
     let rule = &rows[&RULE.to_ascii_lowercase()];
     assert_eq!(rule.primary_damage, 100.0);
@@ -156,10 +170,16 @@ End
 }
 
 fn authored_source(name: &str, health: u32, xp: u32, armed: bool) -> String {
-    let weapon = if armed {
-        "WeaponSet\n  Conditions = None\n  Weapon = PRIMARY DamagePromotionOrderWeapon\nEnd"
-    } else {
-        ""
+    // A position shot only damages through the radius iterator: with no
+    // radius, curVictim is the (absent) primary victim (Weapon.cpp:1281-1294).
+    let weapon = match (armed, name.starts_with("Ground")) {
+        (false, _) => "",
+        (true, false) => {
+            "WeaponSet\n  Conditions = None\n  Weapon = PRIMARY DamagePromotionOrderWeapon\nEnd"
+        }
+        (true, true) => {
+            "WeaponSet\n  Conditions = None\n  Weapon = PRIMARY DamagePromotionOrderBlast\nEnd"
+        }
     };
     format!(
         r#"
@@ -460,8 +480,9 @@ fn normal_kill_sink_promotion_does_not_change_actual_source_fx_row() {
 }
 
 // Same original ActiveBody scoreTheKill -> onDie -> DamageFX ordering applies
-// to a no-Object weapon target. Main's nearest-impact victim selector remains
-// its existing host residual; this is the real ground driver, not a direct hit.
+// to a no-Object weapon target. The victim stands inside the shooter's blast
+// radius (Weapon.cpp:1281-1285 iterateObjectsInRange); this is the real ground
+// driver, not a direct hit.
 #[test]
 fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
     isolated(
