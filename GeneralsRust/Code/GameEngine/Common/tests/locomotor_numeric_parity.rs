@@ -5,9 +5,10 @@
 
 use game_engine::common::ini::ini::INI;
 use game_engine::common::ini::ini_locomotor::{
-    LocomotorTemplate, get_locomotor_store, load_locomotors_from_str,
-    parse_locomotor_template_definition,
+    LocomotorTemplate, load_locomotors_from_str, parse_locomotor_template_definition,
 };
+use game_engine::common::common_services::CommonServices;
+use std::sync::Arc;
 use std::collections::HashMap;
 
 const ORIGINAL: &str = include_str!("fixtures/ini_numeric_original.txt");
@@ -25,14 +26,19 @@ const FIELDS: [(&str, usize, fn(&LocomotorTemplate) -> f32); 9] = [
 
 fn load(name: &str, body: &str, bulk: bool) -> LocomotorTemplate {
     let text = format!("Locomotor {name}\n{body}\nEnd\n");
+    let common = Arc::new(CommonServices::new());
     if bulk {
-        assert_eq!(load_locomotors_from_str(&text).unwrap(), 1);
+        assert_eq!(
+            load_locomotors_from_str(&mut common.ini.locomotor.write(), &text).unwrap(),
+            1
+        );
     } else {
-        INI::new()
+        INI::for_common(Arc::clone(&common))
             .with_inline_source(&text, |ini| ini.parse_current_file())
             .unwrap();
     }
-    get_locomotor_store().find_template(name).unwrap().clone()
+    let template = common.ini.locomotor.read().find_template(name).unwrap().clone();
+    template
 }
 
 fn check_field(index: usize) {

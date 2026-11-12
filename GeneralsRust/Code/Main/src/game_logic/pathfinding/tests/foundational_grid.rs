@@ -302,9 +302,9 @@ fn assign_unit_path_queues_until_next_update() {
 /// AIUpdate.cpp:2339-2380); a template without one cannot walk.
 fn bind_authored_locomotor(unit: &mut crate::game_logic::Object, name: &str) {
     use crate::game_logic::locomotor_bootstrap::{
-        apply_host_locomotor_binding, resolve_host_locomotor_binding,
+        apply_host_locomotor_binding, fixture_locomotor_binding,
     };
-    let binding = resolve_host_locomotor_binding(name).expect("authored fixture locomotor");
+    let binding = fixture_locomotor_binding(name).expect("authored fixture locomotor");
     unit.locomotor_set_names = vec![name.to_owned()];
     unit.cur_locomotor_name = Some(name.to_owned());
     apply_host_locomotor_binding(unit, &binding);

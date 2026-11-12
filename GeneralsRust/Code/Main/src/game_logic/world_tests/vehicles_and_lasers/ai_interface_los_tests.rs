@@ -3,14 +3,19 @@ use super::*;
 
 const AI_WEAPON_SOURCE: &str = "Weapon AiPresenceRifle\n PrimaryDamage = 25\n AttackRange = 200\n DamageType = SMALL_ARMS\nEnd\nWeapon AiPresenceTouch\n PrimaryDamage = 25\n AttackRange = 5\n DamageType = SMALL_ARMS\nEnd\n";
 
+const AI_LOCOMOTOR_SOURCE: &str = "Locomotor AiPresenceGround\n Surfaces = GROUND\n Speed = 20\n Acceleration = 100\n Braking = 100\n Appearance = TWO_LEGS\nEnd\n";
+
 fn load_rules() {
     let mut ini = game_engine::common::ini::ini::INI::new();
     ini.with_inline_source(AI_WEAPON_SOURCE, |ini| ini.parse_current_file())
         .expect("authored selected weapon");
-    game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
-        "Locomotor AiPresenceGround\n Surfaces = GROUND\n Speed = 20\n Acceleration = 100\n Braking = 100\n Appearance = TWO_LEGS\nEnd\n",
-    )
-    .expect("authored ground locomotor");
+}
+
+/// A world whose own Locomotor catalog holds the fixture ground locomotor.
+fn fixture_world() -> GameLogic {
+    let mut logic = GameLogic::new();
+    crate::fixture_content::author_locomotors(&mut logic, AI_LOCOMOTOR_SOURCE);
+    logic
 }
 
 fn parsed_template(name: &str, ai_class: Option<&str>, ground: bool) -> (ThingTemplate, String) {
@@ -83,7 +88,7 @@ fn scene_for_weapon(
     fixture: (ThingTemplate, String),
     weapon: &str,
 ) -> (GameLogic, ObjectId, ObjectId) {
-    let mut logic = GameLogic::new();
+    let mut logic = fixture_world();
     let (template, source_text) = fixture;
     let name = template.name.clone();
     if source_text.is_empty() {
@@ -345,7 +350,7 @@ fn authored_ai_interface_metadata_survives_clone_restore_and_equal_id_worlds() {
             }
             let builder = crate::save_load::SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source_world).unwrap();
-            let mut restored = GameLogic::new();
+            let mut restored = fixture_world();
             restored.templates = source_world.templates.clone();
             restored.receiving_module_content = source_world.receiving_module_content.clone();
             restored.receiving_object_definitions =

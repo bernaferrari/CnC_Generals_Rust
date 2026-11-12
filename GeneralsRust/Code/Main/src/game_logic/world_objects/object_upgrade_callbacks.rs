@@ -479,7 +479,7 @@ impl GameLogic {
             if crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade_in(
                 obj,
                 upgrade,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             ) {
                 self.upgrade_module_residuals.record_locomotor_set(upgrade);
             }

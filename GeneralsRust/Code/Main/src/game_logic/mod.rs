@@ -178,8 +178,7 @@ pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave92;
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
 pub use locomotor_bootstrap::{
     BASIC_HUMAN_LOCOMOTOR, BATTLE_MASTER_LOCOMOTOR, CRUSADER_LOCOMOTOR, HUMVEE_LOCOMOTOR,
-    REDGUARD_LOCOMOTOR, SCORPION_LOCOMOTOR, TECHNICAL_LOCOMOTOR, ensure_host_locomotor_store,
-    locomotor_name_for_unit, resolve_host_movement,
+    REDGUARD_LOCOMOTOR, SCORPION_LOCOMOTOR, TECHNICAL_LOCOMOTOR, locomotor_name_for_unit,
 };
 pub use mission_scripts::*;
 pub use object::*;

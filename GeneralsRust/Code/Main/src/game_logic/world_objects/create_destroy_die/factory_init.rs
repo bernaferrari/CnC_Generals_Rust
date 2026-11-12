@@ -317,7 +317,7 @@ impl GameLogic {
             // LocomotorSetUpgrade (Worker Shoes, Nuclear Tanks, ...).
             object.apply_authored_locomotor_set_upgrade_for_mask(
                 |name| player.has_unlocked_upgrade(name),
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
         }
         if let Some(bonus) = power_plant_bonus {

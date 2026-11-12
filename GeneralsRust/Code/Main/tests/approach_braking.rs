@@ -3,13 +3,30 @@
 //! separate. Only the explicit host-adapter column is compared with Main.
 
 use game_engine::common::ini::ini::INI;
-use game_engine::common::ini::ini_locomotor::{get_locomotor_store, load_locomotors_from_str};
+use game_engine::common::common_services::CommonServices;
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use generals_main::game_logic::locomotor_bootstrap::{
-    apply_host_locomotor_binding, resolve_host_locomotor_binding,
+    apply_host_locomotor_binding, resolve_host_locomotor_binding_from_store,
 };
+use std::sync::Arc;
 use generals_main::game_logic::{
     LocomotorAppearance, Object, ObjectId, Team, ThingTemplate, calc_slow_down_dist,
 };
+
+/// One Locomotor through the bulk loader or a receiving INI dispatch, into a
+/// catalog this fixture owns.
+fn load_catalog(text: &str, bulk: bool) -> LocomotorStore {
+    if bulk {
+        let mut store = LocomotorStore::new_owned();
+        assert_eq!(store.apply_source(text).unwrap(), 1);
+        return store;
+    }
+    let common = Arc::new(CommonServices::new());
+    INI::for_common(Arc::clone(&common))
+        .with_inline_source(text, |ini| ini.parse_current_file())
+        .unwrap();
+    common.ini.locomotor.read().clone()
+}
 
 const ORIGINAL: &str = include_str!("fixtures/approach_original.txt");
 
@@ -76,14 +93,8 @@ fn check_family(family: &str, expected_count: usize, bulk: Option<bool>) {
                 "Locomotor {name}\nSurfaces = GROUND\nSpeed = 60\nAcceleration = 30\nAppearance = {}\nMinSpeed = {}\n{braking}End\n",
                 row[2], row[5]
             );
-            if bulk {
-                assert_eq!(load_locomotors_from_str(&text).unwrap(), 1);
-            } else {
-                INI::new()
-                    .with_inline_source(&text, |ini| ini.parse_current_file())
-                    .unwrap();
-            }
-            let template = get_locomotor_store().find_template(&name).unwrap().clone();
+            let catalog = load_catalog(&text, bulk);
+            let template = catalog.find_template(&name).unwrap().clone();
             check_float(
                 template.braking,
                 row[16],
@@ -96,7 +107,7 @@ fn check_family(family: &str, expected_count: usize, bulk: Option<bool>) {
                 "parsed host minimum",
                 &mut differences,
             );
-            let binding = resolve_host_locomotor_binding(&name).unwrap();
+            let binding = resolve_host_locomotor_binding_from_store(&catalog, &name).unwrap();
             apply_host_locomotor_binding(&mut object, &binding);
             check_float(binding.braking, row[15], "bound braking", &mut differences);
         } else {

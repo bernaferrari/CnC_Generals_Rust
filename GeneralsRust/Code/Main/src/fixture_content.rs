@@ -498,6 +498,16 @@ pub(crate) fn locomote(object: &mut crate::game_logic::Object, fields: &[&str]) 
     crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(object, &binding);
 }
 
+/// Author Locomotor.ini `source` into `world`'s own catalog (C++ the
+/// engine's TheLocomotorStore holds Locomotor.ini before Object content).
+pub(crate) fn author_locomotors(world: &mut GameLogic, source: &str) -> usize {
+    world
+        .locomotor_definitions
+        .store_mut()
+        .apply_source(source)
+        .expect("fixture Locomotor parses")
+}
+
 /// Declare named Objects with no authored modules (content-only witnesses).
 pub(crate) fn admit_declared_objects(world: &mut GameLogic, names: &[&str]) {
     let objects: Vec<_> = names.iter().map(|name| FixtureObject::new(*name)).collect();

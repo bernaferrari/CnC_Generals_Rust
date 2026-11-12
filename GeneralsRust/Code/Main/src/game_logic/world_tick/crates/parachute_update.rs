@@ -197,7 +197,7 @@ impl GameLogic {
                 self.objects.get_mut(&id).unwrap(),
                 kind,
                 0,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             ) && requested_exists
             {
                 return Err(gamelogic::GameLogicError::Configuration(

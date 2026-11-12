@@ -2226,7 +2226,7 @@ mod common_target_parity {
         let id = logic
             .create_object("Ranger", Team::USA, start)
             .expect("ranger");
-        let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+        let binding = crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(
             "BasicHumanLocomotor",
         )
         .expect("authored infantry locomotor");

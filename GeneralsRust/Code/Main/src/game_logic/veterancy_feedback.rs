@@ -163,7 +163,7 @@ impl super::GameLogic {
             object,
             &mut audio,
             &mut feedback,
-            self.locomotor_definitions.as_ref(),
+            self.locomotor_definitions.receiving(),
         )
     }
     #[cfg(test)]
@@ -232,7 +232,7 @@ impl super::GameLogic {
             &mut audio,
             &mut feedback,
             &mut self.partition_manager,
-            self.locomotor_definitions.as_ref(),
+            self.locomotor_definitions.receiving(),
         ))
     }
 
@@ -458,7 +458,7 @@ impl super::GameLogic {
             &mut audio,
             &mut feedback,
             &mut self.partition_manager,
-            self.locomotor_definitions.as_ref(),
+            self.locomotor_definitions.receiving(),
         ))
     }
 }

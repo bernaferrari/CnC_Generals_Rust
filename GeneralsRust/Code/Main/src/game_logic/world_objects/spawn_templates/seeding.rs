@@ -59,7 +59,7 @@ impl GameLogic {
         } else {
             self.projectile_definitions
                 .with_physics_gravity(self.physics_definitions.base.gravity)?
-        }.with_locomotors(self.locomotor_definitions.as_ref());
+        }.with_locomotors(self.locomotor_definitions.receiving());
         self.projectile_definitions = candidate;
         Ok(())
     }
@@ -96,10 +96,10 @@ impl GameLogic {
             &mut templates,
             &projection_candidate,
             &candidate,
-            self.locomotor_definitions.as_ref(),
+            self.locomotor_definitions.receiving(),
         )?;
         Self::bind_receiving_production_templates(&mut templates, &candidate)?;
-        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(projection_candidate.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.effective.gravity)?.with_locomotors(self.locomotor_definitions.as_ref());
+        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(projection_candidate.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.effective.gravity)?.with_locomotors(self.locomotor_definitions.receiving());
         self.receiving_module_content = Some(candidate);
         self.receiving_object_definitions = Some(projection_candidate);
         self.projectile_definitions = projectile_candidate;
@@ -229,7 +229,7 @@ impl GameLogic {
                 return Err("weapon snapshot has duplicate effective identities".into());
             }
         }
-        let profiles=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.base.gravity)?.with_locomotors(self.locomotor_definitions.as_ref());
+        let profiles=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.base.gravity)?.with_locomotors(self.locomotor_definitions.receiving());
         self.weapon_definition_base = Some(catalog.clone());
         self.weapon_definitions = Some(catalog);
         self.projectile_definitions = profiles;
@@ -336,7 +336,7 @@ impl GameLogic {
                         &definition,
                         definition.get_primary_texture(),
                         Some(content),
-                        self.locomotor_definitions.as_ref(),
+                        self.locomotor_definitions.receiving(),
                     )?;
                     template.receiving_object_definition = self
                         .receiving_object_definitions
@@ -375,7 +375,7 @@ impl GameLogic {
                     template,
                     &definition,
                     rider_change_normal_locomotors.as_deref(),
-                    self.locomotor_definitions.as_ref(),
+                    self.locomotor_definitions.receiving(),
                 );
                 if definition_has_rider_change_contain(&definition) {
                     if let Some(locomotor) = rider_change_normal_locomotors
@@ -497,7 +497,7 @@ impl GameLogic {
                 &definition,
                 texture_hint.as_deref(),
                 receiving,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             )?;
             self.templates.insert(name.to_string(), template);
             inserted = inserted.saturating_add(1);

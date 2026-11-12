@@ -176,7 +176,7 @@ pub use ini_language::{
 pub use ini_locomotor::{
     LocomotorAppearance, LocomotorBehaviorZ, LocomotorError, LocomotorLoadError, LocomotorPriority,
     LocomotorResult, LocomotorStore, LocomotorSurfaceTypeMask, LocomotorTemplate,
-    get_locomotor_store, get_locomotor_store_mut, load_locomotors_from_str,
+    load_locomotors_from_str,
     parse_locomotor_template_definition,
 };
 pub use ini_rank::{
@@ -485,7 +485,6 @@ pub fn initialize_ini_systems() {
     ini_campaign::init_campaign_store();
     ini_challenge_generals::init_challenge_generals();
     ini_game_lod::init_game_lod_manager();
-    let _locomotor_guard = ini_locomotor::get_locomotor_store();
     let _science_guard = ini_science::get_science_store();
     let _road_guard = ini_road::get_terrain_roads();
     let _fx_list_guard = ini_fx_list::get_fx_list_store();

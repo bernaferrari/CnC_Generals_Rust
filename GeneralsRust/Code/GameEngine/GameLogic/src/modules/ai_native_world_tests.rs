@@ -72,7 +72,7 @@ fn infantry_template() -> Arc<dyn ThingTemplate> {
     loco.surfaces = crate::locomotor::SURFACE_GROUND;
     loco.max_speed = 3.0;
     loco.acceleration = 0.1;
-    crate::locomotor::LOCOMOTOR_STORE.register_template(loco);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(loco);
     let mut data = crate::object::update::AIUpdateModuleData::default();
     data.set_locomotor_set_entries(
         crate::common::LocomotorSetType::Normal,
@@ -354,7 +354,7 @@ impl NativeMatch {
             .unwrap(),
         );
         let mut lookup =
-            |name: &str| Ok(crate::locomotor::LOCOMOTOR_STORE.get_template(name));
+            |name: &str| Ok(crate::system::engine_stores::active_services().locomotor_store().get_template(name));
         let source_id = factory
             .prepare_object_owned(
                 &mut scheduler,

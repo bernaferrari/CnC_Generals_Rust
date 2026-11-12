@@ -137,13 +137,15 @@ impl LocomotorSet {
     }
 
     /// Serialize this set plus the caller's current locomotor pointer.
-    /// Matches C++ LocomotorSet::xferSelfAndCurLocoPtr.
+    /// Matches C++ LocomotorSet::xferSelfAndCurLocoPtr; templates resolve in
+    /// the owning engine's `store` (none resolves nothing).
     pub fn xfer_self_and_cur_loco_ptr(
         &mut self,
         xfer: &mut dyn game_engine::system::Xfer,
         current_name_slot: &mut Option<String>,
+        store: Option<&LocomotorStore>,
     ) -> Result<(), String> {
-        let mut lookup = |name: &str| Ok(LOCOMOTOR_STORE.get_template(name));
+        let mut lookup = |name: &str| Ok(store.and_then(|store| store.get_template(name)));
         self.xfer_self_and_cur_loco_ptr_admitted(xfer, current_name_slot, &mut lookup, false)
     }
 
@@ -275,20 +277,37 @@ impl TerrainSpeedTable {
 }
 
 // ============================================================================
-// LOCOMOTOR STORE (GLOBAL REGISTRY)
+// LOCOMOTOR STORE (PER WORLD)
 // ============================================================================
 
-/// Global locomotor template store
+/// The authored Locomotor.ini catalog a world's [`LocomotorStore`] converts
+/// from: that world's own `CommonServices::ini.locomotor`.
+pub type LocomotorDefinitions =
+    Arc<parking_lot::RwLock<game_engine::common::ini::ini_locomotor::LocomotorStore>>;
+
+/// C++ `TheLocomotorStore` of one GameEngine: live templates converted from
+/// that engine's own Locomotor.ini definitions, never another world's.
 pub struct LocomotorStore {
     templates: RwLock<HashMap<String, Arc<LocomotorTemplate>>>,
     terrain_speeds: TerrainSpeedTable,
+    definitions: Option<LocomotorDefinitions>,
 }
 
 impl LocomotorStore {
+    /// A store with no authored definitions (fixtures register templates).
     pub fn new() -> Self {
         Self {
             templates: RwLock::new(HashMap::new()),
             terrain_speeds: TerrainSpeedTable::new(),
+            definitions: None,
+        }
+    }
+
+    /// A store that converts its templates from `definitions`.
+    pub fn with_definitions(definitions: LocomotorDefinitions) -> Self {
+        Self {
+            definitions: Some(definitions),
+            ..Self::new()
         }
     }
 
@@ -305,13 +324,26 @@ impl LocomotorStore {
                 return Some(found);
             }
         }
-        let converted = crate::locomotor::ini_bridge::convert_named(name)?;
+        let converted = {
+            let definitions = self.definitions.as_ref()?.read();
+            crate::locomotor::ini_bridge::convert_named(&definitions, name)?
+        };
         self.register_template(converted);
         if let Ok(templates) = self.templates.read() {
             templates.get(name).cloned()
         } else {
             None
         }
+    }
+
+    /// Register every authored definition of this world (C++ the store is
+    /// filled by its own engine's `INI::load` of Locomotor.ini).
+    pub fn sync_from_definitions(&self) {
+        let Some(definitions) = self.definitions.as_ref() else {
+            return;
+        };
+        let definitions = definitions.read();
+        crate::locomotor::ini_bridge::sync_common_store_into(&definitions, self);
     }
 
     pub fn create_locomotor(&self, template_name: &str) -> Option<Locomotor> {
@@ -327,11 +359,12 @@ impl LocomotorStore {
     pub fn update(&self) {}
 }
 
-/// Per-world locomotor definitions (was process Lazy).
-pub fn new_locomotor_store() -> Arc<LocomotorStore> {
-    let store = Arc::new(LocomotorStore::new());
+/// A world's locomotor store over its own authored `definitions`.
+pub fn new_locomotor_store(definitions: LocomotorDefinitions) -> Arc<LocomotorStore> {
+    let store = Arc::new(LocomotorStore::with_definitions(definitions));
 
-    // Fallback stubs used before / without INI. Retail names come from Common.
+    // Fallback stubs used before / without INI. Retail names come from the
+    // world's own definitions.
     store.register_template(LocomotorTemplate::new_infantry("Infantry".to_string()));
     store.register_template(LocomotorTemplate::new_wheeled("Wheeled".to_string()));
     store.register_template(LocomotorTemplate::new_tracked("Tracked".to_string()));
@@ -339,43 +372,5 @@ pub fn new_locomotor_store() -> Arc<LocomotorStore> {
     store.register_template(LocomotorTemplate::new_thrust("Thrust".to_string()));
     store.register_template(LocomotorTemplate::new_wings("Wings".to_string()));
     store.register_template(LocomotorTemplate::new_climber("Climber".to_string()));
-
-    // Common INI sync happens on publish (install_services), not during
-    // WorldServices construction — CommonServices is not ambient yet.
     store
-}
-
-pub fn sync_locomotor_store_from_common(store: &Arc<LocomotorStore>) {
-    crate::locomotor::ini_bridge::sync_common_store_into(store);
-}
-
-/// Call-site-compatible proxy; resolves the published world's store.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct LocomotorStoreGlobal;
-
-pub static LOCOMOTOR_STORE: LocomotorStoreGlobal = LocomotorStoreGlobal;
-
-impl LocomotorStoreGlobal {
-    fn store(self) -> Arc<LocomotorStore> {
-        Arc::clone(
-            crate::system::engine_stores::active_services()
-                .locomotor_store(),
-        )
-    }
-
-    pub fn register_template(self, template: LocomotorTemplate) {
-        self.store().register_template(template)
-    }
-
-    pub fn get_template(self, name: &str) -> Option<Arc<LocomotorTemplate>> {
-        self.store().get_template(name)
-    }
-
-    pub fn create_locomotor(self, template_name: &str) -> Option<Locomotor> {
-        self.store().create_locomotor(template_name)
-    }
-
-    pub fn update(self) {
-        self.store().update()
-    }
 }

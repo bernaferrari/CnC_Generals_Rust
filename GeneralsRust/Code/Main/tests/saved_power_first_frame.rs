@@ -5,7 +5,7 @@
 use game_client::effects::particle_manager::{
     ParticleSystemManager, get_particle_system_manager, get_particle_system_manager_mut,
 };
-use game_engine::common::ini::ini_locomotor::{get_locomotor_store, load_locomotors_from_str};
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use gamelogic::object::armor::{TheArmorStore, load_armor_templates_from_str};
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
@@ -162,9 +162,9 @@ fn catalog_world(case: Case) -> GameLogic {
     .unwrap();
     assert_eq!(load_armor_templates_from_str(ARMOR_INI, None).unwrap(), 1);
     assert_eq!(fs::read_to_string(LOCOMOTOR_PATH).unwrap(), LOCOMOTOR_INI);
-    assert!(get_locomotor_store().get_template_names().is_empty());
-    assert_eq!(load_locomotors_from_str(LOCOMOTOR_INI).unwrap(), 2);
-    assert_eq!(get_locomotor_store().get_template_names().len(), 2);
+    let mut locomotors = LocomotorStore::new_owned();
+    assert_eq!(locomotors.apply_source(LOCOMOTOR_INI).unwrap(), 2);
+    assert_eq!(locomotors.get_template_names().len(), 2);
     {
         let mut guard = get_particle_system_manager_mut().unwrap();
         assert!(guard.is_none());
@@ -175,6 +175,7 @@ fn catalog_world(case: Case) -> GameLogic {
         assert_eq!(manager.active_system_count(), 0);
     }
     let mut logic = GameLogic::new();
+    logic.admit_locomotor_definitions(locomotors).unwrap();
     assert!(logic.templates.is_empty());
     logic.ensure_ai_faction_templates(Team::GLA);
     assert_eq!(logic.host_ai_player_count(), 0);
@@ -249,7 +250,7 @@ fn catalog(logic: &GameLogic, case: Case) -> Value {
         })
         .collect();
     let locomotors = {
-        let store = get_locomotor_store();
+        let store = logic.locomotor_catalog();
         let mut names: Vec<_> = store
             .get_template_names()
             .into_iter()
@@ -334,6 +335,9 @@ fn foreign_shadow(
     case: Case,
 ) -> generals_main::gameworld_shadow::GameWorldShadow {
     let mut foreign = GameLogic::new();
+    foreign
+        .admit_locomotor_definitions(logic.locomotor_catalog().clone())
+        .unwrap();
     foreign.templates = logic.templates.clone();
     foreign.add_player(Player::new(0, Team::GLA, "ForeignGridOwner", true));
     for (index, name) in [PRODUCER, CONSUMER].into_iter().enumerate() {

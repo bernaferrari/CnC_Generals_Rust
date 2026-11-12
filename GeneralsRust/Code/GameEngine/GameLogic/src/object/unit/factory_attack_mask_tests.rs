@@ -6,7 +6,7 @@ use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::{Coord3D, KindOf, ObjectStatusTypes, Relationship};
 use crate::damage::DamageType;
 use crate::helpers::TheGameLogic;
-use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate, SURFACE_GROUND};
+use crate::locomotor::{LocomotorTemplate, SURFACE_GROUND};
 use crate::modules::AIUpdateInterface;
 use crate::object::Object;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
@@ -39,7 +39,7 @@ fn mask_definitions() {
     locomotor.surfaces = SURFACE_GROUND;
     locomotor.max_speed = 3.0;
     locomotor.acceleration = 0.1;
-    LOCOMOTOR_STORE.register_template(locomotor);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(locomotor);
 
     assert_eq!(
         get_thing_factory()

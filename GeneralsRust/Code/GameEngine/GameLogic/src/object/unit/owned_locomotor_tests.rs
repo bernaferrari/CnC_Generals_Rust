@@ -4,7 +4,7 @@
 use super::UnitAIUpdate;
 use crate::common::{AsciiString, Coord3D, LocomotorSetType};
 use crate::helpers::{TheGameLogic, TheThingFactory};
-use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate};
+use crate::locomotor::{LocomotorTemplate};
 use crate::modules::AIUpdateInterface;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use crate::object::update::AIUpdateModuleData;
@@ -42,7 +42,7 @@ fn definitions() {
     for (name, height) in [("OwnedNormalLoco", 10.0), ("OwnedOtherLoco", 90.0)] {
         let mut definition = LocomotorTemplate::new(name.to_string());
         definition.preferred_height = height;
-        LOCOMOTOR_STORE.register_template(definition);
+        crate::system::engine_stores::active_services().locomotor_store().register_template(definition);
     }
 }
 

@@ -188,6 +188,10 @@ pub struct INI {
     receiving_command_names: Option<Arc<std::collections::HashSet<String>>>,
     receiving_special_powers: Option<Arc<crate::common::rts::special_power::SpecialPowerStore>>,
     receiving_science_names: Option<Arc<crate::common::rts::science::ScienceNameFacts>>,
+    /// C++ `INI::load` writes into the owning engine's stores: the
+    /// CommonServices this parse fills (Locomotor, EvaEvent, ...). None
+    /// fills nothing: such blocks fail closed.
+    receiving_common: Option<Arc<crate::common::common_services::CommonServices>>,
     file: Option<IniInput>,
     staged_temp_file: Option<PathBuf>,
     read_buffer: [u8; INI_READ_BUFFER],
@@ -689,8 +693,14 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
+/// C++ `LocomotorStore::parseLocomotorTemplateDefinition` into the receiving
+/// engine's `TheLocomotorStore`; a parse that fills no engine fails closed.
 fn parse_locomotor_block(ini: &mut INI) -> INIResult<()> {
-    let mut store = super::ini_locomotor::get_locomotor_store_mut();
+    let Some(common) = ini.receiving_common().cloned() else {
+        log::warn!("Locomotor block outside an INI that fills a CommonServices");
+        return Err(INIError::InvalidData);
+    };
+    let mut store = common.ini.locomotor.write();
     parse_locomotor_block_into(ini, &mut store)
 }
 
@@ -1222,6 +1232,25 @@ impl INI {
     }
 
     /// Supply the immutable science catalog belonging to this parse owner.
+    /// An INI parse that fills `common`'s stores.
+    pub fn for_common(common: Arc<crate::common::common_services::CommonServices>) -> Self {
+        let mut ini = Self::new();
+        ini.receiving_common = Some(common);
+        ini
+    }
+
+    pub fn set_receiving_common(
+        &mut self,
+        common: Option<Arc<crate::common::common_services::CommonServices>>,
+    ) {
+        self.receiving_common = common;
+    }
+
+    /// The CommonServices this parse fills, if any.
+    pub fn receiving_common(&self) -> Option<&Arc<crate::common::common_services::CommonServices>> {
+        self.receiving_common.as_ref()
+    }
+
     pub fn set_receiving_science_names(
         &mut self,
         sciences: Arc<crate::common::rts::science::ScienceNameFacts>,
@@ -1289,6 +1318,7 @@ impl INI {
             receiving_command_names: None,
             receiving_special_powers: None,
             receiving_science_names: None,
+            receiving_common: None,
             file: None,
             staged_temp_file: None,
             read_buffer: [0; INI_READ_BUFFER],

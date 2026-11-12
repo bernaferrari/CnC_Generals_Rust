@@ -2465,10 +2465,6 @@ impl GameLogic {
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        if self.locomotor_definitions.is_none() {
-            crate::game_logic::locomotor_bootstrap::ensure_spy_drone_locomotor();
-        }
-
         {
             let tpl = self
                 .templates

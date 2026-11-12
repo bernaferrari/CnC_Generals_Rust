@@ -66,7 +66,7 @@ impl GameLogic {
             weapon_definition_base: None,
             weapon_definitions: None,
             locomotor_definition_base: None,
-            locomotor_definitions: None,
+            locomotor_definitions: Default::default(),
             solo_weapon_bonus_set: gamelogic::weapon::WeaponBonusSet::new(),
             combat_bonus_base: Default::default(),
             tunnel_capacity_base: 10,
@@ -931,7 +931,8 @@ impl GameLogic {
         self.native_hulk_max_lifetime_override = -1;
         self.draw_icon_ui = true;
         self.weapon_definitions = self.weapon_definition_base.clone();
-        self.locomotor_definitions = self.locomotor_definition_base.clone();
+        self.locomotor_definitions
+            .set_admitted(self.locomotor_definition_base.clone());
         if let Some(baseline) = &self.receiving_template_baseline {
             self.templates = baseline.clone();
         self.invalidate_build_facility_template_names_cache();

@@ -634,8 +634,7 @@ fn evacuation_world(
 ) {
     use crate::game_logic::{GameLogic, Team};
     use glam::Vec3;
-    game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
-        r#"
+    let fixture_locomotor_source = r#"
 Locomotor HqEvacChinookLocomotor
   Surfaces = AIR
   Speed = 100
@@ -644,9 +643,7 @@ Locomotor HqEvacChinookLocomotor
   ZAxisBehavior = RELATIVE_TO_HIGHEST_LAYER
   PreferredHeight = 10
 End
-"#,
-    )
-    .unwrap();
+"#;
     let source = r#"
 Object AmericaVehicleChinook
   KindOf = VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD
@@ -681,6 +678,7 @@ End
     )])
     .expect("paired evacuation module definitions");
     let mut world = GameLogic::new();
+    crate::fixture_content::author_locomotors(&mut world, fixture_locomotor_source);
     world.admit_receiving_module_content(content).unwrap();
     let width = world.pathfinding_system.grid.width() as u32;
     let height = world.pathfinding_system.grid.height() as u32;

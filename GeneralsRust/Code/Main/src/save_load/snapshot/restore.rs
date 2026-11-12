@@ -309,7 +309,7 @@ impl SnapshotBuilder {
                             definition,
                             definition.get_primary_texture(),
                             Some(content),
-                            game_logic.locomotor_definitions.as_ref(),
+                            game_logic.locomotor_definitions.receiving(),
                         )
                         .map_err(|error| {
                             SaveLoadError::Corrupted(format!(

@@ -230,7 +230,7 @@ fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
     let name = "PreparedDataBorrowLoco";
     let mut loco = crate::locomotor::LocomotorTemplate::new(name.into());
     loco.preferred_height = 10.0;
-    crate::locomotor::LOCOMOTOR_STORE.register_template(loco);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(loco);
     let mut module = AIUpdateModuleData::default();
     module.set_locomotor_set_entries(crate::common::LocomotorSetType::Normal, vec![name.into()]);
     let mut authored = template();

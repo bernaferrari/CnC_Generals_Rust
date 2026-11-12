@@ -399,17 +399,6 @@ impl GameLogic {
             self.victory_conditions
                 .set_victory_conditions(VictoryType::NO_BUILDINGS);
         }
-        // Locomotor compatibility bootstrap remains separate from the owned
-        // Object and weapon catalogs admitted before this NewGame.
-        if self.locomotor_definitions.is_none() {
-            let loco_seeded = super::locomotor_bootstrap::ensure_host_locomotor_store();
-            if loco_seeded > 0 {
-                log::info!(
-                    "Host LocomotorStore bootstrap registered {} templates",
-                    loco_seeded
-                );
-            }
-        }
         let baseline = self.receiving_template_baseline.as_ref()
             .ok_or_else(|| "Receiving NewGame has no accepted host template baseline".to_owned())?;
         self.templates = baseline.clone();

@@ -119,7 +119,7 @@ impl GameLogic {
             .collect();
         for (id, o) in self.objects.registered_mut() {
             o.clear_blocked_frame_state();
-            o.tick_move_away_state(self.locomotor_definitions.as_ref());
+            o.tick_move_away_state(self.locomotor_definitions.receiving());
             o.tick_temporary_move_overlay(
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

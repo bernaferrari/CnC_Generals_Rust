@@ -1076,7 +1076,7 @@ impl GameLogic {
             kind,
             panicking,
             surfaces,
-            self.locomotor_definitions.as_ref(),
+            self.locomotor_definitions.receiving(),
         )
     }
 

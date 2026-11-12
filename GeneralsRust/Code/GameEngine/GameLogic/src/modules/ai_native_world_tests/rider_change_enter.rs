@@ -73,7 +73,7 @@ fn ai_module(tag: &str, loco: &str) -> TemplateModuleInfo {
     l.surfaces = crate::locomotor::SURFACE_GROUND;
     l.max_speed = 3.0;
     l.acceleration = 0.1;
-    crate::locomotor::LOCOMOTOR_STORE.register_template(l);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(l);
     let mut data = crate::object::update::AIUpdateModuleData::default();
     data.set_locomotor_set_entries(crate::common::LocomotorSetType::Normal, vec![loco.into()]);
     TemplateModuleInfo {

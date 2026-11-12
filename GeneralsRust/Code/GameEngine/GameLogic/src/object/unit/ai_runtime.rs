@@ -42,6 +42,11 @@ impl UnitAiRuntime {
         self.owner.as_ref().and_then(Weak::upgrade)
     }
 
+    /// C++ `TheLocomotorStore` of the engine that owns this unit's Object.
+    pub(super) fn owning_locomotor_store(&self) -> Option<Arc<crate::locomotor::LocomotorStore>> {
+        self.native_owner()?.read().ok()?.owning_locomotor_store()
+    }
+
     pub(super) fn get_supply_truck_ai_interface(
         &self,
     ) -> Option<&dyn crate::modules::SupplyTruckAIInterface> {
@@ -887,13 +892,18 @@ impl UnitAiRuntime {
         self.data.current_locomotor_set = target_set;
 
         let mut new_set = LocomotorSet::new();
+        let owning_store = if lookup.is_some() {
+            None
+        } else {
+            self.owning_locomotor_store()
+        };
         for name in locomotors {
             let detached = lookup.is_some();
             let template = match lookup.as_deref_mut() {
                 Some(lookup) => lookup(name.as_str())?.ok_or_else(|| {
                     format!("receiving locomotor definition {} absent", name.as_str())
                 })?,
-                None => match crate::locomotor::LOCOMOTOR_STORE.get_template(name.as_str()) {
+                None => match owning_store.as_ref().and_then(|store| store.get_template(name.as_str())) {
                     Some(template) => template,
                     None => {
                         log::warn!("Locomotor template '{}' not found", name.as_str());
@@ -1466,10 +1476,12 @@ impl UnitAiRuntime {
                 .data
                 .locomotor_set
                 .xfer_self_and_cur_loco_ptr_with_lookup(xfer, &mut current_name, lookup)?,
-            None => self
-                .data
-                .locomotor_set
-                .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?,
+            None => {
+                let store = self.owning_locomotor_store();
+                self.data
+                    .locomotor_set
+                    .xfer_self_and_cur_loco_ptr(xfer, &mut current_name, store.as_deref())?
+            }
         }
         let mut current_set = self.data.current_locomotor_set as i32;
         xfer.xfer_int(&mut current_set).map_err(|e| e.to_string())?;

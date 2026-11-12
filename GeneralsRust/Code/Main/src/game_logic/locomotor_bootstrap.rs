@@ -22,7 +22,7 @@
 use game_engine::common::ini::ini_locomotor::{
     LocomotorAppearance as SourceLocomotorAppearance,
     LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorStore, LocomotorTemplate,
-    get_locomotor_store, get_locomotor_store_mut, parse_locomotor_template_definition,
+    parse_locomotor_template_definition,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -308,19 +308,60 @@ pub struct HostCompleteLocomotorSet {
     pub locomotor_surfaces: u32,
 }
 
-/// Initialize / seed the Common LocomotorStore for host create_object binding.
-/// Safe to call repeatedly.
-///
-/// Returns how many templates were added by this call (seed + filesystem load).
-pub fn ensure_host_locomotor_store() -> usize {
-    // Idempotent: seed_missing / chinook helpers only fill gaps. Avoid Once —
-    // a prior panic inside call_once poisoned the process for later tests.
-    let mut store = get_locomotor_store_mut();
-    let mut added = 0;
-    added += try_load_locomotor_ini_from_disk(&mut store);
-    added += seed_missing_host_locomotors(&mut store);
-    added += ensure_chinook_helix_slide_into_place(&mut store);
-    added
+/// C++ `TheLocomotorStore` of one match: the definitions its application and
+/// map admitted, or (for a fixture that never admits any) this GameLogic's
+/// own fallback catalog. Never shared with, or read from, another world.
+#[derive(Debug, Clone, Default)]
+pub struct ReceivingLocomotors {
+    admitted: Option<LocomotorStore>,
+    fallback: std::sync::OnceLock<LocomotorStore>,
+}
+
+impl ReceivingLocomotors {
+    /// Whether an application/map catalog was admitted.
+    pub fn is_admitted(&self) -> bool {
+        self.admitted.is_some()
+    }
+
+    pub fn admitted(&self) -> Option<&LocomotorStore> {
+        self.admitted.as_ref()
+    }
+
+    pub fn set_admitted(&mut self, definitions: Option<LocomotorStore>) {
+        self.admitted = definitions;
+    }
+
+    /// The catalog this match resolves locomotors in.
+    pub fn store(&self) -> &LocomotorStore {
+        match &self.admitted {
+            Some(store) => store,
+            None => self.fallback.get_or_init(fallback_locomotor_store),
+        }
+    }
+
+    /// [`Self::store`] for resolvers that take an optional catalog.
+    pub fn receiving(&self) -> Option<&LocomotorStore> {
+        Some(self.store())
+    }
+
+    /// Fixtures author extra definitions into this match's own catalog.
+    pub fn store_mut(&mut self) -> &mut LocomotorStore {
+        if self.admitted.is_none() {
+            let _ = self.fallback.get_or_init(fallback_locomotor_store);
+        }
+        match &mut self.admitted {
+            Some(store) => store,
+            None => self.fallback.get_mut().expect("fallback catalog initialized"),
+        }
+    }
+}
+
+/// Each unadmitted match gets its own copy of the fallback catalog.
+fn fallback_locomotor_store() -> LocomotorStore {
+    #[cfg(test)]
+    return fixture_locomotor_store().clone();
+    #[cfg(not(test))]
+    default_host_locomotor_store()
 }
 
 /// Construct fallback content locally when an application has no archive data.
@@ -330,7 +371,28 @@ pub fn default_host_locomotor_store() -> LocomotorStore {
     try_load_locomotor_ini_from_disk(&mut store);
     seed_missing_host_locomotors(&mut store);
     ensure_chinook_helix_slide_into_place(&mut store);
+    crate::game_logic::host_upgrade_module_residuals::seed_set_switch_locomotors(&mut store);
     store
+}
+
+/// A binding from a fresh fallback catalog (fixtures without a GameLogic).
+#[cfg(not(test))]
+pub fn fixture_locomotor_binding(name: &str) -> Option<HostLocomotorBinding> {
+    resolve_host_locomotor_binding_from_store(&default_host_locomotor_store(), name)
+}
+
+/// Lib tests share one read-only copy of the default catalog; nothing can
+/// write to it, so worlds still cannot observe each other through it.
+#[cfg(test)]
+pub(crate) fn fixture_locomotor_store() -> &'static LocomotorStore {
+    static STORE: std::sync::LazyLock<LocomotorStore> =
+        std::sync::LazyLock::new(default_host_locomotor_store);
+    &STORE
+}
+
+#[cfg(test)]
+pub fn fixture_locomotor_binding(name: &str) -> Option<HostLocomotorBinding> {
+    resolve_host_locomotor_binding_from_store(fixture_locomotor_store(), name)
 }
 
 /// Add the existing headless fallback definitions only where content is absent.
@@ -448,8 +510,7 @@ pub fn locomotor_set_names_for_unit(template_name: &str) -> Vec<String> {
 ///
 /// Ensures golden + Wave 81 deepen names are present with retail Speed residual.
 /// Fail-closed: not full multi-surface / SET_PANIC / pitch-roll matrix.
-pub fn honesty_locomotor_residual_table_wave81() -> bool {
-    let _ = ensure_host_locomotor_store();
+pub fn honesty_locomotor_residual_table_wave81(store: &LocomotorStore) -> bool {
     if HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() < 12 {
         return false;
     }
@@ -475,7 +536,7 @@ pub fn honesty_locomotor_residual_table_wave81() -> bool {
     }
     // Seeded / loaded templates resolve retail speeds.
     let speed_ok = |name: &str, expected: f32| {
-        movement_from_store(name)
+        movement_from_store(store, name)
             .map(|m| (m.max_speed - expected).abs() < 0.5)
             .unwrap_or(false)
     };
@@ -498,8 +559,7 @@ pub fn honesty_locomotor_residual_table_wave81() -> bool {
 /// Adds Overlord / Marauder / Dragon / Comanche / MIG / RocketBuggy / BattleBus /
 /// SupplyTruck / Avenger / GattlingTank / Inferno / Dozer / Helix residual.
 /// Fail-closed: not full multi-surface / SET_PANIC / pitch-roll matrix.
-pub fn honesty_locomotor_residual_expand_wave92() -> bool {
-    let _ = ensure_host_locomotor_store();
+pub fn honesty_locomotor_residual_expand_wave92(store: &LocomotorStore) -> bool {
     // Wave 81 base + Wave 92 expand (≥ 25 rows).
     if HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() < 25 {
         return false;
@@ -528,7 +588,7 @@ pub fn honesty_locomotor_residual_expand_wave92() -> bool {
         return false;
     }
     let speed_ok = |name: &str, expected: f32| {
-        movement_from_store(name)
+        movement_from_store(store, name)
             .map(|m| (m.max_speed - expected).abs() < 0.5)
             .unwrap_or(false)
     };
@@ -554,7 +614,7 @@ pub fn honesty_locomotor_residual_expand_wave92() -> bool {
         && locomotor_name_for_unit("GLAVehicleRocketBuggy") == Some(ROCKET_BUGGY_LOCOMOTOR)
         && locomotor_name_for_unit("AmericaTankAvenger") == Some(AVENGER_LOCOMOTOR)
         && locomotor_name_for_unit("ChinaVehicleHelix") == Some(HELIX_LOCOMOTOR)
-        && honesty_locomotor_residual_table_wave81()
+        && honesty_locomotor_residual_table_wave81(store)
 }
 
 /// Wave 103 residual honesty: expand more common-unit locomotor residual names.
@@ -563,9 +623,8 @@ pub fn honesty_locomotor_residual_expand_wave92() -> bool {
 /// CombatBike / POWTruck / NuclearBattleMaster / JarmenKell / BlackLotus /
 /// Saboteur / MissileDefender residual.
 /// Fail-closed: not full multi-surface / SET_PANIC / pitch-roll matrix.
-pub fn honesty_locomotor_residual_expand_wave103() -> bool {
-    let _ = ensure_host_locomotor_store();
-    if !honesty_locomotor_residual_expand_wave92() {
+pub fn honesty_locomotor_residual_expand_wave103(store: &LocomotorStore) -> bool {
+    if !honesty_locomotor_residual_expand_wave92(store) {
         return false;
     }
     // Wave 81+92+103 (≥ 39 rows).
@@ -597,7 +656,7 @@ pub fn honesty_locomotor_residual_expand_wave103() -> bool {
         return false;
     }
     let speed_ok = |name: &str, expected: f32| {
-        movement_from_store(name)
+        movement_from_store(store, name)
             .map(|m| (m.max_speed - expected).abs() < 0.5)
             .unwrap_or(false)
     };
@@ -630,25 +689,6 @@ pub fn honesty_locomotor_residual_expand_wave103() -> bool {
             == Some(MISSILE_DEFENDER_LOCOMOTOR)
 }
 
-/// Resolve host Movement stats from the Locomotor catalog by template name.
-/// Ensures the store is bootstrapped first. Returns None if missing or unusable.
-pub fn resolve_host_movement(locomotor_name: &str) -> Option<HostMovementStats> {
-    let _ = ensure_host_locomotor_store();
-    movement_from_store(locomotor_name)
-}
-
-/// Resolve every Locomotor.ini field Main currently has a live Object field
-/// for.  Callers must use this for stateful swaps instead of copying the
-/// template's normal movement or reusing a rider-name heuristic.
-pub fn resolve_host_locomotor_binding(locomotor_name: &str) -> Option<HostLocomotorBinding> {
-    let _ = ensure_host_locomotor_store();
-    if locomotor_name == CHINOOK_LOCOMOTOR || locomotor_name == HELIX_LOCOMOTOR {
-        let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
-    }
-    let store = get_locomotor_store();
-    resolve_host_locomotor_binding_from_store(&store, locomotor_name)
-}
-
 /// Resolve a definition from the catalog admitted by the receiving session.
 pub fn resolve_host_locomotor_binding_from_store(
     store: &LocomotorStore,
@@ -665,13 +705,22 @@ pub(crate) fn resolve_host_locomotor_binding_in(
     store: Option<&LocomotorStore>,
     name: &str,
 ) -> Option<HostLocomotorBinding> {
-    match store {
-        Some(store) => resolve_host_locomotor_binding_from_store(store, name),
-        None => resolve_host_locomotor_binding(name),
-    }
+    // A storeless call has no owning world. Production fails closed; lib
+    // tests read the immutable fixture catalog instead.
+    #[cfg(test)]
+    let store: Option<&LocomotorStore> = Some(match store {
+        Some(store) => store,
+        None => fixture_locomotor_store(),
+    });
+    resolve_host_locomotor_binding_from_store(store?, name)
 }
 
 impl crate::game_logic::GameLogic {
+    /// The locomotor catalog this match resolves in.
+    pub fn locomotor_catalog(&self) -> &LocomotorStore {
+        self.locomotor_definitions.store()
+    }
+
     /// Admit an application-owned immutable baseline before constructing units.
     pub fn admit_locomotor_definitions(
         &mut self,
@@ -689,9 +738,9 @@ impl crate::game_logic::GameLogic {
             );
         }
         self.locomotor_definition_base = Some(definitions.clone());
-        self.locomotor_definitions = Some(definitions);
+        self.locomotor_definitions.set_admitted(Some(definitions));
         self.projectile_definitions = self.projectile_definitions.clone()
-            .with_locomotors(self.locomotor_definitions.as_ref());
+            .with_locomotors(self.locomotor_definitions.receiving());
         Ok(())
     }
 
@@ -711,25 +760,18 @@ impl crate::game_logic::GameLogic {
                 .apply_source(source)
                 .map_err(|error| error.to_string())?;
         }
-        self.locomotor_definitions = Some(candidate);
+        self.locomotor_definitions.set_admitted(Some(candidate));
         self.projectile_definitions = self.projectile_definitions.clone()
-            .with_locomotors(self.locomotor_definitions.as_ref());
+            .with_locomotors(self.locomotor_definitions.receiving());
         Ok(())
     }
 
     pub(crate) fn resolve_receiving_locomotor(&self, name: &str) -> Option<HostLocomotorBinding> {
-        resolve_host_locomotor_binding_in(self.locomotor_definitions.as_ref(), name)
+        resolve_host_locomotor_binding_from_store(self.locomotor_definitions.store(), name)
     }
 
     pub(crate) fn resolve_receiving_movement(&self, name: &str) -> Option<HostMovementStats> {
-        match &self.locomotor_definitions {
-            Some(store) => {
-                let template = store.find_template(name)?;
-                (template.max_speed.is_finite() && template.max_speed >= 0.0)
-                    .then(|| host_stats_from_template(template))
-            }
-            None => resolve_host_movement(name),
-        }
+        movement_from_store(self.locomotor_definitions.store(), name)
     }
 }
 
@@ -824,14 +866,6 @@ pub fn valid_locomotor_surfaces_for_cell_type(
     }
 }
 
-/// C++ `LocomotorSet::findLocomotor` — first member whose surfaces intersect.
-pub fn choose_best_locomotor_name_for_surfaces(
-    locomotor_names: &[String],
-    acceptable: u32,
-) -> Option<String> {
-    choose_best_locomotor_name_for_surfaces_in(locomotor_names, acceptable, None)
-}
-
 pub(crate) fn choose_best_locomotor_name_for_surfaces_in(
     locomotor_names: &[String],
     acceptable: u32,
@@ -852,33 +886,11 @@ pub(crate) fn choose_best_locomotor_name_for_surfaces_in(
     None
 }
 
-/// Canonical SET_* names that resolve, including heterogeneous members.
-pub fn resolve_host_locomotor_set_names(locomotor_names: &[String]) -> Vec<String> {
-    let mut out = Vec::with_capacity(locomotor_names.len());
-    for raw in locomotor_names {
-        let name = raw.trim();
-        if name.is_empty() || name.eq_ignore_ascii_case("none") {
-            continue;
-        }
-        if out
-            .iter()
-            .any(|prior: &String| prior.eq_ignore_ascii_case(name))
-        {
-            continue;
-        }
-        if resolve_host_locomotor_binding(name).is_some() {
-            out.push(name.to_string());
-        }
-    }
-    out
-}
-
 /// Convert a Common LocomotorTemplate (per-frame) into host Movement units (per-sec).
 ///
 /// C++ Locomotor.ini: Speed is dist/sec, stored as Speed/30 dist/frame.
 /// Host `Movement.max_speed` is dist/sec (used with dt seconds).
-pub fn movement_from_store(name: &str) -> Option<HostMovementStats> {
-    let store = get_locomotor_store();
+pub fn movement_from_store(store: &LocomotorStore, name: &str) -> Option<HostMovementStats> {
     let t = store.find_template(name)?;
     if !t.max_speed.is_finite() || t.max_speed < 0.0 {
         return None;
@@ -1142,10 +1154,6 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.close_enough_dist == right.close_enough_dist
         && left.close_enough_dist_3d == right.close_enough_dist_3d
         && left.ultra_accurate_slide_factor == right.ultra_accurate_slide_factor
-}
-
-fn store_has(name: &str) -> bool {
-    get_locomotor_store().find_template(name).is_some()
 }
 
 fn try_load_locomotor_ini_from_disk(store: &mut LocomotorStore) -> usize {
@@ -1633,11 +1641,6 @@ fn seed_aurora_flight_locomotors(store: &mut LocomotorStore) -> usize {
     added
 }
 
-/// Seed SpyDroneLocomotor even after the generic store bootstrap completed.
-pub fn ensure_spy_drone_locomotor() -> usize {
-    let _ = ensure_host_locomotor_store();
-    seed_exact_spy_drone_locomotor(&mut get_locomotor_store_mut())
-}
 
 fn seed_exact_spy_drone_locomotor(store: &mut LocomotorStore) -> usize {
     if store.find_template(SPY_DRONE_LOCOMOTOR).is_some() {
@@ -1683,6 +1686,10 @@ mod tests {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
+    fn store_has(name: &str) -> bool {
+        default_host_locomotor_store().find_template(name).is_some()
+    }
+
     #[test]
     fn default_locomotor_bootstrap_finishes_before_parallel_readers() {
         crate::game_logic::game_logic::pose_owner_tests::isolated_at(
@@ -1695,7 +1702,7 @@ mod tests {
                         let barrier = std::sync::Arc::clone(&barrier);
                         std::thread::spawn(move || {
                             barrier.wait();
-                            resolve_host_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap()
+                            fixture_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap()
                         })
                     })
                     .collect();
@@ -1715,9 +1722,8 @@ mod tests {
 
     #[test]
     fn bootstrap_seeds_basic_human_at_retail_speed() {
-        ensure_host_locomotor_store();
         assert!(store_has(BASIC_HUMAN_LOCOMOTOR));
-        let m = movement_from_store(BASIC_HUMAN_LOCOMOTOR).expect("movement");
+        let m = movement_from_store(&default_host_locomotor_store(), BASIC_HUMAN_LOCOMOTOR).expect("movement");
         assert!(
             (m.max_speed - 20.0).abs() < 0.05,
             "retail BasicHumanLocomotor Speed is 20 u/s, got {}",
@@ -1732,7 +1738,6 @@ mod tests {
 
     #[test]
     fn create_object_usa_ranger_binds_retail_infantry_speed() {
-        ensure_host_locomotor_store();
 
         let mut logic = crate::game_logic::GameLogic::new();
         let mut ranger = ThingTemplate::new("USA_Ranger");
@@ -1775,7 +1780,7 @@ mod tests {
             "INI/omitted Braking must not stay hardcoded 50, got {}",
             obj.braking
         );
-        let admitted = resolve_host_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap();
+        let admitted = fixture_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap();
         assert_eq!(
             obj.wander_width_factor, admitted.wander_width_factor,
             "preserve the admitted width; retail BasicHuman omits it (C++ default zero)"
@@ -1819,11 +1824,12 @@ mod tests {
 
     #[test]
     fn infantry_template_resolves_movement_from_locomotor_path() {
-        ensure_host_locomotor_store();
         let mut t = ThingTemplate::new("USA_Ranger");
         t.add_kind_of(KindOf::Infantry)
             .set_locomotor_name(BASIC_HUMAN_LOCOMOTOR);
-        let m = t.resolve_movement().expect("locomotor path");
+        let m = t
+            .resolve_movement(&default_host_locomotor_store())
+            .expect("locomotor path");
         assert!((m.max_speed - 20.0).abs() < 0.05);
     }
 
@@ -2109,9 +2115,8 @@ mod tests {
     fn chinook_helix_seed_binds_slide_into_place_time() {
         let common = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
         game_engine::common::common_services::with_common_services(&common, || {
-            let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
             for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
-                let binding = resolve_host_locomotor_binding(name)
+                let binding = fixture_locomotor_binding(name)
                     .unwrap_or_else(|| panic!("{name} must resolve"));
                 assert!(
                     (binding.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
@@ -2223,7 +2228,7 @@ mod tests {
 
     #[test]
     fn locomotor_residual_table_wave81_honesty() {
-        assert!(honesty_locomotor_residual_table_wave81());
+        assert!(honesty_locomotor_residual_table_wave81(&default_host_locomotor_store()));
         assert!(HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() >= 12);
         assert!(store_has(COLONEL_BURTON_GROUND_LOCOMOTOR));
         assert!(store_has(RAPTOR_JET_LOCOMOTOR));
@@ -2231,7 +2236,7 @@ mod tests {
 
     #[test]
     fn locomotor_residual_expand_wave92_honesty() {
-        assert!(honesty_locomotor_residual_expand_wave92());
+        assert!(honesty_locomotor_residual_expand_wave92(&default_host_locomotor_store()));
         assert!(HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() >= 25);
         assert!(store_has(OVERLORD_LOCOMOTOR));
         assert!(store_has(COMANCHE_LOCOMOTOR));
@@ -2249,7 +2254,7 @@ mod tests {
 
     #[test]
     fn locomotor_residual_expand_pack_honesty_wave103() {
-        assert!(honesty_locomotor_residual_expand_wave103());
+        assert!(honesty_locomotor_residual_expand_wave103(&default_host_locomotor_store()));
         assert!(HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.len() >= 39);
         assert!(store_has(BOMB_TRUCK_LOCOMOTOR));
         assert!(store_has(CHINOOK_LOCOMOTOR));
@@ -2267,7 +2272,6 @@ mod tests {
 
     #[test]
     fn create_object_humvee_binds_vehicle_speed_when_catalog_present() {
-        ensure_host_locomotor_store();
         let mut logic = crate::game_logic::GameLogic::new();
         let mut humvee = ThingTemplate::new("USA_Humvee");
         humvee
@@ -2289,7 +2293,6 @@ mod tests {
 
     #[test]
     fn locomotor_set_names_for_unit_lists_cliff_members() {
-        ensure_host_locomotor_store();
         let bike = locomotor_set_names_for_unit("GLAVehicleCombatBike");
         assert_eq!(
             bike,
@@ -2306,7 +2309,7 @@ mod tests {
                 HUMAN_CLIFF_LOCOMOTOR.to_string()
             ]
         );
-        let cliff = resolve_host_locomotor_binding(HUMAN_CLIFF_LOCOMOTOR)
+        let cliff = fixture_locomotor_binding(HUMAN_CLIFF_LOCOMOTOR)
             .expect("HumanCliffLocomotor seed");
         assert_eq!(
             cliff.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_CLIFF,

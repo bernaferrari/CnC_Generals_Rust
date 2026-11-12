@@ -1,7 +1,7 @@
 //! Actual installed OTHER locomotion, Physics and waypoint ownership controls.
 use super::*;
 use crate::common::{AsciiString, LocomotorSetType};
-use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate};
+use crate::locomotor::{LocomotorTemplate};
 use crate::modules::{AIUpdateInterface, ai_world::AiWorld};
 use crate::object::behavior::physics_update::PhysicsBehaviorModuleData;
 use crate::object::body::active_body::ActiveBodyModuleData;
@@ -25,7 +25,7 @@ fn new_game_with(name: &str, rider_change_bike: bool) -> NativeMatch {
     locomotor.max_speed = 3.0;
     locomotor.acceleration = 0.1;
     locomotor.max_turn_rate = 0.1;
-    LOCOMOTOR_STORE.register_template(locomotor);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(locomotor);
     let mut ai_data = AIUpdateModuleData::default();
     ai_data.set_locomotor_set_entries(
         LocomotorSetType::Normal,
@@ -118,7 +118,7 @@ fn ai(owner: &Arc<RwLock<Object>>) -> Arc<std::sync::Mutex<dyn AIUpdateInterface
 fn ai_snapshot(game: &NativeMatch, locomotor_name: &str) -> Vec<u8> {
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
-    let locomotor = LOCOMOTOR_STORE.get_template(locomotor_name).unwrap();
+    let locomotor = crate::system::engine_stores::active_services().locomotor_store().get_template(locomotor_name).unwrap();
     let mut lookup = |name: &str| Ok((name == locomotor_name).then(|| Arc::clone(&locomotor)));
     let mut bytes = Cursor::new(Vec::new());
     ai(&game.source)
@@ -263,8 +263,7 @@ fn waypoint_chain_control(as_team: bool) {
     let mut saw_second_goal = false;
     let mut completed = false;
     let mut restored_moving_waypoint = false;
-    let locomotor = LOCOMOTOR_STORE
-        .get_template("OwnedWaypointChainLoco")
+    let locomotor = crate::system::engine_stores::active_services().locomotor_store().get_template("OwnedWaypointChainLoco")
         .unwrap();
     let mut lookup =
         |name: &str| Ok((name == "OwnedWaypointChainLoco").then(|| Arc::clone(&locomotor)));
@@ -452,7 +451,7 @@ pub(crate) fn other_path_moves_its_real_owner_and_continues_after_canonical_ai_x
         "actual Physics must advance its factory owner"
     );
     let mut bytes = Cursor::new(Vec::new());
-    let locomotor = LOCOMOTOR_STORE.get_template("OwnedPathXferLoco").unwrap();
+    let locomotor = crate::system::engine_stores::active_services().locomotor_store().get_template("OwnedPathXferLoco").unwrap();
     let mut lookup = |name: &str| Ok((name == "OwnedPathXferLoco").then(|| Arc::clone(&locomotor)));
     {
         let mut interface = interface.lock().unwrap();
@@ -602,8 +601,7 @@ fn exact_waypoint_control(as_team: bool) {
             crate::modules::AIStateType::FollowWaypointPathAsIndividualsExact
         } as u32)
     );
-    let locomotor = LOCOMOTOR_STORE
-        .get_template("OwnedExactWaypointLoco")
+    let locomotor = crate::system::engine_stores::active_services().locomotor_store().get_template("OwnedExactWaypointLoco")
         .unwrap();
     let mut lookup =
         |name: &str| Ok((name == "OwnedExactWaypointLoco").then(|| Arc::clone(&locomotor)));

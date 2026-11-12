@@ -4,7 +4,7 @@
 use super::{AIGuardMachine, GuardStateType};
 use crate::common::Coord3D;
 use crate::helpers::TheGameLogic;
-use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate};
+use crate::locomotor::{LocomotorTemplate};
 use crate::modules::AIUpdateInterface;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
@@ -39,7 +39,7 @@ fn definitions() {
     crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
     let mut loco = LocomotorTemplate::new("AIGuardHeldLoco".to_string());
     loco.preferred_height = 18.0;
-    LOCOMOTOR_STORE.register_template(loco);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(loco);
     assert_eq!(
         get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
             "Object AIGuardHeldUnit\n KindOf = VEHICLE\n Behavior = AIUpdateInterface AIGuardHeldAI\n End\n Locomotor = SET_NORMAL AIGuardHeldLoco\nEnd\n"

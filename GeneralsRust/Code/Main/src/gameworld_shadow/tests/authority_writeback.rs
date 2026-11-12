@@ -54,7 +54,7 @@ fn gameworld_step_movement_advances_move_target() {
         .expect("id");
     {
         let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
-        let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+        let binding = crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(
             "BasicHumanLocomotor",
         )
         .expect("authored locomotor");

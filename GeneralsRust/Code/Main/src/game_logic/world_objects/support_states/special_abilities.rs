@@ -2152,7 +2152,7 @@ impl GameLogic {
 
         let complete = crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set(
             &rider_metadata.active_locomotor_names,
-            self.locomotor_definitions.as_ref(),
+            self.locomotor_definitions.receiving(),
         )?;
         let names_match_metadata = complete.locomotor_names.len()
             == rider_metadata.active_locomotor_names.len()
@@ -2187,7 +2187,7 @@ impl GameLogic {
             crate::game_logic::locomotor_bootstrap::choose_host_locomotor_set_member_for_surfaces(
                 &complete.locomotor_names,
                 acceptable,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             )?;
         let occupants = container.contained_units();
         let incoming_selection_player = rider
@@ -2494,7 +2494,7 @@ impl GameLogic {
                     previous.set_rider_change_veterancy_level_with_health_bonus_table(
                         bike_veterancy,
                         &veterancy_health_bonus,
-                        self.locomotor_definitions.as_ref(),
+                        self.locomotor_definitions.receiving(),
                         self.frame,
                     );
                 }
@@ -2506,7 +2506,7 @@ impl GameLogic {
                     container.set_rider_change_veterancy_level_with_health_bonus_table(
                         VeterancyLevel::Rookie,
                         &veterancy_health_bonus,
-                        self.locomotor_definitions.as_ref(),
+                        self.locomotor_definitions.receiving(),
                         self.frame,
                     );
                 }
@@ -2590,7 +2590,7 @@ impl GameLogic {
             rider.set_rider_change_veterancy_level_with_health_bonus_table(
                 VeterancyLevel::Rookie,
                 &veterancy_health_bonus,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
                 self.frame,
             );
             rider.deselect();
@@ -2604,7 +2604,7 @@ impl GameLogic {
             container.set_rider_change_veterancy_level_with_health_bonus_table(
                 plan.incoming_veterancy,
                 &veterancy_health_bonus,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
                 self.frame,
             );
             if plan.incoming_was_selected && !container.selected {
@@ -2763,7 +2763,7 @@ impl GameLogic {
                 rider.set_rider_change_veterancy_level_with_health_bonus_table(
                     bike_veterancy,
                     &veterancy_health_bonus,
-                    self.locomotor_definitions.as_ref(),
+                    self.locomotor_definitions.receiving(),
                     self.frame,
                 );
             }
@@ -2774,7 +2774,7 @@ impl GameLogic {
                 container.set_rider_change_veterancy_level_with_health_bonus_table(
                     VeterancyLevel::Rookie,
                     &veterancy_health_bonus,
-                    self.locomotor_definitions.as_ref(),
+                    self.locomotor_definitions.receiving(),
                     self.frame,
                 );
             }

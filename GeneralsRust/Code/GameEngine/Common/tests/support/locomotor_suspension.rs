@@ -1,8 +1,10 @@
 //! Shared input fixture only: callers independently choose the production boundary.
 use game_engine::common::ini::ini::INI;
 use game_engine::common::ini::ini_locomotor::{
-    LocomotorTemplate, get_locomotor_store, load_locomotors_from_str,
+    LocomotorTemplate, load_locomotors_from_str,
 };
+use game_engine::common::common_services::CommonServices;
+use std::sync::Arc;
 
 const ORIGINAL: &str = include_str!("../fixtures/suspension_original.txt");
 const FIELDS: [&str; 5] = [
@@ -16,6 +18,7 @@ const FIELDS: [&str; 5] = [
 pub fn check(prefix: &str, group: &str, read: impl Fn(&LocomotorTemplate) -> [f32; 5]) {
     let mut differences = Vec::new();
     let mut count = 0;
+    let common = Arc::new(CommonServices::new());
     for row in ORIGINAL
         .lines()
         .map(|line| line.split_whitespace().collect::<Vec<_>>())
@@ -36,13 +39,16 @@ pub fn check(prefix: &str, group: &str, read: impl Fn(&LocomotorTemplate) -> [f3
                 "Locomotor {name}\nSurfaces = GROUND\nSpeed = 60\nAcceleration = 30\nAppearance = OTHER\n{body}End\n"
             );
             if bulk {
-                assert_eq!(load_locomotors_from_str(&text).unwrap(), 1);
+                assert_eq!(
+                    load_locomotors_from_str(&mut common.ini.locomotor.write(), &text).unwrap(),
+                    1
+                );
             } else {
-                INI::new()
+                INI::for_common(Arc::clone(&common))
                     .with_inline_source(&text, |ini| ini.parse_current_file())
                     .unwrap();
             }
-            let template = get_locomotor_store().find_template(&name).unwrap().clone();
+            let template = common.ini.locomotor.read().find_template(&name).unwrap().clone();
             let actual = read(&template);
             for i in 0..5 {
                 let expected = u32::from_str_radix(row[i + 6], 16).unwrap();

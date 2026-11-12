@@ -1310,7 +1310,7 @@ impl GameLogic {
                 &definition,
                 definition.get_primary_texture(),
                 Some(content),
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             ) {
                 Ok(template) => template,
                 Err(error) => {

@@ -10,10 +10,7 @@
 //!
 //! Matches C++ Locomotor.h and Locomotor.cpp field parse table
 
-use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
 use crate::common::ascii_string::AsciiString;
 use crate::common::game_common::{
     convert_acceleration_in_secs_to_frames,
@@ -552,24 +549,6 @@ impl Default for LocomotorStore {
     }
 }
 
-/// Get the global locomotor store
-
-/// Get mutable access to the global locomotor store
-
-fn ini_locomotor_cell() -> std::sync::Arc<parking_lot::RwLock<LocomotorStore>> {
-    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.locomotor)
-}
-
-pub fn get_locomotor_store() -> OwnedReadGuard<LocomotorStore> {
-    let cell = ini_locomotor_cell();
-    cell.read_arc()
-}
-
-pub fn get_locomotor_store_mut() -> OwnedWriteGuard<LocomotorStore> {
-    let cell = ini_locomotor_cell();
-    cell.write_arc()
-}
-
 fn parse_cpp_bool(field_name: &str, value: &str) -> LocomotorResult<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "yes" => Ok(true),
@@ -980,14 +959,17 @@ impl std::error::Error for LocomotorLoadError {}
 
 /// Load locomotor templates from raw INI text content.
 ///
-/// Parses the `Locomotor <Name> ... End` block format and populates the
-/// global `LocomotorStore` via `get_locomotor_store_mut()`.
+/// Parses the `Locomotor <Name> ... End` block format into `store`, the
+/// receiving engine's own catalog.
 ///
 /// Matches C++ `TheLocomotorStore->load()` / `INIParser::loadFromData()`
 /// used at `GameEngine.cpp:442`.
 ///
 /// Returns the number of templates successfully loaded.
-pub fn load_locomotors_from_str(content: &str) -> Result<usize, LocomotorLoadError> {
+pub fn load_locomotors_from_str(
+    store: &mut LocomotorStore,
+    content: &str,
+) -> Result<usize, LocomotorLoadError> {
     let mut count = 0usize;
     let mut current_name: Option<String> = None;
     let mut current_props: HashMap<String, String> = HashMap::new();
@@ -1028,7 +1010,7 @@ pub fn load_locomotors_from_str(content: &str) -> Result<usize, LocomotorLoadErr
             if let Some(name) = current_name.take() {
                 match parse_locomotor_template_definition(&name, &current_props) {
                     Ok(template) => {
-                        get_locomotor_store_mut().add_template(template).ok();
+                        store.add_template(template).ok();
                         count += 1;
                     }
                     Err(e) => {

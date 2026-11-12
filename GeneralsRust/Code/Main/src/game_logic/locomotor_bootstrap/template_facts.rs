@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn locomotor_template_facts_restore_is_complete_and_inert() {
-        let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+        let binding = crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(
             "BasicHumanLocomotor",
         )
         .expect("authored locomotor");

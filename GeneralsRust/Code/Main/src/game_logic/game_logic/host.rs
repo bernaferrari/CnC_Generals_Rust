@@ -54,11 +54,11 @@ pub struct GameLogic {
     pub(crate) max_beacons_per_player: i32,
     pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     /// Application and effective map locomotor definitions belong to this match.
-    /// None denotes the remaining compatibility path for unadmitted fixtures.
+    /// An unadmitted fixture resolves in this GameLogic's own fallback catalog.
     pub(crate) locomotor_definition_base:
         Option<game_engine::common::ini::ini_locomotor::LocomotorStore>,
     pub(crate) locomotor_definitions:
-        Option<game_engine::common::ini::ini_locomotor::LocomotorStore>,
+        crate::game_logic::locomotor_bootstrap::ReceivingLocomotors,
     pub(crate) projectile_definitions:
         crate::game_logic::projectile_definitions::ProjectileDefinitions,
     pub(crate) terrain_definitions:

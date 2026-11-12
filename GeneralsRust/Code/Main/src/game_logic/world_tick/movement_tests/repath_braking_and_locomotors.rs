@@ -937,7 +937,6 @@ fn wings_idle_hold_circles_at_min_speed() {
 /// hq-66eos: SET_NORMAL cliff member activates on CELL_CLIFF.
 #[test]
 fn choose_good_locomotor_switches_on_cliff_cell() {
-    let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
     let mut logic = GameLogic::new();
     let id = ObjectId(9702);
     let mut tmpl = ThingTemplate::new("CombatBike");
@@ -976,7 +975,6 @@ fn choose_good_locomotor_switches_on_cliff_cell() {
 /// hq-66eos: known SET_NORMAL members bind from template name (no manual list).
 #[test]
 fn choose_good_locomotor_fills_burton_set_from_template_name() {
-    let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
     let mut logic = GameLogic::new();
     let id = ObjectId(97021);
     let mut tmpl = ThingTemplate::new("AmericaInfantryColonelBurton");

@@ -2147,9 +2147,10 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
             use crate::game_logic::host_upgrade_module_residuals::{
                 AuthoredLocomotorSet, HostLocomotorSetKind,
             };
-            use game_engine::common::ini::ini_locomotor::{
-                get_locomotor_store_mut, parse_locomotor_template_definition,
-            };
+            use game_engine::common::ini::ini_locomotor::parse_locomotor_template_definition;
+            // This jet's own catalog: retail fallback plus the authored lift pair.
+            let mut catalog =
+                crate::game_logic::locomotor_bootstrap::fixture_locomotor_store().clone();
             for (name, surfaces, speed, lift) in [
                 ("FixtureRaptorFlight", "AIR", "175", "120"),
                 ("FixtureRaptorTaxi", "GROUND", "50", "0"),
@@ -2164,7 +2165,7 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
                 .map(|(key, value)| (key.to_string(), value.to_string()))
                 .collect();
                 let definition = parse_locomotor_template_definition(name, &properties).unwrap();
-                get_locomotor_store_mut().add_template(definition).unwrap();
+                catalog.add_template(definition).unwrap();
             }
             let mut t = ThingTemplate::new("AmericaJetRaptor");
             t.add_kind_of(KindOf::Aircraft);
@@ -2180,18 +2181,19 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
             ]);
             let mut jet = Object::new(t, ObjectId(4), Team::USA);
             let flight_binding =
-                crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+                crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store(
+                    &catalog,
                     "FixtureRaptorFlight",
                 )
                 .expect("authored Raptor flight locomotor");
             assert!((flight_binding.max_lift - 120.0 / 900.0).abs() < 1e-6);
             jet.set_position(Vec3::new(0.0, 0.0, 0.0));
-            jet.apply_taxiing_locomotor_set();
+            jet.apply_taxiing_locomotor_set_for_surfaces_in(0, Some(&catalog));
             assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
             // Retail Locomotor.ini: BasicJetTaxiLocomotor Speed = 50 dist/sec.
             assert!((jet.movement.max_speed - 50.0).abs() < 0.05);
 
-            jet.begin_jet_runway_takeoff(0, Vec3::new(100.0, 0.0, 0.0), 100.0, false);
+            jet.begin_jet_runway_takeoff_in(0, Vec3::new(100.0, 0.0, 0.0), 100.0, false, Some(&catalog));
             assert!(jet.jet_ai.afterburners_on);
             assert!(jet.jet_ai.takeoff_in_progress);
             assert_eq!(jet.max_lift, 0.0);
@@ -2201,9 +2203,10 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
             );
             assert!(!jet.jet_should_transfer_runway(0));
             assert!(jet.jet_should_transfer_runway(1));
-            let _ = jet.tick_jet_takeoff_lift(1);
+            let _ = jet.tick_jet_takeoff_lift_in(1, Some(&catalog));
             jet.set_position(Vec3::new(50.0, 0.0, 0.0));
-            let _ = jet.tick_jet_takeoff_lift(jet.jet_ai.takeoff_pause_until);
+            let pause_until = jet.jet_ai.takeoff_pause_until;
+            let _ = jet.tick_jet_takeoff_lift_in(pause_until, Some(&catalog));
             assert_eq!(
                 jet.jet_ai.takeoff_max_lift, flight_binding.max_lift,
                 "C++ captures flight lift when the pause ends and NORMAL is selected"
@@ -2225,7 +2228,7 @@ fn jet_takeoff_recaptures_damage_conditioned_flight_lift_each_episode() {
     let mut template = ThingTemplate::new("AmericaJetRaptor");
     template.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(template, ObjectId(944103), Team::USA);
-    let flight_binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+    let flight_binding = crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(
         "RaptorJetLocomotor",
     )
     .unwrap();
@@ -2971,9 +2974,9 @@ fn blocked_speed_applies_formation_crowd_factor() {
 // returns false in C++ isDoingGroundMovement (AIUpdate.cpp:2353-2356).
 fn bind_blocking_fixture_locomotor(object: &mut Object, name: &str) {
     use crate::game_logic::locomotor_bootstrap::{
-        apply_host_locomotor_binding, resolve_host_locomotor_binding,
+        apply_host_locomotor_binding, fixture_locomotor_binding,
     };
-    let binding = resolve_host_locomotor_binding(name).expect("authored ground locomotor");
+    let binding = fixture_locomotor_binding(name).expect("authored ground locomotor");
     object.cur_locomotor_name = Some(name.to_owned());
     object.locomotor_set_names = vec![name.to_owned()];
     apply_host_locomotor_binding(object, &binding);

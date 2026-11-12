@@ -465,7 +465,8 @@ impl_bootstrap_subsystem!(FXListSubsystem, "FXListStore", {
 });
 
 impl_bootstrap_subsystem!(LocomotorSubsystem, "LocomotorStore", {
-    drop(game_engine::common::ini::get_locomotor_store());
+    // C++ TheLocomotorStore is per engine: each world's CommonServices owns
+    // its catalog and the startup Locomotor.ini load admits it to GameLogic.
     Ok(())
 });
 

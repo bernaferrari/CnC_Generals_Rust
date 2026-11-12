@@ -2,9 +2,16 @@
 //! Binding records alone do not prove rendered physics, assets, or GPU behavior.
 #[path = "../../GameEngine/Common/tests/support/locomotor_suspension.rs"]
 mod fixture;
-use game_engine::common::ini::ini_locomotor::LocomotorTemplate;
+use game_engine::common::ini::ini_locomotor::{LocomotorStore, LocomotorTemplate};
 use gamelogic::locomotor::ini_bridge::{convert_named, from_common_ini_template};
-use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding;
+use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store;
+
+/// A catalog this fixture owns, holding only `src`.
+fn catalog_of(src: &LocomotorTemplate) -> LocomotorStore {
+    let mut catalog = LocomotorStore::new_owned();
+    catalog.add_template(src.clone()).unwrap();
+    catalog
+}
 
 fn direct(src: &LocomotorTemplate) -> [f32; 5] {
     let t = from_common_ini_template(src);
@@ -17,7 +24,7 @@ fn direct(src: &LocomotorTemplate) -> [f32; 5] {
     ]
 }
 fn named(src: &LocomotorTemplate) -> [f32; 5] {
-    let t = convert_named(src.name.as_str()).unwrap();
+    let t = convert_named(&catalog_of(src), src.name.as_str()).unwrap();
     [
         t.pitch_stiffness,
         t.roll_stiffness,
@@ -27,7 +34,7 @@ fn named(src: &LocomotorTemplate) -> [f32; 5] {
     ]
 }
 fn binding(src: &LocomotorTemplate) -> [f32; 5] {
-    let t = resolve_host_locomotor_binding(src.name.as_str())
+    let t = resolve_host_locomotor_binding_from_store(&catalog_of(src), src.name.as_str())
         .unwrap()
         .visual_physics;
     [

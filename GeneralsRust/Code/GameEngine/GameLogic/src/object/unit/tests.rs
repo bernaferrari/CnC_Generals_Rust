@@ -66,7 +66,7 @@ fn with_flat_pathfind_map(test: impl FnOnce()) {
 /// module's NORMAL list; a Unit's independent legacy set is not AI authority.
 fn configure_ai_locomotor(ai: &mut UnitAIUpdate, template: LocomotorTemplate) {
     let name = AsciiString::from(template.name.as_str());
-    crate::locomotor::LOCOMOTOR_STORE.register_template(template);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(template);
     let mut data = crate::object::update::AIUpdateModuleData::default();
     data.set_locomotor_set_entries(LocomotorSetType::Normal, vec![name]);
     ai.apply_ai_update_module_data(&data);

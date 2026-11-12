@@ -3,13 +3,12 @@
 //! No world tick, movement simulation, RNG assertions, or retail assets.
 
 use game_engine::common::ini::ini::INI;
-use game_engine::common::ini::ini_locomotor::{
-    LocomotorTemplate as CommonTemplate, get_locomotor_store, load_locomotors_from_str,
-};
+use game_engine::common::common_services::CommonServices;
+use game_engine::common::ini::ini_locomotor::{LocomotorStore, LocomotorTemplate as CommonTemplate};
 use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
 use gamelogic::locomotor::{core::Locomotor, ini_bridge::from_common_ini_template};
 use generals_main::game_logic::locomotor_bootstrap::{
-    apply_host_locomotor_binding, resolve_host_locomotor_binding,
+    apply_host_locomotor_binding, resolve_host_locomotor_binding_from_store,
 };
 use generals_main::game_logic::object::{Object, ObjectType};
 use generals_main::game_logic::{ObjectId, Team, ThingTemplate};
@@ -33,6 +32,21 @@ fn rows(kind: &str) -> Vec<Vec<&str>> {
         .collect()
 }
 
+/// One Locomotor through the bulk loader or a receiving INI dispatch, into a
+/// catalog this fixture owns.
+fn load_catalog(text: &str, bulk: bool) -> LocomotorStore {
+    if bulk {
+        let mut store = LocomotorStore::new_owned();
+        assert_eq!(store.apply_source(text).unwrap(), 1);
+        return store;
+    }
+    let common = Arc::new(CommonServices::new());
+    INI::for_common(Arc::clone(&common))
+        .with_inline_source(text, |ini| ini.parse_current_file())
+        .unwrap();
+    common.ini.locomotor.read().clone()
+}
+
 fn load(prefix: &str, index: usize, token: &str, bulk: bool) -> CommonTemplate {
     let name = format!("Braking{prefix}{index}_{bulk}");
     let field = if token == "omitted" {
@@ -43,14 +57,10 @@ fn load(prefix: &str, index: usize, token: &str, bulk: bool) -> CommonTemplate {
     // These authored fields make the real Main resolver accept the template.
     let text =
         format!("Locomotor {name}\nSurfaces = GROUND\nSpeed = 60\nAcceleration = 30\n{field}End\n");
-    if bulk {
-        assert_eq!(load_locomotors_from_str(&text).unwrap(), 1);
-    } else {
-        INI::new()
-            .with_inline_source(&text, |ini| ini.parse_current_file())
-            .unwrap();
-    }
-    get_locomotor_store().find_template(&name).unwrap().clone()
+    load_catalog(&text, bulk)
+        .find_template(&name)
+        .unwrap()
+        .clone()
 }
 
 fn object() -> Object {
@@ -174,7 +184,9 @@ fn clone_and_v1_v2_xfer_keep_cap_independent_of_destination_template() {
 #[test]
 fn main_public_binding_converts_effective_frame2_to_sec2_and_applies_it() {
     assert_loader_column("Main", 5, |t| {
-        let binding = resolve_host_locomotor_binding(t.name.as_str()).unwrap();
+        let mut catalog = LocomotorStore::new_owned();
+        catalog.add_template(t.clone()).unwrap();
+        let binding = resolve_host_locomotor_binding_from_store(&catalog, t.name.as_str()).unwrap();
         let mut host = object();
         apply_host_locomotor_binding(&mut host, &binding);
         assert_eq!(host.braking.to_bits(), binding.braking.to_bits());

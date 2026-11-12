@@ -175,16 +175,6 @@ fn unrelated_script_actions_do_not_advance_wander_before_the_simulation_step() {
 
 #[test]
 fn scripts_wander_only_the_receiving_team_using_its_current_locomotor() {
-    // A foreign definition has the same name but a very different radius.
-    get_locomotor_store_mut()
-        .apply_source("Locomotor OwnedWander\n Surfaces = GROUND\n Speed = 20\n WanderAboutPointRadius = 1000\nEnd\n")
-        .unwrap();
-    let global_names = get_locomotor_store()
-        .get_template_names()
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 1, 1681] {
@@ -204,15 +194,6 @@ fn scripts_wander_only_the_receiving_team_using_its_current_locomotor() {
     let (mut peer, peer_id) = world(&map_path, 60);
     assert_eq!(first_id, peer_id);
     first.ensure_ai_faction_templates(Team::USA);
-    assert_eq!(
-        get_locomotor_store()
-            .get_template_names()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        global_names,
-        "starting owned sessions and preparing AI templates must not seed the process catalog"
-    );
     let first_script = wander_script();
     let peer_script = wander_script();
 
@@ -276,13 +257,4 @@ fn scripts_wander_only_the_receiving_team_using_its_current_locomotor() {
             (world.host_object(drone).unwrap().movement.max_speed - expected_speed).abs() < 0.001
         );
     }
-    assert_eq!(
-        get_locomotor_store()
-            .get_template_names()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        global_names,
-        "spy-drone creation must use only the receiving session's catalog"
-    );
 }

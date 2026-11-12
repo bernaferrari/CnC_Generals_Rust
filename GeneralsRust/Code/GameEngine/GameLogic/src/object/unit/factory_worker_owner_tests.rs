@@ -6,7 +6,7 @@ use crate::ai::states::AIStateType;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{KindOf, ObjectStatusMaskType, ObjectStatusTypes, Relationship};
 use crate::damage::DamageType;
-use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate, SURFACE_GROUND};
+use crate::locomotor::{LocomotorTemplate, SURFACE_GROUND};
 use crate::object::drawable::DrawableExt;
 use crate::player::{Player, ThePlayerList};
 use crate::team::Team;
@@ -24,7 +24,7 @@ fn worker_definitions() {
     locomotor.surfaces = SURFACE_GROUND;
     locomotor.max_speed = 3.0;
     locomotor.acceleration = 0.1;
-    LOCOMOTOR_STORE.register_template(locomotor);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(locomotor);
     // Preserve the retail worker's relevant HARVESTER/DOZER kinds and MaxBoxes=1.
     // The controlled attack weapon below is not the retail DISARM-only weapon.
     assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(

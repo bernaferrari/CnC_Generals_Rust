@@ -451,7 +451,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "incomplete saved body damage-info owners".into(),
         ));
     }
-    if game_logic.locomotor_definitions.is_some() {
+    if game_logic.locomotor_definitions.is_admitted() {
         for entry in &payload.objects {
             if let Some(name) = entry.cur_locomotor_name.as_deref() {
                 if game_logic.resolve_receiving_locomotor(name).is_none() {

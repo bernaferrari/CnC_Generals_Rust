@@ -524,7 +524,9 @@ impl GameLogic {
         // Phase 12b: Locomotor Store Update (C++ line 3768)
         // -----------------------------------------------------------------------
         // C++: TheLocomotorStore->UPDATE();
-        crate::locomotor::core::LOCOMOTOR_STORE.update();
+        if let Some(world) = self.owning_world_services() {
+            world.locomotor_store().update();
+        }
 
         // -----------------------------------------------------------------------
         // Phase 13: Victory Conditions (C++ line 3769)

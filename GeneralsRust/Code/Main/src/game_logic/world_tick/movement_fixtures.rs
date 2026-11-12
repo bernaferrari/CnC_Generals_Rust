@@ -58,9 +58,9 @@ pub(super) fn hand_locomotor(unit: &mut Object, appearance: LocomotorAppearance)
 // and surface flags alone do not admit a mobile unit.
 pub(super) fn bind_fixture_locomotor(unit: &mut Object, name: &str) {
     use crate::game_logic::locomotor_bootstrap::{
-        apply_host_locomotor_binding, resolve_host_locomotor_binding,
+        apply_host_locomotor_binding, fixture_locomotor_binding,
     };
-    let binding = resolve_host_locomotor_binding(name).expect("authored fixture locomotor");
+    let binding = fixture_locomotor_binding(name).expect("authored fixture locomotor");
     unit.locomotor_set_names = vec![name.to_owned()];
     unit.cur_locomotor_name = Some(name.to_owned());
     apply_host_locomotor_binding(unit, &binding);

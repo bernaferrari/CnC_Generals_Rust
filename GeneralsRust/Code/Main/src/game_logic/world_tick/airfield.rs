@@ -170,7 +170,7 @@ impl GameLogic {
                 let Some(jet) = self.objects.get_mut(&id) else {
                     continue;
                 };
-                let action = jet.tick_jet_ai_update_in(now, self.locomotor_definitions.as_ref());
+                let action = jet.tick_jet_ai_update_in(now, self.locomotor_definitions.receiving());
                 let lockon_tick = jet.take_jet_lockon_tick();
                 if jet.jet_should_transfer_runway(now) {
                     transfers.push(id);
@@ -414,7 +414,7 @@ impl GameLogic {
                 end,
                 dist,
                 waited,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
             (waited, end, dist)
         };
@@ -498,10 +498,10 @@ impl GameLogic {
             if reserved {
                 jet.apply_taxiing_locomotor_set_for_surfaces_in(
                     0,
-                    self.locomotor_definitions.as_ref(),
+                    self.locomotor_definitions.receiving(),
                 );
             } else {
-                jet.apply_airborne_locomotor_set_in(self.locomotor_definitions.as_ref());
+                jet.apply_airborne_locomotor_set_in(self.locomotor_definitions.receiving());
             }
         }
     }
@@ -2026,7 +2026,7 @@ impl GameLogic {
         jet.status.airborne_target = false;
         jet.apply_taxiing_locomotor_set_for_surfaces_in(
             taxi_surfaces,
-            self.locomotor_definitions.as_ref(),
+            self.locomotor_definitions.receiving(),
         );
         jet.movement.path.clear();
         {}
@@ -2424,7 +2424,7 @@ impl GameLogic {
                 runway_end,
                 runway_dist,
                 waited,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
         }
         if horiz_dist_sq(jet_pos, dest) <= 12.0 * 12.0 {
@@ -2659,7 +2659,7 @@ impl GameLogic {
             // Bind first — apply_host_locomotor_binding clears both flags.
             jet.apply_taxiing_locomotor_set_for_surfaces_in(
                 taxi_surfaces,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
             jet.set_precise_z_and_ultra_accurate(true);
         }
@@ -3052,7 +3052,7 @@ impl GameLogic {
                 jet.status.airborne_target = false;
                 jet.apply_taxiing_locomotor_set_for_surfaces_in(
                     taxi_surfaces,
-                    self.locomotor_definitions.as_ref(),
+                    self.locomotor_definitions.receiving(),
                 );
                 // C++ JetOrHeliTaxiState::onEnter (JetAIUpdate.cpp:615-616).
                 jet.set_precise_z_and_ultra_accurate(true);
@@ -3084,7 +3084,7 @@ impl GameLogic {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_APPROACH;
                 jet.jet_ai.landing_in_progress = true;
-                jet.apply_airborne_locomotor_set_in(self.locomotor_definitions.as_ref());
+                jet.apply_airborne_locomotor_set_in(self.locomotor_definitions.receiving());
                 jet.target = None;
                 jet.set_status_attacking(false);
                 entered_move = jet.ai_state() != AIState::Moving;
@@ -3124,7 +3124,7 @@ impl GameLogic {
             }
             jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_LANDING;
             jet.jet_ai.landing_in_progress = true;
-            jet.apply_airborne_locomotor_set_in(self.locomotor_definitions.as_ref());
+            jet.apply_airborne_locomotor_set_in(self.locomotor_definitions.receiving());
             jet.set_precise_z_and_ultra_accurate(true);
             if jet.min_speed > 0.0 {
                 jet.movement.max_speed = jet.min_speed;
@@ -3229,7 +3229,7 @@ impl GameLogic {
             jet.jet_ai.rtb_landing_phase = 0;
             jet.apply_taxiing_locomotor_set_for_surfaces_in(
                 taxi_surfaces,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
             // C++ JetOrHeliTaxiState / JetTakeoffOrLandingState::onExit.
             jet.set_precise_z_and_ultra_accurate(false);

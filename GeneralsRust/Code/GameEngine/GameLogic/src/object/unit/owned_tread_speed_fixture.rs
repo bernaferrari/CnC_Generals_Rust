@@ -4,7 +4,7 @@
 
 use crate::common::{BodyDamageType, Coord3D, Matrix3D, ObjectID};
 use crate::helpers::TheGameLogic;
-use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate};
+use crate::locomotor::{LocomotorTemplate};
 use crate::object::Object;
 use crate::object::draw::w3d_model_draw::{
     HlodLiveChildState, publish_hlod_live_child_states, take_hlod_live_child_states,
@@ -65,7 +65,7 @@ impl Fixture {
             let mut locomotor = LocomotorTemplate::new(format!("{name}Loco"));
             locomotor.max_speed = speed;
             locomotor.max_speed_damaged = damaged_speed;
-            LOCOMOTOR_STORE.register_template(locomotor);
+            crate::system::engine_stores::active_services().locomotor_store().register_template(locomotor);
             ini.push_str(&format!(
                 "Object {name}\nKindOf = VEHICLE\nArmorSet\nConditions = NONE\nArmor = {armor_name}\nDamageFX = None\nEnd\nBody = ActiveBody {name}Body\nMaxHealth = 100\nInitialHealth = {health}\nEnd\nBehavior = AIUpdateInterface {name}AI\nEnd\nBehavior = PhysicsBehavior {name}Physics\nEnd\nLocomotor = SET_NORMAL {name}Loco\nDraw = {draw_kind} ActualTreadDraw\nTreadAnimationRate = 0.25\nDefaultConditionState\nModel = OwnedTreadPristine\nEnd\nConditionState = REALLYDAMAGED\nModel = OwnedTreadDamaged\nEnd\nEnd\nEnd\n"
             ));

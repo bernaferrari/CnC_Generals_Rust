@@ -133,7 +133,7 @@ fn assert_panic_arrival_preconditions(unit: &Object) {
         .cur_locomotor_name
         .as_deref()
         .expect("active panic locomotor");
-    let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name)
+    let binding = crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(name)
         .expect("resolved panic locomotor");
     let last = *unit.movement.path.last().expect("completed panic path");
     let distance = unit.host_locomotor_distance_to_goal(unit.get_position(), last);
@@ -594,7 +594,7 @@ fn panic_arrival_uses_selected_locomotor_close_enough_distance() {
     let unit = logic.objects.get_mut(&PANIC_UNIT).unwrap();
     unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
     unit.close_enough_dist = None;
-    let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+    let binding = crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(
         "BasicHumanLocomotor",
     )
     .expect("authored test locomotor binding");

@@ -23,7 +23,6 @@ use crate::common::{
     Real, UnsignedInt, Vec3D, WEAPONSLOT_COUNT, WhichTurretType,
 };
 use crate::helpers::TheGameLogic;
-use crate::locomotor::LOCOMOTOR_STORE;
 use crate::locomotor::{ActivePath, BodyDamageType as LocoBodyDamageType, Locomotor};
 use crate::locomotor::{SURFACE_AIR, SURFACE_GROUND};
 use crate::object::registry::OBJECT_REGISTRY;
@@ -816,6 +815,8 @@ pub struct AIUpdateInterface {
 
     // Rust adapter state: C++ reaches the owner through getObject().
     owner_object_id: ObjectID,
+    // C++ `TheLocomotorStore` of the owning engine; none resolves nothing.
+    locomotors: Option<Arc<crate::locomotor::LocomotorStore>>,
 
     // Module data reference
     module_data: ModuleDataHandle,
@@ -917,8 +918,18 @@ impl AIUpdateInterface {
             fix_loco_in_post_process: false,
             allowed_to_chase: true,
             owner_object_id,
+            locomotors: None,
             module_data,
         }
+    }
+
+    /// Resolve locomotor templates from the owning engine's store.
+    pub fn bind_locomotor_store(&mut self, store: Arc<crate::locomotor::LocomotorStore>) {
+        self.locomotors = Some(store);
+    }
+
+    fn locomotor_template(&self, name: &str) -> Option<Arc<crate::locomotor::LocomotorTemplate>> {
+        self.locomotors.as_ref()?.get_template(name)
     }
 
     // -----------------------------------------------------------------------
@@ -1449,7 +1460,7 @@ impl AIUpdateInterface {
 
         let surfaces = entries
             .iter()
-            .filter_map(|entry| LOCOMOTOR_STORE.get_template(entry.as_str()))
+            .filter_map(|entry| self.locomotor_template(entry.as_str()))
             .fold(0, |surfaces, template| surfaces | template.surfaces);
 
         if surfaces != 0 {
@@ -1795,8 +1806,7 @@ impl AIUpdateInterface {
             return 0.0;
         }
 
-        LOCOMOTOR_STORE
-            .get_template(self.cur_locomotor_template.as_str())
+        self.locomotor_template(self.cur_locomotor_template.as_str())
             .map(|template| template.max_speed)
             .unwrap_or(0.0)
     }
@@ -1832,7 +1842,7 @@ impl AIUpdateInterface {
         };
 
         entries.iter().enumerate().find_map(|(index, entry)| {
-            let template = LOCOMOTOR_STORE.get_template(entry.as_str())?;
+            let template = self.locomotor_template(entry.as_str())?;
             pathfinder
                 .valid_movement_position_for_surfaces(
                     template.surfaces,
@@ -1844,9 +1854,9 @@ impl AIUpdateInterface {
         })
     }
 
-    fn choose_ground_locomotor(entries: &[AsciiString]) -> Option<(usize, AsciiString, u32)> {
+    fn choose_ground_locomotor(&self, entries: &[AsciiString]) -> Option<(usize, AsciiString, u32)> {
         entries.iter().enumerate().find_map(|(index, entry)| {
-            let template = LOCOMOTOR_STORE.get_template(entry.as_str())?;
+            let template = self.locomotor_template(entry.as_str())?;
             ((template.surfaces & SURFACE_GROUND) != 0)
                 .then(|| (index, entry.clone(), template.surfaces))
         })
@@ -1869,7 +1879,7 @@ impl AIUpdateInterface {
             .choose_locomotor_for_owner_position(entries)
             .or_else(|| {
                 (previous_locomotor_tag == 0)
-                    .then(|| Self::choose_ground_locomotor(entries))
+                    .then(|| self.choose_ground_locomotor(entries))
                     .flatten()
             });
         drop(data);
@@ -1904,7 +1914,10 @@ impl AIUpdateInterface {
             .map(|locomotor| locomotor.get_template_name() == template_name)
             .unwrap_or(false);
         if !is_current {
-            self.cur_locomotor = LOCOMOTOR_STORE.create_locomotor(template_name);
+            self.cur_locomotor = self
+                .locomotors
+                .as_ref()
+                .and_then(|store| store.create_locomotor(template_name));
             self.cur_locomotor_speed = 0.0;
         }
     }
@@ -2893,12 +2906,15 @@ mod tests {
         // Author the movement capability explicitly; an INI set name alone
         // does not provide surfaces for the C++ pathfinding services.
         const NAME: &str = "AIUpdateGroundPathFixture";
-        LOCOMOTOR_STORE.register_template(crate::locomotor::LocomotorTemplate::new_wheeled(
+        let store = Arc::new(crate::locomotor::LocomotorStore::new());
+        store.register_template(crate::locomotor::LocomotorTemplate::new_wheeled(
             NAME.to_string(),
         ));
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Normal, NAME.into());
-        AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id)
+        let mut ai = AIUpdateInterface::new_for_object(ModuleDataHandle::new(data), owner_id);
+        ai.bind_locomotor_store(store);
+        ai
     }
 
     struct PathfinderCellCleanup(Coord3D);

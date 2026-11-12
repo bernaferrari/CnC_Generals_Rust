@@ -6,7 +6,7 @@
 use game_client::effects::particle_manager::{
     ParticleSystemManager, get_particle_system_manager, get_particle_system_manager_mut,
 };
-use game_engine::common::ini::ini_locomotor::{get_locomotor_store, load_locomotors_from_str};
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use gamelogic::common::Relationship;
 use gamelogic::object::armor::{TheArmorStore, load_armor_templates_from_str};
 use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut};
@@ -151,12 +151,12 @@ fn catalog_world() -> GameLogic {
     .unwrap();
     assert_eq!(load_armor_templates_from_str(ARMOR_INI, None).unwrap(), 1);
     assert_eq!(fs::read_to_string(LOCOMOTOR_PATH).unwrap(), LOCOMOTOR_INI);
-    assert!(get_locomotor_store().get_template_names().is_empty());
     // Verify the exact authored file parses before entering the bootstrap.
     // The bootstrap reads this same first candidate, stops after success,
     // fills its fixed in-memory seeds and marks its own admission complete.
-    assert_eq!(load_locomotors_from_str(LOCOMOTOR_INI).unwrap(), 2);
-    assert_eq!(get_locomotor_store().get_template_names().len(), 2);
+    let mut locomotors = LocomotorStore::new_owned();
+    assert_eq!(locomotors.apply_source(LOCOMOTOR_INI).unwrap(), 2);
+    assert_eq!(locomotors.get_template_names().len(), 2);
     {
         let mut guard = get_particle_system_manager_mut().unwrap();
         assert!(guard.is_none());
@@ -167,6 +167,7 @@ fn catalog_world() -> GameLogic {
         assert_eq!(manager.active_system_count(), 0);
     }
     let mut logic = GameLogic::new();
+    logic.admit_locomotor_definitions(locomotors).unwrap();
     assert!(logic.templates.is_empty());
     // BattlePlanUpdate::onObjectCreated disables the selected turret in C++.
     // This bounded fixture admits that initial state explicitly; it does not
@@ -263,7 +264,7 @@ fn inputs(logic: &GameLogic, case: Case) -> Value {
         .map(|name| template_value(&logic.templates[name]))
         .collect();
     let locomotors = {
-        let store = get_locomotor_store();
+        let store = logic.locomotor_catalog();
         let mut names: Vec<_> = store
             .get_template_names()
             .into_iter()

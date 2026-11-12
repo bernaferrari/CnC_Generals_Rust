@@ -2802,7 +2802,7 @@ mod group_lane_tests {
             let mut unit = ranger(8600 + i as u32, Vec3::new((i as f32 - 5.5) * 2.0, 0.0, 5.0));
             let name = "BasicHumanLocomotor";
             let binding =
-                crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name)
+                crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(name)
                     .expect("authored infantry locomotor");
             unit.locomotor_set_names = vec![name.to_owned()];
             unit.cur_locomotor_name = Some(name.to_owned());

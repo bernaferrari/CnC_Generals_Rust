@@ -695,9 +695,9 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     assert_eq!(carrier, peer_carrier);
     assert_eq!(rider, peer_rider);
     use generals_main::game_logic::locomotor_bootstrap::{
-        BASIC_HUMAN_LOCOMOTOR, apply_host_locomotor_binding, resolve_host_locomotor_binding,
+        BASIC_HUMAN_LOCOMOTOR, apply_host_locomotor_binding, fixture_locomotor_binding,
     };
-    let mut owner_locomotor = resolve_host_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap();
+    let mut owner_locomotor = fixture_locomotor_binding(BASIC_HUMAN_LOCOMOTOR).unwrap();
     owner_locomotor.appearance = generals_main::game_logic::LocomotorAppearance::Hover;
     owner_locomotor.visual_physics.pitch_stiffness = 1.25;
     let mut peer_locomotor = owner_locomotor;

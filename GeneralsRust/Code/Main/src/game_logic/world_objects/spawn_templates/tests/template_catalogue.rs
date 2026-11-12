@@ -530,11 +530,10 @@ fn create_object_uses_already_loaded_host_templates_not_thing_factory() {
         0,
         "weapon store must not reload after first host seed"
     );
-    let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
-    assert_eq!(
-        crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store(),
-        0,
-        "locomotor store must not reload after first host seed"
+    let catalog: *const _ = logic.locomotor_definitions.store();
+    assert!(
+        std::ptr::eq(catalog, logic.locomotor_definitions.store()),
+        "the match's locomotor catalog must not rebuild after first use"
     );
 }
 

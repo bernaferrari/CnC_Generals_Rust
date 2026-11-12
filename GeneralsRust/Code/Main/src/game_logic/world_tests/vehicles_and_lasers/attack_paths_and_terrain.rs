@@ -3,12 +3,12 @@ use super::*;
 
 // Both LOS fixtures require a real current ground locomotor: CPP
 // AIUpdate.cpp:2353–2356 returns false when there is no current locomotor.
-// The actual Common catalog remains process-owned, so scope its authored
-// fixture to the existing exact-test child rather than replace global rules.
-fn authored_ground_los_locomotor() -> &'static str {
+// The fixture authors it into the receiving world's own catalog.
+fn authored_ground_los_locomotor(logic: &mut GameLogic) -> &'static str {
     const NAME: &str = "LosGroundFixtureLocomotor";
     assert_eq!(
-        game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
+        crate::fixture_content::author_locomotors(
+            logic,
             r#"
 Locomotor LosGroundFixtureLocomotor
   Surfaces = GROUND
@@ -20,9 +20,8 @@ Locomotor LosGroundFixtureLocomotor
   Braking = 100
   Appearance = TWO_LEGS
 End
-"#
-        )
-        .expect("authored LOS ground locomotor"),
+"#,
+        ),
         1,
     );
     NAME
@@ -74,8 +73,8 @@ fn host_attack_los_gates_fire_through_building() {
         "host_attack_los_gates_fire_through_building",
         || {
             use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-            let locomotor = authored_ground_los_locomotor();
             let mut logic = GameLogic::new();
+            let locomotor = authored_ground_los_locomotor(&mut logic);
             admit_los_fixture_content(&mut logic, "Los", 200., locomotor);
             for (name, kinds) in [
                 (
@@ -494,8 +493,8 @@ fn structure_footprint_blocks_attack_los() {
         "structure_footprint_blocks_attack_los",
         || {
             use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-            let locomotor = authored_ground_los_locomotor();
             let mut logic = GameLogic::new();
+            let locomotor = authored_ground_los_locomotor(&mut logic);
             admit_los_fixture_content(&mut logic, "Sf", 500., locomotor);
             for (name, kinds) in [
                 (

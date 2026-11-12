@@ -100,6 +100,12 @@ impl Object {
             .or_else(|| self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services())))
     }
 
+    /// C++ `TheLocomotorStore` of the engine that owns this Object.
+    pub(crate) fn owning_locomotor_store(&self) -> Option<Arc<crate::locomotor::LocomotorStore>> {
+        self.owning_world_services()
+            .map(|world| Arc::clone(world.locomotor_store()))
+    }
+
     /// Fixture Objects built outside assembly join `world` as if assembled there.
     #[cfg(test)]
     pub(crate) fn bind_owner_world_for_test(

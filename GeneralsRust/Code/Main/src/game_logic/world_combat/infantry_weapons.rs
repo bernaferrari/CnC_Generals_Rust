@@ -788,7 +788,7 @@ impl GameLogic {
                 g,
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
                 false,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
             g.spectre_gunship_update = Some(flight);
         }
@@ -901,7 +901,7 @@ impl GameLogic {
                     HostLocomotorSetKind::Normal
                 },
                 false,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
             // C++ sets these once after chooseLocomotorSet(PANIC). The host
             // re-chooses every tick, which clears ultra-accurate, including orbit.

@@ -2,7 +2,7 @@
 use super::*;
 use crate::common::{AsciiString, BodyDamageType, LocomotorSetType};
 use crate::locomotor::{
-    LOCOMOTOR_STORE, LocomotorAppearance, LocomotorBehaviorZ, LocomotorTemplate,
+    LocomotorAppearance, LocomotorBehaviorZ, LocomotorTemplate,
 };
 use crate::modules::AIUpdateInterface;
 use crate::modules::PhysicsBehavior;
@@ -65,7 +65,7 @@ fn source_template_with_motion(
     }
     locomotor.max_turn_rate = 0.1;
     locomotor.max_speed = 10.0;
-    LOCOMOTOR_STORE.register_template(locomotor);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(locomotor);
     let mut ai = AIUpdateModuleData::default();
     ai.set_locomotor_set_entries(
         LocomotorSetType::Normal,

@@ -161,9 +161,11 @@ pub fn from_common_ini_template(
     dest
 }
 
-/// Register every Common INI locomotor into the live GameLogic store.
-pub fn sync_common_store_into(store: &LocomotorStore) {
-    let common = game_engine::common::ini::get_locomotor_store();
+/// Register every authored definition in `common` into the live store.
+pub fn sync_common_store_into(
+    common: &game_engine::common::ini::ini_locomotor::LocomotorStore,
+    store: &LocomotorStore,
+) {
     for name in common.get_template_names() {
         let key = name.to_string();
         if let Some(src) = common.find_template(&key) {
@@ -172,8 +174,10 @@ pub fn sync_common_store_into(store: &LocomotorStore) {
     }
 }
 
-/// Convert a single Common template by retail name.
-pub fn convert_named(name: &str) -> Option<LocomotorTemplate> {
-    let common = game_engine::common::ini::get_locomotor_store();
+/// Convert a single authored definition of `common` by retail name.
+pub fn convert_named(
+    common: &game_engine::common::ini::ini_locomotor::LocomotorStore,
+    name: &str,
+) -> Option<LocomotorTemplate> {
     common.find_template(name).map(from_common_ini_template)
 }

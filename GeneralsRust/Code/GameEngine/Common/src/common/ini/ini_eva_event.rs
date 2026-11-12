@@ -620,20 +620,15 @@ impl Default for EvaEventStore {
     }
 }
 
-/// INI-load-only: the loader publishes the receiving instance's
-/// `CommonServices` for the INI pass (C++ INI::parseEvaEvent writes that
-/// engine's TheEva). Runtime readers borrow `CommonServices::ini.eva` of their
-/// own instance; the client Eva owns its parsed check infos.
-fn loading_eva_cell() -> std::sync::Arc<parking_lot::RwLock<EvaEventStore>> {
-    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.eva)
-}
-
 /// Parse EvaEvent definition from INI block
 /// This is the main entry point for the INI parser
 /// Matches C++ INI::parseEvaEvent from Eva.cpp lines 43-57
 pub fn parse_eva_event_definition(ini: &mut INI) -> Result<(), String> {
-    let cell = loading_eva_cell();
-    let mut store = cell.write();
+    // C++ INI::parseEvaEvent writes the loading engine's TheEva.
+    let Some(common) = ini.receiving_common().cloned() else {
+        return Err("EvaEvent block requires the receiving CommonServices".into());
+    };
+    let mut store = common.ini.eva.write();
 
     store
         .parse_eva_event_definition(ini)

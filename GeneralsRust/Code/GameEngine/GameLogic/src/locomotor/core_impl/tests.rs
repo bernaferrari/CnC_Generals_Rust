@@ -120,16 +120,16 @@ mod tests {
 
     #[test]
     fn test_locomotor_store() {
-        let template = LOCOMOTOR_STORE.get_template("Infantry");
+        let template = crate::system::engine_stores::active_services().locomotor_store().get_template("Infantry");
         assert!(template.is_some());
 
-        let loco = LOCOMOTOR_STORE.create_locomotor("Infantry");
+        let loco = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Infantry");
         assert!(loco.is_some());
     }
 
     #[test]
     fn locomotor_xfer_roundtrips_maintain_pos() {
-        let mut saved = LOCOMOTOR_STORE.create_locomotor("Hover").unwrap();
+        let mut saved = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Hover").unwrap();
         saved.maintain_pos = Coord3D::new(12.0, 34.0, 5.0);
 
         let mut bytes = Vec::new();
@@ -138,7 +138,7 @@ mod tests {
             saved.loco_xfer(&mut xfer).unwrap();
         }
 
-        let mut loaded = LOCOMOTOR_STORE.create_locomotor("Hover").unwrap();
+        let mut loaded = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Hover").unwrap();
         {
             let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
             loaded.loco_xfer(&mut xfer).unwrap();
@@ -149,8 +149,9 @@ mod tests {
 
     #[test]
     fn locomotor_set_xfer_roundtrips_current_locomotor_pointer() {
-        let infantry = LOCOMOTOR_STORE.create_locomotor("Infantry").unwrap();
-        let wheeled = LOCOMOTOR_STORE.create_locomotor("Wheeled").unwrap();
+        let store = std::sync::Arc::clone(crate::system::engine_stores::active_services().locomotor_store());
+        let infantry = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Infantry").unwrap();
+        let wheeled = crate::system::engine_stores::active_services().locomotor_store().create_locomotor("Wheeled").unwrap();
         let mut saved = LocomotorSet::new();
         saved.add_locomotor("Infantry".to_string(), infantry);
         saved.add_locomotor("Wheeled".to_string(), wheeled);
@@ -161,7 +162,7 @@ mod tests {
         {
             let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
             saved
-                .xfer_self_and_cur_loco_ptr(&mut xfer, &mut saved_current)
+                .xfer_self_and_cur_loco_ptr(&mut xfer, &mut saved_current, Some(&store))
                 .unwrap();
         }
 
@@ -170,7 +171,7 @@ mod tests {
         {
             let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
             loaded
-                .xfer_self_and_cur_loco_ptr(&mut xfer, &mut loaded_current)
+                .xfer_self_and_cur_loco_ptr(&mut xfer, &mut loaded_current, Some(&store))
                 .unwrap();
         }
 

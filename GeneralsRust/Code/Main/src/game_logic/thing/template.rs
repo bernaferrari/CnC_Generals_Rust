@@ -1679,14 +1679,12 @@ impl ThingTemplate {
     /// Resolve host Movement stats from the Locomotor catalog:
     /// 1) explicit locomotor_name → LocomotorStore (seed/INI)
     /// Fail-closed: no kind-based default — units without a name keep Movement::default().
-    pub fn resolve_movement(&self) -> Option<super::locomotor_bootstrap::HostMovementStats> {
-        if let Some(name) = self.locomotor_name.as_deref() {
-            // Host residual: unit tests / early create often have an empty store
-            // (no AssetManager archive load). Bootstrap seeds known locomotors or
-            // loads extracted Locomotor.ini when present — see locomotor_bootstrap.rs.
-            return super::locomotor_bootstrap::resolve_host_movement(name);
-        }
-        None
+    pub fn resolve_movement(
+        &self,
+        locomotors: &game_engine::common::ini::ini_locomotor::LocomotorStore,
+    ) -> Option<super::locomotor_bootstrap::HostMovementStats> {
+        let name = self.locomotor_name.as_deref()?;
+        super::locomotor_bootstrap::movement_from_store(locomotors, name)
     }
 
     /// Resolve the authored primary weapon for a newly created unit.

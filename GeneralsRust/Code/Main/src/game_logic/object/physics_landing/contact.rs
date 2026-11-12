@@ -937,7 +937,7 @@ impl crate::game_logic::GameLogic {
                 state,
                 killed,
                 frame,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );

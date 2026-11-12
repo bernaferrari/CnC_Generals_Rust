@@ -7,7 +7,7 @@ use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::Coord3D;
 use crate::contain_module_overrides::ensure_module_overrides_installed;
-use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate};
+use crate::locomotor::{LocomotorTemplate};
 use crate::modules::ai_state_runtime::AiStateRuntime;
 use crate::modules::{AIUpdateInterface, ContainModuleInterface};
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
@@ -72,13 +72,13 @@ fn definitions() {
     locomotor.surfaces = crate::locomotor::SURFACE_GROUND;
     locomotor.max_speed = 3.0;
     locomotor.acceleration = 0.1;
-    LOCOMOTOR_STORE.register_template(locomotor);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(locomotor);
     let mut physics_locomotor = LocomotorTemplate::new("EnterPathPhysicsLoco".into());
     physics_locomotor.surfaces = crate::locomotor::SURFACE_GROUND;
     physics_locomotor.max_speed = 3.0;
     physics_locomotor.acceleration = 0.1;
     physics_locomotor.max_turn_rate = 0.1; // radians per logic frame, as parsed in C++.
-    LOCOMOTOR_STORE.register_template(physics_locomotor);
+    crate::system::engine_stores::active_services().locomotor_store().register_template(physics_locomotor);
 
     // OpenContain admits an enemy entrant while empty. Its C++-matched
     // IsValidContainerFor ignores checkCapacity, so the hostile occupied

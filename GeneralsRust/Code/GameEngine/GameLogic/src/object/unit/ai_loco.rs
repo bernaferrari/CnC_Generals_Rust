@@ -1007,8 +1007,11 @@ impl UnitAIUpdate {
         else {
             return false;
         };
+        let Some(store) = self.runtime.owning_locomotor_store() else {
+            return false;
+        };
         for name in entries {
-            if let Some(template) = crate::locomotor::LOCOMOTOR_STORE.get_template(name.as_str()) {
+            if let Some(template) = store.get_template(name.as_str()) {
                 if (template.surfaces & surface) != 0 {
                     return true;
                 }

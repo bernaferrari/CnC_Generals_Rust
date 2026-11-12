@@ -580,12 +580,33 @@ fn is_human_panic_wander_template(t: &str) -> bool {
         || t.contains("flee")
 }
 
-fn seed_set_switch_locomotor(name: &str) {
-    use game_engine::common::ini::ini_locomotor::{
-        get_locomotor_store, get_locomotor_store_mut, parse_locomotor_template_definition,
-    };
-    let _ = crate::game_logic::ensure_host_locomotor_store();
-    if get_locomotor_store().find_template(name).is_some() {
+/// The set-switch members (panic / upgraded / taxi) a fallback catalog adds
+/// where its source lacks them.
+const SET_SWITCH_LOCOMOTORS: [&str; 8] = [
+    "FastHumanLocomotor",
+    "WorkerShoesLocomotor",
+    "PanicHumanLocomotor",
+    "WanderHumanLocomotor",
+    "NuclearOverlordLocomotor",
+    "NuclearBattleMasterLocomotor",
+    "BasicJetTaxiLocomotor",
+    "BasicHelicopterTaxiLocomotor",
+];
+
+pub(crate) fn seed_set_switch_locomotors(
+    store: &mut game_engine::common::ini::ini_locomotor::LocomotorStore,
+) {
+    for name in SET_SWITCH_LOCOMOTORS {
+        seed_set_switch_locomotor(store, name);
+    }
+}
+
+fn seed_set_switch_locomotor(
+    store: &mut game_engine::common::ini::ini_locomotor::LocomotorStore,
+    name: &str,
+) {
+    use game_engine::common::ini::ini_locomotor::parse_locomotor_template_definition;
+    if store.find_template(name).is_some() {
         return;
     }
     let (speed, accel, turn_deg, speed_dmg, accel_dmg, braking, appearance) = match name {
@@ -621,7 +642,7 @@ fn seed_set_switch_locomotor(name: &str) {
         props.insert("Braking".to_string(), brake.to_string());
     }
     if let Ok(template) = parse_locomotor_template_definition(name, &props) {
-        let _ = get_locomotor_store_mut().add_template(template);
+        let _ = store.add_template(template);
     }
 }
 
@@ -704,9 +725,6 @@ fn locomotor_set_swap_for_kind_in(
     store: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
 ) -> Option<LocomotorSetSwap> {
     let name = locomotor_name_for_set_kind(template_name, kind)?;
-    if store.is_none() {
-        seed_set_switch_locomotor(name);
-    }
     if let Some(binding) =
         crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_in(store, name)
     {

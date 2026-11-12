@@ -4,14 +4,13 @@ use crate::game_logic::{GameLogic, ObjectId, Team};
 use glam::Vec3;
 
 fn member_world() -> GameLogic {
-    game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
-        "Locomotor HqGroupHeightLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n",
-    ).unwrap();
+    let fixture_locomotor_source = "Locomotor HqGroupHeightLocomotor\n  Surfaces = GROUND\n  Speed = 30\n  Appearance = TREADS\nEnd\n";
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "hq_group_height.ini".into(),
         "Object HqGroupHeightMember\n  KindOf = VEHICLE SELECTABLE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 1\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = AIUpdateInterface ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL HqGroupHeightLocomotor\nEnd\n".into(),
     )]).unwrap();
     let mut world = GameLogic::new();
+    crate::fixture_content::author_locomotors(&mut world, fixture_locomotor_source);
     world.admit_receiving_module_content(content).unwrap();
     world
 }

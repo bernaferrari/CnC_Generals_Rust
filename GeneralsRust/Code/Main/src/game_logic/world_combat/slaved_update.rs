@@ -92,7 +92,7 @@ impl GameLogic {
                 object,
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
                 0,
-                self.locomotor_definitions.as_ref(),
+                self.locomotor_definitions.receiving(),
             );
         }
     }
@@ -475,7 +475,7 @@ impl GameLogic {
                     object,
                     crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
                     0,
-                    self.locomotor_definitions.as_ref(),
+                    self.locomotor_definitions.receiving(),
                 );
                 object.set_precise_z_and_ultra_accurate(true);
             }

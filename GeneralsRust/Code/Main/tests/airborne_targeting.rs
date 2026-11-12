@@ -3,19 +3,18 @@
 //! This does not establish full original game, override-loader or save provenance parity.
 
 use game_engine::common::ini::ini::INI;
-use game_engine::common::ini::ini_locomotor::{
-    LocomotorTemplate as CommonTemplate, get_locomotor_store, get_locomotor_store_mut,
-    load_locomotors_from_str,
-};
+use game_engine::common::common_services::CommonServices;
+use game_engine::common::ini::ini_locomotor::{LocomotorStore, LocomotorTemplate as CommonTemplate};
 use gamelogic::locomotor::ini_bridge::{convert_named, from_common_ini_template};
 use generals_main::game_logic::locomotor_bootstrap::{
-    apply_host_locomotor_binding, resolve_host_locomotor_binding,
+    HostLocomotorBinding, apply_host_locomotor_binding, resolve_host_locomotor_binding_from_store,
 };
 use generals_main::game_logic::object::ObjectType;
 use generals_main::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
 };
 use glam::Vec3;
+use std::sync::Arc;
 
 const ORIGINAL: &str = include_str!("fixtures/airborne_targeting_original.txt");
 const DT: f32 = 1.0 / 30.0;
@@ -40,15 +39,37 @@ fn load(prefix: &str, index: usize, token: &str, bulk: bool) -> CommonTemplate {
     let text = format!(
         "Locomotor {name}\nSurfaces = GROUND\nSpeed = 60\nAcceleration = 30\nAppearance = OTHER\nAllowAirborneMotiveForce = Yes\nZAxisBehavior = NO_Z_MOTIVE_FORCE\n{field}End\n"
     );
-    if bulk {
-        assert_eq!(load_locomotors_from_str(&text).unwrap(), 1);
-    } else {
-        INI::new()
-            .with_inline_source(&text, |ini| ini.parse_current_file())
-            .unwrap();
-    }
-    get_locomotor_store().find_template(&name).unwrap().clone()
+    load_catalog(&text, bulk)
+        .find_template(&name)
+        .unwrap()
+        .clone()
 }
+/// One Locomotor through the bulk loader or a receiving INI dispatch, into a
+/// catalog this fixture owns.
+fn load_catalog(text: &str, bulk: bool) -> LocomotorStore {
+    if bulk {
+        let mut store = LocomotorStore::new_owned();
+        assert_eq!(store.apply_source(text).unwrap(), 1);
+        return store;
+    }
+    let common = Arc::new(CommonServices::new());
+    INI::for_common(Arc::clone(&common))
+        .with_inline_source(text, |ini| ini.parse_current_file())
+        .unwrap();
+    common.ini.locomotor.read().clone()
+}
+
+/// A catalog this fixture owns, holding only `template`.
+fn catalog_of(template: &CommonTemplate) -> LocomotorStore {
+    let mut catalog = LocomotorStore::new_owned();
+    catalog.add_template(template.clone()).unwrap();
+    catalog
+}
+fn bind(template: &CommonTemplate) -> HostLocomotorBinding {
+    resolve_host_locomotor_binding_from_store(&catalog_of(template), template.name.as_str())
+        .unwrap()
+}
+
 fn object() -> Object {
     Object::new(
         ThingTemplate::new("AirborneFixture"),
@@ -98,7 +119,7 @@ fn core_direct_bridge_keeps_literal_signed_integer() {
 #[test]
 fn core_named_bridge_keeps_literal_signed_integer() {
     check_loaders("NamedBridge", |t| {
-        convert_named(t.name.as_str())
+        convert_named(&catalog_of(t), t.name.as_str())
             .unwrap()
             .airborne_targeting_height
     });
@@ -106,7 +127,7 @@ fn core_named_bridge_keeps_literal_signed_integer() {
 #[test]
 fn main_resolver_and_apply_keep_literal_signed_integer() {
     check_loaders("Main", |t| {
-        let binding = resolve_host_locomotor_binding(t.name.as_str()).unwrap();
+        let binding = bind(t);
         let mut host = object();
         apply_host_locomotor_binding(&mut host, &binding);
         assert_eq!(
@@ -156,7 +177,7 @@ fn bound_main_stamp_matches_original_predicate_for_both_loaders() {
     for (index, row) in rows("flag").iter().enumerate() {
         for bulk in [false, true] {
             let template = load("Bound", index, row[1], bulk);
-            let binding = resolve_host_locomotor_binding(template.name.as_str()).unwrap();
+            let binding = bind(&template);
             let mut host = object();
             apply_host_locomotor_binding(&mut host, &binding);
             let actual = stamp(&mut host, row);
@@ -274,7 +295,9 @@ fn max_named_fallback_ambiguity_is_preserved_not_redefined() {
     // it does not claim original override-loader or authoritative save parity.
     for (index, token) in ["omitted", "2147483647"].into_iter().enumerate() {
         let template = load("MaxAmbiguity", index, token, true);
-        let binding = resolve_host_locomotor_binding(template.name.as_str()).unwrap();
+        let mut catalog = catalog_of(&template);
+        let binding =
+            resolve_host_locomotor_binding_from_store(&catalog, template.name.as_str()).unwrap();
         let mut bound_thing = ThingTemplate::new("BoundMax");
         bound_thing.set_locomotor_name(template.name.as_str());
         let mut bound = Object::new(bound_thing, ObjectId(905), Team::USA);
@@ -283,7 +306,7 @@ fn max_named_fallback_ambiguity_is_preserved_not_redefined() {
         let mut thing = ThingTemplate::new("UnboundMax");
         thing.set_locomotor_name(template.name.as_str());
         let mut unbound = Object::new(thing, ObjectId(904), Team::USA);
-        get_locomotor_store_mut()
+        catalog
             .find_template_mut(template.name.as_str())
             .unwrap()
             .airborne_targeting_height = -1;
@@ -309,6 +332,7 @@ fn live_case(token: &str, height: f32, initial: bool) {
         .set_health(100.0)
         .add_kind_of(KindOf::Worker)
         .set_locomotor_name(template.name.as_str());
+    game.admit_locomotor_definitions(catalog_of(&template)).unwrap();
     game.templates.insert(unit_name.clone(), thing);
     let id = game
         .create_object(&unit_name, Team::USA, Vec3::new(0.0, height, 0.0))

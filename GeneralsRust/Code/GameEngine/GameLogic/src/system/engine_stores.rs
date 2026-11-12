@@ -206,6 +206,7 @@ impl WorldServices {
     }
 
     fn unbound_for_world() -> Self {
+        let common = fresh_common_for_world();
         Self {
             // Only definitions are inherited. Visibility, cells and queued
             // reveals belong to this match (CPP PartitionManager.cpp:2515).
@@ -215,7 +216,8 @@ impl WorldServices {
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
-            common: fresh_common_for_world(),
+            locomotor_store: crate::locomotor::new_locomotor_store(Arc::clone(&common.ini.locomotor)),
+            common,
             client_random: Mutex::new(Default::default()),
             logic_managers: WorldLogicManagers::default(),
             players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
@@ -239,7 +241,6 @@ impl WorldServices {
             object_registry: std::sync::Arc::new(crate::object::registry::ObjectRegistry::default()),
             unit_registry: crate::object::unit::new_unit_registry(),
             legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
-            locomotor_store: crate::locomotor::new_locomotor_store(),
             main_game_logic: OnceLock::new(),
             client_image_collection: Mutex::new(None),
             control_bar_bridge: Arc::new(RwLock::new(None)),
@@ -731,7 +732,7 @@ impl PublishedOwner {
         let common = Arc::clone(self.services().common());
         let _ = common_services::install_common_services(Arc::clone(&common));
         common.finish_bootstrap_after_publish();
-        crate::locomotor::sync_locomotor_store_from_common(self.services().locomotor_store());
+        self.services().locomotor_store().sync_from_definitions();
         if let Self::Core(core) = self {
             common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()));
             ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));

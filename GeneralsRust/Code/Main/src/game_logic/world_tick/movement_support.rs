@@ -1155,7 +1155,7 @@ impl GameLogic {
                     if obj.locomotor_goal_type == LocoGoalType::Angle {
                         obj.choose_good_locomotor_from_current_set(
                             cell_type,
-                            self.locomotor_definitions.as_ref(),
+                            self.locomotor_definitions.receiving(),
                         );
                         obj.tick_do_locomotor_blocked_frames();
                         // C++ doLocomotor still advances blocked bookkeeping
@@ -1293,7 +1293,7 @@ impl GameLogic {
                     if angle_position_goal.is_none() {
                         obj.choose_good_locomotor_from_current_set(
                             cell_type,
-                            self.locomotor_definitions.as_ref(),
+                            self.locomotor_definitions.receiving(),
                         );
                         obj.tick_do_locomotor_blocked_frames();
                         // Match AIUpdateInterface::doLocomotor: selection and

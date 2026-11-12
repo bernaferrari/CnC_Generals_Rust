@@ -124,7 +124,7 @@ impl GameLogic {
         if let Some(weapons) = weapons {
             self.admit_weapon_content_snapshot(weapons, &definitions)?;
         }
-        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.effective.gravity)?.with_locomotors(self.locomotor_definitions.as_ref());
+        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.effective.gravity)?.with_locomotors(self.locomotor_definitions.receiving());
         self.templates.clear();
         self.invalidate_build_facility_template_names_cache();
         self.setup_templates();
