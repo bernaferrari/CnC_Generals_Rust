@@ -347,6 +347,8 @@ const JET_SLOW_DEATH_FIELDS: &[FieldParse<JetSlowDeathBehaviorModuleData>] = &[
 ];
 
 pub struct JetSlowDeathBehavior {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<crate::helpers::TheAudio>,
     object_id: ObjectID,
     module_data: ModuleDataView<JetSlowDeathBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
@@ -363,6 +365,7 @@ impl JetSlowDeathBehavior {
         module_data: ModuleDataHandle,
     ) -> Self {
         Self {
+            audio: object.read().ok().and_then(|o| crate::helpers::TheAudio::of_object(&o)),
             object_id: object
                 .read()
                 .ok()
@@ -412,7 +415,7 @@ impl JetSlowDeathBehavior {
 
     fn stop_loop_sound(&mut self) {
         let handle = self.death_loop_sound.get_playing_handle();
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.audio.clone() {
             audio.remove_audio_event(handle);
         }
         self.death_loop_sound.set_playing_handle(0);
@@ -460,7 +463,7 @@ impl JetSlowDeathBehavior {
             if let Ok(object_guard) = object.read() {
                 self.death_loop_sound.set_object_id(object_guard.get_id());
             }
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 let handle = audio.add_audio_event(&self.death_loop_sound);
                 self.death_loop_sound.set_playing_handle(handle);
             }

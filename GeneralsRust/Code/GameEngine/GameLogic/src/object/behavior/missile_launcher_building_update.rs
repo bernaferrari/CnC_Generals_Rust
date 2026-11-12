@@ -172,6 +172,8 @@ const MISSILE_LAUNCHER_BUILDING_UPDATE_FIELDS: &[FieldParse<
 
 /// MissileLauncherBuildingUpdate - manages building doors for special powers
 pub struct MissileLauncherBuildingUpdate {
+    /// C++ TheAudio of the engine this Object was born into.
+    audio: Option<crate::helpers::TheAudio>,
     object_id: ObjectID,
     module_data: game_engine::common::thing::module::ModuleDataView<MissileLauncherBuildingUpdateModuleData>,
 
@@ -200,6 +202,7 @@ impl MissileLauncherBuildingUpdate {
         }
 
         Ok(Self {
+            audio: object.read().ok().and_then(|o| crate::helpers::TheAudio::of_object(&o)),
             object_id: object
                 .read()
                 .ok()
@@ -389,7 +392,7 @@ impl MissileLauncherBuildingUpdate {
             && !self.open_idle_audio.get_event_name().is_empty()
         {
             self.open_idle_audio.set_object_id(object_id);
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 let handle = audio.add_audio_event(&self.open_idle_audio);
                 self.open_idle_audio.set_playing_handle(handle);
             }
@@ -398,7 +401,7 @@ impl MissileLauncherBuildingUpdate {
 
     fn stop_idle_audio(&mut self) {
         if self.open_idle_audio.is_currently_playing() {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.audio.clone() {
                 audio.remove_audio_event(self.open_idle_audio.get_playing_handle());
                 self.open_idle_audio.set_playing_handle(0);
             }
