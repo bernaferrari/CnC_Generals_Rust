@@ -131,6 +131,9 @@ End
     (owner, container, passenger)
 }
 
+// BoneFXDamage::onBodyDamageStateChange -> BoneFXUpdate::changeBodyDamageState
+// re-seeds the state's timers (initTimes); the FX itself fires on the next
+// BoneFXUpdate::update. `transitions` counts the observed body-state changes.
 fn assert_healing(owner: &GameLogic, passenger: ObjectId, source: Option<ObjectId>, health: f32) {
     let object = owner.host_object(passenger).unwrap();
     assert!(
@@ -178,10 +181,8 @@ fn heal_contain_uses_container_source_and_receiving_body_callbacks() {
             .bone_fx_damage
             .as_ref()
             .unwrap()
-            .pending[0]
-            .fx_list
-            .as_deref(),
-        Some("ContainmentHealingState")
+            .transitions,
+        1
     );
     assert_eq!(peer.host_object(passenger).unwrap().health.current, 20.0);
     assert_eq!(
@@ -214,8 +215,7 @@ fn garrison_heal_objects_true_has_no_source_or_auto_exit() {
             .bone_fx_damage
             .as_ref()
             .unwrap()
-            .pending
-            .len(),
+            .transitions,
         1
     );
 }
@@ -230,7 +230,7 @@ fn garrison_time_for_full_heal_without_heal_objects_does_not_heal() {
     assert_eq!(object.last_damage_info_type, Some(DamageType::Bullet));
     assert_eq!(object.last_damage_source, Some(ObjectId(9999)));
     assert_eq!(object.contained_by, Some(container));
-    assert!(object.bone_fx_damage.as_ref().unwrap().pending.is_empty());
+    assert!(object.bone_fx_damage.as_ref().unwrap().transitions == 0);
 }
 
 #[test]
@@ -266,8 +266,7 @@ fn each_tunnel_entrance_heals_shared_passenger_with_no_source() {
             .bone_fx_damage
             .as_ref()
             .unwrap()
-            .pending
-            .len(),
+            .transitions,
         1
     );
     assert_eq!(peer.host_object(passenger).unwrap().health.current, 20.0);
@@ -370,8 +369,7 @@ fn zero_duration_enabled_garrison_heals_fully_without_exit() {
             .bone_fx_damage
             .as_ref()
             .unwrap()
-            .pending
-            .len(),
+            .transitions,
         1
     );
 }

@@ -186,6 +186,11 @@ impl GameLogic {
         if has_kind("mob_nexus") {
             template.add_kind_of(KindOf::MobNexus);
         }
+        // C++ KINDOF_CAN_BE_REPULSED: civilians that flee repulsors
+        // (AIStates.cpp wander/panic leftover-bail, ActiveBody repulsor mark).
+        if has_kind("can_be_repulsed") {
+            template.add_kind_of(KindOf::CanBeRepulsed);
+        }
         // C++ KINDOF_NO_COLLIDE — PartitionData::collidesWith is FALSE.
         if has_kind("no_collide") {
             template.add_kind_of(KindOf::NoCollide);

@@ -21,6 +21,12 @@ fn world(source: &str) -> GameLogic {
         .unwrap();
     world.add_player(Player::new(0, Team::USA, "PatriotOwner", true));
     world.add_player(Player::new(1, Team::GLA, "Victim", true));
+    for (player, other) in [(0, 1), (1, 0)] {
+        world
+            .get_player_mut(player)
+            .unwrap()
+            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+    }
     world
 }
 
@@ -86,8 +92,7 @@ fn pending_assist_locks_authored_slot_and_attacks_with_clip() {
         .unwrap();
     {
         let o = w.objects.get_mut(&id).unwrap();
-        crate::fixture_content::arm_with_stats(o, Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
-        o.secondary_weapon = Some(Weapon { damage: 30.0, range: 200.0, ..Weapon::default() });
+        crate::fixture_content::arm_with_slot_stats(o, [Some(Weapon { damage: 10.0, range: 200.0, ..Weapon::default() }), Some(Weapon { damage: 30.0, range: 200.0, ..Weapon::default() }), None]);
     }
     let assist = w.host_object(id).unwrap().assisted_targeting.expect("bound");
     let hp_before = w.host_object(victim).unwrap().health.current;
@@ -149,8 +154,7 @@ fn pending_assist_issues_attack_even_when_victim_beyond_assist_weapon_range() {
         .unwrap();
     {
         let o = w.objects.get_mut(&id).unwrap();
-        crate::fixture_content::arm_with_stats(o, Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
-        o.secondary_weapon = Some(Weapon { damage: 25.0, range: 450.0, ..Weapon::default() });
+        crate::fixture_content::arm_with_slot_stats(o, [Some(Weapon { damage: 10.0, range: 200.0, ..Weapon::default() }), Some(Weapon { damage: 25.0, range: 450.0, ..Weapon::default() }), None]);
     }
     let assist = w.host_object(id).unwrap().assisted_targeting.expect("bound");
     w.frame = 1;

@@ -1826,7 +1826,6 @@ mod hq_m6gcj_tests {
 
         let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
         hunter.owner_player_id = Some(1);
-        hunter.team_instance_name = "teamUSA".into();
         hunter.attack_priority_set = Some("HuntPrio".into());
         crate::fixture_content::arm_with_stats(&mut hunter, Weapon {
             range: 150.0,
@@ -1852,6 +1851,9 @@ mod hq_m6gcj_tests {
         logic.objects.insert(hunter.id, hunter);
         logic.objects.insert(dozer.id, dozer);
         logic.objects.insert(tank.id, tank);
+        // Hunt touches the team victim only for an AttackCommonTarget team
+        // prototype (AIStates.cpp:7154-7193).
+        logic.bind_common_target_fixture(ObjectId(1), "teamUSA");
         logic.set_host_team_common_target(ObjectId(1), Some(ObjectId(2)));
         logic
             .unit_ai_runtime_mut(ObjectId(1))

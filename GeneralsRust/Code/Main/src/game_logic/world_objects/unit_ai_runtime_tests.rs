@@ -88,16 +88,19 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         unit.set_guard_target_data(Some(guard_id));
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.close_enough_dist = Some(1.0);
-        unit.set_ai_state(
-            crate::game_logic::AIState::Moving,
-            world.frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
         unit.movement.path = vec![endpoint; points];
         unit.movement.target_position = Some(endpoint);
         unit.can_path_through_units = true;
         unit.set_adjust_destinations(false);
         world.add_object(unit);
+        // A newly admitted AI starts Idle (AIUpdateInterface ctor); the
+        // temporary exit's Moving state is entered on the admitted Object.
+        let frame = world.frame;
+        world.host_object_mut(unit_id).unwrap().set_ai_state(
+            crate::game_logic::AIState::Moving,
+            frame,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
         world.add_object(object(guard_id));
         world
             .unit_ai_runtime_mut(unit_id)
@@ -170,16 +173,19 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     let endpoint = Vec3::new(10.0, 0.0, 0.0);
     let mut unit = object(unit_id);
     unit.set_guard_target_data(Some(guard_id));
-    unit.set_ai_state(
-        crate::game_logic::AIState::Moving,
-        world.frame,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
     unit.movement.path = vec![endpoint, endpoint];
     unit.movement.target_position = Some(endpoint);
     unit.can_path_through_units = true;
     unit.set_adjust_destinations(false);
     world.add_object(unit);
+    // A newly admitted AI starts Idle (AIUpdateInterface ctor); the
+    // temporary exit's Moving state is entered on the admitted Object.
+    let frame = world.frame;
+    world.host_object_mut(unit_id).unwrap().set_ai_state(
+        crate::game_logic::AIState::Moving,
+        frame,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    );
     world.add_object(object(guard_id));
     world
         .unit_ai_runtime_mut(unit_id)
@@ -289,14 +295,17 @@ fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
         let mut world = GameLogic::new();
         let id = ObjectId(934207);
         let mut unit = object(id);
-        unit.set_ai_state(
-            crate::game_logic::AIState::Moving,
-            world.frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
         unit.can_path_through_units = true;
         unit.set_adjust_destinations(false);
         world.add_object(unit);
+        // A newly admitted AI starts Idle (AIUpdateInterface ctor); the
+        // temporary exit's Moving state is entered on the admitted Object.
+        let frame = world.frame;
+        world.host_object_mut(id).unwrap().set_ai_state(
+            crate::game_logic::AIState::Moving,
+            frame,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
         let (unit, partition) = world.host_object_and_partition_mut(id).unwrap();
         unit.unit_ai_runtime.set_guard_phase(Some(
             crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,

@@ -8,13 +8,19 @@ use glam::Vec3;
 fn session() -> (GameLogic, ObjectId, Vec<ObjectId>) {
     let mut world = GameLogic::new();
     world.admit_object_ini_sources([("SpawnVet.ini".into(),
-        "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n AggregateHealth = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into())]).unwrap();
+        "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = DefaultProductionExitUpdate Exit\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n AggregateHealth = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into())]).unwrap();
     world.add_player(Player::new(1, Team::GLA, "Owner", true));
     let parent = world
         .create_object_for_player("Nest", 1, Vec3::ZERO)
         .unwrap();
-    world.frame = 1;
-    world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+    // SpawnBehavior::createSpawn needs the parent's ExitInterface. Without
+    // InitialBurst the replacement times are the list indices (0, 1), polled
+    // every SPAWN_UPDATE_RATE frames: frame 1 creates the first child and the
+    // next sparse update (frame 16) the second (SpawnBehavior.cpp:186-247).
+    for frame in 1..=16 {
+        world.frame = frame;
+        world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+    }
     let children: Vec<ObjectId> = world
         .host_object(parent)
         .unwrap()
