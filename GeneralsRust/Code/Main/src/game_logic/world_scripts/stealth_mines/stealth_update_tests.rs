@@ -124,14 +124,13 @@ fn firing_primary_reveals_and_rearms_the_delay_but_secondary_does_not() {
     let mut sounds = Vec::new();
     {
         let obj = world.host_object_mut(id).unwrap();
-        crate::fixture_content::arm_with_stats(obj, crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_slot_stats(obj, [Some(crate::game_logic::Weapon {
             last_fire_time: -10.0,
             ..Default::default()
-        });
-        obj.secondary_weapon = Some(crate::game_logic::Weapon {
+        }), Some(crate::game_logic::Weapon {
             last_fire_time: -10.0,
             ..Default::default()
-        });
+        }), None]);
     }
 
     // A secondary shot while IS_FIRING_WEAPON keeps the cloak.

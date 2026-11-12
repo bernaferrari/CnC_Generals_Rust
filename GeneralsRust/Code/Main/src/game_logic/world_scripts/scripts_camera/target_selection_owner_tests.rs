@@ -235,7 +235,7 @@ impl ScriptExecutionDriver for ObserveActions<'_> {
 fn held_interpreter_actions_change_victim_before_next_action_and_restore_owner() {
     let (mut world, unit, far, near) = fixture(false);
     let (peer, _, _, _) = fixture(false);
-    world.host_object_mut(unit).unwrap().weapon = Some(Weapon {
+    crate::fixture_content::arm_with_stats(world.host_object_mut(unit).unwrap(), Weapon {
         damage: 10.0,
         range: 500.0,
         can_target_ground: true,
@@ -330,7 +330,7 @@ fn ordinary_command_executor_uses_receiving_interpreter_policy() {
     let (mut world, unit, far, near) = fixture(true);
     let (mut peer, _, _, _) = fixture(false);
     for owner in [&mut world, &mut peer] {
-        owner.host_object_mut(unit).unwrap().weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(owner.host_object_mut(unit).unwrap(), Weapon {
             damage: 10.0,
             range: 500.0,
             can_target_ground: true,

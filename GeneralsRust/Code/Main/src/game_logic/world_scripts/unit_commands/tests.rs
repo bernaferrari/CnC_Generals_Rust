@@ -12,21 +12,19 @@ fn three_slot_logic() -> (GameLogic, ObjectId) {
         .create_object("ThreeSlotTest", Team::USA, glam::Vec3::ZERO)
         .expect("test object");
     let object = logic.host_object_mut(id).expect("test object mut");
-    crate::fixture_content::arm_with_stats(object, Weapon {
+    crate::fixture_content::arm_with_slot_stats(object, [Some(Weapon {
         damage: 1.0,
         range: 100.0,
         ..Weapon::default()
-    });
-    object.secondary_weapon = Some(Weapon {
+    }), Some(Weapon {
         damage: 2.0,
         range: 100.0,
         ..Weapon::default()
-    });
-    object.tertiary_weapon = Some(Weapon {
+    }), Some(Weapon {
         damage: 3.0,
         range: 100.0,
         ..Weapon::default()
-    });
+    })]);
     (logic, id)
 }
 
@@ -257,18 +255,17 @@ fn hunting_infantry_pair() -> (GameLogic, ObjectId, ObjectId) {
     logic.objects.insert(hunter_id, {
         let mut hunter = Object::new(hunter_template, hunter_id, Team::USA);
         hunter.set_position(glam::Vec3::ZERO);
-        crate::fixture_content::arm_with_stats(&mut hunter, Weapon {
+        crate::fixture_content::arm_with_slot_stats(&mut hunter, [Some(Weapon {
             range: 100.0,
             damage: 10.0,
             can_target_ground: true,
             ..Weapon::default()
-        });
-        hunter.secondary_weapon = Some(Weapon {
+        }), Some(Weapon {
             range: 80.0,
             damage: 5.0,
             can_target_ground: true,
             ..Weapon::default()
-        });
+        }), None]);
         hunter.set_hunting(true);
         hunter.set_ai_state(
             AIState::Patrolling,

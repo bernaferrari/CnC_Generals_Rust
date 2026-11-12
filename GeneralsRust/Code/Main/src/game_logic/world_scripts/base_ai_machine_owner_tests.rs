@@ -9,9 +9,18 @@ fn jet(helipad: bool) -> (GameLogic, ObjectId) {
         "VEHICLE AIRCRAFT SELECTABLE"
     };
     let content = format!(
-        "Object JetIdleOwner\n KindOf = {kind}\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate FirstJet\n End\nEnd\n"
+        "Object JetIdleOwner\n KindOf = {kind}\n Locomotor = SET_NORMAL FixtureAircraftLocomotor\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = JetAIUpdate FirstJet\n End\nEnd\n"
     );
     let mut world = GameLogic::new();
+    // Aircraft fly on an authored Locomotor (C++ JetAIUpdate/ChinookAIUpdate
+    // moves through m_curLocomotor), admitted before Object content.
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors
+        .apply_source("Locomotor FixtureAircraftLocomotor\n Surfaces = AIR\n Speed = 100\n Acceleration = 100\n Braking = 100\n TurnRate = 180\n Appearance = WINGS\n PreferredHeight = 100\nEnd\n")
+        .expect("fixture aircraft Locomotor");
+    world
+        .admit_locomotor_definitions(locomotors)
+        .expect("Locomotors admitted before Object content");
     world
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
