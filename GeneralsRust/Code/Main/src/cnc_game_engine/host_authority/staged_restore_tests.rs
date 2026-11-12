@@ -45,6 +45,9 @@ fn admit_skirmish_fixture(source: &mut GameLogic, map_name: &str, human: &str, c
     } else {
         config.slots.truncate(1);
     }
+    // Slot template indices name the world's own PlayerTemplate catalog
+    // (GameLogic.cpp:1318-1319), here the admitted retail boot definitions.
+    let config = crate::skirmish_config::lobby_definition_tests::slot_config(source, &config);
     crate::skirmish_config::apply_skirmish_config(source, &config)
         .expect("admit exact initial native Skirmish participants");
 }
