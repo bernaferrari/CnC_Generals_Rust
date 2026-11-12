@@ -2259,6 +2259,20 @@ impl GameLogic {
         player_id: Option<u32>,
         team: Option<Team>,
     ) -> bool {
+        // C++ Player::canBuild asks THIS world's ThingFactory::findTemplate.
+        // Once receiving content is admitted, the world's template and its
+        // own handle catalog are authoritative; a process/scoped factory
+        // uses a different template-ID space and must not be consulted.
+        if let (Some(_), Some(template)) = (
+            self.receiving_module_content.as_ref(),
+            self.templates.get(template_name),
+        ) {
+            let player = match player_id {
+                Some(id) => self.get_player(id),
+                None => team.and_then(|team| self.get_player_by_team(team)),
+            };
+            return player.is_some_and(|player| template.prerequisites_satisfied(self, player));
+        }
         let prereqs =
             leftover_or_live_production_prereqs(template_name, self.templates.get(template_name));
         for prereq in &prereqs {
