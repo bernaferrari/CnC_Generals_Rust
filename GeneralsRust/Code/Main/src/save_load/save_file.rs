@@ -1381,13 +1381,18 @@ impl SaveFileManager {
         )?;
         // Host extension is a named block, so legacy chunks retain their
         // native positional layout. Version 1 has a single intent byte.
-        writer.write_all(&[CHUNK_HOST_MAP_INTENT.len() as u8])?;
-        writer.write_all(CHUNK_HOST_MAP_INTENT.as_bytes())?;
-        writer.write_all(&2i32.to_le_bytes())?;
-        writer.write_all(&[1, match map_intent {
-            MapAdmissionIntent::Mapless => 0,
-            MapAdmissionIntent::Authored => 1,
-        }])?;
+        // C++ GameState::xferSaveData (GameState.cpp:1344-1346) writes only
+        // CHUNK_GameState and CHUNK_Campaign for a mission save; the next
+        // mission's map comes from the campaign, so no intent is written.
+        if save_info.save_type != SaveFileType::Mission {
+            writer.write_all(&[CHUNK_HOST_MAP_INTENT.len() as u8])?;
+            writer.write_all(CHUNK_HOST_MAP_INTENT.as_bytes())?;
+            writer.write_all(&2i32.to_le_bytes())?;
+            writer.write_all(&[1, match map_intent {
+                MapAdmissionIntent::Mapless => 0,
+                MapAdmissionIntent::Authored => 1,
+            }])?;
+        }
         writer.write_all(&encoded)?;
         writer.flush()?;
         Ok(())
