@@ -14,7 +14,12 @@ fn configured(map: &str, display: &str) -> GameLogic {
     let mut config = crate::skirmish_config::golden_skirmish_config(map);
     config.slots[0].player_name = display.into();
     config.slots[1].slot_index = 3;
-    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world();
+    // C++ builds every ThingTemplate from INI before NewGame.
+    let mut world = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("PreparedReceivingUnit")
+            .kind_of("INFANTRY")
+            .health(100.0),
+    ]);
     let config = crate::skirmish_config::lobby_definition_tests::slot_config(&world, &config);
     // Admit the retail app rule explicitly before this real map load.
     world.admit_camera_application_movement(
@@ -69,9 +74,6 @@ fn actual_retail_map_factory_uses_prepared_sparse_slots_and_receiving_controller
                 );
                 (names, first_slot.get_id(), last_slot.get_id())
             };
-            let mut template = ThingTemplate::new("PreparedReceivingUnit");
-            template.add_kind_of(KindOf::Infantry).set_health(100.0);
-            first.templates.insert(template.name.clone(), template);
             let unit = first
                 .create_object_for_player("PreparedReceivingUnit", 0, Vec3::ZERO)
                 .unwrap();
