@@ -321,7 +321,7 @@ fn detection_status_waits_for_awake_update_and_cloak_delay() {
 #[test]
 fn stealth_upgrade_grants_only_current_weapon_spawn_roster() {
     let modules = format!(
-        "{}Behavior = SpawnBehavior Spawn\nOneShot = Yes\nSpawnNumber = 1\nSpawnTemplateName = UpgradeSlave\nEnd\nBehavior = StealthUpgrade Upgrade\nTriggeredBy = Upgrade_TestCamo\nEnd\n",
+        "{}Behavior = DefaultProductionExitUpdate Exit\nEnd\nBehavior = SpawnBehavior Spawn\nOneShot = Yes\nSpawnNumber = 1\nSpawnTemplateName = UpgradeSlave\nEnd\nBehavior = StealthUpgrade Upgrade\nTriggeredBy = Upgrade_TestCamo\nEnd\n",
         stealth_module("StealthDelay = 0\nInnateStealth = No\n")
     );
     let mut world = world(&[
@@ -332,6 +332,13 @@ fn stealth_upgrade_grants_only_current_weapon_spawn_roster() {
     world.players.insert(0, Player::new(0, Team::GLA, "Owner", true));
     let nest = world.create_object_for_player("UpgradeNest", 0, Vec3::ZERO).unwrap();
     let ordinary = world.create_object_for_player("OrdinaryNest", 0, Vec3::X).unwrap();
+    // SpawnBehavior::update creates the batch on its first sparse pass through
+    // the parent's ExitInterface (SpawnBehavior.cpp:186-247, createSpawn).
+    fn spawn_pass(world: &mut GameLogic) {
+        world.frame += 1;
+        world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+    }
+    spawn_pass(&mut world);
     let child = world.host_object(nest).unwrap().spawn_behavior_children()[0].0;
     let ordinary_child = world.host_object(ordinary).unwrap().spawn_behavior_children()[0].0;
     assert!(!world.host_object(child).unwrap().innate_stealth);
@@ -350,6 +357,7 @@ fn stealth_upgrade_grants_only_current_weapon_spawn_roster() {
     // SpawnBehavior::createSpawn does not copy the parent's CAN_STEALTH:
     // the parent's already-completed upgrade ran before this child existed.
     let late = world.create_object_for_player("UpgradeNest", 0, Vec3::Z).unwrap();
+    spawn_pass(&mut world);
     let late_child = world.host_object(late).unwrap().spawn_behavior_children()[0].0;
     assert!(world.host_object(late).unwrap().innate_stealth);
     assert!(!world.host_object(late_child).unwrap().innate_stealth);
