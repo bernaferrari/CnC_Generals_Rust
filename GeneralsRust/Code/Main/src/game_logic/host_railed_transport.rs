@@ -698,6 +698,12 @@ impl GameLogic {
         }
         let source = self.current_native_slave_source(ferry, self.local_player_id().unwrap_or(0))
             .map_err(|error| format!("rail containment source: {error}"))?;
+        // A drawable whose Draw modules author no model has no pristine bones
+        // (Drawable::getPristineBonePositions finds none); the caller keeps
+        // its zero positions without needing model assets.
+        if source.receiving_draw_models.select(source.condition_bits).is_empty() {
+            return Ok(Vec::new());
+        }
         if let Some(assets) = effects.pristine_bones {
             return assets.pristine_bone_transforms(&source, name, start, limit);
         }

@@ -1138,6 +1138,19 @@ fn specialty_attack_voices_replace_voice_attack() {
         set_test_template_voice("SA_BUR", UnitVoiceSlot::Attack, "TestBurtonAttack");
         set_test_template_voice("SA_BUR", UnitVoiceSlot::Melee, "TestVoiceMelee");
 
+        let authored_weapon = |name: &str, damage: f32, range: f32, damage_type: &str| {
+            Some(
+                crate::fixture_content::FixtureWeapon::from_stats(
+                    name,
+                    &Weapon {
+                        damage,
+                        range,
+                        ..Weapon::default()
+                    },
+                )
+                .damage_type(damage_type),
+            )
+        };
         let mut logic = GameLogic::new();
         logic.add_player(crate::game_logic::Player::new(
             0,
@@ -1210,23 +1223,15 @@ fn specialty_attack_voices_replace_voice_attack() {
             .unwrap();
         {
             let u = logic.host_object_mut(ranger_id).unwrap();
-            crate::fixture_content::arm_slot_with_stats(
+            // The voice reads each Weapon's own authored DamageType
+            // (CommandXlat.cpp:518-562 weapon->getDamageType()).
+            crate::fixture_content::arm_slots(
                 u,
-                0,
-                Weapon {
-                    damage: 5.0,
-                    range: 150.0,
-                    ..Weapon::default()
-                },
-            );
-            crate::fixture_content::arm_slot_with_stats(
-                u,
-                1,
-                Weapon {
-                    damage: 35.0,
-                    range: 175.0,
-                    ..Weapon::default()
-                },
+                [
+                    authored_weapon("RangerAdvancedCombatRifle", 5.0, 150.0, "SMALL_ARMS"),
+                    authored_weapon("RangerFlashBangGrenadeWeapon", 35.0, 175.0, "SURRENDER"),
+                    None,
+                ],
             );
             // This unlocked current weapon must be observed before the new
             // command's AI is allowed to choose a different weapon.
@@ -1332,14 +1337,9 @@ fn specialty_attack_voices_replace_voice_attack() {
             .unwrap();
         {
             let u = logic.host_object_mut(com_id).unwrap();
-            crate::fixture_content::arm_slot_with_stats(
+            crate::fixture_content::arm_slots(
                 u,
-                2,
-                Weapon {
-                    damage: 30.0,
-                    range: 200.0,
-                    ..Weapon::default()
-                },
+                [None, None, authored_weapon("ComancheRocketPodWeapon", 30.0, 200.0, "EXPLOSION")],
             );
         }
         logic.queued_audio_events.clear();
@@ -1366,14 +1366,9 @@ fn specialty_attack_voices_replace_voice_attack() {
             .unwrap();
         {
             let u = logic.host_object_mut(dragon_id).unwrap();
-            crate::fixture_content::arm_slot_with_stats(
+            crate::fixture_content::arm_slots(
                 u,
-                1,
-                Weapon {
-                    damage: 20.0,
-                    range: 80.0,
-                    ..Weapon::default()
-                },
+                [None, authored_weapon("DragonTankFireWallWeapon", 20.0, 80.0, "FLAME"), None],
             );
         }
         logic.queued_audio_events.clear();
@@ -1400,14 +1395,9 @@ fn specialty_attack_voices_replace_voice_attack() {
             .unwrap();
         {
             let u = logic.host_object_mut(burton_id).unwrap();
-            crate::fixture_content::arm_slot_with_stats(
+            crate::fixture_content::arm_slots(
                 u,
-                2,
-                Weapon {
-                    damage: 40.0,
-                    range: 10.0,
-                    ..Weapon::default()
-                },
+                [None, None, authored_weapon("BurtonKnifeWeapon", 40.0, 10.0, "MELEE")],
             );
         }
         logic.queued_audio_events.clear();
