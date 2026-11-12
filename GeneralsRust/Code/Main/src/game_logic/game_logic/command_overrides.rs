@@ -144,8 +144,17 @@ impl GameLogic {
     /// rebuild this world's ControlBar bridge from it.
     #[cfg(test)]
     pub(crate) fn load_own_command_ini_for_test(&self, source: &str) {
+        // C++ CommandButton parsing resolves Science names through this
+        // engine's TheScienceStore; the shell hands INI the receiving facts.
+        let sciences = self
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.science_facts());
         self.with_own_services(|| {
             let mut ini = game_engine::common::ini::INI::new();
+            if let Some(sciences) = sciences {
+                ini.set_receiving_science_names(sciences);
+            }
             ini.with_inline_source(source, |ini| ini.parse_current_file())
                 .expect("parse fixture command INI");
         });

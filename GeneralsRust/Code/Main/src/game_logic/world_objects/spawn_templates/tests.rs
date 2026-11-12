@@ -47,7 +47,9 @@ fn retail_archive() -> crate::assets::ArchiveFileSystem {
 /// Retail CommandButton.ini and CommandSet.ini. C++ loads both into the
 /// engine's own TheControlBar before NewGame (GameEngine.cpp:428-458,
 /// ControlBar.cpp:1060-1120); presentation reads only that catalog.
-fn retail_command_ini() -> String {
+/// Retail CommandButton.ini then CommandSet.ini, one source per file as the
+/// shell loads them (buttons must exist before sets reference them).
+fn retail_command_ini() -> Vec<String> {
     let mut files = retail_archive();
     ["Data/INI/CommandButton.ini", "Data/INI/CommandSet.ini"]
         .into_iter()
@@ -58,8 +60,7 @@ fn retail_command_ini() -> String {
                 .unwrap_or_else(|| panic!("retail {path} exists"));
             String::from_utf8(bytes).expect("retail command UTF-8")
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
 }
 
 fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingObjectContent {
