@@ -11,20 +11,38 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
+    crate::fixture_content::admit_fixture_objects(
+        &mut world,
+        &[crate::fixture_content::FixtureObject::new("OwnedNamedInfantry")
+            .kind_of("INFANTRY SELECTABLE")
+            .health(100.0)
+            .walker()],
+    );
     world.add_player(Player::new(1, Team::USA, "NamedOwner", true));
     world.add_player(Player::new(2, Team::China, "NamedVictim", false));
-    let mut template = ThingTemplate::new("OwnedNamedInfantry");
-    template
-        .add_kind_of(KindOf::Infantry)
-        .set_health(100.0)
-        .set_primary_weapon(Weapon::default());
-    world.templates.insert(template.name.clone(), template);
+    // C++ Player relationships default to NEUTRAL; the map authors enemies.
+    for (player, other) in [(1, 2), (2, 1)] {
+        world
+            .get_player_mut(player)
+            .unwrap()
+            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+    }
     let unit = world
         .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();
     let target = world
         .create_object_for_player("OwnedNamedInfantry", 2, Vec3::new(70.0, 0.0, 70.0))
         .unwrap();
+    for id in [unit, target] {
+        crate::fixture_content::arm_with_stats(
+            world.host_object_mut(id).unwrap(),
+            Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        );
+    }
     world.host_object_mut(unit).unwrap().name = "NamedUnit".into();
     world.host_object_mut(target).unwrap().name = "NamedTarget".into();
     let object = world.host_object_mut(unit).unwrap();
