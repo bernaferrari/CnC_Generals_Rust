@@ -53,6 +53,14 @@ End
             .unwrap(),
         )
         .unwrap();
+    // Object::giveUpgrade ignores a token with no UpgradeTemplate
+    // (Object.cpp:3559-3567), so the pulse needs its authored definition.
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.with_inline_source(&format!("Upgrade {UPGRADE}\nType = OBJECT\nEnd\n"), |ini| {
+        ini.read_line()?;
+        owner.upgrade_definitions.parse_upgrade_definition(ini)
+    })
+    .expect("pulse upgrade definition admits");
     for (id, team, name) in [
         (0, Team::USA, "BuilderOwner"),
         (1, Team::GLA, "MineOwner"),
