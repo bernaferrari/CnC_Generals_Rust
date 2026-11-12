@@ -30,6 +30,12 @@ fn crush_world() -> (GameLogic, ObjectId, ObjectId) {
     victim.crushable_level = 0;
     victim.has_squish_collide = false;
     victim.last_damage_source = Some(tank_id);
+    // Templates always author Geometry; PhysicsUpdate.cpp:1490/1672 aims the
+    // crush at majorRadius/2 and is past it within 1.5 offsets.
+    let mut geometry = *victim.geometry_info();
+    geometry.authored = true;
+    geometry.major_radius = 10.0;
+    victim.set_geometry_shape(geometry);
     world.objects.insert(victim_id, victim);
     (world, tank_id, victim_id)
 }

@@ -82,6 +82,12 @@ fn world_fx(far: bool, catalog: Option<&game_client::fx_list::FXListStore>) -> G
     transition.fx_lists_for_state[HostBodyDamageType::Rubble.ordinal() as usize] =
         vec!["FX_PhysicsReceivingTransition".into()];
     object.transition_damage_fx = Some(transition);
+    // Templates always author Geometry; PhysicsUpdate.cpp:1490/1672 aims the
+    // crush at majorRadius/2 and is past it within 1.5 offsets.
+    let mut geometry = *object.geometry_info();
+    geometry.authored = true;
+    geometry.major_radius = 10.0;
+    object.set_geometry_shape(geometry);
     world.objects.insert(VICTIM, object);
     let mut tank = ThingTemplate::new("PhysicsFxCrusher");
     tank.add_kind_of(KindOf::Vehicle);
