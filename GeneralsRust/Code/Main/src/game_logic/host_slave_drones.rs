@@ -795,19 +795,6 @@ pub fn drone_armor_add_max_health(kind: SlaveDroneKind) -> f32 {
     }
 }
 
-/// Living slave-drone kind for MaxHealthUpgrade / spawn inherit.
-pub fn slave_drone_kind_from_template(template_name: &str) -> Option<SlaveDroneKind> {
-    if is_battle_drone_template(template_name) {
-        Some(SlaveDroneKind::Battle)
-    } else if is_hellfire_drone_template(template_name) {
-        Some(SlaveDroneKind::Hellfire)
-    } else if is_scout_drone_template(template_name) {
-        Some(SlaveDroneKind::Scout)
-    } else {
-        None
-    }
-}
-
 /// Apply DroneArmor MaxHealthUpgrade residual: +AddMaxHealth current+max
 /// (`ADD_CURRENT_HEALTH_TOO`, same as C++ `setMaxHealth` at initObject).
 pub fn apply_drone_armor_health(

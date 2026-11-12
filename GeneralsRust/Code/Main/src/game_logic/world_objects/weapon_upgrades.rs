@@ -190,22 +190,6 @@ impl GameLogic {
         }
         n
     }
-
-    /// C++ `WeaponSetUpgrade` + `updateWeaponSet` for Sentry PLAYER_UPGRADE.
-    /// Bind PRIMARY `SentryDroneGun`, stamp the retail tag, set PLAYER_UPGRADE.
-    pub(in super::super) fn equip_sentry_drone_gun(obj: &mut Object, frame: u32) {
-        use crate::game_logic::host_sentry_drone::{
-            SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
-        };
-        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-        ensure_host_weapon_store();
-        if let Some(w) = ThingTemplate::weapon_from_store(SENTRY_DRONE_GUN_WEAPON) {
-            let _ = obj.replace_weapon_set_slot(0, Some(w));
-        }
-        obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
-        obj.set_weapon_condition_at_frame(3, true, frame);
-    }
 }
 
 #[cfg(test)]
