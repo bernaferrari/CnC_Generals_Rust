@@ -988,33 +988,31 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
     // the next economic pass; the scaffold must then make real construction
     // progress through the authoritative dozer target association.
     let mut logic = crate::game_logic::GameLogic::new();
+    // AIPlayer::findDozer routes plans only to a DOZER whose AIUpdate exposes
+    // a DozerAIInterface; the dozer and both plans are authored before
+    // NewGame (GameEngine.cpp:428-458).
+    {
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("TestDozer")
+                    .kind_of("VEHICLE WORKER DOZER")
+                    .walker()
+                    .dozer(),
+                FixtureObject::new("TestFirstStructure")
+                    .kind_of("STRUCTURE")
+                    .build_cost(300)
+                    .build_time(10.0),
+                FixtureObject::new("TestSecondStructure")
+                    .kind_of("STRUCTURE")
+                    .build_cost(300),
+            ],
+        );
+    }
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 1_000;
     logic.add_player(player);
-
-    let mut dozer_template = crate::game_logic::ThingTemplate::new("TestDozer");
-    dozer_template
-        .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .add_kind_of(crate::game_logic::KindOf::Worker)
-        .add_kind_of(crate::game_logic::KindOf::Dozer);
-    logic.templates.insert("TestDozer".into(), dozer_template);
-
-    let mut first_template = crate::game_logic::ThingTemplate::new("TestFirstStructure");
-    first_template
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .set_cost(300, 0);
-    first_template.build_time = 10.0;
-    logic
-        .templates
-        .insert("TestFirstStructure".into(), first_template);
-
-    let mut second_template = crate::game_logic::ThingTemplate::new("TestSecondStructure");
-    second_template
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .set_cost(300, 0);
-    logic
-        .templates
-        .insert("TestSecondStructure".into(), second_template);
 
     let build_position = Vec3::new(64.0, 0.0, 64.0);
     let dozer_id = logic
@@ -2689,33 +2687,28 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
     // then the expanding-square wiggle. An immobile enemy parked on the pad
     // must not freeze the build queue retrying the same spot forever.
     let mut logic = crate::game_logic::GameLogic::new();
+    // The builder must be a DOZER with a DozerAIInterface (AIPlayer::findDozer);
+    // all three Objects are authored before NewGame (GameEngine.cpp:428-458).
+    {
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("WiggleDozer")
+                    .kind_of("VEHICLE WORKER DOZER")
+                    .walker()
+                    .dozer(),
+                FixtureObject::new("WiggleStructure")
+                    .kind_of("STRUCTURE")
+                    .build_cost(300)
+                    .build_time(10.0),
+                FixtureObject::new("WiggleBlocker").kind_of("STRUCTURE IMMOBILE"),
+            ],
+        );
+    }
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 1_000;
     logic.add_player(player);
-
-    let mut dozer_template = crate::game_logic::ThingTemplate::new("WiggleDozer");
-    dozer_template
-        .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .add_kind_of(crate::game_logic::KindOf::Worker)
-        .add_kind_of(crate::game_logic::KindOf::Dozer);
-    logic.templates.insert("WiggleDozer".into(), dozer_template);
-
-    let mut structure_template = crate::game_logic::ThingTemplate::new("WiggleStructure");
-    structure_template
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .set_cost(300, 0);
-    structure_template.build_time = 10.0;
-    logic
-        .templates
-        .insert("WiggleStructure".into(), structure_template);
-
-    let mut blocker_template = crate::game_logic::ThingTemplate::new("WiggleBlocker");
-    blocker_template
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::Immobile);
-    logic
-        .templates
-        .insert("WiggleBlocker".into(), blocker_template);
 
     let pad = Vec3::new(150.0, 0.0, 150.0);
     let _dozer_id = logic
@@ -3029,27 +3022,33 @@ fn process_building_queue_skips_automatic_layout_pads() {
     // C++ processBaseBuilding never selects automatic pads
     // (canMakeUnit(dozer, NULL) → CANMAKE_NO_PREREQ).
     let mut logic = crate::game_logic::GameLogic::new();
+    // Invented template names: the retail prerequisite table
+    // (AmericaStrategyCenter -> WarFactory/Airfield, FactionBuilding.ini
+    // Prerequisites) must not leak into this pure pad-selection scenario.
+    // The builder is a DOZER with a DozerAIInterface (AIPlayer::findDozer);
+    // everything is authored before NewGame (GameEngine.cpp:428-458).
+    {
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("TestDozer")
+                    .kind_of("VEHICLE WORKER DOZER")
+                    .walker()
+                    .dozer(),
+                FixtureObject::new("TestStrategyCenter")
+                    .kind_of("STRUCTURE")
+                    .build_cost(100),
+                FixtureObject::new("TestAirfield")
+                    .kind_of("STRUCTURE")
+                    .build_cost(100),
+            ],
+        );
+    }
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 50_000;
     logic.add_player(player);
-
-    let mut dozer_template = crate::game_logic::ThingTemplate::new("TestDozer");
-    dozer_template
-        .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .add_kind_of(crate::game_logic::KindOf::Worker)
-        .add_kind_of(crate::game_logic::KindOf::Dozer);
-    logic.templates.insert("TestDozer".into(), dozer_template);
     let _ = logic.create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0));
-
-    // Invented template names: the residual retail prereq table
-    // (AmericaStrategyCenter -> WarFactory/Airfield, FactionBuilding.ini
-    // Prerequisites) must not leak into this pure pad-selection scenario.
-    for name in ["TestStrategyCenter", "TestAirfield"] {
-        let mut t = crate::game_logic::ThingTemplate::new(name);
-        t.add_kind_of(crate::game_logic::KindOf::Structure)
-            .set_cost(100, 0);
-        logic.templates.insert(name.into(), t);
-    }
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     ai.add_layout_building("TestStrategyCenter", Vec3::new(64.0, 0.0, 0.0), 3);
