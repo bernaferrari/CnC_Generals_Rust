@@ -684,6 +684,10 @@ End
     // unpack allowance. A PI/sec turn needs about 30 logic frames.
     for _ in 0..60 {
         logic.frame += 1;
+        // C++ turns inside AIUpdate::update (doLocomotor ->
+        // locoUpdate_moveTowardsAngle); Main's locomotor is its movement
+        // phase, which runs before the support-state phase (step.rs).
+        logic.update_movement_for_test(&[burton_id, target_id], FRAME_DT);
         logic
             .update_ai(&[burton_id, target_id], FRAME_DT)
             .expect("receiving AI operation succeeds");
