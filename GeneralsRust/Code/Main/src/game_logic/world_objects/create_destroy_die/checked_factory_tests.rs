@@ -53,9 +53,25 @@ fn failure(error: &gamelogic::GameLogicError) {
 #[test]
 fn spawn_point_occupant_generation_rejects_reused_id_and_foreign_world() {
     fn owner() -> (GameLogic, ObjectId, ObjectId) {
+        // The saved m_spawnIDs roster belongs to an authored SpawnBehavior
+        // (SpawnBehavior::xfer); a KindOf-only template has no such module.
         let mut world = GameLogic::new();
-        let mut parent = ThingTemplate::new("GenerationHive");
-        parent.add_kind_of(KindOf::Structure).add_kind_of(KindOf::SpawnsAreTheWeapons);
+        world.admit_object_ini_sources([("generation-hive.ini".to_owned(), r#"
+Object GenerationHive
+ KindOf = STRUCTURE SPAWNS_ARE_THE_WEAPONS
+ Behavior = SpawnPointProductionExitUpdate Exit
+  SpawnPointBoneName = SpawnPoint
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnNumber = 1
+  SpawnTemplateName = GenerationChild
+ End
+End
+Object GenerationChild
+ KindOf = INFANTRY
+End
+"#.to_owned())]).unwrap();
+        let parent = world.templates["GenerationHive"].clone();
         let parent = world.add_object(Object::new(parent, ObjectId(701), Team::GLA));
         let child = world.add_object(Object::new(
             ThingTemplate::new("GenerationChild"), ObjectId(702), Team::GLA,
