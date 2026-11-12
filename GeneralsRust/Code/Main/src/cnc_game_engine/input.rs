@@ -229,7 +229,8 @@ impl CnCGameEngine {
                 }
                 if active != self.subsystem_audio_has_focus {
                     self.subsystem_audio_has_focus = active;
-                    let _ = self.subsystem_manager.notify_audio_focus_change(active);
+                    let audio = gamelogic::helpers::TheAudio::of(&self.game_logic.world_services);
+                    let _ = self.subsystem_manager.notify_audio_focus_change(active, &audio);
                 }
                 // The original input-focus callback resets on both gain and loss.
                 let _ = self.subsystem_manager.notify_focus_change(false);

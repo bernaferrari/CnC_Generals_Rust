@@ -815,7 +815,7 @@ impl SpectreGunshipUpdate {
                 && !self.afterburner_sound.event_name.is_empty()
             {
                 self.afterburner_sound.set_object_id(gunship.get_id());
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = TheAudio::of_object(gunship) {
                     let handle = audio.add_audio_event(&self.afterburner_sound);
                     self.afterburner_sound.set_playing_handle(handle);
                     self.afterburner_handle = Some(handle);
@@ -824,7 +824,7 @@ impl SpectreGunshipUpdate {
         } else {
             gunship.clear_model_condition_state(MODELCONDITION_JETAFTERBURNER);
             if self.afterburner_sound.is_currently_playing() {
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = TheAudio::of_object(gunship) {
                     audio.remove_audio_event(self.afterburner_sound.get_playing_handle());
                 }
                 self.afterburner_sound.set_playing_handle(0);
@@ -1026,7 +1026,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                         if !self.howitzer_fire_sound.event_name.is_empty() {
                             let mut event = self.howitzer_fire_sound.clone();
                             event.set_object_id(gunship.get_id());
-                            if let Some(audio) = TheAudio::get() {
+                            if let Some(audio) = TheAudio::of_object(&obj_guard) {
                                 audio.add_audio_event(&event);
                             }
                         }

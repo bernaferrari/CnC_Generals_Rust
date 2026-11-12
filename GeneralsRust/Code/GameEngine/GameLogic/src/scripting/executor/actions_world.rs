@@ -108,7 +108,7 @@ impl ScriptActionDispatcher<'_> {
         let mut event = crate::common::audio::AudioEventRts::new(sound_name.as_str());
         event.set_object_id(object_id);
         event.set_is_logical_audio(true);
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             let _ = audio.add_audio_event(&event);
         }
         Ok(ScriptActionResult::Success)
@@ -124,7 +124,7 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.pause_audio(EngineAudioAffect::Sound);
         }
         Ok(ScriptActionResult::Success)
@@ -140,7 +140,7 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.resume_audio(EngineAudioAffect::Sound);
         }
         Ok(ScriptActionResult::Success)
@@ -157,7 +157,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.pause_audio(EngineAudioAffect::Sound3D);
         }
         Ok(ScriptActionResult::Success)
@@ -174,7 +174,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.resume_audio(EngineAudioAffect::Sound3D);
         }
         Ok(ScriptActionResult::Success)
@@ -196,7 +196,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_volume((volume / 100.0).clamp(0.0, 1.0), EngineAudioAffect::Music);
         }
         Ok(ScriptActionResult::Success)
@@ -218,7 +218,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_audio_event_enabled(&sound_type, false);
         }
         Ok(ScriptActionResult::Success)
@@ -240,7 +240,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_audio_event_enabled(&sound_type, true);
         }
         Ok(ScriptActionResult::Success)
@@ -260,7 +260,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_audio_event_enabled("", true);
         }
         Ok(ScriptActionResult::Success)
@@ -283,7 +283,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_audio_event_volume_override(&audio_type, volume / 100.0);
         }
         Ok(ScriptActionResult::Success)
@@ -305,7 +305,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_audio_event_volume_override(&audio_type, -1.0);
         }
         Ok(ScriptActionResult::Success)
@@ -325,7 +325,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_audio_event_volume_override("", -1.0);
         }
         Ok(ScriptActionResult::Success)
@@ -348,7 +348,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_volume(normalized, EngineAudioAffect::Sound);
             audio.set_volume(normalized, EngineAudioAffect::Sound3D);
         }
@@ -371,7 +371,7 @@ impl ScriptActionDispatcher<'_> {
         ) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.set_volume((volume / 100.0).clamp(0.0, 1.0), EngineAudioAffect::Speech);
         }
         Ok(ScriptActionResult::Success)
@@ -385,7 +385,7 @@ impl ScriptActionDispatcher<'_> {
         if let Some(result) = receiving_script_audio(driver, ScriptAudioRequest::RemoveDisabled) {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.remove_disabled_events();
         }
         Ok(ScriptActionResult::Success)
@@ -403,7 +403,7 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.remove_audio_event_by_name(&sound_type);
         }
         Ok(ScriptActionResult::Success)
@@ -1163,7 +1163,7 @@ impl ScriptActionDispatcher<'_> {
                     audio_event.set_player_index(local_guard.get_player_index() as u32);
                 }
             }
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = self.the_audio() {
                 let _ = audio.add_audio_event(&audio_event);
             }
         }

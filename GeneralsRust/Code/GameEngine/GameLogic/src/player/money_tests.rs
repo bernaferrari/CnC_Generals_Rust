@@ -40,7 +40,9 @@ fn in_world(f: impl FnOnce()) {
     });
 }
 fn admit(list: &mut PlayerList, index: Int, cash: Int) -> Arc<RwLock<Player>> {
-    let mut player = Player::new(index);
+    // The Player belongs to this fixture's world (its TheAudio plays money).
+    let mut player =
+        Player::new_for_world(index, &crate::system::engine_stores::active_services());
     player.set_default_team(Some(Arc::new(RwLock::new(Team::new(
         format!("money-team-{index}").into(),
         index as u32,

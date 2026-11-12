@@ -67,6 +67,8 @@ pub trait RadarEventOwner {
     fn set_eva_should_play(&mut self, eva_name: &str);
     /// C++ `TheInGameUI->message` of the victim's engine.
     fn show_radar_message(&mut self, message_key: &str);
+    /// C++ `TheAudio->addAudioEvent` of the victim's engine (Radar.cpp:1168).
+    fn play_radar_audio(&mut self, event_name: &str, player_index: i32);
 }
 
 pub fn register_radar_event_feedback(hook: Arc<dyn RadarEventFeedback>) -> bool {
@@ -1390,8 +1392,8 @@ impl RadarSystem {
         };
         if let Some(owner) = owner.as_mut() {
             owner.show_radar_message(message_key);
-        }
-        if let Some(fb) = radar_feedback() {
+            owner.play_radar_audio(sound, player_index);
+        } else if let Some(fb) = radar_feedback() {
             fb.play_radar_audio(sound, player_index);
         }
         true

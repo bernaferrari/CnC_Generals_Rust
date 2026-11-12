@@ -2410,19 +2410,21 @@ impl SubsystemManager {
     }
 
     /// Notify audio subsystem of focus change (matches TheAudio->loseFocus/regainFocus)
-    pub fn notify_audio_focus_change(&mut self, active: bool) -> Result<()> {
+    pub fn notify_audio_focus_change(
+        &mut self,
+        active: bool,
+        audio: &gamelogic::helpers::TheAudio,
+    ) -> Result<()> {
         info!(
             "🔊 Notifying audio subsystem of focus change: {}",
             if active { "gained" } else { "lost" }
         );
 
         // C++ WinMain.cpp:451-464 WM_ACTIVATE → TheAudio->loseFocus/regainFocus.
-        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-            if active {
-                audio.regain_focus();
-            } else {
-                audio.lose_focus();
-            }
+        if active {
+            audio.regain_focus();
+        } else {
+            audio.lose_focus();
         }
 
         Ok(())

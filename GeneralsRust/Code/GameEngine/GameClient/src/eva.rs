@@ -481,14 +481,15 @@ pub trait EvaPlayback {
     fn play_speech(&mut self, event: &AudioEventRts) -> u32;
 }
 
-struct CoreEvaPlayback;
+/// C++ `TheAudio` of the engine this client's Eva speaks for.
+struct CoreEvaPlayback(TheAudio);
 impl EvaPlayback for CoreEvaPlayback {
     fn is_playing(&mut self, handle: u32) -> bool {
-        TheAudio::get().is_some_and(|audio| audio.is_currently_playing(handle))
+        self.0.is_currently_playing(handle)
     }
 
     fn play_speech(&mut self, event: &AudioEventRts) -> u32 {
-        TheAudio::get().map_or(0, |audio| audio.add_audio_event(event))
+        self.0.add_audio_event(event)
     }
 }
 
@@ -671,7 +672,8 @@ impl Eva {
                 }
             }
         }
-        self.update_with_playback(&context, &mut CoreEvaPlayback, &mut |lo, hi| {
+        let mut playback = CoreEvaPlayback(TheAudio::of_services(world));
+        self.update_with_playback(&context, &mut playback, &mut |lo, hi| {
             client_random.next_int(lo, hi)
         });
     }

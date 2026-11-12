@@ -158,7 +158,7 @@ fn enqueue_can_make_failure_eva(
 
 /// C++ illegal-place feedback: VoiceNoBuild + NoCanDoSound.
 pub fn play_illegal_place_feedback(builder: &Object) {
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = TheAudio::of_object(builder) {
         let mut voice = builder
             .get_template()
             .get_per_unit_sound("VoiceNoBuild")

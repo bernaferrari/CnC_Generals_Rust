@@ -1443,18 +1443,19 @@ impl OptionsMenu {
         }
         game_engine::common::game_lod::set_ideal_static_lod_from_string(detail_name);
 
-        let audio = TheAudio;
-        // C++ OptionsMenu.cpp:1188/1214/1215/1235 AudioAffect_*|SystemSetting.
-        audio.set_volume(
-            music_volume as f32 / 100.0,
-            EngineAudioAffect::MusicSystemSetting,
-        );
-        audio.set_volume(sfx_2d_factor, EngineAudioAffect::SoundSystemSetting);
-        audio.set_volume(sfx_3d_factor, EngineAudioAffect::Sound3DSystemSetting);
-        audio.set_volume(
-            voice_volume as f32 / 100.0,
-            EngineAudioAffect::SpeechSystemSetting,
-        );
+        if let Some(audio) = TheAudio::get() {
+            // C++ OptionsMenu.cpp:1188/1214/1215/1235 AudioAffect_*|SystemSetting.
+            audio.set_volume(
+                music_volume as f32 / 100.0,
+                EngineAudioAffect::MusicSystemSetting,
+            );
+            audio.set_volume(sfx_2d_factor, EngineAudioAffect::SoundSystemSetting);
+            audio.set_volume(sfx_3d_factor, EngineAudioAffect::Sound3DSystemSetting);
+            audio.set_volume(
+                voice_volume as f32 / 100.0,
+                EngineAudioAffect::SpeechSystemSetting,
+            );
+        }
         get_header_template_manager()
             .lock()
             .unwrap_or_else(|e| e.into_inner())

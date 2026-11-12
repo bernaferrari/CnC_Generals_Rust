@@ -365,7 +365,7 @@ impl ScriptCondition for MusicTrackCompletedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let track = get_str_param(parameters, "track")?;
         let param = parameters
@@ -376,7 +376,11 @@ impl ScriptCondition for MusicTrackCompletedCondition {
             })
             .unwrap_or(0);
 
-        Ok(TheAudio::get()
+        // C++ TheAudio of the evaluating engine.
+        Ok(context
+            .host_query
+            .world()
+            .map(TheAudio::of)
             .map(|audio| audio.has_music_track_completed(&track, param as i32))
             .unwrap_or(false))
     }

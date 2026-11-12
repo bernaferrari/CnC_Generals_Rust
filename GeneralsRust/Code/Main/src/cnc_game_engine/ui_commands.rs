@@ -2658,6 +2658,7 @@ impl CnCGameEngine {
             self.cancel_structure_placement_from_ui();
         }
         play_named_command_button_unit_specific_sound(
+            &gamelogic::helpers::TheAudio::of(&self.game_logic.world_services),
             &self.game_logic.command_definitions(),
             "Command_ViewCommandCenter",
             self.local_player_id_for_ui(),
@@ -2684,6 +2685,7 @@ impl CnCGameEngine {
         // C++ ControlBarCommandProcessing.cpp:183-189 — every command-button
         // activation plays UnitSpecificSound with the local player index.
         play_named_command_button_unit_specific_sound(
+            &gamelogic::helpers::TheAudio::of(&self.game_logic.world_services),
             &self.game_logic.command_definitions(),
             command_name,
             self.local_player_id_for_ui(),
@@ -2905,7 +2907,9 @@ impl CnCGameEngine {
                 }
                 // C++ CommandXlat.cpp:3473 — play MiscAudio AllCheerSound
                 // before appending MSG_DO_CHEER.
-                play_all_cheer_sound();
+                play_all_cheer_sound(&gamelogic::helpers::TheAudio::of(
+                    &self.game_logic.world_services,
+                ));
             }
             crate::command_system::CommandType::RemoveBeacon => {
                 if !self.host_command_xlat_multiplayer_meta() {
@@ -2976,6 +2980,7 @@ impl CnCGameEngine {
 
 /// C++ ControlBarCommandProcessing.cpp:183-189.
 fn play_named_command_button_unit_specific_sound(
+    audio: &gamelogic::helpers::TheAudio,
     definitions: &game_engine::common::ini::command_definitions::CommandDefinitions,
     command_name: &str,
     player_id: u32,
@@ -2983,13 +2988,9 @@ fn play_named_command_button_unit_specific_sound(
     let Some(event_name) = named_command_unit_specific_sound(definitions, command_name) else {
         return;
     };
-    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-        let mut event = gamelogic::common::audio::AudioEventRts::new(&event_name);
-        event.set_player_index(player_id);
-        let _ = audio.add_audio_event(&event);
-    } else {
-        let _ = crate::assets::audio::play_sound_through_the_audio(&event_name);
-    }
+    let mut event = gamelogic::common::audio::AudioEventRts::new(&event_name);
+    event.set_player_index(player_id);
+    let _ = audio.add_audio_event(&event);
 }
 
 /// The receiving catalog's `UnitSpecificSound` event for a command button.
@@ -3014,25 +3015,10 @@ fn named_command_is_single_use(definitions: &game_engine::common::ini::command_d
             != 0
 }
 
-/// C++ CommandXlat.cpp:3473 — `TheAudio->addAudioEvent(&m_allCheerSound)`.
-fn play_all_cheer_sound() {
-    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-        let _ =
-            audio.add_audio_event(&gamelogic::helpers::TheAudio::get_misc_audio().all_cheer_sound);
-        return;
-    }
-    let name = game_engine::common::ini::ini_misc_audio::get_misc_audio()
-        .map(|misc| {
-            let misc = misc.read();
-            let n = misc.all_cheer_sound.playable_event_name();
-            if n.is_empty() {
-                "UI_AllCheerSound".to_string()
-            } else {
-                n.to_string()
-            }
-        })
-        .unwrap_or_else(|| "UI_AllCheerSound".to_string());
-    let _ = crate::assets::audio::play_sound_through_the_audio(&name);
+/// C++ CommandXlat.cpp:3473 — `TheAudio->addAudioEvent(&m_allCheerSound)`
+/// of the engine whose player cheers.
+fn play_all_cheer_sound(audio: &gamelogic::helpers::TheAudio) {
+    let _ = audio.add_audio_event(&audio.misc_audio().all_cheer_sound);
 }
 
 fn special_power_pending_options(power: &crate::command_system::SpecialPowerType) -> u32 {
@@ -3299,21 +3285,21 @@ mod tests {
 
     #[test]
     fn all_cheer_sound_uses_retail_misc_audio_event() {
-        // Retail MiscAudio.ini: AllCheerSound = UI_AllCheerSound.
-        let handle = game_engine::common::ini::ini_misc_audio::ensure_misc_audio();
-        {
-            let mut misc = handle.write();
-            misc.all_cheer_sound =
-                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
-                    "UI_AllCheerSound".to_string(),
-                );
-        }
-        play_all_cheer_sound();
-        assert_eq!(
-            gamelogic::helpers::TheAudio::get_misc_audio()
-                .all_cheer_sound
-                .get_event_name(),
-            "UI_AllCheerSound"
+        // Retail MiscAudio.ini: AllCheerSound = UI_AllCheerSound, read from
+        // the cheering engine's own MiscAudio.
+        let world = gamelogic::system::engine_stores::new_world_services();
+        world.common().ini.misc_audio.write().all_cheer_sound =
+            game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+                "UI_AllCheerSound".to_string(),
+            );
+        let audio = gamelogic::helpers::TheAudio::of(&world);
+        play_all_cheer_sound(&audio);
+        assert_eq!(audio.misc_audio().all_cheer_sound.get_event_name(), "UI_AllCheerSound");
+        let peer = gamelogic::system::engine_stores::new_world_services();
+        assert_ne!(
+            gamelogic::helpers::TheAudio::of(&peer).misc_audio().all_cheer_sound.get_event_name(),
+            "UI_AllCheerSound",
+            "a peer engine without that MiscAudio.ini does not see it"
         );
     }
 

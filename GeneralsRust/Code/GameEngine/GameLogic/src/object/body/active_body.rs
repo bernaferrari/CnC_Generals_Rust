@@ -81,7 +81,7 @@ fn play_object_template_sound(owner: &Object, mut event: crate::common::audio::A
         return;
     }
     event.set_object_id(owner.get_id());
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = TheAudio::of_object(owner) {
         audio.add_audio_event(&event);
     }
 }
@@ -96,7 +96,7 @@ fn play_voice_fear(owner: &Object) {
     if let Some(index) = owner.with_controlling_player(|guard| guard.get_player_index()) {
         event.set_player_index(index as u32);
     }
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = TheAudio::of_object(owner) {
         audio.add_audio_event(&event);
     }
 }

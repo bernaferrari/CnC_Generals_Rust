@@ -1706,7 +1706,9 @@ impl GameLogic {
                     display_name
                 ));
 
-                if let Some(audio) = crate::helpers::TheAudio::get() {
+                if let Some(audio) =
+                    self.owning_world_services().map(|world| crate::helpers::TheAudio::of(&world))
+                {
                     let event = crate::common::audio::AudioEventRts::new("GUIMessageReceived");
                     audio.add_audio_event(&event);
                 }

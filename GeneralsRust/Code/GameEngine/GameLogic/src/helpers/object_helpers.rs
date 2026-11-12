@@ -238,7 +238,7 @@ impl FiringTracker {
                 if !sound.is_empty() {
                     let mut event = AudioEventRts::new(sound.name().to_string());
                     event.set_object_id(self.object_id);
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = TheAudio::of_object(owner_guard) {
                         self.audio_handle = audio.add_audio_event(&event);
                     }
                 }
@@ -250,7 +250,7 @@ impl FiringTracker {
             if !sound.is_empty() {
                 let mut event = AudioEventRts::new(sound.name().to_string());
                 event.set_object_id(self.object_id);
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = TheAudio::of_object(owner_guard) {
                     audio.add_audio_event(&event);
                 }
             }
@@ -290,7 +290,7 @@ impl FiringTracker {
         }
 
         if self.frame_to_stop_looping_sound != 0 && now >= self.frame_to_stop_looping_sound {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = TheAudio::of_object(owner) {
                 audio.remove_audio_event(self.audio_handle);
             }
             self.audio_handle = 0;
@@ -365,7 +365,7 @@ impl FiringTracker {
         {
             if let Some(mut sound) = owner.get_template().get_per_unit_sound("VoiceRapidFire") {
                 sound.set_object_id(self.object_id);
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = TheAudio::of_object(owner) {
                     audio.add_audio_event(&sound);
                 }
             }

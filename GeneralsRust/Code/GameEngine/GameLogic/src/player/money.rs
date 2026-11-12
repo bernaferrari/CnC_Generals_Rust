@@ -114,10 +114,15 @@ impl<'a> PlayerMoneyMut<'a> {
     }
 
     fn submit_sound(&self, deposit: bool) {
-        let Some(audio) = crate::helpers::TheAudio::get() else {
+        // C++ TheAudio of the GameEngine that owns this Player.
+        let Some(audio) = self
+            .player
+            .owning_world_services()
+            .map(|world| crate::helpers::TheAudio::of(&world))
+        else {
             return;
         };
-        let misc = crate::helpers::TheAudio::get_misc_audio();
+        let misc = audio.misc_audio();
         let mut event = if deposit {
             misc.money_deposit
         } else {

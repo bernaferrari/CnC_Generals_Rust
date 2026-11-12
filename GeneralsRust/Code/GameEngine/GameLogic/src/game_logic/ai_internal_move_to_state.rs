@@ -452,7 +452,7 @@ impl AIInternalMoveToState {
             template.get_sound_move_loop()
         };
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = TheAudio::of_object(owner_guard) {
             if !start_sound.get_event_name().is_empty() {
                 start_sound.set_object_id(owner_guard.get_id());
                 audio.add_audio_event(&start_sound);

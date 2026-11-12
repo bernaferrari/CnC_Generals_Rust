@@ -252,7 +252,7 @@ impl CnCGameEngine {
         // Temporary compatibility for attached sounds that still use Core's
         // spatial resolver (hq-4gta5s). Device updates and EVA playback use
         // this application's explicitly borrowed service below.
-        let _ = gamelogic::helpers::TheAudio::get();
+        gamelogic::helpers::TheAudio::of(&self.game_logic.world_services).install_resolvers();
         let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
         let objects: Vec<_> = self
             .game_logic

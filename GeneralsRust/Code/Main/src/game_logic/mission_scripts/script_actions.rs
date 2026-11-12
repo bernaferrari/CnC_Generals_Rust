@@ -17,6 +17,15 @@ impl MissionScriptActionHandler {
         self
     }
 
+    /// C++ `TheAudio` of the engine that installed this handler; a handler
+    /// of no world plays nowhere.
+    fn the_audio(&self) -> Option<gamelogic::helpers::TheAudio> {
+        self.world
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .map(|world| gamelogic::helpers::TheAudio::of(&world))
+    }
+
     fn host_query(&self) -> gamelogic::scripting::HostScriptQuery {
         gamelogic::scripting::HostScriptQuery::from_world(
             self.world.as_ref().and_then(std::sync::Weak::upgrade),
@@ -34,7 +43,7 @@ impl MissionScriptActionHandler {
         const AHSV_STOP_THE_MUSIC: u32 = 0xFFFF_FFF0;
         const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
 
-        let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+        let Some(audio) = self.the_audio() else {
             return;
         };
         audio.remove_audio_event(if fade_out {
@@ -55,7 +64,7 @@ impl MissionScriptActionHandler {
     /// `AudioEventRTS` + `setIsLogicalAudio(true)` + local player index +
     /// `setUninterruptable(!allowOverlap)` + `TheAudio->addAudioEvent`.
     fn play_speech_through_the_audio(&self, name: &str, allow_overlap: bool) -> u32 {
-        let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+        let Some(audio) = self.the_audio() else {
             return 0;
         };
         let mut event = gamelogic::common::audio::AudioEventRts::new(name);
@@ -69,8 +78,8 @@ impl MissionScriptActionHandler {
 
     /// C++ `ScriptActions::doSoundPlayFromNamed` (ScriptActions.cpp:2723-2733):
     /// `AudioEventRTS(soundName, pUnit->getID())` + `setIsLogicalAudio(true)`.
-    fn play_named_sound_through_the_audio(name: &str, object_id: u32) -> u32 {
-        let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+    fn play_named_sound_through_the_audio(&self, name: &str, object_id: u32) -> u32 {
+        let Some(audio) = self.the_audio() else {
             return 0;
         };
         let mut event = gamelogic::common::audio::AudioEventRts::new(name);
@@ -118,13 +127,17 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         // GameClientScriptActionHandler. C++ PLAY_SOUND_EFFECT always reaches
         // TheAudio via doPlaySoundEffect (setIsLogicalAudio + local player).
         // Do not drain a second unlocal leftover_world_sfx_event / rodio play.
-        let result = game_client::core::script_action_handler::GameClientScriptActionHandler::new()
+        let result = game_client::core::script_action_handler::GameClientScriptActionHandler::for_world(
+            self.world.as_ref().and_then(std::sync::Weak::upgrade).as_ref(),
+        )
             .play_sound_effect(sound);
         result
     }
 
     fn play_sound_effect_at(&self, sound: &str, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
-        let result = game_client::core::script_action_handler::GameClientScriptActionHandler::new()
+        let result = game_client::core::script_action_handler::GameClientScriptActionHandler::for_world(
+            self.world.as_ref().and_then(std::sync::Weak::upgrade).as_ref(),
+        )
             .play_sound_effect_at(sound, x, y, z);
         result
     }
@@ -706,7 +719,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         let Some(object_id) = self.host_query().host_script_named_unit_id(unit_name) else {
             return Ok(());
         };
-        let handle = Self::play_named_sound_through_the_audio(sound, object_id);
+        let handle = self.play_named_sound_through_the_audio(sound, object_id);
         let _ = handle;
         Ok(())
     }
@@ -722,12 +735,20 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn has_music_track_completed(&self, track: &str, param: i32) -> bool {
-        self.hooks.has_music_track_completed(track, param)
+        let key = track.trim();
+        if key.is_empty() {
+            return false;
+        }
+        // C++ TheAudio->hasMusicTrackCompleted(track, N) of this engine.
+        // Unplayed / missing = false.
+        self.the_audio()
+            .map(|audio| audio.has_music_track_completed(key, param))
+            .unwrap_or(false)
     }
 
     fn stop_music(&self) -> GameLogicResult<()> {
         const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
-        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
         }
         self.hooks.mark_music_stopped();

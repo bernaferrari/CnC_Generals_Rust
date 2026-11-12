@@ -382,7 +382,7 @@ impl UpdateModuleInterface for TensileFormationUpdate {
                 self.set_enabled(true);
                 self.set_pathfinding_wall(false);
                 if !self.crack_sound.is_currently_playing() {
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = TheAudio::of_object(&obj_guard) {
                         let handle = audio.add_audio_event(&self.crack_sound);
                         self.crack_sound_handle = Some(handle);
                         self.crack_sound.set_playing_handle(handle);

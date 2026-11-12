@@ -595,15 +595,29 @@ impl game_engine::common::system::radar::RadarEventOwner for VictimRadarOwner {
             let _ = TheEva::set_should_play_from(self.0.as_ref(), event);
         }
     }
+    fn play_radar_audio(&mut self, event_name: &str, player_index: i32) {
+        if let Some(world) = self.0.as_ref() {
+            TheAudio::of(world).add_audio_event(&radar_notify_audio_event(event_name, player_index));
+        }
+    }
 }
 
 struct LeftoverRadarEventFeedback;
 
 impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEventFeedback {
     fn play_radar_audio(&self, event_name: &str, player_index: i32) {
+        // Ownerless radar events (map-level chirps) play in the engine that
+        // installed this feedback on its CommonServices.
         let Some(audio) = TheAudio::get() else {
             return;
         };
+        audio.add_audio_event(&radar_notify_audio_event(event_name, player_index));
+    }
+}
+
+/// C++ Radar.cpp: the radar sound names of an event, for `player_index`.
+fn radar_notify_audio_event(event_name: &str, player_index: i32) -> AudioEventRts {
+    {
         let mapped = match event_name {
             "RadarHarvesterUnderAttackSound" => "RadarNotifyHarvesterUnderAttackSound",
             "RadarStructureUnderAttackSound" => "RadarNotifyStructureUnderAttackSound",
@@ -614,7 +628,7 @@ impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEve
         if player_index >= 0 {
             event.set_player_index(player_index as u32);
         }
-        audio.add_audio_event(&event);
+        event
     }
 }
 

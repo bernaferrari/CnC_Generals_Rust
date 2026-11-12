@@ -1220,7 +1220,7 @@ impl WorkerAIUpdate {
                     .get_template()
                     .get_per_unit_sound("VoiceTaskComplete")
                 {
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = TheAudio::of_object(&owner_guard) {
                         let mut event = voice;
                         event.set_object_id(owner_guard.get_id());
                         audio.add_audio_event(&event);

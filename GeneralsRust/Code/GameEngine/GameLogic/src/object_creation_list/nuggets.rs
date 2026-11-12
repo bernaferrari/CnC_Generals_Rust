@@ -947,7 +947,7 @@ impl GenericObjectCreationNugget {
     /// C++ ObjectCreationList.cpp:1387-1401
     fn apply_fade_to_object(&self, debris: &Arc<RwLock<Object>>, source_obj: Option<&Object>) {
         if self.fade_in {
-            play_ocl_fade_sound(&self.fade_sound_name, source_obj);
+            play_ocl_fade_sound(&self.fade_sound_name, debris, source_obj);
             if let Ok(debris_guard) = debris.read() {
                 if let Some(drawable) = debris_guard.get_drawable() {
                     drawable.fade_in(self.fade_frames);
@@ -955,7 +955,7 @@ impl GenericObjectCreationNugget {
             }
         }
         if self.fade_out {
-            play_ocl_fade_sound(&self.fade_sound_name, source_obj);
+            play_ocl_fade_sound(&self.fade_sound_name, debris, source_obj);
             if let Ok(debris_guard) = debris.read() {
                 if let Some(drawable) = debris_guard.get_drawable() {
                     drawable.fade_out(self.fade_frames);
@@ -1025,11 +1025,20 @@ impl ObjectCreationNugget for GenericObjectCreationNugget {
     }
 }
 
-fn play_ocl_fade_sound(fade_sound_name: &str, source_obj: Option<&Object>) {
+/// C++ `TheAudio` of the engine the debris was created in.
+fn play_ocl_fade_sound(
+    fade_sound_name: &str,
+    debris: &Arc<RwLock<Object>>,
+    source_obj: Option<&Object>,
+) {
     if fade_sound_name.is_empty() {
         return;
     }
-    let Some(audio) = crate::helpers::TheAudio::get() else {
+    let Some(audio) = debris
+        .read()
+        .ok()
+        .and_then(|debris| crate::helpers::TheAudio::of_object(&debris))
+    else {
         return;
     };
     let mut fade_event = crate::common::audio::AudioEventRts::new(fade_sound_name);

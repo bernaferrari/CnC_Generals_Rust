@@ -210,7 +210,7 @@ impl EjectPilotDie {
     /// Play ejection voice and sound effects
     /// (Matches C++ EjectPilotDie.cpp lines 67-74)
     fn play_eject_sounds(&self, dying_object: &Object) {
-        let Some(audio) = crate::helpers::TheAudio::get() else {
+        let Some(audio) = crate::helpers::TheAudio::of_object(dying_object) else {
             return;
         };
 

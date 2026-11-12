@@ -891,7 +891,7 @@ impl RailroadBehavior {
             }
         }
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = TheAudio::of_object(victim) {
             let _ = audio.add_audio_event(&impact);
         }
     }
@@ -1756,7 +1756,7 @@ impl RailroadBehavior {
 
         let mut dlt = their_loc - my_loc;
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = TheAudio::of_object(other) {
             if !self.whistle_sound.is_currently_playing() {
                 let handle = audio.add_audio_event(&self.whistle_sound);
                 self.whistle_sound.set_playing_handle(handle);

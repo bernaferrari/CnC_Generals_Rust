@@ -2250,7 +2250,7 @@ impl JetAIUpdate {
                 && !self.afterburner_sound.event_name.is_empty()
             {
                 self.afterburner_sound.set_object_id(self.object_id);
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = TheAudio::of_object(obj) {
                     let handle = audio.add_audio_event(&self.afterburner_sound);
                     self.afterburner_sound.set_playing_handle(handle);
                 }
@@ -2258,7 +2258,7 @@ impl JetAIUpdate {
         } else {
             obj.clear_model_condition_state(ModelConditionFlags::JETAFTERBURNER);
             if self.afterburner_sound.is_currently_playing() {
-                if let Some(audio) = TheAudio::get() {
+                if let Some(audio) = TheAudio::of_object(obj) {
                     audio.remove_audio_event(self.afterburner_sound.get_playing_handle());
                 }
                 self.afterburner_sound.set_playing_handle(0);

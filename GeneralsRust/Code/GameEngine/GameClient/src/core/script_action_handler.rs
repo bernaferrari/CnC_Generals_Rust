@@ -550,6 +550,15 @@ impl GameClientScriptActionHandler {
         }
     }
 
+    /// C++ `TheAudio` of the engine whose ScriptEngine installed this
+    /// handler; a handler of no world plays nowhere.
+    fn the_audio(&self) -> Option<TheAudio> {
+        self.logic_world
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .map(|world| TheAudio::of(&world))
+    }
+
     fn host_query(&self) -> gamelogic::scripting::HostScriptQuery {
         gamelogic::scripting::HostScriptQuery::from_world(
             self.logic_world.as_ref().and_then(std::sync::Weak::upgrade),
@@ -733,7 +742,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn play_sound_effect(&self, name: &str) -> GameLogicResult<()> {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             let mut event = AudioEventRts::new(name);
             event.set_is_logical_audio(true);
             if let Some(player_index) = Self::local_player_index() {
@@ -746,7 +755,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn play_sound_effect_at(&self, name: &str, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             let mut event = AudioEventRts::new(name);
             event.set_position(&(x, y, z));
             event.set_is_logical_audio(true);
@@ -1222,7 +1231,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         let Some(object_id) = object_id else {
             return Ok(());
         };
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             let mut event = AudioEventRts::new(sound);
             event.set_object_id(object_id);
             event.set_is_logical_audio(true);
@@ -1255,7 +1264,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn music_set_track(&self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()> {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             let mut recipient = audio;
             let handle = self.music_set_track_with_recipient(
                 &mut recipient,
@@ -1283,11 +1292,11 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
             return false;
         }
         let required = param.max(1);
-        TheAudio::get().is_some_and(|audio| audio.has_music_track_completed(key, required))
+        self.the_audio().is_some_and(|audio| audio.has_music_track_completed(key, required))
     }
 
     fn stop_music(&self) -> GameLogicResult<()> {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = self.the_audio() {
             let mut recipient = audio;
             self.stop_music_with_recipient(&mut recipient);
         }

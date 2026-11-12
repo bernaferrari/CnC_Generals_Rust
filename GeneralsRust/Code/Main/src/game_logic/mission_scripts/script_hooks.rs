@@ -751,17 +751,6 @@ impl MissionScriptHooks {
         // playing streams only. Stopping a track makes the condition false.
     }
 
-    pub fn has_music_track_completed(&self, track: &str, times: i32) -> bool {
-        let key = track.trim();
-        if key.is_empty() {
-            return false;
-        }
-        // C++ TheAudio->hasMusicTrackCompleted(track, N). Unplayed / missing = false.
-        gamelogic::helpers::TheAudio::get()
-            .map(|audio| audio.has_music_track_completed(key, times))
-            .unwrap_or(false)
-    }
-
     pub fn drain_messages(&self) -> Vec<String> {
         let mut q = self
             .notifications

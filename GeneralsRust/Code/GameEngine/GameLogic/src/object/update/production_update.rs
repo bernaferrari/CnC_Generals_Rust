@@ -759,7 +759,7 @@ impl ProductionUpdate {
         }
 
         if first_of_batch {
-            if let Some(audio) = crate::helpers::TheAudio::get() {
+            if let Some(audio) = crate::helpers::TheAudio::of_object(&new_obj_guard) {
                 if let Some(mut sound) = template.get_per_unit_sound("VoiceCreate") {
                     sound.set_object_id(unit_id);
                     audio.add_audio_event(&sound);

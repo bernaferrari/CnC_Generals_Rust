@@ -327,7 +327,7 @@ impl CrushDie {
             return;
         }
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = TheAudio::of_object(_object) {
             let mut crush_sound = AudioEventRts::new(sound_name.as_str());
             crush_sound.set_object_id(_object.get_id());
             let handle = audio.add_audio_event(&crush_sound);

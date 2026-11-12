@@ -276,7 +276,7 @@ impl StickyBombUpdate {
                     drop(obj);
 
                     if let Some(sound) = created {
-                        if let Some(audio) = TheAudio::get() {
+                        if let Some(audio) = TheAudio::of_object(&obj) {
                             let mut event = sound;
                             event.set_position(&(pos.x, pos.y, pos.z));
                             audio.add_audio_event(&event);
@@ -579,7 +579,7 @@ impl UpdateModuleInterface for StickyBombUpdate {
             }) {
                 if let Ok(obj) = obj_arc.read() {
                     if let Some(sound) = obj.get_template().get_per_unit_sound("UnitBombPing") {
-                        if let Some(audio) = TheAudio::get() {
+                        if let Some(audio) = TheAudio::of_object(&obj) {
                             let mut event = sound.clone();
                             event.set_object_id(obj.get_id());
                             audio.add_audio_event(&event);

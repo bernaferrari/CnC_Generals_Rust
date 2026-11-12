@@ -1416,7 +1416,7 @@ impl ScriptConditionEvaluator<'_> {
                 ScriptConditionResult::False
             });
         }
-        let finished = crate::helpers::TheAudio::get()
+        let finished = self.the_audio()
             .map(|audio| audio.has_music_track_completed(&track, param))
             .unwrap_or(false);
         Ok(if finished {

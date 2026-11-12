@@ -1840,7 +1840,7 @@ impl CppState for AIMoveToState {
 
     fn start_move_sound(&mut self, owner: &Object) {
         if let Some((event, looping)) = Self::movement_sound(owner) {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(audio) = TheAudio::of_object(owner) {
                 let handle = audio.add_audio_event(&event);
                 if looping {
                     self.ambient_playing_handle = handle;

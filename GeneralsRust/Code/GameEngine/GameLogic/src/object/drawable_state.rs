@@ -402,7 +402,7 @@ impl Drawable {
         audio_event.set_object_id(object.get_id());
         audio_event.set_time_of_day(time_of_day);
 
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = TheAudio::of_object(object) {
             self.ambient_sound_handle = audio.add_audio_event_for_owner(&audio_event, object);
         }
     }

@@ -267,7 +267,8 @@ impl GameLogic {
         else {
             return false;
         };
-        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+        {
+            let audio = gamelogic::helpers::TheAudio::of(&self.world_services);
             let mut event = gamelogic::common::audio::AudioEventRts::new(sound);
             event.set_object_id(id.0);
             event.set_is_logical_audio(true);

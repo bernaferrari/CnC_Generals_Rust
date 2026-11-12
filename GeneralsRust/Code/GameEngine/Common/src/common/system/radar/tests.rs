@@ -1900,6 +1900,7 @@ fn under_attack_glow_and_eva_go_to_the_victims_owner() {
         glows: u32,
         eva: Vec<String>,
         messages: Vec<String>,
+        audio: Vec<String>,
     }
     impl RadarEventOwner for Owner {
         fn trigger_radar_attack_glow(&mut self) {
@@ -1910,6 +1911,9 @@ fn under_attack_glow_and_eva_go_to_the_victims_owner() {
         }
         fn show_radar_message(&mut self, message_key: &str) {
             self.messages.push(message_key.to_string());
+        }
+        fn play_radar_audio(&mut self, event_name: &str, _player_index: i32) {
+            self.audio.push(event_name.to_string());
         }
     }
     let _scope = crate::common::common_services::CommonServicesScope::new();
@@ -1933,4 +1937,6 @@ fn under_attack_glow_and_eva_go_to_the_victims_owner() {
     ));
     assert_eq!(owner.glows, 1);
     assert_eq!(owner.eva, vec!["EVA_BaseUnderAttack".to_string()]);
+    // C++ Radar.cpp:1168: the attack sound plays in the victim's engine.
+    assert_eq!(owner.audio, vec!["RadarStructureUnderAttackSound".to_string()]);
 }

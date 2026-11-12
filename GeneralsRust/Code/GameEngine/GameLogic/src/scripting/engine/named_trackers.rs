@@ -1040,6 +1040,7 @@ impl ScriptEngine {
     }
 
     fn is_timed_audio_complete(
+        audio: Option<TheAudio>,
         list: &mut Vec<(String, u32)>,
         event_name: &str,
         remove_from_list: bool,
@@ -1052,7 +1053,7 @@ impl ScriptEngine {
         let position = if let Some(pos) = list.iter().position(|(name, _)| name == event_name) {
             pos
         } else {
-            let audio_length_ms = TheAudio::get()
+            let audio_length_ms = audio
                 .map(|audio| {
                     let event = crate::common::audio::AudioEventRts::new(event_name);
                     audio.get_audio_length_ms(&event)
@@ -1090,8 +1091,11 @@ impl ScriptEngine {
         remove_from_list: bool,
         current_frame: u32,
     ) -> bool {
+        // C++ TheAudio of this engine's own GameEngine.
+        let audio = self.owning_world_services().map(|world| TheAudio::of(&world));
         let mut inner = self.lock_inner_mut();
         Self::is_timed_audio_complete(
+            audio,
             &mut inner.testing_speech,
             speech_name,
             remove_from_list,
@@ -1105,8 +1109,11 @@ impl ScriptEngine {
         remove_from_list: bool,
         current_frame: u32,
     ) -> bool {
+        // C++ TheAudio of this engine's own GameEngine.
+        let audio = self.owning_world_services().map(|world| TheAudio::of(&world));
         let mut inner = self.lock_inner_mut();
         Self::is_timed_audio_complete(
+            audio,
             &mut inner.testing_audio,
             audio_name,
             remove_from_list,

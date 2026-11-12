@@ -41,7 +41,14 @@ impl Default for MiscAudioEvents {
     }
 }
 
-pub struct TheAudio;
+/// C++ `TheAudio` of one GameEngine: that engine's AudioManager (its
+/// CommonServices) and the world whose Objects and Players resolve the
+/// events it plays.
+#[derive(Clone)]
+pub struct TheAudio {
+    common: Arc<game_engine::common::common_services::CommonServices>,
+    world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
+}
 
 #[cfg(test)]
 static AUDIO_EVENTS_ENABLED_FOR_TESTS: std::sync::atomic::AtomicBool =
@@ -404,12 +411,17 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
     }
 }
 
-fn ensure_audio_event_resolvers_registered() {
-    let services = game_engine::common::common_services::common_services();
-    services.system.game_logic_audio_resolvers_installed.get_or_init(|| {
-        let world = crate::system::engine_stores::try_active_services();
+/// Register `audio`'s world as the owner/shroud/locality/view resolver of its
+/// engine's AudioManager (once per CommonServices). Runs bound to that engine.
+fn ensure_audio_event_resolvers_registered(audio: &TheAudio) {
+    // A handle that names only the engine (no world) leaves registration to
+    // the world that owns that engine.
+    if audio.world.is_none() {
+        return;
+    }
+    audio.common.system.game_logic_audio_resolvers_installed.get_or_init(|| {
         let _ = register_audio_event_owner_resolver(Arc::new(GameLogicAudioEventOwnerResolver {
-            world: world.as_ref().map(Arc::downgrade),
+            world: audio.world.clone(),
         }));
         let _ = register_audio_shroud_resolver(Arc::new(GameLogicAudioShroudResolver));
         let _ = register_audio_locality_resolver(Arc::new(GameLogicAudioLocalityResolver));
@@ -475,21 +487,71 @@ pub(crate) fn leftover_event_to_engine(event: &AudioEventRts) -> EngineAudioEven
 }
 
 impl TheAudio {
-    pub fn get() -> Option<&'static Self> {
-        static AUDIO: OnceLock<TheAudio> = OnceLock::new();
-        let audio = AUDIO.get_or_init(|| TheAudio);
-        ensure_audio_event_resolvers_registered();
-        Some(audio)
+    /// C++ `TheAudio` of the GameEngine that owns `world`.
+    pub fn of(world: &Arc<crate::system::engine_stores::WorldServices>) -> Self {
+        Self {
+            common: Arc::clone(world.common()),
+            world: Some(Arc::downgrade(world)),
+        }
     }
 
-    pub fn get_misc_audio() -> MiscAudioEvents {
-        // C++ `TheAudio->getMiscAudio()` returns the live MiscAudio filled by INI parse.
-        // Do not OnceLock empty leftover defaults before MiscAudio.ini is loaded.
-        let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
-            return MiscAudioEvents::default();
-        };
+    /// C++ `TheAudio` of the GameEngine whose services are `world`, borrowed
+    /// without its Arc (its owner resolvers are registered by the world).
+    pub fn of_services(world: &crate::system::engine_stores::WorldServices) -> Self {
+        Self {
+            common: Arc::clone(world.common()),
+            world: None,
+        }
+    }
 
-        let misc_audio = misc_audio.read();
+    /// TheAudio of the engine that owns `object`; an Object of no world
+    /// plays nowhere.
+    pub fn of_object(object: &Object) -> Option<Self> {
+        object.owning_world_services().map(|world| Self::of(&world))
+    }
+
+    /// Transitional: TheAudio of the engine published on this thread.
+    /// Callers that know their world use [`Self::of`] / [`Self::of_object`].
+    pub fn get() -> Option<Self> {
+        let common = game_engine::common::common_services::try_common_services()?;
+        let world = crate::system::engine_stores::try_active_services()
+            .filter(|world| Arc::ptr_eq(world.common(), &common));
+        Some(Self {
+            common,
+            world: world.as_ref().map(Arc::downgrade),
+        })
+    }
+
+    /// Register this world as its engine's audio owner/locality/view
+    /// resolver and create its AudioManager (C++ `AudioManager::init`).
+    pub fn install_resolvers(&self) {
+        self.with_manager(|_| ());
+    }
+
+    /// Run `f` against this engine's AudioManager. The Common audio internals
+    /// (resolvers, playback hook, INI parse) read the engine published for the
+    /// call, so the call is bound to this one.
+    fn with_manager<R>(
+        &self,
+        f: impl FnOnce(&Arc<std::sync::Mutex<game_engine::common::audio::game_audio::AudioManager>>) -> R,
+    ) -> R {
+        game_engine::common::common_services::with_common_services(&self.common, || {
+            ensure_audio_event_resolvers_registered(self);
+            let manager =
+                get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+            f(&manager)
+        })
+    }
+
+    /// Transitional: [`Self::misc_audio`] of the published engine.
+    pub fn get_misc_audio() -> MiscAudioEvents {
+        Self::get().map(|audio| audio.misc_audio()).unwrap_or_default()
+    }
+
+    /// C++ `TheAudio->getMiscAudio()`: this engine's MiscAudio as filled by
+    /// its own MiscAudio.ini parse.
+    pub fn misc_audio(&self) -> MiscAudioEvents {
+        let misc_audio = self.common.ini.misc_audio.read();
         MiscAudioEvents {
             crate_heal: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_heal)),
             crate_shroud: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_shroud)),
@@ -557,27 +619,28 @@ impl TheAudio {
 
         let mut engine_event = leftover_event_to_engine(event);
 
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let mut manager = match manager.lock() {
-            Ok(guard) => guard,
-            Err(_) => return 0,
-        };
-        if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
-            engine_event.set_audio_event_info(info);
-        }
-        // C++ AudioManager::addAudioEvent (GameAudio.cpp:391-396) returns AHSV_Error
-        // when the name is missing. Do not invent a blank SoundEffect via newAudioEventInfo.
-        // generatePlayInfo does not overwrite a caller setVolume (default -1 uses INI).
+        self.with_manager(|manager| {
+            let mut manager = match manager.lock() {
+                Ok(guard) => guard,
+                Err(_) => return 0,
+            };
+            if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
+                engine_event.set_audio_event_info(info);
+            }
+            // C++ AudioManager::addAudioEvent (GameAudio.cpp:391-396) returns AHSV_Error
+            // when the name is missing. Do not invent a blank SoundEffect via newAudioEventInfo.
+            // generatePlayInfo does not overwrite a caller setVolume (default -1 uses INI).
 
-        match submission {
-            LogicAudioSubmission::Ambient(Some(index)) => {
-                manager.add_audio_event_for_player(&engine_event, index)
+            match submission {
+                LogicAudioSubmission::Ambient(Some(index)) => {
+                    manager.add_audio_event_for_player(&engine_event, index)
+                }
+                LogicAudioSubmission::Ambient(None) => manager.add_audio_event(&engine_event),
+                LogicAudioSubmission::Explicit(locality) => {
+                    manager.add_audio_event_with_locality(&engine_event, locality)
+                }
             }
-            LogicAudioSubmission::Ambient(None) => manager.add_audio_event(&engine_event),
-            LogicAudioSubmission::Explicit(locality) => {
-                manager.add_audio_event_with_locality(&engine_event, locality)
-            }
-        }
+        })
     }
 
     pub fn add_misc_audio_event(&self, event: &AudioEventRts) -> u32 {
@@ -589,11 +652,12 @@ impl TheAudio {
             return;
         }
 
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut manager) = manager_lock {
-            manager.remove_audio_event(handle);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut manager) = manager_lock {
+                manager.remove_audio_event(handle);
+            }
+        })
     }
 
     pub fn is_currently_playing(&self, handle: u32) -> Bool {
@@ -601,47 +665,51 @@ impl TheAudio {
             return false;
         }
 
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(manager) = manager_lock {
-            manager.is_currently_playing(handle)
-        } else {
-            false
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(manager) = manager_lock {
+                manager.is_currently_playing(handle)
+            } else {
+                false
+            }
+        })
     }
 
     pub fn get_audio_length_ms(&self, event: &AudioEventRts) -> Real {
         let mut engine_event = leftover_event_to_engine(event);
 
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        let Ok(mut manager) = manager_lock else {
-            return 0.0;
-        };
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            let Ok(mut manager) = manager_lock else {
+                return 0.0;
+            };
 
-        if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
-            engine_event.set_audio_event_info(info);
-        } else {
-            return 0.0;
-        }
+            if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
+                engine_event.set_audio_event_info(info);
+            } else {
+                return 0.0;
+            }
 
-        manager.get_audio_length_ms(&engine_event)
+            manager.get_audio_length_ms(&engine_event)
+        })
     }
 
     pub fn set_volume(&self, volume: Real, affect: EngineAudioAffect) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.set_volume(volume, affect);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.set_volume(volume, affect);
+            }
+        })
     }
 
     pub fn update(&self) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.update();
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.update();
+            }
+        })
     }
 
     pub fn update_with_view(
@@ -649,84 +717,94 @@ impl TheAudio {
         observation: game_engine::common::audio::game_audio::AudioViewObservation,
         visible: &mut dyn FnMut(&game_engine::common::audio::audio_event_rts::Coord3D) -> bool,
     ) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.update_with_view(observation, visible);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.update_with_view(observation, visible);
+            }
+        })
     }
 
     pub fn pause_audio(&self, affect: EngineAudioAffect) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.pause_audio(affect);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.pause_audio(affect);
+            }
+        })
     }
 
     pub fn resume_audio(&self, affect: EngineAudioAffect) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.resume_audio(affect);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.resume_audio(affect);
+            }
+        })
     }
 
     /// C++ `TheAudio->loseFocus()` (`GameAudio.cpp:1071-1082`).
     pub fn lose_focus(&self) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        if let Ok(mut guard) = manager.lock() {
-            guard.lose_focus();
-        }
+        self.with_manager(|manager| {
+            if let Ok(mut guard) = manager.lock() {
+                guard.lose_focus();
+            }
+        })
     }
 
     /// C++ `TheAudio->regainFocus()` (`GameAudio.cpp:1086-1100`).
     pub fn regain_focus(&self) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        if let Ok(mut guard) = manager.lock() {
-            guard.regain_focus();
-        }
+        self.with_manager(|manager| {
+            if let Ok(mut guard) = manager.lock() {
+                guard.regain_focus();
+            }
+        })
     }
 
     pub fn set_audio_event_enabled(&self, event_name: &str, enabled: Bool) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.set_audio_event_enabled(event_name.to_string(), enabled);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.set_audio_event_enabled(event_name.to_string(), enabled);
+            }
+        })
     }
 
     pub fn set_audio_event_volume_override(&self, event_name: &str, volume: Real) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.set_audio_event_volume_override(event_name.to_string(), volume);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.set_audio_event_volume_override(event_name.to_string(), volume);
+            }
+        })
     }
 
     pub fn remove_audio_event_by_name(&self, event_name: &str) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.remove_playing_audio(event_name);
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.remove_playing_audio(event_name);
+            }
+        })
     }
 
     pub fn remove_disabled_events(&self) {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let manager_lock = manager.lock();
-        if let Ok(mut guard) = manager_lock {
-            guard.remove_all_disabled_audio();
-        }
+        self.with_manager(|manager| {
+            let manager_lock = manager.lock();
+            if let Ok(mut guard) = manager_lock {
+                guard.remove_all_disabled_audio();
+            }
+        })
     }
 
     /// C++ `TheAudio->hasMusicTrackCompleted(track, times)`.
     pub fn has_music_track_completed(&self, track_name: &str, number_of_times: i32) -> bool {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let Ok(guard) = manager.lock() else {
-            return false;
-        };
-        guard.has_music_track_completed(track_name, number_of_times)
+        self.with_manager(|manager| {
+            let Ok(guard) = manager.lock() else {
+                return false;
+            };
+            guard.has_music_track_completed(track_name, number_of_times)
+        })
     }
 }
 
@@ -965,5 +1043,43 @@ mod leftover_the_audio_tests {
             let guard = manager.lock().unwrap();
             assert!((guard.get_volume(EngineAudioAffect::Music) - 0.8).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn two_worlds_on_one_thread_play_in_their_own_audio_manager() {
+        use crate::system::engine_stores::{new_world_services, with_world_services};
+        let manager_of = |world: &Arc<crate::system::engine_stores::WorldServices>| {
+            world
+                .common()
+                .system
+                .the_audio
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone()
+        };
+        let a = new_world_services();
+        let b = new_world_services();
+        assert!(manager_of(&a).is_none() && manager_of(&b).is_none());
+        // b is published; a's TheAudio still acts on a's own AudioManager.
+        with_world_services(&b, || {
+            TheAudio::of(&a).set_volume(0.25, EngineAudioAffect::AllSystemSetting);
+        });
+        let manager_a = manager_of(&a).expect("a's TheAudio created a's manager");
+        assert!(manager_of(&b).is_none(), "b's engine never saw a's audio");
+        with_world_services(&a, || {
+            TheAudio::of(&b).set_volume(0.75, EngineAudioAffect::AllSystemSetting);
+        });
+        let manager_b = manager_of(&b).expect("b's manager");
+        assert!(!Arc::ptr_eq(&manager_a, &manager_b));
+        let music = |m: &Arc<std::sync::Mutex<game_engine::common::audio::game_audio::AudioManager>>| {
+            m.lock().unwrap().get_volume(EngineAudioAffect::Music)
+        };
+        assert!((music(&manager_a) - 0.25).abs() < 1e-5);
+        assert!((music(&manager_b) - 0.75).abs() < 1e-5);
+        // Each engine's misc audio is its own MiscAudio.ini.
+        a.common().ini.misc_audio.write().unit_promoted =
+            game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name("PromotedInA".into());
+        assert_eq!(TheAudio::of(&a).misc_audio().unit_promoted.get_event_name(), "PromotedInA");
+        assert_ne!(TheAudio::of(&b).misc_audio().unit_promoted.get_event_name(), "PromotedInA");
     }
 }

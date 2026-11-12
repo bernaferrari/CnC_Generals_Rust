@@ -2217,7 +2217,10 @@ impl ScriptEvaluator {
                     return Ok(handler.has_music_track_completed(&track_name, param));
                 }
                 // C++ TheAudio->hasMusicTrackCompleted. Unplayed / missing = false.
-                Ok(crate::helpers::TheAudio::get()
+                Ok(self
+                    .with_evaluation_engine_ref(|engine| engine.owning_world_services())
+                    .flatten()
+                    .map(|world| crate::helpers::TheAudio::of(&world))
                     .map(|audio| audio.has_music_track_completed(&track_name, param))
                     .unwrap_or(false))
             }

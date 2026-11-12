@@ -216,6 +216,11 @@ pub struct HostScriptQuery {
 }
 
 impl HostScriptQuery {
+    /// The world whose facts these are (none for a worldless query).
+    pub fn world(&self) -> Option<&Arc<crate::system::engine_stores::WorldServices>> {
+        self.world.as_ref()
+    }
+
     /// The host facts of `world`.
     pub fn of(world: &Arc<crate::system::engine_stores::WorldServices>) -> Self {
         Self { world: Some(Arc::clone(world)) }
