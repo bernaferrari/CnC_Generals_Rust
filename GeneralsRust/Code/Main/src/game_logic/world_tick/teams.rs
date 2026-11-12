@@ -2212,37 +2212,40 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::{KindOf, ObjectId, Player, Team, ThingTemplate};
-    use game_engine::common::ascii_string::AsciiString;
-    use game_engine::common::ini::ini_locomotor::{LocomotorTemplate, get_locomotor_store_mut};
 
-    fn register_wander_loco(name: &str, radius: f32) {
-        let mut template = LocomotorTemplate::new(AsciiString::from(name));
-        template.wander_about_point_radius = radius;
-        get_locomotor_store_mut()
-            .add_template(template)
-            .expect("register wander loco");
-    }
-
-    fn spawn_wander_civilian(logic: &mut GameLogic, name: &str) -> ObjectId {
-        let mut tmpl = ThingTemplate::new(name);
-        tmpl.add_kind_of(KindOf::Infantry);
-        tmpl.add_kind_of(KindOf::CanBeRepulsed);
-        logic.templates.insert(name.to_string(), tmpl);
-        let id = logic
-            .create_object(name, Team::USA, glam::Vec3::new(100.0, 0.0, 200.0))
-            .expect("spawn wander civilian");
-        if let Some(obj) = logic.host_object_mut(id) {
-            obj.owner_player_id = Some(1);
-        }
-        id
+    /// A civilian whose authored LocomotorSet has SET_NORMAL and SET_WANDER
+    /// rows (C++ CivilianInfantry), with the Locomotor definitions admitted
+    /// into the receiving world before its Object content.
+    fn spawn_wander_civilian(logic: &mut GameLogic, name: &str, wander_radius: f32) -> ObjectId {
+        let mut locomotors =
+            game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+        locomotors
+            .apply_source(&format!(
+                "Locomotor FixtureCivilianWalk\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n\
+                 Locomotor FixtureCivilianWander\n Surfaces = GROUND\n Speed = 10\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\n WanderAboutPointRadius = {wander_radius}\nEnd\n"
+            ))
+            .expect("civilian locomotors");
+        logic
+            .admit_locomotor_definitions(locomotors)
+            .expect("locomotors admitted before Object content");
+        crate::fixture_content::admit_fixture_objects(
+            logic,
+            &[crate::fixture_content::FixtureObject::new(name)
+                .kind_of("INFANTRY CAN_BE_REPULSED")
+                .field("Locomotor = SET_NORMAL FixtureCivilianWalk")
+                .field("Locomotor = SET_WANDER FixtureCivilianWander")
+                .module("Behavior = AIUpdateInterface FixtureBrain\nEnd")],
+        );
+        logic
+            .create_object_for_player(name, 1, glam::Vec3::new(100.0, 0.0, 200.0))
+            .expect("spawn wander civilian")
     }
 
     #[test]
     fn wander_in_place_uses_loco_radius_and_repicks() {
-        register_wander_loco("WanderHumanLocomotor", 50.0);
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
-        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderRadius");
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderRadius", 50.0);
         assert!(logic.apply_unit_locomotor_set(id, "wander"));
 
         let origin = logic.host_object(id).unwrap().get_position();
@@ -2364,7 +2367,7 @@ mod tests {
     fn host_wander_issue_path_offsets_goal_by_wander_width_factor() {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
-        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderWidth");
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderWidth", 0.0);
         assert!(logic.apply_unit_locomotor_set(id, "wander"));
         let goal = glam::Vec3::new(400.0, 0.0, 500.0);
         let via = glam::Vec3::new(250.0, 0.0, 350.0);
@@ -2455,11 +2458,10 @@ mod tests {
 
     #[test]
     fn wander_in_place_leftover_bails_on_repulsor_mid_hop() {
-        register_wander_loco("WanderHumanLocomotorBail", 50.0);
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
         logic.set_enable_repulsors(true);
-        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderBail");
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderBail", 50.0);
         assert!(logic.apply_unit_locomotor_set(id, "wander"));
         let origin = logic.host_object(id).unwrap().get_position();
         if let Some(obj) = logic.host_object_mut(id) {
@@ -2506,7 +2508,7 @@ mod tests {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
         logic.set_enable_repulsors(true);
-        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderPathBail");
+        let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderPathBail", 0.0);
         if let Some(obj) = logic.host_object_mut(id) {
             obj.vision_range = 200.0;
             obj.movement.max_speed = 5.0;

@@ -58,7 +58,7 @@ fn expired_path_delay_is_queued_again() {
     tmpl.add_kind_of(KindOf::Infantry);
     let mut attack = Object::new(tmpl, atk_id, Team::USA);
     bind_fixture_locomotor(&mut attack, "BasicHumanLocomotor");
-    attack.weapon = Some(crate::game_logic::Weapon {
+    crate::fixture_content::arm_with_stats(&mut attack, crate::game_logic::Weapon {
         range: 5.0,
         ..Default::default()
     });

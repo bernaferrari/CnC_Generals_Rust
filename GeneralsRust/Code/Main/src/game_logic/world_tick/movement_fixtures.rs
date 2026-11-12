@@ -5,6 +5,18 @@ pub(super) fn ranger_at(id: u32, pos: Vec3) -> Object {
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut unit = Object::new(tmpl, ObjectId(id), Team::USA);
+    // Retail infantry carries a current ground Locomotor (C++ "no
+    // m_curLocomotor means no motion"); tests then tune its runtime values.
+    crate::fixture_content::locomote(
+        &mut unit,
+        &[
+            "Surfaces = GROUND",
+            "Speed = 20",
+            "TurnRate = 500",
+            "Acceleration = 100",
+            "Appearance = TWO_LEGS",
+        ],
+    );
     unit.set_position(pos);
     unit
 }

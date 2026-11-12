@@ -2723,7 +2723,7 @@ fn player_attack_rejects_neutral_without_script_targetable() {
     logic.objects.insert(ObjectId(4201), {
         let mut o = Object::new(at, ObjectId(4201), Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut o, Weapon {
             range: 100.0,
             damage: 10.0,
             ..Default::default()
@@ -2798,7 +2798,7 @@ fn player_attack_allows_non_allied_mine_without_script_targetable() {
     logic.objects.insert(ObjectId(4211), {
         let mut o = Object::new(at, ObjectId(4211), Team::USA);
         o.set_position(Vec3::ZERO);
-        o.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut o, Weapon {
             range: 100.0,
             damage: 10.0,
             ..Default::default()
@@ -2845,7 +2845,7 @@ fn player_attack_rejects_hidden_garrison_without_script_targetable() {
         let mut o = Object::new(at, ObjectId(4301), Team::USA);
         o.set_position(Vec3::ZERO);
         o.owner_player_id = Some(0);
-        o.weapon = Some(Weapon {
+        crate::fixture_content::arm_with_stats(&mut o, Weapon {
             range: 100.0,
             damage: 10.0,
             ..Default::default()

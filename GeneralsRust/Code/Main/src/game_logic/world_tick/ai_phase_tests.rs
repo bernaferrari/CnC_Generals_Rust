@@ -89,7 +89,17 @@ fn queued_mover(start: Vec3, destination: Vec3) -> GameLogic {
     template.add_kind_of(KindOf::Infantry);
     let mut mover = Object::new(template, ObjectId(301), Team::USA);
     mover.owner_player_id = Some(0);
-    mover.movement.max_speed = 30.0;
+    crate::fixture_content::locomote(
+        &mut mover,
+        &[
+            "Surfaces = GROUND",
+            "Speed = 30",
+            "Acceleration = 300",
+            "Braking = 300",
+            "TurnRate = 360",
+            "Appearance = TWO_LEGS",
+        ],
+    );
     mover.set_position(start);
     // Initial facing is already along the requested path. This regression
     // checks scheduling/isolation rather than the locomotor's turning delay.
@@ -313,26 +323,27 @@ fn owned_ai_repair_commands_follow_cpp_player_index_order() {
     use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 
     fn scenario(order: &[u32]) -> Vec<u32> {
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
         let mut logic = GameLogic::new();
-        let mut dozer = ThingTemplate::new("AIPhaseRepairDozer");
-        dozer.add_kind_of(KindOf::Dozer);
-        logic.templates.insert(dozer.name.clone(), dozer);
-        let mut bridge = ThingTemplate::new("AIPhaseRepairBridge");
-        bridge.add_kind_of(KindOf::Structure).set_health(100.0);
-        logic.templates.insert(bridge.name.clone(), bridge);
+        // C++ repair is a DozerAIUpdate task on an authored dozer.
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("AIPhaseRepairDozer").kind_of("DOZER").dozer(),
+                FixtureObject::new("AIPhaseRepairBridge").kind_of("STRUCTURE").health(100.0),
+            ],
+        );
         let mut expected = std::collections::HashMap::new();
         for &id in order {
             let position = Vec3::new(id as f32 * 20.0, 0.0, 0.0);
             logic.add_player(Player::new(id, Team::USA, "Repair AI", false));
             let dozer = logic
-                .create_object("AIPhaseRepairDozer", Team::USA, position)
+                .create_object_for_player("AIPhaseRepairDozer", id, position)
                 .unwrap();
-            logic.objects.get_mut(&dozer).unwrap().owner_player_id = Some(id);
             let bridge = logic
-                .create_object("AIPhaseRepairBridge", Team::USA, position)
+                .create_object_for_player("AIPhaseRepairBridge", id, position)
                 .unwrap();
             let object = logic.objects.get_mut(&bridge).unwrap();
-            object.owner_player_id = Some(id);
             object.health.current = 20.0;
             object.body_damage_state = HostBodyDamageType::ReallyDamaged;
             logic.add_ai_opponent(id, Team::USA, AIDifficulty::Easy);

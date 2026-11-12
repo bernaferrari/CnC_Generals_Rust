@@ -3,10 +3,6 @@
 //! Actual parsed Main rules/admission and normal combat; no fabricated XP/context.
 use super::*;
 use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
-use game_engine::common::ini::INI;
-use game_engine::common::ini::ini_damage_fx::{
-    DamageFX, get_damage_fx_store_mut, init_global_damage_fx_store,
-};
 
 const ROWS: &str = "DamagePromotionOrderRows";
 const REGULAR_FX: &str = "FX_DamagePromotionOrderRegular";
@@ -76,21 +72,9 @@ fn isolated(_: &str, run: impl FnOnce()) {
     run();
 }
 
-// Child isolation contains the existing global DamageFX catalog/output queue.
-// Weapon definitions and frame observations belong to the receiving world.
-struct RestoreDamageFx {
-    previous_rows: Option<DamageFX>,
-}
-impl RestoreDamageFx {
-    fn install() -> Self {
-        init_global_damage_fx_store();
-        let saved = Self {
-            previous_rows: get_damage_fx_store_mut().unwrap().remove_damage_fx(ROWS),
-        };
-        // Actual Common INI registration, including milliseconds->logic frames.
-        INI::new()
-            .with_inline_source(
-                r#"
+// Child isolation contains the process-level dispatched-FX output queue.
+// DamageFX, Weapon and Object definitions belong to the receiving world.
+const DAMAGE_FX_SOURCE: &str = r#"
 DamageFX DamagePromotionOrderRows
   VeterancyMajorFX = REGULAR SMALL_ARMS FX_DamagePromotionOrderRegular
   VeterancyMajorFX = VETERAN SMALL_ARMS FX_DamagePromotionOrderVeteran
@@ -99,27 +83,17 @@ DamageFX DamagePromotionOrderRows
   VeterancyThrottleTime = REGULAR SMALL_ARMS 100
   VeterancyThrottleTime = VETERAN SMALL_ARMS 500
 End
-"#,
-                |ini| ini.parse_current_file(),
-            )
-            .expect("real DamageFX rule parser");
-        saved
-    }
-}
-impl Drop for RestoreDamageFx {
-    fn drop(&mut self) {
-        let Some(mut fx) = get_damage_fx_store_mut() else {
-            return;
-        };
-        fx.remove_damage_fx(ROWS);
-        if let Some(previous) = self.previous_rows.take() {
-            fx.add_damage_fx(ROWS.into(), previous);
-        }
-    }
-}
+"#;
 
 fn eligible_world(objects: &[(&str, u32, u32, bool)]) -> GameLogic {
     let mut world = GameLogic::new();
+    // Actual DamageFX.ini admission, including milliseconds->logic frames.
+    assert_eq!(
+        world
+            .admit_damage_fx_source(DAMAGE_FX_SOURCE)
+            .expect("receiving DamageFX rows"),
+        1
+    );
     let source = objects
         .iter()
         .map(|&(name, health, xp, armed)| authored_source(name, health, xp, armed))
@@ -311,7 +285,6 @@ fn normal_eligible_kill_promotion_is_visible_to_damage_fx() {
     isolated(
         "normal_eligible_kill_promotion_is_visible_to_damage_fx",
         || {
-            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world(&[
                 ("PromotionOrderShooter", 100, 0, true),
                 ("PromotionOrderVictim", 100, 10, false),
@@ -352,7 +325,6 @@ fn normal_eligible_kill_without_promotion_keeps_regular_damage_fx() {
     isolated(
         "normal_eligible_kill_without_promotion_keeps_regular_damage_fx",
         || {
-            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world(&[
                 ("NoPromotionOrderShooter", 100, 0, true),
                 ("NoPromotionOrderVictim", 100, 5, false),
@@ -392,7 +364,6 @@ fn normal_nonlethal_hit_neither_awards_xp_nor_promotes_damage_fx() {
     isolated(
         "normal_nonlethal_hit_neither_awards_xp_nor_promotes_damage_fx",
         || {
-            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world(&[
                 ("NonlethalOrderShooter", 100, 0, true),
                 ("NonlethalOrderVictim", 150, 10, false),
@@ -433,7 +404,6 @@ fn normal_kill_sink_promotion_does_not_change_actual_source_fx_row() {
     isolated(
         "normal_kill_sink_promotion_does_not_change_actual_source_fx_row",
         || {
-            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world(&[
                 ("SinkOrderShooter", 100, 0, true),
                 ("SinkOrderVictim", 100, 10, false),
@@ -497,7 +467,6 @@ fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
     isolated(
         "normal_ground_kill_promotion_is_visible_to_damage_fx",
         || {
-            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world(&[
                 ("GroundPromotionOrderShooter", 100, 0, true),
                 ("GroundPromotionOrderVictim", 100, 10, false),
@@ -576,7 +545,6 @@ fn normal_forced_allied_kill_does_not_promote_damage_fx() {
     isolated(
         "normal_forced_allied_kill_does_not_promote_damage_fx",
         || {
-            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world(&[
                 ("AlliedPromotionOrderShooter", 100, 0, true),
                 ("AlliedPromotionOrderVictim", 100, 10, false),
@@ -632,7 +600,6 @@ fn normal_ground_without_victim_commits_exactly_one_discharge() {
     isolated(
         "normal_ground_without_victim_commits_exactly_one_discharge",
         || {
-            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world(&[("EmptyGroundOrderShooter", 100, 0, true)]);
             let source = authored(
                 &mut world,

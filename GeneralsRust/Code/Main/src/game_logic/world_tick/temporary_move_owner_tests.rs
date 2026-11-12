@@ -24,6 +24,14 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         .unwrap();
     world.add_player(Player::new(1, Team::USA, "Owner", true));
     world.add_player(Player::new(2, Team::China, "Enemy", false));
+    // Skirmish/map setup authors the players' mutual enemy relationship;
+    // C++ Player relationships default to NEUTRAL.
+    for (player, other) in [(1, 2), (2, 1)] {
+        world
+            .get_player_mut(player)
+            .unwrap()
+            .set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+    }
     let actor = world
         .create_object_for_player("TemporaryOwner", 1, Vec3::ZERO)
         .unwrap();
@@ -206,16 +214,22 @@ fn actual_nested_attack_completion_resumes_existing_guard_body_and_goals() {
     assert_eq!(child.ai_state, AIState::Attacking);
     assert_eq!(child.parent_state(), Some(before.ai_state));
     assert_eq!(child.goals.object, Some(enemy));
-    let (actor, audio) = world.host_object_and_audio_events_mut(id).unwrap();
-    actor.stop_attack(&mut crate::game_logic::ObjectAudio::queue(audio));
+    // C++ AIGuardState owns its attack child: when the attack ends the guard
+    // machine exits it and returns to the post (Inner -> Outer -> Return).
+    world.end_guard_chase_attack(id);
     let after = world
         .host_object(id)
         .unwrap()
         .capture_base_ai_continuation();
     assert_eq!(after.ai_state, before.ai_state);
     assert_eq!(after.parent_state(), None);
-    assert_eq!(after.guard, before.guard);
-    assert_eq!(after.goals, before.goals);
+    // Guard's exited attack child walks back to the post (AIGuardReturnState).
+    assert!(matches!(
+        world.host_object(id).unwrap().unit_ai_runtime.guard_phase(),
+        Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return { goal })
+            if goal == Vec3::new(40., 0., 20.)
+    ));
+    assert_eq!(after.goals.position, before.goals.position);
 }
 
 #[test]

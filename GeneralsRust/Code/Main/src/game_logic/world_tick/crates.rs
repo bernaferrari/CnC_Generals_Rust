@@ -2412,18 +2412,17 @@ mod hq_tb5nn_tests {
         let mut ranger_template = ThingTemplate::new("AmericaInfantryRanger");
         ranger_template.add_kind_of(KindOf::Infantry);
         let mut ranger = Object::new(ranger_template, id, Team::USA);
-        crate::fixture_content::arm_with_stats(&mut ranger, Weapon {
+        crate::fixture_content::arm_with_slot_stats(&mut ranger, [Some(Weapon {
             range: 100.0,
             damage: 10.0,
             can_target_ground: true,
             ..Weapon::default()
-        });
-        ranger.secondary_weapon = Some(Weapon {
+        }), Some(Weapon {
             range: 80.0,
             damage: 5.0,
             can_target_ground: true,
             ..Weapon::default()
-        });
+        }), None]);
         ranger.arm_command_button_hunt(HostCommandButtonHuntMode::FireWeapon, 0);
         if let Some(h) = ranger.command_button_hunt.as_mut() {
             h.weapon_slot = 1;

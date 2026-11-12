@@ -20,19 +20,21 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         .overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=0.5\nMaxLowEnergyProductionSpeed=1\nEnd\n")
         .unwrap();
     world.admit_production_energy_base(rules);
-    let mut site = ThingTemplate::new("AlliedTimingSite");
-    // ScoreKeeper.cpp97-119 counts only STRUCTURE+SCORE/SCORE_CREATE.
-    site.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::ScoreCreate)
-        .set_health(120.0);
-    site.build_time = 1.0;
-    world.templates.insert("AlliedTimingSite".into(), site);
-    let mut dozer = ThingTemplate::new("AlliedTimingDozer");
-    dozer
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(100.0);
-    world.templates.insert("AlliedTimingDozer".into(), dozer);
+    // ScoreKeeper.cpp97-119 counts only STRUCTURE+SCORE/SCORE_CREATE; only an
+    // authored DozerAIUpdate advances construction (DozerAIUpdate.cpp).
+    crate::fixture_content::admit_fixture_objects(
+        &mut world,
+        &[
+            crate::fixture_content::FixtureObject::new("AlliedTimingSite")
+                .kind_of("STRUCTURE SCORE_CREATE")
+                .health(120.0)
+                .field("BuildTime = 1.0"),
+            crate::fixture_content::FixtureObject::new("AlliedTimingDozer")
+                .kind_of("VEHICLE DOZER")
+                .health(100.0)
+                .dozer(),
+        ],
+    );
     let site = world
         .create_object_under_construction_for_player("AlliedTimingSite", 1, Vec3::ZERO, 0.0)
         .unwrap().expect("ObjectId");

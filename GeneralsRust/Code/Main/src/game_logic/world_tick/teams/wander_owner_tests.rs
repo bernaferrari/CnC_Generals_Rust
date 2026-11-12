@@ -2,6 +2,8 @@ use super::*;
 
 fn world_with_unit(id: ObjectId, origin: glam::Vec3) -> GameLogic {
     let mut world = GameLogic::new();
+    // C++ loads INI content before any Object exists.
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
     let mut template = ThingTemplate::new("OwnedWander");
     template.add_kind_of(KindOf::Infantry);
     let mut unit = Object::new(template, id, Team::USA);
@@ -73,7 +75,6 @@ fn wander_runtime_ends_with_the_object_and_new_ids_start_inert() {
     );
     world.test_host_wander_issue_path(id, &[glam::Vec3::new(60.0, 0.0, 60.0)]);
     assert!(world.test_wander_path_active(id));
-    world.admit_object_ini_sources(std::iter::empty()).unwrap();
     world.start_new_game(GameMode::Skirmish).unwrap();
     assert!(
         !world.test_wander_path_active(id),
