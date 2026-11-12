@@ -131,18 +131,19 @@ fn tighten_helicopters_use_offset_ring() {
     // C++ getHelicopterOffset (AIGroup.cpp:1799-1826, :1884-1898).
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, Team};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("AmericaHelicopterComanche");
-    tpl.add_kind_of(KindOf::Vehicle);
-    tpl.add_kind_of(KindOf::Aircraft);
-    tpl.add_kind_of(KindOf::Selectable);
-    tpl.set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaHelicopterComanche".to_string(), tpl);
+    // Retail Comanche authors KindOf PRODUCED_AT_HELIPAD, the helicopter test
+    // AIGroup::groupTightenToPosition applies.
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("AmericaHelicopterComanche")
+            .kind_of("VEHICLE AIRCRAFT SELECTABLE PRODUCED_AT_HELIPAD")
+            .health(200.0)
+            .walker()],
+    );
     let a = logic
         .create_object(
             "AmericaHelicopterComanche",
