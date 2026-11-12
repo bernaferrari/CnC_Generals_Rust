@@ -1266,7 +1266,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
 
     fn music_set_track(&self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()> {
         if let Some(audio) = self.the_audio() {
-            let mut recipient = audio;
+            let mut recipient = &audio;
             let handle = self.music_set_track_with_recipient(
                 &mut recipient,
                 track,
@@ -1300,7 +1300,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
 
     fn stop_music(&self) -> GameLogicResult<()> {
         if let Some(audio) = self.the_audio() {
-            let mut recipient = audio;
+            let mut recipient = &audio;
             self.stop_music_with_recipient(&mut recipient);
         }
         Ok(())
