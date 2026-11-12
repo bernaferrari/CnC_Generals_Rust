@@ -90,11 +90,12 @@ fn owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation() {
             object.experience.level = VeterancyLevel::Veteran;
             object.selected = true;
             object.status.selected = true;
-            object.restore_ai_state(AIState::Moving);
             assert!(admitted.try_begin_structure_topple_instead_of_destroy(id));
             let object = admitted.host_object(id).unwrap();
             assert!(!object.selected && !object.status.selected);
-            assert_eq!(object.ai_state(), AIState::Idle);
+            // StructureToppleUpdate.cpp:174-176 marks only an existing
+            // AIUpdateInterface dead; this structure authors none.
+            assert!(!object.ai_death_pending());
             assert!(object.structure_topple_data.is_some());
             assert_eq!(effects.try_iter().count(), 1);
         },
@@ -182,8 +183,8 @@ fn damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion() {
         || {
             const WEAPON: &str = "OwnedFilteredToppleWeapon";
             let (effects, catalog) = install_fx();
-            install_crushing_weapon(WEAPON, 10.0);
-            let (mut owner, id) = world_fx(0, 10.0, Some(WEAPON), "DamageFXTypes = NONE", Some(&catalog));
+            let weapon = crushing_weapon(WEAPON, 10.0);
+            let (mut owner, id) = world_fx(0, 10.0, Some(&weapon), "DamageFXTypes = NONE", Some(&catalog));
             kill(&mut owner, id);
             // The source-less frame-zero kill retains CPP's constructor
             // record; do not invent a damage timestamp to apply the filter.

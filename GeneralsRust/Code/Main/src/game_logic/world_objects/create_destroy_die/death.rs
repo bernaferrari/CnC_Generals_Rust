@@ -1395,10 +1395,15 @@ impl GameLogic {
         if name.is_empty() || name.eq_ignore_ascii_case("NONE") {
             return Ok(None);
         }
-        let template = crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-            store.find_weapon_template(name).cloned()
-        })
-        .map_err(|error| format!("StructureTopple {building_id:?} weapon {name}: {error}"))?;
+        // CPP TheWeaponStore->findWeaponTemplate reads this engine's store:
+        // the admitted receiving catalog, which the splash route also uses.
+        let template = match self.weapon_definitions.as_ref() {
+            Some(definitions) => definitions.get(&name.to_ascii_lowercase()).cloned(),
+            None => crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+                store.find_weapon_template(name).cloned()
+            })
+            .map_err(|error| format!("StructureTopple {building_id:?} weapon {name}: {error}"))?,
+        };
         // CPP findWeaponTemplate(NULL) returns without firing or advancing the
         // sweep. A missing definition is not an invented default weapon.
         let Some(template) = template else {

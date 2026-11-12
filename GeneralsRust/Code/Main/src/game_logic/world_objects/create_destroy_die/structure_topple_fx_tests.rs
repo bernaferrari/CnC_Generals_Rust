@@ -71,28 +71,36 @@ fn install_fx() -> (Receiver<Effect>, game_client::fx_list::FXListStore) {
 fn world(local: u32, x: f32) -> (GameLogic, ObjectId) {
     world_with_crushing(local, x, None)
 }
-fn world_with_crushing(local: u32, x: f32, weapon: Option<&str>) -> (GameLogic, ObjectId) {
+fn world_with_crushing(
+    local: u32,
+    x: f32,
+    weapon: Option<&gamelogic::weapon::WeaponTemplate>,
+) -> (GameLogic, ObjectId) {
     world_with_filters(local, x, weapon, "")
 }
 fn world_with_filters(
     local: u32,
     x: f32,
-    weapon: Option<&str>,
+    weapon: Option<&gamelogic::weapon::WeaponTemplate>,
     filters: &str,
 ) -> (GameLogic, ObjectId) {
     world_fx(local, x, weapon, filters, None)
 }
-/// FXList.ini is receiving-session content: the world admits its catalog
-/// before the toppling Object exists.
+/// FXList.ini and Weapon.ini are receiving-session content: the world admits
+/// its catalogs before the toppling Object exists (C++ each engine's
+/// TheFXListStore / TheWeaponStore).
 fn world_fx(
     local: u32,
     x: f32,
-    weapon: Option<&str>,
+    weapon: Option<&gamelogic::weapon::WeaponTemplate>,
     filters: &str,
     catalog: Option<&game_client::fx_list::FXListStore>,
 ) -> (GameLogic, ObjectId) {
     let crushing = weapon.map_or(String::new(), |weapon| {
-        format!("    CrushingWeaponName = {weapon}\n    CrushingFX = FX_OwnToppleCrush\n")
+        format!(
+            "    CrushingWeaponName = {}\n    CrushingFX = FX_OwnToppleCrush\n",
+            weapon.name
+        )
     });
     let source = format!(
         r#"
@@ -138,7 +146,12 @@ End
     if let Some(catalog) = catalog {
         world.admit_fx_catalog(catalog.clone());
     }
-    world.admit_receiving_module_content(content).unwrap();
+    world
+        .admit_receiving_module_content_with_weapons(
+            content,
+            weapon.map(|weapon| vec![(weapon.name.clone(), weapon.clone())]),
+        )
+        .unwrap();
     let definition = world.templates["AuthoredOwnTopple"]
         .structure_topple_definition
         .as_ref()
@@ -157,7 +170,7 @@ End
         "duration is original ceil(ms * 30/1000)"
     );
     if let Some(weapon) = weapon {
-        assert_eq!(definition.fx.weapon, weapon);
+        assert_eq!(definition.fx.weapon, weapon.name);
         assert_eq!(definition.fx.fx, "FX_OwnToppleCrush");
     }
     world.add_player(Player::new(local, Team::USA, "Local", true));
@@ -477,17 +490,13 @@ fn retained_definition_does_not_change_raw_thing_positional_wire() {
     assert_eq!(decoded.get_transform_matrix(), thing.get_transform_matrix());
 }
 
-fn install_crushing_weapon(name: &str, damage: f32) {
-    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-    gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.into());
-        weapon.primary_damage = damage;
-        weapon.primary_damage_radius = 20.0;
-        weapon.damage_type = gamelogic::damage::DamageType::Explosion;
-        weapon.death_type = gamelogic::damage::DeathType::Exploded;
-        store.add_weapon_template(weapon);
-    })
-    .unwrap();
+fn crushing_weapon(name: &str, damage: f32) -> gamelogic::weapon::WeaponTemplate {
+    let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.into());
+    weapon.primary_damage = damage;
+    weapon.primary_damage_radius = 20.0;
+    weapon.damage_type = gamelogic::damage::DamageType::Explosion;
+    weapon.death_type = gamelogic::damage::DeathType::Exploded;
+    weapon
 }
 fn crushing_point(
     position: glam::Vec3,
@@ -509,9 +518,9 @@ fn same_id_structure_topple_uses_each_receiving_solo_bonus_set() {
         || {
             const WEAPON: &str = "OwnedSoloBonusToppleWeapon";
             let (effects, catalog) = install_fx();
-            install_crushing_weapon(WEAPON, 10.0);
-            let (mut first, first_source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
-            let (mut second, second_source) = world_fx(7, 100.0, Some(WEAPON), "", Some(&catalog));
+            let weapon = crushing_weapon(WEAPON, 10.0);
+            let (mut first, first_source) = world_fx(0, 10.0, Some(&weapon), "", Some(&catalog));
+            let (mut second, second_source) = world_fx(7, 100.0, Some(&weapon), "", Some(&catalog));
             assert_eq!(first_source, second_source);
             let entry = |value| game_engine::common::ini::ini_game_data::WeaponBonusEntry {
                 condition: "SOLO_HUMAN_EASY".into(),
@@ -562,9 +571,9 @@ fn crushing_fires_each_authored_weapon_point_and_includes_structures() {
         || {
             const WEAPON: &str = "OwnedRepeatedToppleWeapon";
             let (effects, catalog) = install_fx();
-            install_crushing_weapon(WEAPON, 10.0);
-            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
-            let (mut peer, peer_source) = world_fx(7, 100.0, Some(WEAPON), "", Some(&catalog));
+            let weapon = crushing_weapon(WEAPON, 10.0);
+            let (mut owner, source) = world_fx(0, 10.0, Some(&weapon), "", Some(&catalog));
+            let (mut peer, peer_source) = world_fx(7, 100.0, Some(&weapon), "", Some(&catalog));
             assert_eq!(source, peer_source);
             let (_factory, _foreign) = foreign_core(source);
             kill(&mut owner, source);
@@ -623,8 +632,8 @@ fn crushing_completes_actual_victim_on_die_before_point_fx_and_next_shot() {
         || {
             const WEAPON: &str = "OwnedLethalToppleWeapon";
             let (effects, catalog) = install_fx();
-            install_crushing_weapon(WEAPON, 100.0);
-            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
+            let weapon = crushing_weapon(WEAPON, 100.0);
+            let (mut owner, source) = world_fx(0, 10.0, Some(&weapon), "", Some(&catalog));
             kill(&mut owner, source);
             effects.try_iter().for_each(drop);
             let position = glam::Vec3::new(20.0, 0.0, 12.0);
@@ -669,14 +678,9 @@ fn unsupported_crushing_template_rejects_before_owned_phase_cursor_or_fx() {
         || {
             const WEAPON: &str = "OwnedUnsupportedToppleWeapon";
             let (effects, catalog) = install_fx();
-            install_crushing_weapon(WEAPON, 100.0);
-            gamelogic::weapon::with_weapon_store_mut(|store| {
-                let mut weapon = store.find_weapon_template(WEAPON).unwrap().as_ref().clone();
-                weapon.projectile_name = "ActualUnsupportedProjectile".into();
-                store.add_weapon_template(weapon);
-            })
-            .unwrap();
-            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
+            let mut weapon = crushing_weapon(WEAPON, 100.0);
+            weapon.projectile_name = "ActualUnsupportedProjectile".into();
+            let (mut owner, source) = world_fx(0, 10.0, Some(&weapon), "", Some(&catalog));
             kill(&mut owner, source);
             effects.try_iter().for_each(drop);
             let before = bincode_legacy::serialize(
@@ -720,8 +724,8 @@ fn absent_crushing_source_never_uses_foreign_core_identity() {
         || {
             const WEAPON: &str = "OwnedAbsentToppleWeapon";
             let (effects, catalog) = install_fx();
-            install_crushing_weapon(WEAPON, 100.0);
-            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
+            let weapon = crushing_weapon(WEAPON, 100.0);
+            let (mut owner, source) = world_fx(0, 10.0, Some(&weapon), "", Some(&catalog));
             let (_factory, _foreign) = foreign_core(source);
             owner.objects.remove(&source);
             let position = glam::Vec3::new(20.0, 0.0, 12.0);
@@ -745,8 +749,8 @@ fn crushing_uses_actual_ground_below_a_receiving_world_bridge_deck() {
         || {
             const WEAPON: &str = "OwnedGroundToppleWeapon";
             let (effects, catalog) = install_fx();
-            install_crushing_weapon(WEAPON, 10.0);
-            let (mut owner, source) = world_fx(0, 10.0, Some(WEAPON), "", Some(&catalog));
+            let weapon = crushing_weapon(WEAPON, 10.0);
+            let (mut owner, source) = world_fx(0, 10.0, Some(&weapon), "", Some(&catalog));
             let mut map = gamelogic::system::map_loader::MapData::new();
             map.width = 30;
             map.height = 30;
