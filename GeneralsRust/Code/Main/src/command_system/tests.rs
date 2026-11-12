@@ -1864,13 +1864,18 @@ fn queued_upgrade_completes_during_simulation_update() {
     game_logic.add_player(player);
 
     // Retail AmericaSupplyCenter authors ProductionUpdate; C++ advances
-    // upgrade research only through that module (ProductionUpdate.cpp:687-702).
-    crate::fixture_content::admit_fixture_objects(
+    // upgrade research only through that module (ProductionUpdate.cpp:687-702),
+    // and ProductionUpdate::queueUpgrade accepts only an upgrade its CommandSet
+    // offers (Object::canProduceUpgrade).
+    crate::fixture_content::admit_fixture_content_with_actions(
         &mut game_logic,
         &[crate::fixture_content::FixtureObject::new("AmericaSupplyCenter")
             .kind_of("STRUCTURE SELECTABLE")
             .health(100.0)
+            .field("CommandSet = FixtureSupplyCenterSet")
             .module("Behavior = ProductionUpdate FixtureProduction\nEnd")],
+        &[],
+        "CommandButton FixtureSupplyLines\n Command = PLAYER_UPGRADE\n Upgrade = Upgrade_AmericaSupplyLines\nEnd\nCommandSet FixtureSupplyCenterSet\n 1 = FixtureSupplyLines\nEnd\n",
     );
     let producer = game_logic
         .create_object("AmericaSupplyCenter", Team::USA, glam::Vec3::ZERO)
