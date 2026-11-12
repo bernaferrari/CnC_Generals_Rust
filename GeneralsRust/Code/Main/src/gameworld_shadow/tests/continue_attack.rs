@@ -39,17 +39,18 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
         position: glam::Vec3::new(14.5, 0.0, 14.5),
     });
     let object = logic.host_object(oid).unwrap();
+    // AIInternalMoveToState::onEnter (AIStates.cpp:1638-1645) adjusts only
+    // the state's path goal; the machine goal keeps the raw AI destination.
     assert_eq!(
-        object.movement.target_position,
-        Some(glam::Vec3::new(14.5, 0.0, 14.5))
+        object.capture_base_ai_continuation().goals.position,
+        glam::Vec3::new(14.5, 0.0, 14.5)
     );
+    let path_goal = object.movement.target_position.map(|p| [p.x, p.y, p.z]);
+    assert!(path_goal.is_some());
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
-    assert_eq!(
-        shadow.world().entity(entity).unwrap().move_target,
-        Some([14.5, 0.0, 14.5])
-    );
+    assert_eq!(shadow.world().entity(entity).unwrap().move_target, path_goal);
 }
 
 #[test]

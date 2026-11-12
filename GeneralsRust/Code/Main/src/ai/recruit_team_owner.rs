@@ -381,9 +381,12 @@ mod tests {
         );
         let home = Vec3::new(1., 0., 2.);
         let unit = world.host_object(object).unwrap();
+        // CMD_FROM_AI skips setGoalPositionClipped's player clip, and
+        // AIInternalMoveToState::onEnter adjusts only the state's path goal
+        // (AIStates.cpp:1638-1645): the machine goal stays raw.
         assert_eq!(
-            unit.requested_destination.or(unit.movement.target_position),
-            Some(home),
+            unit.capture_base_ai_continuation().goals.position,
+            home,
             "AI goal remains raw; player clipping is not admitted"
         );
         let members = ai.leftover_instance_member_ids(ready.team_id);
