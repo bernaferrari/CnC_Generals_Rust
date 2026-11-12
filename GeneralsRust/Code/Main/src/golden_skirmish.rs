@@ -340,28 +340,6 @@ fn find_any_enemy(logic: &GameLogic) -> Option<ObjectId> {
 /// Living enemy that is not rebuild-hole / dead residue (honest combat target).
 /// Prefer a legal build pad near `base` (edge/shroud/flat/objects residual).
 
-/// Wave 830: Lone Eagle object list is mostly civilian props (no faction army
-/// dict). Seed a host GLA CC near a map landmark so same-world AttackObject
-/// combat has a real hostile primary without synthetic full-base soup.
-fn ensure_map_combat_primary_enemy(logic: &mut GameLogic, usa_base: Vec3) -> Option<ObjectId> {
-    if let Some(id) = find_map_enemy_structure(logic) {
-        return Some(id);
-    }
-    // Landmark: supply dock/pile or offset from USA base.
-    let landmark = logic
-        .host_objects()
-        .registered_values()
-        .find(|o| {
-            let n = o.template_name.to_ascii_lowercase();
-            n.contains("supplydock") || n.contains("supply_pile") || n.contains("supplypile")
-        })
-        .map(|o| o.get_position())
-        .unwrap_or(usa_base + Vec3::new(180.0, 0.0, 40.0));
-    let site = clamp_build_site(logic, landmark + Vec3::new(80.0, 0.0, 40.0));
-    let name = first_present_template(logic, &["GLA_CommandCenter", "GLACommandCenter"])?;
-    logic.create_object(&name, Team::GLA, site)
-}
-
 fn find_legal_build_site_near(
     logic: &GameLogic,
     base: Vec3,
@@ -422,46 +400,29 @@ fn clamp_build_site(logic: &GameLogic, desired: Vec3) -> Vec3 {
     )
 }
 
-fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
-    let existing = logic
+/// The human's starting dozer (skirmish start units). No dozer means the
+/// build steps fail honestly; the slice never fields one from nothing.
+fn find_human_dozer(logic: &GameLogic) -> Option<ObjectId> {
+    logic
         .host_objects()
         .registered_values()
         .find(|o| o.team == Team::USA && o.is_alive() && o.can_construct())
-        .map(|o| o.id);
-    existing.or_else(|| {
-        let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0));
-        let name = first_present_template(logic, &["AmericaVehicleDozer", "USA_Dozer"])?;
-        logic.create_object(&name, Team::USA, pos)
-    })
+        .map(|o| o.id)
 }
 
-/// Find or field a KINDOF_HARVESTER collector for the Gather step.
+/// The human's KINDOF_HARVESTER collector for the Gather step.
 ///
 /// Retail USA gathering is the Chinook (AmericaVehicleChinook authors
 /// `KindOf = ... HARVESTER` + ChinookAIUpdate, AmericaAir.ini), never the dozer
-/// (`KindOf = ... DOZER` + DozerAIUpdate, AmericaVehicle.ini AmericaVehicleDozer),
-/// so the collector template must author KINDOF_HARVESTER for the live gather
-/// executor to engage (is_resource_collector gate). Prefers an existing live
-/// harvester, then the retail Chinook (or China supply truck) template.
-fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
-    if let Some(existing) = logic
+/// (`KindOf = ... DOZER` + DozerAIUpdate, AmericaVehicle.ini AmericaVehicleDozer).
+/// The Supply Center's SpawnBehavior fields it (FactionBuilding.ini
+/// AmericaSupplyCenter ModuleTag_12); the slice never spawns one itself.
+fn find_human_harvester(logic: &GameLogic) -> Option<ObjectId> {
+    logic
         .host_objects()
         .registered_values()
         .find(|o| o.team == Team::USA && o.is_alive() && o.can_move() && o.is_resource_collector())
         .map(|o| o.id)
-    {
-        return Some(existing);
-    }
-    let name = first_present_template(
-        logic,
-        &[
-            "AmericaVehicleChinook",
-            "USA_Chinook",
-            "ChinaVehicleSupplyTruck",
-        ],
-    )?;
-    let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 12.0));
-    logic.create_object(&name, Team::USA, pos)
 }
 
 /// First template, in preference order, that this world's ThingFactory can
@@ -1388,8 +1349,8 @@ fn run_map_world_skirmish(
     // active during production and may still rebuild — just near the fight.
 
     let base = usa_base_position(logic);
-    // Wave 830: ensure a hostile primary exists (map army dict may be civilian-only).
-    let map_enemy = ensure_map_combat_primary_enemy(logic, base);
+    // The map's own hostile primary; none means combat fails honestly.
+    let map_enemy = find_map_enemy_structure(logic);
     if let Some(eid) = map_enemy {
         if let Some(ep) = logic.host_object(eid).map(|o| o.get_position()) {
             // Offset slightly so AI soup does not stack on the map CC footprint.
@@ -1397,7 +1358,7 @@ fn run_map_world_skirmish(
         }
     }
 
-    let Some(dozer) = ensure_dozer(logic, base) else {
+    let Some(dozer) = find_human_dozer(logic) else {
         return Ok(VerticalSliceOutcome::not_run());
     };
     let dozer_is_retail = logic
@@ -1477,7 +1438,7 @@ fn run_map_world_skirmish(
     // AmericaAir.ini; the dozer authors `KindOf = ... DOZER` + DozerAIUpdate,
     // AmericaVehicle.ini AmericaVehicleDozer and never harvests). The executor
     // refuses non-harvesters with KINDOF_HARVESTER parity, so route a harvester.
-    let gatherer = ensure_harvester(logic, base).unwrap_or(dozer);
+    let gatherer = find_human_harvester(logic).unwrap_or(dozer);
     let mut gathered = false;
     if let Some(sid) = supply {
         logic.queue_command(command(
@@ -1586,7 +1547,6 @@ fn run_map_world_skirmish(
     }
 
     // Resolve enemy after production (AI may have built; prefer original map enemy).
-    // Re-resolve after production: ensure_map_combat_primary_enemy may have seeded GLA CC.
     let primary_enemy = map_enemy
         .filter(|id| {
             logic
@@ -1595,8 +1555,7 @@ fn run_map_world_skirmish(
                 .unwrap_or(false)
         })
         .or_else(|| find_map_enemy_structure(logic))
-        .or_else(|| find_any_enemy(logic))
-        .or_else(|| ensure_map_combat_primary_enemy(logic, base));
+        .or_else(|| find_any_enemy(logic));
 
     let production_rangers: Vec<_> = logic
         .host_objects()
@@ -2184,7 +2143,7 @@ mod tests {
             .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
             .map(|o| o.get_position())
             .unwrap_or(Vec3::ZERO);
-        let dozer = ensure_dozer(&mut logic, base).expect("dozer");
+        let dozer = find_human_dozer(&logic).expect("starting dozer");
         logic.update();
         logic.headless_camera_view_offer(33).unwrap();
         let bname = first_present_template(&logic, &["AmericaBarracks", "USA_Barracks"])
@@ -2224,7 +2183,7 @@ mod tests {
             .find(|o| o.team == Team::USA && o.is_kind_of(KindOf::CommandCenter))
             .map(|o| o.get_position())
             .unwrap_or(Vec3::ZERO);
-        let dozer = ensure_dozer(&mut logic, base).expect("dozer");
+        let dozer = find_human_dozer(&logic).expect("starting dozer");
         // Dozer spawn after load needs one vision push for its new position.
         let frame = logic.get_frame();
         if let Some((d, partition)) = logic.host_object_and_partition_mut(dozer) {
