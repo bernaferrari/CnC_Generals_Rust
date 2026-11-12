@@ -515,40 +515,6 @@ pub fn host_recorder_is_playback() -> bool {
     with_recorder(|recorder| recorder.is_playback()).unwrap_or(false)
 }
 
-/// C++ `TheControlBar->getObserverLookAtPlayer()` index.
-pub fn host_observer_look_at_player_index() -> Option<i32> {
-    #[cfg(feature = "game_client")]
-    {
-        if let Some(index) =
-            game_client::helpers::TheControlBar::get_observer_look_at_player_index()
-        {
-            return Some(index);
-        }
-        return game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(
-            None,
-        );
-    }
-    #[cfg(not(feature = "game_client"))]
-    None
-}
-
-/// C++ `getObserverLookAtPlayer() == thisPlayer`.
-pub fn host_replay_observer_matches_player(player_index: i32) -> bool {
-    host_observer_look_at_player_index() == Some(player_index)
-}
-
-/// C++ GameLogicDispatch.cpp:1803 playback + useCamera + observer==thisPlayer.
-pub fn host_should_apply_replay_camera(player_index: i32) -> bool {
-    host_recorder_is_playback()
-        && game_engine::common::global_data::read().use_camera_in_replay
-        && host_replay_observer_matches_player(player_index)
-}
-
-/// C++ GameLogicDispatch.cpp:1970 same gate as SET_REPLAY_CAMERA.
-pub fn host_should_remirror_observer_selection(player_index: i32) -> bool {
-    host_should_apply_replay_camera(player_index)
-}
-
 /// C++ SelectionXlat.cpp:1047 MSG_CREATE/SELECT/ADD_TEAM0+group.
 /// `kind`: 0=create, 1=select, 2=add.
 pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
