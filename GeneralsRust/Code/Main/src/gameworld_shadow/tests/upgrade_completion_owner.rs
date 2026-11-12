@@ -32,20 +32,32 @@ fn install_rules(logic: &mut GameLogic, cost: u32, seconds: u32) {
         seconds,
     );
     // The actual receiving producer pairs typed modules and host projection.
-    // Producer admission uses the existing static retail CommandSet fallback;
-    // this fixture does not claim full authored Common CommandSet coverage.
+    // C++ ProductionUpdate::queueUpgrade refuses cheaters through
+    // Object::canProduceUpgrade, which walks the producer's authored
+    // CommandSet for a PLAYER_UPGRADE button naming the upgrade.
     let source = format!(
-        "Object {PRODUCER}\n  KindOf = STRUCTURE SELECTABLE FS_BARRACKS\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\n  Behavior = ProductionUpdate ModuleTag_Production\n  End\nEnd\nObject {INFANTRY}\n  KindOf = INFANTRY SELECTABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = SpecialAbility ModuleTag_Capture\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    StartsPaused = Yes\n  End\n  Behavior = UnpauseSpecialPowerUpgrade ModuleTag_CaptureUpgrade\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    TriggeredBy = {UPGRADE_INFANTRY_CAPTURE}\n  End\nEnd\n"
+        "Object {PRODUCER}\n  KindOf = STRUCTURE SELECTABLE FS_BARRACKS\n  CommandSet = FixtureResearchSet\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\n  Behavior = ProductionUpdate ModuleTag_Production\n  End\nEnd\nObject {INFANTRY}\n  KindOf = INFANTRY SELECTABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = SpecialAbility ModuleTag_Capture\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    StartsPaused = Yes\n  End\n  Behavior = UnpauseSpecialPowerUpgrade ModuleTag_CaptureUpgrade\n    SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n    TriggeredBy = {UPGRADE_INFANTRY_CAPTURE}\n  End\nEnd\n"
     );
     // Reset retains the already admitted receiving catalog and restores its
     // baseline. Fresh source and load receivers admit the identical source.
     if logic.receiving_module_content.is_none() {
+        let actions = format!(
+            "CommandButton FixtureCaptureUpgrade\n  Command = PLAYER_UPGRADE\n  Upgrade = {UPGRADE_INFANTRY_CAPTURE}\nEnd\nCommandSet FixtureResearchSet\n  1 = FixtureCaptureUpgrade\nEnd\n"
+        );
+        let sciences = std::sync::Arc::new(
+            game_engine::common::rts::science::ScienceNameFacts::default(),
+        );
+        let mut definitions = game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default();
+        definitions
+            .apply_source(&actions, &sciences)
+            .expect("authored CommandButton/CommandSet");
         logic
             .admit_receiving_module_content(
-                crate::assets::ReceivingObjectContent::from_sources([(
-                    "upgrade_completion_owner.ini".to_owned(),
-                    source,
-                )])
+                crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
+                    [("upgrade_completion_owner.ini".to_owned(), source)],
+                    sciences,
+                    std::sync::Arc::new(definitions),
+                )
                 .expect("real paired Object INI"),
             )
             .expect("receiving Object module owner");
