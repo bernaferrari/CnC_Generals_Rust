@@ -1755,6 +1755,11 @@ impl InGameUISubsystem {
         self.logic_world.as_ref().and_then(std::sync::Weak::upgrade)
     }
 
+    /// C++ `TheAudio` of the engine this UI receives.
+    pub fn the_audio(&self) -> Option<gamelogic::helpers::TheAudio> {
+        self.logic_world().map(|world| gamelogic::helpers::TheAudio::of(&world))
+    }
+
     pub fn admit_game_text(&mut self, store: Arc<std::sync::RwLock<GameText>>) {
         self.game_text = Some(store);
     }

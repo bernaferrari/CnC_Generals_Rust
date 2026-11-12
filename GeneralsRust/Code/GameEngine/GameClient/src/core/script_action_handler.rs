@@ -475,6 +475,7 @@ fn track_audio_handle(wait_map: &mut HashMap<String, Vec<u32>>, name: &str, hand
 }
 
 fn is_named_audio_complete(
+    audio: Option<TheAudio>,
     wait_map: &mut HashMap<String, Vec<u32>>,
     name: &str,
     flush: bool,
@@ -488,7 +489,7 @@ fn is_named_audio_complete(
         return false;
     };
 
-    let Some(audio) = TheAudio::get() else {
+    let Some(audio) = audio else {
         if flush {
             wait_map.remove(&key);
         }
@@ -690,7 +691,7 @@ impl GameClientScriptActionHandler {
         manager: &mut crate::gui::window_manager::WindowManager,
         diplomacy: &mut crate::gui::callbacks::diplomacy::DiplomacyCallbacks,
     ) -> GameLogicResult<()> {
-        if let Some(audio) = TheAudio::get() {
+        if let Some(audio) = ui.the_audio() {
             let mut event = AudioEventRts::new(name);
             event.set_is_logical_audio(true);
             event.set_uninterruptable(!allow_overlap);
@@ -1279,11 +1280,13 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn is_speech_complete(&self, name: &str, flush: bool) -> bool {
-        with_script_runtime(|state| is_named_audio_complete(&mut state.speech_waits, name, flush))
+        let audio = self.the_audio();
+        with_script_runtime(|state| is_named_audio_complete(audio, &mut state.speech_waits, name, flush))
     }
 
     fn is_audio_complete(&self, name: &str, flush: bool) -> bool {
-        with_script_runtime(|state| is_named_audio_complete(&mut state.audio_waits, name, flush))
+        let audio = self.the_audio();
+        with_script_runtime(|state| is_named_audio_complete(audio, &mut state.audio_waits, name, flush))
     }
 
     fn has_music_track_completed(&self, track: &str, param: i32) -> bool {
