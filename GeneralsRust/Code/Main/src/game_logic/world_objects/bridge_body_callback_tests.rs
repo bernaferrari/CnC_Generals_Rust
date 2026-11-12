@@ -1028,6 +1028,10 @@ fn repaired_bridge_begins_new_owned_score_episode_and_preserves_saved_future() {
                     let decoded =
                         crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
                     let mut restored = GameLogic::new();
+                    // GameState load restores into the same map's Sides: the
+                    // player team prototypes exist before the saved roster.
+                    restored.add_player(crate::game_logic::Player::new(1, Team::USA, "BridgeOwner", true));
+                    restored.add_player(crate::game_logic::Player::new(2, Team::China, "BridgeScorer", false));
                     restored.templates = world.templates.clone();
                     builder
                         .restore_from_snapshot(&decoded, &mut restored)
