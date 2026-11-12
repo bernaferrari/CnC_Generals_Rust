@@ -5,7 +5,7 @@
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{
-    AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition,
+    AIState, GameLogic, ObjectId, Team, VictoryCondition,
 };
 use crate::presentation_frame::PresentationFrame;
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
@@ -24,42 +24,29 @@ fn cmd(id: u32, ty: CommandType, units: Vec<ObjectId>) -> GameCommand {
     }
 }
 
-fn host_templates(logic: &mut GameLogic) {
-    for (name, kinds, hp) in [
-        (
-            "HostCC",
-            &[
-                KindOf::Structure,
-                KindOf::CommandCenter,
-                KindOf::Selectable,
-                KindOf::MpCountForVictory,
-            ][..],
-            500.0,
-        ),
-        (
-            "HostRanger",
-            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable][..],
-            120.0,
-        ),
-        (
-            "HostEnemy",
-            &[
-                KindOf::Structure,
-                KindOf::CommandCenter,
-                KindOf::Selectable,
-                KindOf::MpCountForVictory,
-            ][..],
-            200.0,
-        ),
-    ] {
-        let mut t = ThingTemplate::new(name);
-        t.set_health(hp);
-        t.set_cost(100, 0);
-        for k in kinds {
-            t.add_kind_of(*k);
-        }
-        logic.templates.insert(name.into(), t);
-    }
+/// Author the bridge proof's Objects and the Ranger's rifle before NewGame
+/// (C++ GameEngine.cpp:428-458 loads every INI before the match starts).
+fn admit_host_content(logic: &mut GameLogic) {
+    use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
+    const VICTORY_CC: &str = "STRUCTURE COMMANDCENTER SELECTABLE MP_COUNT_FOR_VICTORY";
+    admit_fixture_content(
+        logic,
+        &[
+            FixtureObject::new("HostCC").kind_of(VICTORY_CC).health(500.0).build_cost(100),
+            FixtureObject::new("HostRanger")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(120.0)
+                .build_cost(100)
+                .walker()
+                .armed("HostRangerRifle"),
+            FixtureObject::new("HostEnemy").kind_of(VICTORY_CC).health(200.0).build_cost(100),
+        ],
+        &[FixtureWeapon::new("HostRangerRifle")
+            .damage(25.0)
+            .range(100.0)
+            .delay_ms(1000)
+            .field("WeaponSpeed = 999999")],
+    );
 }
 
 /// No take_damage fallbacks, no HP caps after spawn, no re-teaming.
@@ -67,43 +54,8 @@ pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, Strin
     // Ensure dual-tick env is not required (we do not set it).
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HostOnlyBridge");
+    admit_host_content(&mut logic);
     let _ = apply_skirmish_config(&mut logic, &cfg);
-    // Structure-scale enemy HP (200); default Weapon combat must finish via update_combat.
-    for (name, kinds, hp) in [
-        (
-            "HostCC",
-            &[
-                KindOf::Structure,
-                KindOf::CommandCenter,
-                KindOf::Selectable,
-                KindOf::MpCountForVictory,
-            ][..],
-            500.0,
-        ),
-        (
-            "HostRanger",
-            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable][..],
-            120.0,
-        ),
-        (
-            "HostEnemy",
-            &[
-                KindOf::Structure,
-                KindOf::CommandCenter,
-                KindOf::Selectable,
-                KindOf::MpCountForVictory,
-            ][..],
-            200.0,
-        ),
-    ] {
-        let mut t = ThingTemplate::new(name);
-        t.set_health(hp);
-        t.set_cost(100, 0);
-        for k in kinds {
-            t.add_kind_of(*k);
-        }
-        logic.templates.insert(name.into(), t);
-    }
     logic.set_ai_active(1, false);
 
     let _cc = logic.create_object("HostCC", Team::USA, Vec3::ZERO);
@@ -124,7 +76,7 @@ pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, Strin
         ));
     }
 
-    // Weapons come from template.resolve_primary_weapon at create_object.
+    // The Ranger's authored WeaponSet arms it at create_object.
     // engine_object_id stays None on the default host path.
 
     logic.queue_command(cmd(
@@ -190,8 +142,8 @@ pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, Strin
 pub fn run_presentation_consumer_path() -> gamelogic::GameLogicResult<(bool, String)> {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresConsumer");
+    admit_host_content(&mut logic);
     let _ = apply_skirmish_config(&mut logic, &cfg);
-    host_templates(&mut logic);
     // Keep-alive structure (run_host_only_combat_victory precedent): the
     // trailing GameLogic::update victory probe applies the skirmish
     // NO_BUILDINGS rule and destroys a structure-less playable player's army
@@ -277,22 +229,13 @@ mod tests {
     fn honest_weapon_combat_kills_low_hp_structure() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("HonestCombat");
+        admit_host_content(&mut logic);
         let _ = apply_skirmish_config(&mut logic, &cfg);
-        let mut ranger_t = ThingTemplate::new("R");
-        ranger_t.set_health(100.0);
-        ranger_t.add_kind_of(KindOf::Infantry);
-        ranger_t.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("R".into(), ranger_t);
-        let mut enemy_t = ThingTemplate::new("E");
-        enemy_t.set_health(200.0);
-        enemy_t.add_kind_of(KindOf::Structure);
-        enemy_t.add_kind_of(KindOf::CommandCenter);
-        logic.templates.insert("E".into(), enemy_t);
         let ranger = logic
-            .create_object("R", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .create_object("HostRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let enemy = logic
-            .create_object("E", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .create_object("HostEnemy", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
         assert!(logic.host_object(ranger).unwrap().weapon.is_some());
         logic.queue_command(cmd(

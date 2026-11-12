@@ -135,6 +135,8 @@ pub mod win32_game_engine;
 // Playability integration
 pub mod ai_skirmish_activity;
 pub mod authoritative_world;
+// Test-only proof of the host combat path; its fixtures are authored content.
+#[cfg(test)]
 pub mod authority_bridge;
 pub mod breadth_scenarios;
 pub mod executable_smoke;
