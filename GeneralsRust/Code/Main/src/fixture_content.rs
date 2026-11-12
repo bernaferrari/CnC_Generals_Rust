@@ -231,6 +231,9 @@ pub(crate) fn admit_fixture_content_with_actions(
         world
             .admit_receiving_module_content_with_weapons(content, weapons)
             .expect("fixture Object, Weapon and action content admitted before NewGame");
+        // As the shell does, the same CommandButton/CommandSet source also
+        // fills this world's own ControlBar (C++ TheControlBar INI load).
+        world.load_own_command_ini_for_test(actions);
         return;
     }
     if weapons.is_empty() {
