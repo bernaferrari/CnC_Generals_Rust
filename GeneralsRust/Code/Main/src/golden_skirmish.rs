@@ -939,6 +939,28 @@ fn clear_remaining_enemy_army_for_map_victory(
     Ok(())
 }
 
+/// Rangers that have not been ordered onto the current focus yet, or that
+/// dropped back to idle (C++ AIUpdate leaves AI_ATTACK_OBJECT only when the
+/// target dies or the unit is re-ordered).
+fn attackers_needing_order(
+    logic: &GameLogic,
+    live: &[ObjectId],
+    issued: &mut std::collections::HashSet<ObjectId>,
+) -> Vec<ObjectId> {
+    let fresh: Vec<ObjectId> = live
+        .iter()
+        .copied()
+        .filter(|id| {
+            !issued.contains(id)
+                || logic
+                    .host_object(*id)
+                    .is_some_and(|o| matches!(o.ai_state(), AIState::Idle))
+        })
+        .collect();
+    issued.extend(fresh.iter().copied());
+    fresh
+}
+
 fn fight_enemies_with_rangers(
     logic: &mut GameLogic,
     rangers: &[ObjectId],
@@ -972,9 +994,21 @@ fn fight_enemies_with_rangers(
     let mut cmd_id: u32 = 600;
     // Frame budgets follow the squad's real (slowest) bound speed.
     let march_speed = slowest_speed.max(1.0);
-    // Hard wall: large maps + multi-focus mini-marches hung the gate.
-    const MAX_FIGHT_SIM_FRAMES: usize = 3_000;
+    // The fight runs as long as C++ combat keeps making progress. Retail
+    // RangerAdvancedCombatRifle (5 SMALL_ARMS, StructureArmorTough 50%, clip 3
+    // at 100 ms + 700 ms reload: 3 shots / 27 frames) is ~0.28 HP/frame per
+    // ranger, so 8 rangers need ~2250 in-range frames for a 5000 HP
+    // GLACommandCenter. The wall only bounds a hung harness; the real stop is
+    // the no-progress window below (longer than any ranger reload cycle).
+    const MAX_FIGHT_SIM_FRAMES: usize = 12_000;
+    const NO_PROGRESS_FRAMES: usize = 450;
     let mut fight_sim_frames: usize = 0;
+    let mut in_range_frames_without_progress: usize = 0;
+    let mut progress_hp: f32 = f32::MAX;
+    // A player clicks attack once; C++ AIUpdate keeps the attack state (and
+    // its aim / weapon clip) until the target dies. Re-issue only to rangers
+    // that newly joined or fell idle, not every poll.
+    let mut attack_issued: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
 
     // --- Initial pure march toward primary / first enemy ---
     let initial_target = primary_target
@@ -1092,6 +1126,9 @@ fn fight_enemies_with_rangers(
             focus_target = Some(tid);
             focus_hp_at_acquire = target_hp;
             stalled_oor_rounds = 0;
+            attack_issued.clear();
+            in_range_frames_without_progress = 0;
+            progress_hp = target_hp;
             for (i, rid) in live.iter().enumerate() {
                 let dest = approach_point(ep, i);
                 let _ = logic.assign_unit_path(*rid, dest, &[]);
@@ -1134,6 +1171,8 @@ fn fight_enemies_with_rangers(
                     live.clone(),
                 ));
                 cmd_id += 1;
+                // The Move replaced any attack order; re-attack once in range.
+                attack_issued.clear();
             }
 
             // Narrow residual fallback: opt-in only (GOLDEN_ALLOW_TELEPORT_PULL=1).
@@ -1192,13 +1231,16 @@ fn fight_enemies_with_rangers(
             // while OOR clears pathfinding paths via combat chase.
             let in_range_now = any_ranger_in_weapon_range(logic, &live, ep);
             if in_range_now || pulled_this_round {
-                logic.queue_command(command(
-                    cmd_id,
-                    0,
-                    CommandType::AttackObject { target_id: tid },
-                    live,
-                ));
-                cmd_id += 1;
+                let fresh = attackers_needing_order(logic, &live, &mut attack_issued);
+                if !fresh.is_empty() {
+                    logic.queue_command(command(
+                        cmd_id,
+                        0,
+                        CommandType::AttackObject { target_id: tid },
+                        fresh,
+                    ));
+                    cmd_id += 1;
+                }
             }
             let step = step_frames.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
             run_frames(logic, step)?;
@@ -1210,19 +1252,32 @@ fn fight_enemies_with_rangers(
         } else {
             stalled_oor_rounds = 0;
             // In weapon range: AttackObject only (honest fire via update_combat).
-            logic.queue_command(command(
-                cmd_id,
-                0,
-                CommandType::AttackObject { target_id: tid },
-                live,
-            ));
-            cmd_id += 1;
+            let fresh = attackers_needing_order(logic, &live, &mut attack_issued);
+            if !fresh.is_empty() {
+                logic.queue_command(command(
+                    cmd_id,
+                    0,
+                    CommandType::AttackObject { target_id: tid },
+                    fresh,
+                ));
+                cmd_id += 1;
+            }
             let step = 3usize.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
             run_frames(logic, step)?;
             materialize_host_damage_log(logic);
             fight_sim_frames = fight_sim_frames.saturating_add(step);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
                 break;
+            }
+            let hp_now = logic.host_object(tid).map(|o| o.health.current).unwrap_or(0.0);
+            if hp_now < progress_hp - 0.01 {
+                progress_hp = hp_now;
+                in_range_frames_without_progress = 0;
+            } else {
+                in_range_frames_without_progress += step;
+                if in_range_frames_without_progress >= NO_PROGRESS_FRAMES {
+                    break;
+                }
             }
         }
 
@@ -1582,34 +1637,11 @@ fn run_map_world_skirmish(
     let primary_alive_before = primary_enemy
         .map(|id| logic.host_object(id).map(|o| o.is_alive()).unwrap_or(false))
         .unwrap_or(false);
-    // Retail store damage ~5 (was floor 40); longer windows + more rangers compensate.
-    // Large skirmish maps also need headroom for multi-base pure-march at 20 u/s.
-    // Bounded rounds: uncapped 4k hung Lone Eagle (mini-march thrash).
-    // Bound for gate soak (dual RC runs): rangers are setup-warped near the primary
-    // enemy so 120 in-range AttackObject rounds suffice for store-damage kills.
-    // Full gate golden uses frames≈30+. RC dual-soak passes frames=4–8 — scale
-    // combat so dual Lone Eagle fights cannot dominate wall time.
-    let base_fight_rounds: u32 = if is_retail_ranger_name(&ranger_name_used) {
-        120
-    } else {
-        90
-    };
-    // Wave 830: seeded primary is setup-warped into range — keep full-gate fights
-    // bounded so Lone Eagle cannot dominate wall time (prior 120× multi-k hangs).
-    let fight_rounds: u32 = if frames <= 5 {
-        ((base_fight_rounds * frames.max(1)) / 30).max(12)
-    } else if frames <= 30 {
-        48
-    } else {
-        base_fight_rounds
-    };
-    let cleanup_fight_rounds: u32 = if frames <= 5 {
-        (fight_rounds * 2).min(40)
-    } else if frames <= 30 {
-        80
-    } else {
-        500
-    };
+    // Fight length is not derived from the trailing `frames` budget: the
+    // fight helper runs until the focus dies or C++ combat stops making
+    // progress (see fight_enemies_with_rangers). Rounds are 3-frame polls.
+    let fight_rounds: u32 = 4_000;
+    let cleanup_fight_rounds: u32 = 4_000;
     // Pause AI rebuild + clear enemy combat targets so pure-march rangers are
     // not racing production queues or structure auto-counterfire. set_ai_active
     // alone left residual unit AI free to re-acquire and kill the squad.
@@ -1825,13 +1857,11 @@ fn run_map_world_skirmish(
 
     // Evaluate victory while AI remains paused so a residual rebuild in the
     // trailing frames cannot re-spawn a CC after a proven clear.
-    let enemy_alive = logic
-        .host_objects()
-        .registered_values()
-        .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive());
-    let victory = all_cleared
-        && !enemy_alive
-        && same_world_victory_ok
+    // C++ GameLogic::startNewGame sets VICTORY_NOBUILDINGS (GameLogic.cpp:1606):
+    // a player is defeated once no KINDOF_MP_COUNT_FOR_VICTORY building is
+    // left (VictoryConditions::hasSinglePlayerBeenDefeated); surviving units
+    // such as a GLAInfantryWorker do not keep it alive.
+    let victory = same_world_victory_ok
         && matches!(
             logic.evaluate_victory_condition(),
             Some(VictoryCondition::Winner(0))
