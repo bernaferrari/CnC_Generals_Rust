@@ -658,7 +658,7 @@ mod tests {
             assert_eq!(write_kind_of_variant(kind), ordinal);
             assert_eq!(read_kind_of_variant(ordinal).unwrap(), kind);
         }
-        assert!(read_kind_of_variant(91).is_err());
+        assert!(read_kind_of_variant(92).is_err());
     }
 
     #[test]
