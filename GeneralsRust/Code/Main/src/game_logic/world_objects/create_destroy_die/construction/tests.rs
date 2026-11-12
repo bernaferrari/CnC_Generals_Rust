@@ -397,7 +397,10 @@ fn structure_player_completion_replaces_only_its_owned_footprint() {
     object.set_status_under_construction(false);
     object.construction_percent = 1.0;
     world.complete_owned_structure_player(id, 0, false);
-    assert!(!world.pathfinding_system.grid.is_static_blocked(old_cell));
+    // Player.cpp:1644-1645 removes then re-adds at the live position
+    // (AIPathfind.cpp:4175-4230 rasterizes obj->getPosition()); a raw
+    // setPosition never touches the obstacle map, so the old cells stay.
+    assert!(world.pathfinding_system.grid.is_static_blocked(old_cell));
     assert!(world.pathfinding_system.grid.is_static_blocked(new_cell));
     assert!(
         world
