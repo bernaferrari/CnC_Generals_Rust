@@ -553,63 +553,55 @@ fn is_retail_supply_source_name(name: &str) -> bool {
             && (lower.contains("dock") || lower.contains("pile") || lower.contains("crate")))
 }
 
-fn is_gatherable_resource(o: &crate::game_logic::object::Object) -> bool {
+/// C++ ActionManager::canDockAt / canTransferSuppliesAt for a collector: the
+/// target runs a SupplyWarehouseDockUpdate that still holds boxes. Retail
+/// SupplyDock authors `KindOf = ... SUPPLY_SOURCE` with that dock module
+/// (CivilianBuilding.ini), never RESOURCE/HARVESTABLE.
+fn is_stocked_supply_warehouse(logic: &GameLogic, o: &crate::game_logic::object::Object) -> bool {
     o.is_alive()
-        && (o.is_kind_of(KindOf::Harvestable)
-            || o.is_kind_of(KindOf::Resource)
-            || o.object_type == crate::game_logic::ObjectType::Supply)
-}
-
-/// Patch live object (and catalog entry) so Gather accepts the target.
-fn ensure_object_gatherable(logic: &mut GameLogic, id: ObjectId) {
-    let template_name = logic
-        .host_object(id)
-        .map(|o| o.template_name.clone())
-        .unwrap_or_default();
-    if let Some(tpl) = logic.templates.get_mut(&template_name) {
-        tpl.add_kind_of(KindOf::Resource);
-        tpl.add_kind_of(KindOf::Harvestable);
-    }
-    if let Some(obj) = logic./* Wave 950 */ host_object_mut(id) {
-        obj.template_mut().add_kind_of(KindOf::Resource);
-        obj.template_mut().add_kind_of(KindOf::Harvestable);
-    }
+        && o.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
+        && logic.unit_stored_supplies(o.id) > 0
 }
 
 /// Prefer map-spawned SupplyDock/SupplyPile; else seed an admitted retail dock.
 /// Returns `(target_id, retail_gather)`.
 fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<ObjectId>, bool) {
-    // 1) Already-harvestable resources on the loaded map.
-    let existing_gatherable = logic
+    // 1) A stocked map supply warehouse (SupplyDock / SupplyPile).
+    let map_warehouse = logic
         .host_objects()
         .registered_values()
-        .find(|o| o.team != Team::USA && is_gatherable_resource(o))
+        .filter(|o| is_stocked_supply_warehouse(logic, o))
+        .min_by(|a, b| {
+            a.get_position()
+                .distance_squared(base)
+                .total_cmp(&b.get_position().distance_squared(base))
+        })
         .map(|o| o.id);
-    if let Some(id) = existing_gatherable {
-        ensure_object_gatherable(logic, id);
+    if let Some(id) = map_warehouse {
         return (Some(id), true);
     }
 
-    // 2) Map SupplyDock / SupplyPile by authored KindOf::SupplySource (not name peels).
-    let map_supply_name = logic
-        .host_objects()
-        .registered_values()
-        .find(|o| o.is_alive() && o.is_kind_of(KindOf::SupplySource))
-        .map(|o| o.id);
-    if let Some(id) = map_supply_name {
-        ensure_object_gatherable(logic, id);
-        return (Some(id), true);
-    }
-
-    // 3) Seed retail SupplyDock near base (USA_SupplyCenter already present for drop-off).
+    // 2) Seed a retail SupplyDock near base (USA_SupplyCenter already present for drop-off).
     let pos = clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0));
     for name in ["SupplyDock", "SupplyPile", "SupplyPileSmall"] {
         if let Some(id) = logic.create_object(name, Team::Neutral, pos) {
-            ensure_object_gatherable(logic, id);
             return (Some(id), true);
         }
     }
     (None, false)
+}
+
+/// Logic frames the authored `BuildTime` of `count` items takes at full
+/// power (C++ ThingTemplate::calcTimeToBuild: seconds * LOGICFRAMES_PER_SECOND),
+/// plus one second of command/exit slack per item.
+fn authored_build_frames(logic: &GameLogic, template_name: &str, count: usize) -> usize {
+    let seconds = logic
+        .templates
+        .get(template_name)
+        .map(|t| t.build_time.max(0.0))
+        .unwrap_or(0.0);
+    let per_item = (seconds * crate::pick_ray::LOGIC_FRAMES_PER_SECOND).ceil() as usize;
+    count * (per_item + crate::pick_ray::LOGIC_FRAMES_PER_SECOND as usize)
 }
 
 fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
@@ -618,73 +610,6 @@ fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
         && o.is_alive()
         && o.is_constructed()
         && o.is_kind_of(KindOf::FSBarracks)
-}
-
-/// Ensure USA retail templates are buildable on the host slice:
-/// short build times, power plant does not cost power to place, barracks
-/// power draw cannot fail spend_resources when economy is seeded.
-fn prepare_retail_usa_host_templates(logic: &mut GameLogic) {
-    logic.ensure_ai_faction_templates(Team::USA);
-    // Host-safe aliases sometimes synthesized from map/asset defs.
-    const NAMES: &[&str] = &[
-        "USA_PowerPlant",
-        "USA_Barracks",
-        "USA_SupplyCenter",
-        "USA_Dozer",
-        "USA_Ranger",
-        "AmericaPowerPlant",
-        "AmericaBarracks",
-        "AmericaSupplyCenter",
-        "AmericaInfantryRanger",
-        "ColdFusionReactor",
-        "AmericaColdFusionReactor",
-    ];
-    for name in NAMES {
-        let Some(t) = logic.templates.get_mut(*name) else {
-            continue;
-        };
-        // Power plants must not require power headroom to place.
-        if is_retail_power_name(name) && t.build_cost.power < 0 {
-            t.build_cost.power = 0;
-        }
-        // Cap extreme power draw so ensure_human_economy headroom covers spend.
-        if t.build_cost.power < -200 {
-            t.build_cost.power = 0;
-        }
-        // Vertical-slice timing: keep construct/produce deterministic & fast.
-        if t.build_time > 0.2 {
-            t.build_time = 0.05;
-        }
-        // Barracks must produce infantry.
-        if is_retail_barracks_name(name) {
-            t.add_kind_of(KindOf::Structure);
-            t.add_kind_of(KindOf::Selectable);
-            t.add_kind_of(KindOf::FSBarracks);
-        }
-        // Rangers must be infantry for BuildingData::can_produce.
-        if is_retail_ranger_name(name) {
-            t.add_kind_of(KindOf::Infantry);
-            t.add_kind_of(KindOf::Selectable);
-            t.add_kind_of(KindOf::Attackable);
-            if t.primary_weapon.is_none() && t.primary_weapon_name.is_none() {
-                if let Some(wname) = crate::game_logic::primary_weapon_name_for_unit(name) {
-                    t.set_primary_weapon_name(wname);
-                }
-            }
-            if t.secondary_weapon.is_none() && t.secondary_weapon_name.is_none() {
-                if let Some(wname) = crate::game_logic::secondary_weapon_name_for_unit(name) {
-                    t.set_secondary_weapon_name(wname);
-                }
-            }
-        }
-        // Dozer must construct.
-        if *name == "USA_Dozer" {
-            t.add_kind_of(KindOf::Vehicle);
-            t.add_kind_of(KindOf::Worker);
-            t.add_kind_of(KindOf::Dozer);
-            t.add_kind_of(KindOf::Selectable);
-        }
-    }
 }
 
 fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
@@ -1437,8 +1362,9 @@ fn fight_enemies_with_rangers(
 
 /// Map-loaded main combat world: build/produce/fight map-spawned enemies.
 ///
-/// Prefers retail USA production chain (PowerPlant → Barracks → Ranger) when
-/// templates exist; falls back to golden host fixtures fail-closed. Victory is
+/// Runs the retail USA production chain (PowerPlant → Barracks → Ranger) on the
+/// authored INI build times and costs; a missing template or refused command
+/// fails the step closed. Victory is
 /// always against map GLA structures via AttackObject (no take_damage/re-team).
 /// Gather prefers map SupplyDock / retail supply piles.
 fn run_map_world_skirmish(
@@ -1454,7 +1380,6 @@ fn run_map_world_skirmish(
     // (default GLA base is (200,0,200)) are not a second full-HP CC across the
     // map that wipes the ranger squad after the primary map kill. AI stays
     // active during production and may still rebuild — just near the fight.
-    prepare_retail_usa_host_templates(logic);
     ensure_human_economy(logic, 25_000, 500);
 
     let base = usa_base_position(logic);
@@ -1568,7 +1493,9 @@ fn run_map_world_skirmish(
             vec![dozer],
         ));
         logic.process_commands();
-        constructed = run_until(logic, 300, |g| {
+        // The dozer walks to the pad, then builds for the authored BuildTime.
+        let construct_budget = 300 + authored_build_frames(logic, bname, 1);
+        constructed = run_until(logic, construct_budget, |g| {
             g.host_objects().registered_values().any(|o| {
                 is_barracks_object(o)
                     && (o.template_name == *bname || o.is_kind_of(KindOf::FSBarracks))
@@ -1604,8 +1531,6 @@ fn run_map_world_skirmish(
     let gatherer = ensure_harvester(logic, base).unwrap_or(dozer);
     let mut gathered = false;
     if let Some(sid) = supply {
-        // Re-assert harvestable right before Gather in case AI/map churned kinds.
-        ensure_object_gatherable(logic, sid);
         logic.queue_command(command(
             10,
             0,
@@ -1643,17 +1568,13 @@ fn run_map_world_skirmish(
                 },
                 vec![bid],
             );
-            let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success || {
-                let mut any = false;
-                for _ in 0..16 {
-                    any |= logic.enqueue_production(bid, rname.clone());
-                }
-                any
-            };
-            if !queue_ok {
+            // C++ ProductionUpdate::queueCreateUnit runs only after
+            // Player::canBuild / canMakeUnit accept the request; a rejection
+            // is the honest result.
+            if system.execute_command(&queue_cmd, logic) != CommandResult::Success {
                 continue;
             }
-            let got_two = run_until(logic, 600, |g| {
+            let got_two = run_until(logic, authored_build_frames(logic, rname, 2), |g| {
                 g.host_objects()
                     .registered_values()
                     .filter(|o| {
@@ -1666,7 +1587,7 @@ fn run_map_world_skirmish(
                 produced = true;
                 ranger_name_used = rname.clone();
                 // Prefer a full squad so store damage can clear multi-structure maps.
-                let _ = run_until(logic, 400, |g| {
+                let _ = run_until(logic, authored_build_frames(logic, rname, 6), |g| {
                     g.host_objects()
                         .registered_values()
                         .filter(|o| {
@@ -1841,10 +1762,19 @@ fn run_map_world_skirmish(
                 let need = if wave == 0 { 8 } else { 6 };
                 if live_count < need {
                     ensure_human_economy(logic, 20_000, 500);
-                    for _ in 0..12 {
-                        let _ = logic.enqueue_production(bid, ranger_name_used.clone());
-                    }
-                    let _ = run_until(logic, 120, |g| {
+                    let missing = need - live_count;
+                    let top_up = command(
+                        20 + wave,
+                        0,
+                        CommandType::QueueUnitCreate {
+                            template_name: ranger_name_used.clone(),
+                            quantity: missing as u32,
+                        },
+                        vec![bid],
+                    );
+                    let _ = system.execute_command(&top_up, logic);
+                    let budget = authored_build_frames(logic, &ranger_name_used, missing);
+                    let _ = run_until(logic, budget, |g| {
                         g.host_objects()
                             .registered_values()
                             .filter(|o| {
@@ -2076,7 +2006,6 @@ pub fn run_golden_skirmish(
                 && logic.host_ai_player_count() >= ai_before;
             // Re-assert AI after load.
             logic.set_ai_active(1, true);
-            prepare_retail_usa_host_templates(&mut logic);
             ensure_human_economy(&mut logic, 25_000, 500);
         }
     }
