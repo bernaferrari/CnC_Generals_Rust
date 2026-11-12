@@ -1,7 +1,7 @@
 //! CPP PhysicsUpdate: returned falling hit -> current effective death/SPLATTED;
 //! clear FREEFALL -> resting Object::kill (max health + m_kill).
 use crate::game_logic::{GameLogic, ObjectId, Player, Team};
-use game_engine::common::ini::{ini_damage_fx as damage, ini_fx_list as fx};
+use game_engine::common::ini::ini_fx_list as fx;
 use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
 use gamelogic::helpers::HostFxObjectPose;
 use glam::Vec3;
@@ -42,17 +42,6 @@ fn install() -> (Receiver<(&'static str, Option<u32>)>, game_client::fx_list::FX
         list.add_fx_nugget(Box::new(Observe(name, send.clone())));
         catalog.add_fx_list(name.into(), list);
     }
-    let mut rules = damage::DamageFX::new();
-    for kind in [
-        damage::DamageType::Falling,
-        damage::DamageType::Unresistable,
-    ] {
-        rules.set_major_minor_fx(kind, Some(ARMOR.into()), Some(ARMOR.into()), 1.);
-    }
-    damage::init_global_damage_fx_store();
-    damage::get_damage_fx_store_mut()
-        .unwrap()
-        .add_damage_fx(RULES.into(), rules);
     (receive, catalog)
 }
 fn world() -> (GameLogic, ObjectId) {
@@ -95,6 +84,25 @@ End
     let mut definitions = gamelogic::object::armor::ArmorDefinitions::new();
     definitions.register_template(ZERO_ARMOR, armor);
     let mut world = GameLogic::new();
+    // DamageFX.ini is receiving-world content: ActiveBody::doDamageFX reads
+    // the armor set's DamageFX row from this session (ActiveBody.cpp:307-315).
+    assert_eq!(
+        world
+            .admit_damage_fx_source(&format!(
+                r#"
+DamageFX {RULES}
+  AmountForMajorFX = FALLING 1
+  MajorFX = FALLING {ARMOR}
+  MinorFX = FALLING {ARMOR}
+  AmountForMajorFX = UNRESISTABLE 1
+  MajorFX = UNRESISTABLE {ARMOR}
+  MinorFX = UNRESISTABLE {ARMOR}
+End
+"#
+            ))
+            .expect("receiving DamageFX rows"),
+        1
+    );
     if let Some(catalog) = catalog {
         world.admit_fx_catalog(catalog.clone());
     }
