@@ -1597,6 +1597,9 @@ fn run_synthetic_host_skirmish(
     map_identity: &str,
     frames: u32,
 ) -> gamelogic::GameLogicResult<VerticalSliceOutcome> {
+    // The report counts every logic frame this slice simulated, not only the
+    // caller's trailing `frames` budget.
+    let slice_start_frame = logic.get_frame();
     // Layout keeps STRUCTURE_PLACE_CLEARANCE_RESIDUAL (40) between pads.
     // Barracks ~80 from CC; enemy CC ~200 (in GoldenRanger range 100 after march);
     // supply pile far from build pads (SUPPLY_BUILD_BORDER 20 + radii).
@@ -1832,9 +1835,8 @@ fn run_synthetic_host_skirmish(
         combat_store_damage_ok,
     ) = fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200)?;
 
-    let frame_before = logic.get_frame();
     run_frames(logic, frames.max(1) as usize)?;
-    let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
+    let frames_advanced = logic.get_frame().saturating_sub(slice_start_frame).max(1);
 
     let gla_alive = logic
         .host_objects()
@@ -1884,6 +1886,9 @@ fn run_map_world_skirmish(
     map_identity: &str,
     frames: u32,
 ) -> gamelogic::GameLogicResult<VerticalSliceOutcome> {
+    // The report counts every logic frame this slice simulated, not only the
+    // caller's trailing `frames` budget.
+    let slice_start_frame = logic.get_frame();
     logic.set_ai_active(1, true);
     // Colocate host AI rebuild soup with the map army so residual rebuilds
     // (default GLA base is (200,0,200)) are not a second full-HP CC across the
@@ -2511,9 +2516,8 @@ fn run_map_world_skirmish(
     // Trailing frames with AI re-enabled (honesty: AI was on for the slice).
     // Victory already evaluated; do not let trailing rebuild flip the result.
     logic.set_ai_active(1, true);
-    let frame_before = logic.get_frame();
     run_frames(logic, frames.max(1) as usize)?;
-    let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
+    let frames_advanced = logic.get_frame().saturating_sub(slice_start_frame).max(1);
 
     let save_load_ok = mid_match_save_load_ok(logic, map_identity);
 
