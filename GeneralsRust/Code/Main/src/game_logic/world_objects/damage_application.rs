@@ -1144,11 +1144,18 @@ impl GameLogic {
             if (bridge_callbacks.is_some() || reaction_callback_ran || transition_callback_ran)
                 && damage_type != crate::game_logic::combat::DamageType::Healing
             {
+                // CPP MinefieldBehavior::onDamage runs before ActiveBody's die
+                // check and either detonates remaining charges or restores an
+                // empty regenerating pad to MIN_HEALTH. The mine sync owner
+                // finishes that pad's death after its callback, as Object does.
                 before_hp > 0.0
-                    && self
-                        .objects
-                        .get(&victim_id)
-                        .is_some_and(|o| o.health.current <= 0.0)
+                    && self.objects.get(&victim_id).is_some_and(|o| {
+                        o.health.current <= 0.0
+                            && !o
+                                .mine_data
+                                .as_ref()
+                                .is_some_and(|md| md.defers_lethal_body_destroy())
+                    })
             } else {
                 application.killed()
             };
