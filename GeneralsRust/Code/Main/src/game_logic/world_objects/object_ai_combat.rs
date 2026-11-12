@@ -779,16 +779,30 @@ mod live_upgrade_mux_tests {
     fn host_complete_runs_replace_object_mux() {
         // C++ Object.cpp:2410 updateUpgradeModules → ReplaceObjectUpgrade
         // (hq-xmqu4). Live complete must call apply_upgrade_to_object.
+        use crate::fixture_content::{admit_fixture_objects, FixtureObject};
         let mut logic = GameLogic::new();
         add_player(&mut logic, 2, Team::GLA);
-        let mut fake = ThingTemplate::new("FakeGLABarracks");
-        fake.set_health(500.0);
-        fake.add_kind_of(KindOf::Structure);
-        logic.templates.insert("FakeGLABarracks".into(), fake);
-        let mut real = ThingTemplate::new("GLABarracks");
-        real.set_health(1000.0);
-        real.add_kind_of(KindOf::Structure);
-        logic.templates.insert("GLABarracks".into(), real);
+        // The mux runs the authored ReplaceObjectUpgrade module for an
+        // authored UpgradeTemplate (Object.cpp:3559-3567), never a name pair.
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut logic,
+            "Upgrade_BecomeRealGLABarracks",
+            "OBJECT",
+            0,
+            1,
+        );
+        admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("FakeGLABarracks")
+                    .kind_of("STRUCTURE")
+                    .health(500.0)
+                    .module(
+                        "Behavior = ReplaceObjectUpgrade FixtureBecomeReal\n TriggeredBy = Upgrade_BecomeRealGLABarracks\n ReplaceObject = GLABarracks\nEnd",
+                    ),
+                FixtureObject::new("GLABarracks").kind_of("STRUCTURE").health(1000.0),
+            ],
+        );
 
         let id = logic
             .create_object_for_player("FakeGLABarracks", 2, Vec3::new(10.0, 0.0, 20.0))
