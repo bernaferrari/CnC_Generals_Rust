@@ -358,13 +358,28 @@ fn actual_construction_changes_receiving_group_ground_and_layer_without_peer_wri
             let member_b = admit_group_member(&mut b);
             assert_eq!((builder_a, member_a), (builder_b, member_b));
             let request = Vec3::new(50., 52., 30.);
+            // TerrainLogic.cpp:1668 walks the terrain's own bridge list, so the
+            // deck is a real TerrainLogic bridge on its reserved layer
+            // (TerrainLogic::addBridgeToLogic), not a pathfinder-only layer.
             let bridge = |world: &mut GameLogic| {
-                world.pathfinding_system.grid.reserve_bridge_layer(
-                    Vec3::new(40., 55., 20.),
-                    Vec3::new(70., 55., 20.),
-                    Vec3::new(40., 55., 40.),
-                    Vec3::new(70., 55., 40.),
-                )
+                let coord = |p: Vec3| gamelogic::common::Coord3D::new(p.x, p.z, p.y);
+                let mut info = gamelogic::terrain::BridgeInfo::new();
+                info.from_left = coord(Vec3::new(40., 55., 20.));
+                info.from_right = coord(Vec3::new(70., 55., 20.));
+                info.to_left = coord(Vec3::new(40., 55., 40.));
+                info.to_right = coord(Vec3::new(70., 55., 40.));
+                let layer = world.reserve_owned_bridge(&info);
+                world
+                    .world_services
+                    .terrain()
+                    .write()
+                    .unwrap()
+                    .prepend_bridge_on_layer(
+                        info,
+                        "OwnedGroupDeck".into(),
+                        gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
+                    );
+                layer
             };
             let layer_a = bridge(&mut a);
             let layer_b = bridge(&mut b);
