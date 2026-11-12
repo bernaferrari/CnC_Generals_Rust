@@ -19,17 +19,27 @@ impl GameLogic {
                 })
                 .any(|candidate| candidate.eq_ignore_ascii_case(token))
         };
+        // Every KindOf.h token the host capability set names maps directly;
+        // the branches below cover only tokens outside that table or with
+        // extra admission effects.
+        for token in kind_of.split(|character: char| {
+            character.is_ascii_whitespace() || matches!(character, ',' | '|')
+        }) {
+            if let Some(kind) = KindOf::from_ini_token(token) {
+                template.add_kind_of(kind);
+            }
+        }
+        // C++ KINDOF_HERO (KindOf.h): hero rules and the presentation bit read
+        // the authored token.
+        if has_kind("hero") {
+            template.add_kind_of(KindOf::Hero);
+        }
 
         if has_kind("dozer") {
             template.add_kind_of(KindOf::Dozer);
         }
         if has_kind("harvester") {
             template.add_kind_of(KindOf::Harvester);
-        }
-        // C++ KINDOF_PRODUCED_AT_HELIPAD (KindOf.h) — JetAI / parking / group
-        // pathing. Authored token only; never infer from template basename.
-        if has_kind("produced_at_helipad") {
-            template.add_kind_of(KindOf::ProducedAtHelipad);
         }
         // ActionManager uses these exact authored KindOf bits for service
         // target validation.  Do not collapse them into BuildingType or
@@ -55,9 +65,6 @@ impl GameLogic {
         }
         if has_kind("cannot_build_near_supplies") {
             template.add_kind_of(KindOf::CannotBuildNearSupplies);
-        }
-        if has_kind("reject_unmanned") {
-            template.add_kind_of(KindOf::RejectUnmanned);
         }
         if has_kind("unattackable") {
             template.add_kind_of(KindOf::Unattackable);
@@ -100,66 +107,14 @@ impl GameLogic {
         if has_kind("salvager") {
             template.add_kind_of(KindOf::Salvager);
         }
-        // C++ KindOf.h:63-67,86 — authored bits EVA/victory/selection consume.
-        if has_kind("always_selectable") {
-            template.add_kind_of(KindOf::AlwaysSelectable);
-        }
-        if has_kind("mp_count_for_victory") {
-            template.add_kind_of(KindOf::MpCountForVictory);
-        }
-        if has_kind("score") {
-            template.add_kind_of(KindOf::Score);
-        }
-        if has_kind("score_create") {
-            template.add_kind_of(KindOf::ScoreCreate);
-        }
-        if has_kind("score_destroy") {
-            template.add_kind_of(KindOf::ScoreDestroy);
-        }
-        if has_kind("no_garrison") {
-            template.add_kind_of(KindOf::NoGarrison);
-        }
-        if has_kind("stealth_garrison") {
-            template.add_kind_of(KindOf::StealthGarrison);
-        }
-        if has_kind("tech_building") {
-            template.add_kind_of(KindOf::TechBuilding);
-        }
-        if has_kind("garrisonable_until_destroyed") {
-            template.add_kind_of(KindOf::GarrisonableUntilDestroyed);
-        }
 
-        if has_kind("drone") {
-            template.add_kind_of(KindOf::Drone);
-        }
-        if has_kind("boat") {
-            template.add_kind_of(KindOf::Boat);
-        }
-        if has_kind("transport") {
-            template.add_kind_of(KindOf::Transport);
-        }
         if has_kind("immune_to_capture") {
             template.add_kind_of(KindOf::ImmuneToCapture);
             template.immune_to_capture = true;
         }
-        if has_kind("defensive_wall") {
-            template.add_kind_of(KindOf::DefensiveWall);
-        }
-        if has_kind("walk_on_top_of_wall") {
-            template.add_kind_of(KindOf::WalkOnTopOfWall);
-        }
-        if has_kind("bridge") {
-            template.add_kind_of(KindOf::Bridge);
-        }
         if has_kind("landmark_bridge") {
             template.add_kind_of(KindOf::LandmarkBridge);
             template.add_kind_of(KindOf::Bridge);
-        }
-        if has_kind("bridge_tower") {
-            template.add_kind_of(KindOf::BridgeTower);
-        }
-        if has_kind("can_see_through") || has_kind("can_see_through_structure") {
-            template.add_kind_of(KindOf::CanSeeThrough);
         }
         if has_kind("reveal_to_all") {
             template.reveal_to_all = true;
@@ -167,60 +122,10 @@ impl GameLogic {
         if has_kind("always_visible") {
             template.always_visible = true;
         }
-        // C++ KINDOF_AUTO_RALLYPOINT — factory empty-ground SET_RALLY_POINT.
-        if has_kind("auto_rallypoint") || has_kind("auto_rally_point") {
-            template.add_kind_of(KindOf::AutoRallypoint);
-        }
-        // C++ Object::setDisabledUntil/clearDisabled gate slave propagation on
-        // this exact authored KindOf bit before querying SpawnBehavior. Keep it
-        // distinct from the presence of hive soldiers or a familiar basename.
-        if has_kind("spawns_are_the_weapons") {
-            template.add_kind_of(KindOf::SpawnsAreTheWeapons);
-        }
-        if has_kind("portable_structure") {
-            template.add_kind_of(KindOf::PortableStructure);
-        }
-        if has_kind("booby_trap") {
-            template.add_kind_of(KindOf::BoobyTrap);
-        }
-        if has_kind("mob_nexus") {
-            template.add_kind_of(KindOf::MobNexus);
-        }
         // C++ KINDOF_CAN_BE_REPULSED: civilians that flee repulsors
         // (AIStates.cpp wander/panic leftover-bail, ActiveBody repulsor mark).
         if has_kind("can_be_repulsed") {
             template.add_kind_of(KindOf::CanBeRepulsed);
-        }
-        // C++ KINDOF_NO_COLLIDE — PartitionData::collidesWith is FALSE.
-        if has_kind("no_collide") {
-            template.add_kind_of(KindOf::NoCollide);
-        }
-        // C++ KINDOF_FORCEATTACKABLE — civ fences / cargo planes pickable
-        // via force-attack and hover even when not Selectable.
-        if has_kind("forceattackable") || has_kind("force_attackable") {
-            template.add_kind_of(KindOf::ForceAttackable);
-        }
-        if has_kind("shrubbery") {
-            template.add_kind_of(KindOf::Shrubbery);
-        }
-        if has_kind("cleared_by_build") || has_kind("clearedbybuild") {
-            template.add_kind_of(KindOf::ClearedByBuild);
-        }
-        if has_kind("inert") {
-            template.add_kind_of(KindOf::Inert);
-        }
-        // C++ KINDOF_BLAST_CRATER — permanent pathfind crater footprints.
-        if has_kind("blast_crater") {
-            template.add_kind_of(KindOf::BlastCrater);
-        }
-        if has_kind("huge_vehicle") {
-            template.add_kind_of(KindOf::HugeVehicle);
-        }
-        if has_kind("cliff_jumper") || has_kind("cliffjumper") {
-            template.add_kind_of(KindOf::CliffJumper);
-        }
-        if has_kind("linebuild") || has_kind("line_build") {
-            template.add_kind_of(KindOf::LineBuild);
         }
     }
 
