@@ -291,26 +291,32 @@ mod tests {
         assert!(find_sabl_suffix(b"no-magic-here").is_none());
     }
 
+    /// Ranger, Burton and the barracks come from authored INI in every world;
+    /// the infantry own AIUpdateInterface so their AI state is saved and restored.
+    fn admit_ability_owners(world: &mut GameLogic) {
+        use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+        admit_fixture_objects(
+            world,
+            &[
+                FixtureObject::new("USARanger")
+                    .kind_of("INFANTRY SELECTABLE")
+                    .health(100.0)
+                    .walker(),
+                FixtureObject::new("AmericaColonelBurton")
+                    .kind_of("INFANTRY SELECTABLE")
+                    .health(100.0)
+                    .walker(),
+                FixtureObject::new("AmericaBarracks")
+                    .kind_of("STRUCTURE")
+                    .health(1000.0),
+            ],
+        );
+    }
+
     #[test]
     fn snapshot_round_trips_capture_channel_and_c4_unpack() {
         let mut source = GameLogic::new();
-        let mut ranger = ThingTemplate::new("USARanger");
-        ranger
-            .add_kind_of(crate::game_logic::KindOf::Infantry)
-            .add_kind_of(crate::game_logic::KindOf::Selectable);
-        source.templates.insert("USARanger".to_string(), ranger);
-        let mut burton = ThingTemplate::new("AmericaColonelBurton");
-        burton
-            .add_kind_of(crate::game_logic::KindOf::Infantry)
-            .add_kind_of(crate::game_logic::KindOf::Selectable);
-        source
-            .templates
-            .insert("AmericaColonelBurton".to_string(), burton);
-        let mut barracks = ThingTemplate::new("AmericaBarracks");
-        barracks.add_kind_of(crate::game_logic::KindOf::Structure);
-        source
-            .templates
-            .insert("AmericaBarracks".to_string(), barracks);
+        admit_ability_owners(&mut source);
         source.add_player(Player::new(0, Team::USA, "USA", true));
 
         let ranger_id = source
@@ -377,8 +383,8 @@ mod tests {
         );
 
         let mut restored = GameLogic::new();
+        admit_ability_owners(&mut restored);
         restored.add_player(Player::new(0, Team::USA, "USA", true));
-        restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
