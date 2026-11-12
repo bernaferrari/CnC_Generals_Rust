@@ -12,20 +12,23 @@ use crate::game_logic::GameMode;
 
 const CC_TEMPLATE: &str = "AmericaCommandCenter";
 
-fn ensure_cc_template(logic: &mut GameLogic) {
-    if logic.templates.contains_key(CC_TEMPLATE) {
-        return;
-    }
-    // KindOf parity with the retail AmericaCommandCenter INI: CommandCenter
-    // (radar provider gate) + MpCountForVictory (victory building gate).
-    let mut t = ThingTemplate::new(CC_TEMPLATE);
-    t.set_health(5000.0);
-    t.add_kind_of(KindOf::Structure);
-    t.add_kind_of(KindOf::CommandCenter);
-    t.add_kind_of(KindOf::Selectable);
-    t.add_kind_of(KindOf::Attackable);
-    t.add_kind_of(KindOf::MpCountForVictory);
-    logic.templates.insert(CC_TEMPLATE.into(), t);
+/// Retail AmericaCommandCenter and dozer, authored before NewGame
+/// (GameEngine.cpp:428-458). Radar comes from the CC's authored RadarUpgrade.
+fn admit_radar_content(logic: &mut GameLogic) {
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    admit_fixture_objects(
+        logic,
+        &[
+            FixtureObject::new(CC_TEMPLATE)
+                .kind_of("STRUCTURE COMMANDCENTER SELECTABLE MP_COUNT_FOR_VICTORY")
+                .health(5000.0)
+                .radar_provider(),
+            FixtureObject::new("AmericaVehicleDozer")
+                .kind_of("VEHICLE DOZER SELECTABLE")
+                .walker()
+                .dozer(),
+        ],
+    );
 }
 
 fn spawn_constructed_cc(logic: &mut GameLogic, owner: u32, at: Vec3) -> u32 {
@@ -64,9 +67,8 @@ fn assert_radar_kept(logic: &GameLogic, local: u32, ctx: &str) {
 fn fresh_shadow_skirmish_coupled_session_keeps_local_radar() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MinimapSeamFresh");
-    logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");
+    admit_radar_content(&mut logic);
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    ensure_cc_template(&mut logic);
     let local = local_player_id(&logic);
     let _cc = spawn_constructed_cc(&mut logic, local, Vec3::new(10.0, 0.0, 10.0));
 
@@ -83,9 +85,8 @@ fn shell_to_skirmish_coupled_session_keeps_local_radar() {
     // Shell phase (live: GAME_SHELL with bootstrap players), then match start
     // on the SAME GameLogic + persistent GameWorldShadow.
     let mut logic = GameLogic::new();
-    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    admit_radar_content(&mut logic);
     logic.start_new_game(GameMode::Shell).unwrap();
-    ensure_cc_template(&mut logic);
     let _prop = logic
         .create_object("AmericaVehicleDozer", Team::USA, Vec3::new(1.0, 0.0, 1.0))
         .expect("shell prop");
@@ -98,8 +99,6 @@ fn shell_to_skirmish_coupled_session_keeps_local_radar() {
 
     let cfg = golden_skirmish_config("MinimapSeamRepro");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    // New-game setup replaces definitions; admit this fixture in the match catalog.
-    ensure_cc_template(&mut logic);
     let local = local_player_id(&logic);
     let _cc = spawn_constructed_cc(&mut logic, local, Vec3::new(10.0, 0.0, 10.0));
     logic.update_player_radar();
