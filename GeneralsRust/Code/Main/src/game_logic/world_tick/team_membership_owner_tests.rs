@@ -426,7 +426,8 @@ fn native_death_notification_never_creates_or_retargets_a_same_name_team() {
 fn death_runs_the_resident_team_script_on_the_receiving_world_once() {
     use game_engine::common::{dict::Dict, well_known_keys::key_team_on_unit_destroyed_script};
     use gamelogic::scripting::core::{
-        Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
     };
 
     fn configure(world: &mut GameLogic) -> ObjectId {
@@ -459,6 +460,13 @@ fn death_runs_the_resident_team_script_on_the_receiving_world_once() {
         let mut script = Script::new();
         script.script_name = "OnMemberDeath".into();
         script.is_subroutine = true;
+        // ScriptEngine.cpp evaluateConditions starts false: a script fires its
+        // actions only through an authored OrCondition (WorldBuilder's TRUE).
+        let mut condition = OrCondition::new();
+        condition.set_first_and_condition(Some(Box::new(Condition::new(
+            ConditionType::ConditionTrue,
+        ))));
+        script.condition = Some(Box::new(condition));
         script.action = Some(Box::new(action));
         let mut list = ScriptList::new();
         list.append_script(Box::new(script));
