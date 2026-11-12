@@ -218,7 +218,8 @@ mod leftover_audio_event_rts_tests {
     #[test]
     fn leftover_the_audio_missing_info_returns_ahsv_error() {
         // C++ AudioManager::addAudioEvent (GameAudio.cpp:391-396)
-        let audio = crate::helpers::TheAudio::get().unwrap();
+        let world = crate::system::engine_stores::new_world_services();
+        let audio = crate::helpers::TheAudio::of(&world);
         let event = AudioEventRts::new("DefinitelyNotARealAudioEvent_hq_wlv76");
         let handle = audio.add_audio_event(&event);
         assert_eq!(
@@ -230,7 +231,8 @@ mod leftover_audio_event_rts_tests {
 
     #[test]
     fn leftover_the_audio_length_ms_missing_info_is_zero() {
-        let audio = crate::helpers::TheAudio::get().unwrap();
+        let world = crate::system::engine_stores::new_world_services();
+        let audio = crate::helpers::TheAudio::of(&world);
         let event = AudioEventRts::new("DefinitelyNotARealAudioEvent_hq_wlv76_len");
         assert_eq!(audio.get_audio_length_ms(&event), 0.0);
     }

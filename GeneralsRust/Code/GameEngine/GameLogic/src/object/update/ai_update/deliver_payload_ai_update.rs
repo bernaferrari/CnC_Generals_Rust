@@ -1290,7 +1290,7 @@ impl DeliverPayloadAIUpdate {
                 {
                     let pos = owner_guard.get_position();
                     sound.set_position(&(pos.x, pos.y, pos.z));
-                    if let Some(audio) = TheAudio::get() {
+                    if let Some(audio) = TheAudio::of_object(&owner_guard) {
                         audio.add_audio_event(&sound);
                     }
                 }

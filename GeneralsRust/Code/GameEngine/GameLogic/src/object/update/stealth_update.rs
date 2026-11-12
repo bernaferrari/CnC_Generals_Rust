@@ -58,17 +58,18 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 fn play_update_stealth_sound(object_id: ObjectID, stealth_on: bool) {
-    let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
-        if stealth_on {
+    let Some((mut event, audio)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        let event = if stealth_on {
             obj.get_template().get_sound_stealth_on()
         } else {
             obj.get_template().get_sound_stealth_off()
-        }
+        };
+        (event, TheAudio::of_object(obj))
     }) else {
         return;
     };
     event.set_object_id(object_id);
-    if let Some(audio) = TheAudio::get() {
+    if let Some(audio) = audio {
         audio.add_audio_event(&event);
     }
 }

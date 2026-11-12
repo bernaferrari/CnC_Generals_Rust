@@ -1302,7 +1302,7 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
                             let mut sound = gunship.get_template().get_voice_attack();
                             if !sound.event_name.is_empty() {
                                 sound.set_object_id(gunship.get_id());
-                                if let Some(audio) = TheAudio::get() {
+                                if let Some(audio) = TheAudio::of_object(&gunship) {
                                     audio.add_audio_event(&sound);
                                 }
                             }
