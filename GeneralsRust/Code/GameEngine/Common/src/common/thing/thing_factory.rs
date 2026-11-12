@@ -105,6 +105,11 @@ impl DetachedTemplateView {
 }
 
 /// Object creator callback to bridge Common ThingFactory -> GameLogic.
+///
+/// `create_object` is C++ `ThingFactory::newObject` after the build-variation
+/// draw (ThingFactory.cpp:300-319): create with `status_bits` already set,
+/// run every CreateModule's onCreate, register with the partition, then
+/// initObject, in that order and exactly once.
 pub trait ObjectCreator: Send + Sync {
     fn create_object(
         &self,
@@ -822,23 +827,11 @@ impl ThingFactory {
             )));
         }
 
-        // Create the object (this would interface with GameLogic)
-        let obj = self.create_object_impl(final_template, status_bits, team)?;
-
-        // Run create functions for all behavior modules
-        for module in obj.get_behavior_modules() {
-            if let Some(create_interface) = module.get_create_interface() {
-                create_interface.on_create();
-            }
-        }
-
-        // C++ ThingFactory.cpp: all objects join the existing partition manager.
-        obj.register_with_partition();
-
-        // Initialize the object
-        obj.init_object();
-
-        Ok(obj)
+        // C++ ThingFactory.cpp:300-319 after the variation draw:
+        // friend_createObject (statusBits set before onCreate), every
+        // CreateModule's onCreate, PartitionManager::registerObject, then
+        // initObject. The installed ObjectCreator owns that whole birth, once.
+        self.create_object_impl(final_template, status_bits, team)
     }
 
     /// Create a new drawable from template

@@ -33,22 +33,6 @@ impl engine_module::Object for CommonObjectHandle {
             .unwrap_or_default()
     }
 
-    fn init_object(&self) {
-        if let Ok(guard) = self.object.read() {
-            guard.init_object();
-        }
-    }
-
-    fn register_with_partition(&self) {
-        let Ok(guard) = self.object.read() else {
-            return;
-        };
-        let Some(partition) = crate::helpers::ThePartitionManager::get() else {
-            return;
-        };
-        partition.register_object_at(guard.get_id(), *guard.get_position());
-    }
-
     fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn engine_module::Object>>> {
         let arc: Arc<RwLock<dyn engine_module::Object>> = self.object.clone();
         Some(arc)
@@ -104,17 +88,17 @@ impl ObjectCreator for GameLogicObjectCreator {
         let template_name = template.get_name().to_string();
         let team_arc = Self::resolve_team(team);
 
+        // C++ friend_createObject(tmplate, statusBits, team): status is on the
+        // Object before onCreate. The GameLogic birth then runs onCreate,
+        // partition registration and initObject (ThingFactory.cpp:303-319).
+        let mut flags = ObjectCreationFlags::from_template();
+        flags.status_mask = GameLogicStatusMask::from_bits_truncate(status_bits as u64);
         let object_id = get_object_manager()
             .write()
             .map_err(|_| {
                 ThingCreationError::CreationFailed("ObjectManager lock poisoned".to_string())
             })?
-            .create_object(
-                &template_name,
-                Coord3D::new(0.0, 0.0, 0.0),
-                team_arc,
-                ObjectCreationFlags::from_template(),
-            )
+            .create_object(&template_name, Coord3D::new(0.0, 0.0, 0.0), team_arc, flags)
             .map_err(|e| ThingCreationError::CreationFailed(e.to_string()))?;
 
         let base = get_object_manager()
@@ -126,13 +110,6 @@ impl ObjectCreator for GameLogicObjectCreator {
             .ok_or_else(|| {
                 ThingCreationError::CreationFailed("Created object not found".to_string())
             })?;
-
-        let mask = GameLogicStatusMask::from_bits_truncate(status_bits as u64);
-        if !mask.is_empty() {
-            if let Ok(mut guard) = base.write() {
-                guard.set_status(mask, true);
-            }
-        }
 
         Ok(Box::new(CommonObjectHandle { object: base }))
     }
