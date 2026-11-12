@@ -90,7 +90,9 @@ fn cold_world_handlers_do_not_create_grid_or_reset_peer_admission() {
             );
             peer.initialize_receiving_partition_grid()
                 .expect("peer receiving grid");
-            assert_eq!(grid(&peer), Some((4, 3, 64.0)));
+            // C++ BaseType.h fast_float_ceil adds 0.99999994f, which rounds an
+            // integral quotient up: REAL_TO_INT_CEIL(256/64)=5, (192/64)=4.
+            assert_eq!(grid(&peer), Some((5, 4, 64.0)));
 
             // CIA Intelligence: live enemy object reaches the per-unit shroud branch.
             assert!(cold.activate_cia_intelligence(0, Team::USA, Some(source)));
@@ -157,7 +159,7 @@ fn cold_world_handlers_do_not_create_grid_or_reset_peer_admission() {
 
             assert_eq!(
                 grid(&peer),
-                Some((4, 3, 64.0)),
+                Some((5, 4, 64.0)),
                 "cold-world handlers must not create/reset another owner's admitted grid"
             );
         },
