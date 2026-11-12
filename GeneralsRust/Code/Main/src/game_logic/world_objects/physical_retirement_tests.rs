@@ -634,6 +634,9 @@ fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
             // Numeric identity reuse in one world cannot act on its same-ID peer.
             assert!(peer.objects.contains_key(&peer_id));
             assert!(!peer.objects[&peer_id].status.destroyed);
+            // Reset clears the sides (PlayerList::reset); the next game admits
+            // them again before any Object exists (GameLogic.cpp:1468).
+            owner.add_player(Player::new(1, Team::USA, "PhysicalOwner", true));
             let new_id = owner
                 .create_object("PhysicalOwner", Team::USA, Vec3::ZERO)
                 .unwrap();
