@@ -124,6 +124,12 @@ impl PartitionManager {
         Ok(())
     }
 
+    /// Whether this partition already holds the Object (C++
+    /// `Object::friend_getPartitionData() != NULL`).
+    pub fn contains_object(&self, object_id: ObjectID) -> bool {
+        self.object_cells.contains_key(&object_id)
+    }
+
     pub fn add_object(&mut self, object_id: ObjectID, position: (f32, f32, f32)) {
         let pos = Coord3D::new(position.0, position.1, position.2);
         let cell = self.position_to_cell(pos);

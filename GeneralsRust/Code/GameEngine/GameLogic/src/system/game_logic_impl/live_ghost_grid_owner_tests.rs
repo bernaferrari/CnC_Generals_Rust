@@ -46,11 +46,18 @@ struct WorldFixture {
 }
 
 impl WorldFixture {
+    /// One world's own birth: C++ GameLogic allocates the ObjectID, then
+    /// ThingFactory::newObject registers the Object with that world's
+    /// PartitionManager (which attaches the ghost).
     fn new() -> Self {
         let mut factory = ObjectFactory::new();
+        let mut world = GameLogic::new();
+        let template = crate::helpers::TheThingFactory::find_template("LiveGhostGridBuilding")
+            .expect("admitted fixture definition");
         let id = factory
-            .create_object(
-                "LiveGhostGridBuilding",
+            .prepare_object(
+                &mut world,
+                template,
                 Coord3D::new(20.0, 20.0, 0.0),
                 None,
                 ObjectCreationFlags::NO_DRAWABLE | ObjectCreationFlags::NO_AI,
@@ -58,8 +65,7 @@ impl WorldFixture {
             .unwrap();
         let owner = factory.get_object(id).unwrap().get_base_object().unwrap();
         assert!(owner.read().unwrap().is_kind_of(KindOf::Immobile));
-        let mut world = GameLogic::new();
-        assert_eq!(world.register_object(Arc::clone(&owner)).unwrap(), id);
+        world.register_object_with_partition(id, &owner);
         assert!(Arc::ptr_eq(world.objects.get(&id).unwrap(), &owner));
         assert!(world.partition_manager.ghost_link_scene_id(id).is_some());
         Self {
@@ -169,36 +175,34 @@ fn live_ghost_query_can_borrow_grid_while_its_game_logic_mutex_is_held() {
     }
     let _serial = crate::test_sync::lock();
     definitions();
-    let fixture = WorldFixture::new();
     let _primary = RestorePrimary::install(false, false);
-    // Factory admitted this exact owner through the Helpers adapter, which
-    // tracks the canonical update list but does not attach partition ghosts.
-    // Exercise the existing full GameLogic registration path for this owner;
-    // no private ghost map/link insertion and no additional object allocation.
+    // Ordinary factory birth through the driving GameLogic: C++
+    // ThingFactory::newObject registers the Object with the partition (and
+    // its ghost) during birth, so re-registration is a no-op.
+    let mut factory = ObjectFactory::new();
+    let id = factory
+        .create_object(
+            "LiveGhostGridBuilding",
+            Coord3D::new(20.0, 20.0, 0.0),
+            None,
+            ObjectCreationFlags::NO_DRAWABLE | ObjectCreationFlags::NO_AI,
+        )
+        .unwrap();
+    let born = factory.get_object(id).unwrap().get_base_object().unwrap();
     let mut driving = get_game_logic().lock().unwrap();
-    assert!(Arc::ptr_eq(
-        driving.objects.get(&fixture.id).unwrap(),
-        &fixture.owner
-    ));
-    assert_eq!(
-        driving.register_object(Arc::clone(&fixture.owner)).unwrap(),
-        fixture.id
-    );
-    assert!(Arc::ptr_eq(
-        driving.objects.get(&fixture.id).unwrap(),
-        &fixture.owner
-    ));
     assert!(
-        driving
-            .partition_manager
-            .ghost_link_scene_id(fixture.id)
-            .is_some()
+        driving.partition_manager.ghost_link_scene_id(id).is_some(),
+        "factory birth attaches the ghost"
     );
+    assert!(Arc::ptr_eq(driving.objects.get(&id).unwrap(), &born));
+    assert_eq!(driving.register_object(Arc::clone(&born)).unwrap(), id);
+    assert!(Arc::ptr_eq(driving.objects.get(&id).unwrap(), &born));
+    assert!(driving.partition_manager.ghost_link_scene_id(id).is_some());
     driving
         .partition_manager
         .do_shroud_reveal(&Coord3D::new(20.0, 20.0, 0.0), 1.0, 1);
     assert_eq!(
-        driving.ghost_shroud_status_for_link(fixture.id, 0),
+        driving.ghost_shroud_status_for_link(id, 0),
         ObjectShroudStatus::Clear
     );
 }

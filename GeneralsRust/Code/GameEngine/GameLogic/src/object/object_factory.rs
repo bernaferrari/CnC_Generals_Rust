@@ -473,6 +473,12 @@ impl ObjectFactory {
         if publish {
             TheGameLogic::register_object(base_object.clone())
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
+            // C++ ThingFactory::newObject (ThingFactory.cpp:313-317): every
+            // Object joins the partition (and gets its ghost) before initObject.
+            crate::system::game_logic::get_game_logic()
+                .lock()
+                .map_err(|_| "Object partition owner poisoned")?
+                .register_object_with_partition(object_id, &base_object);
         }
 
         // new_with_id has already installed modules and run onObjectCreated,
@@ -524,7 +530,7 @@ impl ObjectFactory {
             )?;
         }
 
-        // Collision registration is handled by GameLogic::register_object on base object creation.
+        // Partition, ghost and collision registration happened above, before initObject.
 
         // Register the object
         self.object_registry.insert(object_id, game_object);

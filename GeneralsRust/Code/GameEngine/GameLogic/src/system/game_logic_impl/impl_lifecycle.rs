@@ -207,7 +207,35 @@ impl GameLogic {
         // Dual-world: bind a client drawable when the logic object has none.
         send_object_created(object_id);
 
-        // Add to partition manager
+        // C++ ThingFactory::newObject -> PartitionManager::registerObject.
+        self.register_object_with_partition(object_id, &object);
+
+        // Fire creation event
+        self.event_queue.push(GameEvent::ObjectCreated(object_id));
+
+        // Trigger FOW update for new object
+        // New objects create new vision sources, so FOW needs to be recalculated
+        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            shroud_mgr.force_update();
+        }
+
+        debug!("Registered object {}", object_id);
+        Ok(object_id)
+    }
+
+    /// C++ `PartitionManager::registerObject` (PartitionManager.cpp:2806-2840,
+    /// called from ThingFactory::newObject after onCreate): give an admitted
+    /// Object its partition data, its ghost when eligible
+    /// (PartitionData::attachToObject), collision and pathfinding presence. An
+    /// Object already in this partition is left alone, as in C++.
+    pub fn register_object_with_partition(
+        &mut self,
+        object_id: ObjectID,
+        object: &Arc<RwLock<Object>>,
+    ) {
+        if self.partition_manager.contains_object(object_id) {
+            return;
+        }
         if let Ok(obj) = object.read() {
             let pos = obj.get_position();
             self.partition_manager
@@ -276,18 +304,6 @@ impl GameLogic {
                 });
             }
         }
-
-        // Fire creation event
-        self.event_queue.push(GameEvent::ObjectCreated(object_id));
-
-        // Trigger FOW update for new object
-        // New objects create new vision sources, so FOW needs to be recalculated
-        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
-            shroud_mgr.force_update();
-        }
-
-        debug!("Registered object {}", object_id);
-        Ok(object_id)
     }
 
     /// Add an already-registered object to the internal update lists
