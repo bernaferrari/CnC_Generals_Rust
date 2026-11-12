@@ -1060,15 +1060,36 @@ mod tests {
     use super::*;
     #[test]
     fn spawn_point_invalid_occupant_and_v43_fail_before_world_replacement() {
-        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use crate::game_logic::Team;
         use crate::save_load::snapshot::SnapshotBuilder;
-        let mut source = GameLogic::new();
-        let mut site = ThingTemplate::new("GLAStingerSite");
-        site.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::SpawnsAreTheWeapons)
-            .set_health(1000.0);
-        source.templates.insert("GLAStingerSite".into(), site);
+        // Retail GLAStingerSite authors SpawnBehavior (its Stinger soldiers)
+        // and a production exit, all admitted before NewGame.
+        fn world() -> GameLogic {
+            use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+            let mut world = GameLogic::new();
+            admit_fixture_objects(
+                &mut world,
+                &[
+                    FixtureObject::new("GLAStingerSite")
+                        .kind_of("STRUCTURE SPAWNS_ARE_THE_WEAPONS")
+                        .health(1000.0)
+                        .module("Behavior = SpawnBehavior SpawnTag\n SpawnNumber = 1\n SpawnReplaceDelay = 1000\n SpawnTemplateName = GLAInfantryStingerSoldier\nEnd")
+                        .module("Behavior = DefaultProductionExitUpdate Exit\nEnd"),
+                    FixtureObject::new("GLAInfantryStingerSoldier")
+                        .kind_of("INFANTRY")
+                        .health(100.0),
+                    FixtureObject::new("Sentinel").health(100.0),
+                ],
+            );
+            world
+        }
+        let mut source = world();
         source.create_object("GLAStingerSite", Team::GLA, glam::Vec3::ZERO).unwrap();
+        // SpawnBehavior creates its first child on update (SpawnBehavior.cpp:186-247).
+        source.frame = 1;
+        source
+            .update_spawn_behavior_with_effects(&mut Default::default())
+            .unwrap();
         let builder = SnapshotBuilder::new();
         let mut snapshot = builder.create_world_snapshot(&source).unwrap();
         let prefix = super::super::combat_projectile_persist::historical_prefix_len(
@@ -1080,9 +1101,7 @@ mod tests {
         let mut damaged = encode_lifecycle_tail(&tail);
         damaged.extend_from_slice(&snapshot.lifecycle_tail[prefix..]);
         snapshot.lifecycle_tail = damaged;
-        let mut receiver = GameLogic::new();
-        receiver.templates = source.templates.clone();
-        receiver.templates.insert("Sentinel".into(), ThingTemplate::new("Sentinel"));
+        let mut receiver = world();
         let sentinel = receiver.create_object("Sentinel", Team::USA, glam::Vec3::X).unwrap();
         let before = receiver.host_object(sentinel).unwrap().get_position();
         assert!(builder.restore_from_snapshot(&snapshot, &mut receiver).is_err());
