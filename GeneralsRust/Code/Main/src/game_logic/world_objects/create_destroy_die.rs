@@ -1652,17 +1652,9 @@ impl GameLogic {
         }) {
             return Ok(None);
         }
-        // Map-load skip list: decorative / overloaded templates (AngryMob nexus
-        // projectiles, cinematic shells, …). Intentional residual / test spawns
-        // that already registered a template are fail-open (host Angry Mob path).
-        if Self::should_skip_map_object_template(template_name)
-            && !self
-                .templates
-                .keys()
-                .any(|name| name.eq_ignore_ascii_case(template_name))
-        {
-            return Ok(None);
-        }
+        // GameLogic.cpp's illegalTemplateNames belongs to its debug spawn-all
+        // harness; ordinary creation (OCL, upgrades, scripts) never consults it.
+        // Map loading keeps its own filter in map_object_team.
 
         if !self.ensure_host_spawn_template(template_name) {
             // Do not invent a proxy for an unresolved gameplay or map
