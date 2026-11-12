@@ -989,10 +989,11 @@ impl GameLogic {
         // C++ privateAttackMoveToPosition returns before setState when
         // isMobile() is false (KINDOF_IMMOBILE or disabled). A deploy pack
         // block is still mobile.
-        let (alive, can_attack, mobile) = match self.objects.get(&id) {
+        // It then enters AI_ATTACK_MOVE_TO whatever the weapons
+        // (AIUpdate.cpp:3558-3572); a weaponless mover simply never acquires.
+        let (alive, mobile) = match self.objects.get(&id) {
             Some(unit) => (
                 unit.is_alive(),
-                unit.can_attack() || unit.weapon.is_some(),
                 !unit.is_kind_of(crate::game_logic::KindOf::Immobile) && !unit.is_disabled(),
             ),
             None => return Ok(false),
@@ -1053,7 +1054,7 @@ impl GameLogic {
                 if unit.ai_state() != AIState::Idle {
                     entered_idle = true;
                 }
-            } else if can_attack && (path_ok || deploy_blocked || already_there) {
+            } else if path_ok || deploy_blocked || already_there {
                 if path_ok {
                     unit.ignored_obstacle_id = None;
                 }
@@ -1067,17 +1068,6 @@ impl GameLogic {
                     );
                 }
                 unit.unit_ai_runtime.set_attack_move_goal(destination);
-            } else if path_ok && unit.ai_state() != AIState::Moving {
-                unit.ignored_obstacle_id = None;
-                unit.is_attack_path = false;
-                unit.set_ai_state(
-                    AIState::Moving,
-                    self.frame,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-            } else if path_ok {
-                unit.ignored_obstacle_id = None;
-                unit.is_attack_path = false;
             }
             drop(unit);
             if entered_idle && !self.enter_base_ai_idle_owned(id, effects)? {
