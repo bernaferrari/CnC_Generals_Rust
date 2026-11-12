@@ -1026,7 +1026,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                         if !self.howitzer_fire_sound.event_name.is_empty() {
                             let mut event = self.howitzer_fire_sound.clone();
                             event.set_object_id(gunship.get_id());
-                            if let Some(audio) = TheAudio::of_object(&obj_guard) {
+                            if let Some(audio) = TheAudio::of_object(&gunship) {
                                 audio.add_audio_event(&event);
                             }
                         }

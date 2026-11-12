@@ -1067,7 +1067,7 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                     };
 
                     if let Some(sound_name) = ping_sound.as_ref() {
-                        if let Some(audio) = TheAudio::of_object(&obj_guard) {
+                        if let Some(audio) = TheAudio::of_object(&obj) {
                             let mut event =
                                 crate::common::audio::AudioEventRts::new(sound_name.clone());
                             event.set_object_id(obj.get_id());

@@ -121,5 +121,7 @@ pub(super) fn do_bounce_sound(
     let _ = (prev_pos, mass, NORMAL_VEL_Z, NORMAL_MASS);
     let mut event = sound.clone();
     event.set_object_id(obj.get_id() as u32);
-    let _ = TheAudio.add_audio_event(&event);
+    if let Some(audio) = TheAudio::of_object(obj) {
+        audio.add_audio_event(&event);
+    }
 }

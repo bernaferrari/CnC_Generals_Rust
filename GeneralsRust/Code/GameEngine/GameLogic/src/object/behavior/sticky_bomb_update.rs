@@ -273,10 +273,11 @@ impl StickyBombUpdate {
                     }
                     let created = obj.get_template().get_per_unit_sound("StickyBombCreated");
                     let _ = obj.set_position(&pos);
+                    let audio = TheAudio::of_object(&obj);
                     drop(obj);
 
                     if let Some(sound) = created {
-                        if let Some(audio) = TheAudio::of_object(&obj) {
+                        if let Some(audio) = audio {
                             let mut event = sound;
                             event.set_position(&(pos.x, pos.y, pos.z));
                             audio.add_audio_event(&event);
