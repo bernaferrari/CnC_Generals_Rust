@@ -742,7 +742,8 @@ pub fn init_global_audio_settings() {
 
 /// Get a handle to the global audio settings if initialized
 pub fn get_audio_settings() -> Option<Arc<RwLock<AudioSettings>>> {
-    Some(Arc::clone(&crate::common::common_services::common_services().ini.audio_settings))
+    crate::common::common_services::try_common_services()
+        .map(|services| Arc::clone(&services.ini.audio_settings))
 }
 
 /// Get a read guard to the global audio settings

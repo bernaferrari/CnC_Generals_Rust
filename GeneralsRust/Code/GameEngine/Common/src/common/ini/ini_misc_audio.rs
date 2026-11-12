@@ -690,9 +690,11 @@ pub fn init_global_misc_audio() {
     *misc_audio.write() = MiscAudio::new();
 }
 
-/// Get a handle to the global misc audio if initialized
+/// The published engine's MiscAudio. Like C++ `TheAudio` before the engine
+/// exists, no published engine means no MiscAudio (None), never a panic.
 pub fn get_misc_audio() -> Option<Arc<RwLock<MiscAudio>>> {
-    Some(Arc::clone(&crate::common::common_services::common_services().ini.misc_audio))
+    crate::common::common_services::try_common_services()
+        .map(|services| Arc::clone(&services.ini.misc_audio))
 }
 
 /// INI parsing function for MiscAudio definition (matches C++ interface)

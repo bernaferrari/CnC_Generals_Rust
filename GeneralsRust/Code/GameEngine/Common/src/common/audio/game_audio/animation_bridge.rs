@@ -170,8 +170,10 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
 }
 
 /// Access the global audio manager if it has been initialised.
+/// C++ `TheAudio` is null until the engine exists: no published engine means
+/// no manager (None), never a panic.
 pub fn get_global_audio_manager() -> Option<Arc<Mutex<AudioManager>>> {
-    crate::common::common_services::common_services()
+    crate::common::common_services::try_common_services()?
         .system
         .the_audio
         .lock()
