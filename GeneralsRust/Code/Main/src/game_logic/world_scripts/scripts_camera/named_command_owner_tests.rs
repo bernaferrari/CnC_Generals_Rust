@@ -469,6 +469,9 @@ fn active_face_snapshot_preserves_captured_mode_and_future_ai_steps() {
             world
                 .update_ai(&[id], 1.0 / 30.0)
                 .expect("receiving AI operation succeeds");
+            // AIUpdate::update ends in doLocomotor; the receiving step runs that
+            // turn in its movement locomotor pass after the AI phase.
+            world.update_movement_for_test(&[id], 1.0 / 30.0);
         }
         assert_eq!(
             face_projection(&restored, id),
