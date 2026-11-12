@@ -384,9 +384,11 @@ fn owned_ai_repair_commands_follow_cpp_player_index_order() {
             "repair scheduling introduces no RNG draws"
         );
         logic.process_commands();
+        // DozerAIUpdate::newTask records m_task[DOZER_TASK_REPAIR]; the primary
+        // state machine enters it on the next Dozer update, not at command time.
         for &(dozer, bridge) in expected.values() {
             assert_eq!(
-                logic.objects[&dozer].target,
+                logic.objects[&dozer].dozer_tasks.requests[1].target,
                 Some(bridge),
                 "actual queued repair was applied"
             );
