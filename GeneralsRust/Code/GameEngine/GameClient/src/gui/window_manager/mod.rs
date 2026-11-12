@@ -205,8 +205,9 @@ pub struct WindowManager {
 
     // Capture state
     capture_flags: CaptureFlags,
-    /// GUI sounds transitions asked for, played by the next update in this
-    /// manager's client engine.
+    /// GUI sounds the transitions stepped by [`Self::update`] asked for; that
+    /// same update plays them in this manager's client engine (transitions
+    /// only advance frames there).
     transition_sounds: Vec<&'static str>,
 
     // Layouts
