@@ -230,12 +230,12 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
     use std::time::SystemTime;
 
     with_global_data_restored(|| {
-        // Make the ordinary percentage deliberately different from the
-        // authored refund so this cannot pass through the fallback path.
-        game_engine::common::global_data::write().sell_percentage = 0.25;
-
         let command_system = CommandSystem::new();
         let mut logic = GameLogic::new();
+        // Make the ordinary percentage deliberately different from the
+        // authored refund so this cannot pass through the fallback path.
+        // GlobalData SellPercentage is admitted into the receiving world (BuildAssistant::sellObject).
+        logic.admit_sell_percentage(0.25);
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 0;
         logic.add_player(player);
