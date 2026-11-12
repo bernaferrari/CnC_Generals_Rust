@@ -2008,6 +2008,10 @@ fn garrison_really_damaged_edge_ejects_occupants() {
         game_logic.host_object(bunker_id).unwrap().body_damage_state,
         HostBodyDamageType::ReallyDamaged
     );
+    // GarrisonContain.cpp:1724-1732 orders every passenger out on the edge
+    // (orderAllPassengersToExit(CMD_FROM_AI, FALSE)); they leave at the
+    // object-update boundary that follows the damage, not inside attemptDamage.
+    game_logic.flush_pending_garrison_really_damaged_ejects();
 
     let bunker = game_logic.host_object(bunker_id).expect("bunker after");
     assert!(
