@@ -262,6 +262,7 @@ fn no_goal_tread_maintains_and_clears_braking() {
     let mut tmpl = ThingTemplate::new("Tank");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9533), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Treads);
     unit.loco_appearance = LocomotorAppearance::Treads;
     unit.is_braking = true;
     unit.ground_height = 0.0;
@@ -344,6 +345,7 @@ fn move_toward_goal_clears_maintain_position() {
     let mut tmpl = ThingTemplate::new("Hover");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9521), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Hover);
     unit.loco_appearance = LocomotorAppearance::Hover;
     unit.maintain_pos_valid = true;
     unit.maintain_pos = Some(Vec3::new(0.0, 8.0, 0.0));
@@ -367,6 +369,7 @@ fn group_speed_factor_caps_the_live_march() {
     let mut tmpl = ThingTemplate::new("HalfForm");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9523), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::WheelsFour);
     unit.loco_appearance = LocomotorAppearance::WheelsFour;
     unit.group_speed_factor = 0.5;
     unit.movement.max_speed = 40.0;
@@ -413,6 +416,7 @@ fn resting_on_ground_kills_when_the_flag_is_set() {
     tmpl.add_kind_of(KindOf::Infantry);
     tmpl.set_health(50.0);
     let mut unit = Object::new(tmpl, ObjectId(9516), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Other);
     unit.kill_when_resting_on_ground = true;
     unit.ground_height = 0.0;
     unit.set_position(Vec3::ZERO);
@@ -532,6 +536,7 @@ fn climber_path_lead_keeps_goal_y_and_latches_climbing() {
         tmpl.add_kind_of(KindOf::Infantry);
         Object::new(tmpl, id, Team::USA)
     };
+    hand_locomotor(&mut unit, LocomotorAppearance::Climber);
     unit.loco_appearance = LocomotorAppearance::Climber;
     unit.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
     unit.set_position(Vec3::new(0.0, 20.0, 0.0));
@@ -591,6 +596,7 @@ fn climber_descent_reverses_toward_goal() {
         tmpl.add_kind_of(KindOf::Infantry);
         Object::new(tmpl, id, Team::USA)
     };
+    hand_locomotor(&mut unit, LocomotorAppearance::Climber);
     unit.loco_appearance = LocomotorAppearance::Climber;
     unit.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
     // Height-map interpolation at a cell edge can report ground << 20 and
@@ -780,6 +786,7 @@ fn treads_angle_coeff_slows_hard_turns() {
     let mut tmpl = ThingTemplate::new("Crusader");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(tmpl, id, Team::USA);
+    hand_locomotor(&mut tank, LocomotorAppearance::Treads);
     tank.set_position(Vec3::ZERO);
     tank.set_orientation(0.0);
     tank.loco_appearance = LocomotorAppearance::Treads;
@@ -810,6 +817,7 @@ fn wheeled_can_move_backwards_reverses_nearby_rear_goal() {
     let mut tmpl = ThingTemplate::new("Humvee");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut truck = Object::new(tmpl, id, Team::USA);
+    hand_locomotor(&mut truck, LocomotorAppearance::WheelsFour);
     truck.set_position(Vec3::ZERO);
     truck.set_orientation(0.0);
     truck.loco_appearance = LocomotorAppearance::WheelsFour;
@@ -855,6 +863,7 @@ fn march_yaws_around_turn_pivot_offset() {
         let mut tmpl = ThingTemplate::new("CombatBike");
         tmpl.add_kind_of(KindOf::Vehicle);
         let mut bike = Object::new(tmpl, ObjectId(id), Team::USA);
+        hand_locomotor(&mut bike, LocomotorAppearance::Motorcycle);
         bike.set_position(Vec3::ZERO);
         bike.set_orientation(0.0);
         bike.loco_appearance = LocomotorAppearance::Motorcycle;
@@ -889,6 +898,7 @@ fn wings_idle_hold_circles_at_min_speed() {
     let mut tmpl = ThingTemplate::new("Raptor");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(tmpl, id, Team::USA);
+    hand_locomotor(&mut jet, LocomotorAppearance::Wings);
     jet.set_position(Vec3::new(0.0, 50.0, 0.0));
     jet.ground_height = 0.0;
     jet.loco_appearance = LocomotorAppearance::Wings;
@@ -1024,6 +1034,7 @@ fn hover_sets_over_water_from_water_table() {
     let mut tmpl = ThingTemplate::new("CombatChinook");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, id, Team::USA);
+    hand_locomotor(&mut heli, LocomotorAppearance::Hover);
     heli.set_position(Vec3::new(20.0, 5.0, 20.0));
     heli.loco_appearance = LocomotorAppearance::Hover;
     heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
@@ -1048,6 +1059,7 @@ fn hover_sets_over_water_from_water_table() {
             ObjectId(97031),
             Team::USA,
         );
+        hand_locomotor(&mut heli, LocomotorAppearance::Hover);
         heli.loco_appearance = LocomotorAppearance::Hover;
         heli.apply_hover_over_water(true);
         assert!(heli.over_water);
@@ -1207,9 +1219,10 @@ fn maintain_resets_donut_and_clears_braking() {
     truck.donut_timer = 0;
     let _ = truck.loco_maintain_current_position(0.0, 1.0 / 30.0, 0);
     assert!(!truck.is_braking, "maintain must clear IS_BRAKING");
+    // Locomotor.cpp:2420: m_donutTimer = frame + DONUT_TIME_DELAY_SECONDS(2.5) * 30.
     assert_eq!(
         truck.donut_timer,
-        u32::MAX,
+        75,
         "maintain must reset donut timer (Locomotor.cpp:2420-2421)"
     );
 }

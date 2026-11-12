@@ -6,6 +6,7 @@ fn angle_zero_min_stationary_wheels_use_source_full_turn_without_wheel_speed_fac
     let mut template = ThingTemplate::new("AngleWheelsOwner");
     template.add_kind_of(KindOf::Vehicle);
     let mut object = Object::new(template, id, Team::USA);
+    hand_locomotor(&mut object, LocomotorAppearance::WheelsFour);
     object.min_speed = 0.0;
     object.min_turn_speed = 20.0;
     object.loco_appearance = LocomotorAppearance::WheelsFour;
@@ -28,6 +29,7 @@ fn angle_min_speed_uses_same_thrust_position_kernel_without_changing_canonical_g
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Vehicle);
     let mut object = Object::new(template, id, Team::USA);
+    hand_locomotor(&mut object, LocomotorAppearance::Thrust);
     object.set_position(Vec3::new(20.0, 10.0, 20.0));
     object.loco_appearance = LocomotorAppearance::Thrust;
     object.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;

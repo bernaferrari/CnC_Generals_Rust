@@ -612,6 +612,7 @@ fn ground_slam_lifts_a_vehicle_onto_the_cell_just_entered() {
     let mut tmpl = ThingTemplate::new("Truck");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9511), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::WheelsFour);
     unit.loco_appearance = LocomotorAppearance::WheelsFour;
     unit.stick_to_ground = false;
     unit.allow_to_fall = true;
@@ -677,6 +678,7 @@ fn airborne_freefall_is_disabled_without_parachuting() {
     let mut wreck_t = ThingTemplate::new("Wreck");
     wreck_t.add_kind_of(KindOf::Vehicle);
     let mut wreck = Object::new(wreck_t, ObjectId(9513), Team::USA);
+    hand_locomotor(&mut wreck, LocomotorAppearance::Other);
     wreck.is_in_freefall = true;
     wreck.stick_to_ground = false;
     wreck.allow_to_fall = true;
@@ -686,6 +688,7 @@ fn airborne_freefall_is_disabled_without_parachuting() {
     let mut chute_t = ThingTemplate::new("AmericaParachute");
     chute_t.add_kind_of(KindOf::Infantry);
     let mut chute = Object::new(chute_t, ObjectId(9514), Team::USA);
+    hand_locomotor(&mut chute, LocomotorAppearance::Other);
     chute.set_status_parachuting(true);
     chute.is_in_freefall = false;
     chute.stick_to_ground = false;
@@ -714,6 +717,7 @@ fn landing_from_last_frame_air_deals_falling_damage() {
     tmpl.add_kind_of(KindOf::Infantry);
     tmpl.set_health(200.0);
     let mut unit = Object::new(tmpl, ObjectId(9515), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Other);
     unit.was_airborne_last_frame = true;
     unit.immune_to_falling_damage = false;
     unit.stick_to_ground = false;
@@ -769,6 +773,7 @@ fn march_applies_locomotor_physics_options() {
     let mut tmpl = ThingTemplate::new("LocoInf");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut unit = Object::new(tmpl, ObjectId(9520), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Other);
     unit.ultra_accurate = true;
     unit.loco_extra_2d_friction = 0.1;
     unit.stick_to_ground = false;
@@ -818,6 +823,7 @@ fn unblocked_move_keeps_one_blocked_frame() {
     let mut tmpl = ThingTemplate::new("Truck");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9524), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::WheelsFour);
     unit.loco_appearance = LocomotorAppearance::WheelsFour;
     unit.allow_invalid_position = true;
     unit.is_blocked = true;
@@ -840,6 +846,7 @@ fn path_extra_distance_unlatches_braking_before_the_raise() {
     let mut tmpl = ThingTemplate::new("Tank");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9528), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Treads);
     unit.loco_appearance = LocomotorAppearance::Treads;
     unit.allow_invalid_position = true;
     unit.is_braking = true;

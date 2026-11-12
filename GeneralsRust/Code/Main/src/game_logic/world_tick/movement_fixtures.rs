@@ -21,6 +21,39 @@ pub(super) fn ranger_at(id: u32, pos: Vec3) -> Object {
     unit
 }
 
+/// A hand-built Object's authored current Locomotor (C++ doLocomotor runs only
+/// `if (m_curLocomotor)`): the stated appearance and its surfaces, with the
+/// same speed/acceleration/turn values `Object::new` starts from, so tests that
+/// tune runtime fields afterwards keep their numbers.
+pub(super) fn hand_locomotor(unit: &mut Object, appearance: LocomotorAppearance) {
+    let (surfaces, token) = match appearance {
+        LocomotorAppearance::Other => ("GROUND", "OTHER"),
+        LocomotorAppearance::LegsTwo => ("GROUND", "TWO_LEGS"),
+        LocomotorAppearance::WheelsFour => ("GROUND", "FOUR_WHEELS"),
+        LocomotorAppearance::Treads => ("GROUND", "TREADS"),
+        LocomotorAppearance::Hover => ("GROUND WATER", "HOVER"),
+        LocomotorAppearance::Wings => ("AIR", "WINGS"),
+        LocomotorAppearance::Thrust => ("AIR", "THRUST"),
+        LocomotorAppearance::Motorcycle => ("GROUND", "MOTORCYCLE"),
+        LocomotorAppearance::Climber => ("GROUND CLIFF", "CLIMBER"),
+    };
+    let surfaces = format!("Surfaces = {surfaces}");
+    let appearance = format!("Appearance = {token}");
+    crate::fixture_content::locomote(
+        unit,
+        &[
+            &surfaces,
+            "Speed = 10",
+            "SpeedDamaged = 5",
+            "Acceleration = 5",
+            "AccelerationDamaged = 2.5",
+            "TurnRate = 180",
+            "TurnRateDamaged = 90",
+            &appearance,
+        ],
+    );
+}
+
 // A current locomotor is required by C++ isDoingGroundMovement; appearance
 // and surface flags alone do not admit a mobile unit.
 pub(super) fn bind_fixture_locomotor(unit: &mut Object, name: &str) {

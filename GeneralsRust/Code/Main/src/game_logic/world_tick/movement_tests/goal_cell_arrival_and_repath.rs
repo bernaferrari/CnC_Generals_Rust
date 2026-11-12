@@ -44,6 +44,7 @@ fn explicit_goal_does_not_use_path_extra_distance() {
     let mut tmpl = ThingTemplate::new("Tank");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut unit = Object::new(tmpl, ObjectId(9530), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Treads);
     unit.loco_appearance = LocomotorAppearance::Treads;
     unit.allow_invalid_position = true;
     unit.locomotor_goal_type = LocoGoalType::PositionExplicit;
@@ -224,6 +225,7 @@ fn installed_path_registers_the_goal_cell() {
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut unit = Object::new(tmpl, ObjectId(9603), Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Other);
     bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
     unit.selection_radius = 8.0;
     unit.pathfind_goal_cell = (-1, -1);
@@ -558,6 +560,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut unit = Object::new(tmpl, id, Team::USA);
+    hand_locomotor(&mut unit, LocomotorAppearance::Other);
     unit.movement.max_speed = 20.0;
     unit.is_final_goal = true;
     unit.set_position(Vec3::new(10.0, 0.0, 10.0));
@@ -596,6 +599,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     let mut stuck_tmpl = ThingTemplate::new("Ranger");
     stuck_tmpl.add_kind_of(KindOf::Infantry);
     let mut stuck = Object::new(stuck_tmpl, ObjectId(9714), Team::USA);
+    hand_locomotor(&mut stuck, LocomotorAppearance::Other);
     stuck.movement.max_speed = 20.0;
     stuck.is_final_goal = true;
     stuck.set_position(Vec3::new(10.0, 0.0, 10.0));
@@ -618,6 +622,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     let mut free_tmpl = ThingTemplate::new("Ranger");
     free_tmpl.add_kind_of(KindOf::Infantry);
     let mut free = Object::new(free_tmpl, ObjectId(9711), Team::USA);
+    hand_locomotor(&mut free, LocomotorAppearance::Other);
     free.movement.max_speed = 20.0;
     free.is_final_goal = true;
     free.set_position(Vec3::new(10.0, 0.0, 10.0));
@@ -630,6 +635,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     let mut open_tmpl = ThingTemplate::new("Ranger");
     open_tmpl.add_kind_of(KindOf::Infantry);
     let mut open = Object::new(open_tmpl, ObjectId(9712), Team::USA);
+    hand_locomotor(&mut open, LocomotorAppearance::Other);
     open.movement.max_speed = 20.0;
     open.is_final_goal = true;
     open.set_position(Vec3::new(10.0, 0.0, 10.0));
@@ -650,6 +656,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     let mut here_tmpl = ThingTemplate::new("Ranger");
     here_tmpl.add_kind_of(KindOf::Infantry);
     let mut here = Object::new(here_tmpl, ObjectId(9713), Team::USA);
+    hand_locomotor(&mut here, LocomotorAppearance::Other);
     here.movement.max_speed = 20.0;
     here.is_final_goal = true;
     here.set_position(Vec3::new(10.0, 0.0, 10.0));
@@ -828,6 +835,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     let mut keep_tmpl = ThingTemplate::new("Ranger");
     keep_tmpl.add_kind_of(KindOf::Infantry);
     let mut keep = Object::new(keep_tmpl, ObjectId(9726), Team::USA);
+    hand_locomotor(&mut keep, LocomotorAppearance::Other);
     keep.movement.max_speed = 20.0;
     keep.set_position(here);
     keep.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
@@ -849,6 +857,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     let mut clear_tmpl = ThingTemplate::new("Ranger");
     clear_tmpl.add_kind_of(KindOf::Infantry);
     let mut clear = Object::new(clear_tmpl, ObjectId(9727), Team::USA);
+    hand_locomotor(&mut clear, LocomotorAppearance::Other);
     clear.movement.max_speed = 20.0;
     clear.set_position(here);
     clear.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));

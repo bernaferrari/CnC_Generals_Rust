@@ -172,6 +172,7 @@ fn no_slow_down_does_not_latch_is_braking_after_path_raise() {
     let mut tmpl = ThingTemplate::new("Aurora");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(tmpl, id, Team::USA);
+    hand_locomotor(&mut jet, LocomotorAppearance::Other);
     jet.set_position(Vec3::ZERO);
     jet.ground_height = 0.0;
     jet.allow_motive_force_while_airborne = true;
@@ -206,6 +207,7 @@ fn lift_ignores_goal_y_without_precise_z_pos() {
     let mut tmpl = ThingTemplate::new("ComancheHill");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, ObjectId(9816), Team::USA);
+    hand_locomotor(&mut heli, LocomotorAppearance::Hover);
     heli.set_position(Vec3::new(0.0, 80.0, 0.0));
     heli.ground_height = 40.0;
     heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
@@ -240,6 +242,7 @@ fn landing_lift_tracks_runway_goal_y() {
     let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(tmpl, ObjectId(9818), Team::USA);
+    hand_locomotor(&mut jet, LocomotorAppearance::Wings);
     jet.set_position(Vec3::new(0.0, 80.0, 0.0));
     jet.ground_height = 0.0;
     jet.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
@@ -320,6 +323,7 @@ fn surface_relative_is_lift_not_kinematic_snap() {
     let mut tmpl = ThingTemplate::new("ComancheSnap");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, ObjectId(9819), Team::USA);
+    hand_locomotor(&mut heli, LocomotorAppearance::Hover);
     heli.set_position(Vec3::new(0.0, 0.0, 0.0));
     heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
     heli.loco_appearance = LocomotorAppearance::Hover;
@@ -348,6 +352,7 @@ fn absolute_height_is_lift_not_kinematic_snap() {
     let mut tmpl = ThingTemplate::new("ComancheAbs");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, ObjectId(9821), Team::USA);
+    hand_locomotor(&mut heli, LocomotorAppearance::Wings);
     heli.set_position(Vec3::new(0.0, 0.0, 0.0));
     heli.loco_behavior_z = LocomotorBehaviorZ::AbsoluteHeight;
     heli.loco_appearance = LocomotorAppearance::Wings;
@@ -409,6 +414,7 @@ fn hover_ultra_accurate_slides_without_yaw() {
     let mut tmpl = ThingTemplate::new("ChinookSlide");
     tmpl.add_kind_of(KindOf::Aircraft);
     let mut heli = Object::new(tmpl, id, Team::USA);
+    hand_locomotor(&mut heli, LocomotorAppearance::Hover);
     heli.set_position(Vec3::new(0.0, 0.0, 0.0));
     heli.set_orientation(0.0);
     heli.ground_height = 0.0;
@@ -446,6 +452,7 @@ fn hover_ultra_accurate_slides_without_yaw() {
         ObjectId(9822),
         Team::USA,
     );
+    hand_locomotor(&mut braking, LocomotorAppearance::Hover);
     braking.set_position(Vec3::ZERO);
     braking.set_orientation(0.0);
     braking.ground_height = 0.0;
@@ -478,6 +485,8 @@ fn hover_ultra_accurate_slides_without_yaw() {
         ObjectId(9821),
         Team::USA,
     );
+
+    hand_locomotor(&mut wheels, LocomotorAppearance::WheelsFour);
     wheels.set_position(Vec3::new(0.0, 0.0, 0.0));
     wheels.set_orientation(0.0);
     wheels.ground_height = 0.0;
@@ -588,6 +597,7 @@ fn wings_idle_maintain_z_uses_terrain_not_own_altitude() {
         tmpl.add_kind_of(KindOf::Aircraft);
         Object::new(tmpl, id, Team::USA)
     };
+    hand_locomotor(&mut jet, LocomotorAppearance::Wings);
     jet.set_position(Vec3::new(0.0, 50.0, 0.0));
     jet.ground_height = 0.0;
     jet.loco_appearance = LocomotorAppearance::Wings;
