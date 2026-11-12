@@ -208,6 +208,7 @@ fn structure_exposes_command_sell_residual() {
     // has no C++ analog.
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut tb = ThingTemplate::new("AmericaBarracks");
+    author_retail_command_set(&logic, &mut tb);
     tb.add_kind_of(KindOf::Structure);
     tb.add_kind_of(KindOf::Selectable);
     logic.templates.insert("AmericaBarracks".into(), tb);
@@ -262,6 +263,7 @@ fn disabled_structure_keeps_sell_stop_rally() {
     // fixture never resolves local ownership.
     logic.add_player(Player::new(0, crate::game_logic::Team::USA, "USA", true));
     let mut tb = ThingTemplate::new("AmericaBarracks");
+    author_retail_command_set(&logic, &mut tb);
     tb.set_health(1000.0);
     tb.add_kind_of(KindOf::Structure);
     tb.add_kind_of(KindOf::Selectable);
@@ -321,6 +323,7 @@ fn emp_plus_underpowered_does_not_reenable_specials() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut tb = ThingTemplate::new("AmericaPowerPlant");
+    author_retail_command_set(&logic, &mut tb);
     tb.set_health(1000.0);
     tb.add_kind_of(KindOf::Structure);
     tb.add_kind_of(KindOf::Selectable);
@@ -371,6 +374,7 @@ fn empty_chinook_combat_drop_restricted() {
         true,
     ));
     let mut t = ThingTemplate::new("AmericaVehicleChinook");
+    author_retail_command_set(&logic, &mut t);
     t.add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
@@ -573,6 +577,7 @@ fn unit_command_exposes_deploy_for_sentry_residual() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut t = ThingTemplate::new("AmericaVehicleSentryDrone");
+    author_retail_command_set(&logic, &mut t);
     t.add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
@@ -609,6 +614,7 @@ fn presentation_applies_unit_commands_to_game_hud_residual() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    author_retail_command_set(&logic, &mut t);
     t.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
@@ -1653,6 +1659,7 @@ fn burton_detonate_button_gray_without_remote_charges() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
     let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    author_retail_command_set(&logic, &mut burton);
     burton
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
@@ -1792,6 +1799,7 @@ fn capture_building_button_uses_ready_and_in_use() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    author_retail_command_set(&logic, &mut ranger);
     ranger
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
@@ -1845,6 +1853,7 @@ fn ranger_command_set_does_not_invent_buttons() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    author_retail_command_set(&logic, &mut t);
     t.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
@@ -1933,6 +1942,7 @@ fn transport_exit_slots_bind_occupant_portraits() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    author_retail_command_set(&logic, &mut humvee);
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
@@ -1941,6 +1951,7 @@ fn transport_exit_slots_bind_occupant_portraits() {
         .templates
         .insert("AmericaVehicleHumvee".into(), humvee);
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    author_retail_command_set(&logic, &mut ranger);
     ranger
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
@@ -1986,6 +1997,7 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut puc = ThingTemplate::new("AmericaParticleCannonUplink");
+    author_retail_command_set(&logic, &mut puc);
     puc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .set_health(4000.0);
@@ -2053,6 +2065,7 @@ fn evacuate_disabled_with_zero_occupants() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    author_retail_command_set(&logic, &mut humvee);
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
@@ -2061,6 +2074,7 @@ fn evacuate_disabled_with_zero_occupants() {
         .templates
         .insert("AmericaVehicleHumvee".into(), humvee);
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    author_retail_command_set(&logic, &mut ranger);
     ranger
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
@@ -2115,6 +2129,7 @@ fn command_set_strip_keeps_authored_holes() {
     // local player's selection (ControlBar.cpp:1359-1580).
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    author_retail_command_set(&logic, &mut t);
     t.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
@@ -2239,6 +2254,7 @@ fn multi_select_intersects_ok_for_multi_select_slots() {
     // local player's selected objects (ControlBarMultiSelect.cpp).
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    author_retail_command_set(&logic, &mut ranger);
     ranger
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
@@ -2247,6 +2263,7 @@ fn multi_select_intersects_ok_for_multi_select_slots() {
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    author_retail_command_set(&logic, &mut humvee);
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
@@ -2383,6 +2400,7 @@ fn leftover_strip_single_use_restricts_whole_strip() {
     // selection (ControlBarCommand.cpp:1033-1036).
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut tb = ThingTemplate::new("AmericaBarracks");
+    author_retail_command_set(&logic, &mut tb);
     tb.set_health(1000.0);
     tb.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable);
@@ -2418,6 +2436,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
     // selection (ControlBarCommand.cpp:1164-1165, 1368-1369).
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut barracks = ThingTemplate::new("AmericaBarracks");
+    author_retail_command_set(&logic, &mut barracks);
     barracks
         .set_health(1000.0)
         .add_kind_of(KindOf::Structure)
@@ -2448,6 +2467,7 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
     );
 
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    author_retail_command_set(&logic, &mut humvee);
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
@@ -2583,6 +2603,7 @@ fn empty_transport_exit_slot_starts_disabled() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    author_retail_command_set(&logic, &mut humvee);
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
