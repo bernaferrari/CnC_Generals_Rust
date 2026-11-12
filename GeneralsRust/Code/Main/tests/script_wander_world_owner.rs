@@ -1,6 +1,5 @@
-use game_engine::common::ini::ini_locomotor::{
-    LocomotorStore, get_locomotor_store, get_locomotor_store_mut,
-};
+use game_engine::common::common_services::{CommonServices, install_common_services};
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::system::DataChunkOutput;
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
@@ -175,6 +174,28 @@ fn unrelated_script_actions_do_not_advance_wander_before_the_simulation_step() {
 
 #[test]
 fn scripts_wander_only_the_receiving_team_using_its_current_locomotor() {
+    // A foreign engine published on this thread has the same Locomotor name
+    // with a very different radius; neither session may read or seed it.
+    let foreign_engine = std::sync::Arc::new(CommonServices::new());
+    let _ = install_common_services(std::sync::Arc::clone(&foreign_engine));
+    foreign_engine
+        .ini
+        .locomotor
+        .write()
+        .apply_source("Locomotor OwnedWander\n Surfaces = GROUND\n Speed = 20\n WanderAboutPointRadius = 1000\nEnd\n")
+        .unwrap();
+    let foreign_names = || {
+        foreign_engine
+            .ini
+            .locomotor
+            .read()
+            .get_template_names()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+    let global_names = foreign_names();
+
     let mut map = DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
     for value in [41, 41, 1, 1681] {
@@ -194,6 +215,11 @@ fn scripts_wander_only_the_receiving_team_using_its_current_locomotor() {
     let (mut peer, peer_id) = world(&map_path, 60);
     assert_eq!(first_id, peer_id);
     first.ensure_ai_faction_templates(Team::USA);
+    assert_eq!(
+        foreign_names(),
+        global_names,
+        "starting owned sessions and preparing AI templates must not seed a foreign engine's catalog"
+    );
     let first_script = wander_script();
     let peer_script = wander_script();
 
@@ -257,4 +283,9 @@ fn scripts_wander_only_the_receiving_team_using_its_current_locomotor() {
             (world.host_object(drone).unwrap().movement.max_speed - expected_speed).abs() < 0.001
         );
     }
+    assert_eq!(
+        foreign_names(),
+        global_names,
+        "spy-drone creation must use only the receiving session's catalog"
+    );
 }
