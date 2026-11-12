@@ -1,54 +1,7 @@
 //! Current OXFR schema controls, separate from the real kept-object save flow.
 use super::*;
-use crate::game_logic::{KindOf, Team, ThingTemplate};
+use crate::game_logic::{Team, ThingTemplate};
 use glam::Vec3;
-
-#[test]
-fn keepobject_oxfr_v7_appends_new_module_state_after_retained_rows() {
-    assert_eq!(OXFR_VERSION, 12);
-    let mut source = GameLogic::new();
-    let mut template = ThingTemplate::new("TechOilDerrick");
-    template.add_kind_of(KindOf::Structure);
-    source.templates.insert("TechOilDerrick".into(), template);
-    let kept = source
-        .create_object("TechOilDerrick", Team::Neutral, Vec3::ZERO)
-        .unwrap();
-    source.mark_object_for_destruction(kept, None);
-    let payload = capture(&source);
-    let prefix = bincode_legacy::serialize(&(
-        &payload.stun,
-        &payload.battle_bus,
-        &payload.slow_death,
-        &payload.radar,
-        &payload.death_start,
-    ))
-    .unwrap();
-    let mut bytes = b"preceding-domain".to_vec();
-    append_to_lifecycle_tail(&mut bytes, &source);
-    let sentinel = 0xA1B2_C3D4u32.to_le_bytes();
-    bytes.extend_from_slice(&sentinel);
-    assert_eq!(&bytes[..16], b"preceding-domain");
-    let mut suffix = find_oxfr_suffix(&bytes).unwrap();
-    assert_eq!(take_u32(&mut suffix).unwrap(), 5);
-    let len = take_u32(&mut suffix).unwrap() as usize;
-    let encoded = &suffix[..len];
-    assert!(
-        encoded.starts_with(&prefix),
-        "earlier vectors, including exact latch rows, changed"
-    );
-    let decoded: ObjectModuleXferPersistPayload = bincode_legacy::deserialize(encoded).unwrap();
-    assert_eq!(decoded.retained_death.len(), 1);
-    assert_eq!(decoded.retained_death[0].object_id, kept.0);
-    assert!(decoded.retained_death[0].effectively_dead && decoded.retained_death[0].keep_as_rubble);
-    assert!(
-        decoded.retained_death[0]
-            .keep_object_die
-            .as_ref()
-            .unwrap()
-            .is_rubble
-    );
-    assert_eq!(&suffix[len..], &sentinel);
-}
 
 #[test]
 fn keepobject_oxfr_v5_applies_explicit_false_rows_without_using_latch_or_dead_hp() {

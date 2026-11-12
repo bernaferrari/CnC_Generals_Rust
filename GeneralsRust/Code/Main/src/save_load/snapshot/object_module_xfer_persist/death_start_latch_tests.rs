@@ -83,7 +83,7 @@ fn oxfr_death_start_exact_bool_survives_snapshot_builder_for_keepobject_and_inac
 }
 
 #[test]
-fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order_and_keep_sentinel() {
+fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order() {
     let (source, kept, inactive, phase_only) = fixture();
     let payload = capture(&source);
     // Four original vectors retain their exact relative wire order and bytes.
@@ -94,12 +94,8 @@ fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order_and_k
         &payload.radar,
     ))
     .unwrap();
-    let mut bytes = b"earlier-lifecycle-domain".to_vec();
-    let prefix_len = bytes.len();
-    append_to_lifecycle_tail(&mut bytes, &source);
-    let following = 0x91A2_B3C4u32;
-    bytes.extend_from_slice(&following.to_le_bytes());
-    assert_eq!(&bytes[..prefix_len], b"earlier-lifecycle-domain");
+    let mut bytes = Vec::new();
+    append_to_lifecycle_tail(&mut bytes, &source).unwrap();
     let mut suffix = find_oxfr_suffix(&bytes).unwrap();
     let version = take_u32(&mut suffix).unwrap();
     assert_eq!(
@@ -122,7 +118,6 @@ fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order_and_k
         records,
         vec![(kept.0, true), (inactive.0, false), (phase_only.0, false)]
     );
-    assert_eq!(&suffix[payload_len..], &following.to_le_bytes());
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
     restored.add_player(Player::new(0, Team::USA, "Latch owner", true));

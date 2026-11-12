@@ -1,7 +1,7 @@
 //! hq-btakc: real kept-object dispatch and disk save/load, with separate controls.
 use super::*;
 use crate::game_logic::combat::DamageType;
-use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+use crate::game_logic::{Player, Team};
 use crate::save_load::snapshot::SnapshotBuilder;
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use glam::Vec3;
@@ -37,23 +37,6 @@ fn fixture() -> Fixture {
     keep_content(&mut logic);
     logic.set_current_frame(37);
     logic.add_player(Player::new(0, Team::USA, "Keep save owner", true));
-    let mut kept_template = ThingTemplate::new("TechOilDerrick");
-    kept_template
-        .set_health(500.0)
-        .add_kind_of(KindOf::Structure);
-    logic
-        .templates
-        .insert("TechOilDerrick".into(), kept_template);
-    let mut live_template = ThingTemplate::new("KeptSaveLive");
-    live_template.set_health(100.0);
-    logic.templates.insert("KeptSaveLive".into(), live_template);
-    let mut bridge_template = ThingTemplate::new("KeptSaveBridge");
-    bridge_template
-        .set_health(100.0)
-        .add_kind_of(KindOf::Bridge);
-    logic
-        .templates
-        .insert("KeptSaveBridge".into(), bridge_template);
     let kept = logic
         .create_object("TechOilDerrick", Team::Neutral, Vec3::ZERO)
         .unwrap();
@@ -126,7 +109,6 @@ fn save_and_load(source: &GameLogic, target: &mut GameLogic) {
     if target.receiving_module_content.is_none() {
         keep_content(target);
     }
-    target.templates = source.templates.clone();
     if target.get_player(0).is_none() {
         target.add_player(Player::new(0, Team::USA, "Keep save owner", true));
     }
@@ -270,7 +252,7 @@ fn keepobject_snapshot_builder_restores_kept_state_alongside_exact_latch() {
         .create_world_snapshot(&f.logic)
         .unwrap();
     let mut loaded = GameLogic::new();
-    loaded.templates = f.logic.templates.clone();
+    keep_content(&mut loaded);
     loaded.add_player(Player::new(0, Team::USA, "Keep save owner", true));
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut loaded)
