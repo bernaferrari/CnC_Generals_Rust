@@ -27,7 +27,8 @@ fn team_event_marker_survives_roster_removal_until_script_state_phase() {
     let team_id = {
         let mut factory = world.team_factory.lock().unwrap();
         factory
-            .init_team(team_name.into(), "".into(), false, None)
+            // Production admission records the empty owner as the neutral slot.
+            .init_team_owned(team_name.into(), "".into(), false, None, None)
             .unwrap();
         let team = factory.create_inactive_team(team_name).unwrap();
         let mut team = team.write().unwrap();
