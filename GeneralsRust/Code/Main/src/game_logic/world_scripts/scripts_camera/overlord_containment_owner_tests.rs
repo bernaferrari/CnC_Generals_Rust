@@ -66,6 +66,13 @@ fn world_with_authored_death_source(source: &str) -> (GameLogic, ObjectId, Objec
     let mut owner = GameLogic::new();
     owner.world_min = Vec3::ZERO;
     owner.world_max = Vec3::splat(1000.0);
+    // Die OCLs resolve through the world's receiving catalog only; a global
+    // store entry is never selected at execution.
+    owner
+        .admit_ocl_application_sources(&[
+            "ObjectCreationList RiderDeathWitness\n CreateObject\n ObjectNames = RiderDeathWitness\n End\nEnd\nObjectCreationList PayloadDeathWitness\n CreateObject\n ObjectNames = PayloadDeathWitness\n End\nEnd\n".into(),
+        ])
+        .unwrap();
     owner
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
