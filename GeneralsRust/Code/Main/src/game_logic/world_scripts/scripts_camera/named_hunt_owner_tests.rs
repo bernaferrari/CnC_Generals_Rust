@@ -85,9 +85,22 @@ fn hunt_reentry_clears_previous_route_target_and_scan() {
     assert_eq!(unit.formation_id, 19);
 }
 
+/// C++ AIHuntState::update ends Hunt when its scan finds no enemy, so the
+/// victim player must be an enemy (Player::setPlayerRelationship), as map
+/// sides declare; the bare fixture players are neutral to each other.
+fn make_enemies(world: &mut GameLogic) {
+    for (a, b) in [(1, 2), (2, 1)] {
+        world
+            .get_player_mut(a)
+            .unwrap()
+            .set_map_relationship(b, gamelogic::common::Relationship::Enemies);
+    }
+}
+
 #[test]
 fn hunt_snapshot_continues_on_restored_owner() {
     let (mut source, id, _) = world();
+    make_enemies(&mut source);
     hunt(&mut source, "NamedUnit");
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
@@ -95,6 +108,7 @@ fn hunt_snapshot_continues_on_restored_owner() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    make_enemies(&mut restored);
     assert!(restored.host_object(id).unwrap().is_hunting());
     assert_eq!(
         restored.host_object(id).unwrap().last_command_source,
@@ -115,14 +129,13 @@ fn hunt_snapshot_continues_on_restored_owner() {
     // Both continue the saved Hunt parent, with no new command. Model the
     // nested attack finishing: the real AI phase must resume its Hunt scan.
     for world in [&mut source, &mut restored] {
-        let frame = world.frame;
         let unit = world.host_object_mut(id).unwrap();
         unit.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
-        unit.set_ai_state(
-            AIState::Idle,
-            frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
+        // The nested attack's own Idle result goes through the owned AI
+        // transition, which keeps the Hunt parent (raw set_ai_state is aiIdle).
+        assert!(world
+            .set_ai_state_decision_aware_with_effects(id, AIState::Idle, &mut Default::default())
+            .unwrap());
         world.frame = 1;
         world
             .update_ai(&[id], 1.0 / 30.0)
