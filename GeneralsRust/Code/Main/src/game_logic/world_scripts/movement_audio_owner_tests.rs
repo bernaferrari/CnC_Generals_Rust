@@ -231,6 +231,9 @@ fn actual_physics_timer_exit_admits_stop_before_returning() {
                 );
                 object.movement.target_position = Some(Vec3::new(100., 0., 0.));
             }
+            // AIStateMachine::updateStateMachine expires the temporary state
+            // only once m_temporaryStateFramEnd < the current frame.
+            owner.frame = 2;
             owner.tick_physics_collisions_all();
             assert_eq!(
                 owner
