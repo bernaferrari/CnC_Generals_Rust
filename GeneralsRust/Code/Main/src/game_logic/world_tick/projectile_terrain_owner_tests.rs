@@ -1,11 +1,63 @@
 //! Real Main projectile impact ownership, using C++'s bridge crossing branch.
+// The detonation is observed through the client FXList the impact executes.
+#![cfg(feature = "game_client")]
 use crate::game_logic::weapon_bootstrap::{HostDumbProjectileFlight, HostProjectileFlight};
 use crate::game_logic::{GameLogic, ObjectId, Weapon};
 use glam::Vec3;
+use std::sync::mpsc::{Receiver, Sender, channel};
 
-fn world(deck: f32) -> (GameLogic, ObjectId) {
+/// ProjectileDetonationFX witness. Weapon::handleProjectileDetonation runs the
+/// FXList at the detonation position (doFXPos) before Body damage, so the
+/// end-phase impact queue is already drained when the update returns.
+struct DetonationWitness(Sender<gamelogic::common::Coord3D>);
+
+impl game_client::fx_list::FXNugget for DetonationWitness {
+    fn do_fx_pos(
+        &self,
+        primary: Option<&gamelogic::common::Coord3D>,
+        _: Option<&gamelogic::common::Matrix3D>,
+        _: f32,
+        _: Option<&gamelogic::common::Coord3D>,
+        _: f32,
+    ) {
+        self.0.send(*primary.expect("detonation position")).unwrap();
+    }
+    fn do_fx_obj_host(
+        &self,
+        _: &gamelogic::helpers::HostFxObjectPose,
+        _: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        panic!("bridge crossing does not invent a direct victim");
+    }
+}
+
+/// The local player sees the crossing, so its client FX gate admits it.
+fn witness(world: &mut GameLogic) -> Receiver<gamelogic::common::Coord3D> {
+    world.add_player(crate::game_logic::Player::new(
+        1,
+        crate::game_logic::Team::USA,
+        "Viewer",
+        true,
+    ));
+    assert!(world.select_local_player(Some(1)));
+    {
+        let mut shroud = world.world_services.shroud().lock().unwrap();
+        shroud.init_shroud_grid_at_origin([-100.0, -100.0], 200.0, 200.0);
+        shroud.do_shroud_reveal(&gamelogic::common::Coord3D::new(20.0, 20.0, 0.0), 40.0, 1 << 1);
+    }
+    let (send, receive) = channel();
+    let mut fx = game_client::fx_list::FXList::new();
+    fx.add_fx_nugget(Box::new(DetonationWitness(send)));
+    let mut catalog = game_client::fx_list::FXListStore::new();
+    catalog.add_fx_list("ProjectileOwnerImpact".into(), fx);
+    world.admit_fx_catalog(catalog);
+    receive
+}
+
+fn world(deck: f32) -> (GameLogic, ObjectId, Receiver<gamelogic::common::Coord3D>) {
     let mut world = GameLogic::new();
     world.override_world_size(200.0, 200.0);
+    let detonations = witness(&mut world);
     let width = world.pathfinding_system.grid.width() as u32;
     let height = world.pathfinding_system.grid.height() as u32;
     assert!(world.restore_terrain_heights_from_grid(
@@ -60,10 +112,15 @@ fn world(deck: f32) -> (GameLogic, ObjectId) {
     ];
     projectile.flight_runtime.layer = layer;
     projectile.detonation_fx_name = "ProjectileOwnerImpact".into();
-    (world, id)
+    (world, id, detonations)
 }
 
-fn impact(world: &mut GameLogic, id: ObjectId, deck: f32) {
+fn impact(
+    world: &mut GameLogic,
+    id: ObjectId,
+    deck: f32,
+    detonations: &Receiver<gamelogic::common::Coord3D>,
+) {
     // Match the real fixed-step owner scope retained for other Core services.
     // The projectile query itself must never consult its duplicate Core AI.
     let services = std::sync::Arc::clone(&world.world_services);
@@ -72,17 +129,17 @@ fn impact(world: &mut GameLogic, id: ObjectId, deck: f32) {
     });
     assert_eq!(retired, vec![id]);
     assert_eq!(world.combat_system.projectile_count(), 0);
-    let effects = world.combat_system.take_impact_fx();
-    assert_eq!(effects.len(), 1, "exactly one detonation at the crossing");
-    assert_eq!(
-        effects[0].position,
-        Vec3::new(20.0, deck + 2.0, 20.0),
-        "original two-unit bridge art fudge precedes detonation"
+    assert!(
+        world.combat_system.take_impact_fx().is_empty(),
+        "detonation FX flush synchronously before Body damage"
     );
-    assert_eq!(effects[0].detonation_fx_name, "ProjectileOwnerImpact");
+    let effects = detonations.try_iter().collect::<Vec<_>>();
+    assert_eq!(effects.len(), 1, "exactly one detonation at the crossing");
+    // Client FX coordinates are C++ Z-up: host (x, y, z) is (x, z, y).
     assert_eq!(
-        effects[0].target_id, None,
-        "bridge crossing does not invent a direct victim"
+        (effects[0].x, effects[0].y, effects[0].z),
+        (20.0, 20.0, deck + 2.0),
+        "original two-unit bridge art fudge precedes detonation"
     );
 }
 
@@ -93,16 +150,16 @@ fn real_projectile_bridge_impact_uses_same_id_world_deck_with_foreign_core_ai_he
         "real_projectile_bridge_impact_uses_same_id_world_deck_with_foreign_core_ai_held",
         || {
             {
-                let (mut first, id) = world(35.0);
-                let (mut second, second_id) = world(55.0);
-                let (mut reference, reference_id) = world(35.0);
+                let (mut first, id, first_fx) = world(35.0);
+                let (mut second, second_id, second_fx) = world(55.0);
+                let (mut reference, reference_id, reference_fx) = world(35.0);
                 assert_eq!(id, second_id);
                 assert_eq!(id, reference_id);
-                impact(&mut reference, id, 35.0);
+                impact(&mut reference, id, 35.0, &reference_fx);
                 let foreign = gamelogic::system::engine_stores::new_for_world();
                 let held = foreign.ai().write().unwrap();
                 gamelogic::system::engine_stores::with_active_stores(&foreign, || {
-                    impact(&mut second, id, 55.0);
+                    impact(&mut second, id, 55.0, &second_fx);
                     assert_eq!(
                         first.combat_system.projectile_count(),
                         1,
@@ -115,7 +172,7 @@ fn real_projectile_bridge_impact_uses_same_id_world_deck_with_foreign_core_ai_he
                         &gamelogic::system::engine_stores::active(),
                         &foreign
                     ));
-                    impact(&mut first, id, 35.0);
+                    impact(&mut first, id, 35.0, &first_fx);
                 });
                 drop(held);
             };
