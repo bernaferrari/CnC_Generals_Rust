@@ -14,17 +14,17 @@ fn host_slot_script_name(player: &Player) -> String {
 }
 
 impl GameLogic {
-    /// ScriptEngine::newMap installs each side's ScriptList, which for a
-    /// skirmish AI now holds its Player::initFromDict copy (Player.cpp:880-901).
+    /// ScriptEngine::newMap installs each side's ScriptList, which now holds
+    /// the Player::initFromDict copy: a human's qualified Civilian scripts
+    /// (Player.cpp:823-851), a skirmish AI's own side (Player.cpp:880-901).
     /// This world's list ordinal is the Player id (ScriptEngine.cpp:5555-5557).
-    fn install_skirmish_ai_side_scripts(&mut self) {
+    fn install_skirmish_side_scripts(&mut self) {
         if !self.uses_lobby_side_foundation() {
             return;
         }
         let mut installs = Vec::new();
         for (&id, player) in &self.players {
-            if player.map_side.role != PlayerSideRole::Participant || !player.map_side.is_skirmish_ai
-            {
+            if player.map_side.role != PlayerSideRole::Participant {
                 continue;
             }
             let sides = &self.prepared_map_sides;
@@ -513,7 +513,7 @@ impl GameLogic {
             general_name.as_deref(),
         );
         self.loaded_script_lists = script_lists;
-        self.install_skirmish_ai_side_scripts();
+        self.install_skirmish_side_scripts();
         log::info!(
             "Fast legacy runtime sync sides write finished for '{}' in {:.2}s (stage={:.2}s, sides_dicts={:.2}s)",
             map_path.display(),
