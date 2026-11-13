@@ -288,8 +288,10 @@ fn nearest_cpp_coordinate_query_can_select_receiver_itself() {
 fn nearest_cpp_filters_allow_dead_and_queued_bodies_until_physical_removal() {
     let (mut world, unit, target) = tracking_world();
     trigger(&world);
+    // Inside the default 512x512 map: PartitionFilterSameMapStatus rejects an
+    // off-map body for an on-map receiver, independent of the alive filter.
     let farther = world
-        .create_object_for_player("OwnedNearestTarget", 2, Vec3::new(300.0, 0.0, 300.0))
+        .create_object_for_player("OwnedNearestTarget", 2, Vec3::new(200.0, 0.0, 200.0))
         .unwrap();
     world.host_object_mut(target).unwrap().health.current = 0.0;
     execute(&mut world, false, "NamedUnit");
