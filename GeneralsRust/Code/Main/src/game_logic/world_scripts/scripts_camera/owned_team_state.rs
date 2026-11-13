@@ -136,12 +136,26 @@ impl GameLogic {
         let players: Vec<_> = self.get_players().keys().copied().collect();
         let mut players = players;
         players.sort_unstable();
-        for player in players {
-            let prototypes = self
-                .team_factory
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .owned_team_prototypes_for_controller(player);
+        // PlayerList slot 0 is the neutral player: prototypes admitted without
+        // a controller (empty owner) belong to it and update first.
+        for owner in std::iter::once(None).chain(players.into_iter().map(Some)) {
+            let prototypes = {
+                let factory = self
+                    .team_factory
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                match owner {
+                    Some(player) => factory.owned_team_prototypes_for_controller(player),
+                    None => factory
+                        .list_team_prototypes_in_admission_order()
+                        .into_iter()
+                        .filter(|prototype| {
+                            factory.admitted_prototype_controller(&prototype.get_name().to_string())
+                                == Some(None)
+                        })
+                        .collect(),
+                }
+            };
             for prototype in prototypes {
                 let name = prototype.get_name().to_string();
                 let mut cursor = self
@@ -179,8 +193,9 @@ impl GameLogic {
                             .unwrap_or_else(|error| error.into_inner())
                             .advance_owned_state(&mut step, observation);
                         if let Some(script) = script {
-                            let player_name =
-                                self.get_player(player).map(|player| player.name.clone());
+                            let player_name = owner
+                                .and_then(|player| self.get_player(player))
+                                .map(|player| player.name.clone());
                             let context = gamelogic::scripting::executor::ScriptContext {
                                 game_logic_id: 0,
                                 object_manager_id: 0,
@@ -230,8 +245,10 @@ impl GameLogic {
                 // TeamPrototype::updateState removes empty active non-singletons,
                 // restarting after each synchronous deletion notification.
                 loop {
-                    let default = self.get_player(player).map(|owner| {
-                        self.default_host_team_instance_name(Some(player), owner.team)
+                    let default = owner.and_then(|player| {
+                        self.get_player(player).map(|owner| {
+                            self.default_host_team_instance_name(Some(player), owner.team)
+                        })
                     });
                     let empty = {
                         let factory = self
