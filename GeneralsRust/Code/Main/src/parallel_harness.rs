@@ -42,6 +42,8 @@ pub struct RetailWorldDefinitions {
     player_templates: PlayerTemplateStore,
     locomotors: LocomotorStore,
     multiplayer: Arc<MultiplayerSettings>,
+    /// AIData.ini (GameEngine.cpp:480): SideInfo and SkirmishBuildList.
+    ai_data: game_engine::common::ini::ini_ai_data::AIData,
 }
 
 /// The GameData / definition baselines `CnCGameEngine` boot admits into the
@@ -243,6 +245,19 @@ impl RetailWorldDefinitions {
         }
         let multiplayer = Arc::new(multiplayer);
 
+        let mut ai_store = game_engine::common::ini::ini_ai_data::AIDataStore::default();
+        for (path, text) in startup.definition_texts("AIData.ini") {
+            let mut ini = game_engine::common::ini::INI::new();
+            ini.set_owned_ai_data_store_target(ai_store);
+            ini.set_receiving_science_names(startup.sciences());
+            let result = ini.with_inline_source(text, |ini| ini.parse_current_file());
+            ai_store = ini
+                .take_owned_ai_data_store_target()
+                .expect("AIData parse owns its draft store");
+            result.map_err(|error| invalid(path, &error))?;
+        }
+        let ai_data = ai_store.get_active().cloned().unwrap_or_default();
+
         Ok(Self {
             startup,
             game_data,
@@ -251,6 +266,7 @@ impl RetailWorldDefinitions {
             player_templates,
             locomotors,
             multiplayer,
+            ai_data,
         })
     }
 
@@ -268,6 +284,7 @@ impl RetailWorldDefinitions {
         logic.admit_startup_content(self.startup.admit()?)?;
         logic.admit_player_template_definitions(self.player_templates.clone())?;
         logic.multiplayer_definitions = Some(Arc::clone(&self.multiplayer));
+        logic.set_ai_definition_base(self.ai_data.clone());
         Ok(())
     }
 }

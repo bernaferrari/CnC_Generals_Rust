@@ -163,6 +163,9 @@ const STANDALONE_DEFINITION_PATHS: &[&str] = &[
     "Data/INI/Roads.ini",
     "Data/INI/Default/ObjectCreationList.ini",
     "Data/INI/ObjectCreationList.ini",
+    // GameEngine.cpp:480 AIData, Default then the retail override.
+    "Data/INI/Default/AIData.ini",
+    "Data/INI/AIData.ini",
 ];
 
 impl StandaloneStartupSources {
@@ -174,6 +177,11 @@ impl StandaloneStartupSources {
             std::sync::Arc::clone(&self.actions),
             self.weapons.to_vec(),
         ).map_err(|error| error.to_string())
+    }
+
+    /// The Science names these sources were parsed against.
+    pub fn sciences(&self) -> std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts> {
+        std::sync::Arc::clone(&self.sciences)
     }
 
     /// Ordered sources of one definition catalog whose path ends with `file`

@@ -11,6 +11,21 @@ impl GameLogic {
         AIPlayer::query_peer_enemy(self, player, &mut Vec::new())
     }
 
+    /// C++ GameLogic::startNewGame final step (GameLogic.cpp:2069-2071):
+    /// PlayerList::newMap runs each Player's AI newMap before the first
+    /// script frame, so script build requests mark the AIData build list.
+    pub(crate) fn new_map_owned_skirmish_ai_with_effects(
+        &mut self,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let data = AiDataView::from_world(self);
+        let mut ids: Vec<u32> = self.ai_manager.ai_players.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            self.initialize_owned_skirmish_ai_with_effects(id, &data, ui);
+        }
+    }
+
     /// Initial-map destruction and factory callbacks observe the installed AI.
     pub(crate) fn initialize_owned_skirmish_ai(&mut self, player: u32, data: &AiDataView) {
         self.initialize_owned_skirmish_ai_with_effects(player, data, &mut Default::default())

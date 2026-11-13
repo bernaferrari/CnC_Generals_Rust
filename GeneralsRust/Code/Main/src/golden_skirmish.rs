@@ -598,8 +598,12 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
         let _ = apply_skirmish_config(&mut dest, &golden_skirmish_config(map_identity));
         dest
     };
+    // GameState::loadGame loads the saved map with loadingSaveGame set, so
+    // GameLogic::startNewGame skips PlayerList::newMap (GameLogic.cpp:2069-2071);
+    // the snapshot then admits into that saved-map foundation.
     let map_loaded_target = || {
         let mut dest = booted_target();
+        dest.begin_saved_snapshot_admission().ok()?;
         dest.load_map(map_identity).then_some(dest)
     };
     let save_dir = std::env::temp_dir().join(format!(
@@ -650,7 +654,9 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
         let builder = crate::save_load::snapshot::SnapshotBuilder::new();
         match builder.create_world_snapshot(logic) {
             Ok(snap) => map_loaded_target().is_some_and(|mut logic2| {
-                builder.restore_from_snapshot(&snap, &mut logic2).is_ok()
+                let restored = builder.restore_from_snapshot(&snap, &mut logic2).is_ok();
+                restored
+                    && logic2.finish_saved_snapshot_admission().is_ok()
                     && logic2.get_player(0).is_some()
             }),
             Err(e) => {
