@@ -442,3 +442,89 @@ fn ai_player_xfer_writes_team_seconds_as_cpp_int() {
             .any(|window| window == &66_051.0f32.to_le_bytes())
     );
 }
+
+#[test]
+fn superweapon_target_uses_receiving_world_and_its_random_continuation() {
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+    use game_engine::common::common_services::ReceivingLogicRandom;
+    use game_engine::common::random_value::{RandomState, SessionRandom};
+
+    let first = Arc::new(EngineStores::new_for_world());
+    let peer = Arc::new(EngineStores::new_for_world());
+    for (owner, position, seed) in [
+        (&first, Coord3D::new(100.0, 200.0, 0.0), 0x1234),
+        (&peer, Coord3D::new(400.0, 500.0, 0.0), 0x5678),
+    ] {
+        owner.services().common().random.init_with_seed(seed);
+        with_active_stores(owner, || {
+            let mut template = crate::common::DefaultThingTemplate::new("TargetStructure".into());
+            template.add_kind_of(KindOf::Structure);
+            let mut object = Object::new_test_from_template(91, 100.0, Arc::new(template));
+            object.set_position(&position).unwrap();
+            let mut player = Player::new(1);
+            player.add_owned_object_for_object(&object);
+            owner.services().players().write().unwrap().add_player(Arc::new(RwLock::new(player)));
+            owner.services().object_registry().register_object(91, &Arc::new(RwLock::new(object)));
+        });
+    }
+    let power = crate::object::special_power_template::SpecialPowerTemplate::new("TargetPower".into(), 1);
+    let ai = AIPlayer::new(0);
+    let peer_before = peer.services().common().random.with_logic_mut(|r| r.seed_words());
+    let mut first_reference = RandomState::default();
+    first_reference.seed_random(0x1234);
+    first_reference.next_int(1, 4);
+    let target = with_active_stores(&peer, || {
+        let mut random = ReceivingLogicRandom::new(first.services().common());
+        ai.compute_superweapon_target_in_world(first.services(), &power, 50.0, 1, &mut random)
+            .unwrap().unwrap()
+    });
+    assert!((target.x - 100.0).abs() < 0.01);
+    assert!((target.y - 200.0).abs() < 0.01);
+    assert_eq!(first.services().common().random.with_logic_mut(|r| r.seed_words()), first_reference.seed_words());
+    assert_eq!(peer.services().common().random.with_logic_mut(|r| r.seed_words()), peer_before);
+
+    let saved = first.services().common().random.with_logic_mut(|r| r.seed_words());
+    let continuation = with_active_stores(&peer, || {
+        let mut random = ReceivingLogicRandom::new(first.services().common());
+        ai.compute_superweapon_target_in_world(first.services(), &power, 50.0, 1, &mut random)
+            .unwrap().unwrap()
+    });
+    let continuation_words = first.services().common().random.with_logic_mut(|r| r.seed_words());
+    first.services().common().random.with_logic_mut(|r| r.set_seed_words(saved));
+    let restored = with_active_stores(&peer, || {
+        let mut random = ReceivingLogicRandom::new(first.services().common());
+        ai.compute_superweapon_target_in_world(first.services(), &power, 50.0, 1, &mut random)
+            .unwrap().unwrap()
+    });
+    assert_eq!((restored.x, restored.y, restored.z), (continuation.x, continuation.y, continuation.z));
+    assert_eq!(first.services().common().random.with_logic_mut(|r| r.seed_words()), continuation_words);
+
+    let session = SessionRandom::default();
+    session.seed_random(0x4321);
+    let mut session_reference = RandomState::default();
+    session_reference.seed_random(0x4321);
+    session_reference.next_int(1, 4);
+    let fallback_before = first.services().common().random.with_logic_mut(|r| r.seed_words());
+    first.services().common().with_logic_rng_owner(session.clone(), || {
+        with_active_stores(&peer, || {
+            let mut random = ReceivingLogicRandom::new(first.services().common());
+            ai.compute_superweapon_target_in_world(first.services(), &power, 50.0, 1, &mut random)
+                .unwrap().unwrap();
+        });
+    });
+    assert_eq!(session.seed_words(), session_reference.seed_words());
+    assert_eq!(first.services().common().random.with_logic_mut(|r| r.seed_words()), fallback_before);
+    assert_eq!(peer.services().common().random.with_logic_mut(|r| r.seed_words()), peer_before);
+
+    let mut peer_reference = RandomState::default();
+    peer_reference.seed_random(0x5678);
+    peer_reference.next_int(1, 4);
+    let peer_target = with_active_stores(&first, || {
+        let mut random = ReceivingLogicRandom::new(peer.services().common());
+        ai.compute_superweapon_target_in_world(peer.services(), &power, 50.0, 1, &mut random)
+            .unwrap().unwrap()
+    });
+    assert!((peer_target.x - 400.0).abs() < 0.01);
+    assert!((peer_target.y - 500.0).abs() < 0.01);
+    assert_eq!(peer.services().common().random.with_logic_mut(|r| r.seed_words()), peer_reference.seed_words());
+}

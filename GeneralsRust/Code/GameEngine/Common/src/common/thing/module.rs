@@ -690,7 +690,7 @@ pub trait FireSpreadControlInterface {
     fn wake_delay_if_aflame_with_random(
         &mut self,
         _is_aflame: bool,
-        _random: &mut crate::common::random_value::RandomState,
+        _random: &mut dyn crate::common::common_services::LogicRandom,
     ) -> Result<Option<u32>, String> {
         Err("FireSpread supplied delay is not supported by this module".into())
     }

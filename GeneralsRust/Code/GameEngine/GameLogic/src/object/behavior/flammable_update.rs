@@ -662,7 +662,7 @@ impl Snapshotable for FlammableUpdate {
 pub(crate) fn ignite_installed_silent_at(
     owner: &Arc<RwLock<GameObject>>,
     scheduler: &mut crate::system::game_logic::GameLogic,
-    random: &mut game_engine::common::random_value::RandomState,
+    random: &mut dyn game_engine::common::common_services::LogicRandom,
     frame: UnsignedInt,
 ) -> Result<(), String> {
     let (id, module, self_proxy, spread_proxies) = {
@@ -1029,7 +1029,7 @@ mod tests {
         };
         for frame in [0, u32::MAX - 10] {
             let (object, mut scheduler) = ignition_fixture(9201, data.clone(), None);
-            ignite_installed_silent_at(&object, &mut scheduler, &mut Default::default(), frame)
+            ignite_installed_silent_at(&object, &mut scheduler, &mut game_engine::common::random_value::RandomState::default(), frame)
                 .unwrap();
             observe_flammable(&object, |flammable| {
                 assert_eq!(flammable.status, FlammabilityStatus::Aflame);
@@ -1070,7 +1070,7 @@ mod tests {
             .pop()
             .unwrap();
         let peer_before = peer_scheduler.sleepy_entry_for(&peer_proxy).unwrap().1;
-        ignite_installed_silent_at(&object, &mut scheduler, &mut Default::default(), 0).unwrap();
+        ignite_installed_silent_at(&object, &mut scheduler, &mut game_engine::common::random_value::RandomState::default(), 0).unwrap();
         observe_flammable(&object, |flammable| {
             assert_eq!(
                 flammable.last_fire_spread_wake(),

@@ -329,6 +329,10 @@ impl Player {
         self.owned_objects.clone()
     }
 
+    pub(crate) fn owned_object_ids(&self) -> &[ObjectID] {
+        &self.owned_objects
+    }
+
     /// Count objects by thing template, matching C++ Player::countObjectsByThingTemplate.
     pub fn count_objects_by_thing_template(
         &self,

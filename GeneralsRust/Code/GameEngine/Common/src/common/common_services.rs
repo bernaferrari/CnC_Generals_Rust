@@ -72,6 +72,70 @@ impl RandomServices {
     }
 }
 
+/// A synchronous loan of the driving simulation's random stream.
+///
+/// Each call advances the original stream directly. The interface holds no
+/// snapshot or mirror, so callbacks may draw from the same owner between calls.
+pub trait LogicRandom {
+    fn next_u32(&mut self) -> u32;
+    fn next_int(&mut self, lo: i32, hi: i32) -> i32;
+    fn next_real(&mut self, lo: f32, hi: f32) -> f32;
+}
+
+impl LogicRandom for RandomState {
+    fn next_u32(&mut self) -> u32 { RandomState::next_u32(self) }
+    fn next_int(&mut self, lo: i32, hi: i32) -> i32 { RandomState::next_int(self, lo, hi) }
+    fn next_real(&mut self, lo: f32, hi: f32) -> f32 { RandomState::next_real(self, lo, hi) }
+}
+
+impl LogicRandom for SessionRandom {
+    fn next_u32(&mut self) -> u32 { SessionRandom::next_u32(self) }
+    fn next_int(&mut self, lo: i32, hi: i32) -> i32 { SessionRandom::next_int(self, lo, hi) }
+    fn next_real(&mut self, lo: f32, hi: f32) -> f32 { SessionRandom::next_real(self, lo, hi) }
+}
+
+enum ReceivingLogicRandomSource<'a> {
+    Session(SessionRandom),
+    Standalone(&'a RandomServices),
+}
+
+/// Loan the existing stream selected for this Common owner, without publishing
+/// another world or holding its fallback mutex across simulation callbacks.
+pub struct ReceivingLogicRandom<'a> {
+    source: ReceivingLogicRandomSource<'a>,
+}
+
+impl<'a> ReceivingLogicRandom<'a> {
+    pub fn new(owner: &'a CommonServices) -> Self {
+        let source = match owner.scoped_logic_rng() {
+            Some(session) => ReceivingLogicRandomSource::Session(session),
+            None => ReceivingLogicRandomSource::Standalone(&owner.random),
+        };
+        Self { source }
+    }
+}
+
+impl LogicRandom for ReceivingLogicRandom<'_> {
+    fn next_u32(&mut self) -> u32 {
+        match &mut self.source {
+            ReceivingLogicRandomSource::Session(random) => random.next_u32(),
+            ReceivingLogicRandomSource::Standalone(random) => random.with_logic_mut(RandomState::next_u32),
+        }
+    }
+    fn next_int(&mut self, lo: i32, hi: i32) -> i32 {
+        match &mut self.source {
+            ReceivingLogicRandomSource::Session(random) => random.next_int(lo, hi),
+            ReceivingLogicRandomSource::Standalone(random) => random.with_logic_mut(|random| random.next_int(lo, hi)),
+        }
+    }
+    fn next_real(&mut self, lo: f32, hi: f32) -> f32 {
+        match &mut self.source {
+            ReceivingLogicRandomSource::Session(random) => random.next_real(lo, hi),
+            ReceivingLogicRandomSource::Standalone(random) => random.with_logic_mut(|random| random.next_real(lo, hi)),
+        }
+    }
+}
+
 /// Runtime CRC interval / sync-ignore flags (C++ debug CRC globals).
 #[derive(Debug)]
 pub struct CrcRuntimeFlags {
@@ -350,6 +414,50 @@ mod independence_tests {
     use super::*;
     use std::sync::{Barrier, Arc as StdArc};
     use std::thread;
+
+    #[test]
+    fn receiving_logic_random_preserves_one_stream_across_interleaving_and_restore() {
+        let first = CommonServices::new();
+        let second = CommonServices::new();
+        first.random.init_with_seed(0x1234);
+        second.random.init_with_seed(0x9876);
+        let mut first_reference = RandomState::default();
+        first_reference.seed_random(0x1234);
+        let mut second_reference = RandomState::default();
+        second_reference.seed_random(0x9876);
+
+        let mut a = ReceivingLogicRandom::new(&first);
+        let mut b = ReceivingLogicRandom::new(&second);
+        assert_eq!(a.next_int(1, 4), first_reference.next_int(1, 4));
+        assert_eq!(b.next_u32(), second_reference.next_u32());
+        assert_eq!(a.next_real(-1.0, 1.0), first_reference.next_real(-1.0, 1.0));
+        assert_eq!(b.next_int(-10, 10), second_reference.next_int(-10, 10));
+        assert_eq!(a.next_int(7, 7), first_reference.next_int(7, 7));
+        assert_eq!(a.next_int(i32::MIN, i32::MAX), first_reference.next_int(i32::MIN, i32::MAX));
+
+        let saved = first.random.with_logic_mut(|random| random.seed_words());
+        let next = a.next_u32();
+        first.random.with_logic_mut(|random| random.set_seed_words(saved));
+        assert_eq!(a.next_u32(), next, "restore resumes the same stream");
+        assert_eq!(second.random.with_logic_mut(|random| random.seed_words()), second_reference.seed_words());
+        first.random.init_with_seed(0x1234);
+        first_reference.seed_random(0x1234);
+        assert_eq!(a.next_u32(), first_reference.next_u32(), "reset keeps the existing loan attached");
+        assert_eq!(second.random.with_logic_mut(|random| random.seed_words()), second_reference.seed_words());
+
+        let session = SessionRandom::default();
+        session.seed_random(0xdead);
+        let mut session_reference = RandomState::default();
+        session_reference.seed_random(0xdead);
+        let fallback_before = first.random.with_logic_mut(|random| random.seed_words());
+        first.with_logic_rng_owner(session.clone(), || {
+            let mut borrowed = ReceivingLogicRandom::new(&first);
+            assert_eq!(borrowed.next_int(0, 2), session_reference.next_int(0, 2));
+            assert_eq!(borrowed.next_u32(), session_reference.next_u32());
+        });
+        assert_eq!(session.seed_words(), session_reference.seed_words());
+        assert_eq!(first.random.with_logic_mut(|random| random.seed_words()), fallback_before);
+    }
 
     #[test]
     fn two_common_services_on_two_threads_are_independent() {

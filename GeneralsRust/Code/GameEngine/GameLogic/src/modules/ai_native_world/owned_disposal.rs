@@ -44,7 +44,7 @@ impl AiNativeServices<'_> {
             spatial_objects: self.spatial_objects,
             audio: self.audio,
             audio_locality: self.audio_locality,
-            random: self.random,
+            random: &mut *self.random,
             rules: self.rules,
             weapon_bonuses: self.weapon_bonuses,
             changed_trigger_objects: self.changed_trigger_objects,

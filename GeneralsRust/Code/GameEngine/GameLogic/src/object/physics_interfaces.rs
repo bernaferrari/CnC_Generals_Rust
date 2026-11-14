@@ -287,7 +287,7 @@ impl PhysicsInterfaceHandle {
     pub(crate) fn prepare_random_rotation_at(
         &self,
         owner: &super::Object,
-        random: &mut game_engine::common::random_value::RandomState,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
     ) -> Result<bool, String> {
         self.installed_update_proxy(owner)?;
         self.with_installed_update(|physics| physics.prepare_random_rotation_at(owner, random))

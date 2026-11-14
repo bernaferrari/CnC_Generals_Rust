@@ -383,7 +383,10 @@ impl WorkerAIUpdate {
         }
         // WorkerAIUpdate::update selects the dozer machine before harvest.
         if self.is_acting_as_dozer() {
-            self.update_dozer_task();
+            if let Err(error) = self.update_dozer_task() {
+                log::error!("Worker construction completion failed: {error}");
+                return StateReturnType::Error;
+            }
             return StateReturnType::Continue;
         }
         let mut machine = self
@@ -792,7 +795,9 @@ impl WorkerAIUpdate {
         self.dozer_action_state = WorkerDozerActionState::PickActionPos;
     }
 
-    fn update_dozer_task(&mut self) {
+    fn update_dozer_task(&mut self) -> Result<(), String> {
+        let mut failure = None;
+        (|| {
         // Wave 298: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -1108,9 +1113,17 @@ impl WorkerAIUpdate {
         }
 
         if let Some(is_rebuild) = build_complete_rebuild {
-            self.handle_build_completion(&owner, &target, is_rebuild);
+            if let Err(error) = self.handle_build_completion(&owner, &target, is_rebuild) {
+                failure = Some(error);
+                return;
+            }
             self.dozer_task = None;
             self.clear_task(WorkerDozerTaskSlot::Build);
+        }
+        })();
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(()),
         }
     }
 
@@ -1119,7 +1132,7 @@ impl WorkerAIUpdate {
         owner: &Arc<RwLock<Object>>,
         target: &Arc<RwLock<Object>>,
         is_rebuild: bool,
-    ) {
+    ) -> Result<(), String> {
         let mut target_display_name: Option<String> = None;
         let mut target_pos: Option<LogicCoord3D> = None;
         let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
@@ -1169,7 +1182,7 @@ impl WorkerAIUpdate {
                 builder_id,
                 target,
                 is_rebuild,
-            );
+            )?;
             // WorkerAIUpdate.cpp uses DozerPrimaryStateMachine: player and AI
             // notification precedes create hooks, and requires a controller.
             if let Ok(mut target_guard) = target.write() {
@@ -1214,6 +1227,7 @@ impl WorkerAIUpdate {
                 }
             }
         }
+        Ok(())
     }
 
     /// Same interface as SupplyTruckAIUpdate for consistency

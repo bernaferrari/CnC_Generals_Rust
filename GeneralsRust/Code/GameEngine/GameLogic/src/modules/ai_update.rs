@@ -11,6 +11,15 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         None
     }
 
+    /// Remove this AI's pathfind position and goal using its actual owner.
+    fn remove_pathfind_occupancy(
+        &mut self,
+        _object: &crate::object::Object,
+        _pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        Err("installed AI does not admit pathfind occupancy removal".into())
+    }
+
     /// C++ AIUpdate.h setFinalPosition writes existing AI state, not Object pose.
     fn set_final_position(&mut self, _position: &Coord3D) {}
     /// Inspect the exact scheduled callback domain without changing wake metadata.

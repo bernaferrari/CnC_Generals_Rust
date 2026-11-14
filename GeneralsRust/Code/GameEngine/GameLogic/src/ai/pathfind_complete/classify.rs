@@ -832,7 +832,6 @@ impl PathfindingSystem {
 
     /// Mark/remove an object's footprint cells as obstacles.
     /// C++ reference: `Pathfinder::classifyObjectFootprint` (AIPathfind.cpp:4093+).
-    /// Unit occupancy and wall removal remain separate operations.
     pub fn classify_object_footprint(&mut self, obj: &crate::object::Object) -> Result<(), String> {
         self.classify_object_footprint_ex(obj, true)
     }
@@ -862,10 +861,14 @@ impl PathfindingSystem {
             if obj.is_kind_of(KindOf::BlastCrater) {
                 return Ok(());
             }
-            if obj.get_height_above_terrain() > PATHFIND_CELL_SIZE_F {
-                return Ok(());
+            if !obj.is_kind_of(KindOf::Immobile) {
+                if let Some(ai) = obj.get_ai_update_interface() {
+                    let mut ai = ai.try_lock().map_err(|error| {
+                        format!("cannot borrow object {} AI for pathfind removal: {error}", obj.get_id())
+                    })?;
+                    ai.remove_pathfind_occupancy(obj, self)?;
+                }
             }
-            return self.remove_object_footprint(obj);
         }
 
         if !obj.is_kind_of(KindOf::Structure) {
@@ -884,7 +887,7 @@ impl PathfindingSystem {
             return Ok(());
         }
 
-        self.internal_classify_object_footprint(obj, true)
+        self.internal_classify_object_footprint(obj, insert)
     }
 
     /// C++ `Pathfinder::classifyFence` (AIPathfind.cpp:3983+).
@@ -1049,23 +1052,6 @@ impl PathfindingSystem {
         Ok(())
     }
 
-    pub(crate) fn remove_object_footprint(
-        &mut self,
-        obj: &crate::object::Object,
-    ) -> Result<(), String> {
-        // Re-raster with insert=false using geometry (and fence path).
-        let fence_width = obj.get_template().get_fence_width();
-        if fence_width > 0.0 && !obj.is_kind_of(crate::common::KindOf::DefensiveWall) {
-            return self.classify_fence(obj, false, fence_width);
-        }
-        if obj.is_kind_of(crate::common::KindOf::Structure) && !obj.is_mobile() {
-            let geo = obj.get_geometry_info();
-            if !geo.get_is_small() {
-                self.internal_classify_object_footprint(obj, false)?;
-            }
-        }
-        Ok(())
-    }
 
     fn set_or_clear_obstacle_cell(
         &mut self,

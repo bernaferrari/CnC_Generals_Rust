@@ -189,7 +189,7 @@ impl Weapon {
         &self,
         target: Coord3D,
         target_object_type: ObjectType,
-        random: &mut game_engine::common::random_value::RandomState,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
         terrain: &crate::terrain::TerrainLogic,
     ) -> Coord3D {
         self.scatter_aim_point_with_observations(

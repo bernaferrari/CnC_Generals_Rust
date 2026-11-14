@@ -689,14 +689,16 @@ impl EngineStores {
     }
 
     /// Player.cpp completion refresh, applied to this world's actual pathfinder.
-    pub(crate) fn refresh_completed_structure_footprint(&self, structure: &crate::object::Object) {
-        let pathfinder = self.ai.read().ok().and_then(|ai| ai.pathfinder());
-        if let Some(pathfinder) = pathfinder {
-            if let Ok(mut pathfinder) = pathfinder.write() {
-                let _ = pathfinder.remove_object_from_pathfind_map(structure);
-                let _ = pathfinder.add_object_to_pathfind_map(structure);
-            }
-        }
+    pub(crate) fn refresh_completed_structure_footprint(
+        &self,
+        structure: &crate::object::Object,
+    ) -> Result<(), String> {
+        let pathfinder = self.ai.try_read().map_err(|error| format!("cannot borrow construction AI: {error}"))?
+            .pathfinder().ok_or("construction pathfinder missing")?;
+        let mut pathfinder = pathfinder.try_write()
+            .map_err(|error| format!("cannot borrow construction pathfinder: {error}"))?;
+        pathfinder.remove_object_from_pathfind_map(structure)?;
+        pathfinder.add_object_to_pathfind_map(structure)
     }
     pub fn ai_data(&self) -> &Arc<RwLock<AIDataStore>> {
         &self.ai_data

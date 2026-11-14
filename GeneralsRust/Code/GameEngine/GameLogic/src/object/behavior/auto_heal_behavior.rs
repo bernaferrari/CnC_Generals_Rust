@@ -797,7 +797,7 @@ impl AutoHealBehavior {
     pub(crate) fn admit_owned_birth(
         &mut self,
         frame: u32,
-        random: &mut game_engine::common::random_value::RandomState,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
     ) -> Result<u32, String> {
         self.validate_owned_damage_callback()?;
         if self.owned_birth_admitted {

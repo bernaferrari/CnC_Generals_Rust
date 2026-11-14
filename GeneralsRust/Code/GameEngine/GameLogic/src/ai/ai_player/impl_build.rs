@@ -548,28 +548,50 @@ impl AIPlayer {
         weapon_radius: Real,
         player_index: i32,
     ) -> Result<Option<Coord3D>, AiError> {
-        // Prefer explicit playerNdx (C++). Fall back to current enemy only when
-        // caller passes a negative / invalid index residual.
-        let enemy_index = if player_index >= 0 {
-            player_index
-        } else {
+        let world = crate::system::engine_stores::active_services();
+        let player_index = if player_index < 0 {
             match self.select_current_enemy_player() {
-                Ok(Some((_, idx))) => idx,
+                Ok(Some((_, index))) => index,
                 _ => return Ok(None),
             }
+        } else {
+            player_index
+        };
+        let power = find_or_create_special_power_template(&AsciiString::from(power_template));
+        let mut random = game_engine::common::common_services::ReceivingLogicRandom::new(world.common());
+        self.compute_superweapon_target_in_world(&world, &power, weapon_radius, player_index, &mut random)
+    }
+
+    /// C++ grid targeting with the receiving world's state and actual logic stream.
+    pub fn compute_superweapon_target_in_world(
+        &self,
+        world: &crate::system::engine_stores::WorldServices,
+        power: &crate::object::special_power_template::SpecialPowerTemplate,
+        weapon_radius: Real,
+        player_index: i32,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
+    ) -> Result<Option<Coord3D>, AiError> {
+        let enemy_index = if player_index < 0 {
+            match self.select_current_enemy_player_in(world.players())? {
+                Some((_, index)) => index,
+                None => return Ok(None),
+            }
+        } else {
+            player_index
         };
 
         let radius = weapon_radius.max(1.0);
-        let (mut min_bounds, mut max_bounds) = self.get_player_structure_bounds(enemy_index)?;
+        let (mut min_bounds, mut max_bounds) = self.get_player_structure_bounds_in(
+            world.players(), world.object_registry(), enemy_index, false,
+        )?;
 
         // Degenerate bounds (no buildings) → full map extent (C++ getExtent, not pathfind).
         if min_bounds.x == 0.0 && min_bounds.y == 0.0 && max_bounds.x == 0.0 && max_bounds.y == 0.0
         {
-            if let Some(terrain) = TheTerrainLogic::get() {
-                let extent = terrain.get_extent();
-                min_bounds = extent.lo;
-                max_bounds = extent.hi;
-            }
+            let terrain = world.terrain().read().map_err(|_| AiError::InvalidObject)?;
+            let extent = terrain.get_extent();
+            min_bounds = extent.lo;
+            max_bounds = extent.hi;
         }
 
         // Shrink by weapon radius (C++ only shrinks X then clamps both axes).
@@ -604,14 +626,13 @@ impl AIPlayer {
             y_count = 1;
         }
 
-        let power = find_or_create_special_power_template(&AsciiString::from(power_template));
         // SPECIAL_SNEAK_ATTACK → do not value military units positively.
         let target_military_units = power.get_special_power_type()
             != crate::object::special_power_types::SpecialPowerType::SneakAttack;
 
         // C++ GameLogicRandomValue(1,4): starts at xCount/yCount (not count-1)
         // when scanning max→min so first sample hits the far edge.
-        let (x_delta, y_delta, x_start, y_start) = match game_logic_random_value(1, 4) {
+        let (x_delta, y_delta, x_start, y_start) = match random.next_int(1, 4) {
             1 => (1_i32, 1_i32, 0_i32, 0_i32),
             2 => (-1, 1, x_count, 0),
             3 => (1, -1, 0, y_count),
@@ -630,6 +651,7 @@ impl AIPlayer {
                     0.0,
                 );
                 let value = self.get_player_superweapon_value(
+                    world,
                     &pos,
                     enemy_index,
                     2.0 * radius,
@@ -654,6 +676,7 @@ impl AIPlayer {
                 let offset = (x - 5) as f32 * (radius / 10.0);
                 let pos = Coord3D::new(best_pos.x + offset, best_pos.y + offset, 0.0);
                 let value = self.get_player_superweapon_value(
+                    world,
                     &pos,
                     enemy_index,
                     radius,
@@ -675,9 +698,8 @@ impl AIPlayer {
             fine_best.x /= fine_count as f32;
             fine_best.y /= fine_count as f32;
         }
-        if let Some(terrain) = TheTerrainLogic::get() {
-            fine_best.z = terrain.get_ground_height(fine_best.x, fine_best.y, None);
-        }
+        fine_best.z = world.terrain().read().map_err(|_| AiError::InvalidObject)?
+            .get_ground_height(fine_best.x, fine_best.y, None);
 
         // C++ success = (cash > -1)
         if fine_cash > -1 {

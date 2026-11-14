@@ -29,26 +29,9 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 fn set_special_power_creator(object: &Arc<RwLock<Object>>, creator_id: ObjectID) {
-    let object_id = object
-        .read()
-        .ok()
-        .map(|guard| guard.get_id())
-        .unwrap_or(INVALID_ID);
-    set_special_power_creator_id(object_id, creator_id);
-}
-
-fn set_special_power_creator_id(object_id: ObjectID, creator_id: ObjectID) {
-    // Wave 445: empty dual-world → no-op.
-    if dual_world_registry_unavailable() {
-        return;
+    if let Ok(object) = object.read() {
+        object.set_special_power_completion_creator(creator_id);
     }
-
-    if object_id == INVALID_ID {
-        return;
-    }
-    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
-        guard.set_special_power_completion_creator(creator_id);
-    });
 }
 
 /// Payload information for delivery
@@ -372,15 +355,11 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
             };
 
             // Notify special power tracking
-            let transport_id = transport
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(INVALID_ID);
-            if formation_index == 0 {
-                set_special_power_creator_id(transport_id, primary_object.get_id());
+            let creator = if formation_index == 0 { primary_object.get_id() } else { INVALID_ID };
+            if create_owner {
+                set_special_power_creator(&transport, creator);
             } else {
-                set_special_power_creator_id(transport_id, INVALID_ID);
+                primary_object.set_special_power_completion_creator(creator);
             }
 
             // C++ only applies max-speed / deliverPayload / height / payload when the
@@ -814,6 +793,62 @@ mod tests {
     use crate::modules::{AIUpdateInterface, PhysicsBehavior};
     use crate::object_creation_list::{GameLogicContext, TerrainLogicContext, ThingFactoryContext};
     use std::sync::Mutex;
+
+    #[test]
+    fn completion_creator_uses_the_actual_transport_not_a_same_id_peer() {
+        use crate::object::die::{
+            DieModuleWrapper, SpecialPowerCompletionDie, SpecialPowerCompletionDieModuleData,
+        };
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        use game_engine::common::system::{Snapshotable, xfer_save::XferSave};
+        use game_engine::common::thing::module::{ModuleDataHandle, ModuleInterfaceType};
+        use std::io::Cursor;
+
+        let first_world = Arc::new(EngineStores::new_for_world());
+        let second_world = Arc::new(EngineStores::new_for_world());
+        with_active_stores(&second_world, || {
+            let make_object = |world: &Arc<EngineStores>| {
+                let mut object = Object::new_test(41, 100.0);
+                object.bind_pathfinding_owner(world).unwrap();
+                let object = Arc::new(RwLock::new(object));
+                let data = ModuleDataHandle::new(SpecialPowerCompletionDieModuleData::default());
+                let die = SpecialPowerCompletionDie::new(object.clone(), data.clone());
+                let module = DieModuleWrapper::new(
+                    &AsciiString::from("SpecialPowerCompletionDie"),
+                    data.clone(),
+                    object.clone(),
+                    Box::new(die),
+                );
+                object.write().unwrap().install_module_for_test(
+                    "SpecialPowerCompletionDie",
+                    Box::new(module),
+                    data,
+                    ModuleInterfaceType::DESTROY,
+                );
+                object
+            };
+            let first = make_object(&first_world);
+            let second = make_object(&second_world);
+            let snapshot = |object: &Arc<RwLock<Object>>| {
+                let entry = object.read().unwrap().behavior_modules().into_iter()
+                    .find(|entry| entry.name().as_str() == "SpecialPowerCompletionDie")
+                    .unwrap();
+                entry.with_module(|module| {
+                    let module = module.as_any_mut().downcast_mut::<DieModuleWrapper>().unwrap();
+                    let mut bytes = Vec::new();
+                    let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
+                    module.xfer(&mut xfer).unwrap();
+                    drop(xfer);
+                    bytes
+                })
+            };
+            let first_before = snapshot(&first);
+            let second_before = snapshot(&second);
+            set_special_power_creator(&first, 73);
+            assert_ne!(snapshot(&first), first_before);
+            assert_eq!(snapshot(&second), second_before);
+        });
+    }
 
     struct TestLogic;
     impl GameLogicContext for TestLogic {

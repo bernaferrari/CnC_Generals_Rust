@@ -242,7 +242,7 @@ impl AdmissionMatch {
         let mut spatial = crate::object_manager::ObjectManager::new();
         let mut audio = AudioManager::new();
         let locality = LocalPlayers(&self.players);
-        let mut random = Default::default();
+        let mut random = game_engine::common::random_value::RandomState::default();
         let ranks = crate::system::rank_info::RankInfoStore::default();
         let mut kill_awards = Vec::new();
         let mut radar = Default::default();

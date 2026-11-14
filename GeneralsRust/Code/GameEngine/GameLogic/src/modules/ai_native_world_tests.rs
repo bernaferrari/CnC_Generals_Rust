@@ -235,7 +235,7 @@ struct NativeMatch {
     shroud: crate::system::shroud_manager::ShroudManager,
     spatial: crate::object_manager::ObjectManager,
     audio: AudioManager,
-    random: game_engine::common::random_value::RandomState,
+    random: Box<dyn game_engine::common::common_services::LogicRandom>,
     rules: crate::ai::AiData,
     bonuses: crate::weapon::WeaponBonusSet,
     triggers: Vec<u32>,
@@ -481,7 +481,7 @@ impl NativeMatch {
             shroud,
             spatial: crate::object_manager::ObjectManager::new(),
             audio: AudioManager::new(),
-            random: Default::default(),
+            random: Box::new(game_engine::common::random_value::RandomState::default()),
             rules: Default::default(),
             bonuses: Default::default(),
             triggers: Vec::new(),
@@ -516,7 +516,11 @@ impl NativeMatch {
         &mut self,
         frame: u32,
         current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
-        f: impl FnOnce(&mut ObjectFactory, &crate::player::PlayerList, AiNativeServices<'_>) -> R,
+        f: impl for<'a> FnOnce(
+            &'a mut ObjectFactory,
+            &'a crate::player::PlayerList,
+            AiNativeServices<'a>,
+        ) -> R,
     ) -> R {
         let locality = LocalPlayers(&self.players);
         let services = AiNativeServices {
@@ -544,7 +548,7 @@ impl NativeMatch {
             spatial_objects: &mut self.spatial,
             audio: &mut self.audio,
             audio_locality: &locality,
-            random: &mut self.random,
+            random: &mut *self.random,
             rules: &self.rules,
             weapon_bonuses: &self.bonuses,
             changed_trigger_objects: &mut self.triggers,
@@ -632,6 +636,46 @@ fn cave_admission_reads_the_driving_factory_world_not_the_retained_or_active_wor
     };
     with_active_stores(&peer_stores, || assert!(query(&mut first)));
     with_active_stores(&first_stores, || assert!(!query(&mut peer)));
+}
+
+#[test]
+fn native_ai_random_uses_receiving_session_and_restores_its_continuation() {
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+    use game_engine::common::random_value::{RandomState, SessionRandom};
+
+    let first_stores = Arc::new(EngineStores::new_for_world());
+    let peer_stores = Arc::new(EngineStores::new_for_world());
+    let first_random = SessionRandom::default();
+    let peer_random = SessionRandom::default();
+    first_random.seed_random(0x1357);
+    peer_random.seed_random(0x2468);
+    let mut first_reference = RandomState::default();
+    let mut peer_reference = RandomState::default();
+    first_reference.seed_random(0x1357);
+    peer_reference.seed_random(0x2468);
+
+    let mut first = NativeMatch::new(50.0);
+    let mut peer = NativeMatch::new(150.0);
+    assert_eq!(first.source.read().unwrap().get_id(), peer.source.read().unwrap().get_id());
+    first.random = Box::new(first_random.clone());
+    peer.random = Box::new(peer_random.clone());
+
+    let peer_before = peer_random.seed_words();
+    let first_draw = with_active_stores(&peer_stores, || {
+        first.operate(1, |world| world.random_waypoint_link(6).unwrap())
+    });
+    assert_eq!(first_draw, (first_reference.next_u32() % 7) as usize);
+    assert_eq!(peer_random.seed_words(), peer_before);
+
+    let peer_draw = with_active_stores(&first_stores, || {
+        peer.operate(1, |world| world.random_waypoint_link(6).unwrap())
+    });
+    assert_eq!(peer_draw, (peer_reference.next_u32() % 7) as usize);
+    let saved = first_random.seed_words();
+    let continuation = first.operate(2, |world| world.random_waypoint_link(6).unwrap());
+    first_random.set_seed_words(saved);
+    assert_eq!(first.operate(2, |world| world.random_waypoint_link(6).unwrap()), continuation);
+    assert_eq!(peer_random.seed_words(), peer_reference.seed_words());
 }
 
 #[test]

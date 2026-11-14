@@ -645,7 +645,18 @@ impl AIPlayer {
             return Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)));
         }
 
-        let Some(player_arc) = player_list()
+        let services = crate::system::engine_stores::active_services();
+        self.get_player_structure_bounds_in(&player_list(), services.object_registry(), player_index, conservative)
+    }
+
+    pub(crate) fn get_player_structure_bounds_in(
+        &self,
+        players: &RwLock<crate::player::PlayerList>,
+        objects: &crate::object::registry::ObjectRegistry,
+        player_index: i32,
+        conservative: bool,
+    ) -> Result<(Coord3D, Coord3D), AiError> {
+        let Some(player_arc) = players
             .read()
             .ok()
             .and_then(|list| list.get_player(player_index).cloned())
@@ -660,8 +671,8 @@ impl AIPlayer {
         let mut struct_min = Coord3D::new(0.0, 0.0, 0.0);
         let mut struct_max = Coord3D::new(0.0, 0.0, 0.0);
 
-        for obj_id in player_guard.get_all_objects() {
-            let Some(pos) = OBJECT_REGISTRY
+        for &obj_id in player_guard.owned_object_ids() {
+            let Some(pos) = objects
                 .with_object(obj_id, |obj_guard| {
                     // C++ only enters the AABB expand when isKindOf(STRUCTURE).
                     if !obj_guard.is_kind_of(KindOf::Structure) {
@@ -752,8 +763,14 @@ impl AIPlayer {
     pub(super) fn select_current_enemy_player(
         &self,
     ) -> Result<Option<(Arc<RwLock<Player>>, i32)>, AiError> {
-        let __player_list_arc = player_list();
-        let Ok(list) = __player_list_arc.read() else {
+        self.select_current_enemy_player_in(&player_list())
+    }
+
+    pub(super) fn select_current_enemy_player_in(
+        &self,
+        players: &RwLock<crate::player::PlayerList>,
+    ) -> Result<Option<(Arc<RwLock<Player>>, i32)>, AiError> {
+        let Ok(list) = players.read() else {
             return Ok(None);
         };
         let Some(me_arc) = list.get_player(self.player_id as i32) else {
@@ -823,18 +840,14 @@ impl AIPlayer {
     /// C++ `AIPlayer::getPlayerSuperweaponValue` (AIPlayer.cpp).
     pub(super) fn get_player_superweapon_value(
         &self,
+        world: &crate::system::engine_stores::WorldServices,
         center: &Coord3D,
         player_index: i32,
         radius: Real,
         include_military_units: bool,
     ) -> Result<i32, AiError> {
-        // Wave 255: empty dual-world → Ok(0).
-        if dual_world_registry_unavailable() {
-            return Ok(0);
-        }
-
         let radius = radius.max(4.0 * PATHFIND_CELL_SIZE_F);
-        let Some(player_arc) = player_list()
+        let Some(player_arc) = world.players()
             .read()
             .ok()
             .and_then(|list| list.get_player(player_index).cloned())
@@ -847,8 +860,8 @@ impl AIPlayer {
 
         let mut cash = 0.0_f32;
         let rad_sqr = radius * radius;
-        for obj_id in player_guard.get_all_objects() {
-            let Some((apply_neg_value, pos, template, is_cc, is_sw)) = OBJECT_REGISTRY
+        for &obj_id in player_guard.owned_object_ids() {
+            let Some((apply_neg_value, pos, template, is_cc, is_sw)) = world.object_registry()
                 .with_object(obj_id, |obj_guard| {
                     let mut apply_neg_value = false;
                     if !include_military_units {
@@ -865,7 +878,12 @@ impl AIPlayer {
                             apply_neg_value = true;
                         }
                     } else if obj_guard.is_kind_of(KindOf::Aircraft)
-                        && obj_guard.is_significantly_above_terrain()
+                        && crate::object::die::eject_pilot_die::is_significantly_above_terrain_height(
+                            obj_guard.get_height_above_terrain(),
+                            world.common().system.global_data.lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .as_ref().map(|data| data.read().gravity).unwrap_or(-1.0),
+                        )
                     {
                         // Only when valuing military: skip flying aircraft.
                         return None;

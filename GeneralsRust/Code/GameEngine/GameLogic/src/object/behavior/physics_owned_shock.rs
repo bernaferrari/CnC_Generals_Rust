@@ -1,6 +1,6 @@
 //! Object.cpp1794–1838 / PhysicsUpdate.cpp299–391, using the driving owner.
 use super::*;
-use game_engine::common::random_value::RandomState;
+use game_engine::common::common_services::LogicRandom;
 
 impl PhysicsBehaviorUpdate {
     pub(in crate::object) fn validate_shock_at(&self, owner: &GameObject) -> Result<(), String> {
@@ -38,7 +38,7 @@ impl PhysicsBehaviorUpdate {
     pub(in crate::object) fn prepare_random_rotation_at(
         &mut self,
         owner: &GameObject,
-        random: &mut RandomState,
+        random: &mut dyn LogicRandom,
     ) -> Result<bool, String> {
         self.validate_shock_at(owner)?;
         let h = &mut self.physics_handle;

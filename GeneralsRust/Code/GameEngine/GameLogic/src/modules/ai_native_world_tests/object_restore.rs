@@ -272,7 +272,7 @@ pub(super) fn fresh_with_templates(
         shroud,
         spatial: crate::object_manager::ObjectManager::new(),
         audio: AudioManager::new(),
-        random: Default::default(),
+        random: Box::new(game_engine::common::random_value::RandomState::default()),
         rules: Default::default(),
         bonuses: Default::default(),
         triggers: Vec::new(),

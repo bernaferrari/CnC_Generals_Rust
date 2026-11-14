@@ -212,7 +212,7 @@ impl CompletionFixture {
             game_engine::common::thing::module::ModuleDataHandle::new(DozerAIUpdateModuleData::default()),
             self.builder.read().unwrap().get_id(),
         );
-        dozer.handle_build_completion(&self.builder, &self.structure, rebuild);
+        dozer.handle_build_completion(&self.builder, &self.structure, rebuild).unwrap();
     }
 
     pub(crate) fn frame(&self) -> u32 {
@@ -271,19 +271,17 @@ fn completion_fixture_retires_retained_queries_before_restoring_player_services(
         .lock()
         .unwrap();
     let previous = CompletionFixture::new(30);
-    let (previous_id, template, team, position) = {
+    let (previous_id, template, position) = {
         let object = previous.structure.read().unwrap();
         (
             object.get_id(),
             object.get_template().clone(),
-            object.get_team(),
             *object.get_position(),
         )
     };
     let instance = crate::object_manager::GameObjectInstance::from_existing(
         previous.structure.clone(),
         Some(template),
-        team,
     );
     let admitted = crate::object_manager::get_object_manager()
         .write()
@@ -521,7 +519,7 @@ fn restored_ai_construction_notifies_even_without_a_builder() {
         None,
         &fixture.structure,
         true,
-    );
+    ).unwrap();
     assert!(
         !fixture
             .player
@@ -559,18 +557,16 @@ fn completed_powered_structure_brownout_releases_player_before_disabled_callback
         .lock()
         .unwrap();
     let fixture = CompletionFixture::new(-10);
-    let (template, team, position) = {
+    let (template, position) = {
         let structure = fixture.structure.read().unwrap();
         (
             structure.get_template().clone(),
-            structure.get_team(),
             *structure.get_position(),
         )
     };
     let instance = crate::object_manager::GameObjectInstance::from_existing(
         fixture.structure.clone(),
         Some(template),
-        team,
     );
     crate::object_manager::get_object_manager()
         .write()
@@ -656,6 +652,18 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
     assert_eq!(cell(&receiving.read().unwrap(), &foreign_cell), Some(PathfindCellType::Obstacle));
     assert_eq!(cell(&other.read().unwrap(), &center_cell), Some(PathfindCellType::Clear));
 
+    // The completion caller must report a reentrant pathfinder borrow rather
+    // than dropping removal and continuing with insertion or later phases.
+    {
+        let held = receiving.write().unwrap();
+        let error = Player::on_structure_construction_complete(
+            &fixture.player, None, &fixture.structure, true,
+        ).unwrap_err();
+        assert!(error.contains("cannot borrow construction pathfinder"));
+        assert_eq!(cell(&held, &center_cell), Some(PathfindCellType::Clear));
+        assert_eq!(cell(&other.read().unwrap(), &center_cell), Some(PathfindCellType::Clear));
+    }
+
     // Publishing a different world must not redirect the receiving callback.
     crate::system::engine_stores::with_world_services(peer.services(), || {
         Player::on_structure_construction_complete(
@@ -663,7 +671,7 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
             None,
             &fixture.structure,
             true,
-        );
+        ).unwrap();
     });
 
     {
@@ -685,7 +693,7 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
         ));
     }
     crate::system::engine_stores::with_world_services(owner.services(), || {
-        Player::on_structure_construction_complete(&fixture.player, None, &peer_structure, true);
+        Player::on_structure_construction_complete(&fixture.player, None, &peer_structure, true).unwrap();
     });
     assert_eq!(cell(&other.read().unwrap(), &outside), Some(PathfindCellType::Obstacle));
     assert_eq!(cell(&other.read().unwrap(), &center_cell), Some(PathfindCellType::Clear));

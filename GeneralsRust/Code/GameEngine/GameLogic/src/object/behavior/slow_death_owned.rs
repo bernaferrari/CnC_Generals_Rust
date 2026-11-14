@@ -1,6 +1,6 @@
 //! Real SlowDeath fields with operation-owned timer, selection and scheduler inputs.
 use super::*;
-use game_engine::common::random_value::RandomState;
+use game_engine::common::common_services::LogicRandom;
 
 pub(crate) enum OwnedSlowBegin {
     AlreadyActive,
@@ -73,7 +73,7 @@ impl SlowDeathBehavior {
         &mut self,
         now: u32,
         scale: f32,
-        random: &mut RandomState,
+        random: &mut dyn LogicRandom,
     ) -> OwnedSlowBegin {
         if self.is_slow_death_activated() {
             return OwnedSlowBegin::AlreadyActive;
@@ -131,7 +131,7 @@ impl SlowDeathBehavior {
         now >= self.destruction_frame
     }
 }
-fn draw(random: &mut RandomState, lo: Int, hi: Int) -> Int {
+fn draw(random: &mut dyn LogicRandom, lo: Int, hi: Int) -> Int {
     let delta = hi.wrapping_sub(lo).wrapping_add(1) as u32;
     if delta == 0 {
         hi

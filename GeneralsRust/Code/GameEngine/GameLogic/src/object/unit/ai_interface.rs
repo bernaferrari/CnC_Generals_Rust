@@ -9,6 +9,45 @@ use super::registry::get_unit_arc;
 use crate::modules::UpdateSleepTime;
 
 impl AIUpdateInterface for UnitAIUpdate {
+    fn remove_pathfind_occupancy(
+        &mut self,
+        object: &Object,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        let id = object.get_id();
+        let (radius, centered) = crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(
+            object.get_geometry_info().get_bounding_circle_radius(),
+        );
+        let layer = ClassicPathLayer::from_u32(object.get_layer() as u32);
+        if pathfinder.is_map_ready() {
+            let current = self.runtime.data.pathfind_cur_cell;
+            self.runtime.data.pathfind_cur_cell = ICoord2D::new(-1, -1);
+            pathfinder.unit_pos_cells.remove(&id);
+            if current.x >= 0 && current.y >= 0 {
+                pathfinder.clear_pos_cells(
+                    id, current, radius, centered, layer, true, layer != ClassicPathLayer::Ground,
+                );
+            }
+        }
+
+        let goal = self.runtime.data.pathfind_goal_cell;
+        if goal.x != -1 || goal.y != -1 {
+            self.runtime.data.pathfind_goal_cell = ICoord2D::new(-1, -1);
+            self.runtime.data.pathfind_goal_layer = ClassicPathLayer::Invalid;
+            pathfinder.unit_goal_cells.remove(&id);
+            if goal.x >= 0 && goal.y >= 0 {
+                let destination = ClassicPathLayer::from_u32(object.get_destination_layer() as u32);
+                let goal_radius = radius.max(1);
+                pathfinder.clear_goal_cells(
+                    id, goal, goal_radius, centered, destination, true,
+                    destination != ClassicPathLayer::Ground,
+                );
+                pathfinder.clear_aircraft_goal_cells(id, goal, goal_radius, centered);
+            }
+        }
+        Ok(())
+    }
+
     fn validate_scheduled_tick_with_world(
         &self,
         world: &dyn crate::modules::ai_world::AiWorld,

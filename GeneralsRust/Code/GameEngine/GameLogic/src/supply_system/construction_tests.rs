@@ -173,7 +173,7 @@ fn worker_create_modules_observe_completed_player_and_ai_phases() {
                 0,
             );
             let production_before = fixture.player.read().unwrap().get_energy().production();
-            worker.handle_build_completion(&fixture.builder, &fixture.structure, rebuild);
+            worker.handle_build_completion(&fixture.builder, &fixture.structure, rebuild).unwrap();
             assert_eq!(
                 *observations.lock().unwrap(),
                 vec![Some(BuildCompleteView {
@@ -231,7 +231,7 @@ fn assert_unowned_completion_skips_create(worker: bool) {
                 fixture.builder.read().unwrap().get_id(),
                 0,
             );
-            worker.handle_build_completion(&fixture.builder, &fixture.structure, false);
+            worker.handle_build_completion(&fixture.builder, &fixture.structure, false).unwrap();
         } else {
             fixture.complete(false);
         }
@@ -278,7 +278,7 @@ fn real_supply_center_create_completes_without_relocking_its_object() {
         fixture.builder.read().unwrap().get_id(),
         0,
     );
-    worker.handle_build_completion(&fixture.builder, &fixture.structure, false);
+    worker.handle_build_completion(&fixture.builder, &fixture.structure, false).unwrap();
     assert_eq!(
         *observations.lock().unwrap(),
         vec![Some(BuildCompleteView {
@@ -405,7 +405,7 @@ fn worker_runs_real_player_upgrade_grant_after_notification() {
             fixture.builder.read().unwrap().get_id(),
             0,
         );
-        worker.handle_build_completion(&fixture.builder, &fixture.structure, false);
+        worker.handle_build_completion(&fixture.builder, &fixture.structure, false).unwrap();
         assert!(
             fixture
                 .player

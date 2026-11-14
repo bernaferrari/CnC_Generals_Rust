@@ -943,7 +943,7 @@ impl DozerAIUpdate {
         owner: &Arc<RwLock<Object>>,
         target: &Arc<RwLock<Object>>,
         is_rebuild: Bool,
-    ) {
+    ) -> Result<(), String> {
         self.finish_building_sound();
 
         let mut target_display_name: Option<String> = None;
@@ -991,7 +991,7 @@ impl DozerAIUpdate {
                 Some(self.object_id),
                 target,
                 is_rebuild,
-            );
+            )?;
             if let Ok(mut target_guard) = target.write() {
                 target_guard.on_build_complete();
             }
@@ -1064,6 +1064,7 @@ impl DozerAIUpdate {
                 }
             }
         }
+        Ok(())
     }
 
     pub fn update(&mut self) -> StateReturnType {
@@ -1104,7 +1105,10 @@ impl DozerAIUpdate {
         }
 
         if self.dozer_task.is_some() {
-            self.update_dozer_task();
+            if let Err(error) = self.update_dozer_task() {
+                log::error!("Dozer construction completion failed: {error}");
+                return StateReturnType::Error;
+            }
         }
 
         StateReturnType::Continue
@@ -1130,7 +1134,9 @@ impl DozerAIUpdate {
         });
     }
 
-    fn update_dozer_task(&mut self) {
+    fn update_dozer_task(&mut self) -> Result<(), String> {
+        let mut failure = None;
+        (|| {
         // Wave 351: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -1365,11 +1371,14 @@ impl DozerAIUpdate {
                         }
                     }
                     if completed.contains(&task.target_id) {
-                        self.handle_build_completion(
+                        if let Err(error) = self.handle_build_completion(
                             &owner,
                             &target,
                             self.task_owner.construct_is_rebuild,
-                        );
+                        ) {
+                            failure = Some(error);
+                            return;
+                        }
                         self.internal_task_complete(DozerTask::Build);
                         return;
                     }
@@ -1383,6 +1392,11 @@ impl DozerAIUpdate {
         }
 
         self.dozer_task = Some(task);
+        })();
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     fn get_bridge_id_for_tower(tower: &Object) -> ObjectID {

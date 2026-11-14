@@ -37,20 +37,18 @@ impl Player {
         builder_id: Option<ObjectID>,
         structure: &Arc<RwLock<Object>>,
         is_rebuild: Bool,
-    ) {
+    ) -> Result<(), String> {
         // No caller-held player/object guard may span these reentrant phases.
         crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
 
-        let structure_id = match structure.read() {
-            Ok(guard) => guard.get_id(),
-            Err(_) => return,
-        };
+        let structure_id = structure.read().map_err(|error| format!("construction object: {error}"))?.get_id();
 
         // C++ Player.cpp:1644-1645: remove then insert the full footprint on
         // the runtime that admitted this structure, before reentrant phases.
-        if let Ok(structure_guard) = structure.read() {
+        {
+            let structure_guard = structure.read().map_err(|error| format!("construction object: {error}"))?;
             if let Some(owner) = structure_guard.owning_pathfinding_runtime() {
-                owner.refresh_completed_structure_footprint(&structure_guard);
+                owner.refresh_completed_structure_footprint(&structure_guard)?;
             }
         }
 
@@ -120,9 +118,7 @@ impl Player {
             is_superweapon_nuke,
             is_superweapon_scud,
         ) = {
-            let Ok(guard) = structure.read() else {
-                return;
-            };
+            let guard = structure.read().map_err(|error| format!("construction object: {error}"))?;
             (
                 guard.get_team(),
                 guard.get_controlling_player_id(),
@@ -145,9 +141,7 @@ impl Player {
         };
         if let Some(local_player) = local_player {
             let (own, relation) = {
-                let Ok(local) = local_player.read() else {
-                    return;
-                };
+                let local = local_player.read().map_err(|error| format!("construction local player: {error}"))?;
                 (
                     Some(local.get_player_index() as u32) == controlling_player_id,
                     team.as_ref()
@@ -217,5 +211,6 @@ impl Player {
                 }
             }
         }
+        Ok(())
     }
 }

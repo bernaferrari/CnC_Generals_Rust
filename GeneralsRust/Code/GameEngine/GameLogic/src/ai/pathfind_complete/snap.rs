@@ -788,10 +788,6 @@ impl PathfindingSystem {
         if cur.x < 0 || cur.y < 0 {
             return;
         }
-        let mut radius = radius;
-        if radius == 0 {
-            radius = 1;
-        }
         self.clear_pos_cells(
             unit_id,
             cur,
@@ -811,8 +807,8 @@ impl PathfindingSystem {
         center_in_cell: bool,
         layer: PathfindLayerEnum,
     ) {
-        self.remove_goal(unit_id, radius, center_in_cell, layer);
         self.remove_pos(unit_id, radius, center_in_cell, layer);
+        self.remove_goal(unit_id, radius, center_in_cell, layer);
     }
 
     /// Compute goal/pos cell from world like C++ getRadiusAndCenter + worldToCell.

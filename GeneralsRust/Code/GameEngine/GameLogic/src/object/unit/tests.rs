@@ -117,6 +117,62 @@ fn unit_ai_update_without_unit() -> UnitAIUpdate {
     )
 }
 
+#[test]
+fn footprint_removal_clears_the_receiving_units_real_ai_cells() {
+    use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum as Layer};
+    use crate::system::engine_stores::EngineStores;
+
+    let first = EngineStores::new_for_world();
+    let second = EngineStores::new_for_world();
+    let first_pf = first.ai().read().unwrap().pathfinder().unwrap();
+    let second_pf = second.ai().read().unwrap().pathfinder().unwrap();
+    let first_ai = Arc::new(Mutex::new(unit_ai_update_without_unit()));
+    let second_ai = Arc::new(Mutex::new(unit_ai_update_without_unit()));
+    let mut first_object = Object::new_test(7, 100.0);
+    let mut second_object = Object::new_test(7, 100.0);
+    first_object.set_ai_update_interface(Some(first_ai.clone()));
+    second_object.set_ai_update_interface(Some(second_ai.clone()));
+    let first_cell = ICoord2D::new(5, 6);
+    let second_cell = ICoord2D::new(9, 6);
+    for (pathfinder, ai, object, cell) in [
+        (&first_pf, &first_ai, &first_object, first_cell),
+        (&second_pf, &second_ai, &second_object, second_cell),
+    ] {
+        let mut ai = ai.lock().unwrap();
+        ai.runtime.data.pathfind_cur_cell = cell;
+        ai.runtime.data.pathfind_goal_cell = cell;
+        ai.runtime.data.pathfind_goal_layer = Layer::Ground;
+        let (radius, centered) = crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(
+            object.get_geometry_info().get_bounding_circle_radius(),
+        );
+        let mut pathfinder = pathfinder.write().unwrap();
+        pathfinder.reset_with_size(16, 16);
+        pathfinder.mark_current_map_ready();
+        let cell = GridCoord::new(cell.x, cell.y);
+        pathfinder.update_pos_cells(cell, 7, Layer::Ground, radius, centered, false);
+        pathfinder.update_goal_cells(cell, 7, Layer::Ground, radius, centered, false);
+    }
+    let held_ai = first_ai.lock().unwrap();
+    assert!(first_pf
+        .write()
+        .unwrap()
+        .remove_object_from_pathfind_map(&first_object)
+        .is_err());
+    assert_eq!(held_ai.runtime.data.pathfind_cur_cell, first_cell);
+    drop(held_ai);
+    first_pf.write().unwrap().remove_object_from_pathfind_map(&first_object).unwrap();
+    let first_ai = first_ai.lock().unwrap();
+    assert_eq!(first_ai.runtime.data.pathfind_cur_cell, ICoord2D::new(-1, -1));
+    assert_eq!(first_ai.runtime.data.pathfind_goal_cell, ICoord2D::new(-1, -1));
+    drop(first_ai);
+    let second_ai = second_ai.lock().unwrap();
+    assert_eq!(second_ai.runtime.data.pathfind_cur_cell, second_cell);
+    assert_eq!(second_ai.runtime.data.pathfind_goal_cell, second_cell);
+    let mut goal = Coord3D::ZERO;
+    assert!(!first_pf.read().unwrap().goal_position_for_unit(7, 0.0, &mut goal));
+    assert!(second_pf.read().unwrap().goal_position_for_unit(7, 0.0, &mut goal));
+}
+
 fn add_primary_weapon(object: &mut Object, range: Real) {
     let mut weapon_template =
         crate::weapon::WeaponTemplate::new(format!("TestAttackRangeWeapon{}", object.get_id()));

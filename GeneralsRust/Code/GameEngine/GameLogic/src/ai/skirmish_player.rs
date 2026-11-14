@@ -1,4 +1,4 @@
-use super::ai_player::{AIPlayer, WorkOrder};
+use super::ai_player::{AIPlayer, AiPlayerTrait, WorkOrder};
 use crate::ai::the_ai;
 use crate::build_list_info::BuildListInfo;
 use crate::common::Snapshot;
@@ -581,18 +581,36 @@ impl AISkirmishPlayer {
         player_index: i32,
         weapon_radius: f32,
     ) -> bool {
+        let world = crate::system::engine_stores::active_services();
+        let mut random = game_engine::common::common_services::ReceivingLogicRandom::new(world.common());
+        self.compute_superweapon_target_in_world(
+            &world, power, pos, player_index, weapon_radius, &mut random,
+        )
+    }
+
+    /// C++ skirmish target override on the receiving world and logic stream.
+    pub fn compute_superweapon_target_in_world(
+        &mut self,
+        world: &crate::system::engine_stores::WorldServices,
+        power: &SpecialPowerTemplate,
+        pos: &mut Coord3D,
+        player_index: i32,
+        weapon_radius: f32,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
+    ) -> bool {
         let power_type = power.get_special_power_type();
         if matches!(
             power_type,
             ObjectSpecialPowerType::ClusterMines | ObjectSpecialPowerType::NukeClusterMines
         ) {
-            let Some(player_arc) = self.base.get_player() else {
+            let Some(player_arc) = world.players().read().ok()
+                .and_then(|players| players.get_player(self.base.get_player_id() as i32).cloned()) else {
                 return false;
             };
             let Ok(player_guard) = player_arc.read() else {
                 return false;
             };
-            let mode = GameLogicRandomValue(0, 2);
+            let mode = random.next_int(0, 2);
             let path_label = if mode == 1 {
                 format!(
                     "{}{}",
@@ -617,14 +635,25 @@ impl AISkirmishPlayer {
             // else getPlayerStructureBounds(enemy) → center of bounds.
             let base_center = self.base.get_base_center().unwrap_or_default();
             let mut goal_pos = base_center;
-            if let Some(terrain) = TheTerrainLogic::get() {
+            if let Ok(terrain) = world.terrain().read() {
                 if let Some(way_pos) = terrain.get_closest_waypoint_on_path(&goal_pos, &path_label)
                 {
-                    goal_pos = way_pos;
+                    goal_pos = *way_pos.get_location();
                 } else {
-                    let enemy_index = self.get_my_enemy_player_index();
+                    let enemy_index = self.current_enemy.as_ref()
+                        .and_then(|enemy| enemy.upgrade())
+                        .and_then(|enemy| enemy.try_read().ok().map(|enemy| enemy.get_player_index()))
+                        .or_else(|| world.players().read().ok().map(|players| {
+                            players.iter().find_map(|player| player.read().ok()
+                                .filter(|player| player.get_player_type() == PlayerType::Human)
+                                .map(|player| player.get_player_index()))
+                                .unwrap_or(players.get_player_count() as i32)
+                        }))
+                        .unwrap_or(-1);
                     if enemy_index >= 0 {
-                        if let Ok((lo, hi)) = self.base.get_player_structure_bounds(enemy_index) {
+                        if let Ok((lo, hi)) = self.base.get_player_structure_bounds_in(
+                            world.players(), world.object_registry(), enemy_index, false,
+                        ) {
                             // C++ Region2D center: lo + width/2, lo + height/2
                             goal_pos = Coord3D::new(
                                 lo.x + (hi.x - lo.x) * 0.5,
@@ -647,7 +676,7 @@ impl AISkirmishPlayer {
             *pos = base_center;
             pos.x += offset.x;
             pos.y += offset.y;
-            if let Some(terrain) = TheTerrainLogic::get() {
+            if let Ok(terrain) = world.terrain().read() {
                 pos.z = terrain.get_ground_height(pos.x, pos.y, None);
             }
             return true;
@@ -655,7 +684,7 @@ impl AISkirmishPlayer {
 
         if let Ok(Some(target)) =
             self.base
-                .compute_superweapon_target(power.get_name(), weapon_radius, player_index)
+                .compute_superweapon_target_in_world(world, power, weapon_radius, player_index, random)
         {
             *pos = target;
             return true;

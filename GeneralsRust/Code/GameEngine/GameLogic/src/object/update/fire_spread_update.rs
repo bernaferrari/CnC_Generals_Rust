@@ -342,7 +342,7 @@ impl FireSpreadUpdate {
     fn wake_delay_if_aflame_with_random(
         &self,
         is_aflame: bool,
-        random: &mut game_engine::common::random_value::RandomState,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
     ) -> Option<u32> {
         is_aflame.then(|| {
             self.calc_next_spread_delay_with(|min, max| {
@@ -483,7 +483,7 @@ impl FireSpreadControlInterface for FireSpreadUpdateModule {
     fn wake_delay_if_aflame_with_random(
         &mut self,
         is_aflame: bool,
-        random: &mut game_engine::common::random_value::RandomState,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
     ) -> Result<Option<u32>, String> {
         Ok(self
             .behavior

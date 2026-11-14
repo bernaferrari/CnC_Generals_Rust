@@ -50,7 +50,7 @@ pub struct AiNativeServices<'a> {
     pub spatial_objects: &'a mut crate::object_manager::ObjectManager,
     pub audio: &'a mut game_engine::common::audio::AudioManager,
     pub audio_locality: &'a dyn game_engine::common::audio::AudioLocalityResolver,
-    pub random: &'a mut game_engine::common::random_value::RandomState,
+    pub random: &'a mut dyn game_engine::common::common_services::LogicRandom,
     pub rules: &'a crate::ai::AiData,
     pub weapon_bonuses: &'a crate::weapon::WeaponBonusSet,
     pub changed_trigger_objects: &'a mut Vec<ObjectID>,

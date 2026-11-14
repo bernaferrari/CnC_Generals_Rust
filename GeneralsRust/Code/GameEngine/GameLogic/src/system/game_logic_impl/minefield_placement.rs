@@ -10,6 +10,7 @@ use crate::object::behavior::generate_minefield_behavior::{
 use crate::object::body::active_body::BodyDefinitionCatalog;
 use crate::object::collide::collision_system::CollisionSystem;
 use crate::object::object_factory::ObjectFactory;
+#[cfg(test)]
 use game_engine::common::random_value::RandomState;
 use game_engine::common::thing::update_module::{
     MinefieldFootprint, MinefieldServiceError, OwnedMinefieldServices,
@@ -74,7 +75,7 @@ pub struct OwnedMinefieldPlacementServices<'a> {
     pub bodies: Arc<BodyDefinitionCatalog>,
     pub terrain: &'a crate::terrain::TerrainLogic,
     pub collision: &'a mut CollisionSystem,
-    pub random: &'a mut RandomState,
+    pub random: &'a mut dyn game_engine::common::common_services::LogicRandom,
 }
 
 fn unavailable(reason: impl Into<String>) -> MinefieldServiceError {

@@ -171,6 +171,54 @@ fn update_goal_and_remove_unit_clears_tracking() {
 }
 
 #[test]
+fn removing_small_unit_position_keeps_adjacent_stamps_in_both_worlds() {
+    let first = crate::system::engine_stores::EngineStores::new_for_world();
+    let second = crate::system::engine_stores::EngineStores::new_for_world();
+    let first_pathfinder = first.ai().read().unwrap().pathfinder().unwrap();
+    let second_pathfinder = second.ai().read().unwrap().pathfinder().unwrap();
+    let mut first = first_pathfinder.write().unwrap();
+    let mut second = second_pathfinder.write().unwrap();
+    first.reset_with_size(16, 16);
+    second.reset_with_size(16, 16);
+    first.inner.new_map_from_classified_cells();
+    second.inner.new_map_from_classified_cells();
+    let center = GridCoord::new(5, 6);
+    let adjacent = GridCoord::new(6, 6);
+    for world in [&mut first.inner, &mut second.inner] {
+        world.update_pos(center, 7, PathfindLayerEnum::Ground, 0, true, false);
+        world.set_pos_cells(
+            7,
+            ICoord2D::new(6, 6),
+            0,
+            true,
+            PathfindLayerEnum::Ground,
+            true,
+            false,
+        );
+        world.update_goal(center, 7, PathfindLayerEnum::Ground, 0, true, false);
+    }
+    first
+        .inner
+        .remove_unit_from_pathfind_map(7, 0, true, PathfindLayerEnum::Ground);
+    assert_eq!(
+        first.inner.goal_cells[center.x as usize][center.y as usize]
+            .get_pos_unit(PathfindLayerEnum::Ground),
+        INVALID_ID
+    );
+    assert_eq!(
+        first.inner.goal_cells[adjacent.x as usize][adjacent.y as usize]
+            .get_pos_unit(PathfindLayerEnum::Ground),
+        7
+    );
+    assert_eq!(
+        second.inner.goal_cells[center.x as usize][center.y as usize]
+            .get_pos_unit(PathfindLayerEnum::Ground),
+        7
+    );
+    assert_eq!(second.inner.get_goal_unit(center, PathfindLayerEnum::Ground), 7);
+}
+
+#[test]
 fn cell_for_unit_position_half_cell_bias() {
     let pos = Coord3D::new(15.0, 25.0, 0.0);
     let c = PathfindingSystem::cell_for_unit_position(&pos, true);

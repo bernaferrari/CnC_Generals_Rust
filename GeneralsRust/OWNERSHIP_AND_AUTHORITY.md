@@ -3332,15 +3332,18 @@ save status comes from the actual write result, not the existence of an older
 slot. Generic special-power execution does not create an AI state machine for
 an AI-less structure; admitted power modules continue to execute.
 
-Superweapon target sampling uses the source grid conversion and consumes the
-receiving Main world's logic RNG. Core's separate AIPlayer path still resolves
-terrain, players, objects and random state through ambient services. Tracer
-expiration uses the source frame conversion and wrapping frame arithmetic on
-each client owner.
+Superweapon target sampling uses the source grid conversion. Main consumes the
+receiving world's logic RNG; Core has an owner-lent target implementation,
+but its legacy script wrapper still discovers the world ambiently. Native Core
+AI consumers can draw through the receiving CommonServices RNG loan without
+copying its state; the scoped session selector remains a migration aid, not the
+final instance-isolation architecture. Tracer expiration uses the source frame
+conversion and wrapping frame arithmetic on each client owner.
 
 Core construction completion refreshes the full footprint through the
-structure's admitted pathfinder, rather than the currently published one.
-Same-ID interleaved-world tests cover footprint ownership and rubble. Core
-footprint removal still lacks the original unit-occupancy and wall-fall phases.
-Main's skirmish special-power script dispatch uses its receiving world directly;
-the separate Core targeting path remains ambient.
+structure's admitted pathfinder. Non-wall removal clears that object's position
+and goal in source order; same-ID interleaved-world tests cover occupancy,
+footprint ownership and rubble. Wall invalidation, falling damage and wall
+reclassification still need a reentrant owner-lent pathfinder boundary.
+Main's skirmish special-power script dispatch uses its receiving world directly.
+Core OCL object birth, special-power firing and scheduler loans remain ambient.

@@ -281,12 +281,15 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             let builder_id = constructor_arc
                 .as_ref()
                 .and_then(|builder| builder.read().ok().map(|guard| guard.get_id()));
-            crate::player::Player::on_structure_construction_complete(
+            if let Err(error) = crate::player::Player::on_structure_construction_complete(
                 &player,
                 builder_id,
                 &replacement_object,
                 false,
-            );
+            ) {
+                log::error!("ReplaceObjectUpgrade construction completion failed: {error}");
+                return false;
+            }
         }
 
         self.applied = true;
