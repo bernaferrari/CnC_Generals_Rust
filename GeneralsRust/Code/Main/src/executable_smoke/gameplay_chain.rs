@@ -2047,6 +2047,17 @@ fn smoke_drive_save_load_chain(
         result.detail = breadcrumb;
     }
 
+    // Save/load errors can show modal dialogs. A reported failure is terminal
+    // for this round-trip, not an invitation to repeat the same operation.
+    if (st.gameplay_step == 40 && snap.last_gameplay_cmd.starts_with("save_fail"))
+        || (st.gameplay_step == 50 && snap.last_gameplay_cmd.starts_with("load_fail"))
+    {
+        result.status = "save_load_command_failed".into();
+        result.detail = format!("save_load command failed: {}", snap.last_gameplay_cmd);
+        return;
+    }
+
+
     if st.saw_select_ok
         && st.saw_move_ok
         && st.saw_save_ok
@@ -2152,10 +2163,8 @@ fn smoke_drive_save_load_chain(
             st.commanded_at = Some(Instant::now());
             return;
         }
-        if snap.last_gameplay_cmd.starts_with("save_fail") || retry_due {
-            let _ = write_control(control_path, &["quicksave"]);
-            st.commanded_at = Some(Instant::now());
-        }
+        // Do not reissue an unacknowledged save: it may already have opened a
+        // modal error dialog. The overall wall budget bounds a missing reply.
         return;
     }
 
@@ -2166,11 +2175,7 @@ fn smoke_drive_save_load_chain(
             st.commanded_at = Some(Instant::now());
             return;
         }
-        if snap.last_gameplay_cmd.starts_with("load_fail") || retry_due {
-            let _ = write_control(control_path, &["quickload"]);
-            st.commanded_at = Some(Instant::now());
-            st.gameplay_step = st.gameplay_step.saturating_add(1).min(59);
-        }
+        // Like save, load may have side effects even if status is delayed.
         return;
     }
 

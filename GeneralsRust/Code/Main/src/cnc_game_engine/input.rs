@@ -2636,7 +2636,7 @@ impl CnCGameEngine {
                     if slot == "quicksave" {
                         self.quick_save_from_hotkey("UI quick-save");
                     } else {
-                        self.save_game_from_ui(&slot, &display_name);
+                        let _ = self.save_game_from_ui(&slot, &display_name);
                     }
                 }
                 UIEvent::RestartMission => {

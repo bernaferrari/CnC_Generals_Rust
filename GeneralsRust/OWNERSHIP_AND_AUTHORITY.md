@@ -3323,3 +3323,9 @@ local player; reset re-arms only that world. Core object/collide/scripting
 callbacks still raise EVA through the published world (no world borrow is
 passed to them yet). EVA INI definitions are written only by the INI loader into
 the receiving CommonServices; the client Eva owns its parsed check infos.
+
+The native save/load gate stops after a reported save or load failure instead
+of repeatedly issuing the command and exhausting message-box windows. Runtime
+save status comes from the actual write result, not the existence of an older
+slot. Generic special-power execution does not create an AI state machine for
+an AI-less structure; admitted power modules continue to execute.

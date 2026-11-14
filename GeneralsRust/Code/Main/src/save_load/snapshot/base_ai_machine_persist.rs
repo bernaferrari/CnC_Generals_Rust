@@ -29,7 +29,12 @@ impl BaseAiObjectSnapshot {
         // no native AI machine at all; its movement/attack state is carried by
         // the ordinary object wire, so there is nothing to continue here.
         if admitted.is_some() && source.is_none() && !object.base_ai_control_is_inert() {
-            return Err(bad("active control has no admitted AI source"));
+            return Err(bad(format_args!(
+                "active control has no admitted AI source: object {:?} template {:?}, control {:?}",
+                object.id,
+                object.template_name,
+                object.capture_base_ai_continuation()
+            )));
         }
         let continuation = source
             .as_ref()

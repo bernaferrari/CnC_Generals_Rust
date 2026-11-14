@@ -124,6 +124,46 @@ fn click(
 }
 
 #[test]
+fn admitted_command_center_power_does_not_create_an_ai_machine() {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "USA", true));
+    crate::fixture_content::admit_fixture_content_with_actions(
+        &mut world,
+        &[crate::fixture_content::FixtureObject::new("AmericaCommandCenter")
+            .kind_of("STRUCTURE SELECTABLE")
+            .health(2000.0)
+            .module("Behavior = OCLSpecialPower ModuleTag_Spy\n SpecialPowerTemplate = SpecialPowerSpySatellite\nEnd")],
+        &[],
+        "SpecialPower SpecialPowerSpySatellite\n Enum = SPECIAL_SPY_SATELLITE\n ReloadTime = 60000\nEnd\n",
+    );
+    let mut map = MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.border_size = 1;
+    map.heightmap = vec![0; 34 * 34];
+    map.boundaries = vec![ICoord2D::new(320, 320)];
+    world.world_services.terrain().write().unwrap().load_map_geometry(map);
+    world.world_services.shroud().lock().unwrap().init_shroud_grid(512.0, 512.0);
+    let center = world.create_object_for_player("AmericaCommandCenter", 0, Vec3::ZERO).unwrap();
+    let object = world.host_object_mut(center).unwrap();
+    assert!(!object.has_ai_update_interface());
+    object.set_special_power_ready_seconds(&SpecialPowerType::SpySatellite, 0.0);
+    assert_eq!(
+        CommandExecutor::new(&mut world, 0).execute_special_power(
+            &[center],
+            &SpecialPowerType::SpySatellite,
+            &PowerTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
+        ).unwrap(),
+        CommandResult::Success
+    );
+    assert!(!world.is_special_power_ready_for(center, &SpecialPowerType::SpySatellite));
+    let object = world.host_object(center).unwrap();
+    assert_eq!(object.ai_state(), crate::game_logic::AIState::Idle);
+    crate::save_load::snapshot::base_ai_machine_persist::BaseAiObjectSnapshot::capture(object)
+        .expect("source-less building power must remain saveable");
+}
+
+#[test]
 fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

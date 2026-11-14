@@ -320,7 +320,12 @@ fn actual_source_without_ai_is_inert_and_unsupported_control_is_not_silently_omi
         .host_object_mut(actor)
         .unwrap()
         .restore_ai_state(AIState::Moving);
-    assert!(BaseAiObjectSnapshot::capture(receiving.host_object(actor).unwrap()).is_err());
+    let error = BaseAiObjectSnapshot::capture(receiving.host_object(actor).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("active control has no admitted AI source"));
+    assert!(error.contains("NoAiNative"));
+    assert!(error.contains("Moving"));
     assert!(none.validate_ai_state_projection(&AIState::Moving).is_err());
     assert!(
         none.apply_after_admission(receiving.host_object_mut(actor).unwrap())

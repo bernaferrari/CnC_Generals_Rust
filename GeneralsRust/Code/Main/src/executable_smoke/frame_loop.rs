@@ -316,6 +316,12 @@ fn run_executable_smoke_once(
             }
         }
 
+        if result.status == "save_load_command_failed" {
+            let _ = write_control(&control_path, &["exit"]);
+            kill_child(&mut child);
+            break;
+        }
+
         thread::sleep(Duration::from_millis(100));
     }
 

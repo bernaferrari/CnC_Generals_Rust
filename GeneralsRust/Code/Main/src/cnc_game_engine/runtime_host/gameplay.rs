@@ -267,12 +267,9 @@ impl CnCGameEngine {
                 .get("name")
                 .cloned()
                 .unwrap_or_else(|| format!("HostSave-{slot}"));
-            self.save_game_from_ui(&slot, &display);
-            let exists = self.save_file_manager.save_exists(&slot);
-            self.runtime_host_last_gameplay_cmd = if exists {
-                format!("save_ok:{slot}")
-            } else {
-                format!("save_fail:{slot}")
+            self.runtime_host_last_gameplay_cmd = match self.save_game_from_ui(&slot, &display) {
+                Ok(()) => format!("save_ok:{slot}"),
+                Err(err) => format!("save_fail:{slot}:{err}"),
             };
         }
     }

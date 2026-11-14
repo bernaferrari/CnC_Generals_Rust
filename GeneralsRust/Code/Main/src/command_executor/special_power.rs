@@ -574,7 +574,12 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-            if !never_consume {
+            // Object::doSpecialPower dispatches to the power module even when
+            // the caster has no AI. SpecialAbilityUpdate itself requires an
+            // AI interface; a command-center power must not create one.
+            if !never_consume
+                && self.game_logic.host_object(unit_id).is_some_and(|object| object.has_ai_update_interface())
+            {
                 let _ = self
                     .game_logic
                     .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);

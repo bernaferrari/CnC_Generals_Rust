@@ -3557,16 +3557,16 @@ impl CnCGameEngine {
     }
 
     /// Wave 611: via `host_save_game_from_ui`.
-    pub(super) fn save_game_from_ui(&mut self, slot: &str, display_name: &str) {
+    pub(super) fn save_game_from_ui(&mut self, slot: &str, display_name: &str) -> Result<(), String> {
         // Wave 611: thin wrapper — residual via host helper.
         self.host_save_game_from_ui(slot, display_name)
     }
 
-    pub(super) fn host_save_game_from_ui(&mut self, slot: &str, display_name: &str) {
+    pub(super) fn host_save_game_from_ui(&mut self, slot: &str, display_name: &str) -> Result<(), String> {
         // Wave 611: host residual helper.
         let slot = slot.trim();
         if slot.is_empty() {
-            return;
+            return Err("save slot is empty".into());
         }
 
         // C++ GameState::missionSave uses GUI:MissionSave. PopupSaveLoad
@@ -3579,11 +3579,13 @@ impl CnCGameEngine {
         let save_info =
             self.build_save_info(slot, &description, &description, SaveFileType::Normal);
 
-        if let Err(err) = self.host_save_game_authority(slot, &save_info) {
+        let result = self.host_save_game_authority(slot, &save_info);
+        if let Err(err) = &result {
             warn!("Save failed for '{}': {}", slot, err);
         } else {
             info!("Saved game to slot '{}'", slot);
         }
+        result
     }
 
     /// Empty UI names: `GUI:MissionSave` while a campaign is live, else

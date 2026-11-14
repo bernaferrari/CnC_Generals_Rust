@@ -18,6 +18,56 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn save_load_failure_stops_without_retrying_dialog_producing_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("control");
+        for (step, failure, saved) in [
+            (40, "save_fail:quicksave:serialization rejected", false),
+            (50, "load_fail:quicksave:bad snapshot", true),
+        ] {
+            let mut st = SmokeRunState {
+                gameplay_step: step,
+                saw_select_ok: true,
+                saw_move_ok: true,
+                saw_save_ok: saved,
+                pre_world_snap: "world_snap_ok:fixture".into(),
+                commanded_at: Some(Instant::now() - Duration::from_secs(9)),
+                ..Default::default()
+            };
+            let mut result = ExecutableSmokeResult::default();
+            let snap = StatusSnap {
+                last_gameplay_cmd: failure.into(),
+                ..Default::default()
+            };
+            smoke_drive_save_load_chain(&mut st, &mut result, &snap, &control);
+            assert_eq!(result.status, "save_load_command_failed");
+            assert!(result.detail.contains(failure));
+            assert!(!control.exists(), "failed command must not be retried");
+        }
+    }
+
+    #[test]
+    fn save_load_waits_for_unacknowledged_command_without_reissuing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("control");
+        for (step, saved) in [(40, false), (50, true)] {
+            let mut st = SmokeRunState {
+                gameplay_step: step,
+                saw_select_ok: true,
+                saw_move_ok: true,
+                saw_save_ok: saved,
+                pre_world_snap: "world_snap_ok:fixture".into(),
+                commanded_at: Some(Instant::now() - Duration::from_secs(9)),
+                ..Default::default()
+            };
+            let mut result = ExecutableSmokeResult::default();
+            let snap = StatusSnap::default();
+            smoke_drive_save_load_chain(&mut st, &mut result, &snap, &control);
+            assert!(!control.exists(), "unacknowledged command must not be reissued");
+        }
+    }
+
     // Overrides are owned by Command and installed only in the fresh child.
     // libtest and native libraries may have threads even with --test-threads=1;
     // never mutate the parent process environment to configure these cases.
