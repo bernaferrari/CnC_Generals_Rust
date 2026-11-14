@@ -2557,6 +2557,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 self.world
                     .apply_owned_script_base_defense(player, structure, flank);
             }
+            ScriptAiPlayerRequest::FireSpecialPower { player, power } => {
+                let mut manager = std::mem::take(&mut self.world.ai_manager);
+                manager.fire_skirmish_special_power_at_most_cost(self.world, player, power);
+                self.world.ai_manager = manager;
+            }
             ScriptAiPlayerRequest::BuildTeam { team } => {
                 self.world.apply_owned_script_team_build_with_effects(
                     team,

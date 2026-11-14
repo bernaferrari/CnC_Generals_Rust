@@ -181,6 +181,10 @@ pub enum ScriptAiPlayerRequest<'a> {
         structure: Option<&'a str>,
         flank: bool,
     },
+    FireSpecialPower {
+        player: &'a str,
+        power: &'a str,
+    },
     BuildTeam {
         team: &'a str,
     },

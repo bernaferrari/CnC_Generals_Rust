@@ -2435,7 +2435,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_skirmish_build_structure_flank(action, driver)
             }
             ScriptActionType::SkirmishFireSpecialPowerAtMostCost => {
-                self.do_skirmish_fire_special_power_at_most_cost(action)
+                self.do_skirmish_fire_special_power_at_most_cost(action, driver)
             }
             ScriptActionType::SkirmishAttackNearestGroupWithValue => {
                 self.do_skirmish_attack_nearest_group_with_value(action)

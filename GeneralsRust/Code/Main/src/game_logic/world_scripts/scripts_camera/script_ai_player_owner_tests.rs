@@ -222,3 +222,104 @@ fn missing_main_ai_player_is_authoritative_even_when_core_player_exists() {
         },
     );
 }
+
+#[test]
+fn authored_superweapon_action_targets_and_consumes_only_receiving_world() {
+    use crate::command_system::{CommandType, PowerTarget, SpecialPowerType};
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+    use game_engine::common::random_value::SessionRandom;
+
+    fn world(target_x: f32) -> (GameLogic, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "AI", false).with_script_identity("ScriptAiOwner"));
+        world.add_player(Player::new(2, Team::GLA, "Enemy", true).with_script_identity("Enemy"));
+        world.ai_manager.add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);
+        world.get_player_mut(1).unwrap().map_side.is_skirmish_ai = true;
+        world.get_player_mut(1).unwrap().map_side.relations.insert(2, gamelogic::common::Relationship::Enemies);
+        world.get_player_mut(2).unwrap().map_side.relations.insert(1, gamelogic::common::Relationship::Enemies);
+
+        let mut cannon = ThingTemplate::new("ScriptCannon");
+        cannon.set_health(4000.0);
+        cannon.add_kind_of(KindOf::Structure);
+        cannon.add_kind_of(KindOf::FSSuperweapon);
+        cannon.special_power_modules.push(SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_SpecialPower".into()),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: "SuperweaponParticleUplinkCannon".into(),
+            special_power_template_id: 1,
+            command_power: Some(SpecialPowerType::ParticleCannon),
+            reload_time_frames: 0,
+            required_science: None,
+            public_timer: true,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+            cash_bounty: None,
+        });
+        world.templates.insert("ScriptCannon".into(), cannon);
+        let mut target = ThingTemplate::new("ScriptTarget");
+        target.set_health(1000.0);
+        target.set_cost(500, 0);
+        target.add_kind_of(KindOf::Structure);
+        target.add_kind_of(KindOf::Attackable);
+        world.templates.insert("ScriptTarget".into(), target);
+        let caster = world.create_object_for_player("ScriptCannon", 1, Vec3::new(20.0, 0.0, 20.0)).unwrap();
+        let enemy = world.create_object_for_player("ScriptTarget", 2, Vec3::new(target_x, 0.0, 80.0)).unwrap();
+        assert_eq!(world.query_owned_ai_enemy(1), Some(2));
+        (world, caster, enemy)
+    }
+
+    let (mut first, caster, target) = world(100.0);
+    let (mut second, peer_caster, peer_target) = world(500.0);
+    assert_eq!((caster, target), (peer_caster, peer_target));
+    first.logic_random.seed_random(1234);
+    second.logic_random.seed_random(9876);
+    let expected_first = SessionRandom::default();
+    expected_first.seed_random(1234);
+    let expected_second = SessionRandom::default();
+    expected_second.seed_random(9876);
+    let mut action = ScriptAction::new(ScriptActionType::SkirmishFireSpecialPowerAtMostCost);
+    action.add_parameter(Parameter::with_string(ParameterType::Side, "ScriptAiOwner".into())).unwrap();
+    action.add_parameter(Parameter::with_string(ParameterType::SpecialPower, "SuperweaponParticleUplinkCannon".into())).unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+
+    let fire = |world: &mut GameLogic| {
+        engine.friend_execute_action_with_driver(
+            &action, None, gamelogic::scripting::executor::ScriptContext::new(),
+            &mut HostScriptExecutionDriver::new(world),
+        );
+    };
+    fire(&mut first);
+    expected_first.next_int(1, 4);
+    assert_eq!(first.logic_random.seed_words(), expected_first.seed_words());
+    assert_eq!(second.logic_random.seed_words(), expected_second.seed_words());
+    assert!(second.command_queue.is_empty());
+    let command = first.command_queue.front().expect("script must queue the real special-power command");
+    assert_eq!(command.selected_units, vec![caster]);
+    match &command.command_type {
+        CommandType::DoSpecialPower { power_type: SpecialPowerType::ParticleCannon, target: PowerTarget::Location(pos) } => {
+            assert!((pos.x - 100.0).abs() < 0.01, "{pos:?}");
+            assert!((pos.z - 80.0).abs() < 0.01, "{pos:?}");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+    fire(&mut second);
+    expected_second.next_int(1, 4);
+    assert_eq!(second.logic_random.seed_words(), expected_second.seed_words());
+    let command = second.command_queue.front().expect("peer queues its own command");
+    match &command.command_type {
+        CommandType::DoSpecialPower { power_type: SpecialPowerType::ParticleCannon, target: PowerTarget::Location(pos) } => {
+            assert!((pos.x - 500.0).abs() < 0.01, "{pos:?}");
+            assert!((pos.z - 80.0).abs() < 0.01, "{pos:?}");
+        }
+        other => panic!("unexpected peer command: {other:?}"),
+    }
+    first.process_commands();
+    assert_eq!(second.special_power_strikes().strike_count(), 0);
+    assert!(first.special_power_strikes().honesty_queue_ok(crate::game_logic::HostSuperweaponKind::ParticleCannon));
+    second.process_commands();
+    assert!(second.special_power_strikes().honesty_queue_ok(crate::game_logic::HostSuperweaponKind::ParticleCannon));
+}

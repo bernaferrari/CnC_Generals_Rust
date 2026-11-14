@@ -1,6 +1,5 @@
 //! C++ Player.cpp1639-1720 construction notification phases.
-//! Shared handles are a temporary adapter for the registry-backed module path;
-//! they do not grant ownership of mutable match state to the callback.
+//! The admitted structure's Core runtime owns its pathfinder callback.
 use super::*;
 
 impl Player {
@@ -38,7 +37,6 @@ impl Player {
         builder_id: Option<ObjectID>,
         structure: &Arc<RwLock<Object>>,
         is_rebuild: Bool,
-        pathfinder: Option<&Arc<RwLock<crate::ai::Pathfinder>>>,
     ) {
         // No caller-held player/object guard may span these reentrant phases.
         crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
@@ -48,15 +46,11 @@ impl Player {
             Err(_) => return,
         };
 
-        // C++ Player.cpp:1644-1645: full footprint remove then insert on the
-        // receiving pathfinder. The handle is locked only for these two
-        // classifications; no guard spans the reentrant phases below.
-        if let Some(pathfinder) = pathfinder {
-            if let Ok(structure_guard) = structure.read() {
-                if let Ok(mut pf) = pathfinder.write() {
-                    let _ = pf.remove_object_from_pathfind_map(&structure_guard);
-                    let _ = pf.add_object_to_pathfind_map(&structure_guard);
-                }
+        // C++ Player.cpp:1644-1645: remove then insert the full footprint on
+        // the runtime that admitted this structure, before reentrant phases.
+        if let Ok(structure_guard) = structure.read() {
+            if let Some(owner) = structure_guard.owning_pathfinding_runtime() {
+                owner.refresh_completed_structure_footprint(&structure_guard);
             }
         }
 

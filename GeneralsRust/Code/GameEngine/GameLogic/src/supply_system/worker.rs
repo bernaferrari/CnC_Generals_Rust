@@ -1169,7 +1169,6 @@ impl WorkerAIUpdate {
                 builder_id,
                 target,
                 is_rebuild,
-                crate::ai::active_pathfinder_handle().as_ref(),
             );
             // WorkerAIUpdate.cpp uses DozerPrimaryStateMachine: player and AI
             // notification precedes create hooks, and requires a controller.

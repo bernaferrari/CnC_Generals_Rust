@@ -344,11 +344,26 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_fire_special_power_at_most_cost(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let Some(player_name) = self.resolve_player_name_token_with_driver(
+            &self.get_string_param(action, 0)?,
+            driver,
+        ) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let power_name = self.get_string_param(action, 1)?;
-        // Wave 284: empty dual-world leftover cannot walk OBJECT_REGISTRY.
-        // C++ still fires the *named* SpecialPower; queue for live AIPlayer.
+        if let Some(result) = driver.ai_player(crate::scripting::engine::ScriptAiPlayerRequest::FireSpecialPower {
+            player: &player_name,
+            power: &power_name,
+        }) {
+            if let Err(error) = result {
+                log::warn!("Owned AI special power action failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
+        // Standalone Core retains its existing path until its driving session
+        // can lend the same RNG stream used by the rest of the simulation.
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_fire_special(&player_name, &power_name);
             return Ok(ScriptActionResult::Success);
@@ -433,7 +448,6 @@ impl ScriptActionDispatcher<'_> {
                 team_member_lists.push(fallback);
             }
         }
-
         let mut fired = false;
         for members in team_member_lists {
             for obj_id in members {

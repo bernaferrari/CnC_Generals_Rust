@@ -286,7 +286,6 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
                 builder_id,
                 &replacement_object,
                 false,
-                crate::ai::active_pathfinder_handle().as_ref(),
             );
         }
 

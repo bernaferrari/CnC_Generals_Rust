@@ -3337,3 +3337,10 @@ receiving Main world's logic RNG. Core's separate AIPlayer path still resolves
 terrain, players, objects and random state through ambient services. Tracer
 expiration uses the source frame conversion and wrapping frame arithmetic on
 each client owner.
+
+Core construction completion refreshes the full footprint through the
+structure's admitted pathfinder, rather than the currently published one.
+Same-ID interleaved-world tests cover footprint ownership and rubble. Core
+footprint removal still lacks the original unit-occupancy and wall-fall phases.
+Main's skirmish special-power script dispatch uses its receiving world directly;
+the separate Core targeting path remains ambient.

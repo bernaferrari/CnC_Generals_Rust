@@ -100,6 +100,13 @@ impl Object {
             .or_else(|| self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services())))
     }
 
+    /// Core runtime that admitted this object, if it is a Core-owned object.
+    pub(crate) fn owning_pathfinding_runtime(
+        &self,
+    ) -> Option<Arc<crate::system::engine_stores::EngineStores>> {
+        self.pathfinding_owner.clone()
+    }
+
     /// C++ `TheLocomotorStore` of the engine that owns this Object.
     pub(crate) fn owning_locomotor_store(&self) -> Option<Arc<crate::locomotor::LocomotorStore>> {
         self.owning_world_services()

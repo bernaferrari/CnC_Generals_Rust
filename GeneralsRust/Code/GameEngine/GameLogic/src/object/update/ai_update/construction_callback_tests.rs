@@ -521,7 +521,6 @@ fn restored_ai_construction_notifies_even_without_a_builder() {
         None,
         &fixture.structure,
         true,
-        None,
     );
     assert!(
         !fixture
@@ -615,12 +614,13 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
     let center_cell = center;
     let outside = crate::common::Coord3D::new(255.0, 255.0, 0.0);
 
-    let new_pathfinder = || {
-        let mut pf = Pathfinder::new();
-        pf.reset_with_size(40, 40);
-        pf
-    };
-    let (mut receiving, mut other) = (new_pathfinder(), new_pathfinder());
+    let owner = crate::system::engine_stores::new_for_world();
+    let peer = crate::system::engine_stores::new_for_world();
+    fixture.structure.write().unwrap().bind_pathfinding_owner(&owner).unwrap();
+    let receiving = owner.ai().read().unwrap().pathfinder().unwrap();
+    let other = peer.ai().read().unwrap().pathfinder().unwrap();
+    receiving.write().unwrap().reset_with_size(40, 40);
+    other.write().unwrap().reset_with_size(40, 40);
     // The foreign obstacle (a different object id) overlaps the footprint.
     let foreign = {
         let template = fixture.structure.read().unwrap().get_template().clone();
@@ -634,36 +634,60 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
         object.set_geometry_info(geometry);
         object
     };
-    receiving.add_object_to_pathfind_map(&foreign).unwrap();
+    receiving.write().unwrap().add_object_to_pathfind_map(&foreign).unwrap();
     // Rubble left over from clearing the site before building.
-    receiving.set_cell_type_for_test(&rubble_cell, PathfindCellType::Rubble);
-    // Unrelated world: same object id, nothing classified yet.
+    receiving.write().unwrap().set_cell_type_for_test(&rubble_cell, PathfindCellType::Rubble);
+    // The peer's same-ID object has a different footprint.
+    let peer_structure = {
+        let structure = fixture.structure.read().unwrap();
+        let mut object = Object::new_test_from_template(
+            structure_id,
+            100.0,
+            structure.get_template().clone(),
+        );
+        object.set_position(&outside).unwrap();
+        object.set_geometry_info(structure.get_geometry_info().clone());
+        object.bind_pathfinding_owner(&peer).unwrap();
+        Arc::new(RwLock::new(object))
+    };
     let cell = |pf: &Pathfinder, pos: &crate::common::Coord3D| {
         pf.get_cell_type_at(pos)
     };
-    assert_eq!(cell(&receiving, &foreign_cell), Some(PathfindCellType::Obstacle));
-    assert_eq!(cell(&other, &center_cell), Some(PathfindCellType::Clear));
+    assert_eq!(cell(&receiving.read().unwrap(), &foreign_cell), Some(PathfindCellType::Obstacle));
+    assert_eq!(cell(&other.read().unwrap(), &center_cell), Some(PathfindCellType::Clear));
 
-    let receiving = std::sync::Arc::new(RwLock::new(receiving));
-    let other = std::sync::Arc::new(RwLock::new(other));
-    Player::on_structure_construction_complete(
-        &fixture.player,
-        None,
-        &fixture.structure,
-        true,
-        Some(&receiving),
-    );
+    // Publishing a different world must not redirect the receiving callback.
+    crate::system::engine_stores::with_world_services(peer.services(), || {
+        Player::on_structure_construction_complete(
+            &fixture.player,
+            None,
+            &fixture.structure,
+            true,
+        );
+    });
 
-    let receiving = receiving.read().unwrap();
-    let other = other.read().unwrap();
-    // Footprint inserted on the receiver.
-    assert_eq!(cell(&receiving, &center_cell), Some(PathfindCellType::Obstacle));
-    // Rubble cleared by the remove phase, then re-stamped as the structure.
-    assert_eq!(cell(&receiving, &rubble_cell), Some(PathfindCellType::Obstacle));
-    // Overlapping foreign obstacle preserved (not owned by this structure id).
-    assert_eq!(cell(&receiving, &foreign_cell), Some(PathfindCellType::Obstacle));
-    assert_eq!(cell(&receiving, &outside), Some(PathfindCellType::Clear));
-    // The other world's pathfinder, with the same object id, is untouched.
-    assert_eq!(cell(&other, &center_cell), Some(PathfindCellType::Clear));
-    assert_eq!(cell(&other, &rubble_cell), Some(PathfindCellType::Clear));
+    {
+        let receiving = receiving.read().unwrap();
+        let other = other.read().unwrap();
+        assert_eq!(cell(&receiving, &center_cell), Some(PathfindCellType::Obstacle));
+        assert_eq!(cell(&receiving, &rubble_cell), Some(PathfindCellType::Obstacle));
+        assert_eq!(cell(&receiving, &foreign_cell), Some(PathfindCellType::Obstacle));
+        assert_eq!(cell(&receiving, &outside), Some(PathfindCellType::Clear));
+        assert_eq!(cell(&other, &center_cell), Some(PathfindCellType::Clear));
+        assert_eq!(cell(&other, &rubble_cell), Some(PathfindCellType::Clear));
+        // Only the foreign owner's ID may be ignored at the overlapping cell.
+        let ground = crate::ai::pathfind_complete::SURFACE_GROUND;
+        assert!(!receiving.valid_movement_position_for_surfaces(
+            ground, false, &foreign_cell, Some(structure_id),
+        ));
+        assert!(receiving.valid_movement_position_for_surfaces(
+            ground, false, &foreign_cell, Some(structure_id + 100),
+        ));
+    }
+    crate::system::engine_stores::with_world_services(owner.services(), || {
+        Player::on_structure_construction_complete(&fixture.player, None, &peer_structure, true);
+    });
+    assert_eq!(cell(&other.read().unwrap(), &outside), Some(PathfindCellType::Obstacle));
+    assert_eq!(cell(&other.read().unwrap(), &center_cell), Some(PathfindCellType::Clear));
+    assert_eq!(cell(&receiving.read().unwrap(), &outside), Some(PathfindCellType::Clear));
 }

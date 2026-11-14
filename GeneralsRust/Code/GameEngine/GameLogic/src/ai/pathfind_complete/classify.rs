@@ -862,6 +862,9 @@ impl PathfindingSystem {
             if obj.is_kind_of(KindOf::BlastCrater) {
                 return Ok(());
             }
+            if obj.get_height_above_terrain() > PATHFIND_CELL_SIZE_F {
+                return Ok(());
+            }
             return self.remove_object_footprint(obj);
         }
 
