@@ -231,7 +231,7 @@ impl Player {
     pub fn add_skill_points_impl(&mut self, delta: Int, rank_level_limit: Int) -> Bool {
         // Apply skill points modifier (from upgrades, difficulty, etc.)
         // C++ Player.cpp:2439 - REAL_TO_INT_CEIL(m_skillPointsModifier * INT_TO_REAL(delta))
-        let delta = ((delta as Real * self.skill_points_modifier).ceil()) as Int;
+        let delta = game_engine::base_type::real_to_int_ceil(self.skill_points_modifier * delta as Real);
 
         if delta == 0 {
             return false;
@@ -734,7 +734,7 @@ mod tests {
 
         // Add some skill points (not enough to level)
         player.add_skill_points(50, crate::player::DEFAULT_RANK_LEVEL_LIMIT);
-        assert_eq!(player.get_skill_points(), 50);
+        assert_eq!(player.get_skill_points(), 51);
         assert_eq!(player.get_rank_level(), 1); // Should still be rank 1
     }
 
@@ -794,8 +794,8 @@ mod tests {
 
         player.add_skill_points(100, crate::player::DEFAULT_RANK_LEVEL_LIMIT);
 
-        // Should be doubled (and ceiled)
-        assert_eq!(player.get_skill_points(), 200);
+        // REAL_TO_INT_CEIL adds one at this positive integral boundary.
+        assert_eq!(player.get_skill_points(), 201);
     }
 
     fn world_with_ranks(skill_points: &[i32]) -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
@@ -814,6 +814,29 @@ mod tests {
     }
 
     #[test]
+    fn regular_and_owned_kill_awards_use_cpp_real_to_int_ceil() {
+        // Player.cpp:2439 and BaseType.h's fast_float_ceil, not mathematical ceil.
+        let world = world_with_ranks(&[0, 1000]);
+        let cases = [(100, 1.0, 101), (3, 0.5, 2), (-3, 0.5, -1), (0, 1.0, 0)];
+        for (delta, modifier, expected) in cases {
+            let mut regular = Player::new_for_world(0, &world);
+            let mut killed = Player::new_for_world(1, &world);
+            regular.set_skill_points_modifier(modifier);
+            killed.set_skill_points_modifier(modifier);
+
+            assert!(!regular.add_skill_points(delta, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
+            let rank_store = killed.rank_catalog().store();
+            let ranks = rank_store.read().unwrap();
+            let award = killed
+                .prepare_owned_kill_skill_award(delta, &ranks, crate::player::DEFAULT_RANK_LEVEL_LIMIT)
+                .unwrap();
+            assert!(!killed.commit_owned_kill_skill_award(award));
+            assert_eq!(regular.get_skill_points(), expected, "regular award {delta} * {modifier}");
+            assert_eq!(killed.get_skill_points(), expected, "kill award {delta} * {modifier}");
+        }
+    }
+
+    #[test]
     fn players_rank_against_their_own_worlds_rank_catalog() {
         // Player.cpp:2437-2458 / 2637-2715 read TheRankInfoStore. Each world's
         // Players read that world's Rank.ini; no world is published here, and
@@ -828,7 +851,7 @@ mod tests {
         assert!(a.add_skill_points(150, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
         assert!(!b.add_skill_points(150, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
         assert_eq!((a.get_rank_level(), a.get_skill_points_level_down(), a.get_skill_points_level_up()), (2, 100, 200));
-        assert_eq!((b.get_rank_level(), b.get_skill_points()), (1, 150));
+        assert_eq!((b.get_rank_level(), b.get_skill_points()), (1, 151));
 
         // Second world caps at its last rank (Player.cpp:2444-2448).
         assert!(b.add_skill_points(5000, crate::player::DEFAULT_RANK_LEVEL_LIMIT));
@@ -897,7 +920,7 @@ impl Player {
             level_down: self.level_down,
             science_purchase_points: self.science_purchase_points,
         };
-        let delta = (delta as Real * self.skill_points_modifier).ceil() as Int;
+        let delta = game_engine::base_type::real_to_int_ceil(self.skill_points_modifier * delta as Real);
         if delta == 0 {
             return Ok(award);
         }

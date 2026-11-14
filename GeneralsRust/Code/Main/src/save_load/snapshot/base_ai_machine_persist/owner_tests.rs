@@ -315,6 +315,32 @@ fn actual_source_without_ai_is_inert_and_unsupported_control_is_not_silently_omi
             .unwrap()
             .base_ai_control_is_inert()
     );
+    let factory = crate::save_load::snapshot::SnapshotBuilder::new();
+    let mut invalid = factory.create_world_snapshot(&receiving).unwrap();
+    invalid.objects.get_mut(&actor).unwrap().status.ai_state = AIState::Moving;
+    receiving.set_current_frame(77);
+    let birth = std::sync::Arc::clone(
+        &receiving.host_object(actor).unwrap().visual_draw_identity_token,
+    );
+    assert!(factory.restore_from_snapshot(&invalid, &mut receiving).is_err());
+    assert_eq!(receiving.get_frame(), 77);
+    assert!(std::sync::Arc::ptr_eq(
+        &birth,
+        &receiving.host_object(actor).unwrap().visual_draw_identity_token,
+    ));
+    assert!(receiving.host_object(actor).unwrap().base_ai_control_is_inert());
+    let mut fresh = GameLogic::new();
+    fresh.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+        ("no-ai-native.ini".into(), "Object NoAiNative\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into()),
+    ]).unwrap()).unwrap();
+    fresh.set_current_frame(88);
+    assert!(factory.restore_from_snapshot(&invalid, &mut fresh).is_err());
+    assert_eq!(fresh.get_frame(), 88);
+    assert!(fresh.host_object(actor).is_none());
+    let valid = factory.create_world_snapshot(&receiving).unwrap();
+    factory.restore_from_snapshot(&valid, &mut receiving).unwrap();
+    assert!(receiving.host_object(actor).unwrap().base_ai_control_is_inert());
+
     // Explicit malformed decoder/test input, not a fabricated positive source.
     receiving
         .host_object_mut(actor)
@@ -331,4 +357,14 @@ fn actual_source_without_ai_is_inert_and_unsupported_control_is_not_silently_omi
         none.apply_after_admission(receiving.host_object_mut(actor).unwrap())
             .is_err()
     );
+}
+
+#[test]
+fn synthetic_moving_state_with_real_ai_template_round_trips_into_same_world() {
+    let (mut world, actor) = world();
+    world.host_object_mut(actor).unwrap().restore_ai_state(AIState::Moving);
+    let factory = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = factory.create_world_snapshot(&world).unwrap();
+    factory.restore_from_snapshot(&snapshot, &mut world).unwrap();
+    assert_eq!(world.host_object(actor).unwrap().ai_state(), AIState::Moving);
 }

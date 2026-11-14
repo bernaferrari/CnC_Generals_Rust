@@ -372,9 +372,47 @@ impl SnapshotBuilder {
                     "duplicate or foreign ReceivingBaseAI key".into(),
                 ));
             }
+            let cached = game_logic.templates.get(&snapshot.template_name);
+            let rebuilt;
             let fallback;
-            let template = if let Some(template) = game_logic.templates.get(&snapshot.template_name)
-            {
+            let template = if let Some(content) = &game_logic.receiving_module_content {
+                let definition = game_logic
+                    .receiving_object_definitions
+                    .as_ref()
+                    .and_then(|definitions| definitions.get(&snapshot.template_name))
+                    .ok_or_else(|| SaveLoadError::Corrupted(format!(
+                        "Saved Object '{}' has no receiving definition",
+                        snapshot.template_name
+                    )))?;
+                if let Some(template) = cached.filter(|template| {
+                    template.receiving_object_definition.as_ref()
+                        .is_some_and(|existing| std::sync::Arc::ptr_eq(existing, definition))
+                        && template.receiving_client_template.is_some()
+                }) {
+                    template
+                } else {
+                    let mut template = GameLogic::build_template_from_object_definition_with_receiving(
+                        &snapshot.template_name,
+                        definition,
+                        definition.get_primary_texture(),
+                        Some(content),
+                        game_logic.locomotor_definitions.receiving(),
+                    ).map_err(|error| SaveLoadError::Corrupted(format!(
+                        "Saved Object '{}' has an invalid receiving definition: {error}",
+                        snapshot.template_name
+                    )))?;
+                    let plan = content.admitted_template(&snapshot.template_name).ok_or_else(|| {
+                        SaveLoadError::Corrupted(format!(
+                            "Saved Object '{}' has no admitted receiving module definition",
+                            snapshot.template_name
+                        ))
+                    })?;
+                    template.receiving_client_template =
+                        Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
+                    rebuilt = template;
+                    &rebuilt
+                }
+            } else if let Some(template) = cached {
                 template
             } else {
                 fallback = ThingTemplate::new(&snapshot.template_name);

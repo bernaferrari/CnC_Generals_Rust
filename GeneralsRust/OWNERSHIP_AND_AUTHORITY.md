@@ -3299,9 +3299,11 @@ Authored special-power timers retain per-module and shared player state through
 host snapshots and drive the receiving client's public timer display. Same-ID
 world probes cover rank isolation and timer restore. Core GameText, control bar
 and EVA delivery still have ambient compatibility paths (hq-yac16).
-Main skill-point awards use the source `REAL_TO_INT_CEIL` conversion, including
-its positive integral boundary behavior. Core's separate award implementation
-still uses mathematical ceiling and needs the same comparison and migration.
+Main and Core skill-point awards, and Main and Core cash bounties, use the
+source `REAL_TO_INT_CEIL` conversion including positive integral boundaries.
+The Core native kill-award path uses the receiving world's rank and player
+state. Snapshot preflight rejects active AI state without an admitted AI source
+instead of silently restoring a different state.
 
 
 ## Control bar definitions and EVA delivery

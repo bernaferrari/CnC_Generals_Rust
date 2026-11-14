@@ -122,10 +122,10 @@ fn enemy_kill_awards_actual_receiving_rank_cash_and_xp_without_foreign_writes() 
     let player = game.players.get_player(0).unwrap();
     let player = player.read().unwrap();
     assert_eq!(player.get_rank_level(), 2);
-    assert_eq!(player.get_skill_points(), 25);
+    assert_eq!(player.get_skill_points(), 26); // Player.cpp:2439 REAL_TO_INT_CEIL(25.0)
     assert_eq!(player.get_science_purchase_points(), 3);
-    assert_eq!(player.get_money().count_money(), 51);
-    assert_eq!(player.get_score_keeper().get_total_money_earned(), 50);
+    assert_eq!(player.get_money().count_money(), 52);
+    assert_eq!(player.get_score_keeper().get_total_money_earned(), 51);
     assert_eq!(xp(&game.source), 20);
     assert!(matches!(
         game.kill_awards.as_slice(),
@@ -135,7 +135,7 @@ fn enemy_kill_awards_actual_receiving_rank_cash_and_xp_without_foreign_writes() 
                 new_rank: 2,
                 ..
             },
-            super::super::ai_native_world::NativeKillAwardEvent::CashBounty { amount: 50, .. }
+            super::super::ai_native_world::NativeKillAwardEvent::CashBounty { amount: 51, .. }
         ]
     ));
     assert_eq!(peer_guard.get_rank_level(), 1);

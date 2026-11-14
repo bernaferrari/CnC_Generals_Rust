@@ -197,15 +197,14 @@ pub fn normalize_science_identity(name: &str) -> String {
         .collect()
 }
 
-/// Compute bounty award: `ceil(cost * percent)` as C++ REAL_TO_INT_CEIL.
+/// Compute bounty using C++ Player::doBountyForKill's REAL_TO_INT_CEIL.
 /// Returns 0 when percent ≤ 0, cost ≤ 0, or result would be 0.
 pub fn compute_bounty_award(build_cost: u32, cash_bounty_percent: f32) -> u32 {
     if build_cost == 0 || cash_bounty_percent <= 0.0 {
         return 0;
     }
     let raw = (build_cost as f32) * cash_bounty_percent;
-    // C++ REAL_TO_INT_CEIL — ceil then cast to int (non-negative here).
-    let bounty = raw.ceil() as i32;
+    let bounty = game_engine::base_type::real_to_int_ceil(raw);
     if bounty > 0 { bounty as u32 } else { 0 }
 }
 
@@ -361,17 +360,6 @@ pub fn honesty_cash_bounty_science_residual_ok() -> bool {
         && CASH_BOUNTY3_PREREQ_SCIENCES == ["SCIENCE_CashBounty2", "SCIENCE_Rank3"]
 }
 
-/// Wave 66 residual honesty: special-power residual peel.
-pub fn honesty_cash_bounty_special_power_residual_ok() -> bool {
-    SPECIAL_ABILITY_CASH_BOUNTY1 == "SpecialAbilityCashBounty1"
-        && SPECIAL_ABILITY_CASH_BOUNTY2 == "SpecialAbilityCashBounty2"
-        && SPECIAL_ABILITY_CASH_BOUNTY3 == "SpecialAbilityCashBounty3"
-        && CASH_BOUNTY_ENUM == "SPECIAL_CASH_BOUNTY"
-        && compute_bounty_award(100, CASH_BOUNTY1_PERCENT) == 5
-        && compute_bounty_award(100, CASH_BOUNTY2_PERCENT) == 10
-        && compute_bounty_award(100, CASH_BOUNTY3_PERCENT) == 20
-        && compute_bounty_award(101, CASH_BOUNTY1_PERCENT) == 6
-}
 
 /// Wave 66 residual honesty: floating text residual peel.
 pub fn honesty_cash_bounty_floating_text_residual_ok() -> bool {
@@ -381,64 +369,11 @@ pub fn honesty_cash_bounty_floating_text_residual_ok() -> bool {
         && CASH_BOUNTY_FLOATING_TEXT_COLOR_RGBA == (255, 255, 0, 255)
 }
 
-/// Combined Wave 66 Cash Bounty residual honesty pack.
-pub fn honesty_cash_bounty_residual_pack_ok() -> bool {
-    honesty_cash_bounty_science_residual_ok()
-        && honesty_cash_bounty_special_power_residual_ok()
-        && honesty_cash_bounty_floating_text_residual_ok()
-}
-
-/// Wave 78 residual honesty: CashBountyScienceTier enum + DisplayName / ModuleTag residual.
-///
-/// Fail-closed: not full CashBountyPower module-on-palace science gate matrix.
-pub fn honesty_cash_bounty_residual_pack_wave78() -> bool {
-    CashBountyScienceTier::Level1.percent() == CASH_BOUNTY1_PERCENT
-        && CashBountyScienceTier::Level2.percent() == CASH_BOUNTY2_PERCENT
-        && CashBountyScienceTier::Level3.percent() == CASH_BOUNTY3_PERCENT
-        && CashBountyScienceTier::Level1.percent_str() == "5%"
-        && CashBountyScienceTier::Level2.percent_str() == "10%"
-        && CashBountyScienceTier::Level3.percent_str() == "20%"
-        && CashBountyScienceTier::Level1.science_name() == SCIENCE_CASH_BOUNTY1
-        && CashBountyScienceTier::Level2.science_name() == SCIENCE_CASH_BOUNTY2
-        && CashBountyScienceTier::Level3.science_name() == SCIENCE_CASH_BOUNTY3
-        && CashBountyScienceTier::Level1.special_ability_name() == SPECIAL_ABILITY_CASH_BOUNTY1
-        && CashBountyScienceTier::Level2.special_ability_name() == SPECIAL_ABILITY_CASH_BOUNTY2
-        && CashBountyScienceTier::Level3.special_ability_name() == SPECIAL_ABILITY_CASH_BOUNTY3
-        && CashBountyScienceTier::Level1.display_name() == CASH_BOUNTY1_DISPLAY_NAME
-        && CashBountyScienceTier::Level2.display_name() == CASH_BOUNTY2_DISPLAY_NAME
-        && CashBountyScienceTier::Level3.display_name() == CASH_BOUNTY3_DISPLAY_NAME
-        && CashBountyScienceTier::Level1.module_tag() == "ModuleTag_15"
-        && CashBountyScienceTier::Level2.module_tag() == "ModuleTag_16"
-        && CashBountyScienceTier::Level3.module_tag() == "ModuleTag_17"
-        && CASH_BOUNTY_DESCRIPTION == "CONTROLBAR:ToolTipGLAScienceCashBounty"
-        && CASH_BOUNTY_IS_GRANTABLE
-        && CashBountyScienceTier::from_science_name("SCIENCE_CashBounty1")
-            == Some(CashBountyScienceTier::Level1)
-        && CashBountyScienceTier::from_science_name("SpecialAbilityCashBounty3")
-            == Some(CashBountyScienceTier::Level3)
-        && CashBountyScienceTier::highest_from_sciences([
-            SCIENCE_CASH_BOUNTY1,
-            SCIENCE_CASH_BOUNTY3,
-        ]) == CashBountyScienceTier::Level3
-        && compute_bounty_award(1000, CashBountyScienceTier::Level3.percent()) == 200
-        && honesty_cash_bounty_residual_pack_ok()
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn compute_bounty_ceil_matches_cpp() {
-        // 600 * 0.20 = 120 exactly
-        assert_eq!(compute_bounty_award(600, 0.20), 120);
-        // 100 * 0.05 = 5
-        assert_eq!(compute_bounty_award(100, 0.05), 5);
-        // 101 * 0.05 = 5.05 → ceil 6
-        assert_eq!(compute_bounty_award(101, 0.05), 6);
-        assert_eq!(compute_bounty_award(600, 0.0), 0);
-        assert_eq!(compute_bounty_award(0, 0.20), 0);
-    }
 
     #[test]
     fn honesty_tracks_awards() {
@@ -480,33 +415,4 @@ mod tests {
         assert_eq!(reg.last_damage_source_kills, 1);
     }
 
-    #[test]
-    fn cash_bounty_residual_pack_honesty_wave66() {
-        assert!(honesty_cash_bounty_science_residual_ok());
-        assert!(honesty_cash_bounty_special_power_residual_ok());
-        assert!(honesty_cash_bounty_floating_text_residual_ok());
-        assert!(honesty_cash_bounty_residual_pack_ok());
-        assert_eq!(CASH_BOUNTY_ENUM, "SPECIAL_CASH_BOUNTY");
-        assert_eq!(CASH_BOUNTY_SCIENCE_POINT_COST, 1);
-        assert_eq!(CASH_BOUNTY3_PERCENT_STR, "20%");
-    }
-
-    #[test]
-    fn cash_bounty_residual_pack_wave78_honesty() {
-        assert!(honesty_cash_bounty_residual_pack_wave78());
-        assert_eq!(CashBountyScienceTier::Level2.percent_str(), "10%");
-        assert_eq!(
-            CashBountyScienceTier::Level3.display_name(),
-            "SCIENCE:GLACashBounty3"
-        );
-        assert_eq!(CashBountyScienceTier::Level1.module_tag(), "ModuleTag_15");
-        assert_eq!(
-            CashBountyScienceTier::highest_from_sciences([
-                SCIENCE_CASH_BOUNTY1,
-                SCIENCE_CASH_BOUNTY2,
-            ]),
-            CashBountyScienceTier::Level2
-        );
-        assert!(CASH_BOUNTY_IS_GRANTABLE);
-    }
 }

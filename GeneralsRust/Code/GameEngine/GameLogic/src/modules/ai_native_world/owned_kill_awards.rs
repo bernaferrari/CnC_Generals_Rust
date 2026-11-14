@@ -194,7 +194,7 @@ impl BorrowedAiWorld<'_> {
                         local: index == self.players.get_local_player_index(),
                     });
             }
-            let bounty = (cost as f32 * player.get_cash_bounty()).ceil() as i32;
+            let bounty = game_engine::base_type::real_to_int_ceil(cost as f32 * player.get_cash_bounty());
             if bounty > 0 {
                 let mut event = self.services.money_deposit_sound.clone();
                 event.set_player_index(index);

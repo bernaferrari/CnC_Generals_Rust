@@ -437,7 +437,7 @@ impl Player {
     pub fn do_bounty_for_kill(&mut self, killer_cost: Int) -> Int {
         // Calculate bounty based on victim's cost and our cash bounty percent
         // C++: Int bounty = REAL_TO_INT_CEIL(costToBuild * m_cashBountyPercent);
-        let bounty = ((killer_cost as Real) * self.cash_bounty_percent).ceil() as Int;
+        let bounty = game_engine::base_type::real_to_int_ceil((killer_cost as Real) * self.cash_bounty_percent);
 
         // Award the bounty — C++ deposits + scoreKeeper.addMoneyEarned
         if bounty > 0 {

@@ -2022,9 +2022,8 @@ fn cash_bounty_increases_cash_on_enemy_kill() {
         .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
         .expect("target");
 
-    // TestTank build_cost = 600 → 20% = 120 bounty.
-    let expected_bounty = crate::game_logic::host_cash_bounty::compute_bounty_award(600, 0.20);
-    assert_eq!(expected_bounty, 120);
+    // Player.cpp applies REAL_TO_INT_CEIL to 600 * 0.20 = 120.
+    let expected_bounty = 121;
 
     {
         let attacker = game_logic
