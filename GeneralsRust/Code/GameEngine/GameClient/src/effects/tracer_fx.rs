@@ -89,7 +89,7 @@ pub fn tracer_expiration_frames(dist_minus_length: f32, speed: f32, decay_at: f3
     } else {
         1.0
     };
-    (frames * decay_at).ceil().max(0.0) as u32
+    game_engine::base_type::real_to_int_ceil(frames * decay_at) as u32
 }
 
 /// C++ `Matrix3D::buildTransformMatrix(pos, unitDir)`:
@@ -478,7 +478,7 @@ pub fn create_tracer_fx(
             color,
             opacity: 1.0,
             spawn_frame: current_frame,
-            expire_frame: current_frame.saturating_add(frames),
+            expire_frame: current_frame.wrapping_add(frames),
         };
         store.tracers.push(inst.clone());
         inst
@@ -571,8 +571,8 @@ mod tests {
         } else {
             1.0
         };
-        let expire_span = (frames * decay_at).ceil().max(0.0) as u32;
-        let expire_frame = spawn_frame.saturating_add(expire_span);
+        let expire_span = game_engine::base_type::real_to_int_ceil(frames * decay_at) as u32;
+        let expire_frame = spawn_frame.wrapping_add(expire_span);
 
         let travel = speed * elapsed as f32;
         let start = [
@@ -595,6 +595,29 @@ mod tests {
             }
         }
         (start, end, opacity, expire_frame)
+    }
+
+    #[test]
+    fn tracer_expiration_preserves_cpp_signed_and_zero_speed_arithmetic() {
+        assert_eq!(tracer_expiration_frames(30.0, 10.0, 1.0), 4);
+        assert_eq!(tracer_expiration_frames(30.0, -10.0, 1.0), 2);
+        assert_eq!(tracer_expiration_frames(-1.0, 0.0, 1.0), 2);
+        assert_eq!(tracer_expiration_frames(30.0, 0.0, 1.0), i32::MIN as u32);
+        assert_eq!(tracer_expiration_frames(0.0, 0.0, 1.0), i32::MIN as u32);
+        assert_eq!(tracer_expiration_frames(30.0, 10.0, -1.0), (-3_i32) as u32);
+    }
+
+    #[test]
+    fn tracer_expiration_frame_wraps_like_cpp_unsigned_addition() {
+        crate::test_support::ensure_ambient_host();
+        let _guard = lock_tracer_fx_tests();
+        clear_tracer_fx();
+        let tracer = create_tracer_fx(
+            "Tracer", [0.0; 3], [40.0, 0.0, 0.0], 10.0, 10.0, 1.0,
+            [1.0; 3], 1.0, u32::MAX - 2,
+        ).unwrap();
+        assert_eq!(tracer.expire_frame, 1);
+        clear_tracer_fx();
     }
 
     #[test]

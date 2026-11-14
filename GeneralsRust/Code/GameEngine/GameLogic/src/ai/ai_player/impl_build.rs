@@ -589,8 +589,8 @@ impl AIPlayer {
         let width = (max_bounds.x - min_bounds.x).max(0.0);
         let height = (max_bounds.y - min_bounds.y).max(0.0);
         // C++: REAL_TO_INT_CEIL(bounds.width()/weaponRadius)+1, cap 10.
-        let mut x_count = (width / radius).ceil() as i32 + 1;
-        let mut y_count = (height / radius).ceil() as i32 + 1;
+        let mut x_count = game_engine::base_type::real_to_int_ceil(width / radius) + 1;
+        let mut y_count = game_engine::base_type::real_to_int_ceil(height / radius) + 1;
         if x_count > 10 {
             x_count = 10;
         }

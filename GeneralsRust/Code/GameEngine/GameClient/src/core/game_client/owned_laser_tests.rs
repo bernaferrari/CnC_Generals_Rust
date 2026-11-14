@@ -22,6 +22,42 @@ fn template() -> ThingTemplate {
     );
     template
 }
+#[test]
+fn owned_tracer_lifetime_uses_cpp_rounding_per_client() {
+    crate::test_support::ensure_ambient_host();
+    let mut template = ThingTemplate::new();
+    template.add_draw_module_info(
+        "W3DTracerDraw".into(),
+        "Tracer".into(),
+        game_engine::common::thing::module::ModuleDataHandle::new(
+            gamelogic::object::draw::W3DTracerDrawModuleData::new(),
+        ),
+        ModuleInterfaceType::DRAW,
+    );
+    let mut first = GameClient::new().unwrap();
+    let mut peer = GameClient::new().unwrap();
+    let mut request = crate::fx_list::FxTracerRequest {
+        template: "Tracer",
+        primary: Coord3D::new(0.0, 0.0, 0.0),
+        secondary: Coord3D::new(40.0, 0.0, 0.0),
+        speed: 10.0,
+        length: 10.0,
+        width: 1.0,
+        color: [1.0, 1.0, 1.0],
+        decay_at: 1.0,
+        frame: 10,
+    };
+    first.borrow_native_drawable_owner().create_owned_tracer(&template, &request).unwrap();
+    request.frame = 20;
+    peer.borrow_native_drawable_owner().create_owned_tracer(&template, &request).unwrap();
+
+    // REAL_TO_INT_CEIL(3.0) is 4, not mathematical ceil's 3.
+    assert_eq!(first.owned_tracer_geometry(13).len(), 1);
+    assert!(first.owned_tracer_geometry(14).is_empty());
+    assert_eq!(peer.owned_tracer_geometry(23).len(), 1);
+    assert!(peer.owned_tracer_geometry(24).is_empty());
+}
+
 
 #[test]
 fn actual_ray_factory_and_geometry_use_the_receiving_installed_modules() {

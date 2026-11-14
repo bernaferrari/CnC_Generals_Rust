@@ -2880,6 +2880,81 @@ fn evaluate_attack_opportunities_stays_noop_without_team_or_enemy() {
 }
 
 #[test]
+fn superweapon_grid_uses_source_ceil_and_receiving_logic_random() {
+    // AIPlayer.cpp:1147-1218 and BaseType.h:204-210: width/radius
+    // is exactly 1, so fast_float_ceil gives 2 and the grid has 3 columns.
+    use crate::game_logic::{GameLogic, KindOf, Player, ThingTemplate};
+    use game_engine::common::random_value::SessionRandom;
+
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(1, Team::USA, "AI", false));
+    world.add_player(Player::new(2, Team::GLA, "Enemy", true));
+    let mut bounds = ThingTemplate::new("SwBounds");
+    bounds.set_health(1000.0);
+    bounds.set_cost(0, 0);
+    bounds.add_kind_of(KindOf::Structure);
+    world.templates.insert("SwBounds".into(), bounds);
+    let mut target = ThingTemplate::new("SwTarget");
+    target.set_health(1000.0);
+    target.set_cost(1000, 0);
+    world.templates.insert("SwTarget".into(), target);
+    for x in [0.0, 150.0] {
+        world.create_object_for_player("SwBounds", 2, glam::Vec3::new(x, 0.0, 20.0)).unwrap();
+    }
+    world.create_object_for_player("SwTarget", 2, glam::Vec3::new(80.0, 0.0, 20.0)).unwrap();
+    let peer = GameLogic::new();
+    world.logic_random.seed_random(0x51A7);
+    peer.logic_random.seed_random(0xBEEF);
+    let peer_before = peer.logic_random.seed_words();
+    let expected = SessionRandom::default();
+    expected.seed_random(0x51A7);
+    expected.next_int(1, 4);
+
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let position = ai.compute_superweapon_target(&world, 2, 50.0, true).unwrap();
+    assert!((position.x - 83.333_336).abs() < 0.001, "{position:?}");
+    assert!((position.z - 20.0).abs() < 0.001, "{position:?}");
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+    assert_eq!(peer.logic_random.seed_words(), peer_before);
+}
+
+#[test]
+fn superweapon_grid_ties_follow_each_source_scan_direction() {
+    // AIPlayer.cpp:1176-1218 starts reverse scans at count, not count-1,
+    // and keeps the first equal-scoring coarse sample.
+    use crate::game_logic::{GameLogic, KindOf, Player, ThingTemplate};
+    use game_engine::common::random_value::SessionRandom;
+
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(1, Team::USA, "AI", false));
+    world.add_player(Player::new(2, Team::GLA, "Enemy", true));
+    let mut bounds = ThingTemplate::new("SwTieBounds");
+    bounds.set_health(1000.0);
+    bounds.set_cost(0, 0);
+    bounds.add_kind_of(KindOf::Structure);
+    world.templates.insert("SwTieBounds".into(), bounds);
+    for (x, z) in [(0.0, 20.0), (150.0, 120.0)] {
+        world.create_object_for_player("SwTieBounds", 2, glam::Vec3::new(x, 0.0, z)).unwrap();
+    }
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut seen = [false; 4];
+    for seed in 1..=100 {
+        world.logic_random.seed_random(seed);
+        let expected = SessionRandom::default();
+        expected.seed_random(seed);
+        let direction = expected.next_int(1, 4);
+        seen[(direction - 1) as usize] = true;
+        let position = ai.compute_superweapon_target(&world, 2, 50.0, true).unwrap();
+        let x = if direction == 1 || direction == 3 { 50.0 } else { 100.0 };
+        let z = if direction <= 2 { 20.0 } else { 120.0 };
+        assert!((position.x - x).abs() < 0.001, "direction {direction}: {position:?}");
+        assert!((position.z - z).abs() < 0.001, "direction {direction}: {position:?}");
+        assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+    }
+    assert!(seen.into_iter().all(|direction| direction));
+}
+
+#[test]
 fn live_ai_fires_ready_superweapon_at_enemy_cluster() {
     // C++ ScriptActions::doSkirmishFireSpecialPowerAtMostCost
     // (ScriptActions.cpp:4142) + AIPlayer::computeSuperweaponTarget

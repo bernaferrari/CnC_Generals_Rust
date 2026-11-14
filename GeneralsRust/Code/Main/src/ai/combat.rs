@@ -489,12 +489,12 @@ impl AIPlayer {
     /// Ground plane is host XZ (C++ samples XY).
     pub(super) fn compute_superweapon_target(
         &mut self,
-        game_logic: &(impl AiReadSource + ?Sized),
+        world: &GameLogic,
         enemy_player_id: u32,
         weapon_radius: f32,
         target_military_units: bool,
     ) -> Option<Vec3> {
-        let game_logic = &AiWorldView::new(game_logic);
+        let game_logic = &AiWorldView::new(world);
         let radius = weapon_radius.max(1.0);
         let (mut min_x, mut min_z, mut max_x, mut max_z) =
             self.player_structure_bounds(game_logic, enemy_player_id);
@@ -521,8 +521,8 @@ impl AIPlayer {
 
         let width = (max_x - min_x).max(0.0);
         let height = (max_z - min_z).max(0.0);
-        let mut x_count = (width / radius).ceil() as i32 + 1;
-        let mut z_count = (height / radius).ceil() as i32 + 1;
+        let mut x_count = game_engine::base_type::real_to_int_ceil(width / radius) + 1;
+        let mut z_count = game_engine::base_type::real_to_int_ceil(height / radius) + 1;
         if x_count > 10 {
             x_count = 10;
         }
@@ -536,8 +536,8 @@ impl AIPlayer {
             z_count = 1;
         }
 
-        // C++ GameLogicRandomValue(1, 4) scan-direction residual.
-        let (x_delta, z_delta, x_start, z_start) = match self.placement_rng.next_int(1, 4) {
+        // C++ consumes one GameLogicRandomValue(1, 4) from this world.
+        let (x_delta, z_delta, x_start, z_start) = match world.logic_random.next_int(1, 4) {
             1 => (1_i32, 1_i32, 0_i32, 0_i32),
             2 => (-1, 1, x_count, 0),
             3 => (1, -1, 0, z_count),

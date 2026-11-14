@@ -3331,3 +3331,9 @@ of repeatedly issuing the command and exhausting message-box windows. Runtime
 save status comes from the actual write result, not the existence of an older
 slot. Generic special-power execution does not create an AI state machine for
 an AI-less structure; admitted power modules continue to execute.
+
+Superweapon target sampling uses the source grid conversion and consumes the
+receiving Main world's logic RNG. Core's separate AIPlayer path still resolves
+terrain, players, objects and random state through ambient services. Tracer
+expiration uses the source frame conversion and wrapping frame arithmetic on
+each client owner.
