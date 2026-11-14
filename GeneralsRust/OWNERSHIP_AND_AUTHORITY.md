@@ -2985,6 +2985,15 @@ center and the receiving partition grid's terrain-height extrema. The derived
 cell cache is rebuilt on grid admission and restore; a launch visiting no grid
 cell is retired, while a failed retarget detonates at the current position.
 
+Accepted projectile delivery samples the original launcher's current pose and
+velocity after fire effects, while retaining the accepted weapon barrel and
+rejecting a replacement object with the same ID. Original-executable missile
+impact timing remains unverified (hq-2qedt.291.1).
+
+Main attack-path candidate checks use the receiving attacker's live footprint
+rather than treating its center as a complete destination. Core's separate
+pathfinder retains ambient-registry paths (hq-q7yt68).
+
 The save popup sends confirmed host-save deletion to the receiving save manager.
 It refreshes the open list only after deletion and a successful inventory read;
 the separate Common save path retains its own handling.
@@ -3290,6 +3299,9 @@ Authored special-power timers retain per-module and shared player state through
 host snapshots and drive the receiving client's public timer display. Same-ID
 world probes cover rank isolation and timer restore. Core GameText, control bar
 and EVA delivery still have ambient compatibility paths (hq-yac16).
+Main skill-point awards use the source `REAL_TO_INT_CEIL` conversion, including
+its positive integral boundary behavior. Core's separate award implementation
+still uses mathematical ceiling and needs the same comparison and migration.
 
 
 ## Control bar definitions and EVA delivery

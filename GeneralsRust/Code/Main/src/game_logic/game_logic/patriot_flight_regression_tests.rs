@@ -110,6 +110,32 @@ fn retail_patriot_fires_flies_and_impacts() {
     advance_to_impact(&mut world, target);
 }
 #[test]
+fn accepted_missile_uses_launcher_pose_and_velocity_at_delivery() {
+    let (mut world, source, target) = world();
+    let (_, shot) = world.objects.get_mut(&source).unwrap()
+        .prepare_passive_weapon_shot(
+            0, target, 10.0, false, false, 100,
+            Vec3::new(100.0, 30.0, 100.0),
+            &mut world.combat_system.fire_sound_loop_events,
+            &mut world.attack_events,
+            Some(&world.projectile_definitions),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        ).unwrap();
+    // Model a source moved by an accepted effect between preparation and
+    // delivery. The unchanged target keeps the shot otherwise identical.
+    let position = Vec3::new(110.0, 32.0, 105.0);
+    let velocity = Vec3::new(9.0, 3.0, -6.0);
+    world.set_fixture_object_position(source, position);
+    world.objects.get_mut(&source).unwrap().movement.velocity = velocity;
+    world.deliver_owned_weapon_shot(0, shot, None);
+    let projectiles = world.combat_system.projectiles_snapshot();
+    assert_eq!(projectiles.len(), 1);
+    assert!(projectiles[0].missile_motion.is_some());
+    assert_eq!(projectiles[0].position, position);
+    assert_eq!(projectiles[0].velocity, velocity);
+}
+
+#[test]
 fn unlimited_attack_schedules_distinct_missiles_during_flight() {
     let (mut world, source, target) = world();
     assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Success);

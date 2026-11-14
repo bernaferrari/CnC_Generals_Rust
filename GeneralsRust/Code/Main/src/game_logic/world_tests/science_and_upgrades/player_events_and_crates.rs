@@ -199,6 +199,26 @@ fn script_set_rank_level_plays_eva_general_level_up() {
 }
 
 #[test]
+fn skill_awards_use_cpp_real_to_int_ceil_at_integral_boundaries() {
+    use crate::game_logic::{Player, Team};
+
+    let mut player = Player::new(0, Team::USA, "General", true);
+    let ranks = crate::game_logic::AuthoredRanks::retail_fixture();
+    let cap = gamelogic::player::DEFAULT_RANK_LEVEL_LIMIT;
+    player.skill_points_modifier = 2.0;
+    player.add_skill_points(50, &ranks, cap);
+    // BaseType.h's fast_float_ceil adds the largest f32 below one before
+    // conversion: 100.0 becomes 101, unlike mathematical ceil.
+    assert_eq!(player.skill_points, 101);
+
+    player.skill_points_modifier = 1.0;
+    player.add_skill_points(-40, &ranks, cap);
+    assert_eq!(player.skill_points, 61);
+    player.add_skill_points(0, &ranks, cap);
+    assert_eq!(player.skill_points, 61);
+}
+
+#[test]
 fn add_skill_points_modifier_cap_negative_and_reset_rank() {
     use crate::game_logic::Team;
     use crate::game_logic::host_science_rank::{
@@ -211,14 +231,14 @@ fn add_skill_points_modifier_cap_negative_and_reset_rank() {
     let ranks = crate::game_logic::AuthoredRanks::retail_fixture();
     p.skill_points_modifier = 2.0;
     assert!(!p.add_skill_points(50, &ranks, cap));
-    assert_eq!(p.skill_points, 100);
+    assert_eq!(p.skill_points, 101);
     assert_eq!(p.rank_level, 1);
 
     p.skill_points_modifier = 1.0;
     assert!(!p.add_skill_points(-40, &ranks, cap));
-    assert_eq!(p.skill_points, 60);
+    assert_eq!(p.skill_points, 61);
 
-    assert!(p.add_skill_points(RANK2_SKILL_POINTS_NEEDED - 60, &ranks, cap));
+    assert!(p.add_skill_points(RANK2_SKILL_POINTS_NEEDED - 62, &ranks, cap));
     assert_eq!(p.rank_level, 2);
     assert_eq!(p.skill_points, RANK2_SKILL_POINTS_NEEDED);
 

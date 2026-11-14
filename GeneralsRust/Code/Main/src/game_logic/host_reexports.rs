@@ -346,7 +346,6 @@ pub use super::host_cave_system::HostCaveSystem;
 pub use super::host_rank_ui_residual::{
     honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
     honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,
-    honesty_rank_skill_points_application_residual_pack_wave89,
     honesty_rank_ui_residual_pack_wave89, honesty_replay_residual_host_pack_wave89,
 };
 pub use super::host_red_guard::{

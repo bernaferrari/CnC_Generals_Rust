@@ -160,6 +160,38 @@ fn attack_los_terrain_blocks_ridge_for_mobile_weapon() {
     );
 }
 
+#[test]
+fn attack_path_checks_the_live_attackers_full_destination_footprint() {
+    use crate::game_logic::{HostGeometryType, KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    let mut system = PathfindingSystem::new(200.0, 200.0);
+    let mut objects = HostObjectStore::new();
+    let mut template = ThingTemplate::new("WideAttacker");
+    template.add_kind_of(KindOf::Vehicle);
+    template.geometry_info.geom_type = HostGeometryType::Sphere;
+    template.geometry_info.major_radius = 15.0;
+    template.geometry_info.authored = true;
+    let mut attacker = Object::new(template, ObjectId(1), Team::USA);
+    let start = Vec3::new(20.0, 0.0, 50.0);
+    attacker.set_position(start);
+    attacker.locomotor_surfaces = SURFACE_GROUND;
+    objects.admit(attacker.id, attacker);
+    // The first quick-step center is clear, but its footprint includes this
+    // obstacle (AIPathfind.cpp:10567-10595).
+    system.grid.set_cell_obstacle_owned(GridPos::new(3, 6), false, false, 99, None, None);
+    let ground = PathfindingGround::Flat(0.0);
+    let path = system.find_attack_firing_position(
+        start, Vec3::new(150.0, 0.0, 50.0), 130.0, objects.read(),
+        false, Some(ObjectId(1)), &ground,
+    ).expect("a firing position exists around the obstacle");
+    let end = *path.last().unwrap();
+    let (radius, center) = PathfindingGrid::radius_and_center(15.0, system.grid.grid_size());
+    assert!(system.grid.check_destination_for_object(
+        system.grid.world_to_grid(end), PathfindLayerEnum::Ground, radius, center,
+        objects.get(&ObjectId(1)).unwrap(), objects.read(),
+    ), "the firing position must admit the entire attacking unit");
+}
+
 /// hq-nxr47: A* keeps searching when the first in-range cell is ridge-blocked.
 #[test]
 fn find_attack_path_circles_ridge_to_clear_shot() {

@@ -42,7 +42,7 @@ impl ShotVictim {
 impl Object {
     /// Freeze Weapon::calcProjectileLaunchPosition while the selected barrel,
     /// logical Draw state and turret pose still belong to this shot.
-    fn projectile_launch_transform(
+    pub(in crate::game_logic) fn projectile_launch_transform(
         &self,
         slot: u8,
         barrel: u8,

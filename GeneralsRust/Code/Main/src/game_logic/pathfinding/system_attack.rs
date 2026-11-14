@@ -60,6 +60,13 @@ impl PathfindingSystem {
         let range = weapon_range.max(self.grid.grid_size());
         let cell_size = self.grid.grid_size();
         let center_in_cell = self.seeker_center_in_cell;
+        let attacker = mover.and_then(|id| objects.lookup(&id));
+        let destination_radius = attacker.map(|obj| {
+            PathfindingGrid::radius_and_center(
+                obj.geometry_info().bounding_circle_radius(),
+                cell_size,
+            ).0
+        });
         let start = self.grid.cell_for_unit_position(from, center_in_cell);
         let victim_cell = self.grid.world_to_grid(victim);
         let surfaces = mover
@@ -132,8 +139,12 @@ impl PathfindingSystem {
                                 .obstacle_owner(cell)
                                 .is_some_and(|(owner, _, _)| owner == id)
                     });
-                    if !ignored_cell
-                        && !self.grid.destination_cell_ok(
+                    let destination_ok = if let (Some(obj), Some(radius)) = (attacker, destination_radius) {
+                        self.grid.check_destination_for_object(
+                            cell, layer, radius, center_in_cell, obj, objects,
+                        )
+                    } else {
+                        ignored_cell || self.grid.destination_cell_ok(
                             cell,
                             surfaces,
                             is_crusher,
@@ -142,7 +153,8 @@ impl PathfindingSystem {
                             layer,
                             ground_source,
                         )
-                    {
+                    };
+                    if !destination_ok {
                         break;
                     }
                     if !self.grid.human_extent_allows(cell, is_human) {
@@ -236,15 +248,21 @@ impl PathfindingSystem {
             let world =
                 self.grid
                     .adjust_coord_to_cell_on_layer(cell, center_in_cell, layer, ground_source);
-            let dest_ok = self.grid.destination_cell_ok(
-                cell,
-                surfaces,
-                is_crusher,
-                seeker_player,
-                crusher_level,
-                layer,
-                ground_source,
-            );
+            let dest_ok = if let (Some(obj), Some(radius)) = (attacker, destination_radius) {
+                self.grid.check_destination_for_object(
+                    cell, layer, radius, center_in_cell, obj, objects,
+                )
+            } else {
+                self.grid.destination_cell_ok(
+                    cell,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                    ground_source,
+                )
+            };
             if dest_ok {
                 let dx = world.x - victim.x;
                 let dz = world.z - victim.z;

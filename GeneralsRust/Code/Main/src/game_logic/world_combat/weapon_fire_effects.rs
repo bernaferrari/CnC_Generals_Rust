@@ -67,6 +67,9 @@ impl GameLogic {
                 name: rule.projectile_stream_name.clone(),
             }
         });
+        // The selected barrel belongs to this accepted shot even if a callback
+        // changes the weapon's cursor before projectileLaunchAtObjectOrPosition.
+        let fired_barrel = capture.as_ref().map_or(0, |capture| capture.fired_barrel);
         let source_pose = self.prepare_accepted_self_damage_pose(shot.shooter_id);
         let epoch = source_pose.epoch;
         let accepted = self.begin_owned_weapon_effects_with_rule_and_effects(
@@ -92,6 +95,12 @@ impl GameLogic {
             source_pose.generation != 0 && object.visual_object_generation == source_pose.generation
         }) {
             if let Some(context) = shot.source_context.as_mut() {
+                // Weapon.cpp positions the projectile after FireFX and FireOCL,
+                // and transfers the launcher's velocity at that same point.
+                context.launch_transform = source.projectile_launch_transform(
+                    slot, fired_barrel, presentation_effects.pristine_bones,
+                );
+                context.source_velocity = source.movement.velocity;
                 context.launcher_bonus_mask = source.projectile_launch_bonus_mask();
             }
         }

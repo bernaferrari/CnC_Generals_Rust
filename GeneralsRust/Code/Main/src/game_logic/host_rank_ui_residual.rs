@@ -53,8 +53,7 @@ pub struct RankSkillStateResidual {
 
 /// C++ REAL_TO_INT_CEIL residual for skill-point modifier scaling.
 pub fn skill_points_delta_after_modifier(delta: i32, modifier: f32) -> i32 {
-    let scaled = (modifier as f64) * (delta as f64);
-    scaled.ceil() as i32
+    game_engine::base_type::real_to_int_ceil(modifier * delta as f32)
 }
 
 /// Skill-point cap residual: Rank.ini SkillPointsNeeded at the effective level cap.
@@ -173,115 +172,7 @@ pub fn rank_progress_percent_residual(state: &RankSkillStateResidual) -> i32 {
     (raw / span).clamp(0, RANK_PROGRESS_FULL_PERCENT_RESIDUAL)
 }
 
-/// Wave 89 honesty: rank skill-points application residual deepen.
-pub fn honesty_rank_skill_points_application_residual_pack_wave89() -> bool {
-    // A freshly reset world's cap (C++ GameLogic.cpp:1140 via GameLogic's own default).
-    let world_cap = gamelogic::player::DEFAULT_RANK_LEVEL_LIMIT;
-    let reset = reset_rank_residual(0);
-    let at_799 = {
-        let (s, gained) = add_skill_points_residual(
-            reset,
-            799,
-            SKILL_POINTS_MODIFIER_DEFAULT_RESIDUAL,
-            world_cap,
-        );
-        s.rank_level == 1
-            && s.skill_points == 799
-            && !gained
-            && s.level_up == RANK2_SKILL_POINTS_NEEDED
-            && s.science_purchase_points == RANK_SCIENCE_POINTS_DEFAULT
-    };
-    let to_rank2 = {
-        let (s, gained) = add_skill_points_residual(
-            reset,
-            800,
-            SKILL_POINTS_MODIFIER_DEFAULT_RESIDUAL,
-            world_cap,
-        );
-        s.rank_level == 2
-            && s.skill_points == 800
-            && gained
-            && s.level_down == RANK2_SKILL_POINTS_NEEDED
-            && s.level_up == RANK3_SKILL_POINTS_NEEDED
-            && s.science_purchase_points == RANK_SCIENCE_POINTS_DEFAULT * 2
-    };
-    let multi_rank = {
-        let (s, gained) = add_skill_points_residual(
-            reset,
-            5000,
-            SKILL_POINTS_MODIFIER_DEFAULT_RESIDUAL,
-            world_cap,
-        );
-        // Cap at Rank5 SkillPointsNeeded (5000), not beyond.
-        s.rank_level == 5
-            && s.skill_points == RANK5_SKILL_POINTS_NEEDED
-            && gained
-            && s.level_up == i32::MAX
-            && s.science_purchase_points == retail_cumulative_science_points_through(5)
-    };
-    let capped_by_limit = {
-        // Rank level limit 3 → pointCap = Rank3 SkillPointsNeeded (1500).
-        let (s, _) = add_skill_points_residual(reset, 99999, 1.0, 3);
-        s.skill_points == RANK3_SKILL_POINTS_NEEDED
-            && s.rank_level == 3
-            && skill_point_cap_residual(3) == RANK3_SKILL_POINTS_NEEDED
-    };
-    let modifier_ceil = skill_points_delta_after_modifier(1, 1.5) == 2
-        && skill_points_delta_after_modifier(2, 0.5) == 1
-        && skill_points_delta_after_modifier(1, 0.0) == 0
-        && skill_points_delta_after_modifier(100, 1.0) == 100;
-    let progress = {
-        let mid = RankSkillStateResidual {
-            rank_level: 2,
-            skill_points: 1150, // midway 800..1500
-            science_purchase_points: 2,
-            level_up: RANK3_SKILL_POINTS_NEEDED,
-            level_down: RANK2_SKILL_POINTS_NEEDED,
-        };
-        // (1150-800)*100 / (1500-800) = 35000/700 = 50
-        rank_progress_percent_residual(&mid) == 50 && rank_progress_percent_residual(&reset) == 0
-    };
-    let downgrade = {
-        let high = set_rank_level_residual(reset, 4, world_cap);
-        let down = set_rank_level_residual(high, 1, world_cap);
-        high.rank_level == 4
-            && high.skill_points == RANK4_SKILL_POINTS_NEEDED
-            && high.science_purchase_points == 4
-            && down.rank_level == 1
-            && down.skill_points == 0
-            && down.science_purchase_points == RANK_SCIENCE_POINTS_DEFAULT
-    };
-    let negative_delta = {
-        let mut mid = reset;
-        mid.skill_points = 100;
-        let (s, gained) =
-            add_skill_points_residual(mid, -40, 1.0, world_cap);
-        s.skill_points == 60 && !gained && s.rank_level == 1
-    };
-    let modifier_applied = {
-        let (s, _) = add_skill_points_residual(reset, 50, 2.0, world_cap);
-        s.skill_points == 100
-    };
-    SKILL_POINTS_MODIFIER_DEFAULT_RESIDUAL == 1.0
-        && skill_point_cap_residual(1000) == RANK5_SKILL_POINTS_NEEDED
-        && skill_point_cap_residual(5) == RANK5_SKILL_POINTS_NEEDED
-        && skill_point_cap_residual(1) == RANK1_SKILL_POINTS_NEEDED
-        && rank_level_up_threshold_residual(5) == i32::MAX
-        && rank_level_down_threshold_residual(1) == 0
-        && reset.level_up == RANK2_SKILL_POINTS_NEEDED
-        && retail_rank_level_for_skill_points(800) == 2
-        && RETAIL_RANK_TABLE.len() == RETAIL_RANK_COUNT as usize
-        && RANK5_SCIENCE_POINTS_GRANTED == 3
-        && at_799
-        && to_rank2
-        && multi_rank
-        && capped_by_limit
-        && modifier_ceil
-        && progress
-        && downgrade
-        && negative_delta
-        && modifier_applied
-}
+
 
 // ---------------------------------------------------------------------------
 // 2. Experience residual tables
@@ -902,8 +793,7 @@ pub fn honesty_options_residual_pack_wave89() -> bool {
 
 /// Combined Wave 89 honesty pack (all residual peels).
 pub fn honesty_rank_ui_residual_pack_wave89() -> bool {
-    honesty_rank_skill_points_application_residual_pack_wave89()
-        && honesty_experience_residual_tables_pack_wave89()
+    honesty_experience_residual_tables_pack_wave89()
         && honesty_hotkey_residual_table_pack_wave89()
         && honesty_chat_residual_host_pack_wave89()
         && honesty_replay_residual_host_pack_wave89()
@@ -914,10 +804,6 @@ pub fn honesty_rank_ui_residual_pack_wave89() -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn rank_skill_points_application_residual_pack_wave89_honesty() {
-        assert!(honesty_rank_skill_points_application_residual_pack_wave89());
-    }
 
     #[test]
     fn experience_residual_tables_pack_wave89_honesty() {
