@@ -1,6 +1,6 @@
 //! Deployed/slaved callers use the ordinary installed weapon lifecycle.
 use crate::game_logic::{
-    AIState, DeployStyleMetadata, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon,
+    AIState, DeployStyleMetadata, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate,
 };
 use glam::Vec3;
 const SOURCE: ObjectId = ObjectId(1);
@@ -12,6 +12,24 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     let mut target_player = Player::new(1, Team::China, "target", false);
     target_player.alliance_team = 1;
     game.add_player(target_player);
+    // These are controlled projectileless variants, not the retail Hellfire
+    // missile. Weapon.cpp:998-1006 uses distance / WeaponSpeed for their
+    // delayed damage. Each world owns the weapon definition it fires.
+    let weapon_name = if deployed {
+        "OwnedSentryDelayedWeapon"
+    } else {
+        crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON
+    };
+    let mut weapon = gamelogic::weapon::WeaponTemplate::new(weapon_name.into());
+    weapon.primary_damage = 37.0;
+    weapon.attack_range = 200.0;
+    weapon.clip_size = 2;
+    weapon.min_delay_between_shots = 30;
+    weapon.max_delay_between_shots = 30;
+    weapon.weapon_speed = 9.0;
+    weapon.pre_attack_delay = (pre_delay * 30.0) as i32;
+    weapon.projectile_name = "NONE".into();
+    game.admit_receiving_weapon_snapshot(vec![(weapon_name.into(), weapon)]).unwrap();
     let mut template = ThingTemplate::new(if deployed {
         "OwnedDroneShot"
     } else {
@@ -20,10 +38,7 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     template
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable);
-    if !deployed {
-        template
-            .set_primary_weapon_name(crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON);
-    }
+    template.set_primary_weapon_name(weapon_name);
     if deployed {
         template.deploy_style_metadata = Some(DeployStyleMetadata {
             unpack_time_frames: 3,
@@ -40,16 +55,7 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
         .unwrap();
     assert_eq!(source_id, SOURCE);
     let source = game.host_object_mut(source_id).unwrap();
-    source.weapon = Some(Weapon {
-        damage: 37.0,
-        range: 200.0,
-        last_fire_time: -10.0,
-        ammo: Some(2),
-        clip_size: 2,
-        projectile_speed: 9.0,
-        pre_attack_delay: pre_delay,
-        ..Weapon::default()
-    });
+    assert_eq!(source.weapon.as_ref().unwrap().ammo, Some(2));
     assert!(source.set_weapon_barrel_count_for_slot(0, 3));
     let mut template = ThingTemplate::new("OwnedDroneVictim");
     template
@@ -130,7 +136,7 @@ fn sentry_requires_real_deploy_then_weapon_windup_and_commits_one_delayed_shot()
 }
 
 #[test]
-fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
+fn hellfire_projectileless_variant_consumes_once_and_deals_damage_at_impact_phase() {
     let mut game = world(false, 0.0);
     let peer = world(false, 0.0);
     let barrel = game

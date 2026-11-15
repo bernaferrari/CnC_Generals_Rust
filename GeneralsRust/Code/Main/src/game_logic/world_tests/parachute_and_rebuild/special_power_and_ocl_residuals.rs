@@ -226,24 +226,46 @@ fn missile_defender_laser_endpoints_follow_moving_target() {
     );
 }
 
+// The attack decision needs the receiving world's authored WeaponTemplates, not
+// just runtime Weapon values. C++ loads these before creating the Object.
+fn missile_defender_laser_attack_world() -> GameLogic {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+    use crate::game_logic::host_missile_defender::{
+        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+    };
+
+    let mut world = GameLogic::new();
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("AmericaInfantryMissileDefender")
+                .kind_of("INFANTRY CAN_ATTACK")
+                .health(100.0)
+                .walker()
+                .weapon("PRIMARY", "FixtureMdPrimary")
+                .weapon("SECONDARY", "FixtureMdLaser"),
+            FixtureObject::new("AmericaTankCrusader")
+                .kind_of("VEHICLE")
+                .health(400.0),
+            FixtureObject::new("GLAInfantryRebel")
+                .kind_of("INFANTRY")
+                .health(100.0),
+        ],
+        &[
+            FixtureWeapon::from_stats("FixtureMdPrimary", &missile_defender_primary_weapon()),
+            FixtureWeapon::from_stats("FixtureMdLaser", &missile_defender_laser_guided_weapon()),
+        ],
+    );
+    world
+}
+
 #[test]
 fn missile_defender_laser_trigger_sets_temporary_secondary_weapon_lock() {
     // C++ SpecialAbilityUpdate.cpp:1276-1293: triggerAbilityEffect calls
     // setWeaponLock(SECONDARY, LOCKED_TEMPORARILY) before aiAttackObject.
-    use crate::game_logic::host_missile_defender::{
-        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
-    };
-    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate, WeaponLockType};
+    use crate::game_logic::{AIState, Team, WeaponLockType};
 
-    let mut logic = GameLogic::new();
-    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
-    md.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic
-        .templates
-        .insert("AmericaInfantryMissileDefender".into(), md);
-    let mut tgt_t = ThingTemplate::new("AmericaTankCrusader");
-    tgt_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
-    logic.templates.insert("AmericaTankCrusader".into(), tgt_t);
+    let mut logic = missile_defender_laser_attack_world();
 
     let shooter = logic
         .create_object(
@@ -252,14 +274,22 @@ fn missile_defender_laser_trigger_sets_temporary_secondary_weapon_lock() {
             Vec3::new(0.0, 0.0, 0.0),
         )
         .unwrap();
-    {
-        let o = logic.host_object_mut(shooter).unwrap();
-        o.weapon = Some(missile_defender_primary_weapon());
-        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
-    }
+    let mut peer = missile_defender_laser_attack_world();
+    let peer_shooter = peer
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    assert_eq!(shooter, peer_shooter);
     let target = logic
         .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
         .unwrap();
+    let peer_target = peer
+        .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(target, peer_target);
 
     assert!(logic.activate_missile_defender_laser_guided(shooter, target));
     // Exhaust the 1000ms preparation window to reach the trigger tick.
@@ -270,6 +300,7 @@ fn missile_defender_laser_trigger_sets_temporary_secondary_weapon_lock() {
     assert_eq!(o.active_weapon_slot, 1);
     assert_eq!(o.target, Some(target));
     assert_eq!(o.ai_state(), AIState::Attacking);
+    assert_eq!(peer.host_object(peer_shooter).unwrap().target, None);
 }
 
 #[test]
@@ -277,20 +308,9 @@ fn missile_defender_laser_never_overrides_permanent_user_weapon_lock() {
     // C++ WeaponSet.cpp:1053-1056: LOCKED_TEMPORARILY is refused while a
     // permanent user lock is held, so the user-locked slot keeps firing;
     // the aiAttackObject order itself still goes out.
-    use crate::game_logic::host_missile_defender::{
-        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate, WeaponLockType};
+    use crate::game_logic::{Team, WeaponLockType};
 
-    let mut logic = GameLogic::new();
-    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
-    md.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic
-        .templates
-        .insert("AmericaInfantryMissileDefender".into(), md);
-    let mut tgt_t = ThingTemplate::new("AmericaTankCrusader");
-    tgt_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
-    logic.templates.insert("AmericaTankCrusader".into(), tgt_t);
+    let mut logic = missile_defender_laser_attack_world();
 
     let shooter = logic
         .create_object(
@@ -301,8 +321,8 @@ fn missile_defender_laser_never_overrides_permanent_user_weapon_lock() {
         .unwrap();
     {
         let o = logic.host_object_mut(shooter).unwrap();
-        o.weapon = Some(missile_defender_primary_weapon());
-        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+        assert!(o.weapon_slot(0).is_some());
+        assert!(o.weapon_slot(1).is_some());
         assert!(o.set_weapon_lock(0, WeaponLockType::LockedPermanently));
     }
     let target = logic
@@ -381,10 +401,9 @@ fn missile_defender_laser_guided_special_locks_secondary() {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::host_missile_defender::{
         LASER_GUIDED_START_ABILITY_RANGE, is_missile_defender_template,
-        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
     };
     use crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     assert_eq!(
         host_command_power_cpp_enum_name(&SpecialPowerType::MissileDefenderLaserGuided),
         Some("SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES")
@@ -393,18 +412,7 @@ fn missile_defender_laser_guided_special_locks_secondary() {
         "AmericaInfantryMissileDefender"
     ));
 
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
-    md.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic
-        .templates
-        .insert("AmericaInfantryMissileDefender".into(), md);
-    let mut enemy = ThingTemplate::new("GLAInfantryRebel");
-    enemy.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("GLAInfantryRebel".into(), enemy);
+    let mut logic = missile_defender_laser_attack_world();
 
     let src = logic
         .create_object(
@@ -413,11 +421,7 @@ fn missile_defender_laser_guided_special_locks_secondary() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("md");
-    if let Some(o) = logic.host_object_mut(src) {
-        o.weapon = Some(missile_defender_primary_weapon());
-        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
-        o.active_weapon_slot = 0;
-    }
+    assert!(logic.host_object(src).unwrap().weapon_slot(1).is_some());
     let tgt = logic
         .create_object(
             "GLAInfantryRebel",

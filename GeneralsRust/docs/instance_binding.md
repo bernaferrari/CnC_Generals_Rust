@@ -36,10 +36,9 @@ the game state itself. Gameplay fields live **on** those bags
 3. **No process fallback bag** — unscoped `active()` / `active_services()` /
    `common_services()` panic. Constructing a world must not publish a process
    singleton.
-4. **Live GameClient** — prefer an explicit client borrow. The remaining
-   raw live-client adapter does not prove address stability after a move or
-   exclusivity against ordinary client borrows. Registration identity and
-   callback reentry guards do not repair that safety boundary.
+4. **Live GameClient** — pass the receiving client or a narrower owner
+   explicitly. The former raw live-client snapshot slot has been removed;
+   this alone does not establish isolation of every presentation callback.
 
 ## Budget gate
 
