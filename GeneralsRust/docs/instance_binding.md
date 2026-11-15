@@ -82,7 +82,8 @@ Projectile flight begins at the selected draw launch transform; scaled shell
 speed uses that position and the target geometry center. Retail Superweapon
 General Patriot launch and same-ID two-world flight are exercised against the
 Zero Hour archive. Vanilla Patriot model verification requires a nonempty
-base-game W3D archive. Missile motion still has parity gaps.
+base-game W3D archive. Missile ignition, fuel expiration and below-world removal
+follow the original update order; synthetic fallback and braking gaps remain.
 
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power

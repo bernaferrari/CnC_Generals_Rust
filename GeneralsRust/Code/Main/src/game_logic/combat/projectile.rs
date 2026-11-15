@@ -456,15 +456,22 @@ impl Projectile {
                 let fuel_start = match &self.flight {
                     Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(
                         missile,
-                    )) => missile.ignition_delay_frames,
+                    )) => missile.ignition_delay_frames.max(1),
                     _ => 0,
                 };
                 if fuel_lifetime_frames > 0
                     && frame >= fuel_start.saturating_add(fuel_lifetime_frames)
-                    && detonate_on_no_fuel
                 {
-                    self.missile_kill_self_started_frame = Some(frame);
-                    return ProjectileStep::DetonateAndHold;
+                    if detonate_on_no_fuel {
+                        self.missile_kill_self_started_frame = Some(frame);
+                        return ProjectileStep::DetonateAndHold;
+                    }
+                    if self.flight_runtime.missile_phase
+                        == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
+                    {
+                        self.missile_kill_self_started_frame = Some(frame);
+                        return ProjectileStep::Hold;
+                    }
                 }
 
                 // C++ MissileAIUpdate only invokes airborneTargetGone for a
@@ -548,6 +555,14 @@ impl Projectile {
             self.lifetime += dt;
         }
 
+        // C++ removes a missile below the world before dispatching any state.
+        if matches!(
+            &self.flight,
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_))
+        ) && self.position.y < 0.0 {
+            return ProjectileStep::Remove;
+        }
+
         // C++ runs LAUNCH/IGNITION before airborneTargetGone (doAttackState).
         let frame = self.elapsed_logic_frames();
         let missile_was_armed = self.flight_runtime.missile_armed;
@@ -561,9 +576,16 @@ impl Projectile {
             return ProjectileStep::Alive;
         }
 
-        let lifecycle_step = self.lifecycle_step(target_is_live);
-        if lifecycle_step != ProjectileStep::Alive {
-            return lifecycle_step;
+        // IGNITION arms the missile but does not run ATTACK until the next
+        // update. In particular, a missing target cannot skip ignition.
+        if missile_was_armed || !matches!(
+            &self.flight,
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_))
+        ) {
+            let lifecycle_step = self.lifecycle_step(target_is_live);
+            if lifecycle_step != ProjectileStep::Alive {
+                return lifecycle_step;
+            }
         }
         if let Some(motion) = &mut self.missile_motion {
             let mut goal = self.target_position;
@@ -584,7 +606,7 @@ impl Projectile {
                 Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { fuel_lifetime_frames, .. }) =>
                     fuel_lifetime_frames > 0 && frame >= fuel_lifetime_frames.saturating_add(
                         match &self.flight {
-                            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(m)) => m.ignition_delay_frames,
+                            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(m)) => m.ignition_delay_frames.max(1),
                             _ => 0,
                         }),
                 _ => false,

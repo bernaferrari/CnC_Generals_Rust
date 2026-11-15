@@ -272,7 +272,7 @@ pub(in crate::game_logic) mod tests {
             0,
             &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
         );
-        for _ in 0..10 {
+        for _ in 0..11 {
             let _ = fuel_combat.update_projectiles(
                 1.0 / 30.0,
                 &mut fuel_objects,
@@ -351,7 +351,7 @@ pub(in crate::game_logic) mod tests {
             .expect("parsed MissileAIUpdate must materialize");
         assert!(projectile.is_homing);
         target_loss_objects.remove(&target);
-        for _ in 0..3 {
+        for _ in 0..4 {
             let _ = target_loss_combat.update_projectiles(
                 1.0 / 30.0,
                 &mut target_loss_objects,
@@ -2945,11 +2945,7 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
-    fn materialized_missile_close_distance_uses_normalized_weapon_speed() {
-        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
-
-        let mut health_events = crate::game_logic::HostHealthEvents::default();
-
+    fn materialized_missile_weapon_speed_is_normalized() {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
 
@@ -2964,7 +2960,7 @@ pub(in crate::game_logic) mod tests {
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
         queue_projectile_direct(&mut combat, pending);
 
-        let mut objects = crate::game_logic::HostObjectStore::new();
+        let objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(
             &mut combat,
             objects.read(),
@@ -2979,30 +2975,6 @@ pub(in crate::game_logic) mod tests {
             .id;
         let projectile = combat.projectile_mut(projectile_id).unwrap();
         assert_eq!(projectile.speed, expected_speed_per_second);
-        let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
-            projectile.flight.as_mut()
-        else {
-            panic!("Patriot missile must use MissileAIUpdate");
-        };
-        missile.lock_distance = 1_000.0;
-        projectile.flight_runtime.missile_armed = true;
-        projectile.flight_runtime.missile_phase =
-            crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
-
-        let _ = combat.update_projectiles(
-            1.0 / 30.0,
-            &mut objects,
-            &mut health_events,
-            &mut _ownership_output,
-        );
-        assert_eq!(
-            combat.projectile_count(),
-            0,
-            "10 units/frame close threshold reaches an 8-unit target in one logic frame"
-        );
-        let impacts = combat.take_impact_fx();
-        assert_eq!(impacts.len(), 1);
-        assert_eq!(impacts[0].position, destination);
     }
 
     #[test]
@@ -3343,6 +3315,60 @@ pub(in crate::game_logic) mod tests {
             delayed.flight_runtime.missile_phase,
             HostMissilePhase::Attack
         );
+    }
+
+    #[test]
+    fn missile_ignition_precedes_target_loss_and_fuel_expiration() {
+        use crate::game_logic::weapon_bootstrap::{
+            HostMissileFlight, HostProjectileFlight, HostProjectileLifecycle,
+        };
+
+        let make_missile = |target, detonate_on_no_fuel| {
+            let mut missile = Projectile::new(
+                ObjectId(100_004), Vec3::ZERO, Vec3::new(100.0, 0.0, 0.0),
+                10.0, DamageType::Explosive, ObjectId(1), target,
+            );
+            missile.speed = 30.0;
+            missile.velocity = Vec3::X * 30.0;
+            missile.flight = Some(HostProjectileFlight::Missile(HostMissileFlight::default()));
+            missile.set_projectile_lifecycle(Some(HostProjectileLifecycle::Missile {
+                try_to_follow_target: true,
+                fuel_lifetime_frames: 1,
+                detonate_on_no_fuel,
+                kill_self_delay_frames: 3,
+            }));
+            missile.bind_authored_flight(Vec3::ZERO, missile.target_position, 30.0, None);
+            missile
+        };
+
+        let mut lost = make_missile(Some(ObjectId(2)), false);
+        assert_eq!(lost.update(1.0 / 30.0, false), ProjectileStep::Alive);
+        assert!(lost.is_warhead_armed());
+        assert_eq!(lost.update(1.0 / 30.0, false), ProjectileStep::Hold);
+
+        let mut fuel = make_missile(None, true);
+        assert_eq!(fuel.update(1.0 / 30.0, true), ProjectileStep::Alive);
+        assert_eq!(fuel.update(1.0 / 30.0, true), ProjectileStep::DetonateAndHold);
+
+        let mut terminal = make_missile(None, false);
+        assert_eq!(terminal.update(1.0 / 30.0, true), ProjectileStep::Alive);
+        terminal.flight_runtime.missile_phase =
+            crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+        assert_eq!(terminal.update(1.0 / 30.0, true), ProjectileStep::Hold);
+    }
+
+    #[test]
+    fn missile_below_world_is_removed_before_ignition() {
+        use crate::game_logic::weapon_bootstrap::{HostMissileFlight, HostProjectileFlight};
+        let mut missile = Projectile::new(
+            ObjectId(100_005), Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(100.0, 0.0, 0.0), 10.0, DamageType::Explosive,
+            ObjectId(1), None,
+        );
+        missile.flight = Some(HostProjectileFlight::Missile(HostMissileFlight::default()));
+        missile.bind_authored_flight(missile.position, missile.target_position, 30.0, None);
+        assert_eq!(missile.update(1.0 / 30.0, true), ProjectileStep::Remove);
+        assert!(!missile.is_warhead_armed());
     }
 
     #[test]

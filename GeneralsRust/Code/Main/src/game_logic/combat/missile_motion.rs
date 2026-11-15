@@ -55,10 +55,10 @@ impl MissileMotion {
         actor.movement.velocity = source_velocity;
         let initial = if launch.use_weapon_speed { weapon_speed } else { launch.initial_velocity_per_frame * 30.0 };
         if launch.use_weapon_speed {
-            actor.movement.max_speed = weapon_speed;
-            actor.movement.max_speed_damaged = weapon_speed;
-            actor.movement.acceleration = weapon_speed * 30.0;
-            actor.movement.acceleration_damaged = weapon_speed * 30.0;
+            actor.movement.max_speed = actor.movement.max_speed.min(weapon_speed);
+            actor.movement.max_speed_damaged = actor.movement.max_speed_damaged.min(weapon_speed);
+            actor.movement.acceleration = actor.movement.acceleration.min(weapon_speed * 30.0);
+            actor.movement.acceleration_damaged = actor.movement.acceleration_damaged.min(weapon_speed * 30.0);
         }
         if initial > 0.0 {
             actor.apply_motive_force(direction * (actor.physics_get_mass() * initial), 0);
