@@ -79,7 +79,8 @@ pub struct SortingNode {
 ///
 /// Depth is the view-space z of the triangle centroid (C++ `tis_ptr->z`);
 /// W3D views look down -Z, so ascending z is back to front, like the C++
-/// `Sort` with `TempIndexStruct::operator<`. Equal depths keep insertion order.
+/// `Sort` with `TempIndexStruct::operator<`. Equal depths retain pool order
+/// only for partitions of at most 16 triangles.
 pub fn sorted_triangle_order<'a>(
     geometries: impl IntoIterator<Item = &'a SortingGeometry>,
 ) -> Vec<(usize, u32)> {
@@ -119,8 +120,63 @@ fn pool_triangles<'a>(
             });
         }
     }
-    // Back to front; NaN depths compare equal (C++ asserts they never occur).
-    pool.sort_by(|a, b| a.depth.partial_cmp(&b.depth).unwrap_or(std::cmp::Ordering::Equal));
+    sort_pool(pool);
+}
+
+// Port of sortingrenderer.cpp Sort. Its quicksort exchanges equal keys,
+// unlike a stable sort; that affects alpha blending of coplanar triangles.
+fn sort_pool(pool: &mut [PooledTriangle]) {
+    if pool.len() <= 16 {
+        for i in 1..pool.len() {
+            let value = pool[i];
+            let mut j = i;
+            while j > 0 && pool[j - 1].depth > value.depth {
+                pool[j] = pool[j - 1];
+                j -= 1;
+            }
+            pool[j] = value;
+        }
+        return;
+    }
+
+    let last = pool.len() - 1;
+    pool.swap(pool.len() / 2, 1);
+    if pool[1].depth > pool[last].depth {
+        pool.swap(1, last);
+    }
+    if pool[0].depth > pool[last].depth {
+        pool.swap(0, last);
+    }
+    if pool[1].depth > pool[0].depth {
+        pool.swap(1, 0);
+    }
+    let pivot = pool[0].depth;
+    let mut left = 1;
+    let mut right = last;
+    loop {
+        left += 1;
+        while left < last && pool[left].depth < pivot {
+            left += 1;
+        }
+        right -= 1;
+        while right > 1 && pool[right].depth > pivot {
+            right -= 1;
+        }
+        if right < left {
+            break;
+        }
+        pool.swap(left, right);
+    }
+    pool.swap(0, right);
+    let (lower, pivot_and_upper) = pool.split_at_mut(right);
+    let upper = &mut pivot_and_upper[1..];
+    if lower.len() > upper.len() {
+        sort_pool(upper);
+        sort_pool(lower);
+    } else {
+        sort_pool(lower);
+        sort_pool(upper);
+    }
 }
 
 /// C++ `TempIndexStruct`: one pooled triangle and its sort depth.
@@ -338,6 +394,18 @@ mod tests {
         let b = quad_geometry(-20.0, glam::Mat4::IDENTITY);
         let order = sorted_triangle_order([&a, &b]);
         assert_eq!(order, vec![(0, 3), (1, 3), (0, 0), (1, 0)]);
+    }
+
+    #[test]
+    fn equal_depth_pool_larger_than_sixteen_uses_cpp_partition_order() {
+        // C++ Sort switches from insertion sort to its median-pivot quicksort
+        // at 17 triangles. Equal keys are exchanged during partitioning.
+        let mut geometry = quad_geometry(-20.0, glam::Mat4::IDENTITY);
+        geometry.indices = Arc::from(vec![0, 1, 2].repeat(17));
+        geometry.index_range = 0..51;
+        let order = sorted_triangle_order([&geometry]);
+        let expected = [9, 8, 15, 14, 13, 12, 11, 10, 0, 1, 7, 6, 5, 4, 3, 2, 16];
+        assert_eq!(order, expected.map(|triangle| (0, triangle * 3)));
     }
 
     #[test]
