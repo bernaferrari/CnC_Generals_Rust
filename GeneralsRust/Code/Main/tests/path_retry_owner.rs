@@ -68,7 +68,8 @@ fn registered_movement_updates_only_its_receiving_session_position_cells() {
         Some(ids[1])
     );
     let builder = SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&worlds[0]).unwrap();
+    let snapshot = xfer_world_snapshot(&worlds[0]);
+    assert!(worlds[1].set_registered_object_position(ids[1], Vec3::new(160.0, 0.0, 100.0)));
     let mut restored = world(&map);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -91,7 +92,7 @@ fn registered_movement_updates_only_its_receiving_session_position_cells() {
         Some(ids[0])
     );
     assert_eq!(
-        worlds[1].pathfinding_ground_position(GridPos::new(14, 10)),
+        worlds[1].pathfinding_ground_position(GridPos::new(16, 10)),
         Some(ids[1])
     );
 }
