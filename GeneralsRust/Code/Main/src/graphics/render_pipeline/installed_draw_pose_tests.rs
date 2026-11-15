@@ -123,6 +123,35 @@ fn installed_camera_pose_matches_extracted_cpp_full_transform_projection() {
     assert_eq!(cases, 24);
 }
 #[test]
+fn installed_named_bones_are_scoped_to_their_render_object() {
+    let mut first = state(model_with_camera([1., 2., 3.], [0., 0., 0., 1.]), None);
+    let mut second = state(model_with_camera([4., 5., 6.], [0., 0., 0., 1.]), None);
+    let mut third = state(model_with_camera([7., 8., 9.], [0., 0., 0., 1.]), None);
+
+    let sample = |owner: &mut ObjectVisualState| {
+        owner.installed_client_bone_transform(0, "CAMERA").unwrap().unwrap().w_axis.truncate()
+    };
+    assert_eq!(sample(&mut first), Vec3::new(1., 2., 3.));
+    assert_eq!(sample(&mut second), Vec3::new(4., 5., 6.));
+    assert_eq!(sample(&mut third), Vec3::new(7., 8., 9.));
+
+    assert_eq!(second.installed_client_bone_transform(0, "missing"), Ok(None));
+    let InstalledDrawObject::Ready(pose) = &mut first.installed_draw_pose else { panic!() };
+    pose.supported_controls = false;
+    assert_eq!(
+        first.installed_client_bone_transform(0, "CAMERA"),
+        Err(NativeCameraPoseUnavailable::UnsupportedSourceControls)
+    );
+    assert_eq!(
+        first.installed_client_bone_transform(0, "missing"),
+        Ok(None),
+        "Get_Bone_Index does not require a supported animated pose"
+    );
+    assert_eq!(sample(&mut second), Vec3::new(4., 5., 6.));
+    assert_eq!(sample(&mut third), Vec3::new(7., 8., 9.));
+}
+
+#[test]
 fn missing_bone_is_full_source_identity_without_hierarchy_or_animation_advance() {
     let mut owner = state(model_with_camera([10., 20., 30.], [0., 0., 0., 1.]), None);
     let before = owner.clone();

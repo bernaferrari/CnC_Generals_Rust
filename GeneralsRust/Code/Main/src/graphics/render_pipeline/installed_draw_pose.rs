@@ -367,9 +367,6 @@ impl ObjectVisualState {
             InstalledDrawObject::NoRenderObject => return Err(NoRenderObject),
             InstalledDrawObject::Ready(pose) => pose,
         };
-        if !pose.supported_controls {
-            return Err(UnsupportedSourceControls);
-        }
         // Original Get_Bone_Index is before Get_Bone_Transform; unresolved names
         // write FULL source identity without advancing even an invalid tree.
         if !pose
@@ -378,6 +375,10 @@ impl ObjectVisualState {
             .map_err(Bone)?
         {
             return Ok(None);
+        }
+        // Controls affect the transform, not the render object's bone topology.
+        if !pose.supported_controls {
+            return Err(UnsupportedSourceControls);
         }
         if !pose.hierarchy_valid {
             if let Some(animation) = self.animation.as_mut() {

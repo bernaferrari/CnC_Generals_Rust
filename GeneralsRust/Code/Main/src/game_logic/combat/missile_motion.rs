@@ -8,18 +8,12 @@ pub(crate) struct MissileMotion {
     previous_position: Vec3,
     dive_distance: f32,
     /// ATTACK_NOTURN executes once before ATTACK, even for zero distance.
-    #[serde(default = "legacy_attack_turn_enabled")]
     attack_turn_enabled: bool,
     /// PhysicsBehavior's UPDATE_EVER_RUN, retained with the airborne latch.
-    #[serde(default)]
     physics_initialized: bool,
     /// Locomotor limits left by the last MissileAI state, retained in KILL_SELF.
     last_controls: Option<(bool, bool, bool, bool)>,
 }
-
-// Snapshots written before ATTACK_NOTURN was represented turned as soon as
-// the distance expired; retain that continuation when the field is absent.
-fn legacy_attack_turn_enabled() -> bool { true }
 
 impl MissileMotion {
     pub(crate) fn validate(&self) -> bool {
@@ -239,15 +233,6 @@ mod tests {
         assert_ne!(actor.get_transform_matrix().x_axis, forward);
         assert_eq!(actor.get_transform_matrix(), restored_actor.get_transform_matrix());
         assert_eq!(actor.movement.velocity, restored_actor.movement.velocity);
-        // CPRJ's older JSON motion payload did not contain this field.
-        let mut old_json = serde_json::to_value(&motion).unwrap();
-        old_json.as_object_mut().unwrap().remove("attack_turn_enabled");
-        let mut old_restored: MissileMotion = serde_json::from_value(old_json).unwrap();
-        let mut old_restored_actor = actor.clone();
-        motion.advance(&mut actor, goal, true, true, true, false, 4, None, None);
-        old_restored.advance(&mut old_restored_actor, goal, true, true, true, false, 4, None, None);
-        assert_eq!(actor.get_transform_matrix(), old_restored_actor.get_transform_matrix());
-        assert_eq!(actor.movement.velocity, old_restored_actor.movement.velocity);
     }
 
     #[test]

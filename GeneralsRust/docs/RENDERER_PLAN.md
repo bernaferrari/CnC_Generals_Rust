@@ -32,6 +32,13 @@ shell captures differed run to run on the sea; they now step once per client
 frame like C++ (`W3DDisplay::draw` syncTime, `WaterRenderObjClass::update`),
 see `ecbfce083`.
 
+Installed named-bone lookup tests the render object's bone index before
+requiring supported pose controls. A genuine missing name is distinct from an
+unavailable transform; an existing bone with unsupported controls still reports
+the capability gap. State-particle ownership and per-view tracker pose remain
+open: the Main combat reconciliation and GameClient Draw paths both cover
+authored ParticleSysBone rows and have not been cut over to one owner.
+
 Terrain blending now carries separate authored UVs for the base and primary
 blend tiles and resolves the extra-blend class and UVs from its authored tile.
 Shoreline rendering precedes the extra-blend pass. Authored cliff records and
