@@ -716,6 +716,23 @@ impl GameLogic {
                 )
         };
         if let Some(continuation) = application.take_rider_change_kill_pilot() {
+            if continuation.car_bomb {
+                let identity = self.live_draw_playback_identity(self.objects.get(&victim_id)?);
+                self.maybe_detonate_carbomb_on_unmanned_with_effects(victim_id, effects);
+                if !self.objects.get(&victim_id).is_some_and(|victim| {
+                    self.live_draw_playback_identity(victim) == identity
+                }) {
+                    return None;
+                }
+                if let Some(victim) = self.objects.get_mut(&victim_id) {
+                    victim.set_team_and_owner_with_partition_owner(
+                        Team::Neutral,
+                        context.neutral_player_id(),
+                        &mut self.ownership_events,
+                        &mut self.partition_manager,
+                    );
+                }
+            }
             if let Some(transition) = continuation.transition.as_ref() {
                 let Some(victim) = self.objects.get(&victim_id) else {
                     return None;

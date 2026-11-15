@@ -595,10 +595,11 @@ fn sticky_bomb_missing_unit_sound_stays_silent() {
 
     clear_test_template_voices();
     let mut logic = GameLogic::new();
+    logic.admit_object_ini_sources([(
+        "silent-sticky.ini".into(),
+        "Object SilentSticky\n KindOf = PROJECTILE MINE NO_COLLIDE\n Body = HighlanderBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StickyBombUpdate Sticky\n End\nEnd\n".into(),
+    )]).expect("authored silent sticky charge");
     ensure_test_player_for_team(&mut logic, Team::GLA);
-    let mut charge_t = ThingTemplate::new("SilentSticky");
-    charge_t.add_kind_of(KindOf::Mine).set_health(1.0);
-    logic.templates.insert("SilentSticky".into(), charge_t);
     let charge = logic
         .place_mine_kind(
             HostMineKind::RemoteDemoCharge,

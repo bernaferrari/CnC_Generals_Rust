@@ -7,6 +7,26 @@
 //! (an admitted world builds bodies, AI and locomotors from the INI only).
 
 use crate::game_logic::GameLogic;
+// WeaponObjects.ini RemoteC4Charge and Weapon.ini BurtonC4ChargeWeapon.
+pub(crate) fn admit_retail_remote_c4(game: &mut GameLogic) {
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        "Weapon BurtonC4ChargeWeapon\n LeechRangeWeapon = Yes\n PrimaryDamage = 2000\n PrimaryDamageRadius = 25\n SecondaryDamage = 150\n SecondaryDamageRadius = 75\n AttackRange = 5\n DamageType = EXPLOSION\n DeathType = EXPLODED\n WeaponSpeed = 99999\n ProjectileObject = NONE\n RadiusDamageAffects = SELF ALLIES ENEMIES NEUTRALS\n DelayBetweenShots = 0\n ClipSize = 1\n ClipReloadTime = 0\n AutoReloadsClip = No\n FireSound = RemoteDemoChargeExplosion\nEnd\n",
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    let source = crate::assets::ReceivingObjectContent::from_sources([(
+        "retail-remote-c4.ini".into(),
+        "Object RemoteC4Charge\n Side = America\n VisionRange = 75\n ShroudClearingRange = 75\n KindOf = PROJECTILE MINE NO_COLLIDE\n Body = HighlanderBody ModuleTag_NewBody\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StealthUpdate ModuleTag_03\n StealthDelay = 0\n StealthForbiddenConditions = NONE\n FriendlyOpacityMin = 50%\n InnateStealth = Yes\n End\n Behavior = StickyBombUpdate ModuleTag_04\n End\n Behavior = SlowDeathBehavior ModuleTag_05\n DestructionDelay = 1\n FX = INITIAL WeaponFX_TNTStickyBombDetonation\n Weapon = FINAL BurtonC4ChargeWeapon\n End\n UnitSpecificSounds\n UnitBombPing = BombTickRemote\n StickyBombCreated = ColonelBurtonSetDemoCharge\n End\n Geometry = CYLINDER\n GeometryMajorRadius = 8\n GeometryHeight = 8\n GeometryIsSmall = Yes\nEnd\n".into(),
+    ), (
+        "remote-c4-test-roster.ini".into(),
+        "Object AmericaInfantryColonelBurton\n KindOf = INFANTRY SELECTABLE HERO\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = AIUpdateInterface AI\n End\nEnd\nObject TestBuilding\n KindOf = STRUCTURE MP_COUNT_FOR_VICTORY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1200\n InitialHealth = 1200\n End\nEnd\nObject TestInfantry\n KindOf = INFANTRY SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 80\n InitialHealth = 80\n End\nEnd\nObject TestTank\n KindOf = VEHICLE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject ChinaInfantryTankHunter\n KindOf = INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject GLATunnelNetwork\n KindOf = STRUCTURE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = TunnelContain Tunnel\n End\nEnd\nObject TimedC4Charge\n KindOf = PROJECTILE MINE NO_COLLIDE\n Body = HighlanderBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StickyBombUpdate Sticky\n End\n Behavior = LifetimeUpdate Lifetime\n MinLifetime = 20000\n MaxLifetime = 20000\n End\nEnd\nObject TNTStickyBomb\n KindOf = PROJECTILE MINE NO_COLLIDE\n Body = HighlanderBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StickyBombUpdate Sticky\n End\n Behavior = LifetimeUpdate Lifetime\n MinLifetime = 10000\n MaxLifetime = 10000\n End\nEnd\n".into(),
+    )]).expect("retail remote C4 object content");
+    game.admit_receiving_module_content_with_weapons(
+        source,
+        Some(weapons.into_iter().collect()),
+    ).expect("admit retail remote C4 and weapon");
+}
 
 /// Upgrade granted at creation to fixture radar providers.
 pub(crate) const FIXTURE_RADAR_UPGRADE: &str = "Upgrade_FixtureRadar";

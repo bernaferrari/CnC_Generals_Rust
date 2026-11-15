@@ -19,6 +19,8 @@ pub(in crate::game_logic) enum DamageApplication {
 #[derive(Debug)]
 pub(in crate::game_logic) struct RiderChangeKillPilotContinuation {
     pub(in crate::game_logic) victim_id: ObjectId,
+    /// setDisabled yielded before the CARBOMB dead-man kill.
+    pub(in crate::game_logic) car_bomb: bool,
     pub(in crate::game_logic) source: Option<ObjectId>,
     pub(in crate::game_logic) transition:
         Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent>,
@@ -129,6 +131,10 @@ impl DamageApplication {
             else {
                 unreachable!("matched rider transition continuation")
             };
+            if continuation.car_bomb {
+                // The nested Object::kill owns scoring and onDie already.
+                *self = Self::Complete(false);
+            }
             Some(continuation)
         } else {
             None

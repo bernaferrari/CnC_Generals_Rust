@@ -157,7 +157,7 @@ impl<'a> DamageHitContext<'a> {
         self.shock_wave_force
     }
 
-    pub(super) fn neutral_player_id(&self) -> Option<u32> {
+    pub(crate) fn neutral_player_id(&self) -> Option<u32> {
         self.neutral_player_id
     }
 

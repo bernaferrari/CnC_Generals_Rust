@@ -872,40 +872,83 @@ End
 
 #[test]
 fn carbomb_attack_structure_detonates_with_observable_damage() {
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
-
-    let car_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("car should be created");
-    let structure_id = game_logic
-        .create_object("TestBuilding", Team::USA, Vec3::new(3.0, 0.0, 0.0))
-        .expect("structure should be created");
-
-    game_logic
-        .with_object_veterancy_feedback_and_partition(car_id, |car, audio, feedback, partition| {
+    fn fixture(primary_damage: u32) -> (GameLogic, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "carbomb-attack.ini".into(),
+                r#"
+Object BombCar
+  KindOf = VEHICLE SELECTABLE CAN_ATTACK
+  WeaponSet
+    Conditions = None
+  End
+  WeaponSet
+    Conditions = CARBOMB
+    Weapon = PRIMARY SuicideCarBomb
+  End
+  Body = ActiveBody BodyTag
+    MaxHealth = 250
+    InitialHealth = 250
+  End
+End
+Object BombTarget
+  KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 1200
+    InitialHealth = 1200
+  End
+End
+"#.into(),
+            )]).unwrap(),
+        ).unwrap();
+        // Retail Weapon.ini values in the first world; vary the second world's
+        // admitted definition to prove the shot uses its owning catalog.
+        let mut weapons = std::collections::HashMap::new();
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut weapons,
+            &format!(r#"
+Weapon SuicideCarBomb
+  PrimaryDamage = {primary_damage}
+  PrimaryDamageRadius = 20
+  SecondaryDamage = 100
+  SecondaryDamageRadius = 50
+  AttackRange = 5
+  DamageType = EXPLOSION
+  DeathType = SUICIDED
+  WeaponSpeed = 99999
+  ProjectileObject = NONE
+  DamageDealtAtSelfPosition = Yes
+  RadiusDamageAffects = SELF SUICIDE ALLIES ENEMIES NEUTRALS NOT_SIMILAR
+  DelayBetweenShots = 0
+  ClipSize = 1
+  ClipReloadTime = 0
+  AutoReloadsClip = No
+End
+"#),
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        );
+        world.admit_receiving_weapon_snapshot(weapons.into_iter().collect()).unwrap();
+        let car = world.create_object("BombCar", Team::GLA, Vec3::ZERO).unwrap();
+        let target = world.create_object("BombTarget", Team::USA, Vec3::new(3.0, 0.0, 0.0)).unwrap();
+        world.with_object_veterancy_feedback_and_partition(car, |car, audio, feedback, partition| {
             car.apply_convert_to_car_bomb_from_with_partition_owner(
                 None, audio, feedback, partition, 0,
             );
-        })
-        .expect("actual car-bomb owner");
+        }).unwrap();
+        (world, car, target)
+    }
+
+    let (mut game_logic, car_id, structure_id) = fixture(700);
+    let (mut peer, peer_car_id, peer_structure_id) = fixture(200);
+    assert_eq!((car_id, structure_id), (peer_car_id, peer_structure_id));
     {
         let car = game_logic
             .objects
             .get_mut(&car_id)
             .expect("car should exist");
         let attack_events = &mut game_logic.attack_events;
-        car.set_team_with_partition_owner(
-            Team::GLA,
-            &mut game_logic.ownership_events,
-            &mut game_logic.partition_manager,
-        );
-        // Ensure weapon is ready to fire immediately.
-        if let Some(w) = car.weapon.as_mut() {
-            w.last_fire_time = 0.0;
-            w.reload_time = 0.0;
-        }
+        assert!(car.weapon.is_some(), "CARBOMB weapon set must bind its authored weapon");
         car.attack_target(
             structure_id,
             0,
@@ -913,7 +956,6 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    game_logic.car_bomb.record_conversion();
 
     let structure_hp_before = game_logic
         .host_object(structure_id)
@@ -936,12 +978,12 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         game_logic.host_object(car_id).unwrap().is_alive(),
         "car bomb must survive before physical contact"
     );
-    assert!(!game_logic.honesty_carbomb_detonate_ok());
-    // Advance only the fixture pose to physical contact. This case exercises
-    // combat admission/detonation; it does not claim a movement tick oracle.
-    game_logic.set_fixture_object_position(car_id, Vec3::new(2.0, 0.0, 0.0));
+    // Move inside, rather than onto, the collision boundary. Only the fixture
+    // pose changes; the subsequent combat update performs the actual shot.
+    game_logic.set_fixture_object_position(car_id, Vec3::new(1.5, 0.0, 0.0));
     game_logic.frame = 30;
     game_logic.update_combat(&[car_id, structure_id], 1.0 / 30.0);
+    game_logic.apply_owned_projectileless_delayed_damage();
 
     let structure_after = game_logic
         .host_object(structure_id)
@@ -953,17 +995,144 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         "car bomb detonation must damage structure (before={structure_hp_before}, after={})",
         structure_after.health.current
     );
-    assert!(
-        game_logic.honesty_carbomb_detonate_ok(),
-        "carbomb detonate residual honesty (damage={})",
-        game_logic.car_bomb_residual().detonation_damage_dealt
-    );
+    assert_eq!(peer.host_object(peer_structure_id).unwrap().health.current, structure_hp_before);
+    assert!(peer.host_object(peer_car_id).unwrap().is_alive());
 
     let car = game_logic.host_object(car_id).expect("car should exist");
     assert!(
         car.status.destroyed || !car.is_alive(),
         "car bomb destroys itself on detonation"
     );
+
+    // Identical IDs in the peer world perform their own attack independently.
+    let owner_hp = game_logic.host_object(structure_id).unwrap().health.current;
+    {
+        let (car, events) = peer.host_object_and_attack_events_mut(peer_car_id).unwrap();
+        car.attack_target(
+            peer_structure_id,
+            0,
+            events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+    }
+    peer.set_fixture_object_position(peer_car_id, Vec3::new(1.5, 0.0, 0.0));
+    peer.frame = 30;
+    peer.update_combat(&[peer_car_id, peer_structure_id], 1.0 / 30.0);
+    peer.apply_owned_projectileless_delayed_damage();
+    let peer_hp = peer.host_object(peer_structure_id).unwrap().health.current;
+    assert!(peer_hp < structure_hp_before);
+    assert!(peer_hp > owner_hp, "each world must use its own weapon damage");
+    assert!(!peer.host_object(peer_car_id).unwrap().is_alive());
+    assert_eq!(game_logic.host_object(structure_id).unwrap().health.current, owner_hp);
+
+    // Neither DAMAGE_KILLPILOT nor NeutronBlastBehavior fires the selected
+    // weapon: each enters DISABLED_UNMANNED, whose dead-man branch calls kill.
+    // With no death weapon there must be no invented splash.
+    let (mut sniped, sniped_car, nearby) = fixture(700);
+    let nearby_hp = sniped.host_object(nearby).unwrap().health.current;
+    sniped.apply_owned_damage(
+        sniped_car, 1.0, Some(nearby),
+        crate::game_logic::combat::DamageType::KillPilot,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None,
+        &crate::game_logic::object::DamageHitContext::default(),
+    ).unwrap();
+    let car = sniped.host_object(sniped_car).unwrap();
+    assert!(!car.is_alive());
+    assert!(car.status.disabled_unmanned);
+    assert_eq!(car.team, Team::Neutral);
+    assert_eq!(sniped.host_object(nearby).unwrap().health.current, nearby_hp);
+
+    let (mut neutron, neutron_car, neutron_nearby) = fixture(700);
+    let nearby_hp = neutron.host_object(neutron_nearby).unwrap().health.current;
+    neutron.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false);
+    let car = neutron.host_object(neutron_car).unwrap();
+    assert!(!car.is_alive());
+    assert!(car.status.disabled_unmanned);
+    assert_eq!(car.team, Team::Neutral);
+    assert_eq!(neutron.host_object(neutron_nearby).unwrap().health.current, nearby_hp);
+
+    // The dead-man check is a template WeaponSet query even before a car is
+    // converted. Its non-drone disabled edge must not undo XP or AutoHeal.
+    let (mut unconverted, _, _) = fixture(700);
+    let id = unconverted.create_object("BombCar", Team::GLA, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+    {
+        let car = unconverted.host_object_mut(id).unwrap();
+        assert!(!car.status.is_carbomb);
+        car.experience.level = crate::game_logic::VeterancyLevel::Elite;
+        car.experience.current = 200.0;
+        car.default_auto_heal = Some(crate::game_logic::host_heal::HostDefaultAutoHealData::new());
+    }
+    unconverted.apply_neutron_blast_at(Vec3::new(20.0, 0.0, 0.0), Team::USA, None, false);
+    let car = unconverted.host_object(id).unwrap();
+    assert!(!car.is_alive());
+    assert!(car.status.disabled_unmanned);
+    assert_eq!(car.experience.level, crate::game_logic::VeterancyLevel::Elite);
+    assert_eq!(car.experience.current, 200.0);
+    assert!(car.default_auto_heal.as_ref().is_some_and(|heal| heal.upgrade_active));
+}
+
+#[test]
+fn kill_pilot_and_neutron_preserve_other_disables_until_their_deadlines() {
+    fn fixture() -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        ensure_test_tank_template(&mut world);
+        let id = world.create_object("TestTank", Team::GLA, Vec3::ZERO).unwrap();
+        world.frame = 10;
+        let vehicle = world.host_object_mut(id).unwrap();
+        vehicle.set_status_disabled_hacked(true);
+        vehicle.set_status_disabled_emp(true);
+        vehicle.set_status_disabled_paralyzed(true);
+        vehicle.status.disabled_hacked_until_frame = 50;
+        vehicle.status.disabled_emp_until_frame = 60;
+        vehicle.status.disabled_paralyzed_until_frame = 70;
+        (world, id)
+    }
+
+    for neutron in [false, true] {
+        let (mut owner, id) = fixture();
+        let (peer, peer_id) = fixture();
+        assert_eq!(id, peer_id);
+        if neutron {
+            owner.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false);
+        } else {
+            owner.apply_owned_damage(
+                id, 1.0, None,
+                crate::game_logic::combat::DamageType::KillPilot,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            ).unwrap();
+        }
+        let target = owner.host_object(id).unwrap();
+        assert!(target.is_alive());
+        assert!(target.status.disabled_unmanned);
+        assert!(target.status.disabled_hacked && target.status.disabled_emp && target.status.disabled_paralyzed);
+        assert_eq!(
+            (target.status.disabled_hacked_until_frame, target.status.disabled_emp_until_frame, target.status.disabled_paralyzed_until_frame),
+            (50, 60, 70),
+        );
+        let untouched = peer.host_object(peer_id).unwrap();
+        assert!(!untouched.status.disabled_unmanned);
+        assert!(untouched.status.disabled_hacked && untouched.status.disabled_emp && untouched.status.disabled_paralyzed);
+
+        owner.frame = 50;
+        owner.expire_owned_disabled_statuses();
+        let target = owner.host_object(id).unwrap();
+        assert!(!target.status.disabled_hacked);
+        assert!(target.status.disabled_emp && target.status.disabled_paralyzed && target.status.disabled_unmanned);
+        owner.frame = 60;
+        owner.expire_owned_disabled_statuses();
+        let target = owner.host_object(id).unwrap();
+        assert!(!target.status.disabled_emp);
+        assert!(target.status.disabled_paralyzed && target.status.disabled_unmanned);
+        owner.frame = 70;
+        owner.expire_owned_disabled_statuses();
+        let target = owner.host_object(id).unwrap();
+        assert!(!target.status.disabled_paralyzed);
+        assert!(target.status.disabled_unmanned);
+        assert!(peer.host_object(peer_id).unwrap().status.disabled_hacked);
+    }
 }
 
 #[test]

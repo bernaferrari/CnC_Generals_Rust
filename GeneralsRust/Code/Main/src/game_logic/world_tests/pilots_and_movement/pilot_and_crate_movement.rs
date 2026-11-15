@@ -1,6 +1,8 @@
 //! Behavior suite extracted from `pilots_and_movement`.
 use super::*;
 use crate::game_logic::game_logic::StickyBombInitPosition;
+use crate::fixture_content::admit_retail_remote_c4;
+
 
 fn admit_test_sticky_bomb_charge(game: &mut GameLogic) {
     game.admit_receiving_module_content(
@@ -15,7 +17,7 @@ fn admit_test_sticky_bomb_charge(game: &mut GameLogic) {
 
 fn admit_test_sticky_bomb_charge_with(game: &mut GameLogic, offset_z: f32, created_sound: &str) {
     let source = format!(
-        "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\n OffsetZ = {offset_z}\nEnd\nUnitSpecificSounds\n StickyBombCreated = {created_sound}\nEnd\nEnd\n"
+        "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\n OffsetZ = {offset_z}\nEnd\nUnitSpecificSounds\n StickyBombCreated = {created_sound}\nEnd\nEnd\nObject StickyInitPlanter\nKindOf = INFANTRY\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject StickyInitImmobile\nKindOf = STRUCTURE IMMOBILE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\nObject StickyInitMobile\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
     );
     game.admit_receiving_module_content(
         crate::assets::ReceivingObjectContent::from_sources([(
@@ -351,20 +353,6 @@ fn sticky_bomb_init_uses_receiving_offset_sound_and_world_owned_participants() {
         logic.add_player(Player::new(1, Team::GLA, "planter", true));
         logic.add_player(Player::new(2, Team::USA, "victim", true));
 
-        let mut planter = ThingTemplate::new("StickyInitPlanter");
-        planter.add_kind_of(KindOf::Infantry).set_health(100.0);
-        logic.templates.insert("StickyInitPlanter".into(), planter);
-        let mut immobile = ThingTemplate::new("StickyInitImmobile");
-        immobile
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Immobile)
-            .set_health(1000.0);
-        logic
-            .templates
-            .insert("StickyInitImmobile".into(), immobile);
-        let mut mobile = ThingTemplate::new("StickyInitMobile");
-        mobile.add_kind_of(KindOf::Vehicle).set_health(100.0);
-        logic.templates.insert("StickyInitMobile".into(), mobile);
 
         let planter_id = logic
             .create_object_for_player_with_effects_checked(
@@ -376,10 +364,8 @@ fn sticky_bomb_init_uses_receiving_offset_sound_and_world_owned_participants() {
             )
             .unwrap()
             .unwrap();
-        logic
-            .host_object_mut(planter_id)
-            .unwrap()
-            .set_orientation(0.75);
+        let (planter, partition) = logic.host_object_and_partition_mut(planter_id).unwrap();
+        planter.set_orientation_with_partition_owner(0.75, partition);
         let immobile_id = logic
             .create_object_for_player_with_effects_checked(
                 "StickyInitImmobile",
@@ -1109,15 +1095,16 @@ fn burton_charges_use_retail_c4_special_objects() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
-    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    admit_retail_remote_c4(&mut logic);
+    let mut burton = logic.templates["AmericaInfantryColonelBurton"].clone();
     burton.add_kind_of(KindOf::Infantry).set_health(200.0);
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton);
-    let mut th = ThingTemplate::new("ChinaInfantryTankHunter");
+    let mut th = logic.templates["ChinaInfantryTankHunter"].clone();
     th.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("ChinaInfantryTankHunter".into(), th);
-    let mut bld = ThingTemplate::new("GLATunnelNetwork");
+    let mut bld = logic.templates["GLATunnelNetwork"].clone();
     // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
     bld.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     bld.add_kind_of(KindOf::Structure).set_health(1000.0);
@@ -1260,7 +1247,8 @@ fn burton_charges_use_retail_c4_special_objects() {
 fn sticky_bomb_destroyed_when_target_dies() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    let mut tank = ThingTemplate::new("TestTank");
+    admit_retail_remote_c4(&mut logic);
+    let mut tank = logic.templates["TestTank"].clone();
     tank.set_health(100.0);
     tank.add_kind_of(KindOf::Vehicle);
     logic.templates.insert("TestTank".into(), tank);
@@ -1375,14 +1363,119 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
 }
 
 #[test]
+fn remote_charge_requires_receiving_sticky_object() {
+    let mut world = GameLogic::new();
+    assert!(world.place_remote_demo_charge(Team::USA, Vec3::ZERO, None, None).is_none());
+    assert_eq!(world.mine_residual_places(), 0);
+    assert!(!world.templates.contains_key("RemoteC4Charge"));
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn slow_death_final_fx_precedes_final_weapon_fx_and_damage() {
+    use game_engine::common::ini::INI;
+    let mut world = GameLogic::new();
+    let catalog = world.with_own_services(|| {
+        INI::new().with_inline_source(
+            "FXList FX_SlowFinalOrder\n Sound\n Name = SlowFinalCue\n End\nEnd\nFXList FX_SlowWeaponOrder\n Sound\n Name = SlowWeaponCue\n End\nEnd\n",
+            |ini| ini.parse_current_file(),
+        ).expect("authored FXList content");
+        let mut catalog = game_client::fx_list::FXListStore::new();
+        for name in ["FX_SlowFinalOrder", "FX_SlowWeaponOrder"] {
+            let definition = game_engine::common::ini::ini_fx_list::get_fx_list_store()
+                .find_fx_list(name).expect("authored FXList").clone();
+            catalog.add_fx_list(name.into(), game_client::fx_list::FXList::from_definition(&definition));
+        }
+        catalog
+    });
+    world.admit_fx_catalog(catalog);
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        "Weapon SlowFinalWeapon\n PrimaryDamage = 200\n PrimaryDamageRadius = 25\n DamageType = EXPLOSION\n DeathType = EXPLODED\n WeaponSpeed = 99999\n ProjectileObject = NONE\n RadiusDamageAffects = SELF ALLIES ENEMIES NEUTRALS\n FireFX = FX_SlowWeaponOrder\nEnd\n",
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "slow-final-order.ini".into(),
+        "Object SlowFinalSource\n KindOf = VEHICLE\n Body = ActiveBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = SlowDeathBehavior Slow\n DestructionDelay = 1\n FX = FINAL FX_SlowFinalOrder\n Weapon = FINAL SlowFinalWeapon\n End\nEnd\nObject SlowFinalVictim\n KindOf = VEHICLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+    )]).unwrap();
+    world.admit_receiving_module_content_with_weapons(content, Some(weapons.into_iter().collect())).unwrap();
+    world.add_player(Player::new(0, Team::USA, "SlowDeathOwner", true));
+    let source = world.create_object_for_player("SlowFinalSource", 0, Vec3::new(80.0, 0.0, 80.0)).unwrap();
+    let victim = world.create_object_for_player("SlowFinalVictim", 0, Vec3::new(85.0, 0.0, 80.0)).unwrap();
+    {
+        let shroud = world.world_services.shroud();
+        let mut shroud = shroud.lock().unwrap();
+        shroud.init_shroud_grid(400.0, 400.0);
+        // FINAL uses doFXObj while Weapon::privateFireWeapon uses doFXPos;
+        // the latter needs the terrain cell visible, not just an object override.
+        let center = gamelogic::common::Coord3D::new(80.0, 80.0, 0.0);
+        shroud.do_shroud_reveal(&center, 100.0, 1);
+        assert_eq!(shroud.get_shroud_state(0, &center), gamelogic::system::shroud_manager::ShroudState::Visible);
+        shroud.set_host_object_shroud_status(0, source.0, gamelogic::common::ObjectShroudStatus::Clear);
+    }
+    world.apply_owned_kill(source, crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal).unwrap();
+    assert_eq!(world.host_object(victim).unwrap().health.current, 100.0);
+    let mut audio = crate::game_logic::containment_audio_test_support::manager(&["SlowFinalCue", "SlowWeaponCue"]);
+    world.frame += 1;
+    world.update_ai_with_effects(&[source], LOGIC_FRAME_TIMESTEP,
+        &mut crate::game_logic::ScriptPresentationEffects {
+            audio: Some(&mut audio),
+            ..Default::default()
+        }).expect("authored slow-death final phase");
+    let events: Vec<_> = audio.pending_play_events().map(|event| event.get_event_name()).collect();
+    assert_eq!(events, ["SlowFinalCue", "SlowWeaponCue"]);
+    assert!(world.host_object(victim).is_none_or(|object| !object.is_alive()),
+        "the final weapon must apply its real lethal damage");
+}
+
+#[test]
 fn plant_and_detonate_remote_demo_charge_residual() {
     let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
+    admit_retail_remote_c4(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_structure_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
+    // SpecialAbilityUpdate needs both its authored timing and the matching
+    // SpecialAbility power module. A bare TestTank is not Colonel Burton.
+    let mut burton = game_logic.templates["AmericaInfantryColonelBurton"].clone();
+    burton.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::Hero)
+        .set_health(200.0);
+    burton.charge_plant_abilities.push(crate::game_logic::ChargePlantAbilityMetadata {
+        special_power_template: "SpecialAbilityColonelBurtonRemoteCharges".into(),
+        unpack_time_ms: 5_500,
+        pack_time_ms: 0,
+        pack_unpack_variation_factor: 0.0,
+        flee_range_after_completion: 100.0,
+        flip_object_after_unpacking: true,
+        flip_object_after_packing: false,
+    });
+    burton.special_power_modules.push(crate::game_logic::SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("RemoteCharges".into()),
+        module_kind: crate::game_logic::SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: "SpecialAbilityColonelBurtonRemoteCharges".into(),
+        special_power_template_id: 1,
+        command_power: Some(crate::command_system::SpecialPowerType::BurtonRemoteCharges),
+        reload_time_frames: 0,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: true,
+        starts_paused: false,
+        scripted_special_power_only: false,
+        cash_bounty: None,
+    });
+    game_logic.templates.insert("AmericaInfantryColonelBurton".into(), burton);
 
     let burton_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(180.0, 0.0, 0.0))
+        .create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::new(180.0, 0.0, 0.0))
         .expect("burton should be created");
     let target_id = game_logic
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -1390,6 +1483,12 @@ fn plant_and_detonate_remote_demo_charge_residual() {
     let enemy_id = game_logic
         .create_object("TestInfantry", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
         .expect("enemy near charge");
+    // NeedToFace schedules a locomotor goal; AI updates alone cannot rotate
+    // an object. Supply a real ground locomotor and tick the movement owner.
+    crate::fixture_content::locomote(
+        game_logic.host_object_mut(burton_id).unwrap(),
+        &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"],
+    );
 
     let enemy_hp_before = game_logic
         .host_object(enemy_id)
@@ -1434,6 +1533,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
         game_logic
             .update_ai(&[burton_id, target_id, enemy_id], LOGIC_FRAME_TIMESTEP)
             .expect("receiving AI operation succeeds");
+        game_logic.update_movement_for_test(&[burton_id, target_id, enemy_id], LOGIC_FRAME_TIMESTEP);
         if game_logic.mine_residual_places() >= 1 {
             break;
         }
@@ -1466,6 +1566,60 @@ fn plant_and_detonate_remote_demo_charge_residual() {
             })
         })
         .expect("sticky remote charge must attach without auto-timer");
+
+    // Reuse all object IDs in another world. A remote trigger must only see
+    // the receiving world's objects, including its producer and sticky list.
+    let mut other = GameLogic::new();
+    admit_retail_remote_c4(&mut other);
+    ensure_test_player_for_team(&mut other, Team::USA);
+    ensure_test_player_for_team(&mut other, Team::GLA);
+    let source = &game_logic.templates["AmericaInfantryColonelBurton"];
+    let receiver = other.templates.get_mut("AmericaInfantryColonelBurton").unwrap();
+    receiver.charge_plant_abilities = source.charge_plant_abilities.clone();
+    receiver.special_power_modules = source.special_power_modules.clone();
+    ensure_test_structure_template(&mut other);
+    ensure_test_infantry_template(&mut other);
+    let other_burton = other.create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::new(180.0, 0.0, 0.0)).unwrap();
+    let other_target = other.create_object("TestBuilding", Team::GLA, Vec3::ZERO).unwrap();
+    let other_enemy = other.create_object("TestInfantry", Team::GLA, Vec3::new(5.0, 0.0, 0.0)).unwrap();
+    crate::fixture_content::locomote(
+        other.host_object_mut(other_burton).unwrap(),
+        &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"],
+    );
+    other.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::PlantRemoteDemoCharge { target_id: other_target },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![other_burton],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    other.process_commands();
+    {
+        let frame = other.frame;
+        let (unit, partition) = other.host_object_and_partition_mut(other_burton).unwrap();
+        unit.set_position_with_partition_owner(Vec3::new(2.0, 0.0, 0.0), 0, &mut Default::default(), partition);
+        unit.set_ai_state(AIState::SpecialAbility, frame, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        unit.target = Some(other_target);
+    }
+    for _ in 0..1200 {
+        other.frame = other.frame.saturating_add(1);
+        other.update_ai(&[other_burton, other_target, other_enemy], LOGIC_FRAME_TIMESTEP).expect("receiving AI operation succeeds");
+        other.update_movement_for_test(&[other_burton, other_target, other_enemy], LOGIC_FRAME_TIMESTEP);
+        if other.mine_residual_places() != 0 {
+            break;
+        }
+    }
+    let other_charge = other.host_objects().registered().find_map(|(id, object)| {
+        object.mine_data.as_ref().filter(|mine| {
+            mine.kind == crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
+                && mine.is_active()
+                && mine.producer_id == Some(other_burton)
+                && mine.attached_to == Some(other_target)
+        }).map(|_| *id)
+    }).expect("second world plants its own remote charge");
+    assert_eq!((other_burton, other_target, other_enemy, other_charge), (burton_id, target_id, enemy_id, charge_id));
+    let other_enemy_hp = other.host_object(other_enemy).unwrap().health.current;
 
     // Advance many frames — remote charge must NOT auto-detonate.
     for _ in 0..400 {
@@ -1506,12 +1660,31 @@ fn plant_and_detonate_remote_demo_charge_residual() {
         "remote detonate uses manual detonation residual counter"
     );
 
-    let enemy_after = game_logic.host_object(enemy_id).expect("enemy");
-    assert!(
-        enemy_after.health.current < enemy_hp_before || enemy_after.status.destroyed,
-        "remote detonate must damage nearby enemy (before={enemy_hp_before}, after={})",
-        enemy_after.health.current
-    );
+    assert_eq!(game_logic.host_object(enemy_id).unwrap().health.current, enemy_hp_before,
+        "the authored one-frame SlowDeath must not fire on the detonation command");
+    game_logic.frame += 1;
+    game_logic.update_ai(&[charge_id], LOGIC_FRAME_TIMESTEP).expect("charge death update");
+    assert!(game_logic.host_object(enemy_id).is_none_or(|enemy| !enemy.is_alive()),
+        "BurtonC4ChargeWeapon primary blast must kill the 80-health infantry");
+    assert!(game_logic.host_object(target_id).is_none_or(|target| !target.is_alive()),
+        "the 2000-damage primary blast must kill the 1200-health target");
+    assert!(other.host_object(other_charge).unwrap().mine_data.as_ref().unwrap().is_active());
+    assert_eq!(other.host_object(other_enemy).unwrap().health.current, other_enemy_hp);
+    assert_eq!(other.mine_residual_manual_detonations(), 0);
+    other.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::DetonateRemoteDemoCharges,
+        player_id: 0,
+        command_id: 3,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![other_burton],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    other.process_commands();
+    assert_eq!(other.mine_residual_manual_detonations(), 1);
+    other.frame += 1;
+    other.update_ai(&[other_charge], LOGIC_FRAME_TIMESTEP).expect("other charge death update");
+    assert!(other.host_object(other_enemy).is_none_or(|enemy| !enemy.is_alive()));
+    assert!(other.host_object(other_target).is_none_or(|target| !target.is_alive()));
 }
 
 #[test]

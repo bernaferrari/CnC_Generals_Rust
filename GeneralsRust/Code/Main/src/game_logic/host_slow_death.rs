@@ -62,6 +62,9 @@ pub struct HostSlowDeathIni {
     pub fx_midpoint: Option<String>,
     /// C++ `FX = FINAL ...` first non-empty FXList name.
     pub fx_final: Option<String>,
+    /// C++ `Weapon = FINAL ...` fired by the final slow-death phase.
+    #[serde(default)]
+    pub weapon_final: Option<String>,
     /// C++ DieMuxData `DeathTypes` mask (`1 << (dt - 1)` per DieModule.cpp).
     #[serde(default = "all_death_types")]
     pub death_types: u32,
@@ -109,6 +112,7 @@ impl Default for HostSlowDeathIni {
             fx_initial: None,
             fx_midpoint: None,
             fx_final: None,
+            weapon_final: None,
             death_types: all_death_types(),
             probability_modifier: default_probability_modifier(),
             veterancy_levels: all_veterancy_levels(),
@@ -209,6 +213,8 @@ pub struct HostSlowDeathData {
     #[serde(default)]
     pub fx_final: Option<String>,
     #[serde(default)]
+    pub weapon_final: Option<String>,
+    #[serde(default)]
     pub pending_phase_fx: Vec<String>,
     #[serde(default)]
     pub midpoint_played: bool,
@@ -235,6 +241,7 @@ impl Default for HostSlowDeathData {
             fx_initial: None,
             fx_midpoint: None,
             fx_final: None,
+            weapon_final: None,
             pending_phase_fx: Vec::new(),
             midpoint_played: false,
             initial_played: false,
@@ -281,6 +288,7 @@ impl HostSlowDeathData {
             fx_initial: ini.fx_initial.clone(),
             fx_midpoint: ini.fx_midpoint.clone(),
             fx_final: ini.fx_final.clone(),
+            weapon_final: ini.weapon_final.clone(),
             pending_phase_fx: Vec::new(),
             midpoint_played: false,
             initial_played: false,
@@ -571,6 +579,16 @@ pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDea
         fx_initial,
         fx_midpoint,
         fx_final,
+        weapon_final: attrs.iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case("Weapon"))
+            .flat_map(|(_, value)| value.lines())
+            .find_map(|line| {
+                let mut tokens = line.split_whitespace();
+                let phase = tokens.next()?;
+                let weapon = tokens.next()?;
+                (phase.eq_ignore_ascii_case("FINAL") && !weapon.eq_ignore_ascii_case("NONE"))
+                    .then(|| weapon.to_string())
+            }),
         death_types: get("DeathTypes")
             .and_then(|raw| {
                 let tokens: Vec<&str> = raw.split_whitespace().collect();

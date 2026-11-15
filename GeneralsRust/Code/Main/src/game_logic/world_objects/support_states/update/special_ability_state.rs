@@ -717,12 +717,14 @@ impl GameLogic {
             PendingSpecialAbility::SnipeVehicle { .. } => {
                 // C++ DAMAGE_KILLPILOT residual: no HP damage; vehicle becomes
                 // unmanned + Neutral so it can be recrewed/captured.
-                // C++ car-bomb dead-man: IS_CARBOMB detonates instead.
-                let is_bomb = self
-                    .objects
-                    .get(&special_target_id)
-                    .map(|t| t.is_car_bomb())
-                    .unwrap_or(false);
+                // Object::setDisabled checks the template's CARBOMB set,
+                // not the IS_CARBOMB status of the current vehicle.
+                let target_birth = self.objects.get(&special_target_id)
+                    .map(|target| std::sync::Arc::downgrade(&target.visual_draw_identity_token));
+                let is_bomb = self.objects.get(&special_target_id).is_some_and(|t| {
+                    !t.is_kind_of(crate::game_logic::KindOf::Drone)
+                        && t.authors_carbomb_weapon_set()
+                });
                 if is_bomb {
                     let _ = self.maybe_detonate_carbomb_on_unmanned_with_effects(
                         special_target_id,
@@ -734,23 +736,8 @@ impl GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         self.frame,
                     );
-                    target.set_team_with_partition_owner(
-                        Team::Neutral,
-                        &mut self.ownership_events,
-                        &mut self.partition_manager,
-                    );
-                    let sniped_vehicle = target.is_kind_of(crate::game_logic::KindOf::Vehicle);
-                    drop(target);
-                    if sniped_vehicle {
-                        Self::record_neutral_vehicle_sniped(&mut self.players);
-                    }
-                    self.admit_local_drawable_deselected(special_target_id);
-                    for player in self.players.values_mut() {
-                        player
-                            .selected_objects
-                            .retain(|id| *id != special_target_id);
-                    }
                 }
+                self.finish_sniped_vehicle(special_target_id, target_birth.as_ref());
                 self.hero_abilities.record_snipe();
                 self.queue_audio_event(
                     AudioEventRequest::new(
@@ -1324,5 +1311,62 @@ impl GameLogic {
             self.pending_special_abilities.remove(&object_id);
         }
         Ok(())
+    }
+    /// Finish the original snipe after its synchronous death callbacks. A
+    /// replacement at the same numeric ID is not the victim of that order.
+    fn finish_sniped_vehicle(&mut self, id: ObjectId, birth: Option<&std::sync::Weak<()>>) {
+        if let Some(target) = self.objects.get_mut(&id).filter(|target| {
+            birth.is_some_and(|birth| std::sync::Weak::ptr_eq(
+                birth, &std::sync::Arc::downgrade(&target.visual_draw_identity_token),
+            ))
+        }) {
+            target.set_team_with_partition_owner(
+                Team::Neutral,
+                &mut self.ownership_events,
+                &mut self.partition_manager,
+            );
+            let sniped_vehicle = target.is_kind_of(crate::game_logic::KindOf::Vehicle);
+            drop(target);
+            if sniped_vehicle {
+                Self::record_neutral_vehicle_sniped(&mut self.players);
+            }
+            self.admit_local_drawable_deselected(id);
+            for player in self.players.values_mut() {
+                player.selected_objects.retain(|selected| *selected != id);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snipe_completion_does_not_neutralize_replacement_or_other_world() {
+        fn fixture() -> (GameLogic, ObjectId) {
+            let mut world = GameLogic::new();
+            let mut template = crate::game_logic::ThingTemplate::new("SnipeBirthVehicle");
+            template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+            world.templates.insert("SnipeBirthVehicle".into(), template);
+            let id = world.create_object("SnipeBirthVehicle", Team::GLA, Vec3::ZERO).unwrap();
+            (world, id)
+        }
+        let (mut owner, id) = fixture();
+        let (mut peer, peer_id) = fixture();
+        assert_eq!(id, peer_id);
+        let old = std::sync::Arc::downgrade(&owner.objects.get(&id).unwrap().visual_draw_identity_token);
+        let replacement = crate::game_logic::Object::new(
+            owner.templates["SnipeBirthVehicle"].clone(), id, Team::China,
+        );
+        owner.objects.insert(id, replacement);
+        owner.finish_sniped_vehicle(id, Some(&old));
+        assert_eq!(owner.objects.get(&id).unwrap().team, Team::China);
+        assert_eq!(peer.objects.get(&peer_id).unwrap().team, Team::GLA);
+
+        let current = std::sync::Arc::downgrade(&peer.objects.get(&peer_id).unwrap().visual_draw_identity_token);
+        peer.finish_sniped_vehicle(peer_id, Some(&current));
+        assert_eq!(peer.objects.get(&peer_id).unwrap().team, Team::Neutral);
+        assert_eq!(owner.objects.get(&id).unwrap().team, Team::China);
     }
 }

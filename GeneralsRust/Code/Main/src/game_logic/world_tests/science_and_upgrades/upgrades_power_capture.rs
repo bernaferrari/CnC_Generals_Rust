@@ -939,24 +939,64 @@ fn capture_sets_private_captured_and_score() {
 
 #[test]
 fn car_bomb_detonates_when_pilot_sniped_unmanned() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", true));
-
-    let mut car = ThingTemplate::new("GLAVehicleTechnical");
-    car.add_kind_of(KindOf::Vehicle).set_health(200.0);
-    logic.templates.insert("GLAVehicleTechnical".into(), car);
-    let mut shack = ThingTemplate::new("GLABarracks");
-    shack
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSBarracks)
-        .set_health(500.0);
-    logic.templates.insert("GLABarracks".into(), shack);
+    logic.players.insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.players.insert(1, Player::new(1, Team::GLA, "GLA", true));
+    logic.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "deadman-car.ini".into(),
+            r#"
+Object GLAVehicleTechnical
+  KindOf = VEHICLE SELECTABLE
+  WeaponSet
+    Conditions = CARBOMB
+    Weapon = PRIMARY SuicideCarBomb
+  End
+  Body = ActiveBody BodyTag
+    MaxHealth = 200
+    InitialHealth = 200
+  End
+  Behavior = FireWeaponWhenDeadBehavior DeadManBlast
+    StartsActive = Yes
+    DeathWeapon = DeadManDeathWeapon
+  End
+  Behavior = DestroyDie DestroyTag
+  End
+End
+Object GLABarracks
+  KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 500
+    InitialHealth = 500
+  End
+End
+"#.into(),
+        )]).unwrap(),
+    ).unwrap();
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        r#"
+Weapon SuicideCarBomb
+  PrimaryDamage = 700
+  AttackRange = 5
+  DamageType = EXPLOSION
+  ProjectileObject = NONE
+End
+Weapon DeadManDeathWeapon
+  PrimaryDamage = 100
+  PrimaryDamageRadius = 20
+  DamageType = EXPLOSION
+  DeathType = NORMAL
+  RadiusDamageAffects = ALLIES ENEMIES NEUTRALS
+  ProjectileObject = NONE
+  WeaponSpeed = 99999
+End
+"#,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    logic.admit_receiving_weapon_snapshot(weapons.into_iter().collect()).unwrap();
 
     let cid = logic
         .create_object(
@@ -986,14 +1026,10 @@ fn car_bomb_detonates_when_pilot_sniped_unmanned() {
                 .map(|o| !o.is_alive() || o.status.destroyed)
                 .unwrap_or(true)
     );
-    // Nearby structure should take splash residual.
-    logic.process_destroy_list();
-    if let Some(s) = logic.host_object(sid) {
-        assert!(
-            s.health.current < before_hp || !s.is_alive(),
-            "car bomb splash must damage nearby structure"
-        );
-    }
+    // Object::kill invokes the authored death module rather than firing the
+    // selected CARBOMB weapon or manufacturing a residual blast.
+    logic.apply_owned_projectileless_delayed_damage();
+    assert!(logic.host_object(sid).unwrap().health.current < before_hp);
 }
 
 #[test]

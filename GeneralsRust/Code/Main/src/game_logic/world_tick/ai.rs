@@ -581,6 +581,72 @@ impl GameLogic {
                 #[cfg(not(feature = "game_client"))]
                 let _ = obj.poll_structure_collapse_phase_fx(self.frame);
             }
+            // C++ doPhaseStuff(FINAL) runs the FX before the weapon. Drain the
+            // FX at this callback boundary, rather than after weapon damage.
+            if final_death_destroy {
+                let birth = self.objects.get(&object_id)
+                    .map(|object| object.visual_draw_identity_token.clone());
+                let epoch = self.visual_world_epoch;
+                let has_weapon = self.objects.get(&object_id)
+                    .and_then(|object| object.slow_death.as_ref())
+                    .is_some_and(|slow| slow.weapon_final.is_some());
+                if has_weapon {
+                    let fx = self.objects.get_mut(&object_id)
+                        .and_then(|object| object.pending_death_fx.take());
+                    if let Some(fx) = fx {
+                        let position = self.objects.get(&object_id)
+                            .map(|object| object.get_position())
+                            .unwrap_or(Vec3::ZERO);
+                        if !self.dispatch_fx_list_at_host_object_with_effects(
+                            &fx, object_id, None, presentation_effects,
+                        ) {
+                            #[cfg(feature = "game_client")]
+                            let mut sounds = self.fx_list_sound_names(&fx);
+                            #[cfg(not(feature = "game_client"))]
+                            let mut sounds = crate::game_logic::sound_names_for_fx_list(&fx);
+                            if sounds.is_empty() {
+                                sounds = heli_fx_fallback_sounds(&fx);
+                            }
+                            for sound in sounds {
+                                self.queue_audio_event(
+                                    AudioEventRequest::new(&sound)
+                                        .with_object(object_id)
+                                        .with_position(position)
+                                        .with_priority(190),
+                                );
+                            }
+                        }
+                    }
+                    if self.visual_world_epoch != epoch || !self.objects.get(&object_id)
+                        .is_some_and(|object| birth.as_ref().is_some_and(|birth|
+                            std::sync::Arc::ptr_eq(birth, &object.visual_draw_identity_token)))
+                    {
+                        continue;
+                    }
+                    // Take before firing: weapon effects can synchronously re-enter.
+                    let weapon = self.objects.get_mut(&object_id)
+                        .and_then(|object| object.slow_death.as_mut())
+                        .and_then(|slow| slow.weapon_final.take());
+                    if let Some(weapon) = weapon {
+                        let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
+                            module_source_index: 0,
+                            weapon_template_name: weapon.clone(),
+                            weapon_slot: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
+                        };
+                        if !self.weapon_definitions.as_ref().is_some_and(|weapons| weapons.contains_key(&weapon.to_ascii_lowercase()))
+                            || self.create_and_fire_temp_weapon_with_effects(object_id, &spec, presentation_effects).is_none()
+                        {
+                            log::error!("SlowDeath FINAL weapon '{weapon}' is not available in the receiving world");
+                        }
+                        if self.visual_world_epoch != epoch || !self.objects.get(&object_id)
+                            .is_some_and(|object| birth.as_ref().is_some_and(|birth|
+                                std::sync::Arc::ptr_eq(birth, &object.visual_draw_identity_token)))
+                        {
+                            continue;
+                        }
+                    }
+                }
+            }
             self.sync_helicopter_attach_particle(object_id);
             if !topple_kill {
                 if let Err(error) =

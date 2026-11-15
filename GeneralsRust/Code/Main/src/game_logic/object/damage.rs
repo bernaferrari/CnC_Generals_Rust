@@ -586,6 +586,7 @@ impl Object {
                         let (incoming, previous) = context.last_damage_observations();
                         let continuation = RiderChangeKillPilotContinuation {
                             victim_id: self.id,
+                            car_bomb: false,
                             source,
                             rebuild_model_bits_after_transition: transition.is_some(),
                             transition,
@@ -637,9 +638,6 @@ impl Object {
                     }
                     return DamageApplication::Complete(false);
                 }
-                if self.is_car_bomb() {
-                    // Detonation handled by combat caller; mark unmanned edge.
-                }
                 self.apply_kill_pilot_unmanned_at_frame(
                     health_events,
                     &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
@@ -647,6 +645,29 @@ impl Object {
                     }),
                     frame,
                 );
+                if yield_rider_kill_pilot_transition
+                    && !self.is_kind_of(crate::game_logic::KindOf::Drone)
+                    && self.authors_carbomb_weapon_set()
+                {
+                    let (incoming, previous) = context.last_damage_observations();
+                    return DamageApplication::RiderChangeKillPilot(
+                        RiderChangeKillPilotContinuation {
+                            victim_id: self.id,
+                            car_bomb: true,
+                            source,
+                            transition: None,
+                            source_fx: context.source().cloned(),
+                            incoming,
+                            previous,
+                            damage_type,
+                            fx_type,
+                            amount,
+                            frame,
+                            is_kill: context.is_kill(),
+                            rebuild_model_bits_after_transition: false,
+                        },
+                    );
+                }
                 if let Some(output) = ownership_events {
                     self.set_team_and_owner_with_partition_context(
                         crate::game_logic::Team::Neutral,
@@ -1255,7 +1276,8 @@ impl Object {
             }),
         );
         self.target = None;
-        health_events.record_applied_damage(
+        if !continuation.car_bomb {
+            health_events.record_applied_damage(
             self.id,
             if self.health.maximum > 0.0 {
                 self.health.maximum
@@ -1273,7 +1295,8 @@ impl Object {
                     self.max_health.max(0.0)
                 },
             },
-        );
+            );
+        }
         if continuation.amount > 0.0 || continuation.is_kill {
             let source_template = continuation
                 .source_fx

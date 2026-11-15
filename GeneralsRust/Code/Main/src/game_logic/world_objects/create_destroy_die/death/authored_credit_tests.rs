@@ -1,5 +1,4 @@
-//! Current native final-removal accounting must retain the incoming death
-//! credit. C++ score timing remains a separate integration obligation.
+//! Native scoreTheKill must complete once before onDie, including SlowDeath.
 use super::*;
 use crate::game_logic::object::DamageHitContext;
 use crate::game_logic::{KindOf, Player, ThingTemplate};
@@ -33,6 +32,7 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
         let victim = world
             .create_object_for_player("AuthoredCreditedVictim", 2, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
+        assert_eq!(world.get_player(0).unwrap().skill_points, 0);
         world
             .apply_owned_damage(
                 victim,
@@ -65,7 +65,7 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
         );
         assert_eq!(
             world.get_player(0).unwrap().skill_points,
-            25,
+            26,
             "{class}: CPP scoreTheKill awards Player skill exactly once before onDie"
         );
         world.destroy_object(victim).unwrap(); // repeated public request must not overwrite credit.
@@ -76,9 +76,9 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
         );
         let source_player = world.get_player(0).unwrap();
         assert_eq!(source_player.statistics.units_destroyed(), 1, "{class}");
-        assert_eq!(source_player.statistics.money_earned(), 100, "{class}");
-        assert_eq!(source_player.resources.supplies, 1100, "{class}");
-        assert_eq!(source_player.skill_points, 25, "{class}");
+        assert_eq!(source_player.statistics.money_earned(), 101, "{class}");
+        assert_eq!(source_player.resources.supplies, 1101, "{class}");
+        assert_eq!(source_player.skill_points, 26, "{class}");
         assert_eq!(
             world.get_player(2).unwrap().statistics.units_lost(),
             1,
@@ -96,7 +96,7 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
         );
         assert_eq!(
             world.get_player(0).unwrap().resources.supplies,
-            1100,
+            1101,
             "{class}: bounty is once only"
         );
     }
@@ -178,6 +178,7 @@ fn slow_death_final_destroy_keeps_admitted_team_after_source_dies() {
     let victim = world
         .create_object_for_player("SlowDeathCreditedVictim", 2, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
+    assert_eq!(world.get_player(0).unwrap().skill_points, 0);
     world.frame = 10;
     world
         .apply_owned_damage(
@@ -211,7 +212,10 @@ fn slow_death_final_destroy_keeps_admitted_team_after_source_dies() {
         "scoreTheKill runs before SlowDeath deferral"
     );
     assert_eq!(world.objects[&source].experience.current, 25.0);
-    assert_eq!(world.get_player(0).unwrap().skill_points, 25);
+    // Player.cpp:2439 and :2410 use REAL_TO_INT_CEIL, whose BaseType.h
+    // 24-bit fast_float_ceil adds the largest f32 below one before truncation.
+    // Thus exact 25 skill points become 26, and a 100-credit bounty becomes 101.
+    assert_eq!(world.get_player(0).unwrap().skill_points, 26);
     // Damager dies before the sink finishes — credit must not depend on live lookup.
     world.destroy_object(source).unwrap();
     world.process_destroy_list();
@@ -235,9 +239,9 @@ fn slow_death_final_destroy_keeps_admitted_team_after_source_dies() {
     );
     let source_player = world.get_player(0).unwrap();
     assert_eq!(source_player.statistics.units_destroyed(), 1);
-    assert_eq!(source_player.statistics.money_earned(), 100);
-    assert_eq!(source_player.resources.supplies, 1100);
-    assert_eq!(source_player.skill_points, 25);
+    assert_eq!(source_player.statistics.money_earned(), 101);
+    assert_eq!(source_player.resources.supplies, 1101);
+    assert_eq!(source_player.skill_points, 26);
     assert_eq!(world.get_player(2).unwrap().statistics.units_lost(), 1);
 }
 

@@ -87,6 +87,11 @@ their trail until delayed removal, including across save/load. Zero-weapon-speed
 Tomahawks retain their tracked target. Synthetic fallback and non-THRUST
 motion gaps remain.
 
+Remote C4 placement requires the receiving world's authored sticky-bomb object;
+its final SlowDeath phase dispatches FX before the authored weapon. Car bombs
+fire their selected weapon instead of a fabricated explosion. Pilot loss
+preserves independent disable timers and checks object birth across callbacks.
+
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power
 dispatch releases the owner's read guard before movement initialization.

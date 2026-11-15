@@ -1666,8 +1666,9 @@ fn burton_detonate_button_gray_without_remote_charges() {
     use crate::presentation_frame::PresentationFrame;
 
     let mut logic = crate::game_logic::GameLogic::new();
+    crate::fixture_content::admit_retail_remote_c4(&mut logic);
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
-    let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    let mut burton = logic.templates["AmericaInfantryColonelBurton"].clone();
     author_retail_command_set(&logic, &mut burton);
     burton
         .add_kind_of(KindOf::Infantry)

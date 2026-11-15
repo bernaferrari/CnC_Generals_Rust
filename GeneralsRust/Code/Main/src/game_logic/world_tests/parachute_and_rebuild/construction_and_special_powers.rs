@@ -3186,16 +3186,17 @@ fn demo_and_burton_charge_special_power_enum_residuals() {
     );
     // Plant residual APIs remain available for special-power completion.
     let mut logic = GameLogic::new();
+    crate::fixture_content::admit_retail_remote_c4(&mut logic);
     logic
         .players
         .insert(0, Player::new(0, Team::USA, "USA", true));
     use crate::game_logic::{KindOf, ThingTemplate};
-    let mut unit = ThingTemplate::new("AmericaInfantryColonelBurton");
+    let mut unit = logic.templates["AmericaInfantryColonelBurton"].clone();
     unit.add_kind_of(KindOf::Infantry).set_health(200.0);
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), unit);
-    let mut structure = ThingTemplate::new("GLATunnelNetwork");
+    let mut structure = logic.templates["GLATunnelNetwork"].clone();
     // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
     structure.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     structure.add_kind_of(KindOf::Structure).set_health(1000.0);

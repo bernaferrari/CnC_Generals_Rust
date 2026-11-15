@@ -78,7 +78,6 @@ impl GameLogic {
         let mut vehicle_kills = 0u32;
         let mut passengers_killed = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
-        let mut bomb_detonate_ids: Vec<ObjectId> = Vec::new();
         let mut unmanned_ids: Vec<ObjectId> = Vec::new();
 
         let candidates: Vec<ObjectId> = self
@@ -212,30 +211,34 @@ impl GameLogic {
                     infantry_kills = infantry_kills.saturating_add(count);
                 }
                 NeutronEffect::UnmanVehicle => {
-                    if obj.is_car_bomb() {
-                        // Dead-man trigger residual — detonate after this borrow ends.
-                        bomb_detonate_ids.push(id);
+                    let dead_man = !obj.is_kind_of(crate::game_logic::KindOf::Drone)
+                        && obj.authors_carbomb_weapon_set();
+                    if dead_man {
+                        // setDisabled kills synchronously before the neutron
+                        // behavior idles and neutralizes the object.
+                        drop(obj);
+                        self.maybe_detonate_carbomb_on_unmanned_with_effects(id, presentation_effects);
                     } else {
                         obj.apply_kill_pilot_unmanned_at_frame(
                             &mut self.health_events,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
+                            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                             self.frame,
                         );
-                        // C++ NeutonBlastBehavior.cpp:124-127 neutronBlastToObject:
-                        //   getAI()->aiIdle(CMD_FROM_AI);
-                        //   TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE);
+                    }
+                    if let Some(obj) = self.objects.get_mut(&id)
+                        .filter(|obj| obj.visual_object_generation == birth)
+                    {
                         obj.set_ai_state(
                             AIState::Idle,
                             self.frame,
-                            &mut crate::game_logic::ObjectAudio::queue(
-                                &mut self.queued_audio_events,
-                            ),
+                            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         );
                         obj.deselect();
-                        // C++ NeutronBlastBehavior: setTeam(neutral) residual.
-                        obj.team = Team::Neutral;
+                        obj.set_team_with_partition_owner(
+                            Team::Neutral,
+                            &mut self.ownership_events,
+                            &mut self.partition_manager,
+                        );
                         vehicles_unmanned = vehicles_unmanned.saturating_add(1);
                         unmanned_ids.push(id);
                     }
@@ -350,9 +353,6 @@ impl GameLogic {
                 Some(caster_team),
                 presentation_effects,
             );
-        }
-        for id in bomb_detonate_ids {
-            let _ = self.maybe_detonate_carbomb_on_unmanned_with_effects(id, presentation_effects);
         }
 
         self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);

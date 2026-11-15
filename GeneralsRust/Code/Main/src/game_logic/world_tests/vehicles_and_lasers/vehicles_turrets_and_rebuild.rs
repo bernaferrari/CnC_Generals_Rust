@@ -2334,21 +2334,14 @@ fn reconstructing_death_transfers_attackers_back_to_hole() {
 
 #[test]
 fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
-    use crate::game_logic::host_mines::{HostMineData, HostMineKind};
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
-    let mut st = ThingTemplate::new("GLATunnelNetwork");
-    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
-    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    st.add_kind_of(KindOf::Structure).set_health(1000.0);
-    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
-    logic.templates.insert("GLATunnelNetwork".into(), st);
-    let mut bomb_t = ThingTemplate::new("TimedC4Charge");
-    bomb_t.set_health(10.0);
-    logic.templates.insert("TimedC4Charge".into(), bomb_t);
+    // RebuildHoleBehavior creates a real Worker and scaffold through this
+    // world's factory; all participating object modules must be admitted.
+    logic.admit_object_ini_sources([(
+        "rebuild-sticky-fixture.ini".into(),
+        "Object GLATunnelNetwork\n KindOf = STRUCTURE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = TunnelContain Tunnel\n End\n Behavior = RebuildHoleExposeDie Expose\n HoleName = GLAHoleTunnelNetwork\n End\nEnd\nObject GLAHoleTunnelNetwork\n KindOf = STRUCTURE SELECTABLE IMMOBILE REBUILD_HOLE\n Body = StructureBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = RebuildHoleBehavior Rebuild\n WorkerObjectName = GLAInfantryWorker\n WorkerRespawnDelay = 20000\n End\nEnd\nObject GLAInfantryWorker\n KindOf = INFANTRY SELECTABLE SALVAGER DOZER HARVESTER SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = WorkerAIUpdate WorkerAI\n End\nEnd\nObject TimedC4Charge\n KindOf = PROJECTILE MINE NO_COLLIDE\n Body = HighlanderBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StickyBombUpdate Sticky\n End\n Behavior = LifetimeUpdate Lifetime\n MinLifetime = 20000\n MaxLifetime = 20000\n End\nEnd\n".into(),
+    )]).expect("authored rebuild and sticky object content");
+    logic.players.insert(0, Player::new(0, Team::GLA, "GLA", true));
     let hole = {
         let sid = logic
             .create_object(
@@ -2364,13 +2357,8 @@ fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
         logic.maybe_spawn_rebuild_hole(sid).expect("hole")
     };
     let bid = logic
-        .create_object("TimedC4Charge", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
-        .expect("bomb");
-    if let Some(o) = logic.host_object_mut(bid) {
-        let mut md = HostMineData::new(HostMineKind::TimedDemoCharge);
-        md.attached_to = Some(hole);
-        o.mine_data = Some(md);
-    }
+        .place_timed_demo_charge(Team::USA, glam::Vec3::new(1.0, 0.0, 0.0), None, Some(hole), None)
+        .expect("authored sticky bomb on hole");
     // Force reconstruct path.
     let now = logic.frame.max(1);
     if let Some(h) = logic.host_object_mut(hole) {

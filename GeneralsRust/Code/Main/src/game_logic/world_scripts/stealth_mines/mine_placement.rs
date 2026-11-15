@@ -664,7 +664,21 @@ impl GameLogic {
             }
         }
 
-        self.ensure_residual_mine_template(template_name, kind);
+        // C++ SpecialAbilityUpdate looks up its authored SpecialObject; it
+        // cannot manufacture a remote charge when the factory lacks one.
+        if kind == HostMineKind::RemoteDemoCharge {
+            let sticky = self.receiving_module_content.as_ref()
+                .and_then(|content| content.admitted_template(template_name))
+                .is_some_and(|template| template.behavior_modules().iter().any(|module| {
+                    module.name.as_str().eq_ignore_ascii_case("StickyBombUpdate")
+                        && module.data.read().downcast_ref::<gamelogic::object::behavior::StickyBombUpdateModuleData>().is_some()
+                }));
+            if !sticky || !self.templates.contains_key(template_name) {
+                return None;
+            }
+        } else {
+            self.ensure_residual_mine_template(template_name, kind);
+        }
         let id = self.create_object_with_script_effects(
             template_name,
             team,

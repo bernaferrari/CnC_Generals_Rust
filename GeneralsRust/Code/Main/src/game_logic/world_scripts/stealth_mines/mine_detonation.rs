@@ -153,6 +153,31 @@ impl GameLogic {
             return false;
         }
 
+        if matches!(data.kind, crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge) {
+            // StickyBombUpdate::detonate calls Object::kill. The authored
+            // SlowDeathBehavior, not a hard-coded mine splash, owns the
+            // explosion and its delay, weapon, FX and damage callbacks.
+            if let Some(mine) = self.objects.get_mut(&mine_id) {
+                if let Some(data) = mine.mine_data.as_mut() {
+                    data.detonated = true;
+                }
+            }
+            let killed = self.apply_owned_kill_with_effects(
+                mine_id,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                effects,
+            ).is_some();
+            if killed {
+                match reason {
+                    HostMineDetonateReason::Proximity => self.mine_residual_proximity_detonations = self.mine_residual_proximity_detonations.saturating_add(1),
+                    HostMineDetonateReason::Timed => self.mine_residual_timed_detonations = self.mine_residual_timed_detonations.saturating_add(1),
+                    HostMineDetonateReason::Manual | HostMineDetonateReason::Killed => self.mine_residual_manual_detonations = self.mine_residual_manual_detonations.saturating_add(1),
+                }
+            }
+            return killed;
+        }
+
         let kind = data.kind;
         let damage = data.detonation_damage;
         let radius = data.detonation_radius;

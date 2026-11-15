@@ -1547,7 +1547,7 @@ impl GameLogic {
         .expect("compatibility score-the-kill XP must complete");
     }
 
-    fn score_the_kill_experience_with_effects_and_interpreter(
+    pub(crate) fn score_the_kill_experience_with_effects_and_interpreter(
         &mut self,
         killer_id: ObjectId,
         victim_id: ObjectId,

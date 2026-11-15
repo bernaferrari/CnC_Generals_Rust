@@ -311,12 +311,6 @@ impl Object {
         }
         self.set_status_disabled_unmanned(true);
 
-        self.set_status_disabled_hacked(false);
-        self.status.disabled_hacked_until_frame = 0;
-        self.set_status_disabled_emp(false);
-        self.status.disabled_emp_until_frame = 0;
-        self.set_status_disabled_paralyzed(false);
-        self.status.disabled_paralyzed_until_frame = 0;
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving(audio);
@@ -327,7 +321,7 @@ impl Object {
         self.deselect();
         // C++ Object.cpp:2145-2179 non-drone unmanned enter:
         // carbomb detonates elsewhere; else wipe XP and undo AutoHeal.
-        if !self.is_kind_of(KindOf::Drone) && !self.status.is_carbomb {
+        if !self.is_kind_of(KindOf::Drone) && !self.authors_carbomb_weapon_set() {
             self.set_rider_change_veterancy_level_at_frame(
                 crate::game_logic::VeterancyLevel::Rookie,
                 frame,

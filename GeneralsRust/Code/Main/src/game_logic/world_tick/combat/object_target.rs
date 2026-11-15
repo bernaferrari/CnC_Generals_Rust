@@ -496,17 +496,6 @@ impl GameLogic {
                 }
             }
 
-            // GLA car-bomb residual: firing the SuicideCarBomb weapon detonates
-            // at self (DamageDealtAtSelfPosition) and destroys the car bomb.
-            let is_carbomb = self
-                .objects
-                .get(&attacker_id)
-                .map(|a| a.status.is_carbomb)
-                .unwrap_or(false);
-            if is_carbomb {
-                let _ = self.detonate_car_bomb_with_effects(attacker_id, effects);
-                return CombatShotResult::NoShot;
-            }
 
             // C++ Object::fireCurrentWeapon fires the selected WeaponTemplate;
             // every authored weapon shares the one shot delivery operation.

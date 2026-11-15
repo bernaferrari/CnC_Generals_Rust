@@ -1237,10 +1237,9 @@ impl GameLogic {
 
     /// C++ BuildAssistant::sellObject residual — start multi-frame sell process.
 
-    /// C++ Object::setDisabled(DISABLED_UNMANNED) car-bomb dead-man trigger residual.
-    ///
-    /// If vehicle has WEAPONSET_CARBOMB / IS_CARBOMB, sniping the pilot detonates
-    /// it instead of leaving an unmanned car bomb.
+    /// Object::setDisabled(DISABLED_UNMANNED) calls Object::kill for a
+    /// non-drone whose template has a matching CARBOMB weapon set. Any
+    /// explosion is produced by the object's authored death modules.
     pub fn maybe_detonate_carbomb_on_unmanned(&mut self, vehicle_id: ObjectId) -> bool {
         self.maybe_detonate_carbomb_on_unmanned_with_effects(vehicle_id, &mut Default::default())
     }
@@ -1250,22 +1249,45 @@ impl GameLogic {
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        let is_bomb = self
-            .objects
-            .get(&vehicle_id)
-            .map(|o| o.is_alive() && o.is_car_bomb())
-            .unwrap_or(false);
-        if !is_bomb {
+        let dead_man = self.objects.get(&vehicle_id).is_some_and(|object| {
+            object.is_alive()
+                && !object.is_kind_of(KindOf::Drone)
+                && object.authors_carbomb_weapon_set()
+        });
+        if !dead_man {
             return false;
         }
-        // Clear unmanned so detonation path owns the object (not recrewable).
-        if let Some(o) = self.objects.get_mut(&vehicle_id) {
-            o.set_status_disabled_unmanned(false);
-            o.status.unmanned_owner_team = None;
-            o.status.unmanned_owner_player_id = None;
+        let birth = self.objects.get(&vehicle_id)
+            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token));
+        let source = self.objects.get(&vehicle_id).and_then(|object| object.last_damage_source);
+        if let Some(object) = self.objects.get_mut(&vehicle_id) {
+            if !object.status.disabled_unmanned {
+                object.apply_kill_pilot_unmanned_at_frame(
+                    &mut self.health_events,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                );
+            }
         }
         self.admit_host_radar_disabled_edges(vehicle_id);
-        let ok = self.detonate_car_bomb_with_effects(vehicle_id, effects);
+        if let Some(source) = source.filter(|id| self.objects.get(id).is_some()) {
+            self.score_the_kill_experience_with_effects_and_interpreter(
+                source, vehicle_id, None, effects,
+            ).expect("dead-man score callback must complete");
+        }
+        if !self.objects.get(&vehicle_id).is_some_and(|object| {
+            birth.as_ref().is_some_and(|birth| std::sync::Weak::ptr_eq(
+                birth, &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+            ))
+        }) {
+            return false;
+        }
+        let ok = self.apply_owned_kill_with_effects(
+            vehicle_id,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            effects,
+        ).is_some();
         if ok {
             self.carbomb_unmanned_detonations = self.carbomb_unmanned_detonations.saturating_add(1);
         }
