@@ -582,19 +582,6 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
         self.create_delivery(ctx, source, primary, secondary, create_owner)
     }
 
-    fn create_with_angle_and_owner_flag(
-        &self,
-        ctx: &CreationContext<'_>,
-        primary_obj: Option<&Object>,
-        primary: &Coord3D,
-        secondary: &Coord3D,
-        _angle: Real,
-        create_owner: Bool,
-        _lifetime_frames: UnsignedInt,
-    ) -> CreationResult {
-        self.create_delivery(ctx, DeliverySource::Borrowed(primary_obj?), primary, secondary, create_owner)
-    }
-
     fn create_with_owner_handle(
         &self,
         ctx: &CreationContext<'_>,
@@ -859,7 +846,7 @@ mod tests {
         let worker = std::thread::spawn(move || {
             let first_world = Arc::new(EngineStores::new_for_world());
             let second_world = Arc::new(EngineStores::new_for_world());
-            let make_owner = |world: &Arc<EngineStores>| {
+            let make_owner = |world: &Arc<EngineStores>, position: Coord3D| {
                 with_active_stores(world, || {
                     let team = Arc::new(RwLock::new(Team::new("delivery".into(), 17)));
                     team.write().unwrap().set_controlling_player_id(Some(0));
@@ -870,6 +857,7 @@ mod tests {
                     let mut owner = Object::new_test(41, 100.0);
                     owner.bind_pathfinding_owner(world).unwrap();
                     owner.bind_owner_world_for_test(world.services());
+                    owner.set_position(&position).unwrap();
                     owner.set_team(Some(team)).unwrap();
                     let owner = Arc::new(RwLock::new(owner));
                     let mut delivery_data = DeliverPayloadAIUpdateModuleData::default();
@@ -913,9 +901,10 @@ mod tests {
                     (owner, ai)
                 })
             };
-            let (first, first_ai) = make_owner(&first_world);
-            let (_second, second_ai) = make_owner(&second_world);
             let target = Coord3D::new(240.0, 130.0, 0.0);
+            let peer_target = Coord3D::new(320.0, 410.0, 0.0);
+            let (first, first_ai) = make_owner(&first_world, target);
+            let (_second, second_ai) = make_owner(&second_world, peer_target);
             let mut ocl = crate::object_creation_list::ObjectCreationList::new();
             let mut nugget = DeliverPayloadNugget::default();
             nugget.data.drop_delay = 6;
@@ -938,7 +927,7 @@ mod tests {
                 let before = second_ai.lock().unwrap();
                 assert_eq!(before.get_current_command(), None);
                 drop(before);
-                power.do_special_power_at_location(&target, 0.0).unwrap();
+                power.do_special_power().unwrap();
             });
             {
                 let mut ai = first_ai.lock().unwrap();
@@ -953,9 +942,8 @@ mod tests {
                 assert_eq!(ai.get_current_command(), None);
                 assert!(!ai.get_deliver_payload_ai_update_interface().unwrap().is_delivering_payload());
             }
-            let peer_target = Coord3D::new(320.0, 410.0, 0.0);
             with_active_stores(&second_world, || {
-                power.do_special_power_at_location(&peer_target, 0.0).unwrap();
+                power.do_special_power().unwrap();
             });
             {
                 let mut ai = second_ai.lock().unwrap();
@@ -978,6 +966,59 @@ mod tests {
                 let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();
                 assert_eq!(*delivery.get_target_pos(), owner_pos);
             }
+            {
+                let mut ai = second_ai.lock().unwrap();
+                let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();
+                assert_eq!(*delivery.get_target_pos(), peer_target);
+            }
+            // ObjectCreationList.cpp:251-254: the location overload takes a
+            // Real angle and therefore creates a transport, even for the
+            // USE_OWNER_OBJECT create-location enum.
+            with_active_stores(&first_world, || {
+                use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+                use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+
+                if get_thing_factory().unwrap().is_none() {
+                    init_thing_factory().unwrap();
+                }
+                if get_module_factory().unwrap().is_none() {
+                    init_module_factory().unwrap();
+                }
+                crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+                assert_eq!(
+                    get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+                        "Object OCLBorrowTestAircraft\n KindOf = VEHICLE\nEnd\n"
+                    ),
+                    1
+                );
+                let mut birth_list = crate::object_creation_list::ObjectCreationList::new();
+                let mut birth = DeliverPayloadNugget::default();
+                birth.transport_name = "OCLBorrowTestAircraft".into();
+                birth.start_at_preferred_height = false;
+                birth_list.add_nugget(Arc::new(birth));
+                crate::helpers::TheObjectCreationListStore::register_object_creation_list(
+                    "OCL_DeliveryBirthTest",
+                    birth_list,
+                );
+                let mut birth_data = OclSpecialPowerModuleData::default();
+                birth_data.default_ocl = AsciiString::from("OCL_DeliveryBirthTest");
+                birth_data.create_loc = OCLCreateLocType::UseOwnerObject;
+                let birth_power = OclSpecialPower::new(0, 41, ModuleDataHandle::new(birth_data));
+                let logic = crate::system::game_logic::get_game_logic();
+                let before = logic.lock().unwrap().get_all_object_ids().to_vec();
+                let birth_pos = Coord3D::new(180.0, 190.0, 0.0);
+                birth_power.do_special_power_at_location(&birth_pos, 0.0).unwrap();
+                let logic = logic.lock().unwrap();
+                let born: Vec<_> = logic.get_all_object_ids().iter()
+                    .copied().filter(|id| !before.contains(id)).collect();
+                assert_eq!(born.len(), 1, "angle overload must create exactly one transport");
+                let transport = logic.find_object_by_id(born[0]).unwrap();
+                drop(logic);
+                let transport = transport.read().unwrap();
+                assert_eq!(transport.get_template().get_name().as_str(), "OCLBorrowTestAircraft");
+                assert_eq!(transport.get_producer_id(), 41);
+                assert_eq!(*transport.get_position(), birth_pos);
+            });
             {
                 let mut ai = second_ai.lock().unwrap();
                 let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();

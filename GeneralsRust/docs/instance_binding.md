@@ -64,7 +64,9 @@ pathfinder-event or save/load parity.
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power
 dispatch releases the owner's read guard before movement initialization.
-Native Core object birth and scheduled payload delivery remain separate gaps.
+Location-targeted OCL delivery uses the C++ angle overload, which creates a
+transport; no-target delivery reuses the owner. Scheduled native Core payload
+delivery and specialized-AI birth remain separate gaps.
 
 ## Client presentation migrations
 

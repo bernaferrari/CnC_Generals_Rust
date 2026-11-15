@@ -296,9 +296,9 @@ impl OclSpecialPower {
         };
         drop(owner_guard);
 
-        // Execute the OCL
+        // C++ OCLSpecialPower.cpp:185 passes `angle, false`: the latter is
+        // lifetimeFrames, so even USE_OWNER_OBJECT selects the angle overload.
         let ctx = crate::object_creation_list::live_creation_context();
-        let create_owner = Self::create_owner_flag_for_create_loc(create_loc);
 
         let result = ocl.create_with_owner_handle(
             &ctx,
@@ -306,7 +306,7 @@ impl OclSpecialPower {
             &creation_coord,
             &target_coord,
             Some(angle),
-            create_owner,
+            true,
             0,
         );
 
@@ -321,10 +321,6 @@ impl OclSpecialPower {
         }
 
         Ok(())
-    }
-
-    fn create_owner_flag_for_create_loc(create_loc: OCLCreateLocType) -> bool {
-        create_loc != OCLCreateLocType::UseOwnerObject
     }
 
     /// Execute the OCL power at an object's position.
@@ -731,13 +727,4 @@ mod tests {
         assert_eq!(power.get_module_name(), "OCLSpecialPower");
     }
 
-    #[test]
-    fn use_owner_object_matches_cpp_create_owner_false() {
-        assert!(!OclSpecialPower::create_owner_flag_for_create_loc(
-            OCLCreateLocType::UseOwnerObject
-        ));
-        assert!(OclSpecialPower::create_owner_flag_for_create_loc(
-            OCLCreateLocType::CreateAtLocation
-        ));
-    }
 }
