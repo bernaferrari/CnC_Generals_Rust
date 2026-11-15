@@ -8,6 +8,24 @@ fn render_pixels(
     target_size: (u32, u32),
     scissor: Option<UIRect>,
 ) -> Vec<u8> {
+    render_commands(device, queue, renderer, target_size, |renderer| {
+        renderer
+            .draw_rect_with_scissor(
+                UIRect::new(0.0, 0.0, 800.0, 600.0),
+                [0.0, 1.0, 0.0, 1.0],
+                scissor,
+            )
+            .unwrap();
+    })
+}
+
+fn render_commands(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &mut UIRenderer,
+    target_size: (u32, u32),
+    draw: impl FnOnce(&mut UIRenderer),
+) -> Vec<u8> {
     let extent = wgpu::Extent3d {
         width: target_size.0,
         height: target_size.1,
@@ -30,13 +48,7 @@ fn render_pixels(
         mapped_at_creation: false,
     });
     renderer.begin_frame();
-    renderer
-        .draw_rect_with_scissor(
-            UIRect::new(0.0, 0.0, 800.0, 600.0),
-            [0.0, 1.0, 0.0, 1.0],
-            scissor,
-        )
-        .unwrap();
+    draw(renderer);
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     {
@@ -90,6 +102,7 @@ fn pixel(pixels: &[u8], width: usize, x: usize, y: usize) -> &[u8] {
 
 #[test]
 fn ui_scissors_follow_the_real_attachment_size_and_logical_coordinates() {
+    let _services = game_engine::common::common_services::CommonServicesScope::new();
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
@@ -146,4 +159,57 @@ fn ui_scissors_follow_the_real_attachment_size_and_logical_coordinates() {
     );
     assert_eq!(pixel(&pixels, 1280, 639, 479)[1], 0);
     assert!(pixel(&pixels, 1280, 640, 480)[1] > 200);
+}
+
+#[test]
+fn text_opacity_and_empty_scissors_render_without_affecting_prior_draws() {
+    let _services = game_engine::common::common_services::CommonServicesScope::new();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+        apply_limit_buckets: false,
+    }))
+    .expect("text opacity regression requires a WGPU adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("text opacity regression device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        ..Default::default()
+    }))
+    .unwrap();
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let mut renderer = UIRenderer::new(
+        device.clone(), queue.clone(), wgpu::TextureFormat::Rgba8Unorm,
+    ).unwrap();
+    renderer.set_screen_size(256, 128);
+    let pixels = render_commands(&device, &queue, &mut renderer, (256, 128), |renderer| {
+        renderer.draw_rect(UIRect::new(0.0, 0.0, 256.0, 128.0), [0.0, 1.0, 0.0, 1.0], 0.0);
+        let clip = UIRect::new(0.0, 0.0, 1.0, 1.0);
+        renderer.draw_text_simple_with_scissor("", glam::Vec2::ZERO, 18.0, [1.0; 4], clip).unwrap();
+        renderer.draw_text_simple_named_with_scissor(
+            "invisible", glam::Vec2::ZERO, 18.0, [1.0, 1.0, 1.0, 0.0], "Arial", false, clip,
+        ).unwrap();
+        renderer.draw_text_simple_named("AV gy", glam::Vec2::new(16.0, 8.0), 18.0, [1.0; 4], "Arial", false).unwrap();
+        renderer.draw_text_simple_named("AV gy", glam::Vec2::new(16.0, 64.0), 18.0, [1.0, 1.0, 1.0, 0.5], "Arial", false).unwrap();
+        assert_eq!(renderer.text_cache_stats().1, 1, "opacity should reuse the sentence raster");
+    });
+    assert!(pixel(&pixels, 256, 200, 120)[1] > 240, "empty text must not scissor the background");
+    let mut observed_ink = false;
+    for y in 8..48 {
+        for x in 0..160 {
+            let opaque = pixel(&pixels, 256, x, y)[0];
+            let half = pixel(&pixels, 256, x, y + 56)[0];
+            if opaque > 32 {
+                observed_ink = true;
+                assert!((i16::from(half) * 2 - i16::from(opaque)).abs() <= 3,
+                    "half-opacity text must halve the rendered glyph coverage");
+            } else {
+                assert!(half <= 17);
+            }
+        }
+    }
+    assert!(observed_ink, "font must produce visible glyphs");
 }

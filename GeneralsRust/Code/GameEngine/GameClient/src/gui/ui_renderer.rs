@@ -71,6 +71,12 @@ fn composite_glyph_pixel(dst: &mut [u8], src: [u8; 4]) {
     dst[3] = (out_a * 255.0).round() as u8;
 }
 
+// Cosmic-text's mask rasterization ignores the base color alpha. Apply it to
+// the composed sentence instead, matching the alpha-modulated textured quad.
+fn text_quad_color(color: [f32; 4]) -> [f32; 4] {
+    [1.0, 1.0, 1.0, color[3].clamp(0.0, 1.0)]
+}
+
 struct TextCanvas {
     pixels: Vec<u8>,
     relative_quad: UIRect,
@@ -1540,7 +1546,9 @@ impl UIRenderer {
         font_name.hash(&mut hasher);
         bold.hash(&mut hasher);
         layout.font_size.to_bits().hash(&mut hasher);
-        for channel in layout.color {
+        // Opacity is applied to the completed sentence quad, not baked into
+        // individual glyphs: overlapping glyphs must fade as one surface.
+        for channel in &layout.color[..3] {
             channel.to_bits().hash(&mut hasher);
         }
         layout.bounds.width.to_bits().hash(&mut hasher);
@@ -1570,7 +1578,9 @@ impl UIRenderer {
         // (render2dsentence.cpp:1481-1486); no font family named "Generals"
         // exists in the database, so resolve it before matching.
         let font_name = super::font::resolved_font_family(font_name);
-        if layout.text.is_empty() || layout.bounds.width <= 0.0 || layout.bounds.height <= 0.0 {
+        if layout.text.is_empty() || layout.bounds.width <= 0.0 || layout.bounds.height <= 0.0
+            || layout.color[3].clamp(0.0, 1.0) == 0.0
+        {
             return Ok(());
         }
         let cache_key = Self::text_layout_cache_key(layout, font_name, bold);
@@ -1609,7 +1619,7 @@ impl UIRenderer {
             (layout.color[0].clamp(0.0, 1.0) * 255.0) as u8,
             (layout.color[1].clamp(0.0, 1.0) * 255.0) as u8,
             (layout.color[2].clamp(0.0, 1.0) * 255.0) as u8,
-            (layout.color[3].clamp(0.0, 1.0) * 255.0) as u8,
+            255,
         );
 
         let raster = self
@@ -1667,7 +1677,13 @@ impl UIRenderer {
             slot.quad.width,
             slot.quad.height,
         );
-        self.draw_textured_rect(quad, slot.texture, [1.0, 1.0, 1.0, 1.0], slot.uv, z_order);
+        self.draw_textured_rect(
+            quad,
+            slot.texture,
+            text_quad_color(layout.color),
+            slot.uv,
+            z_order,
+        );
     }
 
     /// Text pages currently allocated and labels they (or standalone
@@ -2033,8 +2049,9 @@ impl UIRenderer {
         color: [f32; 4],
         scissor: UIRect,
     ) -> Result<()> {
+        let first = self.frame_buffers.draw_commands.len();
         self.draw_text_simple(text, position, font_size, color)?;
-        if let Some(cmd) = self.frame_buffers.draw_commands.last_mut() {
+        for cmd in &mut self.frame_buffers.draw_commands[first..] {
             cmd.scissor_rect = Some(scissor);
         }
         Ok(())
@@ -2051,8 +2068,9 @@ impl UIRenderer {
         bold: bool,
         scissor: UIRect,
     ) -> Result<()> {
+        let first = self.frame_buffers.draw_commands.len();
         self.draw_text_simple_named(text, position, point_size, color, font_name, bold)?;
-        if let Some(cmd) = self.frame_buffers.draw_commands.last_mut() {
+        for cmd in &mut self.frame_buffers.draw_commands[first..] {
             cmd.scissor_rect = Some(scissor);
         }
         Ok(())
@@ -2181,6 +2199,7 @@ mod tests {
         );
         (layout, samples, bounds, size)
     }
+
 
     fn nontransparent_positions(canvas: &TextCanvas) -> Vec<(i32, i32)> {
         let width = canvas.relative_quad.width as usize;
