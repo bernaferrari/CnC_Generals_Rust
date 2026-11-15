@@ -704,3 +704,233 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
     assert_eq!(cell(&other.read().unwrap(), &center_cell), Some(PathfindCellType::Clear));
     assert_eq!(cell(&receiving.read().unwrap(), &outside), Some(PathfindCellType::Clear));
 }
+
+#[test]
+fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouched() {
+    use crate::ai::pathfind_complete::PathfindCellType;
+
+    let _isolation = crate::object::registry::test_isolation_lock()
+        .lock()
+        .unwrap();
+    let fixture = CompletionFixture::new(0);
+    let driving = crate::system::engine_stores::new_for_world();
+    let peer = crate::system::engine_stores::new_for_world();
+    let roster = player_list();
+    let position = crate::common::Coord3D::new(105.0, 105.0, 0.0);
+    let peer_position = crate::common::Coord3D::new(255.0, 255.0, 0.0);
+    let mut geometry = crate::common::GeometryInfo::default();
+    geometry.set_bounds(crate::common::AABox {
+        min: crate::common::Coord3D::new(-25.0, -25.0, 0.0),
+        max: crate::common::Coord3D::new(25.0, 25.0, 10.0),
+    });
+    let (id, template) = {
+        let mut structure = fixture.structure.write().unwrap();
+        structure.bind_rank_roster(&roster).unwrap();
+        structure.bind_pathfinding_owner(&driving).unwrap();
+        structure.set_position(&position).unwrap();
+        structure.set_geometry_info(geometry.clone());
+        structure.set_construction_percent(50.0);
+        (structure.get_id(), structure.get_template().clone())
+    };
+    let mut other_structure = Object::new_test_from_template(id, 100.0, template);
+    other_structure.bind_pathfinding_owner(&peer).unwrap();
+    other_structure.set_position(&peer_position).unwrap();
+    other_structure.set_geometry_info(geometry);
+    other_structure.set_status(
+        crate::common::ObjectStatusMaskType::from_status(
+            crate::common::ObjectStatusTypes::UnderConstruction,
+        ),
+        true,
+    );
+    other_structure.set_construction_percent(25.0);
+    let other_structure = Arc::new(RwLock::new(other_structure));
+    let mut peer_logic = crate::system::game_logic::GameLogic::new();
+    let driving_path = driving.ai().read().unwrap().pathfinder().unwrap();
+    let peer_path = peer.ai().read().unwrap().pathfinder().unwrap();
+    driving_path.write().unwrap().reset_with_size(40, 40);
+    peer_path.write().unwrap().reset_with_size(40, 40);
+    peer_path
+        .write()
+        .unwrap()
+        .add_object_to_pathfind_map(&other_structure.read().unwrap())
+        .unwrap();
+    crate::system::engine_stores::with_active_stores(&peer, || {
+        peer_logic.register_object(other_structure.clone()).unwrap();
+        assert!(Arc::ptr_eq(
+            &peer_logic.find_object_by_id(id).unwrap(),
+            &other_structure,
+        ));
+        assert!(Arc::ptr_eq(
+            &crate::object::registry::OBJECT_REGISTRY.get_object(id).unwrap(),
+            &other_structure,
+        ));
+        // Invoke the real Dozer completion callback, with the peer's registry
+        // active and containing a different structure with the identical ID.
+        fixture.complete(false);
+    });
+
+    assert!(!fixture.structure.read().unwrap().is_under_construction());
+    assert_eq!(
+        fixture.player.read().unwrap().get_score_keeper().get_total_money_spent(),
+        700
+    );
+    {
+        let other = other_structure.read().unwrap();
+        assert!(other.is_under_construction());
+        assert_eq!(other.get_construction_percent(), 25.0);
+    }
+    assert_eq!(
+        driving_path.read().unwrap().get_cell_type_at(&position),
+        Some(PathfindCellType::Obstacle)
+    );
+    assert_eq!(
+        peer_path.read().unwrap().get_cell_type_at(&position),
+        Some(PathfindCellType::Clear)
+    );
+    assert_eq!(
+        peer_path.read().unwrap().get_cell_type_at(&peer_position),
+        Some(PathfindCellType::Obstacle)
+    );
+    crate::system::engine_stores::with_active_stores(&peer, || {
+        peer_logic.destroy_object(id);
+        peer_logic.cleanup_dead_objects().unwrap();
+    });
+}
+
+/// A real create-module callback probes both manager loans without waiting if
+/// the update still holds its write guard. The resulting assertion is bounded.
+struct ConstructionManagerReentryProbe {
+    data: game_engine::common::thing::module::ModuleDataHandle,
+    manager: Arc<RwLock<crate::object::production::construction::ConstructionManager>>,
+    observations: Arc<std::sync::atomic::AtomicUsize>,
+    building_id: ObjectID,
+}
+
+impl game_engine::common::system::Snapshotable for ConstructionManagerReentryProbe {
+    fn crc(&self, _: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        Ok(())
+    }
+    fn xfer(&mut self, _: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        Ok(())
+    }
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl game_engine::common::thing::module::CreateInterface for ConstructionManagerReentryProbe {
+    fn on_create(&self) {}
+    fn on_build_complete(&self) {
+        use std::sync::atomic::Ordering;
+        self.observations.fetch_or(1, Ordering::SeqCst);
+        if let Ok(manager) = self.manager.try_read() {
+            self.observations.fetch_or(2, Ordering::SeqCst);
+            if !manager.is_under_construction(self.building_id) {
+                self.observations.fetch_or(4, Ordering::SeqCst);
+            }
+        }
+        if self.manager.try_write().is_ok() {
+            self.observations.fetch_or(8, Ordering::SeqCst);
+        }
+    }
+    fn should_do_on_build_complete(&self) -> bool {
+        true
+    }
+}
+
+impl game_engine::common::thing::module::Module for ConstructionManagerReentryProbe {
+    fn get_module_data(&self) -> game_engine::common::thing::module::ModuleDataRead<'_> {
+        game_engine::common::thing::module::ModuleDataRead::shared(&self.data)
+    }
+    fn get_create_interface(
+        &self,
+    ) -> Option<&dyn game_engine::common::thing::module::CreateInterface> {
+        Some(self)
+    }
+}
+
+#[test]
+fn dozer_update_completion_releases_manager_for_create_callback_with_same_id_peer() {
+    use game_engine::common::thing::module::{BaseModuleData, ModuleDataHandle, ModuleInterfaceType};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let _isolation = crate::object::registry::test_isolation_lock()
+        .lock()
+        .unwrap();
+    let fixture = CompletionFixture::new(0);
+    let builder_id = fixture.builder.read().unwrap().get_id();
+    let (building_id, template) = {
+        let mut structure = fixture.structure.write().unwrap();
+        // Largest f32 below 100: the next actual construction tick completes.
+        structure.set_construction_percent(f32::from_bits(100.0_f32.to_bits() - 1));
+        (structure.get_id(), structure.get_template().clone())
+    };
+    let manager = get_construction_manager();
+    let observations = Arc::new(AtomicUsize::new(0));
+    let data = ModuleDataHandle::new(BaseModuleData::new());
+    fixture.structure.write().unwrap().install_module_for_test(
+        "ConstructionManagerReentryProbe",
+        Box::new(ConstructionManagerReentryProbe {
+            data: data.clone(),
+            manager: manager.clone(),
+            observations: observations.clone(),
+            building_id,
+        }),
+        data,
+        ModuleInterfaceType::CREATE,
+    );
+
+    let peer = crate::system::engine_stores::new_for_world();
+    let peer_manager = peer.services().logic_managers().construction.clone();
+    let mut other = Object::new_test_from_template(building_id, 100.0, template);
+    other.bind_pathfinding_owner(&peer).unwrap();
+    other.set_status(
+        crate::common::ObjectStatusMaskType::from_status(
+            crate::common::ObjectStatusTypes::UnderConstruction,
+        ),
+        true,
+    );
+    other.set_construction_percent(25.0);
+    let other = Arc::new(RwLock::new(other));
+    let mut peer_logic = crate::system::game_logic::GameLogic::new();
+    crate::system::engine_stores::with_active_stores(&peer, || {
+        peer_logic.register_object(other.clone()).unwrap();
+    });
+
+    let mut dozer = DozerAIUpdate::new(
+        ModuleDataHandle::new(DozerAIUpdateModuleData::default()),
+        builder_id,
+    );
+    // Enter the actual build action directly, without the legacy new_task
+    // helper's unrelated target-lock reacquisition during docking admission.
+    dozer.task_owner.current = DozerTask::Build;
+    dozer.task_owner.requests[DozerTask::Build.as_index()].target_id = building_id;
+    dozer.dozer_task = Some(DozerActionTask {
+        task_type: DozerTask::Build,
+        target_id: building_id,
+        dock_point: None,
+        failed_attempts: 0,
+        build_total_frames: 1,
+        build_max_health: 100.0,
+        started_construction: false,
+    });
+    dozer.action_state = DozerActionState::DoAction;
+    assert!(matches!(dozer.update(), StateReturnType::Continue));
+    assert_eq!(observations.load(Ordering::SeqCst), 15);
+    assert!(!fixture.structure.read().unwrap().is_under_construction());
+    assert_eq!(
+        fixture.player.read().unwrap().get_score_keeper().get_total_money_spent(),
+        700
+    );
+    assert!(!manager.read().unwrap().is_under_construction(building_id));
+    assert!(!peer_manager.read().unwrap().is_under_construction(building_id));
+    {
+        let other = other.read().unwrap();
+        assert!(other.is_under_construction());
+        assert_eq!(other.get_construction_percent(), 25.0);
+    }
+    crate::system::engine_stores::with_active_stores(&peer, || {
+        peer_logic.destroy_object(building_id);
+        peer_logic.cleanup_dead_objects().unwrap();
+    });
+}

@@ -577,26 +577,48 @@ impl PathfindingGrid {
     ) -> bool {
         let start = self.world_to_grid(from);
         let goal = self.world_to_grid(to);
-        if self.cell_type(goal) == PathfindCellType::Cliff {
+        self.quick_path_exists_on_layers(
+            start,
+            PathfindLayerEnum::Ground,
+            goal,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+        )
+    }
+
+    /// C++ checks the resolved cells and their zones on the actual endpoint layers.
+    pub(super) fn quick_path_exists_on_layers(
+        &self,
+        start: GridPos,
+        start_layer: PathfindLayerEnum,
+        goal: GridPos,
+        goal_layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+    ) -> bool {
+        let start_type = self.resolved_cell_type(start_layer, start);
+        let goal_type = self.resolved_cell_type(goal_layer, goal);
+        if goal_type == PathfindCellType::Cliff {
             return false;
         }
         // C++ validMovementPosition: water dest needs WATER or AIR.
-        if self.cell_type(goal) == PathfindCellType::Water
+        if goal_type == PathfindCellType::Water
             && (surfaces & (SURFACE_WATER | SURFACE_AIR)) == 0
         {
             return false;
         }
-        if self.cell_type(goal) == PathfindCellType::Obstacle && !self.is_obstacle_fence(goal) {
+        if goal_type == PathfindCellType::Obstacle && !self.is_obstacle_fence(goal) {
             return false;
         }
-        let z1 = self.path_zone(start);
-        let z2 = self.path_zone(goal);
+        let z1 = self.path_zone_on_layer(start, start_layer);
+        let z2 = self.path_zone_on_layer(goal, goal_layer);
         if z1 == 0 || z2 == 0 {
             // Uninitialized: treat as possible (C++ UNINITIALIZED_ZONE).
             return true;
         }
-        if self.cell_type(start) == PathfindCellType::Obstacle
-            || self.cell_type(goal) == PathfindCellType::Obstacle
+        if start_type == PathfindCellType::Obstacle
+            || goal_type == PathfindCellType::Obstacle
         {
             let terrain = self.terrain_path_zone_equivalences();
             let terrain_effective = |zone: u16| {

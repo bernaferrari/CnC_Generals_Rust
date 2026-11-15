@@ -630,7 +630,7 @@ impl PathfindingSystem {
                 .as_ref()
                 .is_some_and(|s| s.contains(&GridCoord::new(pos.x, pos.y)))
         };
-        let start_obstacle = self.grid.cell_type(start) == PathfindCellType::Obstacle;
+        let start_obstacle = self.grid.resolved_cell_type(start_layer, start) == PathfindCellType::Obstacle;
         // C++ internalFindPath bails before seeding when the goal fails
         // validMovementPosition (AIPathfind.cpp:6561-6568) — a wall click
         // must fail closed, never fall back to closest on the far side.
@@ -647,12 +647,10 @@ impl PathfindingSystem {
         }
         // C++ ignoreObstacle / tunneling uses terrain zones (AIPathfind.cpp:6544-6550).
         if (surfaces & SURFACE_AIR) == 0 {
-            let from_w = self.grid.grid_to_world(start, ground_source);
-            let to_w = self.grid.grid_to_world(goal, ground_source);
             let ignore_or_tunnel = start_obstacle || ignore_covers(start) || ignore_covers(goal);
-            let quick = self
-                .grid
-                .quick_path_exists_for_crusher(from_w, to_w, surfaces, is_crusher);
+            let quick = self.grid.quick_path_exists_on_layers(
+                start, start_layer, goal, dest_layer, surfaces, is_crusher,
+            );
             if !ignore_or_tunnel && !quick {
                 return None;
             }

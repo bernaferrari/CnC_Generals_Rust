@@ -224,6 +224,31 @@ fn searched_bridge_approach_does_not_shortcut_ground_obstacle_in_either_world() 
 }
 
 #[test]
+fn ground_search_reaches_bridge_destination_above_impassable_in_two_worlds() {
+    use crate::game_logic::GameLogic;
+
+    let ground = PathfindingGround::Flat(0.0);
+    let start = Vec3::new(15.0, 0.0, 55.0);
+    let goal = Vec3::new(105.0, 20.0, 55.0);
+    let mut owners = bridge_approach_worlds();
+    let query = |owner: &mut (GameLogic, PathfindingSystem, crate::game_logic::ObjectId)| {
+        let (world, finder, mover) = owner;
+        assert_eq!(finder.grid.cell_type(GridPos::new(10, 5)), PathfindCellType::Impassable);
+        assert_eq!(finder.grid.layer_for_destination(goal, &ground) as u8, 2);
+        let path = finder.find_path_ex_surfaces(
+            start, goal, world.host_objects(), false, SURFACE_GROUND, false, Some(*mover), &ground,
+        ).expect("a clear bridge destination must not be rejected by ground terrain below");
+        assert_eq!(path.layers.last().copied(), Some(2));
+        assert_eq!(finder.grid.world_to_grid(*path.points.last().unwrap()), GridPos::new(10, 5));
+        (path.points, path.layers)
+    };
+    let blocked = query(&mut owners[0]);
+    let clear = query(&mut owners[1]);
+    assert_ne!(blocked.0, clear.0, "the ground approach obstacle is world-owned");
+    assert_eq!(query(&mut owners[0]), blocked, "peer search must not alter the first world");
+}
+
+#[test]
 fn closest_bridge_approach_respects_each_worlds_ground_obstacle() {
     use crate::game_logic::GameLogic;
 

@@ -1371,6 +1371,9 @@ impl DozerAIUpdate {
                         }
                     }
                     if completed.contains(&task.target_id) {
+                        // Completion invokes player and module callbacks synchronously.
+                        // None may run under the construction manager's write loan.
+                        drop(manager);
                         if let Err(error) = self.handle_build_completion(
                             &owner,
                             &target,
