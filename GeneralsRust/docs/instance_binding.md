@@ -81,8 +81,11 @@ Projectile flight begins at the selected draw launch transform; scaled shell
 speed uses that position and the target geometry center. Retail Superweapon
 General Patriot launch and same-ID two-world flight are exercised against the
 Zero Hour archive. Vanilla Patriot model verification requires a nonempty
-base-game W3D archive. Missile ignition, fuel expiration and below-world removal
-follow the original update order; synthetic fallback and braking gaps remain.
+base-game W3D archive. Missile ignition, fuel expiration and ground contact use
+the original update ordering; detonated missiles hide their model and retain
+their trail until delayed removal, including across save/load. Zero-weapon-speed
+Tomahawks retain their tracked target. Synthetic fallback and non-THRUST
+motion gaps remain.
 
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power

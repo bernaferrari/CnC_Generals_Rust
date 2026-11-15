@@ -17,6 +17,9 @@ pub struct ProjectileRenderInput {
 
 impl ProjectileRenderInput {
     pub fn from_presentation(p: &PresentationProjectile) -> Option<Self> {
+        if p.model_hidden {
+            return None;
+        }
         let model_key = if p.model_key.is_empty() {
             crate::assets::mesh_asset_resolve::model_key_from_projectile_object(
                 &p.projectile_object_name,
@@ -87,6 +90,9 @@ pub struct PresentationProjectile {
     pub projectile_object_name: String,
     /// Resolved W3D model key residual from ProjectileObject (empty = trail-only).
     pub model_key: String,
+    /// MissileAIUpdate::detonate hides the drawable but retains its trail owner.
+    #[serde(default)]
+    pub model_hidden: bool,
     /// C++ Weapon.ini ProjectileExhaust residual PSys name (empty = none).
     #[serde(default)]
     pub exhaust_name: String,
@@ -111,6 +117,7 @@ impl PresentationProjectile {
             is_homing: p.is_homing,
             projectile_object_name,
             model_key,
+            model_hidden: p.missile_drawable_hidden(),
             exhaust_name: p.exhaust_name.clone(),
         }
     }

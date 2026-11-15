@@ -83,6 +83,20 @@ fn thrust_cpp_orients_in_3d_without_pivot_translation() {
     );
     assert_eq!(object.movement.velocity, glam::Vec3::new(0.0, 30.0, 30.0));
 }
+
+#[test]
+fn sideways_velocity_does_not_count_as_forward_speed_for_thrust() {
+    let mut object = thrust_actor(ObjectId(736));
+    object.movement.velocity = glam::Vec3::Z * 30.0;
+    object.movement.turn_rate = 0.0;
+    object.movement.turn_rate_damaged = 0.0;
+    let goal = object.get_position() + glam::Vec3::X * 1000.0;
+    object.move_towards_thrust(goal, 99999.0, 30.0, 1.0 / 30.0, 0);
+    // PhysicsBehavior::getForwardSpeed3D projects each velocity component
+    // onto the facing vector before taking the signed magnitude. A sideways
+    // one-unit/frame velocity therefore has zero forward speed, not one.
+    assert!((object.physics_accel - glam::Vec3::new(30.0, 0.0, -30.0)).length() < 0.0001);
+}
 #[cfg(feature = "game_client")]
 #[test]
 fn thrust_tree_sound_is_at_receiving_physics_euler_not_locomotor_force() {

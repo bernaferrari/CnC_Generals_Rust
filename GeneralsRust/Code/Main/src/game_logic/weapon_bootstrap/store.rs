@@ -991,12 +991,12 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 1,
             weapon_speed: 600.0,
         },
-        // TomahawkMissileWeapon — dmg 150, range 350, ClipReload 7000ms → 210 frames.
+        // Weapon.ini: DelayBetweenShots 1ms → 1 frame; ClipReloadTime 7000ms → 210 frames.
         SeedWeapon {
             name: TOMAHAWK_MISSILE_WEAPON,
             primary_damage: 150.0,
             attack_range: 350.0,
-            delay_frames: 210,
+            delay_frames: 1,
             clip_size: 1,
             weapon_speed: 200.0,
         },
@@ -1228,6 +1228,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.secondary_damage = 50.0;
             t.secondary_damage_radius = 25.0;
             t.minimum_attack_range = 100.0;
+            t.clip_reload_time = 210;
             t.pre_attack_delay = 8; // 250ms @ 30 FPS residual
         }
         // Retail StealthJetMissileWeapon MinimumAttackRange 60 / PrimaryDamageRadius 5

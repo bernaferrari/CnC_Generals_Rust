@@ -22,22 +22,24 @@ fn single_block(source: &str, header: &str) -> String {
 }
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_for("PatriotMissileWeapon", "PatriotMissile", "PatriotMissileLocomotor")
+}
+
+fn world_for(weapon_name: &str, projectile_name: &str, locomotor_name: &str) -> (GameLogic, ObjectId, ObjectId) {
     use crate::assets::ini_template_loader::{parse_weapon_definitions_ini_into, WeaponDefinitionLoadType};
-    let weapon_ini = single_block(&retail_ini("Weapon.ini"), "Weapon PatriotMissileWeapon");
+    let weapon_ini = single_block(&retail_ini("Weapon.ini"), &format!("Weapon {weapon_name}"));
     let mut weapons = HashMap::new();
     assert_eq!(parse_weapon_definitions_ini_into(&mut weapons, &weapon_ini, WeaponDefinitionLoadType::Normal), 1);
-    let weapon = &weapons["patriotmissileweapon"];
-    assert_eq!(weapon.primary_damage, 30.0);
-    assert_eq!(weapon.projectile_name, "PatriotMissile");
+    assert_eq!(weapons[&weapon_name.to_ascii_lowercase()].projectile_name, projectile_name);
 
     let mut parser = crate::assets::IniParser::new();
     parser.parse_ini_content(
-        &single_block(&retail_ini("Object/WeaponObjects.ini"), "Object PatriotMissile"),
+        &single_block(&retail_ini("Object/WeaponObjects.ini"), &format!("Object {projectile_name}")),
         "WeaponObjects.ini",
     ).unwrap();
-    let projectile = parser.get_definition("PatriotMissile").expect("retail missile").clone();
-    let objects = vec![("PatriotMissile".to_string(), projectile)];
-    let loco_ini = single_block(&retail_ini("Locomotor.ini"), "Locomotor PatriotMissileLocomotor");
+    let projectile = parser.get_definition(projectile_name).expect("retail missile").clone();
+    let objects = vec![(projectile_name.to_string(), projectile)];
+    let loco_ini = single_block(&retail_ini("Locomotor.ini"), &format!("Locomotor {locomotor_name}"));
     let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
     locomotors.apply_source(&loco_ini).unwrap();
 
@@ -56,7 +58,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         world.add_player(player);
     }
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
-        ("patriot-regression.ini".into(), "Object PatriotRegressionCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nWeaponSet\nConditions = None\nWeapon = PRIMARY PatriotMissileWeapon\nEnd\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nEnd\nObject PatriotRegressionTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n".into()),
+        ("missile-regression.ini".into(), format!("Object PatriotRegressionCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nWeaponSet\nConditions = None\nWeapon = PRIMARY {weapon_name}\nEnd\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nEnd\nObject PatriotRegressionTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n")),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
     let source = world.create_object_for_player("PatriotRegressionCarrier", 0, Vec3::new(100.0, 30.0, 100.0)).unwrap();
@@ -109,6 +111,38 @@ fn retail_patriot_fires_flies_and_impacts() {
         "InitialVelocity and locomotor acceleration must drive the shot, not WeaponSpeed=1: {speed}");
     assert_eq!(world.objects[&target].health.current, 1000.0);
     advance_to_impact(&mut world, target);
+}
+
+#[test]
+fn retail_tomahawk_accepted_shot_uses_authored_missile_flight() {
+    let (mut world, source, target) = world_for(
+        "TomahawkMissileWeapon", "TomahawkMissile", "TomahawkMissileLocomotor",
+    );
+    world.objects.get_mut(&source).unwrap().set_max_shots_to_fire(1);
+    assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Continue);
+    world.frame += 8;
+    assert_eq!(world.attack_fire_weapon_update(source, target, 10.3), AttackFireResult::Success);
+    world.drain_pending_projectiles_into_combat();
+    let shots = world.combat_system.projectiles_snapshot();
+    assert_eq!(shots.len(), 1);
+    assert_eq!(shots[0].projectile_object_name, "TomahawkMissile");
+    assert!(shots[0].missile_motion.is_some());
+    assert!(shots[0].is_homing, "zero WeaponSpeed must not erase MissileAI's tracked victim");
+    let start = shots[0].position;
+    let _ = world.update_with_dt(1.0 / 30.0);
+    assert_ne!(world.combat_system.projectiles_snapshot()[0].position, start);
+    let mut last_flight = None;
+    for _ in 0..300 {
+        let snapshot = world.combat_system.projectiles_snapshot();
+        if snapshot.is_empty() { break; }
+        let p = snapshot[0];
+        last_flight = Some((p.position, p.velocity, p.target_position, p.is_homing,
+            p.flight_runtime.missile_phase, p.lifetime, p.missile_kill_self_started_frame));
+        let _ = world.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(world.combat_system.projectile_count(), 0, "last flight: {last_flight:?}");
+    assert!(world.objects[&target].health.current < 1000.0,
+        "target {:?}, last flight: {last_flight:?}", world.objects[&target].get_position());
 }
 #[test]
 fn accepted_missile_uses_launcher_pose_and_velocity_at_delivery() {

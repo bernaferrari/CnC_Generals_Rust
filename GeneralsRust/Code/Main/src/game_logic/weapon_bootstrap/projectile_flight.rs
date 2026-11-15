@@ -122,6 +122,9 @@ pub enum HostMissilePhase {
     Launch,
     Attack,
     Kill,
+    /// MissileAIUpdate::detonate hides its drawable while KILL_SELF waits.
+    /// Appended so older serialized phase discriminants stay unchanged.
+    Detonated,
 }
 
 /// Per-projectile runtime for Bezier stepping, ignition, lock, and layers.
@@ -471,6 +474,20 @@ pub(crate) fn bridge_deck_detonate_pose(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missile_phase_retains_legacy_bincode_discriminants() {
+        for (phase, encoded) in [
+            (HostMissilePhase::Launch, 0_u32),
+            (HostMissilePhase::Attack, 1_u32),
+            (HostMissilePhase::Kill, 2_u32),
+            (HostMissilePhase::Detonated, 3_u32),
+        ] {
+            let bytes = bincode_legacy::serialize(&phase).unwrap();
+            assert_eq!(bytes, encoded.to_le_bytes());
+            assert_eq!(bincode_legacy::deserialize::<HostMissilePhase>(&bytes).unwrap(), phase);
+        }
+    }
 
     #[test]
     fn bezier_clears_intervening_ridge() {

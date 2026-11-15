@@ -274,6 +274,24 @@ fn stream_query_bootstraps_absent_actual_catalog() {
     });
 }
 
+#[test]
+fn tomahawk_seed_keeps_shot_and_clip_timing_separate() {
+    isolated("tomahawk_seed_keeps_shot_and_clip_timing_separate", || {
+        let _restore = RestoreStore::install();
+        assert!(super::store::seed_known_host_weapons() > 0);
+        gamelogic::weapon::with_weapon_store(|store| {
+            let rule = store.find_weapon_template(TOMAHAWK_MISSILE_WEAPON).unwrap();
+            // Retail Weapon.ini: 1 ms shot delay rounds up to one frame,
+            // while the one-shot clip takes 7000 ms to reload.
+            assert_eq!(rule.min_delay_between_shots, 1);
+            assert_eq!(rule.max_delay_between_shots, 1);
+            assert_eq!(rule.clip_size, 1);
+            assert_eq!(rule.clip_reload_time, 210);
+            assert_eq!(rule.pre_attack_delay, 8);
+        }).unwrap();
+    });
+}
+
 #[path = "ranger_primary_admission_tests.rs"]
 mod ranger_primary_admission_tests;
 

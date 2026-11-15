@@ -205,6 +205,103 @@ fn superweapon_general_retail_patriot_uses_its_own_model_and_missile() {
 }
 
 #[test]
+fn superweapon_missile_save_continues_the_same_owned_flight() {
+    let (mut original, source, target) = world_for_target(false, true);
+    launch_one(&mut original, source, target);
+    let _ = original.update_with_dt(1.0 / 30.0);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&original).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = world_for_target(false, true);
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+    for _ in 0..12 {
+        let a = original.combat_system.projectiles_snapshot();
+        let b = restored.combat_system.projectiles_snapshot();
+        assert_eq!(a.len(), b.len());
+        if a.is_empty() { break; }
+        assert_eq!(a[0].position, b[0].position);
+        assert_eq!(a[0].velocity, b[0].velocity);
+        let _ = original.update_with_dt(1.0 / 30.0);
+        let _ = restored.update_with_dt(1.0 / 30.0);
+    }
+}
+
+#[test]
+fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
+    use crate::presentation_frame::PresentationFrame;
+    let (mut original, source, target) = world_for_target(false, true);
+    launch_one(&mut original, source, target);
+    let id = original.combat_system.projectiles_snapshot()[0].id;
+    let initial = PresentationFrame::build_from_logic(&mut original, 0);
+    assert!(initial.projectile_render_inputs().iter().any(|row| row.id == id));
+    for _ in 0..300 {
+        let _ = original.update_with_dt(1.0 / 30.0);
+        if original.combat_system.projectiles_snapshot().iter()
+            .any(|projectile| projectile.id == id && projectile.missile_drawable_hidden()) {
+            break;
+        }
+    }
+    let projectile = original.combat_system.projectiles_snapshot().into_iter()
+        .find(|projectile| projectile.id == id).expect("detonated missile is retained");
+    assert!(projectile.missile_drawable_hidden());
+    assert!(projectile.is_missile_kill_self_holding());
+    let frame = PresentationFrame::build_from_logic(&mut original, 0);
+    assert!(frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
+    assert!(!frame.projectile_render_inputs().iter().any(|row| row.id == id));
+    let health_after_impact = original.objects[&target].health.current;
+    assert!(health_after_impact < 1000.0, "retail missile actually damaged its target");
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&original).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = world_for_target(false, true);
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    let restored_frame = PresentationFrame::build_from_logic(&mut restored, 0);
+    assert!(restored_frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
+    assert!(!restored_frame.projectile_render_inputs().iter().any(|row| row.id == id));
+    assert_eq!(restored.objects[&target].health.current, health_after_impact);
+    for _ in 0..10 {
+        if restored.combat_system.projectile_count() == 0 { break; }
+        let _ = original.update_with_dt(1.0 / 30.0);
+        let _ = restored.update_with_dt(1.0 / 30.0);
+        assert_eq!(original.objects[&target].health.current, health_after_impact,
+            "retained missile must not repeat its impact");
+        assert_eq!(restored.objects[&target].health.current, health_after_impact,
+            "restored retained missile must not repeat its impact");
+        assert_eq!(original.combat_system.projectile_count(), restored.combat_system.projectile_count());
+    }
+    assert_eq!(restored.combat_system.projectile_count(), 0, "restored missile completes KILL_SELF");
+}
+
+#[test]
+fn lost_target_kill_self_retains_the_visible_retail_missile() {
+    use crate::presentation_frame::PresentationFrame;
+    let (mut world, source, target) = world_for_target(false, true);
+    launch_one(&mut world, source, target);
+    let id = world.combat_system.projectiles_snapshot()[0].id;
+    world.destroy_object(target).unwrap();
+    world.process_destroy_list();
+    assert!(world.host_object(target).is_none());
+    for _ in 0..10 {
+        let _ = world.update_with_dt(1.0 / 30.0);
+        if world.combat_system.projectiles_snapshot().iter()
+            .any(|projectile| projectile.id == id && projectile.is_missile_kill_self_holding()) {
+            break;
+        }
+    }
+    let projectile = world.combat_system.projectiles_snapshot().into_iter()
+        .find(|projectile| projectile.id == id).expect("target-loss missile is retained");
+    assert!(projectile.is_missile_kill_self_holding());
+    assert!(!projectile.missile_drawable_hidden());
+    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    assert!(frame.projectiles.iter().any(|row| row.id == id && !row.model_hidden));
+    assert!(frame.projectile_render_inputs().iter().any(|row| row.id == id));
+}
+
+#[test]
 fn retail_battery_accepted_shot_flies_and_impacts() {
     let (mut world, source, target) = world();
     launch_one(&mut world, source, target);

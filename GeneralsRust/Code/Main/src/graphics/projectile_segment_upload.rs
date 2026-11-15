@@ -86,7 +86,9 @@ impl ProjectileSegmentUpload {
             if !obj_name.is_empty() {
                 named = named.saturating_add(1);
             }
-            let key = if p.model_key.is_empty() {
+            let key = if p.model_hidden {
+                String::new()
+            } else if p.model_key.is_empty() {
                 crate::assets::mesh_asset_resolve::model_key_from_projectile_object(&obj_name)
             } else {
                 p.model_key.clone()
@@ -176,7 +178,7 @@ mod tests {
 
     #[test]
     fn packs_projectile_mesh_keys_from_object_name() {
-        let projectiles = vec![PresentationProjectile {
+        let mut projectiles = vec![PresentationProjectile {
             id: ObjectId(1),
             position: glam::Vec3::ZERO,
             velocity: glam::Vec3::X,
@@ -189,6 +191,7 @@ mod tests {
             is_homing: false,
             projectile_object_name: "GenericTankShell".into(),
             model_key: String::new(),
+            model_hidden: false,
             exhaust_name: String::new(),
         }];
         let pack = ProjectileSegmentUpload::pack_projectiles(&projectiles);
@@ -197,5 +200,9 @@ mod tests {
         assert_eq!(pack.honesty.mesh_keys_nonempty, 1);
         assert_eq!(pack.mesh_keys[0].to_ascii_lowercase(), "pmgntankshell");
         assert_eq!(pack.projectile_object_names[0], "GenericTankShell");
+        projectiles[0].model_hidden = true;
+        let hidden = ProjectileSegmentUpload::pack_projectiles(&projectiles);
+        assert_eq!(hidden.honesty.projectiles_packed, 1, "trail ownership is retained");
+        assert!(hidden.mesh_keys[0].is_empty(), "hidden drawable has no mesh key");
     }
 }

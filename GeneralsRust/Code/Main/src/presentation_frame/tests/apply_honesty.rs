@@ -1597,6 +1597,7 @@ fn projectile_render_input_from_tank_shell() {
         is_homing: false,
         projectile_object_name: "GenericTankShell".into(),
         model_key: String::new(),
+        model_hidden: false,
 
         exhaust_name: String::new(),
     };
@@ -1622,6 +1623,7 @@ fn hitscan_projectile_has_no_mesh_input() {
         is_homing: false,
         projectile_object_name: String::new(),
         model_key: String::new(),
+        model_hidden: false,
 
         exhaust_name: String::new(),
     };

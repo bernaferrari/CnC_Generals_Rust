@@ -415,11 +415,40 @@ impl Projectile {
         ) && self.missile_kill_self_started_frame.is_some()
     }
 
+    /// A detonated missile retains its object and exhaust, but not its drawable.
+    pub(crate) fn missile_drawable_hidden(&self) -> bool {
+        self.flight_runtime.missile_phase
+            == crate::game_logic::weapon_bootstrap::HostMissilePhase::Detonated
+    }
+
     fn elapsed_logic_frames(&self) -> u32 {
         // Host combat is ordinarily stepped at exactly 30 Hz. Round the
         // observer duration back to frames so GameWorld's sole flight step can
         // write the same age back before host impact behavior resolves.
         (self.lifetime.max(0.0) * 30.0).round() as u32
+    }
+
+    /// MissileAIUpdate::detonate enters KILL_SELF after emitting its impact.
+    fn retain_detonated_missile(&mut self) -> bool {
+        if matches!(
+            self.projectile_lifecycle,
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
+        ) {
+            self.missile_kill_self_started_frame = Some(self.elapsed_logic_frames());
+            self.flight_runtime.missile_phase =
+                crate::game_logic::weapon_bootstrap::HostMissilePhase::Detonated;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn detonation_step(&mut self) -> ProjectileStep {
+        if self.retain_detonated_missile() {
+            ProjectileStep::DetonateAndHold
+        } else {
+            ProjectileStep::Detonate
+        }
     }
 
     fn lifecycle_step(&mut self, target_is_live: bool) -> ProjectileStep {
@@ -434,7 +463,7 @@ impl Projectile {
                 max_lifespan_frames,
             } if frame >= max_lifespan_frames => ProjectileStep::Detonate,
             HostProjectileLifecycle::Missile {
-                try_to_follow_target,
+                try_to_follow_target: _,
                 fuel_lifetime_frames,
                 detonate_on_no_fuel,
                 kill_self_delay_frames,
@@ -463,8 +492,7 @@ impl Projectile {
                     && frame >= fuel_start.saturating_add(fuel_lifetime_frames)
                 {
                     if detonate_on_no_fuel {
-                        self.missile_kill_self_started_frame = Some(frame);
-                        return ProjectileStep::DetonateAndHold;
+                        return self.detonation_step();
                     }
                     if self.flight_runtime.missile_phase
                         == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
@@ -474,11 +502,9 @@ impl Projectile {
                     }
                 }
 
-                // C++ MissileAIUpdate only invokes airborneTargetGone for a
-                // missile which was launched at an object *and* was authored
-                // to follow it. That transition is a delayed silent destroy,
-                // even when DetonateOnNoFuel is true.
-                if try_to_follow_target && self.target_id.is_some() && !target_is_live {
+                // Tracking follows the current AI goal, including a diverted
+                // flare, rather than the original designated victim.
+                if self.is_homing && self.target_id.is_some() && !target_is_live {
                     self.missile_kill_self_started_frame = Some(frame);
                     return ProjectileStep::Hold;
                 }
@@ -569,7 +595,7 @@ impl Projectile {
         let ignition_ready = self.try_enter_missile_ignition(frame, runtime);
         if !ignition_ready {
             if let Some(motion) = &mut self.missile_motion {
-                motion.advance(self.target_position, false, false, false, frame, terrain);
+                motion.advance(self.target_position, false, false, false, false, frame, terrain);
                 self.position = motion.position();
                 self.velocity = motion.velocity();
             }
@@ -598,7 +624,9 @@ impl Projectile {
                 {
                     self.flight_runtime.missile_phase = crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
                 }
-                if !self.is_homing && !was_kill && missile.lock_distance > 0.0 {
+                if !self.is_homing
+                    && self.flight_runtime.missile_phase != crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
+                    && missile.lock_distance > 0.0 {
                     goal.y += 10.0;
                 }
             }
@@ -611,11 +639,20 @@ impl Projectile {
                         }),
                 _ => false,
             };
-            motion.advance(goal, !expired, missile_was_armed && !expired, was_kill, frame, terrain);
+            let ground_contact = motion.advance(goal, true, !expired, missile_was_armed, was_kill, frame, terrain);
             self.position = motion.position();
             self.velocity = motion.velocity();
+            if ground_contact {
+                // MissileAIUpdate::projectileHandleCollision ignores a
+                // ground contact only when above and far from its AI goal.
+                let delta = self.position - goal;
+                let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                if delta.y <= cell || delta.length_squared() <= (3.0 * cell).powi(2) {
+                    return self.detonation_step();
+                }
+            }
             if was_kill && self.position.distance_squared(goal) <= 0.001 * 0.001 {
-                return ProjectileStep::Detonate;
+                return self.detonation_step();
             }
             return self.finish_flight_step(terrain);
         }
@@ -669,7 +706,7 @@ impl Projectile {
                 let close_enough = (self.speed / 30.0).max(1.0);
                 if self.position.distance(goal) <= close_enough {
                     self.position = goal;
-                    return ProjectileStep::Detonate;
+                    return self.detonation_step();
                 }
                 let dir = (goal - self.position).normalize_or_zero();
                 self.velocity = dir * self.speed;
@@ -703,7 +740,7 @@ impl Projectile {
         self.flight_runtime.layer = new_layer;
         if armed && old_layer != 1 && new_layer == 1 && snapped != self.position {
             self.position = snapped;
-            return ProjectileStep::Detonate;
+            return self.detonation_step();
         }
         ProjectileStep::Alive
     }

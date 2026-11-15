@@ -3330,6 +3330,7 @@ pub(in crate::game_logic) mod tests {
             );
             missile.speed = 30.0;
             missile.velocity = Vec3::X * 30.0;
+            missile.is_homing = target.is_some();
             missile.flight = Some(HostProjectileFlight::Missile(HostMissileFlight::default()));
             missile.set_projectile_lifecycle(Some(HostProjectileLifecycle::Missile {
                 try_to_follow_target: true,
@@ -3355,6 +3356,64 @@ pub(in crate::game_logic) mod tests {
         terminal.flight_runtime.missile_phase =
             crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
         assert_eq!(terminal.update(1.0 / 30.0, true), ProjectileStep::Hold);
+    }
+
+    #[test]
+    fn countermeasure_dispatch_respects_following_goal_and_tracks_real_flare_loss() {
+        use crate::game_logic::host_countermeasures::{
+            HostCountermeasuresRegistry, report_missile_for_countermeasures,
+            MISSILE_DECOY_DELAY_FRAMES,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            HostMissileFlight, HostProjectileFlight, HostProjectileLifecycle,
+        };
+        let aircraft = ObjectId(3);
+        let flare = ObjectId(4);
+        let shot_id = ObjectId(100_006);
+        let report_frame = (1..1000).find(|&frame| {
+            report_missile_for_countermeasures(
+                &mut HostCountermeasuresRegistry::new(), aircraft, shot_id, frame, true,
+            )
+        }).expect("a deterministic countermeasure report diverts");
+        for follows in [false, true] {
+            let mut objects = crate::game_logic::HostObjectStore::new();
+            let mut victim = make_obj("Aircraft", aircraft, Team::USA,
+                Vec3::new(1000.0, 10.0, 0.0), &[KindOf::Aircraft], 0.0);
+            victim.applied_upgrades.insert("Upgrade_AmericaCountermeasures".into());
+            objects.insert(aircraft, victim);
+            let mut decoy = make_obj("CountermeasureFlare", flare, Team::USA,
+                Vec3::new(1000.0, 10.0, 5.0), &[], 0.0);
+            decoy.countermeasure_flare = true;
+            decoy.producer_id = Some(aircraft);
+            objects.insert(flare, decoy);
+            let mut registry = HostCountermeasuresRegistry::new();
+            registry.record_flare_id(aircraft, flare);
+            let mut combat = CombatSystem::new();
+            combat.fire_projectile_ex_with_id(shot_id, Vec3::new(0.0, 10.0, 0.0),
+                Vec3::new(1000.0, 10.0, 0.0), &Weapon::default(), ObjectId(1),
+                Some(aircraft), 30.0, follows);
+            let missile = combat.projectile_mut(shot_id).unwrap();
+            missile.is_small_missile = true;
+            missile.flight = Some(HostProjectileFlight::Missile(HostMissileFlight::default()));
+            missile.set_projectile_lifecycle(Some(HostProjectileLifecycle::Missile {
+                try_to_follow_target: follows, fuel_lifetime_frames: 0,
+                detonate_on_no_fuel: false, kill_self_delay_frames: 3,
+            }));
+            missile.bind_authored_flight(missile.position, missile.target_position, 30.0, None);
+            let mut health = crate::game_logic::HostHealthEvents::default();
+            let mut ownership = crate::game_logic::host_owner_log::OwnershipEvents::default();
+            combat.update_projectiles_with_countermeasures(1.0 / 30.0, &mut objects,
+                Some(&mut registry), report_frame, &mut health, &mut ownership);
+            combat.update_projectiles_with_countermeasures(1.0 / 30.0, &mut objects,
+                Some(&mut registry), report_frame + MISSILE_DECOY_DELAY_FRAMES, &mut health, &mut ownership);
+            let missile = combat.projectile_mut(shot_id).unwrap();
+            assert!(missile.no_damage);
+            assert_eq!(missile.target_id, Some(if follows { flare } else { aircraft }));
+            objects.remove(&flare);
+            combat.update_projectiles_with_countermeasures(1.0 / 30.0, &mut objects,
+                Some(&mut registry), report_frame + MISSILE_DECOY_DELAY_FRAMES + 1, &mut health, &mut ownership);
+            assert_eq!(combat.projectile_mut(shot_id).unwrap().missile_kill_self_started_frame.is_some(), follows);
+        }
     }
 
     #[test]

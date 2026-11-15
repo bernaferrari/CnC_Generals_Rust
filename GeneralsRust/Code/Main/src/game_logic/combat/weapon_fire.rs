@@ -880,6 +880,17 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.set_projectile_lifecycle(projectile_lifecycle);
         if let Some(profile) = profile {
             proj.flight = Some(profile.flight.clone());
+            if matches!(profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)) {
+                // WeaponSpeed may be zero for a real MissileAI projectile:
+                // its locomotor, not WeaponSpeed, supplies flight. The generic
+                // instant-hit constructor must not discard its tracked victim.
+                proj.is_homing = matches!(
+                    projectile_lifecycle,
+                    Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile {
+                        try_to_follow_target: true, ..
+                    })
+                ) && fire_target_id.is_some();
+            }
         }
         if let (Some(profile), Some(transform)) = (profile, source_context.launch_transform) {
             if matches!(profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)) {

@@ -2033,7 +2033,16 @@ impl Object {
             (desired_speed / FPS).clamp(min_speed_frame, max_speed_frame.max(min_speed_frame));
         let mut desired_speed_frame = desired_speed_frame;
         let velocity_frame = self.movement.velocity / FPS;
-        let actual_frame = velocity_frame.length();
+        let forward = self.get_transform_matrix().x_axis.truncate();
+        // PhysicsBehavior::getForwardSpeed3D uses the signed magnitude of
+        // componentwise velocity * facing, not total velocity or a dot product.
+        let forward_components = velocity_frame * forward;
+        let forward_magnitude = forward_components.length();
+        let actual_frame = if velocity_frame.dot(forward) < 0.0 {
+            -forward_magnitude
+        } else {
+            forward_magnitude
+        };
         let braking_frame = self.braking / (FPS * FPS);
         if braking_frame > 0.0 && !self.no_slow_down_as_approaching_dest {
             let slow = calc_slow_down_dist(actual_frame, min_speed_frame, braking_frame);
@@ -2048,7 +2057,6 @@ impl Object {
             let preferred = self.loco_preferred_height + surface_y;
             local_goal.y = us.y + (preferred - us.y) * self.loco_preferred_height_damping;
         }
-        let forward = self.get_transform_matrix().x_axis.truncate();
         let speed_delta_frame = desired_speed_frame - actual_frame;
         let max_accel_frame = if speed_delta_frame > 0.0 || braking_frame == 0.0 {
             self.effective_acceleration() / (FPS * FPS)
@@ -2071,7 +2079,7 @@ impl Object {
         };
         let (thrust_dir, thrust_angle) =
             leftover_try_to_rotate_vector3d(max_thrust_angle, forward, desired_thrust);
-        if !thrust_vel_nearly_zero(actual_frame) {
+        if !thrust_vel_nearly_zero(velocity_frame.length()) {
             let mut desired = velocity_frame;
             let mut adjust = true;
             if braking_status {

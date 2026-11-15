@@ -409,7 +409,9 @@ impl CombatSystem {
                     receiving_objects,
                 );
 
-                projectiles_to_remove.push(proj_id);
+                if !projectile.retain_detonated_missile() {
+                    projectiles_to_remove.push(proj_id);
+                }
                 return (damage_events, projectiles_to_remove);
             }
 
@@ -493,7 +495,9 @@ impl CombatSystem {
                             receiving_objects,
                         );
 
-                        projectiles_to_remove.push(proj_id);
+                        if !projectile.retain_detonated_missile() {
+                            projectiles_to_remove.push(proj_id);
+                        }
                     }
                 }
             } else {
@@ -541,7 +545,9 @@ impl CombatSystem {
                         receiving_objects,
                     );
 
-                    projectiles_to_remove.push(proj_id);
+                    if !projectile.retain_detonated_missile() {
+                        projectiles_to_remove.push(proj_id);
+                    }
                 }
             }
         }

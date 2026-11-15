@@ -1104,7 +1104,9 @@ fn apply_countermeasure_report_and_decoy(
     if projectile.frames_till_decoyed > 0 && projectile.frames_till_decoyed <= frame {
         projectile.frames_till_decoyed = 0;
         projectile.no_damage = true;
-        if let Some(victim_id) = projectile.target_id {
+        // MissileAIUpdate only retains m_victimID when it acquired an
+        // object-following goal at launch (or during an earlier diversion).
+        if let (true, Some(victim_id)) = (projectile.is_homing, projectile.target_id) {
             let aircraft_xz = objects.lookup(&victim_id).map(|o| {
                 let p = o.get_position();
                 (p.x, p.z)

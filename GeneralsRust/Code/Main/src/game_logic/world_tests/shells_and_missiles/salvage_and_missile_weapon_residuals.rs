@@ -2,6 +2,82 @@
 #![allow(unused_imports, non_snake_case, unused_variables, dead_code)]
 use super::*;
 
+#[test]
+fn tomahawk_single_shot_clip_reloads_after_210_frames() {
+    use crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let rule = gamelogic::weapon::with_weapon_store(|store| {
+        store.find_weapon_template(TOMAHAWK_MISSILE_WEAPON).map(|rule| rule.as_ref().clone())
+    })
+    .unwrap()
+    .expect("Tomahawk weapon definition");
+    let mut game = GameLogic::new();
+    game.admit_receiving_weapon_snapshot(vec![(TOMAHAWK_MISSILE_WEAPON.into(), rule)])
+        .unwrap();
+    game.admit_object_ini_sources([(
+        "tomahawk-clip.ini".into(),
+        "Object ClipTomahawk
+ KindOf = VEHICLE CAN_ATTACK
+ WeaponSet
+  Conditions = None
+  Weapon = PRIMARY TomahawkMissileWeapon
+ End
+ Body = ActiveBody Body
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+ Behavior = AIUpdateInterface AI
+ End
+End
+Object ClipTarget
+ KindOf = VEHICLE
+ Body = ActiveBody Body
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+End
+Object TomahawkMissile
+ KindOf = PROJECTILE BALLISTIC_MISSILE
+ Body = ActiveBody Body
+  MaxHealth = 200
+  InitialHealth = 100
+ End
+ Behavior = PhysicsBehavior Physics
+  Mass = 1
+ End
+ Behavior = MissileAIUpdate Flight
+  TryToFollowTarget = Yes
+  FuelLifetime = 4000
+  IgnitionDelay = 0
+  InitialVelocity = 50
+  DistanceToTravelBeforeTurning = 80
+  DistanceToTargetBeforeDiving = 100
+  DistanceToTargetForLock = 10
+ End
+ Locomotor = SET_NORMAL TomahawkMissileLocomotor
+End
+".into(),
+    )])
+    .unwrap();
+    game.add_player(Player::new(0, Team::USA, "Shooter", true));
+    game.add_player(Player::new(1, Team::GLA, "Target", false));
+    let shooter = game.create_object_for_player("ClipTomahawk", 0, Vec3::ZERO).unwrap();
+    let target = game.create_object_for_player("ClipTarget", 1, Vec3::new(200.0, 0.0, 0.0)).unwrap();
+
+    game.set_current_frame(50);
+    assert!(!game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+    game.set_current_frame(58);
+    assert!(game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+    game.set_current_frame(267);
+    assert!(!game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+    game.set_current_frame(268);
+    assert!(!game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+    game.set_current_frame(276);
+    assert!(game.fire_owned_passive_weapon(shooter, target, 0, Vec3::ZERO));
+}
+
 /// Residual: USA Tomahawk dual-radius long-range missile.
 #[test]
 fn tomahawk_residual_dual_radius_missile() {
@@ -42,7 +118,11 @@ fn tomahawk_residual_dual_radius_missile() {
         assert!((prim.damage - TOMAHAWK_PRIMARY_DAMAGE).abs() < 0.01);
         assert!((prim.range - TOMAHAWK_RANGE).abs() < 1.0);
         assert!((prim.min_range - TOMAHAWK_MIN_RANGE).abs() < 1.0);
-        assert!((prim.reload_time - 7.0).abs() < 0.1);
+        // Retail DelayBetweenShots = 1 ms rounds up to one frame; the
+        // seven-second cooldown is the separate single-shot clip reload.
+        assert!((prim.reload_time - 1.0 / 30.0).abs() < 0.001);
+        assert_eq!(prim.clip_size, 1);
+        assert!((prim.clip_reload_time - 7.0).abs() < 0.001);
     }
 
     let enemy = game_logic
