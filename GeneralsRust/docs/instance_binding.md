@@ -61,11 +61,10 @@ integer trigger-position transition; an enclosed garrison passenger is held
 before its center-position callback. This does not establish complete
 pathfinder-event or save/load parity.
 
-Path searches return each route with its own layers rather than publishing the
-last search's layers on the pathfinder. Batched repaths, waypoint chains and
-closest-path searches therefore install their corresponding layers. Optimized
-routes still do not preserve the original node chain needed for C++ bridge
-transition and path-snapshot parity.
+Main path searches return owned raw nodes with optimized links and per-node
+layers. Movement uses the raw predecessor for bridge transitions, and snapshot
+transfer retains and validates the links. Batched repaths and waypoint chains
+carry their own routes rather than reading the last search's metadata.
 Quick-path queries compare the receiving world's endpoint layers, including a
 bridge deck above impassable ground. The query uses non-crusher connectivity,
 as in C++.

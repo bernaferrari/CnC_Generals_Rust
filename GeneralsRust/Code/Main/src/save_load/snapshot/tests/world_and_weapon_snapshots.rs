@@ -1051,11 +1051,11 @@ fn snapshot_restore_does_not_replace_authoritative_empty_movement_from_path_cach
             .expect("mover should exist for setup");
         mover.status.moving = true;
         mover.movement.target_position = Some(Vec3::new(21.0, 0.0, 11.0));
-        mover.movement.path = vec![
+        mover.movement.path = crate::game_logic::pathfinding::PathRoute::from_coords(vec![
             Vec3::new(1.0, 0.0, 1.0),
             Vec3::new(11.0, 0.0, 6.0),
             Vec3::new(21.0, 0.0, 11.0),
-        ];
+        ]);
     }
 
     let builder = SnapshotBuilder::new();

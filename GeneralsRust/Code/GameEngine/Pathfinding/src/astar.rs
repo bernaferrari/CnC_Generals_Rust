@@ -15,6 +15,17 @@ use crate::cell::{
 use crate::open_set::{AStarNode, OpenSet, SearchKey};
 use crate::passability::ObstacleIgnore;
 
+/// A cell on the accepted A* parent chain, before Path node construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchPathNode {
+    pub coord: GridCoord,
+    pub layer: PathfindLayerEnum,
+    /// C++ PathfindCellInfo::m_blockedByAlly for this search.
+    pub blocked_by_ally: bool,
+    /// The resolved cell's terrain type, used by prependCells at cliff boundaries.
+    pub is_cliff: bool,
+}
+
 /// A* pathfinding algorithm implementation
 /// Matches C++ Pathfinder::internalFindPath() at AIPathfind.cpp:6438-6694
 pub struct AStarPathfinder {
@@ -520,7 +531,11 @@ impl AStarPathfinder {
             starts_tunneling,
             cell_allowed,
             dozer_obstacle_ok,
+            None,
         )
+        .map(|(path, examined)| {
+            (path.into_iter().map(|node| (node.coord, node.layer)).collect(), examined)
+        })
     }
 
     /// Search using the obstacle ID stored in each selected world cell.
@@ -543,7 +558,8 @@ impl AStarPathfinder {
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
-    ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
+        blocked_by_ally: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
+    ) -> Option<(Vec<SearchPathNode>, usize)> {
         self.find_path_with_start_layer_and_layers_policy(
             start,
             goal,
@@ -563,6 +579,7 @@ impl AStarPathfinder {
             starts_tunneling,
             cell_allowed,
             dozer_obstacle_ok,
+            blocked_by_ally,
         )
     }
 
@@ -640,8 +657,9 @@ impl AStarPathfinder {
             starts_tunneling,
             cell_allowed,
             dozer_obstacle_ok,
+            None,
         )
-        .map(|(path, examined)| (path.into_iter().map(|(coord, _)| coord).collect(), examined))
+        .map(|(path, examined)| (path.into_iter().map(|node| node.coord).collect(), examined))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -665,7 +683,8 @@ impl AStarPathfinder {
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
-    ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
+        blocked_by_ally: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
+    ) -> Option<(Vec<SearchPathNode>, usize)> {
         self.find_path_with_start_layer_and_layers_policy(
             start,
             goal,
@@ -685,6 +704,7 @@ impl AStarPathfinder {
             starts_tunneling,
             cell_allowed,
             dozer_obstacle_ok,
+            blocked_by_ally,
         )
     }
 
@@ -708,7 +728,8 @@ impl AStarPathfinder {
         starts_tunneling: bool,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
-    ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
+        blocked_by_ally: Option<&dyn Fn(GridCoord, PathfindLayerEnum) -> bool>,
+    ) -> Option<(Vec<SearchPathNode>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = OpenSet::new();
@@ -716,6 +737,7 @@ impl AStarPathfinder {
         let mut closed_set: HashSet<SearchKey> = HashSet::new();
         let mut came_from: HashMap<SearchKey, SearchKey> = HashMap::new();
         let mut g_scores: HashMap<SearchKey, u32> = HashMap::new();
+        let mut ally_blocked_cells: HashSet<SearchKey> = HashSet::new();
 
         let start_layer = match start_layer {
             PathfindLayerEnum::Invalid => PathfindLayerEnum::Ground,
@@ -788,7 +810,7 @@ impl AStarPathfinder {
                 // Prevent infinite loops
                 if allow_partial {
                     return Some((
-                        self.reconstruct_path_with_layers(&came_from, best_key),
+                        self.reconstruct_path_with_layers(&came_from, &ally_blocked_cells, best_key),
                         iterations,
                     ));
                 }
@@ -802,7 +824,7 @@ impl AStarPathfinder {
             // C++ compares PathfindCell pointers: dest XY on destinationLayer.
             if current.coord == goal && current.layer == dest_layer {
                 return Some((
-                    self.reconstruct_path_with_layers(&came_from, current_key),
+                    self.reconstruct_path_with_layers(&came_from, &ally_blocked_cells, current_key),
                     iterations,
                 ));
             }
@@ -850,6 +872,7 @@ impl AStarPathfinder {
                     &mut closed_set,
                     &mut came_from,
                     &mut g_scores,
+                    &mut ally_blocked_cells,
                 );
             }
 
@@ -1018,6 +1041,9 @@ impl AStarPathfinder {
 
                 // First visit only (onList already skipped). C++ 6321-6327 is unreachable
                 // after the 6177-6180 continue.
+                if blocked_by_ally.is_some_and(|observe| observe(neighbor_coord, current.layer)) {
+                    ally_blocked_cells.insert(neighbor_key);
+                }
                 came_from.insert(neighbor_key, current_key);
                 g_scores.insert(neighbor_key, tentative_g);
                 open_members.insert(neighbor_key);
@@ -1050,7 +1076,7 @@ impl AStarPathfinder {
         // Matches C++ at AIPathfind.cpp:6635-6693
         if allow_partial {
             Some((
-                self.reconstruct_path_with_layers(&came_from, best_key),
+                self.reconstruct_path_with_layers(&came_from, &ally_blocked_cells, best_key),
                 iterations,
             ))
         } else {
@@ -1096,6 +1122,7 @@ impl AStarPathfinder {
             closed_set,
             came_from,
             g_scores,
+            &mut HashSet::new(),
         );
     }
 
@@ -1116,6 +1143,7 @@ impl AStarPathfinder {
         closed_set: &mut HashSet<SearchKey>,
         came_from: &mut HashMap<SearchKey, SearchKey>,
         g_scores: &mut HashMap<SearchKey, u32>,
+        ally_blocked_cells: &mut HashSet<SearchKey>,
     ) {
         let mut from_g = parent_g;
         crate::visit_cell_line((parent.x, parent.y), (goal.x, goal.y), |from, to| {
@@ -1143,6 +1171,8 @@ impl AStarPathfinder {
             // The original callback may improve an open or closed cell.
             let new_g = from_g.saturating_add(COST_ORTHOGONAL / 2);
             let to_key: SearchKey = (to, to_layer);
+            // C++ clears this even if the existing cheaper parent is retained.
+            ally_blocked_cells.remove(&to_key);
             if (open_members.contains(&to_key) || closed_set.contains(&to_key))
                 && g_scores.get(&to_key).is_some_and(|&old| old <= new_g)
             {
@@ -1191,11 +1221,19 @@ impl AStarPathfinder {
     fn reconstruct_path_with_layers(
         &self,
         came_from: &HashMap<SearchKey, SearchKey>,
+        ally_blocked_cells: &HashSet<SearchKey>,
         mut current: SearchKey,
-    ) -> Vec<(GridCoord, PathfindLayerEnum)> {
-        let mut path = vec![current];
-        while let Some(&parent) = came_from.get(&current) {
-            path.push(parent);
+    ) -> Vec<SearchPathNode> {
+        let mut path = Vec::new();
+        loop {
+            path.push(SearchPathNode {
+                coord: current.0,
+                layer: current.1,
+                blocked_by_ally: ally_blocked_cells.contains(&current),
+                is_cliff: self.get_cell_on_layer(current.0, current.1)
+                    .is_some_and(|cell| cell.get_type() == PathfindCellType::Cliff),
+            });
+            let Some(&parent) = came_from.get(&current) else { break };
             current = parent;
         }
         path.reverse();

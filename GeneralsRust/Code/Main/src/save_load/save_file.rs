@@ -1476,6 +1476,7 @@ impl SaveFileManager {
         campaign_state: &game_engine::System::CampaignManagerXferState,
     ) -> SaveLoadResult<Vec<u8>> {
         validate_direct_world_snapshot_version(world_snapshot.version)?;
+        crate::save_load::snapshot::validate_world_path_links(world_snapshot)?;
         let logic_payload = bincode_legacy::serialize(world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
         Self::write_common_sav_chunks_with_payload_and_client(

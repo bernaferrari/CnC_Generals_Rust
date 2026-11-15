@@ -459,7 +459,7 @@ impl HeadlessSkirmish {
             let ground = |a: glam::Vec3, b: glam::Vec3| glam::Vec2::new(b.x - a.x, b.z - a.z).length();
             let mut at = position;
             let mut length = 0.0;
-            for &node in &path[object.movement.current_path_index..] {
+            for &node in path.iter().skip(object.movement.current_path_index) {
                 length += ground(at, node);
                 at = node;
             }

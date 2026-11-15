@@ -159,7 +159,7 @@ impl GameLogic {
                     req.unit_id,
                 )
             }) {
-                let last = path.points.last().copied();
+                let last = path.last().copied();
                 let _ =
                     self.apply_computed_unit_path(req.unit_id, start, req.destination, path, false);
                 if let Some(last) = last {

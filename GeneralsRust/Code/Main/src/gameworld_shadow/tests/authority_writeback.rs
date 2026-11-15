@@ -1242,10 +1242,10 @@ fn stale_engine_id_does_not_skip_host_movement() {
         .expect("id");
     {
         let o = logic.host_object_mut(id).unwrap();
-        o.movement.path = vec![
+        o.movement.set_path_coords(vec![
             glam::Vec3::new(0.0, 0.0, 0.0),
             glam::Vec3::new(50.0, 0.0, 0.0),
-        ];
+        ]);
         o.movement.max_speed = 20.0;
         // C++ Locomotor::getMaxAcceleration: retail locomotors author
         // Acceleration (infantry ~220); the host integrate velocity-ramps by
@@ -1539,10 +1539,10 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
             o.weapon = Some(w);
             o.occupants = vec![pax];
             o.movement.target_position = Some(glam::Vec3::new(30.0, 0.0, 4.0));
-            o.movement.path = vec![
+            o.movement.set_path_coords(vec![
                 glam::Vec3::new(10.0, 0.0, 0.0),
                 glam::Vec3::new(30.0, 0.0, 4.0),
-            ];
+            ]);
             o.movement.current_path_index = 1;
         });
 

@@ -16,6 +16,20 @@ fn stamp_position(grid: &mut PathfindingGrid, actor: &crate::game_logic::Object)
     // AIIdleState::doInitIdleState registers the same cell as the idle goal.
     grid.update_ground_goal_cell(actor.id.0, footprint.radius, false, (-1, -1), actor.get_position());
 }
+
+#[test]
+fn optimizer_line_stops_successfully_at_map_edge_but_checks_intermediate_cells() {
+    let mut grid = open_grid(2, 2);
+    let line_clear = |grid: &PathfindingGrid| grid.line_passable_on_layer(
+        GridPos::new(0, 0), GridPos::new(1, 1), SURFACE_GROUND, false,
+        false, None, 0, false, PathfindLayerEnum::Ground,
+    );
+    // iterateCellsAlongLine visits (1, 2) after the end cell; C++ treats the
+    // resulting null getCell as successful termination (AIPathfind.cpp:9169).
+    assert!(line_clear(&grid));
+    grid.set_blocked(GridPos::new(0, 1), true);
+    assert!(!line_clear(&grid), "the in-bounds diagonal intermediate must be checked");
+}
 /// hq-9jz4r: layer change only looks ALLOWED_STEPS=3 past the ramp.
 #[test]
 fn optimize_caps_bridge_layer_steps() {
@@ -36,8 +50,9 @@ fn optimize_caps_bridge_layer_steps() {
     let mut raw = Vec::new();
     // Five ground cells so count at the first deck node is > ALLOWED_STEPS.
     for x in 0..=4 {
-        raw.push(g.grid_to_world(
+        raw.push(g.grid_to_world_on_layer(
             GridPos::new(x, 5),
+            PathfindLayerEnum::Ground,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         ));
     }
@@ -48,6 +63,10 @@ fn optimize_caps_bridge_layer_steps() {
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         ));
     }
+    assert!(raw[..5].iter().all(|point| g.layer_for_destination(
+        *point,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    ) == PathfindLayerEnum::Ground));
     let opt = g.optimize_ground_path_ex(
         &raw,
         SURFACE_GROUND,
@@ -347,7 +366,7 @@ fn internal_astar_routes_infantry_and_vehicle_through_single_cell_opening() {
         );
         let end_cell = path
             .as_ref()
-            .and_then(|nodes| nodes.points.last())
+            .and_then(|nodes| nodes.last())
             .map(|end| sys.grid.world_to_grid(*end));
         (path, end_cell)
     };
@@ -886,7 +905,7 @@ fn infantry_paths_along_classified_wall() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
-        path.as_ref().map(|p| p.points.len() >= 2).unwrap_or(false),
+        path.as_ref().map(|p| p.coords().len() >= 2).unwrap_or(false),
         "infantry A* must walk LAYER_WALL over the blocked ground"
     );
 }
@@ -1360,7 +1379,7 @@ fn human_units_stay_in_logical_extent() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     if let Some(path) = path {
-        for p in &path.points {
+        for p in &path.coords() {
             let cell = sys.grid.world_to_grid(*p);
             assert!(
                 sys.grid.in_logical_extent(cell),
@@ -1416,7 +1435,7 @@ fn dozer_hack_reaches_live_astar() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("dozer must step through non-enemy CELL_OBSTACLE").points;
+        .expect("dozer must step through non-enemy CELL_OBSTACLE").coords();
     assert!(path.len() >= 2);
 
     let mut inf_t = ThingTemplate::new("Ranger");
@@ -1676,7 +1695,7 @@ fn find_closest_path_walks_to_valid_cell_when_goal_impassable() {
             super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
-        .expect("closest path").points;
+        .expect("closest path").coords();
     let end = *path.last().expect("end");
     let end_cell = sys.grid.world_to_grid(end);
     assert_ne!(end_cell, goal, "must not stand on the impassable click");
@@ -1709,7 +1728,7 @@ fn find_safe_path_stays_outside_both_repulsors() {
             super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
-        .expect("safe path").points;
+        .expect("safe path").coords();
     let end = *path.last().expect("end");
     let d1 = (end.x - r1.x).hypot(end.z - r1.z);
     let d2 = (end.x - r2.x).hypot(end.z - r2.z);
@@ -1809,7 +1828,7 @@ fn find_attack_path_goes_around_partial_wall() {
         None,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ) {
-        let crosses = p.points.windows(2).any(|w| {
+        let crosses = p.coords().windows(2).any(|w| {
             let a = sys.grid.world_to_grid(w[0]);
             let b = sys.grid.world_to_grid(w[1]);
             sys.grid.cell_type(a) == PathfindCellType::Impassable
@@ -1819,7 +1838,7 @@ fn find_attack_path_goes_around_partial_wall() {
             !crosses,
             "attack A* must not step on Impassable, path={p:?}"
         );
-        let end = *p.points.last().unwrap();
+        let end = *p.last().unwrap();
         let dist = (end.x - victim.x).hypot(end.z - victim.z);
         assert!(
             dist <= 80.0 + 15.0,
@@ -1899,7 +1918,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     inf.set_position(stand);
     inf.owner_player_id = Some(0);
     inf.selection_radius = 5.0;
-    inf.movement.path = vec![stand, path_end];
+    inf.movement.path = PathRoute::from_coords(vec![stand, path_end]);
     inf.movement.current_path_index = 1;
     inf.do_final_position = true;
     inf.final_position = planted;
@@ -1968,7 +1987,7 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     jet.cur_locomotor_name = Some("TestWingLocomotor".into());
     jet.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     jet.selection_radius = 5.0;
-    jet.movement.path = vec![stand, path_end];
+    jet.movement.path = PathRoute::from_coords(vec![stand, path_end]);
     jet.do_final_position = true;
     jet.final_position = planted;
     let old_goal = g.update_aircraft_goal_cell(jet.id.0, jet.geometry_info().bounding_circle_radius(), (-1, -1), 0, path_end, true);

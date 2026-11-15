@@ -33,6 +33,7 @@ impl Snapshot for WorldSnapshot {
         // payload bytes can be consumed under the wrong layout.
         if xfer.get_mode() != XferMode::Load {
             validate_direct_world_snapshot_version(self.version)?;
+            validate_world_path_links(self)?;
             super::object_module_xfer_persist::upgrade_completion_capsule_for_save(
                 &mut self.lifecycle_tail,
                 self.version,

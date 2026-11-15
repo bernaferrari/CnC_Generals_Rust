@@ -530,11 +530,11 @@ fn path_follow_owned_by_update_movement_single_step() {
     );
     let start = glam::Vec3::new(0.0, 0.0, 0.0);
     obj.set_position(start);
-    obj.movement.path = vec![
+    obj.movement.set_path_coords(vec![
         start, // C++ AIPathfind.cpp:9060 preserves the source node.
         glam::Vec3::new(100.0, 0.0, 0.0),
         glam::Vec3::new(200.0, 0.0, 0.0),
-    ];
+    ]);
     obj.movement.current_path_index = 1;
     obj.movement.max_speed = 30.0; // world units / second
     // Reach max speed in one frame so distance ≈ max_speed * dt.

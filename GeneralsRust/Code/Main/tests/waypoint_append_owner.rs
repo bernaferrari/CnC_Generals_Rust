@@ -55,7 +55,7 @@ fn appending_waypoints_keeps_the_current_movement_target_in_each_world() {
     let appended_goal = Vec3::new(160.0, 0.0, 0.0);
     assert!(first.append_unit_waypoint(first_id, appended_goal));
     let updated_path = &first.host_object(first_id).unwrap().movement.path;
-    assert!(updated_path.starts_with(&first_path));
+    assert!(updated_path.coords().starts_with(&first_path.coords()));
     assert_eq!(updated_path.last(), Some(&appended_goal));
     assert_eq!(
         first

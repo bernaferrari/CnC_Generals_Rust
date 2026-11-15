@@ -233,6 +233,7 @@ impl GameLogic {
             );
             p.status.moving = true;
         }
+        self.resolve_installed_path_layers(unit_id);
         if let Some(goal) = self
             .objects
             .get(&unit_id)

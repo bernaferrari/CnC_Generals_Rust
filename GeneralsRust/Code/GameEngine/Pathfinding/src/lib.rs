@@ -25,6 +25,12 @@
 //! [`AStarPathfinder::find_path_with_start_layer_and_layers`]
 //! ([`astar::AStarPathfinder`]).
 //!
+//! [`AStarPathfinder::find_path_with_start_layer_and_layers`] and
+//! [`AStarPathfinder::find_path_ex6_with_obstacle_owner`] return [`SearchPathNode`]
+//! values carrying ally-blocking and cliff metadata for path construction.
+//! Callers provide the ally-blocking observation from the same movement
+//! context as their occupancy cost and line-seed checks.
+//!
 //! Comparator semantics (equal-cost FIFO tie-break) are pinned by the
 //! PERMANENT DIFFERENTIAL FIXTURE tests in `src/tests.rs`, which cite the C++
 //! lines they defend; none of those assertions may be relaxed.
@@ -39,7 +45,7 @@ mod open_set;
 mod passability;
 mod zones;
 
-pub use astar::AStarPathfinder;
+pub use astar::{AStarPathfinder, SearchPathNode};
 pub use cell::{
     COST_DIAGONAL, COST_ORTHOGONAL, CellFlags, GridCoord, MAX_FRAMES_AHEAD, PATHFIND_CELL_SIZE,
     PATHFIND_CELL_SIZE_F, PathfindCell, PathfindCellType, PathfindLayerEnum, ZONE_IMPASSABLE_COST,

@@ -51,7 +51,7 @@ fn direct_destroy_clears_goal_and_path_before_physical_removal() {
     let (mut world, id) = world_with_owner();
     let object = world.host_object_mut(id).unwrap();
     object.set_locomotor_goal_position_on_path();
-    object.movement.path = vec![Vec3::new(10.0, 0.0, 0.0)];
+    object.movement.set_path_coords(vec![Vec3::new(10.0, 0.0, 0.0)]);
     world.destroy_object(id).unwrap();
     let object = world.host_object(id).unwrap();
     assert_eq!(object.locomotor_goal_type, LocoGoalType::None);

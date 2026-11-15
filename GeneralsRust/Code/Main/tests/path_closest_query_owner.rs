@@ -50,7 +50,7 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
         )
         .expect("closest path");
     assert_eq!(
-        finder.grid.world_to_grid(*path.points.last().unwrap()),
+        finder.grid.world_to_grid(*path.last().unwrap()),
         finder.grid.world_to_grid(goal),
         "the mover's own goal is not another unit's reservation"
     );
@@ -74,7 +74,7 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
         )
         .expect("peer closest path");
     assert_ne!(
-        peer_finder.grid.world_to_grid(*peer_path.points.last().unwrap()),
+        peer_finder.grid.world_to_grid(*peer_path.last().unwrap()),
         peer_finder.grid.world_to_grid(goal),
         "another unit's goal stays reserved"
     );
@@ -133,7 +133,7 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
     assert_eq!(
         restored_finder
             .grid
-            .world_to_grid(*restored.points.last().unwrap()),
+            .world_to_grid(*restored.last().unwrap()),
         restored_finder.grid.world_to_grid(goal),
         "restored session keeps the receiving mover's identity"
     );
@@ -151,7 +151,7 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
         )
         .expect("original session after peer restore");
     assert_eq!(
-        finder.grid.world_to_grid(*original_again.points.last().unwrap()),
+        finder.grid.world_to_grid(*original_again.last().unwrap()),
         finder.grid.world_to_grid(goal),
         "restoring the peer must not change the original session"
     );
@@ -200,7 +200,7 @@ fn closest_search_uses_current_controller_extent_after_another_query() {
             id,
         )
         .expect("closest path")
-        .points
+        .coords()
     };
     let baseline = query(&mut peer_finder, &peer, peer_computer, false);
     assert_eq!(
@@ -270,7 +270,7 @@ fn closest_goal_checks_the_receiving_units_whole_footprint() {
         )
         .expect("a nearby reachable candidate");
     assert_ne!(
-        finder.grid.world_to_grid(*path.points.last().unwrap()),
+        finder.grid.world_to_grid(*path.last().unwrap()),
         GridPos::new(10, 5),
         "the allied goal occupies the receiving unit's destination footprint"
     );
@@ -316,9 +316,9 @@ fn human_closest_path_reenters_from_an_adjacent_outside_cell() {
             &ground,
         )
         .expect("ordinary path search can reenter from the outside start");
-    assert_eq!(direct.points.first(), Some(&from));
+    assert_eq!(direct.first(), Some(&from));
     assert_eq!(
-        finder.grid.world_to_grid(*direct.points.last().unwrap()),
+        finder.grid.world_to_grid(*direct.last().unwrap()),
         GridPos::new(8, 5)
     );
     assert!(
@@ -349,7 +349,7 @@ fn human_closest_path_reenters_from_an_adjacent_outside_cell() {
             id,
         )
         .expect("human should reenter from an adjacent cell")
-        .points
+        .coords()
     };
     let expected = query(&mut peer_finder, &peer, peer_mover);
     let path = query(&mut finder, &world, mover);
@@ -377,7 +377,7 @@ fn human_closest_path_reenters_from_an_adjacent_outside_cell() {
         )
         .expect("the starting cell can itself be the goal");
     assert_eq!(
-        finder.grid.world_to_grid(*same.points.last().unwrap()),
+        finder.grid.world_to_grid(*same.last().unwrap()),
         GridPos::new(10, 5)
     );
 }
@@ -408,8 +408,8 @@ fn ordinary_path_reads_current_player_type_without_frame_refresh() {
     let computer = query(&mut finder, &world);
     world.get_player_mut(0).unwrap().is_human = true;
     let human = query(&mut finder, &world);
-    let computer_end = *computer.expect("computer path").points.last().unwrap();
-    let human_end = *human.expect("human path").points.last().unwrap();
+    let computer_end = *computer.expect("computer path").last().unwrap();
+    let human_end = *human.expect("human path").last().unwrap();
     assert_eq!(
         computer_end, goal,
         "computer can reach outside the human extent"
@@ -445,7 +445,7 @@ fn closest_search_tunnels_from_an_invalid_surface_until_goal_or_valid_exit() {
         )
     };
     let invalid_start = query(&mut finder).expect("C++ tunnels out of an invalid starting surface");
-    assert_eq!(invalid_start.points.last().copied(), Some(goal));
+    assert_eq!(invalid_start.last().copied(), Some(goal));
 
     let mut valid_start = PathfindingSystem::new(200.0, 200.0);
     let start_cell = valid_start.grid.world_to_grid(from);
@@ -455,7 +455,7 @@ fn closest_search_tunnels_from_an_invalid_surface_until_goal_or_valid_exit() {
     let water_start =
         query(&mut valid_start).expect("the starting water cell is a valid closest result");
     assert_ne!(
-        water_start.points.last().copied(),
+        water_start.last().copied(),
         Some(goal),
         "without tunneling a water-only unit cannot cross ground cells"
     );
@@ -491,7 +491,7 @@ fn closest_same_cell_preserves_original_start_before_cell_center() {
         )
         .expect("same-cell closest path");
     assert_eq!(
-        path.points,
+        path.coords(),
         vec![from, Vec3::new(25.0, 0.0, 55.0)],
         "original prependCells keeps the actual start before the cell center"
     );
@@ -511,7 +511,7 @@ fn closest_same_cell_preserves_original_start_before_cell_center() {
             mover,
         )
         .expect("centered closest path");
-    assert_eq!(path.points, vec![centered]);
+    assert_eq!(path.coords(), vec![centered]);
 }
 
 #[test]
@@ -544,7 +544,7 @@ fn closest_same_cell_uses_even_footprint_inset() {
             mover,
         )
         .expect("same-cell closest path");
-    assert_eq!(path.points, vec![from, Vec3::new(20.5, 0.0, 50.5)]);
+    assert_eq!(path.coords(), vec![from, Vec3::new(20.5, 0.0, 50.5)]);
 }
 
 #[test]
@@ -567,7 +567,7 @@ fn closest_path_backs_off_a_pinched_goal_to_its_open_parent() {
             mover,
         )
         .expect("closest path to pinched goal");
-    let end_cell = finder.grid.world_to_grid(*path.points.last().unwrap());
+    let end_cell = finder.grid.world_to_grid(*path.last().unwrap());
     assert_ne!(
         end_cell, goal_cell,
         "C++ buildActualPath backs off a pinched goal"
@@ -630,12 +630,12 @@ fn closest_search_clips_or_clamps_outside_endpoints_like_cpp() {
             )
             .unwrap_or_else(|| panic!("{name}: closest path"));
         assert_eq!(
-            path.points.first().copied(),
+            path.first().copied(),
             Some(from),
             "{name}: preserve original start"
         );
         assert_eq!(
-            path.points.last().copied(),
+            path.last().copied(),
             Some(expected_end),
             "{name}: C++ clipped goal cell"
         );
@@ -671,8 +671,8 @@ fn closest_clipping_uses_the_unshifted_start_for_even_footprints() {
             mover,
         )
         .expect("even-footprint clipped path");
-    assert_eq!(path.points.first().copied(), Some(from));
-    assert_eq!(path.points.last().copied(), Some(Vec3::new(190.5, 0.0, 60.5)));
+    assert_eq!(path.first().copied(), Some(from));
+    assert_eq!(path.last().copied(), Some(Vec3::new(190.5, 0.0, 60.5)));
 }
 
 #[test]
@@ -762,7 +762,7 @@ fn closest_path_distinguishes_ground_and_bridge_cells_at_the_same_coordinates() 
         // valid destination (screen distance 0), and C++ then stops expanding
         // every farther cell (`distSqr > closestDistScreenSqr*4`,
         // AIPathfind.cpp:8850-8866), so the result stays on the start layer.
-        assert_eq!(path.points, vec![from], "layer {layer}: {path:?}");
+        assert_eq!(path.coords(), vec![from], "layer {layer}: {path:?}");
         assert_ne!(from.y, to.y);
     }
 }
@@ -829,7 +829,7 @@ fn closest_search_does_not_readmit_an_already_open_neighbor() {
         )
         .expect("a nearby reachable destination");
     assert_eq!(
-        finder.grid.world_to_grid(*path.points.last().unwrap()),
+        finder.grid.world_to_grid(*path.last().unwrap()),
         GridPos::new(7, 8),
         "{path:?}"
     );
@@ -869,7 +869,7 @@ fn closest_search_seeds_the_original_line_toward_a_blocked_goal() {
         )
         .expect("a nearby reachable destination");
     assert_eq!(
-        finder.grid.world_to_grid(*path.points.last().unwrap()),
+        finder.grid.world_to_grid(*path.last().unwrap()),
         GridPos::new(9, 7),
         "{path:?}"
     );
@@ -950,7 +950,7 @@ fn closest_seed_respects_receiving_world_occupants() {
             .grid
             .bind_query_occupants(world.host_objects(), Some(mover));
         let enemy_cost = finder.grid.occupancy_extra_cost(GridPos::new(3, 3), false);
-        results.push((finder.grid.world_to_grid(*path.points.last().unwrap()), enemy_cost));
+        results.push((finder.grid.world_to_grid(*path.last().unwrap()), enemy_cost));
     }
     const ENEMY_FIXED: u32 = u32::MAX / 8;
     assert_eq!(

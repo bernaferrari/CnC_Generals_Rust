@@ -403,8 +403,8 @@ fn slaved_update_recalls_past_two_times_guard_max() {
 #[test]
 fn slaved_update_scouts_ahead_of_actual_master_path() {
     let (mut game, master, drone) = world();
-    game.host_object_mut(master).unwrap().movement.path =
-        vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)];
+    game.host_object_mut(master).unwrap().movement
+        .set_path_coords(vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)]);
     game.update_owned_slaved_object(drone)
         .expect("valid slaved fixture");
     assert_eq!(move_goal(&game, drone), [75.0, 0.0, 0.0]);

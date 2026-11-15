@@ -2,6 +2,78 @@
 use super::*;
 
 #[test]
+fn locomotor_layer_uses_receiving_bridge_and_raw_predecessor() {
+    use crate::game_logic::pathfinding::PathRoute;
+    let id = ObjectId(9634);
+    let mut worlds = Vec::new();
+    for deck_height in [20.0, 80.0] {
+        let mut world = GameLogic::new();
+        world.pathfinding_system =
+            crate::game_logic::pathfinding::PathfindingSystem::new(200.0, 120.0);
+        world.pathfinding_system.grid.stamp_bridge_deck(
+            Vec3::new(30.0, deck_height, 40.0),
+            Vec3::new(30.0, deck_height, 60.0),
+            Vec3::new(130.0, deck_height, 40.0),
+            Vec3::new(130.0, deck_height, 60.0),
+            false,
+            &PathfindingGround::Flat(0.0),
+        );
+        let mut unit = ranger_at(id.0, Vec3::new(55.0, 20.0, 50.0));
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        assert!(PathfindingGrid::is_doing_ground_movement_full(&unit));
+        assert_eq!(
+            world.pathfinding_system.grid.object_interacts_with_bridge_layer(
+                unit.get_position(), unit.geometry_info().minor_radius, unit.pathfind_layer, 2,
+            ),
+            deck_height == 20.0,
+        );
+        let route = PathRoute::from_layered(
+            vec![
+                Vec3::new(30.0, 20.0, 50.0),
+                Vec3::new(50.0, 20.0, 50.0),
+                Vec3::new(70.0, 20.0, 50.0),
+                Vec3::new(130.0, 20.0, 50.0),
+            ],
+            vec![2, 2, 1, 1],
+        );
+        let mut nodes = route.nodes().to_vec();
+        nodes[0].next_optimized = Some(2);
+        let route = PathRoute::from_nodes(nodes, route.blocked_by_ally).expect("valid route topology");
+        unit.movement.path = route;
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(Vec3::new(70.0, 20.0, 50.0));
+        unit.set_locomotor_goal_position_on_path();
+        unit.set_status_moving(true);
+        world.objects.insert(id, unit);
+        worlds.push(world);
+    }
+    for world in &mut worlds {
+        world.update_movement_locomotor_pass(&[id], 0.0).unwrap();
+    }
+    assert_eq!(worlds[0].objects.get(&id).unwrap().pathfind_layer, 2);
+    assert_eq!(worlds[1].objects.get(&id).unwrap().pathfind_layer, 1);
+
+    // The next optimized segment starts at the ground node, whose raw
+    // predecessor is the skipped bridge node. It must leave the bridge even
+    // though the first optimized node still has the bridge layer.
+    for world in &mut worlds {
+        world.set_fixture_object_position(id, Vec3::new(85.0, 20.0, 50.0));
+        world.update_movement_locomotor_pass(&[id], 0.0).unwrap();
+        let unit = world.objects.get(&id).unwrap();
+        assert_eq!(unit.pathfind_layer, 1);
+        assert_eq!(unit.movement.current_path_index, 2);
+        assert_eq!(unit.movement.path.len(), 3);
+        assert!(unit.status.moving, "movement must continue after the skipped raw node");
+        world.set_fixture_object_position(id, Vec3::new(95.0, 20.0, 50.0));
+        world.update_movement_locomotor_pass(&[id], 0.0).unwrap();
+        let unit = world.objects.get(&id).unwrap();
+        assert_eq!(unit.pathfind_layer, 1);
+        assert_eq!(unit.movement.current_path_index, 2);
+        assert!(unit.status.moving);
+    }
+}
+
+#[test]
 fn batched_repaths_install_each_units_own_searched_layers() {
     let mut logic = GameLogic::new();
     logic.pathfinding_system =
@@ -32,8 +104,8 @@ fn batched_repaths_install_each_units_own_searched_layers() {
     let bridge = logic.objects.get(&ids[1]).unwrap();
     assert!(ground.movement.path.len() >= 2);
     assert_eq!(ground.movement.path.len(), bridge.movement.path.len());
-    assert_eq!(ground.movement.path_layers, vec![1; ground.movement.path.len()]);
-    assert_eq!(bridge.movement.path_layers, vec![2; bridge.movement.path.len()]);
+    assert!((0..ground.movement.path.len()).all(|i| ground.movement.path.optimized_layer(i) == Some(1)));
+    assert!((0..bridge.movement.path.len()).all(|i| bridge.movement.path.optimized_layer(i) == Some(2)));
 }
 
 #[test]
@@ -64,7 +136,7 @@ fn appended_waypoint_keeps_existing_and_searched_bridge_layers() {
     assert!(logic.append_unit_waypoint(id, waypoint));
     let unit = logic.objects.get(&id).unwrap();
     assert!(unit.movement.path.len() >= 3);
-    assert_eq!(unit.movement.path_layers, vec![2; unit.movement.path.len()]);
+    assert!((0..unit.movement.path.len()).all(|i| unit.movement.path.optimized_layer(i) == Some(2)));
     assert_eq!(unit.movement.path.last().copied(), Some(waypoint));
 }
 
@@ -92,8 +164,8 @@ fn exact_waypoint_paths_resolve_layers_in_each_receiving_world() {
         worlds.push(logic);
     }
     let id = ObjectId(9638);
-    assert_eq!(worlds[0].objects.get(&id).unwrap().movement.path_layers, vec![2, 2, 2]);
-    assert_eq!(worlds[1].objects.get(&id).unwrap().movement.path_layers, vec![1, 1, 1]);
+    assert!((0..3).all(|i| worlds[0].objects.get(&id).unwrap().movement.path.optimized_layer(i) == Some(2)));
+    assert!((0..3).all(|i| worlds[1].objects.get(&id).unwrap().movement.path.optimized_layer(i) == Some(1)));
 }
 
 #[test]
@@ -121,7 +193,7 @@ fn multi_hop_search_installs_every_bridge_node_layer() {
     assert!(logic.assign_unit_path(id, goal, &[mid]));
     let unit = logic.objects.get(&id).unwrap();
     assert!(unit.movement.path.len() >= 3);
-    assert_eq!(unit.movement.path_layers, vec![2; unit.movement.path.len()]);
+    assert!((0..unit.movement.path.len()).all(|i| unit.movement.path.optimized_layer(i) == Some(2)));
 }
 
 #[test]
@@ -230,7 +302,7 @@ fn safe_queue_one_repulsor_clears_the_old_path() {
     unit.is_attack_path = true;
     unit.set_locomotor_goal_position_explicit(Vec3::new(5.0, 0.0, 0.0));
     unit.safe_path_repulsor2 = None;
-    unit.movement.path = vec![Vec3::new(999.0, 0.0, 999.0)];
+    unit.movement.set_path_coords(vec![Vec3::new(999.0, 0.0, 999.0)]);
     unit.set_position(Vec3::new(10.0, 0.0, 0.0));
     // C++ requestSafePath/requestApproachPath admits this latch before queueForPath.
     unit.waiting_for_path = true;
@@ -292,7 +364,7 @@ fn airborne_approach_request_drops_the_approach_flag() {
     unit.movement.max_speed = 40.0;
     unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     unit.is_approach_path = true;
-    unit.movement.path = vec![Vec3::new(999.0, 0.0, 999.0)];
+    unit.movement.set_path_coords(vec![Vec3::new(999.0, 0.0, 999.0)]);
     unit.set_position(Vec3::new(0.0, 20.0, 0.0));
     // C++ requestSafePath/requestApproachPath admits this latch before queueForPath.
     unit.waiting_for_path = true;
@@ -611,7 +683,7 @@ fn downhill_only_refuses_an_uphill_path_waypoint() {
     unit.downhill_only = true;
     unit.movement.max_speed = 30.0;
     unit.movement.velocity = Vec3::new(8.0, 0.0, 0.0);
-    unit.movement.path = vec![Vec3::ZERO, Vec3::new(20.0, 10.0, 0.0)];
+    unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(20.0, 10.0, 0.0)]);
     unit.movement.current_path_index = 0;
     unit.movement.target_position = Some(Vec3::new(20.0, 0.0, 0.0));
     unit.set_status_moving(true);
@@ -670,7 +742,7 @@ fn climber_path_lead_keeps_goal_y_and_latches_climbing() {
     unit.set_status_moving(true);
     let start = Vec3::new(0.0, 20.0, 0.0);
     let goal = Vec3::new(40.0, 0.0, 0.0);
-    unit.movement.path = vec![start, goal];
+    unit.movement.set_path_coords(vec![start, goal]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(goal);
     logic.objects.insert(id, unit);
@@ -735,7 +807,7 @@ fn climber_descent_reverses_toward_goal() {
     unit.movement.turn_rate = 0.0;
     unit.no_slow_down_as_approaching_dest = true;
     unit.set_status_moving(true);
-    unit.movement.path = vec![start, goal];
+    unit.movement.set_path_coords(vec![start, goal]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(goal);
     logic.objects.insert(id, unit);
@@ -1036,7 +1108,7 @@ fn wings_idle_hold_circles_at_min_speed() {
     jet.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
     jet.motive_force_expires = 10;
     jet.status.airborne_target = true;
-    jet.movement.path = vec![Vec3::new(0.0, 50.0, 0.0)];
+    jet.movement.set_path_coords(vec![Vec3::new(0.0, 50.0, 0.0)]);
     jet.movement.current_path_index = 0;
     jet.movement.target_position = Some(Vec3::new(0.0, 50.0, 0.0));
     let start = jet.get_position();
@@ -1469,7 +1541,7 @@ fn arrival_arms_final_position_at_path_last_node() {
     });
     let stop = goal - Vec3::new(0.6, 0.0, 0.0);
     arriver.set_position(stop);
-    arriver.movement.path = vec![Vec3::new(70.0, 0.0, 80.0), goal];
+    arriver.movement.set_path_coords(vec![Vec3::new(70.0, 0.0, 80.0), goal]);
     arriver.movement.current_path_index = 1;
     arriver.movement.target_position = Some(goal);
     arriver.set_locomotor_goal_position_on_path();

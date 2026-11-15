@@ -120,12 +120,13 @@ impl GameLogic {
         if points.is_empty() {
             return false;
         }
+        let route = self.route_for_points(points);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
         unit.waiting_for_path = false;
         unit.movement.current_path_index = 0;
-        unit.movement.path = points;
+        unit.movement.path = route;
         unit.movement.target_position = unit.movement.path.first().copied();
         unit.is_exact_path = true;
         unit.is_attack_path = false;
@@ -1596,7 +1597,7 @@ End
         assert_eq!(ferry.railed_current_path, 0);
         assert_eq!(ferry.ai_state(), AIState::Moving);
         assert_eq!(
-            ferry.movement.path,
+            ferry.movement.path.coords(),
             vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)]
         );
         assert!(ferry.ultra_accurate);
@@ -1630,7 +1631,7 @@ End
             let ferry = logic.host_object(id).expect("parked");
             assert!(ferry.railed_in_transit);
             assert_eq!(ferry.railed_current_path, 0);
-            assert_eq!(ferry.movement.path, vec![Vec3::new(10.0, 0.0, 0.0)]);
+            assert_eq!(ferry.movement.path.coords(), vec![Vec3::new(10.0, 0.0, 0.0)]);
         }
 
         let frame = logic.frame;

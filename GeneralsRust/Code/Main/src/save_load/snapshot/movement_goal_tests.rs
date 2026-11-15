@@ -1,13 +1,17 @@
 //! TMAI object-goal identity and continuation, independent of snapshot pose copies.
 use super::*;
-use crate::game_logic::{AIState, KindOf, Player, Team, ThingTemplate};
+use crate::game_logic::{AIState, Player, Team};
 use crate::save_load::snapshot::SnapshotBuilder;
 
 fn ranger_logic() -> GameLogic {
     let mut world = GameLogic::new();
-    let mut template = ThingTemplate::new("Ranger");
-    template.set_health(100.0).add_kind_of(KindOf::Infantry);
-    world.templates.insert("Ranger".into(), template);
+    crate::fixture_content::admit_fixture_objects(
+        &mut world,
+        &[crate::fixture_content::FixtureObject::new("Ranger")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .walker()],
+    );
     world.add_player(Player::new(0, Team::USA, "USA", false));
     world
 }

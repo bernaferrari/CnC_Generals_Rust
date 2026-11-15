@@ -1690,6 +1690,43 @@ impl PathfindingGrid {
         self.occ_pos_unit[idx] = unit_id;
     }
 
+    /// C++ TerrainLogic::objectInteractsWithBridgeLayer for the receiving grid.
+    pub(crate) fn object_interacts_with_bridge_layer(
+        &self,
+        pos: Vec3,
+        minor_radius: f32,
+        current_layer: u8,
+        requested_layer: u8,
+    ) -> bool {
+        if requested_layer == PathfindLayerEnum::Ground as u8 {
+            return false;
+        }
+        if requested_layer == PathfindLayerEnum::Wall as u8 {
+            return current_layer == requested_layer || self.is_point_on_wall(pos);
+        }
+        let Some(bridge) = self.bridge_layers.iter().find(|bridge| bridge.id == requested_layer) else {
+            return false;
+        };
+        if bridge.destroyed {
+            return false;
+        }
+        let corners = [bridge.from_left, bridge.from_right, bridge.to_right, bridge.to_left];
+        let radius = minor_radius + self.grid_size * 0.5;
+        let bounds = CellXz {
+            lo_x: pos.x - radius,
+            lo_z: pos.z - radius,
+            hi_x: pos.x + radius,
+            hi_z: pos.z + radius,
+        };
+        (super::grid_flight::flight_point_on_bridge(pos, &corners)
+            || cell_on_bridge_end(
+                &bounds, bridge.from_left, bridge.from_right,
+                bridge.to_left, bridge.to_right, self.grid_size,
+            ))
+            && (pos.y - bridge_deck_height(&corners, pos.x, pos.z)).abs()
+                <= LAYER_Z_CLOSE_ENOUGH_F
+    }
+
     /// C++ `TerrainLogic::objectInteractsWithBridgeEnd` (TerrainLogic.cpp:1799).
     pub(crate) fn object_interacts_with_bridge_end(
         &self,

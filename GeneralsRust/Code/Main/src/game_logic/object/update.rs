@@ -53,6 +53,55 @@ mod receiving_weapon_set_tests {
 }
 
 impl Object {
+    /// Remaining distance along the optimized route, without copying waypoints.
+    pub(crate) fn route_distance(
+        path: &crate::game_logic::pathfinding::PathRoute,
+        start: usize,
+        pos: Vec3,
+        flight: bool,
+    ) -> f32 {
+        let mut points = path.iter().skip(start);
+        let Some(first) = points.next().copied() else { return 0.0 };
+        if points.next().is_none() {
+            return (Vec3::new(pos.x, 0.0, pos.z) - Vec3::new(first.x, 0.0, first.z)).length();
+        }
+        let pairs = || path.iter().skip(start).zip(path.iter().skip(start + 1));
+        if flight {
+            return pairs().map(|(a, b)| {
+                let delta = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
+                let length = delta.length();
+                if length <= 1.0e-8 { 0.0 } else {
+                    ((b.x - pos.x) * delta.x + (b.z - pos.z) * delta.z).max(0.0) / length
+                }
+            }).sum();
+        }
+        let mut best_distance = f32::MAX;
+        let mut best_index = 0;
+        let mut best_t = 0.0;
+        for (index, (a, b)) in pairs().enumerate() {
+            let dx = b.x - a.x;
+            let dz = b.z - a.z;
+            let len2 = dx * dx + dz * dz;
+            let t = if len2 <= 1.0e-8 { 0.0 } else {
+                (((pos.x - a.x) * dx + (pos.z - a.z) * dz) / len2).clamp(0.0, 1.0)
+            };
+            let x = pos.x - (a.x + dx * t);
+            let z = pos.z - (a.z + dz * t);
+            let d2 = x * x + z * z;
+            if d2 < best_distance {
+                best_distance = d2;
+                best_index = index;
+                best_t = t;
+            }
+        }
+        let remaining: f32 = pairs().enumerate().skip(best_index).map(|(index, (a, b))| {
+            let length = ((b.x - a.x).powi(2) + (b.z - a.z).powi(2)).sqrt();
+            if index == best_index { (1.0 - best_t) * length } else { length }
+        }).sum();
+        let off = best_distance.sqrt();
+        if off > remaining && remaining > 1.0 { off } else { remaining }
+    }
+
     /// WaveGuideUpdate audio observes this object's admitted definition and
     /// updates only its runtime clock/latches. No template or RNG registry.
     pub(crate) fn tick_wave_guide_audio(
@@ -330,11 +379,7 @@ impl Object {
             let along = if self.movement.path.is_empty() {
                 straight
             } else {
-                let start = self.movement.current_path_index.saturating_sub(1);
-                crate::game_logic::PathfindingSystem::dist_along_path(
-                    current,
-                    &self.movement.path[start..],
-                )
+                Self::route_distance(&self.movement.path, self.movement.current_path_index.saturating_sub(1), current, false)
             };
             // C++ AIUpdate.cpp:2496-2499. Straight line is to the last node.
             // Short or shorter-than-straight remainders use that line.
@@ -351,10 +396,7 @@ impl Object {
         let flight = if self.movement.path.is_empty() {
             straight
         } else {
-            crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
-                current,
-                &self.movement.path[self.movement.current_path_index.saturating_sub(1)..],
-            )
+            Self::route_distance(&self.movement.path, self.movement.current_path_index.saturating_sub(1), current, true)
         };
         // C++ overwrites goalPos with the last node before dx/dy (AIUpdate.cpp:2475-2488).
         if flight * flight > straight * straight {

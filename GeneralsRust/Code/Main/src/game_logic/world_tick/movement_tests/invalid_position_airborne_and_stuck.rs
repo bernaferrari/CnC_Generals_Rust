@@ -100,7 +100,7 @@ fn close_enough_dist_plants_before_default_one() {
     let goal = Vec3::new(20.0, 0.0, 0.0);
     let mut unit = ranger_at(9712, start);
     unit.close_enough_dist = Some(25.0);
-    unit.movement.path = vec![start, goal];
+    unit.movement.set_path_coords(vec![start, goal]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(goal);
     unit.set_status_moving(true);
@@ -127,7 +127,7 @@ fn close_enough_ground_sanity_refuses_far_last_node() {
     let last = Vec3::new(80.0, 0.0, 0.0);
     let mut unit = ranger_at(9713, start);
     unit.close_enough_dist = Some(25.0);
-    unit.movement.path = vec![start, last];
+    unit.movement.set_path_coords(vec![start, last]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(last);
     unit.movement.max_speed = 1.0;
@@ -183,7 +183,7 @@ fn no_slow_down_does_not_latch_is_braking_after_path_raise() {
     jet.movement.max_speed = 30.0;
     jet.movement.acceleration = 10_000.0;
     jet.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
-    jet.movement.path = vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)];
+    jet.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)]);
     jet.movement.current_path_index = 1;
     jet.movement.target_position = Some(Vec3::new(200.0, 0.0, 0.0));
     logic.objects.insert(id, jet);
@@ -274,7 +274,7 @@ fn treat_as_airborne_still_plants_near_goal() {
     unit.ground_height = 0.0;
     unit.allow_motive_force_while_airborne = false;
     unit.close_enough_dist = Some(1.0);
-    unit.movement.path = vec![start, last];
+    unit.movement.set_path_coords(vec![start, last]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(last);
     unit.movement.max_speed = 40.0;
@@ -731,7 +731,7 @@ fn close_enough_dist_3d_does_not_plant_while_high() {
     dive.loco_appearance = LocomotorAppearance::Thrust;
     dive.movement.max_speed = 0.0;
     dive.movement.velocity = Vec3::ZERO;
-    dive.movement.path = vec![Vec3::new(0.0, 40.0, 0.0), Vec3::new(1.0, 0.0, 0.0)];
+    dive.movement.set_path_coords(vec![Vec3::new(0.0, 40.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]);
     dive.movement.current_path_index = 1;
     dive.movement.target_position = Some(Vec3::new(1.0, 0.0, 0.0));
     logic.objects.insert(id, dive);
@@ -758,11 +758,11 @@ fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
     let id = ObjectId(98301);
     let mut unit = ranger_at(98301, Vec3::new(5.0, 0.0, 5.0));
     bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
-    unit.movement.path = vec![
+    unit.movement.set_path_coords(vec![
         Vec3::new(5.0, 0.0, 5.0),
         Vec3::new(35.0, 0.0, 5.0),
         Vec3::new(95.0, 0.0, 5.0),
-    ];
+    ]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
     unit.set_locomotor_goal_position_on_path();
@@ -810,11 +810,11 @@ fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
     // branch must stay gated.
     {
         let obj = logic.objects.get_mut(&id).unwrap();
-        obj.movement.path = vec![
+        obj.movement.set_path_coords(vec![
             Vec3::new(5.0, 0.0, 5.0),
             Vec3::new(35.0, 0.0, 5.0),
             Vec3::new(95.0, 0.0, 5.0),
-        ];
+        ]);
         obj.movement.current_path_index = 1;
         obj.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
         obj.set_locomotor_goal_position_on_path();
@@ -864,11 +864,11 @@ fn blocked_not_jammed_unit_concedes_without_tunnel() {
     let id = ObjectId(98302);
     let mut unit = ranger_at(98302, Vec3::new(5.0, 0.0, 5.0));
     bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
-    unit.movement.path = vec![
+    unit.movement.set_path_coords(vec![
         Vec3::new(5.0, 0.0, 5.0),
         Vec3::new(35.0, 0.0, 5.0),
         Vec3::new(95.0, 0.0, 5.0),
-    ];
+    ]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
     unit.set_locomotor_goal_position_on_path();

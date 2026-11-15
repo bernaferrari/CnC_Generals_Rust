@@ -17,6 +17,69 @@ fn enqueue_closest_path_node(
 }
 
 impl PathfindingSystem {
+    /// Rebuild `prependCells` in goal-to-start order, retaining the raw cells.
+    fn secondary_route(
+        &self,
+        cells: Vec<(i32, i32, u8)>,
+        blocked_cells: &HashSet<(i32, i32, u8)>,
+        from: Vec3,
+        start_layer: u8,
+        center_in_cell: bool,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
+    ) -> PathRoute {
+        let short = cells.len() == 1;
+        let mut points = Vec::with_capacity(cells.len() + 1);
+        let mut layers = Vec::with_capacity(cells.len() + 1);
+        let mut flags: Vec<bool> = Vec::with_capacity(cells.len() + 1);
+        let mut previous: Option<((i32, i32, u8), bool)> = None;
+        let mut blocked = false;
+        for &(x, y, lid) in cells[usize::from(!short)..].iter().rev() {
+            let layer = PathfindLayerEnum::from_u32(lid as u32);
+            let cliff = self.grid.path_cell_on_layer(GridPos::new(x, y), layer).1
+                == PathfindCellType::Cliff;
+            if let Some((prev, prev_cliff)) = previous {
+                if (x, y) == (prev.0, prev.1) {
+                    *layers.last_mut().unwrap() = if layer == PathfindLayerEnum::Ground {
+                        prev.2
+                    } else {
+                        lid
+                    };
+                    continue;
+                }
+                if cliff && !prev_cliff {
+                    *flags.last_mut().unwrap() = false;
+                }
+            }
+            points.push(self.grid.adjust_coord_to_cell_on_layer(
+                GridPos::new(x, y), center_in_cell, layer, ground_source,
+            ));
+            layers.push(lid);
+            flags.push(!short && !(!cliff && previous.is_some_and(|(_, c)| c)));
+            if !short {
+                blocked |= blocked_cells.contains(&(x, y, lid));
+            }
+            previous = Some(((x, y, lid), cliff));
+        }
+        points.reverse();
+        layers.reverse();
+        flags.reverse();
+        if points.first().is_none_or(|point| point.x != from.x || point.z != from.z) {
+            points.insert(0, from);
+            layers.insert(0, start_layer);
+            flags.insert(0, false);
+        }
+        let mut route = self.grid.optimize_path_with_flags(
+            &points, &layers, &flags, surfaces, is_crusher, seeker_player,
+            crusher_level, ground_source,
+        );
+        route.blocked_by_ally = blocked;
+        route
+    }
+
     /// `aircraft`: apply C++ tall-building aircraft path-around residual after A*.
     pub fn find_path_ex(
         &mut self,
@@ -347,8 +410,7 @@ impl PathfindingSystem {
     pub fn patch_path(
         &mut self,
         from: Vec3,
-        original: &[Vec3],
-        original_layers: &[u8],
+        original: &PathRoute,
         surfaces: u32,
         is_crusher: bool,
         objects: HostObjectRead<'_>,
@@ -365,6 +427,12 @@ impl PathfindingSystem {
             self.grid.update_dynamic_obstacles(objects, ground_source);
         }
         self.bind_seeker_from_mover(objects, mover);
+        let original_blocked = original.blocked_by_ally;
+        let original_flags: Vec<_> = original.nodes.iter().map(|node| node.can_optimize).collect();
+        let original_layers: Vec<_> = original.nodes.iter().map(|node| {
+            node.layer.unwrap_or_else(|| self.grid.layer_for_destination(node.position, ground_source) as u8)
+        }).collect();
+        let original: Vec<_> = original.nodes.iter().map(|node| node.position).collect();
         if original.len() < 2 {
             return None;
         }
@@ -464,9 +532,8 @@ impl PathfindingSystem {
                 }
             }
         }
-        let mut prefix = prefix?;
-
-        let end = prefix.points.last().copied().unwrap_or(goal_pos);
+        let prefix = prefix?;
+        let end = prefix.last().copied().unwrap_or(goal_pos);
         let mut match_idx = None;
         for idx in ((start_node_idx + 1)..original.len()).rev() {
             let p = original[idx];
@@ -482,31 +549,40 @@ impl PathfindingSystem {
             }
         }
         let match_idx = match_idx.unwrap_or(original.len() - 1);
-        if let Some(last) = prefix.points.last() {
+        let mut points: Vec<_> = prefix.nodes.iter().map(|node| node.position).collect();
+        let mut layers: Vec<_> = prefix.nodes.iter().map(|node| {
+            node.layer.unwrap_or_else(|| self.grid.layer_for_destination(node.position, ground_source) as u8)
+        }).collect();
+        let mut flags: Vec<_> = prefix.nodes.iter().map(|node| node.can_optimize).collect();
+        if let Some(last) = points.last() {
             let m = original[match_idx];
             if (last.x - m.x).abs() < 0.5 && (last.z - m.z).abs() < 0.5 {
-                prefix.points.pop();
-                prefix.layers.pop();
+                points.pop();
+                layers.pop();
+                flags.pop();
             }
         }
-        prefix.points.extend_from_slice(&original[match_idx..]);
-        prefix.layers.extend((match_idx..original.len()).map(|idx| {
+        points.extend_from_slice(&original[match_idx..]);
+        layers.extend((match_idx..original.len()).map(|idx| {
             original_layers.get(idx).copied()
                 .unwrap_or_else(|| self.grid.layer_for_destination(original[idx], ground_source) as u8)
         }));
-        let (points, layers) = self.grid.optimize_path_ex_layered(
-            &prefix.points,
-            &prefix.layers,
+        flags.extend_from_slice(&original_flags[match_idx..]);
+        let mut route = self.grid.optimize_path_with_flags(
+            &points,
+            &layers,
+            &flags,
             surfaces,
             is_crusher,
             self.seeker_player,
             crusher_level,
             ground_source,
         );
-        if points.is_empty() {
+        route.blocked_by_ally = original_blocked || prefix.blocked_by_ally;
+        if route.is_empty() {
             None
         } else {
-            Some(PathRoute { points, layers })
+            Some(route)
         }
     }
 
@@ -520,7 +596,7 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
         other: ObjectId,
-    ) -> Option<Vec<Vec3>> {
+    ) -> Option<PathRoute> {
         let unit = objects.lookup(&mover).filter(|unit| unit.is_alive())?;
         let from = unit.get_position();
         let surfaces = if unit.locomotor_surfaces != 0 {
@@ -610,6 +686,7 @@ impl PathfindingSystem {
         let mut next_order = 0u64;
         let mut costs: HashMap<SearchCell, i32> = HashMap::new();
         let mut parents: HashMap<SearchCell, SearchCell> = HashMap::new();
+        let mut blocked_cells = HashSet::new();
         let mut closed: HashSet<SearchCell> = HashSet::new();
         open.push(std::cmp::Reverse((
             0,
@@ -780,6 +857,11 @@ impl PathfindingSystem {
                 let ng = g + step;
                 costs.insert(nkey, ng);
                 parents.insert(nkey, key);
+                if !self.seeker_can_path_through_units
+                    && footprint.blocked_by_ally(&self.grid, n, layer)
+                {
+                    blocked_cells.insert(nkey);
+                }
                 open.push(std::cmp::Reverse((
                     ng,
                     next_order,
@@ -801,47 +883,18 @@ impl PathfindingSystem {
                 }
             }
         }
-        let mut cells = Vec::new();
+        let mut cells = vec![key];
         while let Some(&parent) = parents.get(&key) {
-            cells.push(key);
             key = parent;
+            cells.push(key);
         }
         cells.reverse();
-        if cells.is_empty() {
-            // C++ prependCells emits the adjusted start cell for a short path.
-            cells.push(key);
+        if cells.len() == 1 {
+            cells[0] = (root_index.x, root_index.y, start_layer as u8);
         }
-        let mut path = vec![from];
-        for (x, y, lid) in cells {
-            let pos = if (x, y, lid) == start_key {
-                root_index
-            } else {
-                GridPos::new(x, y)
-            };
-            let layer = PathfindLayerEnum::from_u32(lid as u32);
-            let mut world = self.grid.grid_to_world_on_layer(pos, layer, ground_source);
-            let offset = if center_in_cell { 0.5 } else { 0.05 } * cell;
-            world.x += offset;
-            world.z += offset;
-            world.y = self
-                .grid
-                .layer_world_height(pos, layer, world.x, world.z, ground_source);
-            if path
-                .last()
-                .is_some_and(|last| last.x == world.x && last.z == world.z)
-            {
-                *path.last_mut().unwrap() = world;
-            } else {
-                path.push(world);
-            }
-        }
-        Some(self.grid.optimize_path_ex(
-            &path,
-            surfaces,
-            is_crusher,
-            seeker_player,
-            crusher_level,
-            ground_source,
+        Some(self.secondary_route(
+            cells, &blocked_cells, from, start_layer as u8, center_in_cell,
+            surfaces, is_crusher, seeker_player, crusher_level, ground_source,
         ))
     }
 
@@ -939,6 +992,7 @@ impl PathfindingSystem {
         let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
         let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
         let mut parents: HashMap<(i32, i32, u8), (i32, i32, u8)> = HashMap::new();
+        let mut blocked_cells = HashSet::new();
         open.push(std::cmp::Reverse((0, 0, start.x, start.y, start_lid)));
         g_score.insert((start.x, start.y, start_lid), 0);
         let mut farthest_distance_sqr = 0.0f32;
@@ -1036,6 +1090,11 @@ impl PathfindingSystem {
                 let ng = g + step + occupied_cost;
                 g_score.insert(nkey, ng);
                 parents.insert(nkey, key);
+                if !self.seeker_can_path_through_units
+                    && footprint.blocked_by_ally(&self.grid, nc, layer)
+                {
+                    blocked_cells.insert(nkey);
+                }
                 open.push(std::cmp::Reverse((
                     ng,
                     next_order,
@@ -1058,43 +1117,16 @@ impl PathfindingSystem {
                 }
             }
         }
-        let mut cells = Vec::new();
+        let mut cells = vec![key];
         while let Some(&parent) = parents.get(&key) {
-            cells.push(key);
             key = parent;
+            cells.push(key);
         }
         cells.reverse();
-        if cells.is_empty() {
-            cells.push(key);
-        }
-        let mut path = vec![from];
-        let mut layers = vec![start_lid];
-        for (x, y, layer) in cells {
-            let position = self.grid.adjust_coord_to_cell_on_layer(
-                GridPos::new(x, y),
-                center_in_cell,
-                PathfindLayerEnum::from_u32(layer as u32),
-                ground_source,
-            );
-            if path
-                .last()
-                .is_some_and(|last| last.x == position.x && last.z == position.z && layers.last() == Some(&layer))
-            {
-                continue;
-            }
-            path.push(position);
-            layers.push(layer);
-        }
-        let (points, layers) = self.grid.optimize_path_ex_layered(
-            &path,
-            &layers,
-            surfaces,
-            is_crusher,
-            seeker_player,
-            crusher_level,
-            ground_source,
-        );
-        Some(PathRoute { points, layers })
+        Some(self.secondary_route(
+            cells, &blocked_cells, from, start_lid, center_in_cell,
+            surfaces, is_crusher, seeker_player, crusher_level, ground_source,
+        ))
     }
 
     /// C++ `Pathfinder::findClosestPath` (AIPathfind.cpp:8739+).
@@ -1182,6 +1214,7 @@ impl PathfindingSystem {
         let mut next_enqueue_order = 0u64;
         let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
         let mut parents: HashMap<(i32, i32, u8), (i32, i32, u8)> = HashMap::new();
+        let mut blocked_cells = HashSet::new();
         let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
         // Leftover goal accept honors canPathThroughUnits (per-pop C++ check).
         let goal_accept_ok = self.seeker_can_path_through_units
@@ -1383,6 +1416,7 @@ impl PathfindingSystem {
                     closed.remove(&to_key);
                     g_score.insert(to_key, new_cost);
                     parents.insert(to_key, from_key);
+                    blocked_cells.remove(&to_key);
                     enqueue_closest_path_node(
                         &mut open,
                         &mut next_enqueue_order,
@@ -1446,6 +1480,11 @@ impl PathfindingSystem {
                 examined_cells += 1;
                 g_score.insert(nkey, ng);
                 parents.insert(nkey, key);
+                if !self.seeker_can_path_through_units
+                    && footprint.blocked_by_ally(&self.grid, nc, layer)
+                {
+                    blocked_cells.insert(nkey);
+                }
                 let f = ng + if tunnel { 0 } else { heuristic(nc) };
                 enqueue_closest_path_node(
                     &mut open,
@@ -1480,35 +1519,10 @@ impl PathfindingSystem {
             cells.push(cursor);
         }
         cells.reverse();
-        let skip_start = usize::from(cells.len() > 1);
-        let mut path = Vec::with_capacity(cells.len() + 1);
-        let mut layers = Vec::with_capacity(cells.len() + 1);
-        for (x, y, layer) in cells.into_iter().skip(skip_start) {
-            path.push(self.grid.adjust_coord_to_cell_on_layer(
-                GridPos::new(x, y),
-                center_in_cell,
-                PathfindLayerEnum::from_u32(layer as u32),
-                ground_source,
-            ));
-            layers.push(layer);
-        }
-        if path
-            .first()
-            .is_some_and(|point| point.x != from.x || point.z != from.z)
-        {
-            path.insert(0, from);
-            layers.insert(0, start_lid);
-        }
-        let (path, layers) = self.grid.optimize_path_ex_layered(
-            &path,
-            &layers,
-            surfaces,
-            is_crusher,
-            seeker_player,
-            self.seeker_crusher_level,
-            ground_source,
-        );
-        Some(PathRoute { points: path, layers })
+        Some(self.secondary_route(
+            cells, &blocked_cells, from, start_lid, center_in_cell,
+            surfaces, is_crusher, seeker_player, self.seeker_crusher_level, ground_source,
+        ))
     }
 
     /// C++ `adjustDestination(..., groupDest)` for ground group members.
@@ -1690,6 +1704,99 @@ impl PathfindingSystem {
             }
         }
         on_path
+    }
+
+    /// Follow optimized links while retaining the selected node's raw predecessor.
+    pub fn compute_point_on_route_for(
+        pos: Vec3,
+        route: &PathRoute,
+        start_ordinal: usize,
+        grid: Option<&PathfindingGrid>,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore_obstacle: Option<u32>,
+        receiver: Option<LineReceiver<'_>>,
+    ) -> (Vec3, usize, Option<u8>) {
+        let Some(mut raw) = route.raw_index(start_ordinal) else {
+            return (pos, start_ordinal, None);
+        };
+        let initial_layer = route.nodes.first().and_then(|node| node.layer)
+            .or_else(|| receiver.map(|r| r.mover.pathfind_layer));
+        let mut best = None;
+        let mut ordinal = start_ordinal;
+        while let Some(next) = route.nodes[raw].next_optimized {
+            let a = route.nodes[raw].position;
+            let b = route.nodes[next].position;
+            let (sx, sz) = (b.x - a.x, b.z - a.z);
+            let len2 = sx * sx + sz * sz;
+            let projected = if len2 <= 1.0e-8 { 0.0 } else {
+                ((pos.x - a.x) * sx + (pos.z - a.z) * sz) / len2
+            };
+            if projected > 1.0 && route.nodes[next].next_optimized.is_some() {
+                raw = next;
+                ordinal += 1;
+                continue;
+            }
+            let t = projected.clamp(0.0, 1.0);
+            let d2 = (pos.x - a.x - sx * t).powi(2) + (pos.z - a.z - sz * t).powi(2);
+            if best.as_ref().is_none_or(|(_, _, _, _, distance)| d2 < *distance) {
+                best = Some((raw, next, ordinal, t, d2));
+            }
+            raw = next;
+            ordinal += 1;
+        }
+        let Some((close, next_index, ordinal, t, d2)) = best else {
+            return (route.nodes[raw].position, start_ordinal, initial_layer);
+        };
+        let a_node = &route.nodes[close];
+        let b_node = &route.nodes[next_index];
+        let mut layer = initial_layer;
+        if close.checked_sub(1).and_then(|i| route.nodes[i].layer).is_some_and(|l| l > 1) {
+            layer = a_node.layer;
+        }
+        if a_node.layer.is_some_and(|l| l > 1) { layer = a_node.layer; }
+        if b_node.layer.is_some_and(|l| l > 1) { layer = b_node.layer; }
+        let (a, next) = (a_node.position, b_node.position);
+        let (sx, sz) = (next.x - a.x, next.z - a.z);
+        let length = (sx * sx + sz * sz).sqrt();
+        let along = t * length;
+        let k = (d2.sqrt() / (3.0 * grid.map_or(10.0, |g| g.grid_size()))).clamp(0.0, 1.0);
+        let line_ok = |to: Vec3, layer: Option<u8>| grid.is_none_or(|g| {
+            layer.or(initial_layer).is_some_and(|layer| g.line_passable_for_receiver_on_layer(
+                g.world_to_grid(pos), g.world_to_grid(to), surfaces, is_crusher,
+                ignore_obstacle, receiver, PathfindLayerEnum::from_u32(layer as u32),
+            ))
+        });
+        let result = if line_ok(next, layer) {
+            let remaining = length - along;
+            let mut try_ahead = t > 0.5 && b_node.can_optimize
+                && a_node.layer == b_node.layer
+                && receiver.is_none_or(|r| r.mover.pathfind_layer == 1);
+            if remaining < 1.0 { try_ahead = true; }
+            if let Some(ahead) = b_node.next_optimized.filter(|_| try_ahead) {
+                let p = route.nodes[ahead].position;
+                let mid = Vec3::new((next.x + p.x) * 0.5, next.y, (next.z + p.z) * 0.5);
+                if remaining < 1.0 || line_ok(mid, b_node.layer) { mid } else { next }
+            } else { next }
+        } else {
+            let candidate = if k > 0.5 && length > 1.0e-6 {
+                let fraction = ((along + 0.5 * (length - along)) / length).clamp(0.0, 1.0);
+                Some(Vec3::new(a.x + sx * fraction, a.y, a.z + sz * fraction))
+            } else { None };
+            if let Some(mid) = candidate.filter(|p| line_ok(*p, layer)) {
+                mid
+            } else {
+                let forward = along + (1.0 - k) * (length - along);
+                if forward > length { next } else {
+                    let fraction = if length > 1.0e-6 { forward / length } else { 0.0 };
+                    let point = Vec3::new(a.x + sx * fraction, a.y, a.z + sz * fraction);
+                    if (pos.x - point.x).abs() < 1.0 && (pos.z - point.z).abs() < 1.0 {
+                        b_node.next_optimized.map_or(point, |i| route.nodes[i].position)
+                    } else { point }
+                }
+            }
+        };
+        (result, ordinal, layer)
     }
 
     /// C++ `Path::computePointOnPath` `distAlongPath` (AIPathfind.cpp:997).
@@ -1946,7 +2053,7 @@ mod closest_path_ignored_footprint_tests {
             )
             .expect("ordinary closest path can stop beside the target");
         assert_ne!(
-            system.grid.world_to_grid(*without_ignore.points.last().unwrap()),
+            system.grid.world_to_grid(*without_ignore.last().unwrap()),
             goal_cell,
             "without ignoreObstacle, closest path must stop outside the victim"
         );
@@ -1970,13 +2077,12 @@ mod closest_path_ignored_footprint_tests {
         // the raw requested point.
         assert_eq!(
             through_victim
-                .points
                 .last()
                 .map(|point| system.grid.world_to_grid(*point)),
             Some(goal_cell),
             "contact closest path must reach the registered victim cell"
         );
-        assert!(through_victim.points.iter().any(|point| {
+        assert!(through_victim.iter().any(|point| {
             system
                 .grid
                 .obstacle_owner(system.grid.world_to_grid(*point))

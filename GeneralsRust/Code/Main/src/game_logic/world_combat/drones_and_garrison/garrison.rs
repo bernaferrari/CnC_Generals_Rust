@@ -1448,7 +1448,7 @@ impl GameLogic {
                     if let Some(rally_point) = rally {
                         path.push(rally_point);
                     }
-                    unit.movement.path = path;
+                    unit.movement.set_path_coords(path);
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(door_end);
                 } else {
@@ -1459,7 +1459,7 @@ impl GameLogic {
                         self.frame,
                         &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                     );
-                    unit.movement.path = vec![start, door_end];
+                    unit.movement.set_path_coords(vec![start, door_end]);
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(door_end);
                 }
@@ -1499,6 +1499,7 @@ impl GameLogic {
                 }
             }
         }
+        self.resolve_installed_path_layers(unit_id);
         // C++ updateGoal is inside the numberExits > 0 path (OpenContain.cpp:1016).
         if !skip_follow {
             self.register_path_goal(unit_id, door_end);

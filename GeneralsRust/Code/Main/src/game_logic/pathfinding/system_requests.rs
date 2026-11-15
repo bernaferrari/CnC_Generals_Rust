@@ -703,12 +703,12 @@ impl PathfindingSystem {
                 ground_source,
             );
             if from_pos.x == cell_pos.x && from_pos.z == cell_pos.z {
-                return Some(PathRoute { points: vec![cell_pos], layers: vec![start_layer as u8] });
+                return Some(PathRoute::from_layered(vec![cell_pos], vec![start_layer as u8]));
             }
-            return Some(PathRoute {
-                points: vec![from_pos, cell_pos],
-                layers: vec![start_layer as u8, start_layer as u8],
-            });
+            return Some(PathRoute::from_layered(
+                vec![from_pos, cell_pos],
+                vec![start_layer as u8, start_layer as u8],
+            ));
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
@@ -804,6 +804,12 @@ impl PathfindingSystem {
                     footprint.line_seed_clear(&self.grid, GridPos::new(c.x, c.y), from_layer)
                 })
             };
+            let blocked_by_ally = |c: GridCoord, layer: PathfindLayerEnum| {
+                !self.seeker_can_path_through_units
+                    && line_footprint.as_ref().is_some_and(|footprint| {
+                        footprint.blocked_by_ally(&self.grid, GridPos::new(c.x, c.y), layer)
+                    })
+            };
             let ground_h = |c: GridCoord| {
                 let w = self
                     .grid
@@ -836,6 +842,7 @@ impl PathfindingSystem {
                     start_is_obstacle,
                     Some(&cell_allowed as &dyn Fn(GridCoord) -> bool),
                     dozer_ok_ref,
+                    Some(&blocked_by_ally),
                 )
             };
 
@@ -846,32 +853,55 @@ impl PathfindingSystem {
         };
         self.note_cells_allocated(examined);
         if let Some(cells) = exact_path {
-            // C++ prependCells skips the terminal A* cell occupied by the
-            // unit and prepends the actual fromPos before Path::optimize.
-            // Optimizing from the snapped start and replacing it afterward
-            // can make the optimizer accept a segment that crosses an obstacle.
-            let (mut world, mut layers) = self.crate_path_to_world_layered(
-                cells.get(1..).unwrap_or_default(),
-                ground_source,
-            );
-            if world
-                .first()
-                .is_none_or(|first| first.x != from_pos.x || first.z != from_pos.z)
-            {
-                world.insert(0, from_pos);
-                // fromPos keeps the search start layer (C++ prependNode layer).
-                layers.insert(0, start_layer as u8);
+            // C++ prependCells walks goal-to-start, collapses same-cell layer
+            // transitions, and pins the non-cliff side of each cliff boundary.
+            let mut world = Vec::with_capacity(cells.len() + 1);
+            let mut layers = Vec::with_capacity(cells.len() + 1);
+            let mut flags: Vec<bool> = Vec::with_capacity(cells.len() + 1);
+            let mut previous = None;
+            let mut blocked = false;
+            for cell in cells.iter().skip(1).rev() {
+                if let Some(prev) = previous {
+                    let prev: &gamelogic::ai::pathfind_astar::SearchPathNode = prev;
+                    if cell.coord == prev.coord {
+                        let layer = if cell.layer == PathfindLayerEnum::Ground { prev.layer } else { cell.layer };
+                        *layers.last_mut().expect("transition has a preceding node") = layer as u8;
+                        continue;
+                    }
+                    if cell.is_cliff && !prev.is_cliff {
+                        *flags.last_mut().expect("cliff boundary has a preceding node") = false;
+                    }
+                }
+                let can_optimize = !(!cell.is_cliff && previous.is_some_and(|prev| prev.is_cliff));
+                world.push(self.grid.adjust_coord_to_cell_on_layer(
+                    GridPos::new(cell.coord.x, cell.coord.y),
+                    self.seeker_center_in_cell, cell.layer, ground_source,
+                ));
+                layers.push(cell.layer as u8);
+                flags.push(can_optimize);
+                blocked |= cell.blocked_by_ally;
+                previous = Some(cell);
             }
-            let (world, layers) = self.grid.optimize_path_ex_layered(
+            world.reverse();
+            layers.reverse();
+            flags.reverse();
+            if world.first().is_none_or(|first| first.x != from_pos.x || first.z != from_pos.z) {
+                world.insert(0, from_pos);
+                layers.insert(0, start_layer as u8);
+                flags.insert(0, false);
+            }
+            let mut route = self.grid.optimize_path_with_flags(
                 &world,
                 &layers,
+                &flags,
                 surfaces,
                 is_crusher,
                 self.seeker_player,
                 crusher_level,
                 ground_source,
             );
-            return Some(PathRoute { points: world, layers });
+            route.blocked_by_ally = blocked;
+            return Some(route);
         }
         // C++ Pathfinder::findPath (AIPathfind.cpp:6364-6436) returns NULL
         // when internalFindPath fails. Its caller AIUpdateInterface::computePath

@@ -431,6 +431,7 @@ impl GameLogic {
                     unit.set_status_moving(true);
                     {}
                 }
+                self.resolve_installed_path_layers(uid);
                 self.register_path_goal(uid, door_end);
             }
         }

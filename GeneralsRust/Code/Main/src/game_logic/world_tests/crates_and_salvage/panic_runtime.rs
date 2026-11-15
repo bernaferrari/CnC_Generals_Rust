@@ -545,7 +545,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     let unit = logic.objects.get_mut(&PANIC_UNIT).unwrap();
     unit.panic_runtime.as_mut().unwrap().current_waypoint_id = WAYPOINT_NEXT;
     let current = unit.get_position();
-    unit.movement.path = vec![current];
+    unit.movement.set_path_coords(vec![current]);
     unit.movement.current_path_index = 0;
     unit.movement.target_position = None;
     unit.waiting_for_path = false;
@@ -602,8 +602,8 @@ fn panic_arrival_uses_selected_locomotor_close_enough_distance() {
     unit.path_extra_distance = 0.0;
     unit.panic_runtime.as_mut().unwrap().timer = 5;
     unit.panic_runtime.as_mut().unwrap().append_goal_position = false;
-    unit.movement.path =
-        vec![unit.get_position() + Vec3::new(binding.close_enough_dist + 0.25, 0.0, 0.0)];
+    let destination = unit.get_position() + Vec3::new(binding.close_enough_dist + 0.25, 0.0, 0.0);
+    unit.movement.set_path_coords(vec![destination]);
     unit.movement.current_path_index = 0;
     unit.movement.target_position = None;
     unit.waiting_for_path = false;

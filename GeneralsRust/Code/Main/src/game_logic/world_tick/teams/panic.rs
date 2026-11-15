@@ -358,6 +358,7 @@ impl GameLogic {
                 } else {
                     false
                 };
+                self.resolve_installed_path_layers(id);
                 if appended {
                     panic.append_goal_position = false;
                     if let Some(unit) = self.objects.get_mut(&id) {

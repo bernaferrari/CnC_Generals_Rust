@@ -281,26 +281,32 @@ fn live_team_move_preserves_a_formed_multi_unit_roster_and_speed() {
         second.movement.path.last(),
         "members retain their distinct formation endpoints"
     );
+    let (origin, _) = world.world_bounds();
+    let cell = |point: glam::Vec3| {
+        let size = gamelogic::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        (((point.x - origin.x) / size) as i32, ((point.z - origin.z) / size) as i32)
+    };
+    let line_blocked = |from: glam::Vec3, to: glam::Vec3| {
+        let start = cell(from);
+        let mut blocked = world.is_pathfinding_static_blocked(start.0, start.1);
+        if start == cell(to) { return blocked; }
+        gamelogic::ai::pathfind_astar::visit_cell_line(start, cell(to), |_, next| {
+            blocked |= world.is_pathfinding_static_blocked(next.0, next.1);
+            !blocked
+        });
+        blocked
+    };
     for (unit, start) in [
         (first, glam::Vec3::new(100.0, 0.0, 100.0)),
         (second, glam::Vec3::new(115.0, 0.0, 100.0)),
     ] {
-        let traveled: f32 = unit
-            .movement
-            .path
-            .windows(2)
-            .map(|pair| (pair[1] - pair[0]).length())
-            .sum::<f32>()
-            + unit
-                .movement
-                .path
-                .first()
-                .map(|first| (*first - start).length())
-                .unwrap_or(0.0);
-        assert!(
-            traveled > (unit.requested_destination.unwrap() - start).length() * 1.1,
-            "formed route should detour around the static wall: {traveled}"
-        );
+        let goal = unit.requested_destination.unwrap();
+        assert!(line_blocked(start, goal), "fixture must block the direct route");
+        let route = unit.movement.path.coords();
+        assert!(route.last().is_some_and(|last| last.distance(goal) <= 10.0));
+        for (from, to) in std::iter::once(&start).chain(route.iter()).zip(route.iter()) {
+            assert!(!line_blocked(*from, *to), "formed route crosses a blocked cell: {from:?} -> {to:?}");
+        }
     }
 }
 

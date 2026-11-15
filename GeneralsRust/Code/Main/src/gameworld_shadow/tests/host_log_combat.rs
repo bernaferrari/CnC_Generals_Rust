@@ -25,7 +25,7 @@ fn canonical_movement_is_projected_from_receiving_owner() {
         let o = logic.host_object_mut(oid).expect("o");
         o.movement.velocity = Vec3::new(3.0, 0.0, 4.0);
         o.movement.max_speed = 12.5;
-        o.movement.path = vec![Vec3::new(1.0, 0.0, 1.0), Vec3::new(2.0, 0.0, 2.0)];
+        o.movement.set_path_coords(vec![Vec3::new(1.0, 0.0, 1.0), Vec3::new(2.0, 0.0, 2.0)]);
         o.movement.current_path_index = 1;
     }
     let mut shadow = GameWorldShadow::new(64);

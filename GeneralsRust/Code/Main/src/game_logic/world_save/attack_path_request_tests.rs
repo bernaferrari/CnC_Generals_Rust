@@ -146,14 +146,14 @@ fn attack_request_loaded_admission_preserves_old_path_until_resolution() {
     let goal = Vec3::new(80.0, 0.0, 0.0);
     let mut world = world(true, goal);
     let old = vec![Vec3::ZERO, Vec3::new(0.0, 0.0, 20.0)];
-    world.objects.get_mut(&ATTACKER).unwrap().movement.path = old.clone();
+    world.objects.get_mut(&ATTACKER).unwrap().movement.set_path_coords(old.clone());
     assert!(
         world
             .request_attack_path(ATTACKER, Some(VICTIM), goal)
             .expect("valid attack request fixture")
     );
     let unit = &world.objects[&ATTACKER];
-    assert_eq!(unit.movement.path, old);
+    assert_eq!(unit.movement.path.coords(), old);
     assert!(unit.waiting_for_path);
     assert!(unit.is_attack_path);
     assert_eq!(unit.requested_victim_id, Some(VICTIM));
@@ -398,7 +398,7 @@ fn attack_request_loaded_contact_approach_waits_for_owned_search_phase() {
             can_target_ground: true,
             ..Default::default()
         });
-        unit.movement.path = old.clone();
+        unit.movement.set_path_coords(old.clone());
         assert!(
             world
                 .attack_approach_compute_path(ATTACKER, Some(VICTIM), None)
@@ -408,7 +408,7 @@ fn attack_request_loaded_contact_approach_waits_for_owned_search_phase() {
         assert!(unit.waiting_for_path);
         assert!(unit.is_attack_path);
         assert_eq!(unit.requested_victim_id, Some(VICTIM));
-        assert_eq!(unit.movement.path, old);
+        assert_eq!(unit.movement.path.coords(), old);
         assert_eq!(world.pathfinding_system.pending_path_count(), 1);
         resolve(&mut world);
         let unit = &world.objects[&ATTACKER];

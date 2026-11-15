@@ -1536,7 +1536,7 @@ impl Object {
         self.is_exact_path = false;
         self.can_path_through_units = false;
         self.set_locomotor_goal_position_on_path();
-        self.movement.path = vec![start, destination];
+        self.movement.set_path_coords(vec![start, destination]);
         self.movement.current_path_index = 1;
         self.movement.target_position = Some(destination);
         self.refresh_follow_path_extra_distance();
@@ -1725,7 +1725,7 @@ impl Object {
     /// Sets waiting_for_path briefly, installs single-waypoint path to dest.
     /// Full Pathfinder A* is applied by GameLogic when grid is available.
     pub fn request_path(&mut self, destination: glam::Vec3, waypoints: Option<Vec<glam::Vec3>>) {
-        self.request_path_inner(destination, waypoints, None);
+        self.request_path_inner(destination, waypoints.map(crate::game_logic::pathfinding::PathRoute::from_coords), None);
     }
 
     pub(crate) fn request_path_at_frame(
@@ -1734,24 +1734,23 @@ impl Object {
         route: crate::game_logic::pathfinding::PathRoute,
         frame: u32,
     ) {
-        self.request_path_inner(destination, Some(route.points), Some(frame));
-        self.movement.path_layers = route.layers;
+        self.request_path_inner(destination, Some(route), Some(frame));
     }
 
     fn request_path_inner(
         &mut self,
         destination: glam::Vec3,
-        waypoints: Option<Vec<glam::Vec3>>,
+        waypoints: Option<crate::game_logic::pathfinding::PathRoute>,
         frame: Option<u32>,
     ) {
         self.waiting_for_path = true;
         self.queue_for_path_frame = 0;
         self.maintain_pos_valid = false;
-        if let Some(mut wps) = waypoints {
-            if wps.is_empty() {
-                wps.push(destination);
+        if let Some(mut route) = waypoints {
+            if route.is_empty() {
+                route.push(destination);
             }
-            self.movement.set_path_coords(wps);
+            self.movement.path = route;
         } else {
             self.movement.set_path_coords(vec![destination]);
         }

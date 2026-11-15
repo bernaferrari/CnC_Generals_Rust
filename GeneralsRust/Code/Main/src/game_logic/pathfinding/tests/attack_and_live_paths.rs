@@ -183,7 +183,7 @@ fn attack_path_checks_the_live_attackers_full_destination_footprint() {
     let path = system.find_attack_firing_position(
         start, Vec3::new(150.0, 0.0, 50.0), 130.0, objects.read(),
         false, Some(ObjectId(1)), &ground,
-    ).expect("a firing position exists around the obstacle").points;
+    ).expect("a firing position exists around the obstacle").coords();
     let end = *path.last().unwrap();
     let (radius, center) = PathfindingGrid::radius_and_center(15.0, system.grid.grid_size());
     assert!(system.grid.check_destination_for_object(
@@ -246,7 +246,7 @@ fn find_attack_path_circles_ridge_to_clear_shot() {
             Some(ObjectId(1)),
             &ground_source,
         )
-        .expect("must find a terrain-clear firing cell").points;
+        .expect("must find a terrain-clear firing cell").coords();
     let goal = *path.last().unwrap();
     let atk = objects.get(&ObjectId(1)).unwrap();
     let tgt = objects.get(&ObjectId(2)).unwrap();
@@ -397,7 +397,7 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
     );
     if let Some(p) = path {
         let ally_cell = sys.grid.world_to_grid(Vec3::new(70.0, 0.0, 50.0));
-        let end = sys.grid.world_to_grid(*p.points.last().unwrap());
+        let end = sys.grid.world_to_grid(*p.last().unwrap());
         assert_ne!(
             end, ally_cell,
             "vehicle strip-back must not park on the busy ally, path={p:?}"
@@ -494,7 +494,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
             objects.read(),
             ObjectId(1),
         )
-        .expect("closest without tunnel").points;
+        .expect("closest without tunnel").coords();
     let without_cell = sys.grid.world_to_grid(*without.last().unwrap());
     assert_ne!(
         without_cell, goal,
@@ -522,7 +522,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
             objects.read(),
             ObjectId(1),
         )
-        .expect("closest with tunnel").points;
+        .expect("closest with tunnel").coords();
     let with_cell = sys.grid.world_to_grid(*with.last().unwrap());
     assert_eq!(
         with_cell, goal,
@@ -557,7 +557,7 @@ fn find_closest_path_does_not_cut_through_building() {
             super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
-        .expect("closest path").points;
+        .expect("closest path").coords();
     let crosses = path
         .iter()
         .any(|p| sys.grid.cell_type(sys.grid.world_to_grid(*p)) == PathfindCellType::Impassable);
@@ -610,7 +610,7 @@ fn find_closest_path_hops_connect_layer_onto_deck() {
             super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
-        .expect("closest onto deck").points;
+        .expect("closest onto deck").coords();
     let end = *path.last().expect("end");
     let end_layer = sys.grid.layer_for_destination(
         Vec3::new(end.x, end.y.max(20.0), end.z),
@@ -764,7 +764,7 @@ fn ignore_obstacle_walks_through_owned_footprint() {
         blocked.is_none()
             || blocked
                 .as_ref()
-                .is_some_and(|p| { !p.points.iter().any(|wp| sys.grid.world_to_grid(*wp).x == 5) }),
+                .is_some_and(|p| { !p.coords().iter().any(|wp| sys.grid.world_to_grid(*wp).x == 5) }),
         "without ignore, factory footprint stays a wall"
     );
     let crosses_owned_footprint = |grid: &PathfindingGrid, path: &[Vec3]| {
@@ -785,7 +785,7 @@ fn ignore_obstacle_walks_through_owned_footprint() {
     assert!(
         !blocked
             .as_ref()
-            .is_some_and(|path| crosses_owned_footprint(&sys.grid, &path.points)),
+            .is_some_and(|path| crosses_owned_footprint(&sys.grid, &path.coords())),
         "without ignore, no optimized segment may cut through the owned footprint: {blocked:?}"
     );
 
@@ -801,7 +801,7 @@ fn ignore_obstacle_walks_through_owned_footprint() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("ignoreObstacle must walk the ignored footprint").points;
+        .expect("ignoreObstacle must walk the ignored footprint").coords();
     assert!(
         crosses_owned_footprint(&sys.grid, &through),
         "an optimized segment must cross the ignored CELL_OBSTACLE footprint, path={through:?}"
@@ -1031,7 +1031,7 @@ fn aircraft_path_first_node_uses_dest_altitude() {
             None,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("aircraft two-node path").points;
+        .expect("aircraft two-node path").coords();
     assert_eq!(path.len(), 2);
     assert!(
         (path[0].x - start.x).abs() < 0.01 && (path[0].z - start.z).abs() < 0.01,
@@ -1067,7 +1067,7 @@ fn aircraft_path_first_node_uses_dest_altitude() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("wings path").points;
+        .expect("wings path").coords();
     assert!(
         (detoured[0].y - goal.y).abs() < 0.01,
         "first node stays dest altitude after detour, got {}",
@@ -1177,7 +1177,7 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("infantry path").points;
+        .expect("infantry path").coords();
     assert!(inf_path.len() >= 2);
     assert!(
         (inf_path[0].x - start.x).abs() < 0.01 && (inf_path[0].z - start.z).abs() < 0.01,
@@ -1215,7 +1215,7 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
             Some(ObjectId(2)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("vehicle path").points;
+        .expect("vehicle path").coords();
     assert!(veh_path.len() >= 2);
     for p in &veh_path[1..] {
         let cell = sys.grid.world_to_grid(*p);
@@ -1272,8 +1272,7 @@ fn patch_path_skips_occupied_ally_waypoints() {
     assert!(
         sys.patch_path(
             from,
-            &[from, mid, dest],
-            &[PathfindLayerEnum::Ground as u8; 3],
+            &PathRoute::from_layered(vec![from, mid, dest], vec![PathfindLayerEnum::Ground as u8; 3]),
             SURFACE_GROUND,
             false,
             objects.read(),
@@ -1289,15 +1288,14 @@ fn patch_path_skips_occupied_ally_waypoints() {
     let patched = sys
         .patch_path(
             from,
-            &[from, mid, dest],
-            &[PathfindLayerEnum::Ground as u8; 3],
+            &PathRoute::from_layered(vec![from, mid, dest], vec![PathfindLayerEnum::Ground as u8; 3]),
             SURFACE_GROUND,
             false,
             objects.read(),
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("must splice onto a still-clear dest suffix").points;
+        .expect("must splice onto a still-clear dest suffix").coords();
     let last_cell = sys.grid.world_to_grid(*patched.last().unwrap());
     let dest_cell = sys.grid.world_to_grid(dest);
     assert_eq!(last_cell, dest_cell, "suffix must still reach dest");
@@ -1376,7 +1374,7 @@ fn find_attack_path_binds_leftover_seeker() {
         "even-diameter vehicle must use leftover +0.05 inset"
     );
     if let Some(p) = path {
-        let goal = *p.points.last().unwrap();
+        let goal = *p.last().unwrap();
         let cell = sys.grid.world_to_grid(goal);
         let expected = sys.grid.adjust_coord_to_cell(
             cell,
@@ -1417,7 +1415,7 @@ fn find_attack_path_range_tests_adjust_coord_to_cell() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("infantry attack path").points;
+        .expect("infantry attack path").coords();
     let goal = *path.last().unwrap();
     let cell = sys.grid.world_to_grid(goal);
     let origin = sys.grid.grid_to_world(

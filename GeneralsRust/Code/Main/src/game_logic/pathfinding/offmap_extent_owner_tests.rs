@@ -39,7 +39,7 @@ fn receiving_maximum_boundary_changes_real_offmap_path_without_foreign_selection
         );
         let objects = HostObjectStore::new();
         assert_eq!(
-            grid_a.find_path_ex(start, goal, objects.read(), false, None, &ground_a).map(|route| route.points),
+            grid_a.find_path_ex(start, goal, objects.read(), false, None, &ground_a).map(|route| route.coords()),
             Some(PathfindingSystem::leftover_compute_quick_path_nodes(
                 start, goal
             ))

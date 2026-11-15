@@ -135,7 +135,7 @@ fn moving_unit_already_on_goal_finishes_once() {
     unit.ground_height = 0.0;
     unit.set_position(Vec3::ZERO);
     // C++ InternalMoveToState requires an installed Path, even at its goal.
-    unit.movement.path = vec![Vec3::ZERO, Vec3::ZERO];
+    unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::ZERO]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(Vec3::ZERO);
     unit.set_locomotor_goal_position_on_path();
@@ -237,7 +237,7 @@ fn installed_path_registers_the_goal_cell() {
         ObjectId(9603),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
+        crate::game_logic::pathfinding::PathRoute::from_layered(vec![Vec3::new(3.0, 0.0, 3.0), dest], vec![1, 1]),
         false,
     ));
     let obj = logic.objects.get(&ObjectId(9603)).expect("ranger");
@@ -272,7 +272,7 @@ fn safe_path_does_not_register_a_goal_cell() {
         ObjectId(9604),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
+        crate::game_logic::pathfinding::PathRoute::from_layered(vec![Vec3::new(3.0, 0.0, 3.0), dest], vec![1, 1]),
         false,
     ));
     let obj = logic.objects.get(&ObjectId(9604)).expect("ranger");
@@ -298,7 +298,7 @@ fn non_final_path_does_not_register_a_goal_cell() {
         ObjectId(9605),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
+        crate::game_logic::pathfinding::PathRoute::from_layered(vec![Vec3::new(3.0, 0.0, 3.0), dest], vec![1, 1]),
         false,
     ));
     let obj = logic.objects.get(&ObjectId(9605)).expect("ranger");
@@ -326,7 +326,7 @@ fn waited_path_removes_the_goal_when_not_adjusting() {
         ObjectId(9608),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
+        crate::game_logic::pathfinding::PathRoute::from_layered(vec![Vec3::new(3.0, 0.0, 3.0), dest], vec![1, 1]),
         false,
     ));
     let cell = {
@@ -389,7 +389,7 @@ fn fast_repath_waits_one_logic_second() {
     assert!(unit.waiting_for_path);
     unit.queue_for_path_frame = 0;
     assert!(unit.begin_request_move_path(Vec3::new(30.0, 0.0, 0.0), 103));
-    unit.movement.path = vec![Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)];
+    unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)]);
     unit.is_blocked_and_stuck = true;
     unit.is_blocked = true;
     unit.num_frames_blocked = 12;
@@ -440,11 +440,11 @@ fn flying_non_aircraft_gets_a_two_node_quick_path() {
     let first = Vec3::new(20.0, 0.0, 0.0);
     assert!(approach.begin_request_approach_path(first, 10));
     let kept = vec![Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)];
-    approach.movement.path = kept.clone();
+    approach.movement.set_path_coords(kept.clone());
     approach.path_timestamp = 10;
     assert!(!approach.begin_request_approach_path(Vec3::new(40.0, 0.0, 0.0), 12));
     assert_eq!(approach.queue_for_path_frame, 72);
-    assert_eq!(approach.movement.path, kept);
+    assert_eq!(approach.movement.path.coords(), kept);
     let jet_id = ObjectId(9643);
     let mut jet_tmpl = ThingTemplate::new("Jet");
     jet_tmpl.add_kind_of(KindOf::Aircraft);
@@ -520,7 +520,7 @@ fn ultra_accurate_path_ends_on_the_ordered_point() {
         id,
         Vec3::ZERO,
         ordered,
-        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::ZERO, snapped], layers: vec![1, 1] },
+        crate::game_logic::pathfinding::PathRoute::from_layered(vec![Vec3::ZERO, snapped], vec![1, 1]),
         true,
     ));
     {
@@ -540,7 +540,7 @@ fn ultra_accurate_path_ends_on_the_ordered_point() {
         id,
         Vec3::ZERO,
         ordered,
-        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::ZERO, snapped], layers: vec![1, 1] },
+        crate::game_logic::pathfinding::PathRoute::from_layered(vec![Vec3::ZERO, snapped], vec![1, 1]),
         false,
     ));
     {
@@ -567,7 +567,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     unit.is_final_goal = true;
     unit.set_position(Vec3::new(10.0, 0.0, 10.0));
     let kept = vec![Vec3::new(10.0, 0.0, 10.0), Vec3::new(20.0, 0.0, 10.0)];
-    unit.movement.path = kept.clone();
+    unit.movement.set_path_coords(kept.clone());
     unit.num_frames_blocked = 8;
     unit.path_extra_distance = 100.0;
     unit.desired_speed = 5.0;
@@ -610,7 +610,7 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     stuck.movement.max_speed = 20.0;
     stuck.is_final_goal = true;
     stuck.set_position(Vec3::new(10.0, 0.0, 10.0));
-    stuck.movement.path = kept.clone();
+    stuck.movement.set_path_coords(kept.clone());
     stuck.is_blocked_and_stuck = true;
     stuck.num_frames_blocked = 8;
     stuck.path_extra_distance = 100.0;
@@ -655,13 +655,13 @@ fn stuck_failed_search_snaps_and_waits_one_second() {
     here.movement.max_speed = 20.0;
     here.is_final_goal = true;
     here.set_position(Vec3::new(10.0, 0.0, 10.0));
-    here.movement.path = kept.clone();
+    here.movement.set_path_coords(kept.clone());
     here.num_frames_blocked = 4;
     here.is_blocked_and_stuck = true;
     logic.objects.insert(ObjectId(9713), here);
     assert!(!logic.assign_unit_path_for_test(ObjectId(9713), Vec3::new(10.05, 0.0, 10.0), &[],));
     let here = logic.objects.get(&ObjectId(9713)).expect("here");
-    assert_eq!(here.movement.path, kept);
+    assert_eq!(here.movement.path.coords(), kept);
     assert!(!here.do_final_position);
     assert_eq!(here.num_frames_blocked, 0);
     assert!(!here.is_blocked_and_stuck);
@@ -715,7 +715,7 @@ fn flying_projectile_repaths_to_a_moved_goal_every_frame() {
     unit.movement.max_speed = 40.0;
     unit.set_position(Vec3::new(0.0, 20.0, 0.0));
     unit.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
-    unit.movement.path = vec![Vec3::ZERO, Vec3::new(10.0, 20.0, 0.0)];
+    unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(10.0, 20.0, 0.0)]);
     let goal = Vec3::new(80.0, 30.0, 40.0);
     unit.requested_destination = Some(goal);
     unit.path_timestamp = 100;
@@ -740,7 +740,7 @@ fn flying_projectile_repaths_to_a_moved_goal_every_frame() {
     close.set_position(Vec3::new(0.0, 20.0, 0.0));
     close.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     let close_goal = Vec3::new(10.1, 20.0, 0.0);
-    close.movement.path = vec![Vec3::ZERO, close_goal];
+    close.movement.set_path_coords(vec![Vec3::ZERO, close_goal]);
     close.requested_destination = Some(close_goal);
     close.path_timestamp = 100;
     logic.objects.insert(close_id, close);
@@ -766,14 +766,14 @@ fn flying_projectile_repaths_to_a_moved_goal_every_frame() {
         &mut ObjectAudio::record(&mut Vec::new()),
     );
     let attack_path = vec![Vec3::ZERO, Vec3::new(12.0, 20.0, 0.0)];
-    attack.movement.path = attack_path.clone();
+    attack.movement.set_path_coords(attack_path.clone());
     attack.requested_destination = Some(Vec3::new(90.0, 30.0, 10.0));
     attack.set_locomotor_goal_position_explicit(Vec3::new(4.0, 0.0, 0.0));
     attack.path_timestamp = 100;
     logic.objects.insert(attack_id, attack);
     logic.update_movement(&[attack_id], 1.0 / 30.0);
     let attack = logic.objects.get(&attack_id).expect("attack");
-    assert_eq!(attack.movement.path, attack_path);
+    assert_eq!(attack.movement.path.coords(), attack_path);
     assert_eq!(attack.path_timestamp, 100);
     assert_eq!(
         attack.locomotor_goal_type,
@@ -793,7 +793,7 @@ fn move_state_repaths_after_ten_frames_when_the_goal_moves() {
     unit.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     let old = Vec3::new(30.0, 0.0, 0.0);
     let next = Vec3::new(120.0, 0.0, 40.0);
-    unit.movement.path = vec![Vec3::ZERO, old];
+    unit.movement.set_path_coords(vec![Vec3::ZERO, old]);
     unit.path_goal_position = Some(old);
     unit.requested_destination = Some(next);
     unit.path_timestamp = 0;
@@ -834,7 +834,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     keep.movement.max_speed = 20.0;
     keep.set_position(here);
     keep.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
-    keep.movement.path = vec![Vec3::ZERO, here];
+    keep.movement.set_path_coords(vec![Vec3::ZERO, here]);
     keep.movement.current_path_index = 1;
     keep.set_status_parachuting(true);
     keep.is_final_goal = true;
@@ -856,7 +856,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     clear.movement.max_speed = 20.0;
     clear.set_position(here);
     clear.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
-    clear.movement.path = vec![Vec3::ZERO, here];
+    clear.movement.set_path_coords(vec![Vec3::ZERO, here]);
     clear.movement.current_path_index = 1;
     clear.is_final_goal = false;
     clear.set_locomotor_goal_position_explicit(explicit);
@@ -883,7 +883,7 @@ fn zero_delta_arrival_keeps_goal_unless_adjusting() {
     keep.movement.max_speed = 20.0;
     keep.set_position(here);
     keep.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
-    keep.movement.path = vec![Vec3::ZERO, here];
+    keep.movement.set_path_coords(vec![Vec3::ZERO, here]);
     keep.movement.current_path_index = 1;
     keep.is_final_goal = false;
     keep.set_adjust_destinations(false);

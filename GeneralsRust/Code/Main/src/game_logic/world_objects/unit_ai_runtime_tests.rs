@@ -94,7 +94,7 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         let template = world.templates["UnitAiLifetime"].clone();
         let mut unit = Object::new(template, unit_id, Team::USA);
         unit.close_enough_dist = Some(1.0);
-        unit.movement.path = vec![endpoint; points];
+        unit.movement.set_path_coords(vec![endpoint; points]);
         unit.movement.target_position = Some(endpoint);
         unit.can_path_through_units = true;
         world.add_object(unit);
@@ -156,7 +156,7 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
                 crate::game_logic::AIState::Moving,
                 "{label}"
             );
-            assert_eq!(unit.movement.path, vec![endpoint; points], "{label}");
+            assert_eq!(unit.movement.path.coords(), vec![endpoint; points], "{label}");
             assert_eq!(
                 world
                     .unit_ai_runtime(unit_id)
@@ -183,7 +183,7 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
     let guard_id = ObjectId(934207);
     let endpoint = Vec3::new(10.0, 0.0, 0.0);
     let mut unit = object(unit_id);
-    unit.movement.path = vec![endpoint, endpoint];
+    unit.movement.set_path_coords(vec![endpoint, endpoint]);
     unit.movement.target_position = Some(endpoint);
     unit.can_path_through_units = true;
     world.add_object(unit);
@@ -219,7 +219,7 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
         crate::game_logic::AIState::Moving,
         "C++ continuing temporary exit state is still active at its end frame"
     );
-    assert_eq!(unit.movement.path, vec![endpoint, endpoint]);
+    assert_eq!(unit.movement.path.coords(), vec![endpoint, endpoint]);
     assert!(unit.can_path_through_units);
     assert!(!unit.adjust_destinations());
     assert_eq!(

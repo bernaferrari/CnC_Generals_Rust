@@ -142,7 +142,7 @@ fn repair_action_after_filling_without_a_rally_goes_idle() {
         );
         unit.health.current = unit.health.maximum - 1.0;
         unit.ignored_obstacle_id = Some(pad);
-        unit.movement.path = vec![Vec3::new(10.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(10.0, 0.0, 0.0)]);
     }
     // An authored one-frame RepairDock heals once regardless of display dt.
     // CPP action returns TRUE on this pulse; its next action observes full HP.
@@ -191,7 +191,7 @@ fn aborted_capture_clears_the_building_ignore() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
-        unit.movement.path = vec![Vec3::new(20.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(20.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
@@ -228,7 +228,7 @@ fn dropped_special_ability_clears_the_building_ignore() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
-        unit.movement.path = vec![Vec3::new(15.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(15.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[hacker], 1.0 / 30.0);
@@ -270,7 +270,7 @@ fn finished_hacker_channel_clears_the_building_ignore() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
-        unit.movement.path = vec![Vec3::new(12.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(12.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[hacker], 1.0 / 30.0);
@@ -895,12 +895,12 @@ fn live_attack_move_keeps_the_building_ignore() {
         );
         unit.ignored_obstacle_id = Some(building);
         unit.requested_destination = Some(Vec3::new(80.0, 0.0, 0.0));
-        unit.movement.path = vec![Vec3::new(80.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(80.0, 0.0, 0.0)]);
     }
     logic.attack_state_exit(attacker);
     let unit = logic.host_object(attacker).expect("attacker");
     assert_eq!(unit.ignored_obstacle_id, Some(building));
-    assert_eq!(unit.movement.path, vec![Vec3::new(80.0, 0.0, 0.0)]);
+    assert_eq!(unit.movement.path.coords(), vec![Vec3::new(80.0, 0.0, 0.0)]);
 }
 
 #[test]
@@ -929,7 +929,7 @@ fn player_stop_clears_a_building_ignore() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
-        unit.movement.path = vec![Vec3::new(40.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(40.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
     }
     assert_eq!(logic.unit_command_stop(unit_id).expect("result"), true);
@@ -963,7 +963,7 @@ fn aircraft_stop_clears_a_building_ignore() {
         let unit = logic.host_object_mut(jet).expect("jet");
         unit.status.airborne_target = true;
         unit.ignored_obstacle_id = Some(building);
-        unit.movement.path = vec![Vec3::new(40.0, 30.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(40.0, 30.0, 0.0)]);
         unit.set_status_moving(true);
     }
     assert_eq!(logic.unit_command_stop(jet).expect("result"), true);
@@ -1463,7 +1463,7 @@ fn non_hijacker_at_the_vehicle_is_released() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(vehicle);
-        unit.movement.path = vec![Vec3::ZERO];
+        unit.movement.set_path_coords(vec![Vec3::ZERO]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
@@ -1516,7 +1516,7 @@ fn rejected_car_bomb_releases_the_infantry() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(boat);
-        unit.movement.path = vec![Vec3::ZERO];
+        unit.movement.set_path_coords(vec![Vec3::ZERO]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
@@ -1569,7 +1569,7 @@ fn rejected_disguise_releases_the_infantry() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(jet);
-        unit.movement.path = vec![Vec3::ZERO];
+        unit.movement.set_path_coords(vec![Vec3::ZERO]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);
@@ -1621,7 +1621,7 @@ fn sabotage_of_a_vehicle_releases_the_infantry() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(vehicle);
-        unit.movement.path = vec![Vec3::ZERO];
+        unit.movement.set_path_coords(vec![Vec3::ZERO]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);

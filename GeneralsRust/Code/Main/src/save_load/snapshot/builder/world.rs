@@ -70,6 +70,7 @@ impl SnapshotBuilder {
         candidate: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        validate_world_path_links(snapshot)?;
         snapshot.audio_policy.validate()?;
         validate_cave_tracker(snapshot)?;
         validate_flight_decks(snapshot, candidate)?;
@@ -420,6 +421,7 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        validate_world_path_links(snapshot)?;
         // Older snapshots contain only the frame-derived timer and no host
         // partial step. Validate before retiring the receiving world's objects.
         let timers = &snapshot.global_ai_state.global_timers;

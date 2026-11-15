@@ -73,7 +73,7 @@ fn ordinary_search_checks_occupants_on_the_current_bridge_layer() {
             false,
             Some(mover),
             &ground,
-        ).map(|route| route.points));
+        ).map(|route| route.coords()));
         owners.push((world, finder, mover, start, goal));
     }
     assert!(
@@ -99,7 +99,7 @@ fn ordinary_search_checks_occupants_on_the_current_bridge_layer() {
             false,
             Some(*mover),
             &ground,
-        ).map(|route| route.points),
+        ).map(|route| route.coords()),
         paths[0],
         "peer searches must not change the first world's result"
     );
@@ -323,7 +323,7 @@ fn safe_search_uses_the_receiving_objects_layer_under_a_bridge() {
                 world.host_objects(),
                 mover,
             )
-            .unwrap().points;
+            .unwrap().coords();
         results.push((
             finder.grid.world_to_grid(*path.last().unwrap()),
             *path.last().unwrap(),

@@ -413,3 +413,71 @@ fn queued_ordinary_path_with_crushable_fixed_occupant_survives_save_and_peer_int
     assert!(owner.snapshot_pending_host_paths().is_empty());
     assert!(restored.snapshot_pending_host_paths().is_empty());
 }
+
+#[test]
+fn skipped_layered_route_survives_restore_without_changing_peer() {
+    use generals_main::game_logic::pathfinding::{PathRoute, PathRouteNode};
+
+    let root = tempfile::tempdir().unwrap();
+    let map = write_map(root.path());
+    let (mut owner, mover) = world(&map, false);
+    let (mut peer, peer_mover) = world(&map, false);
+    owner.update_with_dt(1.0 / 30.0);
+    peer.update_with_dt(1.0 / 30.0);
+    let points = [
+        Vec3::new(25.0, 0.0, 55.0),
+        Vec3::new(45.0, 0.0, 55.0),
+        Vec3::new(65.0, 0.0, 55.0),
+        Vec3::new(145.0, 0.0, 55.0),
+    ];
+    let route = |first_link| PathRoute::from_nodes(
+        points.iter().enumerate().map(|(i, &position)| PathRouteNode {
+            position,
+            layer: Some(if i < 2 { 1 } else { 2 }),
+            can_optimize: i != 2,
+            next_optimized: match i {
+                0 => Some(first_link),
+                1 | 2 => Some(3),
+                _ => None,
+            },
+        }).collect(),
+        first_link == 2,
+    ).expect("valid route topology");
+    let owner_route = route(2);
+    let peer_route = route(1);
+    for (world, id, path) in [
+        (&mut owner, mover, owner_route.clone()),
+        (&mut peer, peer_mover, peer_route.clone()),
+    ] {
+        let unit = world.host_object_mut(id).unwrap();
+        unit.movement.target_position = path.get(1).copied();
+        unit.movement.current_path_index = 1;
+        unit.movement.path = path;
+    }
+    assert_eq!(owner_route.coords(), vec![points[0], points[2], points[3]]);
+    assert_eq!(peer_route.coords(), vec![points[0], points[1], points[3]]);
+    assert_eq!(owner_route.optimized_layer(1), Some(2));
+    assert_eq!(peer_route.optimized_layer(1), Some(1));
+
+    owner.update_with_dt(1.0 / 30.0);
+    peer.update_with_dt(1.0 / 30.0);
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let (mut restored, restored_mover) = world(&map, false);
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    assert_eq!(owner.host_object(mover).unwrap().movement.path, owner_route);
+    assert_eq!(restored.host_object(restored_mover).unwrap().movement.path, owner_route);
+    assert_eq!(peer.host_object(peer_mover).unwrap().movement.path, peer_route);
+    let before = owner.host_object(mover).unwrap().get_position();
+    for _ in 0..10 {
+        owner.update_with_dt(1.0 / 30.0);
+        restored.update_with_dt(1.0 / 30.0);
+        peer.update_with_dt(1.0 / 30.0);
+    }
+    let original = owner.host_object(mover).unwrap();
+    let loaded = restored.host_object(restored_mover).unwrap();
+    assert_ne!(original.get_position(), before, "the restored route must continue moving");
+    assert_eq!(loaded.get_position(), original.get_position());
+    assert_eq!(loaded.movement.path, owner_route);
+    assert_eq!(peer.host_object(peer_mover).unwrap().movement.path, peer_route);
+}

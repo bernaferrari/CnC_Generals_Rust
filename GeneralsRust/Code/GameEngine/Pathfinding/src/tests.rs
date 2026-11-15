@@ -1706,10 +1706,93 @@ fn obstacle_owner_policy_reads_each_resolved_cell_and_layer() {
             false,
             None,
             None,
+            None,
         )
     };
     assert!(search(&world, Some(41)).is_some());
     assert!(search(&world, Some(42)).is_none());
     assert!(search(&peer, Some(41)).is_none());
     assert!(search(&world, Some(41)).is_some());
+}
+
+#[test]
+fn search_reports_accepted_ally_blockers_and_cliff_cells() {
+    let mut finder = AStarPathfinder::new(4, 1);
+    let blocked = GridCoord::new(1, 0);
+    let cliff = GridCoord::new(2, 0);
+    finder.set_cell_type(cliff, PathfindCellType::Cliff);
+    let observe = |coord, _layer| coord == blocked;
+    let (path, _) = finder
+        .find_path_with_start_layer_and_layers(
+            GridCoord::new(0, 0),
+            GridCoord::new(3, 0),
+            PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Ground,
+            SURFACE_GROUND | SURFACE_CLIFF,
+            false,
+            100,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+            Some(&observe),
+        )
+        .unwrap();
+    assert_eq!(
+        path.iter().map(|node| (node.coord, node.blocked_by_ally, node.is_cliff)).collect::<Vec<_>>(),
+        vec![
+            (GridCoord::new(0, 0), false, false),
+            (blocked, true, false),
+            (cliff, false, true),
+            (GridCoord::new(3, 0), false, false),
+        ]
+    );
+}
+
+#[test]
+fn line_seed_nodes_do_not_query_or_inherit_ally_blockers() {
+    let finder = AStarPathfinder::new(4, 1);
+    let observe = |_, _| -> bool { panic!("line-seeded cells are not neighbor expansions") };
+    let (path, _) = finder
+        .find_path_with_start_layer_and_layers(
+            GridCoord::new(0, 0), GridCoord::new(3, 0),
+            PathfindLayerEnum::Ground, PathfindLayerEnum::Ground,
+            SURFACE_GROUND, false, 100, false, None, None, false, None, None, None,
+            true, false, None, None, Some(&observe),
+        )
+        .unwrap();
+    assert_eq!(path.len(), 4);
+    assert!(path.iter().all(|node| !node.blocked_by_ally));
+}
+
+#[test]
+fn layer_transition_does_not_inherit_ally_blocker() {
+    let mut finder = AStarPathfinder::new(3, 1);
+    let transition = GridCoord::new(1, 0);
+    finder.set_cell_type_on_layer(transition, PathfindLayerEnum::Top, PathfindCellType::Clear);
+    finder.set_cell_connect_layer(transition, PathfindLayerEnum::Top);
+    let observe = |coord, _| coord == transition;
+    let (path, _) = finder
+        .find_path_with_start_layer_and_layers(
+            GridCoord::new(0, 0), transition,
+            PathfindLayerEnum::Ground, PathfindLayerEnum::Top,
+            SURFACE_GROUND, false, 100, false, None, None, false, None, None, None,
+            false, false, None, None, Some(&observe),
+        )
+        .unwrap();
+    assert_eq!(
+        path.iter().map(|node| (node.coord, node.layer, node.blocked_by_ally)).collect::<Vec<_>>(),
+        vec![
+            (GridCoord::new(0, 0), PathfindLayerEnum::Ground, false),
+            (transition, PathfindLayerEnum::Ground, true),
+            (transition, PathfindLayerEnum::Top, false),
+        ]
+    );
 }

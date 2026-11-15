@@ -115,6 +115,7 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events));
                 unit.status.moving = true;
             }
+            self.resolve_installed_path_layers(child);
             self.register_path_goal(child, end);
         }
         if self.spawn_identity_matches(owner, parent_birth, epoch) && self.spawn_identity_matches(child, child_birth, epoch) {

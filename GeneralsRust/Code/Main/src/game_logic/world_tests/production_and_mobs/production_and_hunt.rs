@@ -41,7 +41,7 @@ fn assert_reserved_dock_approach_path(
         "path endpoint must make progress toward registered approach {registered:?}, got {end:?}"
     );
     assert!(
-        unit.movement.path.windows(2).all(|segment| logic
+        unit.movement.path.coords().windows(2).all(|segment| logic
             .pathfinding_system
             .line_passable_for_surfaces(segment[0], segment[1], unit.locomotor_surfaces)),
         "dock approach path must not cross the dock obstacle: {:?}",

@@ -1042,42 +1042,30 @@ impl PathfindingGrid {
         if from == to {
             return true;
         }
-        let mut x0 = from.x;
-        let mut y0 = from.y;
-        let x1 = to.x;
-        let y1 = to.y;
-        let dx = (x1 - x0).abs();
-        let sx = if x0 < x1 { 1 } else { -1 };
-        let dy = -(y1 - y0).abs();
-        let sy = if y0 < y1 { 1 } else { -1 };
-        let mut err = dx + dy;
-        loop {
-            let cell = GridPos::new(x0, y0);
-            if !self.line_cell_ok_on(
-                cell,
-                surfaces,
-                is_crusher,
-                allow_pinched,
-                seeker_player,
-                crusher_level,
-                unpinched_cliff_passable,
-                layer,
-            ) {
-                return false;
-            }
-            if x0 == x1 && y0 == y1 {
-                return true;
-            }
-            let e2 = 2 * err;
-            if e2 >= dy {
-                err += dy;
-                x0 += sx;
-            }
-            if e2 <= dx {
-                err += dx;
-                y0 += sy;
-            }
+        // C++ iterateCellsAlongLine returns success immediately on a null cell.
+        if !self.is_valid_pos(from) {
+            return true;
         }
+        let clear = |cell| self.line_cell_ok_on(
+            cell, surfaces, is_crusher, allow_pinched, seeker_player,
+            crusher_level, unpinched_cliff_passable, layer,
+        );
+        if !clear(from) {
+            return false;
+        }
+        let mut passable = true;
+        gamelogic::ai::pathfind_astar::visit_cell_line(
+            (from.x, from.y), (to.x, to.y),
+            |_, next| {
+                let cell = GridPos::new(next.0, next.1);
+                if !self.is_valid_pos(cell) {
+                    return false;
+                }
+                passable = clear(cell);
+                passable
+            },
+        );
+        passable
     }
 
     /// C++ `validLocomotorSurfacesForCellType` + fence crusher exception.
@@ -2145,7 +2133,10 @@ impl PathfindingGrid {
         if !allow_pinched && self.is_pinched(cell) && !occupied_by_ignored {
             return false;
         }
-        if receiver.is_some_and(|receiver| receiver.blocked_by_occupant(self, cell, ignore_obstacle))
+        if receiver.is_some_and(|receiver| receiver.blocked_by_occupant(
+            self, cell, ignore_obstacle,
+            PathfindLayerEnum::from_u32(receiver.mover.pathfind_layer as u32),
+        ))
         {
             return false;
         }
@@ -2209,6 +2200,42 @@ impl PathfindingGrid {
                 err += dx;
                 y0 += sy;
             }
+        }
+    }
+
+    pub(super) fn line_passable_for_receiver_on_layer(
+        &self,
+        from: GridPos,
+        to: GridPos,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore_obstacle: Option<u32>,
+        receiver: Option<LineReceiver<'_>>,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        if from == to { return true; }
+        let (mut x, mut y) = (from.x, from.y);
+        let dx = (to.x - x).abs();
+        let dy = -(to.y - y).abs();
+        let sx = if x < to.x { 1 } else { -1 };
+        let sy = if y < to.y { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            let cell = GridPos::new(x, y);
+            let terrain_clear = if layer == PathfindLayerEnum::Ground {
+                self.line_cell_ok(cell, surfaces, is_crusher, true, false, ignore_obstacle, None)
+            } else {
+                self.is_valid_pos(cell) && self.cell_passable_for_layer(cell, layer, surfaces, is_crusher)
+            };
+            if !terrain_clear
+                || receiver.is_some_and(|r| r.blocked_by_occupant(self, cell, ignore_obstacle, layer))
+            {
+                return false;
+            }
+            if x == to.x && y == to.y { return true; }
+            let e2 = 2 * err;
+            if e2 >= dy { err += dy; x += sx; }
+            if e2 <= dx { err += dx; y += sy; }
         }
     }
     /// Leftover `Pathfinder::isLinePassable` (allowPinched=true variant)
@@ -2288,33 +2315,7 @@ impl PathfindingGrid {
         crusher_level: u8,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec<Vec3> {
-        let layers: Vec<u8> = waypoints
-            .iter()
-            .map(|p| self.layer_for_destination(*p, ground_source) as u8)
-            .collect();
         self.optimize_ground_path_ex_layered(
-            waypoints,
-            &layers,
-            surfaces,
-            is_crusher,
-            seeker_player,
-            crusher_level,
-            ground_source,
-        )
-        .0
-    }
-
-    /// Object-bound Path::optimize, used for searched, patched and closest paths.
-    pub(super) fn optimize_path_ex(
-        &self,
-        waypoints: &[Vec3],
-        surfaces: u32,
-        is_crusher: bool,
-        seeker_player: Option<u32>,
-        crusher_level: u8,
-        ground_source: &PathfindingGround<'_>,
-    ) -> Vec<Vec3> {
-        self.optimize_path_ex_layered(
             waypoints,
             &[],
             surfaces,
@@ -2323,8 +2324,9 @@ impl PathfindingGrid {
             crusher_level,
             ground_source,
         )
-        .0
+        .coords()
     }
+
 
     pub(super) fn optimize_path_ex_layered(
         &self,
@@ -2335,7 +2337,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         ground_source: &PathfindingGround<'_>,
-    ) -> (Vec<Vec3>, Vec<u8>) {
+    ) -> PathRoute {
         self.optimize_layered_impl(
             waypoints,
             path_layers,
@@ -2344,6 +2346,7 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             ground_source,
+            None,
             false,
         )
     }
@@ -2358,7 +2361,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         ground_source: &PathfindingGround<'_>,
-    ) -> (Vec<Vec3>, Vec<u8>) {
+    ) -> PathRoute {
         self.optimize_layered_impl(
             waypoints,
             path_layers,
@@ -2367,7 +2370,25 @@ impl PathfindingGrid {
             seeker_player,
             crusher_level,
             ground_source,
+            None,
             true,
+        )
+    }
+
+    pub(super) fn optimize_path_with_flags(
+        &self,
+        waypoints: &[Vec3],
+        path_layers: &[u8],
+        can_optimize: &[bool],
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
+    ) -> PathRoute {
+        self.optimize_layered_impl(
+            waypoints, path_layers, surfaces, is_crusher, seeker_player,
+            crusher_level, ground_source, Some(can_optimize), false,
         )
     }
 
@@ -2380,61 +2401,59 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         ground_source: &PathfindingGround<'_>,
+        can_optimize: Option<&[bool]>,
         ground_path: bool,
-    ) -> (Vec<Vec3>, Vec<u8>) {
-        if waypoints.len() <= 2 {
-            let layers = if path_layers.len() == waypoints.len() {
-                path_layers.to_vec()
+    ) -> PathRoute {
+        let len = waypoints.len();
+        let mut nodes: Vec<PathRouteNode> = waypoints.iter().enumerate().map(|(i, &position)| {
+            let layer = if path_layers.len() == len {
+                path_layers[i]
             } else {
-                waypoints
-                    .iter()
-                    .map(|p| self.layer_for_destination(*p, ground_source) as u8)
-                    .collect()
+                self.layer_for_destination(position, ground_source) as u8
             };
-            return (waypoints.to_vec(), layers);
+            PathRouteNode {
+                position,
+                layer: Some(layer),
+                can_optimize: can_optimize.is_some_and(|flags| flags[i]),
+                next_optimized: if len <= 2 && i + 1 < len { Some(i + 1) } else { None },
+            }
+        }).collect();
+        if len <= 2 {
+            return PathRoute { nodes, blocked_by_ally: false, optimized_count: len };
         }
-        // C++ Path::optimize ALLOWED_STEPS = 3 past a layer change
-        // (AIPathfind.cpp:472-485). Deck shortcuts stay on the deck.
+        // C++ Path::optimize ALLOWED_STEPS = 3 past a layer change.
         const ALLOWED_STEPS: usize = 3;
-        let layers: Vec<PathfindLayerEnum> = if path_layers.len() == waypoints.len() {
-            path_layers
-                .iter()
-                .map(|l| PathfindLayerEnum::from_u32(*l as u32))
-                .collect()
-        } else {
-            waypoints
-                .iter()
-                .map(|p| self.layer_for_destination(*p, ground_source))
-                .collect()
-        };
-        let mut optimized = vec![waypoints[0]];
-        let mut optimized_layers = vec![layers[0] as u8];
+        let mut optimized_count = 1;
         let mut anchor = 0usize;
-        while anchor < waypoints.len() - 1 {
-            let mut layer = layers[anchor];
-            let mut cur_layer = layers[anchor];
+        while anchor < len - 1 {
+            let mut layer = PathfindLayerEnum::from_u32(nodes[anchor].layer.unwrap() as u32);
+            let mut cur_layer = layer;
             let mut count = 0usize;
             let mut node_idx = anchor + 1;
             while node_idx + 1 < waypoints.len() {
                 count += 1;
                 if cur_layer == PathfindLayerEnum::Ground {
-                    if layers[node_idx] != cur_layer {
-                        layer = layers[node_idx];
+                    let node_layer = PathfindLayerEnum::from_u32(nodes[node_idx].layer.unwrap() as u32);
+                    if node_layer != cur_layer {
+                        layer = node_layer;
                         cur_layer = layer;
                         if count > ALLOWED_STEPS {
                             break;
                         }
                     }
-                } else if layers[node_idx + 1] != cur_layer && count > ALLOWED_STEPS {
+                } else if nodes[node_idx + 1].layer != Some(cur_layer as u8) && count > ALLOWED_STEPS {
                     break;
                 }
-                cur_layer = layers[node_idx];
+                cur_layer = PathfindLayerEnum::from_u32(nodes[node_idx].layer.unwrap() as u32);
+                if !ground_path && can_optimize.is_some_and(|flags| !flags[node_idx]) {
+                    break;
+                }
                 node_idx += 1;
             }
             // Path::optimize pins its first visibility check to the starting
             // layer; optimizeGroundPath deliberately does not.
             if !ground_path && anchor == 0 {
-                layer = layers[0];
+                layer = PathfindLayerEnum::from_u32(nodes[0].layer.unwrap() as u32);
             }
             let mut found = false;
             let mut far = node_idx;
@@ -2442,7 +2461,7 @@ impl PathfindingGrid {
                 let a = self.world_to_grid(waypoints[anchor]);
                 let b = self.world_to_grid(waypoints[far]);
                 // Uniformity uses the carried PathNode layers, not geometry.
-                let layers_uniform = (anchor..=far).all(|i| layers[i] == layer);
+                let layers_uniform = (anchor..=far).all(|i| nodes[i].layer == Some(layer as u8));
                 if self.line_passable_on_layer(
                     a,
                     b,
@@ -2460,8 +2479,8 @@ impl PathfindingGrid {
                     if far == anchor {
                         break;
                     }
-                    optimized.push(waypoints[far]);
-                    optimized_layers.push(layers[far] as u8);
+                    nodes[anchor].next_optimized = Some(far);
+                    optimized_count += 1;
                     anchor = far;
                     found = true;
                     break;
@@ -2472,8 +2491,8 @@ impl PathfindingGrid {
                 far -= 1;
             }
             if !found {
-                optimized.push(waypoints[anchor + 1]);
-                optimized_layers.push(layers[anchor + 1] as u8);
+                nodes[anchor].next_optimized = Some(anchor + 1);
+                optimized_count += 1;
                 anchor += 1;
             }
         }
@@ -2481,17 +2500,18 @@ impl PathfindingGrid {
             // optimizeGroundPath alone performs the jig/jog pass.
             let thresh = self.grid_size * self.grid_size * 3.9;
             let mut i = 0;
-            while i + 2 < optimized.len() {
-                let dx = optimized[i + 1].x - optimized[i].x;
-                let dz = optimized[i + 1].z - optimized[i].z;
+            while let Some(next) = nodes[i].next_optimized {
+                let Some(after) = nodes[next].next_optimized else { break };
+                let dx = nodes[next].position.x - nodes[i].position.x;
+                let dz = nodes[next].position.z - nodes[i].position.z;
                 if dx * dx + dz * dz < thresh {
-                    optimized.remove(i + 1);
-                    optimized_layers.remove(i + 1);
+                    nodes[i].next_optimized = Some(after);
+                    optimized_count -= 1;
                 }
-                i += 1;
+                i = nodes[i].next_optimized.unwrap();
             }
         }
-        (optimized, optimized_layers)
+        PathRoute { nodes, blocked_by_ally: false, optimized_count }
     }
 
 

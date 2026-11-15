@@ -1,5 +1,5 @@
 use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
-use generals_main::game_logic::pathfinding::{PathfindingGround, PathfindingSystem};
+use generals_main::game_logic::pathfinding::{PathRoute, PathfindingGround, PathfindingSystem};
 use generals_main::game_logic::{
     GameLogic, HostGeometryType, KindOf, ObjectId, Player, Team, ThingTemplate,
 };
@@ -53,7 +53,7 @@ fn move_away(
     let avoided = [Vec3::new(20.0, 0.0, 100.0), Vec3::new(180.0, 0.0, 100.0)];
     finder
         .get_move_away_from_path(&avoided, None, ground, world.host_objects(), mover, other)
-        .expect("move-away route")
+        .expect("move-away route").coords()
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn collision_retry_sets_unit_flag_even_when_no_route_exists() {
         .is_blocked_and_stuck = true;
     let actor = world.host_object_mut(mover).unwrap();
     actor.allow_collide_force = false;
-    actor.movement.path = vec![Vec3::new(-100.0, 0.0, 0.0), Vec3::new(100.0, 0.0, 0.0)];
+    actor.movement.path = PathRoute::from_coords(vec![Vec3::new(-100.0, 0.0, 0.0), Vec3::new(100.0, 0.0, 0.0)]);
     actor.request_other_move_away = Some(yielding);
     world.try_physics_collide(mover, yielding, 1.0).unwrap();
     let actor = world.host_object(yielding).unwrap();
@@ -387,7 +387,7 @@ fn even_footprint_uses_shifted_index_when_start_cell_has_no_info() {
         .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
         .unwrap();
     assert_eq!(
-        path,
+        path.coords(),
         vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(120.5, 0.0, 100.5)]
     );
 }
@@ -413,7 +413,7 @@ fn even_footprint_keeps_existing_start_cell_info_coordinates() {
         .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
         .unwrap();
     assert_eq!(
-        path,
+        path.coords(),
         vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(100.5, 0.0, 100.5)]
     );
 }
@@ -428,7 +428,7 @@ fn odd_footprint_still_forces_movement_from_start_cell() {
         .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), small, large)
         .unwrap();
     assert_eq!(
-        path,
+        path.coords(),
         vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(115.0, 0.0, 105.0)]
     );
 }
@@ -466,7 +466,7 @@ fn even_footprint_respects_existing_goal_and_aircraft_cell_info() {
             .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
             .unwrap();
         assert_eq!(
-            path,
+            path.coords(),
             vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(100.5, 0.0, 100.5)],
             "aircraft={aircraft}"
         );
@@ -531,7 +531,7 @@ fn move_away_clips_a_start_outside_the_pathfinder_extent() {
         .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), mover, other)
         .unwrap();
     assert_eq!(
-        path,
+        path.coords(),
         vec![Vec3::new(-25.0, 0.0, 100.0), Vec3::new(10.5, 0.0, 100.5)]
     );
 }
@@ -560,7 +560,7 @@ fn even_footprint_can_accept_its_own_fixed_destination_cell() {
     let path = finder
         .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
         .unwrap();
-    assert_eq!(path, vec![position, Vec3::new(100.5, 0.0, 100.5)]);
+    assert_eq!(path.coords(), vec![position, Vec3::new(100.5, 0.0, 100.5)]);
 }
 
 #[test]
@@ -633,7 +633,7 @@ fn move_away_destination_accepts_the_movers_ignored_obstacle() {
         .get_move_away_from_path(&avoided, None, &ground, world.host_objects(), large, small)
         .unwrap();
     assert_eq!(
-        path,
+        path.coords(),
         vec![Vec3::new(100.0, 0.0, 100.0), Vec3::new(100.5, 0.0, 100.5)]
     );
 }
@@ -682,7 +682,7 @@ fn collision_moves_away_from_a_single_node_path() {
     let (peer, _, peer_yielding) = tiny_collision_world();
     let actor = world.host_object_mut(mover).unwrap();
     actor.allow_collide_force = false;
-    actor.movement.path = vec![Vec3::ZERO];
+    actor.movement.path = PathRoute::from_coords(vec![Vec3::ZERO]);
     actor.request_other_move_away = Some(yielding);
     world.try_physics_collide(mover, yielding, 1.0).unwrap();
     let unit = world.host_object(yielding).unwrap();

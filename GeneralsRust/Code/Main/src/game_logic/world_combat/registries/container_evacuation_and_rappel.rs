@@ -588,6 +588,7 @@ impl GameLogic {
                     p.status.moving = true;
                 }
             }
+            self.resolve_installed_path_layers(*pid);
             if is_garrison {
                 if let Some(goal) = self
                     .objects
@@ -1217,7 +1218,7 @@ impl GameLogic {
             }
             let Some(obj) = self.objects.get_mut(&pid) else { return };
             obj.set_orientation_with_partition_owner(exit_angle, &mut self.partition_manager);
-            obj.movement.path = vec![start, end];
+            obj.movement.set_path_coords(vec![start, end]);
             obj.movement.current_path_index = 1;
             obj.movement.target_position = Some(end);
             obj.is_attack_path = false;
@@ -1230,5 +1231,6 @@ impl GameLogic {
             );
             obj.status.moving = true;
         }
+        self.resolve_installed_path_layers(pid);
     }
 }

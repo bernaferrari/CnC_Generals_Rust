@@ -710,7 +710,7 @@ fn execute_exit_keeps_dumping_while_humvee_moves() {
     {
         let t = logic.host_object_mut(transport).unwrap();
         t.status.moving = true;
-        t.movement.path = vec![Vec3::new(400.0, 0.0, 0.0)];
+        t.movement.set_path_coords(vec![Vec3::new(400.0, 0.0, 0.0)]);
         t.movement.current_path_index = 0;
         t.movement.target_position = Some(Vec3::new(400.0, 0.0, 0.0));
     }

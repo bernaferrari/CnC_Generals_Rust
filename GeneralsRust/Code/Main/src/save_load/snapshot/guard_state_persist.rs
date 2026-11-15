@@ -254,14 +254,14 @@ mod tests {
             let snapshot = capture(&source).unwrap().unwrap();
             let mut target = source.clone();
             target.unit_ai_runtime.clear_guard();
-            target.movement.path = vec![Vec3::splat(20.0)];
+            target.movement.path = crate::game_logic::pathfinding::PathRoute::from_coords(vec![Vec3::splat(20.0)]);
             target.waiting_for_path = true;
             target
                 .restore_base_ai_continuation(source.capture_base_ai_continuation())
                 .unwrap();
             assert!(restore(&snapshot, &mut target).unwrap());
             assert_runtime(&source, &target);
-            assert_eq!(target.movement.path, vec![Vec3::splat(20.0)]);
+            assert_eq!(target.movement.path.coords(), vec![Vec3::splat(20.0)]);
             assert!(target.waiting_for_path);
         }
     }

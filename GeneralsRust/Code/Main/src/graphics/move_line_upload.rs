@@ -134,11 +134,11 @@ mod tests {
             .expect("u");
         if let Some(obj) = logic.host_object_mut(id) {
             obj.movement.target_position = Some(Vec3::new(30.0, 0.0, 10.0));
-            obj.movement.path = vec![
+            obj.movement.set_path_coords(vec![
                 Vec3::new(0.0, 0.0, 0.0),
                 Vec3::new(15.0, 0.0, 5.0),
                 Vec3::new(30.0, 0.0, 10.0),
-            ];
+            ]);
         }
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");

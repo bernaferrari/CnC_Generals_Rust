@@ -118,7 +118,7 @@ pub(super) fn assert_reachable_side_of_wall(logic: &GameLogic, unit: &Object, wa
         !unit.movement.path.is_empty(),
         "reachable prefix must be retained"
     );
-    for point in &unit.movement.path {
+    for point in unit.movement.path.iter() {
         let cell = grid.world_to_grid(*point);
         assert!(
             cell.x < wall_x,
@@ -129,7 +129,7 @@ pub(super) fn assert_reachable_side_of_wall(logic: &GameLogic, unit: &Object, wa
             "path node is impassable: {cell:?}"
         );
     }
-    for segment in unit.movement.path.windows(2) {
+    for segment in unit.movement.path.coords().windows(2) {
         let steps = ((segment[1] - segment[0]).length() / (grid.grid_size() * 0.25))
             .ceil()
             .max(1.0) as usize;

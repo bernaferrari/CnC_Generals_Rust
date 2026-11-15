@@ -2375,7 +2375,7 @@ mod common_target_parity {
         };
         let far = glam::Vec3::new(80.0, 0.0, 80.0);
         if let Some(o) = logic.host_object_mut(id) {
-            o.movement.path = vec![start, far];
+            o.movement.set_path_coords(vec![start, far]);
             o.movement.target_position = Some(far);
         }
         ({

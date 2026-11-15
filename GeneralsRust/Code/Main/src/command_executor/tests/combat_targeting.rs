@@ -1731,7 +1731,7 @@ End
     {
         let ferry = logic.host_object_mut(carrier).expect("carrier");
         assert!(ferry.add_occupant(rider));
-        ferry.movement.path = original_path.clone();
+        ferry.movement.set_path_coords(original_path.clone());
         ferry.movement.target_position = original_target;
         ferry.movement.current_path_index = 1;
         ferry.set_ai_state(
@@ -1763,7 +1763,7 @@ End
 
     let ferry = logic.host_object(carrier).expect("carrier after rejection");
     assert_eq!(ferry.contained_units(), vec![rider]);
-    assert_eq!(ferry.movement.path, original_path);
+    assert_eq!(ferry.movement.path.coords(), original_path);
     assert_eq!(ferry.movement.target_position, original_target);
     assert_eq!(ferry.movement.current_path_index, 1);
     assert_eq!(ferry.ai_state(), AIState::Idle);

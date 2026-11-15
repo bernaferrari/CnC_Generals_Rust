@@ -2383,7 +2383,7 @@ mod tests {
         // Assert both canonical final goal and retained intermediate waypoint.
         let exact = unit.requested_destination.expect("zero-factor final goal");
         assert_eq!(unit.movement.path.last().copied(), Some(goal));
-        assert!(unit.movement.path.contains(&via));
+        assert!(unit.movement.path.iter().any(|point| *point == via));
         assert_eq!(
             unit.movement.target_position,
             unit.movement
@@ -2411,9 +2411,8 @@ mod tests {
         let want = leftover_apply_wander_group_offset(goal, expected);
         assert_eq!(unit.movement.path.last().copied(), Some(want));
         assert!(
-            unit.movement
-                .path
-                .contains(&leftover_apply_wander_group_offset(via, expected))
+            unit.movement.path.iter()
+                .any(|point| *point == leftover_apply_wander_group_offset(via, expected))
         );
         assert_eq!(
             unit.movement.target_position,

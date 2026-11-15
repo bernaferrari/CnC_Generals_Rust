@@ -360,6 +360,7 @@ impl PathfindingSystem {
             tunneling,
             Some(&cell_allowed as &dyn Fn(GridCoord) -> bool),
             dozer_ok_ref,
+            None,
         );
 
         if let Some(error) = observation_error.into_inner() {
@@ -368,6 +369,10 @@ impl PathfindingSystem {
         let Some((grid_path, cells_examined)) = grid_path else {
             return Ok(PathResult::none());
         };
+        let grid_path: Vec<_> = grid_path
+            .into_iter()
+            .map(|node| (node.coord, node.layer))
+            .collect();
         // C++ m_cumulativeCellsAllocated += cells examined this path.
         self.cumulative_cells_allocated = self
             .cumulative_cells_allocated

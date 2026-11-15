@@ -1223,10 +1223,10 @@ fn move_destination_freezes_from_host_movement() {
     if let Some(obj) = logic.host_object_mut(id) {
         obj.movement.target_position = Some(glam::Vec3::new(9.0, 0.0, 4.0));
         obj.target = Some(crate::game_logic::ObjectId(99));
-        obj.movement.path = vec![
+        obj.movement.set_path_coords(vec![
             glam::Vec3::new(1.0, 0.0, 1.0),
             glam::Vec3::new(9.0, 0.0, 4.0),
-        ];
+        ]);
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");

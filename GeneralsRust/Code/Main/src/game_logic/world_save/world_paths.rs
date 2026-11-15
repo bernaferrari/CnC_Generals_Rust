@@ -2,6 +2,7 @@
 #![allow(unused_imports, non_snake_case)]
 use super::*;
 
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PathRequestKind {
     Move,
@@ -9,7 +10,7 @@ enum PathRequestKind {
 }
 
 impl GameLogic {
-    pub(in super::super) fn route_for_points(&self, points: Vec<Vec3>) -> crate::game_logic::pathfinding::PathRoute {
+    pub(in crate::game_logic) fn route_for_points(&self, points: Vec<Vec3>) -> crate::game_logic::pathfinding::PathRoute {
         let ground_owner = self.world_services.terrain();
         let ground = ground_owner.read().unwrap_or_else(|error| error.into_inner());
         let source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
@@ -24,6 +25,29 @@ impl GameLogic {
             &self.pathfinding_system.grid,
             &source,
         )
+    }
+
+    /// Resolve coordinate-only nodes installed by an object operation using
+    /// this receiving world's terrain. Existing searched layers are untouched.
+    pub(in crate::game_logic) fn resolve_installed_path_layers(&mut self, id: ObjectId) {
+        let Some(unit) = self.objects.get_mut(&id) else { return };
+        if !unit.movement.path.nodes().iter().any(|node| node.layer.is_none()) {
+            return;
+        }
+        let ground_owner = self.world_services.terrain();
+        let ground = ground_owner.read().unwrap_or_else(|error| error.into_inner());
+        let grid = &self.pathfinding_system.grid;
+        let source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground, self.map_loaded, self.terrain.as_ref(),
+            self.pathfinding_height_samples.as_ref(), grid,
+        );
+        for index in 0..unit.movement.path.nodes().len() {
+            let node = &unit.movement.path.nodes()[index];
+            if node.layer.is_none() {
+                let layer = grid.layer_for_destination(node.position, &source) as u8;
+                unit.movement.path.set_node_layer(index, Some(layer));
+            }
+        }
     }
 
     pub(in super::super) fn path_layer_for_point(&self, point: Vec3) -> u8 {
@@ -126,7 +150,7 @@ impl GameLogic {
             unit.waiting_for_path = false;
             unit.queue_for_path_frame = 0;
             unit.movement.current_path_index = 0;
-            unit.movement.set_path_with_layers(route.points, route.layers);
+            unit.movement.path = route;
             unit.movement.target_position = unit.movement.path.first().copied();
             unit.is_exact_path = true;
             unit.is_attack_path = false;
@@ -371,6 +395,7 @@ impl GameLogic {
         } else {
             false
         };
+        self.resolve_installed_path_layers(unit_id);
         if delayed {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.is_blocked = false;
@@ -638,7 +663,7 @@ impl GameLogic {
             unit.is_attack_path = false;
             unit.is_exact_path = false;
             unit.set_locomotor_goal_position_on_path();
-            unit.movement.set_path_with_layers(path.points, path.layers);
+            unit.movement.path = path;
             if unit.movement.path.len() >= 2 {
                 unit.movement.current_path_index = 1;
                 unit.movement.target_position = Some(unit.movement.path[1]);
@@ -661,6 +686,7 @@ impl GameLogic {
         }
         let mut start = unit.get_position();
         start.y = destination.y;
+        let route = self.route_for_points(vec![start, destination]);
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
@@ -669,7 +695,7 @@ impl GameLogic {
         unit.is_attack_path = false;
         unit.is_exact_path = false;
         unit.set_locomotor_goal_position_on_path();
-        unit.movement.set_path_coords(vec![start, destination]);
+        unit.movement.path = route;
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(destination);
         unit.refresh_follow_path_extra_distance();
@@ -721,8 +747,7 @@ impl GameLogic {
         let mut goals: Vec<Vec3> = waypoints.to_vec();
         goals.push(destination);
 
-        let mut full_path: Vec<Vec3> = Vec::new();
-        let mut full_layers: Vec<u8> = Vec::new();
+        let mut full_path = crate::game_logic::pathfinding::PathRoute::default();
         let mut ground_search = false;
         let mut segment_start = start;
         let loco = if surfaces != 0 {
@@ -748,8 +773,7 @@ impl GameLogic {
                 if is_aircraft && hop_i + 1 == goal_count && full_path.is_empty() {
                     let mut start_at_dest = segment_start;
                     start_at_dest.y = goal.y;
-                    full_path.push(start_at_dest);
-                    full_layers.push(self.path_layer_for_point(start_at_dest));
+                    full_path.append_route(self.route_for_points(vec![start_at_dest]));
                 }
                 segment_start = goal;
                 continue;
@@ -807,7 +831,7 @@ impl GameLogic {
             } else {
                 self.objects.lookup(&unit_id).and_then(|unit| {
                     if unit.is_blocked_and_stuck && unit.movement.path.len() >= 2 {
-                        Some((unit.movement.path.clone(), unit.movement.path_layers.clone()))
+                        Some(unit.movement.path.clone())
                     } else {
                         None
                     }
@@ -850,7 +874,7 @@ impl GameLogic {
                 ))
             } else if !dest_ok {
                 None
-            } else if let Some((original, original_layers)) = stuck_path {
+            } else if let Some(original) = stuck_path {
                 ({
                     let ground_owner = self.world_services.terrain();
                     let ground_loan = ground_owner
@@ -867,7 +891,6 @@ impl GameLogic {
                     self.pathfinding_system.patch_path(
                         segment_start,
                         &original,
-                        &original_layers,
                         loco,
                         is_crusher,
                         self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
@@ -902,10 +925,10 @@ impl GameLogic {
                 })
             };
 
-            match segment.filter(|path| !path.points.is_empty()) {
+            match segment.filter(|path| !path.is_empty()) {
                 Some(mut segment) => {
                     ground_search |= !leftover_quick && !flying;
-                    let path_len: f32 = segment.points.windows(2).map(|w| horiz(w[0], w[1])).sum();
+                    let path_len: f32 = segment.iter().zip(segment.iter().skip(1)).map(|(a, b)| horiz(*a, *b)).sum();
                     if straight > 1.0 && path_len > straight * 3.5 {
                         log::debug!(
                             "Path detour {:.0} vs straight {:.0} for {:?}",
@@ -915,23 +938,8 @@ impl GameLogic {
                         );
                     }
                     {
-                        if let Some(first) = segment.points.first_mut() {
-                            *first = segment_start;
-                        }
-                        // C++ Path::optimize / adjustDestination keep the
-                        // snapped cell as the last node. Restoring the raw
-                        // click (hq-7lrve) walked units into buildings.
-                        if !full_path.is_empty()
-                            && !segment.points.is_empty()
-                            && full_path
-                                .last()
-                                .is_some_and(|prev| horiz(*prev, segment.points[0]) < 0.01)
-                        {
-                            segment.points.remove(0);
-                            segment.layers.remove(0);
-                        }
-                        full_path.extend(segment.points);
-                        full_layers.extend(segment.layers);
+                        segment.set_node_position(0, segment_start);
+                        full_path.append_route(segment);
                     }
                 }
                 None => {
@@ -948,11 +956,9 @@ impl GameLogic {
                     // command validation.
                     if !self.map_loaded {
                         if full_path.is_empty() {
-                            full_path.push(segment_start);
-                            full_layers.push(self.path_layer_for_point(segment_start));
+                            full_path.append_route(self.route_for_points(vec![segment_start]));
                         }
-                        full_path.push(goal);
-                        full_layers.push(self.path_layer_for_point(goal));
+                        full_path.append_route(self.route_for_points(vec![goal]));
                     } else {
                         self.pathfinding_system.set_adjust_goal(saved_adjust);
                         return None;
@@ -974,12 +980,11 @@ impl GameLogic {
         if !ground_search {
             let last = full_path.last().copied().unwrap_or(segment_start);
             if horiz(last, destination) >= 0.01 {
-                full_path.push(destination);
-                full_layers.push(self.path_layer_for_point(destination));
+                full_path.append_route(self.route_for_points(vec![destination]));
             }
         }
         self.pathfinding_system.set_adjust_goal(saved_adjust);
-        Some((crate::game_logic::pathfinding::PathRoute { points: full_path, layers: full_layers }, ground_search))
+        Some((full_path, ground_search))
     }
 
     pub(in super::super) fn apply_computed_unit_path(
@@ -1000,14 +1005,11 @@ impl GameLogic {
             return false;
         };
         let no_collide = unit.is_kind_of(crate::game_logic::KindOf::NoCollide);
-        let mut full_path = route.points;
-        let mut layers = route.layers;
+        let mut full_path = route;
         if let Some(layer) = updated_layer {
-            if let Some(last) = full_path.last_mut() {
-                *last = destination;
-                if let Some(last_layer) = layers.last_mut() {
-                    *last_layer = layer;
-                }
+            if let Some(index) = full_path.nodes().len().checked_sub(1) {
+                full_path.set_node_position(index, destination);
+                full_path.set_node_layer(index, Some(layer));
             }
         }
         unit.waiting_for_path = false;
@@ -1026,7 +1028,7 @@ impl GameLogic {
             unit.movement.current_path_index = 0;
             unit.movement.target_position = Some(destination);
         }
-        unit.movement.set_path_with_layers(full_path, layers);
+        unit.movement.path = full_path;
         unit.is_attack_path = false;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
@@ -2189,7 +2191,7 @@ impl GameLogic {
         // Contact paths go to the victim, not a firing cell.
         if !contact {
             if let Some(ref full_path) = path {
-                if let Some(&goal) = full_path.points.last() {
+                if let Some(&goal) = full_path.last() {
                     let eye_r = self
                         .objects
                         .lookup(&unit_id)
@@ -2209,24 +2211,22 @@ impl GameLogic {
         }
 
         if let Some(mut full_path) = path {
-            if full_path.points.len() >= 2 {
+            if full_path.len() >= 2 {
                 if contact {
                     let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
                     let three = (cell * 3.0) * (cell * 3.0);
-                    let jam = full_path.points.last().is_some_and(|last| {
+                    let jam = full_path.last().is_some_and(|last| {
                         let dx = last.x - target_pos.x;
                         let dz = last.z - target_pos.z;
                         dx * dx + dz * dz < three
                     });
                     if jam {
-                        if let Some(last) = full_path.points.last_mut() {
-                            *last = target_pos;
-                            if let Some(layer) = full_path.layers.last_mut() {
-                                *layer = self.path_layer_for_point(target_pos);
-                            }
+                        if let Some(index) = full_path.nodes().len().checked_sub(1) {
+                            full_path.set_node_position(index, target_pos);
+                            full_path.set_node_layer(index, Some(self.path_layer_for_point(target_pos)));
                         }
                     }
-                    let too_short = full_path.points.last().is_some_and(|last| {
+                    let too_short = full_path.last().is_some_and(|last| {
                         let dx = last.x - from.x;
                         let dz = last.z - from.z;
                         dx * dx + dz * dz < cell * cell
@@ -2241,9 +2241,9 @@ impl GameLogic {
                         return false;
                     }
                 }
-                let last_node = full_path.points.last().copied();
+                let last_node = full_path.last().copied();
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    unit.movement.set_path_with_layers(full_path.points, full_path.layers);
+                    unit.movement.path = full_path;
                     // AIUpdate.cpp:1985 timestamps a computed attack path.
                     unit.path_timestamp = self.frame;
                     unit.num_frames_blocked = 0;
@@ -2588,12 +2588,11 @@ impl GameLogic {
         if !waypoint.is_finite() {
             return false;
         }
-        let (unit_pos, mut current_path, mut current_layers, current_target, can_move, waiting_for_path) =
+        let (unit_pos, mut current_path, current_target, can_move, waiting_for_path) =
             match self.objects.lookup(&unit_id) {
                 Some(unit) => (
                     unit.get_position(),
                     unit.movement.path.clone(),
-                    unit.movement.path_layers.clone(),
                     unit.movement.target_position,
                     unit.can_move(),
                     unit.waiting_for_path,
@@ -2635,12 +2634,8 @@ impl GameLogic {
         if had_no_path {
             if let Some(target) = current_target {
                 // Preserve an in-flight move even if its route has not been installed.
-                current_path.extend([unit_pos, target]);
-                current_layers = vec![self.path_layer_for_point(unit_pos), self.path_layer_for_point(target)];
+                current_path = self.route_for_points(vec![unit_pos, target]);
             }
-        }
-        if current_layers.len() != current_path.len() {
-            current_layers = current_path.iter().map(|point| self.path_layer_for_point(*point)).collect();
         }
         let last_goal = current_path.last().copied().unwrap_or(unit_pos);
 
@@ -2669,30 +2664,16 @@ impl GameLogic {
         let mut appended = current_path;
         match segment {
             Some(mut segment_path) => {
-                if let Some(first) = segment_path.points.first_mut() {
-                    *first = last_goal;
-                }
-                if !appended.is_empty()
-                    && !segment_path.points.is_empty()
-                    && appended
-                        .last()
-                        .is_some_and(|prev| prev.distance(segment_path.points[0]) < 0.01)
-                {
-                    segment_path.points.remove(0);
-                    segment_path.layers.remove(0);
+                if !segment_path.is_empty() {
+                    segment_path.set_node_position(0, last_goal);
                 }
                 // C++ Path::appendGoal: the queued waypoint is the real final
                 // node. A* ends at the goal cell center; retain the requested
                 // position as the terminal node.
-                if segment_path.points
-                    .last()
-                    .is_none_or(|last| last.distance(waypoint) >= 0.01)
-                {
-                    segment_path.points.push(waypoint);
-                    segment_path.layers.push(self.path_layer_for_point(waypoint));
+                if segment_path.last().is_none_or(|last| last.distance(waypoint) >= 0.01) {
+                    segment_path.append_route(self.route_for_points(vec![waypoint]));
                 }
-                appended.extend(segment_path.points);
-                current_layers.extend(segment_path.layers);
+                appended.append_route(segment_path);
             }
             None => {
                 log::debug!(
@@ -2702,11 +2683,9 @@ impl GameLogic {
                     waypoint
                 );
                 if appended.is_empty() {
-                    appended.push(last_goal);
-                    current_layers.push(self.path_layer_for_point(last_goal));
+                    appended.append_route(self.route_for_points(vec![last_goal]));
                 }
-                appended.push(waypoint);
-                current_layers.push(self.path_layer_for_point(waypoint));
+                appended.append_route(self.route_for_points(vec![waypoint]));
             }
         }
 
@@ -2720,7 +2699,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
-        unit.movement.set_path_with_layers(appended, current_layers);
+        unit.movement.path = appended;
         if had_no_path {
             unit.movement.current_path_index = usize::from(unit.movement.path.len() > 1);
         }

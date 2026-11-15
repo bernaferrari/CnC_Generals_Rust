@@ -842,43 +842,33 @@ pub struct Movement {
     pub turn_rate: f32,
     /// C++ LocomotorTemplate::m_maxTurnRateDamaged residual.
     pub turn_rate_damaged: f32,
-    pub path: Vec<Vec3>,
-    /// C++ `PathNode::m_layer` parallel to `path` (AIPathfind.h PathNode).
-    /// Empty or length-mismatched means callers fall back to geometry layer.
-    pub path_layers: Vec<u8>,
+    pub path: crate::game_logic::pathfinding::PathRoute,
     pub current_path_index: usize,
 }
 
 impl Movement {
     /// Replace the route and its original PathNode layers together.
     pub fn set_path_with_layers(&mut self, path: Vec<Vec3>, layers: Vec<u8>) {
-        if layers.len() == path.len() {
-            self.path_layers = layers;
+        self.path = if path.len() == layers.len() {
+            crate::game_logic::pathfinding::PathRoute::from_layered(path, layers)
         } else {
-            self.path_layers.clear();
-        }
-        self.path = path;
+            crate::game_logic::pathfinding::PathRoute::from_coords(path)
+        };
     }
 
     /// Install a coordinate-only path; forget prior node layers.
     pub fn set_path_coords(&mut self, path: Vec<Vec3>) {
-        self.path_layers.clear();
-        self.path = path;
+        self.path = crate::game_logic::pathfinding::PathRoute::from_coords(path);
     }
 
     pub fn clear_path(&mut self) {
         self.path.clear();
-        self.path_layers.clear();
         self.current_path_index = 0;
     }
 
-    /// Last PathNode layer when the parallel vector is authoritative.
+    /// Layer of the final optimized PathNode, when known.
     pub fn last_path_layer(&self) -> Option<u8> {
-        if self.path_layers.len() == self.path.len() {
-            self.path_layers.last().copied()
-        } else {
-            None
-        }
+        self.path.len().checked_sub(1).and_then(|i| self.path.optimized_layer(i))
     }
 }
 
@@ -894,8 +884,7 @@ impl Default for Movement {
             acceleration_damaged: 2.5,
             turn_rate: std::f32::consts::PI,
             turn_rate_damaged: std::f32::consts::PI * 0.5,
-            path: Vec::new(),
-            path_layers: Vec::new(),
+            path: Default::default(),
             current_path_index: 0,
         }
     }

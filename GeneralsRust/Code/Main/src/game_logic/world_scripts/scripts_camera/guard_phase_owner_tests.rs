@@ -33,7 +33,7 @@ fn observe(world: &GameLogic, id: ObjectId) -> Observation {
         anchor: unit.unit_ai_runtime.guard_anchor(),
         state: unit.ai_state().clone(),
         position: unit.get_position(),
-        path: unit.movement.path.clone(),
+        path: unit.movement.path.coords(),
         index: unit.movement.current_path_index,
         destination: unit.requested_destination,
         path_goal: unit.path_goal_position,
@@ -408,7 +408,7 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     unit.unit_ai_runtime.set_guard_scan_deadline(Some(11));
     // Same explicit overlay admission used by the tunnel producer.
     let end = unit.get_position() + Vec3::new(100.0, 0.0, 0.0);
-    unit.movement.path = vec![end, end];
+    unit.movement.set_path_coords(vec![end, end]);
     unit.movement.target_position = Some(end);
     unit.can_path_through_units = true;
     unit.set_adjust_destinations(false);

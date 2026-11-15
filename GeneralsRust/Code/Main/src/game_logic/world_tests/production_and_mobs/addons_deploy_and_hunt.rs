@@ -131,7 +131,7 @@ fn successful_disguise_drops_the_vehicle_ignore() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(vehicle);
-        unit.movement.path = vec![Vec3::ZERO];
+        unit.movement.set_path_coords(vec![Vec3::ZERO]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[infantry], 1.0 / 30.0);

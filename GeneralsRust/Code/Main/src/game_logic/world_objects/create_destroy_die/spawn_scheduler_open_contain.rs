@@ -135,7 +135,7 @@ impl GameLogic {
             child.allow_to_fall = allow_fall;
             let mut path = vec![start, end, end];
             if let Some(rally) = rally { path.push(rally); }
-            child.movement.path = path;
+            child.movement.set_path_coords(path);
             child.movement.current_path_index = 1;
             child.movement.target_position = Some(end);
             child.set_ai_state(AIState::Moving, self.frame,
@@ -143,6 +143,7 @@ impl GameLogic {
             child.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             child.status.moving = true;
         }
+        self.resolve_installed_path_layers(child_id);
         self.register_path_goal(child_id, end);
         Ok(true)
     }

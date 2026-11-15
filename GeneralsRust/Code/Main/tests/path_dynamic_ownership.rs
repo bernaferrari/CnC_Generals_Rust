@@ -717,10 +717,10 @@ fn blocked_route_retry_uses_receiver_ignore_and_aircraft_stays_direct() {
         // An impassable seed rejects the initial search before A* is seeded.
         let path = systems[index].find_path_ex(start, goal, worlds[index].host_objects(), false, Some(ids[index].0), &ground)
             .expect("the ground retry should find a nearby reachable destination");
-        ends.push(*path.points.last().unwrap());
+        ends.push(*path.last().unwrap());
         let air_path = systems[index].find_path_ex(start, goal, worlds[index].host_objects(), true, Some(ids[index].2), &ground)
             .expect("aircraft take the direct branch");
-        assert_eq!(air_path.points.last(), Some(&goal));
+        assert_eq!(air_path.last(), Some(&goal));
     }
     assert_ne!(ends[0], ends[1], "the retry must use the receiver's ignored reservation");
 }

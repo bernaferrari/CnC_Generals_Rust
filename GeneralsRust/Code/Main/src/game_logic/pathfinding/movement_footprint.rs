@@ -80,6 +80,15 @@ impl MovementFootprint {
         Some(cost)
     }
 
+    pub(super) fn blocked_by_ally(
+        &self,
+        grid: &PathfindingGrid,
+        position: GridPos,
+        layer: PathfindLayerEnum,
+    ) -> bool {
+        self.check(grid, position, layer).is_some_and(|check| check.ally_fixed)
+    }
+
     /// The line-seed callback aborts on `enemyFixed` or any `allyFixedCount`
     /// (AIPathfind.cpp:6034-6050).
     pub(super) fn line_seed_clear(

@@ -64,7 +64,7 @@ fn optimize_ground_path_preserves_carried_bridge_layer_over_geometry() {
         Vec3::new(120.0, 0.0, 50.0),
     ];
     let layers = vec![bridge as u8, bridge as u8, bridge as u8];
-    let (opt, opt_layers) = grid.optimize_ground_path_ex_layered(
+    let opt = grid.optimize_ground_path_ex_layered(
         &waypoints,
         &layers,
         SURFACE_GROUND,
@@ -74,10 +74,9 @@ fn optimize_ground_path_preserves_carried_bridge_layer_over_geometry() {
         &ground,
     );
     assert!(!opt.is_empty());
-    assert_eq!(opt.len(), opt_layers.len());
     assert!(
-        opt_layers.iter().all(|&l| l == bridge as u8),
-        "carried bridge PathNode layers must survive optimize; got {opt_layers:?}"
+        (0..opt.len()).all(|i| opt.optimized_layer(i) == Some(bridge as u8)),
+        "carried bridge PathNode layers must survive optimize; got {opt:?}"
     );
 }
 
@@ -101,16 +100,16 @@ fn ground_optimizer_removes_only_one_jig_per_anchor() {
         Vec3::new(50.0, 0.0, 50.0),
     ];
     let layers = vec![2; points.len()];
-    let (optimized, _) = grid.optimize_ground_path_ex_layered(
+    let optimized = grid.optimize_ground_path_ex_layered(
         &points, &layers, SURFACE_GROUND, false, None, 0, &PathfindingGround::Flat(0.0),
     );
     // AIPathfind.cpp:682-692 advances to the newly linked node after each
     // removal; it does not repeatedly remove successors of the same anchor.
-    assert_eq!(optimized, vec![points[0], points[2], points[4]]);
-    let (object_path, _) = grid.optimize_path_ex_layered(
+    assert_eq!(optimized.coords(), vec![points[0], points[2], points[4]]);
+    let object_path = grid.optimize_path_ex_layered(
         &points, &layers, SURFACE_GROUND, false, None, 0, &PathfindingGround::Flat(0.0),
     );
-    assert_eq!(object_path, points, "Path::optimize does not run the jig/jog pass");
+    assert_eq!(object_path.coords(), points, "Path::optimize does not run the jig/jog pass");
 }
 
 #[test]
@@ -131,17 +130,17 @@ fn object_path_approaches_bridge_on_starting_layer() {
     ];
     let layers = [PathfindLayerEnum::Ground as u8, 2, 2];
     let ground = PathfindingGround::Flat(0.0);
-    let (object_path, _) = grid.optimize_path_ex_layered(
+    let object_path = grid.optimize_path_ex_layered(
         &points, &layers, SURFACE_GROUND, false, None, 0, &ground,
     );
-    let (ground_path, _) = grid.optimize_ground_path_ex_layered(
+    let ground_path = grid.optimize_ground_path_ex_layered(
         &points, &layers, SURFACE_GROUND, false, None, 0, &ground,
     );
     // The object query cannot use clear bridge cells to shortcut a ground
     // obstacle before entering the bridge. The ground-only optimizer uses
     // its chosen bridge layer instead (AIPathfind.cpp:597-619).
-    assert_eq!(object_path, points);
-    assert_eq!(ground_path, vec![points[0], points[2]]);
+    assert_eq!(object_path.coords(), points);
+    assert_eq!(ground_path.coords(), vec![points[0], points[2]]);
 }
 
 // The original visibility check visits cells, not the continuous segment.
@@ -224,7 +223,7 @@ fn searched_bridge_approach_does_not_shortcut_ground_obstacle_in_either_world() 
         let path = finder.find_path_ex_surfaces(
             start, goal, world.host_objects(), false, SURFACE_GROUND, false, Some(*mover), &ground,
         ).expect("ground-to-bridge route");
-        (path.points, path.layers)
+        (path.coords(), (0..path.len()).map(|i| path.optimized_layer(i).expect("searched node has a layer")).collect::<Vec<_>>())
     };
     let blocked = query(&mut owners[0]);
     let clear = query(&mut owners[1]);
@@ -263,9 +262,9 @@ fn ground_search_reaches_bridge_destination_above_impassable_in_two_worlds() {
         let path = finder.find_path_ex_surfaces(
             start, goal, world.host_objects(), false, SURFACE_GROUND, false, Some(*mover), &ground,
         ).expect("a clear bridge destination must not be rejected by ground terrain below");
-        assert_eq!(path.layers.last().copied(), Some(2));
-        assert_eq!(finder.grid.world_to_grid(*path.points.last().unwrap()), GridPos::new(10, 5));
-        (path.points, path.layers)
+        assert_eq!(path.optimized_layer(path.len() - 1), Some(2));
+        assert_eq!(finder.grid.world_to_grid(*path.last().unwrap()), GridPos::new(10, 5));
+        (path.coords(), (0..path.len()).map(|i| path.optimized_layer(i).expect("searched node has a layer")).collect::<Vec<_>>())
     };
     let blocked = query(&mut owners[0]);
     let clear = query(&mut owners[1]);
@@ -295,7 +294,7 @@ fn closest_bridge_approach_respects_each_worlds_ground_obstacle() {
             world.host_objects(),
             *mover,
         ).expect("closest path across bridge");
-        (path.points, path.layers)
+        (path.coords(), (0..path.len()).map(|i| path.optimized_layer(i).expect("searched node has a layer")).collect::<Vec<_>>())
     };
     let blocked = query(&mut owners[0]);
     let clear = query(&mut owners[1]);
@@ -313,7 +312,7 @@ fn closest_bridge_approach_respects_each_worlds_ground_obstacle() {
 }
 
 #[test]
-fn movement_last_path_layer_requires_parallel_identity() {
+fn movement_last_path_layer_tracks_known_identity() {
     let mut movement = crate::game_logic::host_types::Movement::default();
     movement.set_path_with_layers(
         vec![Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)],
@@ -326,7 +325,7 @@ fn movement_last_path_layer_requires_parallel_identity() {
         vec![Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)],
         vec![1], // length mismatch
     );
-    assert!(movement.path_layers.is_empty());
+    assert!(movement.path.nodes().iter().all(|node| node.layer.is_none()));
     assert_eq!(movement.last_path_layer(), None);
 }
 

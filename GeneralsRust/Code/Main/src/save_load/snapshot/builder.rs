@@ -2102,5 +2102,5 @@ fn remaining_unit_waypoints(object: &Object) -> Vec<Vec3> {
         .movement
         .current_path_index
         .min(object.movement.path.len());
-    object.movement.path[idx..].to_vec()
+    object.movement.path.iter().skip(idx).copied().collect()
 }

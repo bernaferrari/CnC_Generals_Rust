@@ -419,7 +419,7 @@ impl GameLogic {
                 let a_path = self
                     .objects
                     .get(&a_id)
-                    .map(|a| a.movement.path.clone())
+                    .map(|a| a.movement.path.coords())
                     .unwrap_or_default();
                 let prev_path = self
                     .objects
@@ -427,7 +427,7 @@ impl GameLogic {
                     .and_then(|o| o.move_away_from)
                     .and_then(|id| {
                         self.objects.get(&id).and_then(|prev| {
-                            (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
+                            (prev.movement.path.len() >= 2).then(|| prev.movement.path.coords())
                         })
                     });
                 if !a_path.is_empty() {
@@ -480,7 +480,7 @@ impl GameLogic {
                 let other_path = self
                     .objects
                     .get(&other_id)
-                    .map(|o| o.movement.path.clone())
+                    .map(|o| o.movement.path.coords())
                     .unwrap_or_default();
                 let prev_path = self
                     .objects
@@ -488,7 +488,7 @@ impl GameLogic {
                     .and_then(|o| o.move_away_from)
                     .and_then(|id| {
                         self.objects.get(&id).and_then(|prev| {
-                            (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
+                            (prev.movement.path.len() >= 2).then(|| prev.movement.path.coords())
                         })
                     });
                 if !other_path.is_empty() {

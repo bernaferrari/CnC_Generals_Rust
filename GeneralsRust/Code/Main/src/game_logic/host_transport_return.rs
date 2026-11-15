@@ -141,6 +141,7 @@ impl GameLogic {
                 append_goal: false,
             });
         }
+        self.resolve_installed_path_layers(id);
     }
 
     /// Bounded owned continuation after this object's real motion/arrival phase.
@@ -287,7 +288,7 @@ mod tests {
                 origin,
                 append_goal: true,
             });
-            object.movement.path = vec![origin, origin + Vec3::X];
+            object.movement.set_path_coords(vec![origin, origin + Vec3::X]);
             object.status.moving = true;
         }
         logic.prepare_transport_return_path(id);

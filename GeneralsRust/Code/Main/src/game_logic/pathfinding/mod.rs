@@ -16,11 +16,36 @@ use gamelogic::ai::pathfind_complete::{
 /// C++ reserves one ring slot to distinguish an empty queue from a full one.
 pub(crate) const MAX_PENDING_PATH_REQUESTS: usize = PATHFIND_QUEUE_LEN - 1;
 
-/// A path query's coordinates and their corresponding C++ PathNode layers.
-#[derive(Debug, Clone, PartialEq)]
+/// One owned C++ PathNode. Raw predecessor/successor are adjacent in `nodes`;
+/// optimized links skip raw nodes without discarding them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PathRouteNode {
+    pub position: Vec3,
+    pub layer: Option<u8>,
+    pub can_optimize: bool,
+    pub next_optimized: Option<usize>,
+}
+
+/// A single owner for the raw path and its optimized traversal.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct PathRoute {
-    pub points: Vec<Vec3>,
-    pub layers: Vec<u8>,
+    nodes: Vec<PathRouteNode>,
+    pub blocked_by_ally: bool,
+    #[serde(skip)]
+    optimized_count: usize,
+}
+
+impl<'de> Deserialize<'de> for PathRoute {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct StoredPath {
+            nodes: Vec<PathRouteNode>,
+            blocked_by_ally: bool,
+        }
+        let stored = StoredPath::deserialize(deserializer)?;
+        Self::from_nodes(stored.nodes, stored.blocked_by_ally)
+            .ok_or_else(|| serde::de::Error::custom("invalid optimized path links"))
+    }
 }
 
 impl PathRoute {
@@ -29,11 +54,138 @@ impl PathRoute {
         grid: &PathfindingGrid,
         ground: &PathfindingGround<'_>,
     ) -> Self {
-        let layers = points
-            .iter()
-            .map(|point| grid.layer_for_destination(*point, ground) as u8)
-            .collect();
-        Self { points, layers }
+        let len = points.len();
+        let nodes = points.into_iter().enumerate().map(|(i, position)| PathRouteNode {
+            position,
+            layer: Some(grid.layer_for_destination(position, ground) as u8),
+            can_optimize: false,
+            next_optimized: (i + 1 < len).then_some(i + 1),
+        }).collect();
+        Self { nodes, blocked_by_ally: false, optimized_count: len }
+    }
+
+    pub fn from_coords(points: Vec<Vec3>) -> Self {
+        let len = points.len();
+        Self {
+            nodes: points.into_iter().enumerate().map(|(i, position)| PathRouteNode {
+                position,
+                layer: None,
+                can_optimize: false,
+                next_optimized: (i + 1 < len).then_some(i + 1),
+            }).collect(),
+            blocked_by_ally: false,
+            optimized_count: len,
+        }
+    }
+
+    pub fn from_layered(points: Vec<Vec3>, layers: Vec<u8>) -> Self {
+        assert_eq!(points.len(), layers.len(), "each raw path node needs its layer");
+        let mut path = Self::from_coords(points);
+        for (node, layer) in path.nodes.iter_mut().zip(layers) {
+            node.layer = Some(layer);
+        }
+        path
+    }
+
+    fn raw_index(&self, ordinal: usize) -> Option<usize> {
+        let mut index = (!self.nodes.is_empty()).then_some(0)?;
+        for _ in 0..ordinal {
+            index = self.nodes.get(index)?.next_optimized?;
+        }
+        self.nodes.get(index).map(|_| index)
+    }
+
+    pub fn len(&self) -> usize { self.optimized_count }
+    pub fn is_empty(&self) -> bool { self.nodes.is_empty() }
+    pub fn get(&self, index: usize) -> Option<&Vec3> {
+        self.raw_index(index).map(|i| &self.nodes[i].position)
+    }
+    pub fn first(&self) -> Option<&Vec3> { self.get(0) }
+    pub fn last(&self) -> Option<&Vec3> { self.nodes.last().map(|node| &node.position) }
+    pub fn iter(&self) -> impl Iterator<Item = &Vec3> {
+        std::iter::successors((!self.nodes.is_empty()).then_some(0), |&i| {
+            self.nodes.get(i).and_then(|node| node.next_optimized)
+        }).filter_map(|i| self.nodes.get(i).map(|node| &node.position))
+    }
+    pub fn coords(&self) -> Vec<Vec3> { self.iter().copied().collect() }
+    pub fn optimized_layer(&self, ordinal: usize) -> Option<u8> {
+        self.raw_index(ordinal).and_then(|i| self.nodes[i].layer)
+    }
+    pub fn raw_predecessor(&self, ordinal: usize) -> Option<&PathRouteNode> {
+        self.raw_index(ordinal).and_then(|i| i.checked_sub(1)).and_then(|i| self.nodes.get(i))
+    }
+    pub fn clear(&mut self) { self.nodes.clear(); self.optimized_count = 0; self.blocked_by_ally = false; }
+    pub fn push(&mut self, position: Vec3) {
+        let index = self.nodes.len();
+        if let Some(last) = self.nodes.last_mut() {
+            last.next_optimized = Some(index);
+        }
+        self.nodes.push(PathRouteNode { position, layer: None, can_optimize: false, next_optimized: None });
+        self.optimized_count += 1;
+    }
+
+    pub fn nodes(&self) -> &[PathRouteNode] { &self.nodes }
+
+    /// Rebuild and validate the derived optimized-node count from the links.
+    pub fn from_nodes(nodes: Vec<PathRouteNode>, blocked_by_ally: bool) -> Option<Self> {
+        if nodes.iter().enumerate().any(|(i, node)| {
+            node.next_optimized.is_some_and(|next| next <= i || next >= nodes.len())
+        }) {
+            return None;
+        }
+        let mut count = 0;
+        if !nodes.is_empty() {
+            let mut index = 0;
+            loop {
+                count += 1;
+                match nodes[index].next_optimized {
+                    Some(next) => index = next,
+                    None if index == nodes.len() - 1 => break,
+                    None => return None,
+                }
+            }
+        }
+        Some(Self { nodes, blocked_by_ally, optimized_count: count })
+    }
+
+    pub fn set_node_position(&mut self, index: usize, position: Vec3) {
+        self.nodes[index].position = position;
+    }
+    pub fn set_node_layer(&mut self, index: usize, layer: Option<u8>) {
+        self.nodes[index].layer = layer;
+    }
+    pub fn set_node_can_optimize(&mut self, index: usize, can_optimize: bool) {
+        self.nodes[index].can_optimize = can_optimize;
+    }
+
+    /// Append a complete route, retaining all raw nodes and optimized links.
+    pub fn append_route(&mut self, mut segment: Self) {
+        if segment.nodes.is_empty() { return; }
+        if self.nodes.is_empty() { *self = segment; return; }
+        self.blocked_by_ally |= segment.blocked_by_ally;
+        let duplicate = self.last().is_some_and(|last| last.distance_squared(segment.nodes[0].position) < 0.0001);
+        let skip = usize::from(duplicate);
+        if duplicate && segment.nodes.len() == 1 { return; }
+        let offset = self.nodes.len();
+        let next = if duplicate {
+            segment.nodes[0].next_optimized.map(|i| offset + i - 1)
+        } else {
+            Some(offset)
+        };
+        self.nodes.last_mut().unwrap().next_optimized = next;
+        self.optimized_count += segment.optimized_count - skip;
+        self.nodes.reserve(segment.nodes.len() - skip);
+        for mut node in segment.nodes.drain(skip..) {
+            node.next_optimized = node.next_optimized.map(|i| i + offset - skip);
+            self.nodes.push(node);
+        }
+    }
+}
+
+impl std::ops::Index<usize> for PathRoute {
+    type Output = Vec3;
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index).expect("optimized path index out of bounds")
     }
 }
 
@@ -375,8 +527,8 @@ impl LineReceiver<'_> {
         grid: &PathfindingGrid,
         cell: GridPos,
         ignore_obstacle: Option<u32>,
+        layer: PathfindLayerEnum,
     ) -> bool {
-        let layer = PathfindLayerEnum::from_u32(self.mover.pathfind_layer as u32);
         let bits = grid
             .raw_occupancy_bits_with(cell, layer, |id| {
                 grid.resolve_occupant(self.objects, Some(self.mover), id)

@@ -47,6 +47,7 @@ impl GameLogic {
         let queue_now = self.objects.get_mut(&object_id).is_some_and(|object| {
             object.begin_request_move_path(destination, self.frame) && object.waiting_for_path
         });
+        self.resolve_installed_path_layers(object_id);
         if queue_now && !self.try_install_flying_quick_path(object_id, destination) {
             self.queue_initialized_path_request(object_id);
         }

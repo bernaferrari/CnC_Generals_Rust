@@ -59,7 +59,7 @@ fn panic_observation(logic: &GameLogic) -> PanicObservation {
     PanicObservation {
         ai_state: unit.ai_state().clone(),
         panic: unit.panic_runtime.clone(),
-        path: unit.movement.path.clone(),
+        path: unit.movement.path.coords(),
         target: unit.movement.target_position,
         current_path_index: unit.movement.current_path_index,
         requested_destination: unit.requested_destination,
@@ -312,11 +312,11 @@ fn moving_path_snapshot() -> crate::save_load::snapshot::WorldSnapshot {
         frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    unit.movement.path = vec![
+    unit.movement.set_path_coords(vec![
         Vec3::new(0.0, 0.0, 0.0),
         Vec3::new(30.0, 0.0, 0.0),
         Vec3::new(60.0, 0.0, 0.0),
-    ];
+    ]);
     unit.movement.current_path_index = 1;
     unit.movement.target_position = Some(Vec3::new(60.0, 0.0, 0.0));
     unit.requested_destination = Some(Vec3::new(75.0, 0.0, 0.0));
@@ -338,7 +338,7 @@ fn complete_world_restore_keeps_full_ordinary_moving_path_and_index() {
     let unit = restored.objects.get(&PANIC_UNIT).expect("restored unit");
     assert_eq!(unit.ai_state(), AIState::Moving);
     assert_eq!(
-        unit.movement.path,
+        unit.movement.path.coords(),
         vec![
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(30.0, 0.0, 0.0),

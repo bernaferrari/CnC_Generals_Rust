@@ -95,7 +95,7 @@ fn exit_path(world: &mut GameLogic, passenger: ObjectId, container: ObjectId) ->
         .expect("exited passenger")
         .movement
         .path
-        .clone()
+        .coords()
 }
 
 #[test]

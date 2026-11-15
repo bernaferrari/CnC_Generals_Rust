@@ -196,7 +196,7 @@ impl GameLogic {
             }
             if let Some(dest) = path_fly {
                 if entered_head_off_map || (obj.movement.path.is_empty() && !obj.status.moving) {
-                    obj.movement.path = vec![p, dest];
+                    obj.movement.set_path_coords(vec![p, dest]);
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(dest);
                     obj.set_locomotor_goal_position_on_path();
@@ -236,6 +236,7 @@ impl GameLogic {
                 obj.status.destroyed = true;
             }
             drop(obj);
+            self.resolve_installed_path_layers(id);
             if apply_landing_dest {
                 let adj = ({
                     let ground_owner = self.world_services.terrain();

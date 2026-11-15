@@ -136,7 +136,7 @@ fn vehicle_requests_infantry_move_away() {
     // C++ move-away steering is relative to the blocked unit's path
     // (AIUpdate::processCollision); give the vehicle the blocked column path.
     if let Some(v) = logic.objects.get_mut(&vid) {
-        v.movement.path = vec![Vec3::new(0.0, 0.0, 8.0), Vec3::new(0.0, 0.0, 16.0)];
+        v.movement.set_path_coords(vec![Vec3::new(0.0, 0.0, 8.0), Vec3::new(0.0, 0.0, 16.0)]);
         v.movement.current_path_index = 0;
     }
     assert!(logic.try_physics_collide(vid, iid, 8.0).unwrap());

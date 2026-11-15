@@ -48,7 +48,7 @@ fn crosses_wall(world: &GameLogic, finder: &mut PathfindingSystem, mover: Object
             Some(mover),
             &PathfindingGround::Flat(0.0),
         )
-        .is_some_and(|path| path.points.last().is_some_and(|p| p.x > 70.0))
+        .is_some_and(|path| path.last().is_some_and(|p| p.x > 70.0))
 }
 
 #[test]

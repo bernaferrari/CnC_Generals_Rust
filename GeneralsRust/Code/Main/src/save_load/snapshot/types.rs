@@ -46,8 +46,9 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version44 persists SpawnPoint occupiers independently of the SpawnBehavior
 /// roster and preserves its update cadence. Older bodies are rejected.
 /// Version46 adds authoritative Weapon integer deadlines in an object tail.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 46;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 46;
+/// Version47 saves raw Movement path nodes and their optimized links.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 47;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 47;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
@@ -61,6 +62,41 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
             actual: version,
         })
     }
+}
+
+/// Optimized successors must be later raw nodes, never cycles or invalid indices.
+pub(crate) fn validate_path_links(path: &PathRoute) -> SaveLoadResult<()> {
+    let nodes = path.nodes();
+    for (index, node) in nodes.iter().enumerate() {
+        if let Some(next) = node.next_optimized {
+            if next <= index || next >= nodes.len() {
+                return Err(crate::save_load::SaveLoadError::Corrupted(format!(
+                    "invalid optimized path link {index} -> {next} ({} raw nodes)",
+                    nodes.len()
+                )));
+            }
+        }
+    }
+    if !nodes.is_empty() {
+        let mut index = 0;
+        while let Some(next) = nodes[index].next_optimized {
+            index = next;
+        }
+        if index != nodes.len() - 1 {
+            return Err(crate::save_load::SaveLoadError::Corrupted(format!(
+                "optimized path ends at raw node {index} before tail {}",
+                nodes.len() - 1
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_world_path_links(snapshot: &WorldSnapshot) -> SaveLoadResult<()> {
+    for object in snapshot.objects.values() {
+        validate_path_links(&object.movement.path)?;
+    }
+    Ok(())
 }
 
 /// Trait for objects that can be included in game snapshots

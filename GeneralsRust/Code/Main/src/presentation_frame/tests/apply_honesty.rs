@@ -106,10 +106,10 @@ fn path_and_beacon_presentation_residual() {
         .create_object("PathUnit", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("moving");
     if let Some(o) = logic.host_object_mut(moving) {
-        o.movement.path = vec![
+        o.movement.set_path_coords(vec![
             glam::Vec3::new(10.0, 0.0, 0.0),
             glam::Vec3::new(50.0, 0.0, 0.0),
-        ];
+        ]);
         o.movement.current_path_index = 0;
         o.status.moving = true;
     }

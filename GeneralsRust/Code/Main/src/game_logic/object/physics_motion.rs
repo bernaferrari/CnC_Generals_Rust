@@ -58,7 +58,7 @@ impl Object {
     pub fn apply_move_away_path(
         &mut self,
         threat_id: ObjectId,
-        path: &[glam::Vec3],
+        path: &crate::game_logic::pathfinding::PathRoute,
         frame: u32,
     ) -> bool {
         if self.status.destroyed || !self.is_alive() || !self.can_move() {
@@ -84,7 +84,7 @@ impl Object {
         // C++ AIMoveOutOfTheWayState::onEnter forces adjust true only when
         // getPath() is already non-null (AIStates.cpp:2127-2133).
         self.set_adjust_destinations(true);
-        self.movement.path = path.to_vec();
+        self.movement.path = path.clone();
         self.movement.current_path_index = 1;
         self.movement.target_position = path.last().copied();
         self.is_attack_path = false;

@@ -47,7 +47,7 @@ fn finished_move_clears_the_ignored_obstacle() {
             &mut Default::default(),
             fixture_partition_unit,
         );
-        unit.movement.path = vec![Vec3::ZERO];
+        unit.movement.set_path_coords(vec![Vec3::ZERO]);
         unit.movement.current_path_index = 0;
         unit.movement.target_position = Some(Vec3::ZERO);
         unit.set_locomotor_goal_position_on_path();
@@ -76,7 +76,7 @@ fn finished_move_clears_the_ignored_obstacle() {
             fixture_partition_unit,
         );
         unit.movement.velocity = Vec3::ZERO;
-        unit.movement.path = vec![near];
+        unit.movement.set_path_coords(vec![near]);
         unit.movement.current_path_index = 0;
         unit.movement.target_position = Some(near);
         unit.close_enough_dist = Some(2.0);
@@ -552,7 +552,7 @@ fn finished_repair_releases_the_dozer() {
         );
         unit.set_dozer_task_repair_target(Some(pad_id));
         unit.ignored_obstacle_id = Some(pad_id);
-        unit.movement.path = vec![Vec3::new(20.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(20.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
     }
     logic.frame = 10;
@@ -617,7 +617,7 @@ fn dead_repair_target_releases_the_dozer() {
         );
         unit.set_dozer_task_repair_target(Some(pad_id));
         unit.ignored_obstacle_id = Some(pad_id);
-        unit.movement.path = vec![Vec3::new(30.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(30.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[dozer], 1.0 / 30.0);
@@ -664,7 +664,7 @@ fn repair_without_a_target_does_not_keep_the_task() {
         );
         unit.set_dozer_task_repair_target(Some(pad_id));
         unit.ignored_obstacle_id = Some(pad_id);
-        unit.movement.path = vec![Vec3::new(40.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(40.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
     }
     logic.update_support_states_for_test(&[dozer], 1.0 / 30.0);
@@ -696,7 +696,7 @@ fn seeker_without_a_pad_goes_idle() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(id);
-        unit.movement.path = vec![Vec3::new(40.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::new(40.0, 0.0, 0.0)]);
         unit.set_status_moving(true);
         unit.health.current = 50.0;
     }
@@ -1081,12 +1081,12 @@ fn intermediate_path_keeps_the_next_segment_distance() {
         .create_object_for_player("PathExtraInf", 0, Vec3::ZERO)
         .expect("unit");
     let unit = logic.host_object_mut(id).expect("unit");
-    unit.movement.path = vec![
+    unit.movement.set_path_coords(vec![
         Vec3::ZERO,
         Vec3::new(10.0, 0.0, 0.0),
         Vec3::new(10.0, 0.0, 30.0),
         Vec3::new(50.0, 0.0, 30.0),
-    ];
+    ]);
     unit.movement.current_path_index = 1;
     unit.refresh_follow_path_extra_distance();
     assert!((unit.path_extra_distance - 70.0).abs() < 0.01);
@@ -1115,7 +1115,7 @@ fn exact_waypoint_path_sums_five_links() {
         .map(|i| Vec3::new(i as f32 * 10.0, 0.0, 0.0))
         .collect();
     let unit = logic.host_object_mut(id).expect("unit");
-    unit.movement.path = points;
+    unit.movement.set_path_coords(points);
     unit.movement.current_path_index = 0;
     unit.is_exact_path = true;
     unit.is_attack_path = false;
@@ -1172,7 +1172,7 @@ fn non_final_hop_keeps_the_obstacle_corner() {
     logic.force_map_loaded_for_path_test(true);
     let ok = logic.assign_unit_path(unit, Vec3::new(160.0, 0.0, 0.0), &[corner]);
     logic.process_pathfind_queue();
-    let path = logic.host_object(unit).expect("unit").movement.path.clone();
+    let path = logic.host_object(unit).expect("unit").movement.path.coords();
     let keeps_corner = path
         .iter()
         .any(|wp| logic.pathfinding_system.grid.world_to_grid(*wp) == corner_cell);
@@ -1226,13 +1226,13 @@ fn live_corner_refreshes_the_extra_distance() {
     {
         let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
-        unit.movement.path = vec![
+        unit.movement.set_path_coords(vec![
             Vec3::ZERO,
             Vec3::new(10.0, 0.0, 0.0),
             Vec3::new(50.0, 0.0, 0.0),
             Vec3::new(90.0, 0.0, 0.0),
             Vec3::new(130.0, 0.0, 0.0),
-        ];
+        ]);
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(Vec3::new(10.0, 0.0, 0.0));
         unit.movement.max_speed = 0.0;
@@ -1338,7 +1338,7 @@ fn queued_waypoint_drops_the_exact_path_formula() {
         .expect("unit");
     {
         let unit = logic.host_object_mut(id).expect("unit");
-        unit.movement.path = vec![Vec3::ZERO, Vec3::new(40.0, 0.0, 0.0)];
+        unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(40.0, 0.0, 0.0)]);
         unit.movement.current_path_index = 1;
         unit.is_exact_path = true;
         unit.path_extra_distance = 100.0;
@@ -1420,11 +1420,11 @@ fn residual_path_installs_drop_the_exact_path_formula() {
         unit.path_extra_distance = 100.0;
         unit.apply_move_away_path(
             id,
-            &[
+            &crate::game_logic::pathfinding::PathRoute::from_coords(vec![
                 Vec3::ZERO,
                 Vec3::new(20.0, 0.0, 0.0),
                 Vec3::new(50.0, 0.0, 0.0),
-            ],
+            ]),
             0,
         );
         assert!(!unit.is_exact_path);
@@ -1445,11 +1445,11 @@ fn projectile_precise_z_starts_on_the_last_segment() {
         .expect("shell");
     {
         let shell = logic.host_object_mut(id).expect("shell");
-        shell.movement.path = vec![
+        shell.movement.set_path_coords(vec![
             Vec3::ZERO,
             Vec3::new(10.0, 0.0, 0.0),
             Vec3::new(30.0, 0.0, 0.0),
-        ];
+        ]);
         shell.movement.current_path_index = 1;
         shell.refresh_follow_path_extra_distance();
         assert!(!shell.precise_z_pos);
@@ -1478,7 +1478,7 @@ fn extra_distance_uses_the_easy_goal_metric() {
     {
         let unit = logic.host_object_mut(id).expect("unit");
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
-        unit.movement.path = vec![here, middle, last];
+        unit.movement.set_path_coords(vec![here, middle, last]);
         unit.movement.current_path_index = 1;
         unit.path_extra_distance = 0.0;
     }
@@ -1565,7 +1565,7 @@ fn live_arrival_clears_the_ignored_obstacle() {
     {
         let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
-        unit.movement.path = vec![Vec3::ZERO, goal];
+        unit.movement.set_path_coords(vec![Vec3::ZERO, goal]);
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
@@ -1601,7 +1601,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
         let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("jet");
         unit.loco_appearance = LocomotorAppearance::Wings;
-        unit.movement.path = vec![Vec3::ZERO, goal];
+        unit.movement.set_path_coords(vec![Vec3::ZERO, goal]);
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
@@ -1666,7 +1666,7 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
         let unit = logic.host_object_mut(id).expect("unit");
         unit.selection_radius = 8.0;
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
-        unit.movement.path = vec![here, goal];
+        unit.movement.set_path_coords(vec![here, goal]);
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
@@ -1713,7 +1713,7 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
         let unit = logic.host_object_mut(id).expect("unit");
         unit.selection_radius = 8.0;
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
-        unit.movement.path = vec![here, raw];
+        unit.movement.set_path_coords(vec![here, raw]);
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(raw);
         unit.movement.max_speed = 0.0;

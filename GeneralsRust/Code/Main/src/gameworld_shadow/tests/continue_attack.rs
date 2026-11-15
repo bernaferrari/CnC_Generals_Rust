@@ -1204,7 +1204,7 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
         // Locomotor.cpp:1393-1430 approach brake zeroes goalSpeed on
         // distAlongPath 0. Authoring the path mirrors the post-pathfind
         // FollowPath state the authority must integrate.
-        o.movement.path = vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(100.0, 0.0, 0.0)];
+        o.movement.set_path_coords(vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(100.0, 0.0, 0.0)]);
         o.movement.max_speed = 60.0;
         // C++ Locomotor::getMaxAcceleration: retail locomotors author
         // Acceleration; velocity ramps by acceleration*dt — a 0-accel

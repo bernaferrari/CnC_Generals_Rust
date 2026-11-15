@@ -420,8 +420,9 @@ impl GameLogic {
         };
         let _ = (waited, dist);
         if !self.assign_unit_path(jet_id, end, &[]) {
+            let route = self.route_for_points(vec![end]);
             if let Some(jet) = self.objects.get_mut(&jet_id) {
-                jet.movement.path = vec![end];
+                jet.movement.path = route;
                 jet.movement.current_path_index = 0;
                 jet.movement.target_position = Some(end);
                 jet.is_attack_path = false;
@@ -2432,8 +2433,9 @@ impl GameLogic {
             return true;
         }
         if !self.assign_unit_path(jet_id, dest, &via) {
+            let route = self.route_for_points(taxi.clone());
             if let Some(jet) = self.objects.get_mut(&jet_id) {
-                jet.movement.path = taxi.clone();
+                jet.movement.path = route;
                 jet.movement.current_path_index = 0;
                 jet.movement.target_position = Some(dest);
                 jet.is_attack_path = false;
@@ -3161,6 +3163,7 @@ impl GameLogic {
         if self.assign_unit_path(jet_id, dest, &via) {
             return true;
         }
+        let route = self.route_for_points(points.to_vec());
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.target = None;
             jet.set_status_attacking(false);
@@ -3171,7 +3174,7 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
-            jet.movement.path = points.to_vec();
+            jet.movement.path = route;
             jet.movement.current_path_index = 0;
             jet.movement.target_position = Some(dest);
             jet.is_attack_path = false;

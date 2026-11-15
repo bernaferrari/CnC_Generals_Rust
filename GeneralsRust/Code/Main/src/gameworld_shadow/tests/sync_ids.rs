@@ -563,11 +563,11 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
     {
         use crate::game_logic::Weapon;
         let obj = logic.host_object_mut(id).expect("obj");
-        obj.movement.path = vec![
+        obj.movement.set_path_coords(vec![
             glam::Vec3::new(1.0, 0.0, 1.0),
             glam::Vec3::new(2.0, 0.0, 2.0),
             glam::Vec3::new(3.0, 0.0, 3.0),
-        ];
+        ]);
         obj.movement.current_path_index = 1;
         obj.secondary_weapon = Some(Weapon {
             damage: 8.0,
@@ -847,10 +847,10 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
         obj.secondary_weapon = Some(Weapon::default());
         obj.movement.max_speed = 12.5;
         obj.movement.velocity = glam::Vec3::new(1.0, 0.0, 2.0);
-        obj.movement.path = vec![
+        obj.movement.set_path_coords(vec![
             glam::Vec3::new(0.0, 0.0, 0.0),
             glam::Vec3::new(10.0, 0.0, 10.0),
-        ];
+        ]);
         obj.movement.current_path_index = 1;
     }
     let mut shadow = GameWorldShadow::new(64);

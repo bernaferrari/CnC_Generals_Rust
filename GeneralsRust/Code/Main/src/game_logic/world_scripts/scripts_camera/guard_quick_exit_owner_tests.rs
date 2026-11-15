@@ -39,7 +39,7 @@ fn observe(owner: &GameLogic, id: ObjectId) -> Observation {
         anchor: unit.unit_ai_runtime.guard_anchor(),
         position: unit.get_position(),
         velocity: unit.movement.velocity,
-        path: unit.movement.path.clone(),
+        path: unit.movement.path.coords(),
         index: unit.movement.current_path_index,
         destination: unit.requested_destination,
         path_goal: unit.path_goal_position,
@@ -84,7 +84,7 @@ fn overlay(owner: &mut GameLogic, id: ObjectId, until: u32, distance: f32) -> Ve
     let unit = owner.host_object_mut(id).unwrap();
     let end = unit.get_position() + Vec3::new(distance, 0.0, 0.0);
     // Same explicit path/deadline admission as the real tunnel producer.
-    unit.movement.path = vec![end, end];
+    unit.movement.set_path_coords(vec![end, end]);
     unit.movement.current_path_index = 0;
     unit.movement.target_position = Some(end);
     unit.movement.velocity = Vec3::ZERO;

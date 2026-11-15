@@ -2780,6 +2780,7 @@ impl GameLogic {
         } else {
             return false;
         };
+        self.resolve_installed_path_layers(unit_id);
         if delayed {
             if let Some(u) = self.objects.get_mut(&unit_id) {
                 u.is_blocked = false;
@@ -3323,10 +3324,10 @@ impl GameLogic {
             self.pathfinding_system.set_adjust_goal(saved_adjust);
             found
         };
-        if waypoints.points.is_empty() {
+        if waypoints.is_empty() {
             return false;
         }
-        let last_node = waypoints.points.last().copied();
+        let last_node = waypoints.last().copied();
         let ok = if let Some(obj) = self.objects.get_mut(&id) {
             obj.request_path_at_frame(dest, waypoints, self.frame);
             obj.path_timestamp = self.frame;
