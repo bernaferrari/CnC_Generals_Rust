@@ -75,8 +75,14 @@ The Core construction manager lives directly in its world manager bundle;
 construction ticks borrow it mutably and release the lock before callbacks.
 The lock and scoped world selection remain until the scheduler can loan the
 driving instance directly. Superweapon completion alerts select the local player
-from the structure's world. Other completion effects, owned Build and ordered
-wall-fall callbacks are not yet migrated.
+from the structure's world. Parent AI reentry, task admission, owner-bound path
+queues, other completion effects and ordered wall-fall callbacks remain.
+
+Projectile flight begins at the selected draw launch transform; scaled shell
+speed uses that position and the target geometry center. Retail Superweapon
+General Patriot launch and same-ID two-world flight are exercised against the
+Zero Hour archive. Vanilla Patriot model verification requires a nonempty
+base-game W3D archive. Missile motion still has parity gaps.
 
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power

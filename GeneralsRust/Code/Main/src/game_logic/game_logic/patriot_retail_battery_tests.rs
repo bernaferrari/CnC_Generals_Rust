@@ -2,10 +2,36 @@
 //! The one-shot budget is the C++ Weapon max-shot-count admission.
 use super::*;
 
-fn base_ini(name: &str) -> String {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../windows_game/extracted_big_files_v2/INI");
-    std::fs::read_to_string(root.join(name)).expect("retail base Generals INI")
+fn retail_root() -> std::path::PathBuf {
+    std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../windows_game"))
+}
+
+fn base_w3d_archive() -> std::path::PathBuf {
+    let explicit = std::env::var_os("GENERALS_BASE_W3D_BIG").map(std::path::PathBuf::from);
+    let root = retail_root();
+    let candidates = [
+        explicit,
+        Some(root.join("Command & Conquer Generals/W3D.big")),
+        Some(root.join("Command & Conquer Generals/Data/W3D.big")),
+        Some(root.join("Command and Conquer Generals/W3D.big")),
+        Some(root.join("Command and Conquer Generals/Data/W3D.big")),
+    ];
+    candidates.into_iter().flatten()
+        .find(|path| path.metadata().is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0))
+        .expect("retail vanilla Patriot requires the nonempty base-game W3D.big containing ABPatriot; set GENERALS_BASE_W3D_BIG")
+}
+
+pub(in crate::game_logic) fn base_ini(name: &str) -> String {
+    let archive = retail_root().join("Command & Conquer Generals Zero Hour/Data/INIZH.big");
+    let mut files = crate::assets::ArchiveFileSystem::new();
+    files.set_local_search_roots(Vec::new());
+    futures::executor::block_on(files.load_big_file(archive)).expect("retail INI archive");
+    let bytes = files.read_optional_definition_source(&format!("Data/INI/{name}"))
+        .expect("retail INI read").expect("retail INI entry");
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 // Top-level definitions in the retail files end with an unindented End;
@@ -25,39 +51,51 @@ fn definition(source: &str, header: &str) -> String {
 }
 
 pub(in crate::game_logic) fn world() -> (GameLogic, ObjectId, ObjectId) {
-    world_for_target(false)
+    world_for_target(false, false)
 }
 
 pub(in crate::game_logic) fn world_with_air_target() -> (GameLogic, ObjectId, ObjectId) {
-    world_for_target(true)
+    world_for_target(true, false)
 }
 
-fn world_for_target(air_target: bool) -> (GameLogic, ObjectId, ObjectId) {
+fn world_for_target(air_target: bool, superweapon: bool) -> (GameLogic, ObjectId, ObjectId) {
     use crate::assets::ini_template_loader::{parse_weapon_definitions_ini_into, WeaponDefinitionLoadType};
     let weapon_text = base_ini("Weapon.ini");
     let mut weapons = HashMap::new();
-    for name in ["PatriotMissileWeapon", "PatriotMissileAssistWeapon", "PatriotMissileWeaponAir"] {
+    let weapon_names = if superweapon {
+        ["SupW_PatriotMissileWeapon", "SupW_PatriotMissileAssistWeapon", "SupW_PatriotMissileWeaponAir"]
+    } else {
+        ["PatriotMissileWeapon", "PatriotMissileAssistWeapon", "PatriotMissileWeaponAir"]
+    };
+    for name in weapon_names {
         let block = definition(&weapon_text, &format!("Weapon {name}"));
         assert_eq!(parse_weapon_definitions_ini_into(&mut weapons, &block, WeaponDefinitionLoadType::Normal), 1);
     }
-    assert_eq!(weapons["patriotmissileweapon"].primary_damage, 30.0);
-    assert_eq!(weapons["patriotmissileweapon"].projectile_name, "PatriotMissile");
+    let projectile_name = if superweapon { "PatriotMissileEMP" } else { "PatriotMissile" };
+    let primary_name = weapon_names[0].to_ascii_lowercase();
+    assert_eq!(weapons[&primary_name].primary_damage, if superweapon { 15.0 } else { 30.0 });
+    assert_eq!(weapons[&primary_name].projectile_name, projectile_name);
 
     let missile_text = base_ini("Object/WeaponObjects.ini");
-    let missile = definition(&missile_text, "Object PatriotMissile");
+    let missile = definition(&missile_text, &format!("Object {projectile_name}"));
     let mut parser = crate::assets::IniParser::new();
     parser.parse_ini_content(&missile, "WeaponObjects.ini").unwrap();
-    let projectile = parser.get_definition("PatriotMissile").expect("retail missile").clone();
-    let objects = vec![("PatriotMissile".to_string(), projectile)];
+    let projectile = parser.get_definition(projectile_name).expect("retail missile").clone();
+    let objects = vec![(projectile_name.to_string(), projectile)];
     let locomotor = definition(&base_ini("Locomotor.ini"), "Locomotor PatriotMissileLocomotor");
     let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
     locomotors.apply_source(&locomotor).unwrap();
 
     let mut assets = crate::assets::AssetManager::new().unwrap();
     assets.archive_file_system_mut().set_local_search_roots(Vec::new());
-    let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../windows_game/Command & Conquer Generals/W3D.big");
-    futures::executor::block_on(assets.archive_file_system_mut().load_big_file(archive)).unwrap();
+    if !superweapon {
+        let base_archive = base_w3d_archive();
+        futures::executor::block_on(assets.archive_file_system_mut().load_big_file(base_archive))
+            .expect("mount genuine base-game W3D.big");
+    }
+    let archive = retail_root().join("Command & Conquer Generals Zero Hour/Data/W3DZH.big");
+    futures::executor::block_on(assets.archive_file_system_mut().load_big_file(archive))
+        .expect("mount genuine Zero Hour W3DZH.big");
     let mut world = GameLogic::new();
     world.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
     world.admit_locomotor_definitions(locomotors).unwrap();
@@ -73,10 +111,14 @@ fn world_for_target(air_target: bool) -> (GameLogic, ObjectId, ObjectId) {
         player.alliance_team = id as i32;
         world.add_player(player);
     }
-    let buildings = base_ini("Object/FactionBuilding.ini");
-    let battery = definition(&buildings, "Object AmericaPatriotBattery");
-    // The retail battery's Prerequisites block references this real template.
-    let power_plant = definition(&buildings, "Object AmericaPowerPlant");
+    let (battery_name, plant_name, building_file) = if superweapon {
+        ("SupW_AmericaPatriotBattery", "SupW_AmericaPowerPlant", "Object/SuperWeaponGeneral.ini")
+    } else {
+        ("AmericaPatriotBattery", "AmericaPowerPlant", "Object/FactionBuilding.ini")
+    };
+    let buildings = base_ini(building_file);
+    let battery = definition(&buildings, &format!("Object {battery_name}"));
+    let power_plant = definition(&buildings, &format!("Object {plant_name}"));
     let target = if air_target {
         "Object RetailPatriotTarget\nKindOf = AIRCRAFT SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n"
     } else {
@@ -88,10 +130,13 @@ fn world_for_target(air_target: bool) -> (GameLogic, ObjectId, ObjectId) {
         ("retail-patriot-target.ini".into(), target.into()),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
+    let profile = world.projectile_definitions.get(projectile_name).expect("retail missile profile");
+    assert!(profile.locomotor.is_some(), "retail PatriotMissileLocomotor must bind in this world");
+    assert!(profile.behaviors.iter().any(|module| module.physics.is_some()), "retail missile must bind PhysicsBehavior");
     // POWERED structures consume Energy immediately on admission. The retail
     // Patriot consumes 3, so its authored 5-Energy plant must exist first.
-    world.create_object_for_player("AmericaPowerPlant", 0, Vec3::new(10.0, 0.0, 10.0)).unwrap();
-    let source = world.create_object_for_player("AmericaPatriotBattery", 0, Vec3::new(100.0, 30.0, 100.0)).unwrap();
+    world.create_object_for_player(plant_name, 0, Vec3::new(10.0, 0.0, 10.0)).unwrap();
+    let source = world.create_object_for_player(battery_name, 0, Vec3::new(100.0, 30.0, 100.0)).unwrap();
     assert!(!world.objects[&source].is_disabled(), "retail battery must have power before firing");
     let target_position = if air_target {
         Vec3::new(350.0, 80.0, 100.0)
@@ -110,6 +155,15 @@ fn world_for_target(air_target: bool) -> (GameLogic, ObjectId, ObjectId) {
 
 fn launch_one(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
     let assets = world.application_assets().expect("world-owned retail asset manager");
+    let superweapon = world.objects[&source].template_name.eq_ignore_ascii_case("SupW_AmericaPatriotBattery");
+    let draw = crate::assets::AuthoredDrawModel {
+        model_key: if superweapon { "ABPatriotSW" } else { "ABPatriot" }.into(),
+        ..Default::default()
+    };
+    let bones = crate::assets::pristine_bones::PristineBoneAssets::pristine_bones_for_selected_draw(
+        assets.as_ref(), &draw, 1.0, "WeaponA", 1, 1,
+    ).expect("retail W3D archive must supply the selected Patriot launch model");
+    assert_eq!(bones.len(), 1, "selected retail Patriot model must contain WeaponA01");
     let mut effects = crate::game_logic::ScriptPresentationEffects {
         pristine_bones: Some(assets.as_ref()),
         ..Default::default()
@@ -120,12 +174,13 @@ fn launch_one(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
     world.drain_pending_projectiles_into_combat();
     let projectiles = world.combat_system.projectiles_snapshot();
     assert_eq!(projectiles.len(), 1, "one accepted retail shot");
-    assert_eq!(projectiles[0].projectile_object_name, "PatriotMissile");
+    assert_eq!(projectiles[0].projectile_object_name, if superweapon { "PatriotMissileEMP" } else { "PatriotMissile" });
     assert_eq!(projectiles[0].target_id, Some(target));
-    assert_eq!(projectiles[0].damage, 30.0);
+    assert_eq!(projectiles[0].damage, if superweapon { 15.0 } else { 30.0 });
     assert!(projectiles[0].missile_motion.is_some(), "retail missile binds locomotor physics");
     assert_ne!(projectiles[0].position, world.objects[&source].get_position(), "retail W3D launch bone supplies the launch position");
-    assert_eq!(world.objects[&target].health.current, 1000.0);
+    let expected_health = if world.objects[&target].status.airborne_target { 200.0 } else { 1000.0 };
+    assert_eq!(world.objects[&target].health.current, expected_health);
 }
 
 fn impact(world: &mut GameLogic, target: ObjectId) {
@@ -136,6 +191,17 @@ fn impact(world: &mut GameLogic, target: ObjectId) {
     }
     assert_eq!(world.combat_system.projectile_count(), 0, "retail missile reaches its target");
     assert_eq!(world.objects[&target].health.current, 970.0, "one retail warhead impacts once");
+}
+
+#[test]
+fn superweapon_general_retail_patriot_uses_its_own_model_and_missile() {
+    let (mut world, source, target) = world_for_target(false, true);
+    launch_one(&mut world, source, target);
+    let position = world.combat_system.projectiles_snapshot()[0].position;
+    let _ = world.update_with_dt(1.0 / 30.0);
+    assert_eq!(world.combat_system.projectile_count(), 1);
+    assert_ne!(world.combat_system.projectiles_snapshot()[0].position, position);
+    assert_eq!(world.objects[&target].health.current, 1000.0);
 }
 
 #[test]
@@ -170,4 +236,26 @@ fn retail_battery_shot_continues_after_encoded_world_save() {
     assert_eq!(original.combat_system.projectiles_snapshot()[0].position, restored.combat_system.projectiles_snapshot()[0].position);
     impact(&mut original, target);
     impact(&mut restored, target);
+}
+
+#[test]
+fn superweapon_retail_missile_motion_is_owned_by_its_world_even_with_matching_ids() {
+    let (mut first, source, target) = world_for_target(false, true);
+    let (mut second, other_source, other_target) = world_for_target(false, true);
+    assert_eq!((source, target), (other_source, other_target));
+    launch_one(&mut first, source, target);
+    launch_one(&mut second, other_source, other_target);
+    let first_shot = first.combat_system.projectiles_snapshot()[0];
+    let second_shot = second.combat_system.projectiles_snapshot()[0];
+    assert_eq!(first_shot.id, second_shot.id);
+    let second_position = second_shot.position;
+    let _ = first.update_with_dt(1.0 / 30.0);
+    assert_ne!(first.combat_system.projectiles_snapshot()[0].position, second_position);
+    assert_eq!(second.combat_system.projectiles_snapshot()[0].position, second_position);
+    assert_eq!(second.objects[&other_target].health.current, 1000.0);
+    let _ = second.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        first.combat_system.projectiles_snapshot()[0].position,
+        second.combat_system.projectiles_snapshot()[0].position
+    );
 }

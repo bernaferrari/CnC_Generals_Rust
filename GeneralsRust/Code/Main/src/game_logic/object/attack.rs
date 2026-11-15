@@ -51,16 +51,34 @@ impl Object {
         if self.contained_by.is_some() && self.status.masked {
             return Some(self.get_transform_matrix());
         }
+        let turret = self.which_turret_for_weapon_slot(slot);
+        let identity_attachment = || {
+            let local = match turret {
+                Some(0) => {
+                    let ai = &self.turret_ai;
+                    glam::Mat4::from_rotation_z(ai.turret_angle_deg.to_radians())
+                        * glam::Mat4::from_rotation_y(-ai.turret_pitch_deg.to_radians())
+                }
+                Some(1) => {
+                    let ai = self.alt_turret_ai.as_ref()?;
+                    glam::Mat4::from_rotation_z(ai.turret_angle_deg.to_radians())
+                        * glam::Mat4::from_rotation_y(-ai.turret_pitch_deg.to_radians())
+                }
+                Some(_) => return None,
+                None => glam::Mat4::IDENTITY,
+            };
+            Some(self.get_transform_matrix()
+                * crate::game_logic::host_fx_list_dispatch::host_to_leftover_mat4(local))
+        };
         let Some(drawings) = self.get_template().receiving_draw_models_ref() else {
             // Weapon.cpp uses an identity attachment when there is no Drawable.
-            return Some(self.get_transform_matrix());
+            return identity_attachment();
         };
         let draws = drawings.object_draws(self.model_condition_bits).ok()?;
         if draws.is_empty() {
-            return Some(self.get_transform_matrix());
+            return identity_attachment();
         }
         let assets = assets?;
-        let turret = self.which_turret_for_weapon_slot(slot);
         for draw in &draws {
             if !draw.weapon_bone_bindings.source_fields_valid {
                 return None;
@@ -154,7 +172,8 @@ impl Object {
             let local = crate::game_logic::host_fx_list_dispatch::host_to_leftover_mat4(local);
             return Some(self.get_transform_matrix() * local);
         }
-        None
+        // Weapon.cpp resets both pivots to zero but still applies turret pose.
+        identity_attachment()
     }
 
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.

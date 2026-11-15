@@ -2544,6 +2544,69 @@ pub(in crate::game_logic) mod tests {
         );
     }
 
+    #[test]
+    fn scaled_shell_speed_uses_selected_launch_position() {
+        let _combat_serial = combat_test_guard();
+        let common = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let source = crate::game_logic::game_logic::accepted_projectile_owner_tests
+                ::patriot_retail_battery_tests::base_ini("Object/WeaponObjects.ini");
+            let mut lines = source.lines().skip_while(|line| !line.trim().eq_ignore_ascii_case("Object GenericTankShell"));
+            let mut definition = String::new();
+            for line in &mut lines {
+                definition.push_str(line);
+                definition.push('\n');
+                if line.trim_end().eq_ignore_ascii_case("End") {
+                    break;
+                }
+            }
+            let mut parser = crate::assets::IniParser::new();
+            parser.parse_ini_content(&definition, "retail-WeaponObjects.ini").unwrap();
+            let shell = parser.get_definition("GenericTankShell").expect("retail shell");
+            let mut definitions = crate::game_logic::projectile_definitions::ProjectileDefinitions::default();
+            let gravity = crate::game_logic::physics_rules::default_host_physics_rules().gravity;
+            assert!(definitions.admit_definition("GenericTankShell", shell, gravity).unwrap());
+            assert!(matches!(
+                &definitions.get("GenericTankShell").unwrap().flight,
+                crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_)
+            ));
+
+            let mut combat = CombatSystem::new();
+            let mut objects = crate::game_logic::HostObjectStore::new();
+            let target = ObjectId(91);
+            let mut template = ThingTemplate::new("ShellTarget");
+            template.geometry_info = crate::game_logic::HostGeometryInfo {
+                geom_type: crate::game_logic::HostGeometryType::Box,
+                height: 20.0,
+                ..Default::default()
+            };
+            let mut victim = Object::new(template, target, Team::GLA);
+            victim.set_position(Vec3::new(275.0, 0.0, 0.0));
+            objects.insert(target, victim);
+            let mut shot = lifecycle_test_pending_projectile(
+                "GenericTankShell", Some(target), Vec3::new(275.0, 0.0, 0.0),
+            );
+            shot.speed = 300.0;
+            shot.min_weapon_speed = 75.0;
+            shot.scale_weapon_speed = true;
+            shot.attack_range = 375.0;
+            shot.min_attack_range = 50.0;
+            shot.source_context.as_mut().unwrap().launch_transform =
+                Some(glam::Mat4::from_translation(Vec3::new(225.0, 0.0, 0.0)));
+            queue_projectile(&mut combat, shot);
+            drain_pending_projectiles(&mut combat, objects.read(), 0, &definitions);
+            let shots = combat.projectiles_snapshot();
+            assert_eq!(shots.len(), 1);
+            let shot = shots[0];
+            assert_eq!(shot.position, Vec3::new(225.0, 0.0, 0.0));
+            assert!((shot.speed - 75.0).abs() < 0.01);
+            assert!(matches!(&shot.flight, Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_))));
+            assert_eq!(shot.flight_runtime.path_start, Vec3::new(225.0, 0.0, 0.0));
+            assert_eq!(shot.flight_runtime.path_end, Vec3::new(275.0, 10.0, 0.0));
+            assert!(!shot.flight_runtime.path.is_empty(), "retail shell binds its Bezier flight");
+        });
+    }
+
     fn projectileless_pending(
         speed: f32,
         target_pos: Vec3,

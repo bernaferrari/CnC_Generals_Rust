@@ -4,9 +4,7 @@
 use super::*;
 
 fn retail_ini(name: &str) -> String {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI");
-    std::fs::read_to_string(root.join(name)).expect("retail Zero Hour INI")
+    super::patriot_retail_battery_tests::base_ini(name)
 }
 
 fn single_block(source: &str, header: &str) -> String {
@@ -16,7 +14,7 @@ fn single_block(source: &str, header: &str) -> String {
     for line in lines {
         block.push_str(line);
         block.push('\n');
-        if line.trim().eq_ignore_ascii_case("End") {
+        if line.trim_end().eq_ignore_ascii_case("End") {
             return block;
         }
     }
@@ -33,7 +31,10 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     assert_eq!(weapon.projectile_name, "PatriotMissile");
 
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&retail_ini("Object/WeaponObjects.ini"), "WeaponObjects.ini").unwrap();
+    parser.parse_ini_content(
+        &single_block(&retail_ini("Object/WeaponObjects.ini"), "Object PatriotMissile"),
+        "WeaponObjects.ini",
+    ).unwrap();
     let projectile = parser.get_definition("PatriotMissile").expect("retail missile").clone();
     let objects = vec![("PatriotMissile".to_string(), projectile)];
     let loco_ini = single_block(&retail_ini("Locomotor.ini"), "Locomotor PatriotMissileLocomotor");
@@ -133,6 +134,32 @@ fn accepted_missile_uses_launcher_pose_and_velocity_at_delivery() {
     assert!(projectiles[0].missile_motion.is_some());
     assert_eq!(projectiles[0].position, position);
     assert_eq!(projectiles[0].velocity, velocity);
+}
+
+#[test]
+fn missing_draw_launch_still_rotates_by_the_selected_turret() {
+    let (mut world, source, target) = world();
+    let carrier = world.objects.get_mut(&source).unwrap();
+    carrier.turret_runtime.has_authored_turret = true;
+    carrier.turret_runtime.controlled_weapon_slots = 1;
+    carrier.turret_ai.turret_angle_deg = 90.0;
+    carrier.turret_ai.turret_pitch_deg = 30.0;
+    let (_, shot) = carrier.prepare_passive_weapon_shot(
+        0, target, 10.0, false, false, 100,
+        Vec3::new(100.0, 30.0, 100.0),
+        &mut world.combat_system.fire_sound_loop_events,
+        &mut world.attack_events,
+        Some(&world.projectile_definitions),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    ).unwrap();
+    let transform = shot.source_context.as_ref().unwrap().launch_transform.unwrap();
+    let direction = transform.x_axis.truncate();
+    assert!((direction - Vec3::new(0.0, 0.5, 0.866_025_4)).length() < 0.001);
+    world.deliver_owned_weapon_shot(0, shot, None);
+    let before = world.combat_system.projectiles_snapshot()[0].position;
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let displacement = world.combat_system.projectiles_snapshot()[0].position - before;
+    assert!(displacement.z > 0.0, "missile inherits the rotated launch direction");
 }
 
 #[test]

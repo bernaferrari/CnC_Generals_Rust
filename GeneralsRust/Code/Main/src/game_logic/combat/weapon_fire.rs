@@ -747,11 +747,27 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     // The firing owner captured any self-damage source position separately
     // from the target used for travel and projectile flight.
 
+    let launch_pos = source_context.launch_transform
+        .map_or(p.shooter_pos, |transform| transform.w_axis.truncate());
+    let scale_origin = if is_projectileless_object_name(&p.projectile_object_name) {
+        p.shooter_pos
+    } else {
+        launch_pos
+    };
+    let scale_target = if matches!(
+        profile.map(|profile| &profile.flight),
+        Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_))
+    ) {
+        fire_target_id.and_then(|id| objects.lookup(&id))
+            .map(dumb_projectile_target_center).unwrap_or(target_pos)
+    } else {
+        target_pos
+    };
     // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
     let mut flight_speed = p.speed;
     if p.scale_weapon_speed {
-        let dx = target_pos.x - p.shooter_pos.x;
-        let dz = target_pos.z - p.shooter_pos.z;
+        let dx = scale_target.x - scale_origin.x;
+        let dz = scale_target.z - scale_origin.z;
         let range_2d = (dx * dx + dz * dz).sqrt();
         let peel = crate::game_logic::weapon_bootstrap::HostWeaponSpeedPeel {
             weapon_speed: p.speed,
@@ -810,7 +826,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat);
     let pid = combat.fire_projectile_ex_with_id(
         id,
-        p.shooter_pos,
+        launch_pos,
         target_pos,
         &weapon,
         p.shooter_id,
@@ -889,7 +905,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             } else {
                 target_pos
             };
-            flight_valid = proj.bind_authored_flight(p.shooter_pos, flight_target, flight_speed_per_second, partition);
+            flight_valid = proj.bind_authored_flight(launch_pos, flight_target, flight_speed_per_second, partition);
         }
         proj.is_small_missile = profile.is_some_and(|profile| profile.is_small_missile);
     }
