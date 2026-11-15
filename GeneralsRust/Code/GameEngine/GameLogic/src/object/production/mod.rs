@@ -34,7 +34,7 @@ pub use build_cost_calculator::{
 };
 pub use construction::{
     ConstructionInterruption, ConstructionManager, ConstructionProgress, ConstructionState,
-    DozerConstructionTask, FoundationValidator, get_construction_manager,
+    DozerConstructionTask, FoundationValidator,
 };
 pub use dock_update::{
     DockUpdate, DockUpdateData, RepairDockUpdate, RepairDockUpdateData, RepairDockUpdateModule,

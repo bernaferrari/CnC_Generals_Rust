@@ -301,19 +301,19 @@ impl PathfindingGrid {
         // Leftover `check_for_adjust_ex` zone path-exists gate (AIPathfind.cpp:5198-5208).
         if (surfaces & SURFACE_AIR) == 0 {
             if let Some(from) = self.query_from {
-                let from_w = self.grid_to_world(from, ground_source);
-                let dest_w = self.grid_to_world(pos, ground_source);
-                let orig_w = self
-                    .query_orig_dest
-                    .map(|p| self.grid_to_world(p, ground_source))
-                    .unwrap_or(dest_w);
-                let path_exists =
-                    self.quick_path_exists_for_crusher(from_w, orig_w, surfaces, is_crusher);
-                let adjusted_path_exists =
-                    self.quick_path_exists_for_crusher(from_w, dest_w, surfaces, is_crusher);
+                let dest = self.grid_to_world_on_layer(pos, layer, ground_source);
+                let orig = self.query_orig_dest.unwrap_or(dest);
+                let path_exists = self.quick_path_exists_with_ground(
+                    from, orig, surfaces, ground_source,
+                );
+                let adjusted_path_exists = self.quick_path_exists_with_ground(
+                    from, dest, surfaces, ground_source,
+                );
                 let mut ok = adjusted_path_exists;
                 if !path_exists
-                    && self.quick_path_exists_for_crusher(orig_w, dest_w, surfaces, is_crusher)
+                    && self.quick_path_exists_with_ground(
+                        orig, dest, surfaces, ground_source,
+                    )
                 {
                     ok = true;
                 }

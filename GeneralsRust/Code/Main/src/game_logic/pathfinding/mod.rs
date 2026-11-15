@@ -504,10 +504,9 @@ pub struct PathfindingGrid {
     query_ignore_unit_id: u32,
     /// C++ `checkDestination` `checkForAircraft` (HOVER/WINGS).
     query_check_for_aircraft: bool,
-    /// C++ `checkForAdjust` unit position (leftover `check_for_adjust_ex` from).
-    query_from: Option<GridPos>,
-    /// Original click cell for leftover dest→adjust zone fallback.
-    query_orig_dest: Option<GridPos>,
+    /// C++ `checkForAdjust` unit position and original click.
+    query_from: Option<Vec3>,
+    query_orig_dest: Option<Vec3>,
     /// C++ `m_logicalExtent` — playable terrain cells (human path clamp).
     logical_extent_lo: GridPos,
     logical_extent_hi: GridPos,

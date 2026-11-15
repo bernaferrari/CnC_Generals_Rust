@@ -41,7 +41,7 @@ pub struct WorldLogicManagers {
     /// C++ `TheThingFactory` object-creation side (`ObjectFactory`).
     pub object_factory: Arc<RwLock<crate::object::object_factory::ObjectFactory>>,
     /// Construction progress tracking for this world's buildings.
-    pub construction: Arc<RwLock<crate::object::production::construction::ConstructionManager>>,
+    pub construction: RwLock<crate::object::production::construction::ConstructionManager>,
     /// C++ `TheCrateSystem` runtime templates.
     pub crates: Arc<RwLock<crate::object::crate_system::CrateSystem>>,
     /// Collision broadphase for this world's objects.
@@ -84,9 +84,9 @@ impl Default for WorldLogicManagers {
             object_factory: Arc::new(RwLock::new(
                 crate::object::object_factory::ObjectFactory::new(),
             )),
-            construction: Arc::new(RwLock::new(
+            construction: RwLock::new(
                 crate::object::production::construction::ConstructionManager::new(),
-            )),
+            ),
             crates: Arc::new(RwLock::new(crate::object::crate_system::CrateSystem::new())),
             collision: Arc::new(RwLock::new(crate::object::collide::CollisionSystem::new())),
             ai_integration: Arc::new(RwLock::new(None)),
@@ -138,8 +138,8 @@ mod tests {
         assert!(got[1].1 && got[1].2);
     }
 
-    /// Factory, construction, crate and AI-integration state was
-    /// process-wide; each published world now resolves its own.
+    /// Factory, construction, crate and AI-integration state belongs to the
+    /// published world rather than a process singleton.
     #[test]
     fn published_worlds_resolve_their_own_factory_crate_and_ai_slots() {
         use crate::system::engine_stores::with_world_services;
@@ -149,7 +149,7 @@ mod tests {
             with_world_services(s, || {
                 (
                     crate::object::object_factory::get_object_factory(),
-                    crate::object::production::construction::get_construction_manager(),
+                    s.logic_managers().construction.read().unwrap().active_tasks().len(),
                     crate::object::crate_system::get_crate_system(),
                 )
             })
@@ -157,7 +157,11 @@ mod tests {
         let (fa, ca, ka) = pick(&a);
         let (fb, cb, kb) = pick(&b);
         assert!(!Arc::ptr_eq(&fa, &fb));
-        assert!(!Arc::ptr_eq(&ca, &cb));
+        assert_eq!((ca, cb), (0, 0));
+        a.logic_managers().construction.write().unwrap()
+            .start_construction(1, 2, 100.0, 4, false).unwrap();
+        assert_eq!(pick(&a).1, 1);
+        assert_eq!(pick(&b).1, 0);
         assert!(!Arc::ptr_eq(&ka, &kb));
         with_world_services(&a, || {
             *a.logic_managers().ai_integration.write().unwrap() =

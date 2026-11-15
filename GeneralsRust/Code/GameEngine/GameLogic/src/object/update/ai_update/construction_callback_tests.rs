@@ -799,11 +799,13 @@ fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouche
 
 /// A real create-module callback probes both manager loans without waiting if
 /// the update still holds its write guard. The resulting assertion is bounded.
-struct ConstructionManagerReentryProbe {
-    data: game_engine::common::thing::module::ModuleDataHandle,
-    manager: Arc<RwLock<crate::object::production::construction::ConstructionManager>>,
-    observations: Arc<std::sync::atomic::AtomicUsize>,
-    building_id: ObjectID,
+pub(crate) struct ConstructionManagerReentryProbe {
+    pub(crate) data: game_engine::common::thing::module::ModuleDataHandle,
+    pub(crate) world: Arc<crate::system::engine_stores::WorldServices>,
+    pub(crate) observations: Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) building_id: ObjectID,
+    pub(crate) builder_id: ObjectID,
+    pub(crate) builder: Arc<RwLock<Object>>,
 }
 
 impl game_engine::common::system::Snapshotable for ConstructionManagerReentryProbe {
@@ -823,14 +825,22 @@ impl game_engine::common::thing::module::CreateInterface for ConstructionManager
     fn on_build_complete(&self) {
         use std::sync::atomic::Ordering;
         self.observations.fetch_or(1, Ordering::SeqCst);
-        if let Ok(manager) = self.manager.try_read() {
+        let construction = &self.world.logic_managers().construction;
+        if let Ok(manager) = construction.try_read() {
             self.observations.fetch_or(2, Ordering::SeqCst);
             if !manager.is_under_construction(self.building_id) {
                 self.observations.fetch_or(4, Ordering::SeqCst);
             }
         }
-        if self.manager.try_write().is_ok() {
-            self.observations.fetch_or(8, Ordering::SeqCst);
+        if let Ok(mut manager) = construction.try_write() {
+            // Completion must release the old dozer and building before
+            // callbacks can start another real construction task.
+            if manager.start_construction(self.building_id + 1, self.builder_id, 100.0, 4, false).is_ok() {
+                self.observations.fetch_or(8, Ordering::SeqCst);
+            }
+        }
+        if self.builder.try_write().is_ok() {
+            self.observations.fetch_or(16, Ordering::SeqCst);
         }
     }
     fn should_do_on_build_complete(&self) -> bool {
@@ -865,23 +875,30 @@ fn dozer_update_completion_releases_manager_for_create_callback_with_same_id_pee
         structure.set_construction_percent(f32::from_bits(100.0_f32.to_bits() - 1));
         (structure.get_id(), structure.get_template().clone())
     };
-    let manager = get_construction_manager();
+    let world = crate::system::engine_stores::active_services();
+    let manager = &world.logic_managers().construction;
     let observations = Arc::new(AtomicUsize::new(0));
     let data = ModuleDataHandle::new(BaseModuleData::new());
     fixture.structure.write().unwrap().install_module_for_test(
         "ConstructionManagerReentryProbe",
         Box::new(ConstructionManagerReentryProbe {
             data: data.clone(),
-            manager: manager.clone(),
+            world: world.clone(),
             observations: observations.clone(),
             building_id,
+            builder_id,
+            builder: fixture.builder.clone(),
         }),
         data,
         ModuleInterfaceType::CREATE,
     );
 
     let peer = crate::system::engine_stores::new_for_world();
-    let peer_manager = peer.services().logic_managers().construction.clone();
+    let peer_manager = &peer.services().logic_managers().construction;
+    peer_manager.write().unwrap()
+        .start_construction(building_id, builder_id, 100.0, 4, false)
+        .unwrap();
+    assert_eq!(peer_manager.write().unwrap().update_for_dozer(builder_id), None);
     let mut other = Object::new_test_from_template(building_id, 100.0, template);
     other.bind_pathfinding_owner(&peer).unwrap();
     other.set_status(
@@ -916,14 +933,15 @@ fn dozer_update_completion_releases_manager_for_create_callback_with_same_id_pee
     });
     dozer.action_state = DozerActionState::DoAction;
     assert!(matches!(dozer.update(), StateReturnType::Continue));
-    assert_eq!(observations.load(Ordering::SeqCst), 15);
+    assert_eq!(observations.load(Ordering::SeqCst), 31);
     assert!(!fixture.structure.read().unwrap().is_under_construction());
     assert_eq!(
         fixture.player.read().unwrap().get_score_keeper().get_total_money_spent(),
         700
     );
     assert!(!manager.read().unwrap().is_under_construction(building_id));
-    assert!(!peer_manager.read().unwrap().is_under_construction(building_id));
+    assert!(manager.read().unwrap().is_under_construction(building_id + 1));
+    assert_eq!(peer_manager.read().unwrap().get_progress(building_id), Some(25.0));
     {
         let other = other.read().unwrap();
         assert!(other.is_under_construction());
@@ -933,4 +951,5 @@ fn dozer_update_completion_releases_manager_for_create_callback_with_same_id_pee
         peer_logic.destroy_object(building_id);
         peer_logic.cleanup_dead_objects().unwrap();
     });
+    manager.write().unwrap().cancel_dozer_construction(builder_id);
 }

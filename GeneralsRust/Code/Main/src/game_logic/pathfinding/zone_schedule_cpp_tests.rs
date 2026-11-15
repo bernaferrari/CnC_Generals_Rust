@@ -33,15 +33,15 @@ fn footprint_change_keeps_stale_zones_until_the_cpp_recalculation_frame_while_wo
         other.note_logic_frame(frame);
         assert!(!walled.calculate_zones_if_due(), "frame {frame}: recalculation is due at 400");
         assert!(!other.calculate_zones_if_due(), "frame {frame}: the other world never dirtied");
-        assert!(walled.client_safe_quick_does_path_exist(start, goal),
+        assert!(walled.client_safe_quick_does_path_exist(start, goal, SURFACE_GROUND, &PathfindingGround::Flat(0.0)),
             "frame {frame}: stale zones still connect both sides");
     }
     walled.note_logic_frame(400);
     other.note_logic_frame(400);
     assert!(walled.calculate_zones_if_due());
-    assert!(!walled.client_safe_quick_does_path_exist(start, goal), "recalculated zones see the wall");
+    assert!(!walled.client_safe_quick_does_path_exist(start, goal, SURFACE_GROUND, &PathfindingGround::Flat(0.0)), "recalculated zones see the wall");
     assert!(!other.calculate_zones_if_due());
-    assert!(other.client_safe_quick_does_path_exist(start, goal));
+    assert!(other.client_safe_quick_does_path_exist(start, goal, SURFACE_GROUND, &PathfindingGround::Flat(0.0)));
     // calculateZones resets the schedule; later marks use min(next, frame + 300).
     walled.note_logic_frame(401);
     assert!(!walled.calculate_zones_if_due());

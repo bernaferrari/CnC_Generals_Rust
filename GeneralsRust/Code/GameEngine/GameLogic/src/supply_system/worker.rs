@@ -1048,17 +1048,11 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    let construction_manager = get_construction_manager();
-                    let mut manager = match construction_manager.write() {
-                        Ok(manager) => manager,
-                        Err(_) => {
-                            self.dozer_task = None;
-                            return;
-                        }
-                    };
-
-                    if !task.started_construction {
-                        let max_health = if task.build_max_health > 0.0 {
+                    let world = crate::system::engine_stores::active_services();
+                    let construction_manager = &world.logic_managers().construction;
+                    // Resolve object data before borrowing the manager.
+                    let max_health = if !task.started_construction {
+                        if task.build_max_health > 0.0 {
                             task.build_max_health
                         } else {
                             let Ok(target_guard) = target.read() else {
@@ -1069,25 +1063,38 @@ impl WorkerAIUpdate {
                                 .get_body_module()
                                 .map(|body| body.get_max_health())
                                 .unwrap_or(0.0)
-                        };
-                        if let Err(err) = manager.start_construction(
-                            task.target_id,
-                            self.object_id,
-                            max_health,
-                            task.build_total_frames.max(1),
-                            task.is_rebuild,
-                        ) {
-                            log::debug!(
-                                "WorkerAIUpdate::update_dozer_task start_construction failed: {}",
-                                err
-                            );
                         }
-                        task.started_construction = true;
-                    }
-
-                    let completed = manager.update_for_dozer(self.object_id);
-                    let progress = manager.get_progress(task.target_id).unwrap_or(0.0);
-                    let current_health = manager.get_current_health(task.target_id);
+                    } else {
+                        0.0
+                    };
+                    let (completed, progress, current_health) = {
+                        let mut manager = match construction_manager.write() {
+                            Ok(manager) => manager,
+                            Err(_) => {
+                                self.dozer_task = None;
+                                return;
+                            }
+                        };
+                        if !task.started_construction {
+                            if let Err(err) = manager.start_construction(
+                                task.target_id,
+                                self.object_id,
+                                max_health,
+                                task.build_total_frames.max(1),
+                                task.is_rebuild,
+                            ) {
+                                log::debug!(
+                                    "WorkerAIUpdate::update_dozer_task start_construction failed: {}",
+                                    err
+                                );
+                            }
+                            task.started_construction = true;
+                        }
+                        let completed = manager.update_for_dozer(self.object_id);
+                        let progress = manager.get_progress(task.target_id).unwrap_or(0.0);
+                        let current_health = manager.get_current_health(task.target_id);
+                        (completed, progress, current_health)
+                    };
                     if let Ok(mut target_write) = target.write() {
                         target_write.set_construction_percent(progress);
                         if let Some(health) = current_health {
@@ -1099,7 +1106,7 @@ impl WorkerAIUpdate {
                             }
                         }
                     }
-                    if completed.contains(&task.target_id) {
+                    if completed == Some(task.target_id) {
                         build_complete_rebuild = Some(task.is_rebuild);
                     }
                 }
@@ -1111,6 +1118,8 @@ impl WorkerAIUpdate {
             },
             WorkerDozerActionState::PickActionPos => {}
         }
+        // Completion can synchronously call back into the builder as well.
+        drop(owner_guard);
 
         if let Some(is_rebuild) = build_complete_rebuild {
             if let Err(error) = self.handle_build_completion(&owner, &target, is_rebuild) {

@@ -258,34 +258,16 @@ impl PathfindingSystem {
         Some(path)
     }
 
-    /// C++ `Pathfinder::clientSafeQuickDoesPathExist` (structure-aware, ground).
-    pub fn client_safe_quick_does_path_exist(&self, from: Vec3, to: Vec3) -> bool {
-        self.client_safe_quick_does_path_exist_for(from, to, SURFACE_GROUND)
-    }
-
-    /// C++ `clientSafeQuickDoesPathExist` with locomotor surfaces.
-    pub fn client_safe_quick_does_path_exist_for(
+    /// C++ `Pathfinder::clientSafeQuickDoesPathExist`, resolving both endpoint
+    /// layers against the receiving world's terrain.
+    pub fn client_safe_quick_does_path_exist(
         &self,
         from: Vec3,
         to: Vec3,
         surfaces: u32,
+        ground_source: &PathfindingGround<'_>,
     ) -> bool {
-        self.client_safe_quick_does_path_exist_for_crusher(from, to, surfaces, false)
-    }
-
-    /// C++ `clientSafeQuickDoesPathExist` with locomotor surfaces + crusher combiners.
-    pub fn client_safe_quick_does_path_exist_for_crusher(
-        &self,
-        from: Vec3,
-        to: Vec3,
-        surfaces: u32,
-        is_crusher: bool,
-    ) -> bool {
-        if self.grid.path_zones.iter().all(|&z| z == 0) {
-            return self.grid.quick_path_exists_for_ui(from, to);
-        }
-        self.grid
-            .quick_path_exists_for_crusher(from, to, surfaces, is_crusher)
+        self.grid.quick_path_exists_with_ground(from, to, surfaces, ground_source)
     }
 
     /// C++ `Pathfinder::findBrokenBridge` on the live host grid.
@@ -1546,8 +1528,8 @@ impl PathfindingSystem {
         let layer = self.grid.layer_for_destination(group_dest, ground_source);
         let dest_cell = self.grid.world_to_grid(dest);
         let group_cell = self.grid.world_to_grid(group_dest);
-        self.grid.query_from = Some(self.grid.world_to_grid(from));
-        self.grid.query_orig_dest = Some(dest_cell);
+        self.grid.query_from = Some(from);
+        self.grid.query_orig_dest = Some(dest);
         self.grid.query_seeker_id = seeker_id;
         self.grid.bind_query_occupants(objects, Some(ObjectId(seeker_id)));
         let adj = self.grid.adjust_destination_for_group(

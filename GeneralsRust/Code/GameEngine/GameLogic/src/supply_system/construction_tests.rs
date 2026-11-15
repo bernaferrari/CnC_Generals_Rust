@@ -429,3 +429,58 @@ fn worker_runs_real_player_upgrade_grant_after_notification() {
         assert_eq!(observations.lock().unwrap().len(), 1);
     });
 }
+
+#[test]
+fn worker_build_tick_allows_reentrant_construction_without_touching_peer_world() {
+    use crate::object::update::ai_update::dozer_ai_update::construction_callback_tests::ConstructionManagerReentryProbe;
+    use game_engine::common::thing::module::ModuleDataHandle;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+    let fixture = CompletionFixture::new(0);
+    let builder_id = fixture.builder.read().unwrap().get_id();
+    let building_id = fixture.structure.read().unwrap().get_id();
+    let world = crate::system::engine_stores::active_services();
+    let manager = &world.logic_managers().construction;
+    let peer = crate::system::engine_stores::new_for_world();
+    let peer_manager = &peer.services().logic_managers().construction;
+    peer_manager.write().unwrap()
+        .start_construction(building_id, builder_id, 100.0, 4, false).unwrap();
+    assert_eq!(peer_manager.write().unwrap().update_for_dozer(builder_id), None);
+
+    let observations = Arc::new(AtomicUsize::new(0));
+    let data = ModuleDataHandle::new(BaseModuleData::new());
+    fixture.structure.write().unwrap().install_module_for_test(
+        "WorkerConstructionManagerReentryProbe",
+        Box::new(ConstructionManagerReentryProbe {
+            data: data.clone(),
+            world: world.clone(),
+            observations: observations.clone(),
+            building_id,
+            builder_id,
+            builder: fixture.builder.clone(),
+        }),
+        data,
+        ModuleInterfaceType::CREATE,
+    );
+    let mut worker = WorkerAIUpdate::new(WorkerAIUpdateData::default(), builder_id, 0);
+    worker.current_task = Some(WorkerDozerTaskSlot::Build);
+    worker.dozer_task = Some(WorkerDozerTask {
+        task_type: WorkerDozerTaskType::Build,
+        target_id: building_id,
+        dock_point: None,
+        failed_attempts: 0,
+        build_total_frames: 1,
+        build_max_health: 100.0,
+        is_rebuild: false,
+        started_construction: false,
+    });
+    worker.dozer_action_state = WorkerDozerActionState::DoAction;
+    worker.update_dozer_task().unwrap();
+
+    assert_eq!(observations.load(Ordering::SeqCst), 31);
+    assert!(!fixture.structure.read().unwrap().is_under_construction());
+    assert!(manager.read().unwrap().is_under_construction(building_id + 1));
+    assert_eq!(peer_manager.read().unwrap().get_progress(building_id), Some(25.0));
+    manager.write().unwrap().cancel_dozer_construction(builder_id);
+}

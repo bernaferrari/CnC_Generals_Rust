@@ -26,7 +26,6 @@ use crate::modules::{
 };
 use crate::object::Object;
 use crate::object::drawable::DrawableExt;
-use crate::object::production::get_construction_manager;
 use crate::player::player_list;
 use crate::resource;
 use crate::state_machine::StateReturnType;

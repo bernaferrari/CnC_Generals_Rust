@@ -19,7 +19,6 @@ use crate::object::Object;
 use crate::object::behavior::behavior_module::{
     BridgeBehaviorInterface, BridgeTowerBehaviorInterface, BridgeTowerType,
 };
-use crate::object::production::get_construction_manager;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::player::player_list;
@@ -1293,13 +1292,11 @@ impl DozerAIUpdate {
                         self.internal_task_complete(DozerTask::Build);
                         return;
                     }
-                    let manager_handle = get_construction_manager();
-                    let mut manager = match manager_handle.write() {
-                        Ok(manager) => manager,
-                        Err(_) => {
-                            return;
-                        }
-                    };
+                    let world = crate::system::engine_stores::active_services();
+                    let manager_handle = &world.logic_managers().construction;
+                    // The current module scheduler cannot yet lend the world
+                    // manager directly. Keep its guard around manager work only;
+                    // object setters and completion callbacks can reenter it.
                     let player = owner
                         .read()
                         .ok()
@@ -1331,6 +1328,9 @@ impl DozerAIUpdate {
                             .ok()
                             .map(|guard| (guard.get_construction_percent(), guard.get_health()))
                             .unwrap_or((0.0, 1.0));
+                        let Ok(mut manager) = manager_handle.write() else {
+                            return;
+                        };
                         if manager
                             .start_construction(
                                 task.target_id,
@@ -1347,6 +1347,7 @@ impl DozerAIUpdate {
                                 existing_health,
                             );
                         }
+                        drop(manager);
                         task.started_construction = true;
                         if let Some(sound) = target.read().ok().and_then(|guard| {
                             guard.get_template().get_per_unit_sound("UnderConstruction")
@@ -1357,10 +1358,15 @@ impl DozerAIUpdate {
                     if let Ok(mut owner_write) = owner.write() {
                         owner_write.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
                     }
-                    manager.set_build_frames(task.target_id, frames);
-                    let completed = manager.update_for_dozer(self.object_id);
-                    if let Some(progress) = manager.get_progress(task.target_id) {
-                        let current_health = manager.get_current_health(task.target_id);
+                    let (completed, progress, current_health) = {
+                        let Ok(mut manager) = manager_handle.write() else {
+                            return;
+                        };
+                        manager.set_build_frames(task.target_id, frames);
+                        let completed = manager.update_for_dozer(self.object_id);
+                        (completed, manager.get_progress(task.target_id), manager.get_current_health(task.target_id))
+                    };
+                    if let Some(progress) = progress {
                         if let Ok(mut target_write) = target.write() {
                             target_write.set_construction_percent(progress);
                             if let Some(health) = current_health {
@@ -1370,10 +1376,7 @@ impl DozerAIUpdate {
                             target_write.set_builder_id(self.object_id);
                         }
                     }
-                    if completed.contains(&task.target_id) {
-                        // Completion invokes player and module callbacks synchronously.
-                        // None may run under the construction manager's write loan.
-                        drop(manager);
+                    if completed == Some(task.target_id) {
                         if let Err(error) = self.handle_build_completion(
                             &owner,
                             &target,

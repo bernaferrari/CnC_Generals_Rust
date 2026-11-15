@@ -66,12 +66,15 @@ last search's layers on the pathfinder. Batched repaths, waypoint chains and
 closest-path searches therefore install their corresponding layers. Optimized
 routes still do not preserve the original node chain needed for C++ bridge
 transition and path-snapshot parity.
-Production search compares quick-path zones on the selected endpoint layers,
-including a bridge deck above impassable ground.
+Quick-path queries compare the receiving world's endpoint layers, including a
+bridge deck above impassable ground. The query uses non-crusher connectivity,
+as in C++.
 
-Legacy Core Dozer completion releases its construction-manager lock before
-callbacks. The owned Build scheduler and ordered wall-fall callbacks still need
-explicit driving-world services; this lock change does not migrate them.
+The Core construction manager lives directly in its world manager bundle;
+construction ticks borrow it mutably and release the lock before callbacks.
+The lock and scoped world selection remain until the scheduler can loan the
+driving instance directly. Owned Build and ordered wall-fall callbacks are
+not yet migrated.
 
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power

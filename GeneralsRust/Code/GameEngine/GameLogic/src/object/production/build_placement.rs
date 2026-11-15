@@ -13,9 +13,7 @@
 use crate::common::*;
 use crate::economy::IncomeSource;
 use crate::helpers::{TheGameLogic, TheInGameUI, ThePartitionManager, TheThingFactory};
-use crate::object::production::construction::{
-    ConstructionState, FoundationValidator, get_construction_manager,
-};
+use crate::object::production::construction::{ConstructionState, FoundationValidator};
 use crate::object::production::prerequisite_checker::PrerequisiteChecker;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};
@@ -349,7 +347,8 @@ impl BuildPlacementMode {
             }
 
             // Check if dozer is idle (not currently constructing)
-            let manager = get_construction_manager();
+            let world = crate::system::engine_stores::active_services();
+            let manager = &world.logic_managers().construction;
             if let Ok(mgr) = manager.read() {
                 if mgr.is_dozer_busy(obj_id) {
                     continue;
@@ -383,7 +382,8 @@ impl BuildPlacementMode {
                                     continue;
                                 }
 
-                                let manager = get_construction_manager();
+                                let world = crate::system::engine_stores::active_services();
+                                let manager = &world.logic_managers().construction;
                                 if let Ok(mgr) = manager.read() {
                                     if mgr.is_dozer_busy(member_id) {
                                         continue;
@@ -523,8 +523,8 @@ impl BuildPlacementMode {
             })
             .unwrap_or(1000.0);
 
-        // Start construction via the global construction manager
-        let manager = get_construction_manager();
+        let world = crate::system::engine_stores::active_services();
+        let manager = &world.logic_managers().construction;
         if let Ok(mut mgr) = manager.write() {
             if let Err(e) = mgr.start_construction(
                 building_id,

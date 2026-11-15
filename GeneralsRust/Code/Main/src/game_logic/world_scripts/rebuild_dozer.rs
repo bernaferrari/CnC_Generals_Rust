@@ -69,8 +69,12 @@ impl GameLogic {
             if !grid_live {
                 return true;
             }
-            self.pathfinding_system
-                .client_safe_quick_does_path_exist(from, to)
+            let surfaces = source_id
+                .and_then(|id| self.host_object(id))
+                .map(|object| object.locomotor_surfaces)
+                .filter(|surfaces| *surfaces != 0)
+                .unwrap_or(gamelogic::ai::pathfind_complete::SURFACE_GROUND);
+            self.quick_path_exists_in_world(from, to, surfaces)
         };
         snap(
             source,

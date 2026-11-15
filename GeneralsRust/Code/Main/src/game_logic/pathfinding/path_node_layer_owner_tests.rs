@@ -24,6 +24,31 @@ fn deck_grid(deck_height: f32) -> PathfindingGrid {
     grid.flight_bridge_order.push(2);
     grid
 }
+#[test]
+fn quick_query_uses_each_worlds_endpoint_layers_with_same_object_ids() {
+    let mut owners = bridge_approach_worlds();
+    assert_eq!(owners[0].2, owners[1].2);
+    for (_, finder, _) in &mut owners {
+        finder.grid.set_cell_type(GridPos::new(8, 5), PathfindCellType::Cliff);
+        finder.grid.rebuild_path_zones();
+    }
+    // The same coordinates lie on the first world's deck but at ground level
+    // in the second, where the goal cell is a cliff.
+    owners[1].1.grid.bridge_layers[0].from_left.y = 40.0;
+    owners[1].1.grid.bridge_layers[0].from_right.y = 40.0;
+    owners[1].1.grid.bridge_layers[0].to_left.y = 40.0;
+    owners[1].1.grid.bridge_layers[0].to_right.y = 40.0;
+    let ground = PathfindingGround::Flat(0.0);
+    let from = Vec3::new(45.0, 20.0, 55.0);
+    let goal = Vec3::new(85.0, 20.0, 55.0);
+    let query = |finder: &PathfindingSystem| {
+        finder.client_safe_quick_does_path_exist(from, goal, SURFACE_GROUND, &ground)
+    };
+    assert!(query(&owners[0].1));
+    assert!(!query(&owners[1].1));
+    assert!(query(&owners[0].1));
+}
+
 
 #[test]
 fn optimize_ground_path_preserves_carried_bridge_layer_over_geometry() {

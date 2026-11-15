@@ -752,14 +752,13 @@ impl AIPlayer {
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
-        let is_crusher = unit.crusher_level > 0;
         let hop_targets = game_logic.owned_waypoint_hops(start_waypoint_id);
 
         for target in hop_targets {
             let hop = Vec3::new(target.x, target.z, target.y);
             // Player path: live zone connectivity. Leftover empty zones
             // would report true and skip a destroyed span.
-            if game_logic.quick_path_exists(unit_pos, hop, surfaces, is_crusher) {
+            if game_logic.quick_path_exists(unit_pos, hop, surfaces) {
                 continue;
             }
             if let Some(bridge_id) = game_logic.find_broken_bridge(unit_pos, hop) {

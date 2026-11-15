@@ -217,11 +217,8 @@ impl<'a> AiWorldView<'a> {
         from: Vec3,
         to: Vec3,
         surfaces: u32,
-        crusher: bool,
     ) -> bool {
-        self.world
-            .pathfinding_system
-            .client_safe_quick_does_path_exist_for_crusher(from, to, surfaces, crusher)
+        self.world.quick_path_exists_in_world(from, to, surfaces)
     }
     pub(super) fn find_broken_bridge(&self, from: Vec3, to: Vec3) -> Option<ObjectId> {
         self.world.pathfinding_system.find_broken_bridge(from, to)

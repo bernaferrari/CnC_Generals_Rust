@@ -46,6 +46,20 @@ fn find_position_around(
     None
 }
 impl GameLogic {
+    pub(crate) fn quick_path_exists_in_world(
+        &self, from: Vec3, to: Vec3, surfaces: u32,
+    ) -> bool {
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+        let ground = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &terrain, self.map_loaded, self.terrain.as_ref(),
+            self.pathfinding_height_samples.as_ref(), &self.pathfinding_system.grid,
+        );
+        self.pathfinding_system.client_safe_quick_does_path_exist(
+            from, to, surfaces, &ground,
+        )
+    }
+
     /// GameLogic.cpp places each starting unit using the receiving partition,
     /// with the starting building's radius and an instance-owned random angle.
     pub(crate) fn find_owned_starting_unit_position(
@@ -197,13 +211,11 @@ impl GameLogic {
         } else {
             source.locomotor_surfaces
         };
-        let crusher = source.crusher_level > 0;
         let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
         Ok(find_position_around(center, 0., 100., start, |candidate, angle| {
             let position = self.try_owned_ground_position(candidate, center.y, angle, ignore, Some(source_id))?;
-            (!ai || self.pathfinding_system.client_safe_quick_does_path_exist_for_crusher(
-                start_pos, position, surfaces, crusher,
-            )).then_some(position)
+            (!ai || self.quick_path_exists_in_world(start_pos, position, surfaces))
+                .then_some(position)
         }).unwrap_or(center))
     }
 
@@ -225,8 +237,7 @@ impl GameLogic {
             source.locomotor_surfaces
         };
         let path_exists = |destination| {
-            self.pathfinding_system
-                .client_safe_quick_does_path_exist_for(start_pos, destination, surfaces)
+            self.quick_path_exists_in_world(start_pos, destination, surfaces)
         };
         if path_exists(center) {
             return Ok(center);

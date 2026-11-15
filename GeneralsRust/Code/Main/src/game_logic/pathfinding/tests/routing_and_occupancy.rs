@@ -1170,8 +1170,9 @@ fn adjust_destination_rejects_disconnected_pocket() {
     let from = GridPos::new(2, 8);
     let dest = GridPos::new(12, 8);
     assert_ne!(g.path_zone(from), g.path_zone(dest));
-    g.query_from = Some(from);
-    g.query_orig_dest = Some(from);
+    let from_world = g.grid_to_world(from, &PathfindingGround::Flat(0.0));
+    g.query_from = Some(from_world);
+    g.query_orig_dest = Some(from_world);
     let snapped = g.adjust_destination_ex(
         dest,
         SURFACE_GROUND,

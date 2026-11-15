@@ -564,8 +564,9 @@ impl PathfindingSystem {
         };
         let start_seed = self.grid.clamp_pos(start);
         let goal_seed = self.grid.clamp_pos(goal);
-        self.grid.query_from = Some(start_seed);
-        self.grid.query_orig_dest = Some(start_seed);
+        let start_world = self.grid.grid_to_world_on_layer(start_seed, start_layer, ground_source);
+        self.grid.query_from = Some(start_world);
+        self.grid.query_orig_dest = Some(start_world);
         // The C++ search seeds the actual start even outside the logical
         // extent. Relocating it would skip the restricted neighbor admission.
         let outside_human_start = self.seeker_is_human && !self.grid.in_logical_extent(start_seed);
@@ -585,8 +586,8 @@ impl PathfindingSystem {
                 )
                 .unwrap_or(start_seed)
         };
-        self.grid.query_from = Some(start);
-        self.grid.query_orig_dest = Some(goal_seed);
+        self.grid.query_from = Some(self.grid.grid_to_world_on_layer(start, start_layer, ground_source));
+        self.grid.query_orig_dest = Some(self.grid.grid_to_world_on_layer(goal_seed, dest_layer, ground_source));
         let ignore_id = self.ignore_obstacle_id.map(|id| id.0).filter(|id| *id != 0);
         let goal_is_ignored = ignore_id.is_some_and(|id| {
             self.grid.cell_type(goal_seed) == PathfindCellType::Obstacle

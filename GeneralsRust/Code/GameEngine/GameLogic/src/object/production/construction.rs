@@ -9,7 +9,6 @@ use crate::system::shroud_manager::{ShroudState, get_shroud_manager};
 use game_engine::common::global_data;
 use game_engine::common::system::GeometryType;
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
 
 /// Wave 454: host-only path has no dual-world factory objects.
 #[inline]
@@ -628,7 +627,7 @@ impl ConstructionManager {
         completed_buildings
     }
 
-    /// Update construction for a single dozer by one frame.
+    /// Refresh the build duration from the structure's current build rules.
     pub fn set_build_frames(&mut self, building_id: ObjectID, frames: u32) {
         if let Some(task) = self
             .active_tasks
@@ -639,30 +638,17 @@ impl ConstructionManager {
         }
     }
 
-    pub fn update_for_dozer(&mut self, dozer_id: ObjectID) -> Vec<ObjectID> {
-        let mut completed_buildings = Vec::new();
-        let mut completed_dozers = Vec::new();
-
-        for task in &mut self.active_tasks {
-            if task.dozer_id == dozer_id {
-                if task.update_construction_frame() {
-                    completed_buildings.push(task.building_id);
-                    completed_dozers.push(task.dozer_id);
-                }
-            }
+    /// Advance the single task owned by this dozer and return its building if
+    /// it completed. A dozer can own at most one task.
+    pub fn update_for_dozer(&mut self, dozer_id: ObjectID) -> Option<ObjectID> {
+        let index = self.active_tasks.iter().position(|task| task.dozer_id == dozer_id)?;
+        if !self.active_tasks[index].update_construction_frame() {
+            return None;
         }
-
-        self.active_tasks
-            .retain(|task| !completed_buildings.contains(&task.building_id));
-
-        for building_id in &completed_buildings {
-            self.buildings_under_construction.remove(building_id);
-        }
-        for dozer_id in &completed_dozers {
-            self.dozers_busy.remove(dozer_id);
-        }
-
-        completed_buildings
+        let task = self.active_tasks.remove(index);
+        self.buildings_under_construction.remove(&task.building_id);
+        self.dozers_busy.remove(&task.dozer_id);
+        Some(task.building_id)
     }
 
     /// Cancel construction on a building
@@ -761,11 +747,6 @@ impl Default for ConstructionManager {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// The published world's construction manager.
-pub fn get_construction_manager() -> Arc<RwLock<ConstructionManager>> {
-    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().construction)
 }
 
 #[cfg(test)]
@@ -881,6 +862,25 @@ mod tests {
 
         assert!(!manager.is_under_construction(1));
         assert!(!manager.is_dozer_busy(10));
+    }
+
+    #[test]
+    fn dozer_tick_only_advances_its_task_and_releases_it_on_completion() {
+        let mut manager = ConstructionManager::new();
+        manager.start_construction(1, 10, 100.0, 2, false).unwrap();
+        manager.start_construction(2, 11, 100.0, 4, false).unwrap();
+
+        assert_eq!(manager.update_for_dozer(10), None);
+        assert_eq!(manager.get_progress(1), Some(50.0));
+        assert_eq!(manager.get_progress(2), Some(0.0));
+        assert_eq!(manager.update_for_dozer(10), Some(1));
+        assert!(!manager.is_dozer_busy(10));
+        assert!(!manager.is_under_construction(1));
+        assert_eq!(manager.get_progress(2), Some(0.0));
+        assert_eq!(manager.update_for_dozer(10), None);
+        manager.start_construction(3, 10, 100.0, 1, false).unwrap();
+        assert_eq!(manager.update_for_dozer(10), Some(3));
+        assert!(manager.is_dozer_busy(11));
     }
 
     #[test]

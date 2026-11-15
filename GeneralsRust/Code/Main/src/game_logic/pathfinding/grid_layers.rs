@@ -587,6 +587,24 @@ impl PathfindingGrid {
         )
     }
 
+    /// Resolve each endpoint against the terrain belonging to this query.
+    pub(super) fn quick_path_exists_with_ground(
+        &self,
+        from: Vec3,
+        to: Vec3,
+        surfaces: u32,
+        ground_source: &PathfindingGround<'_>,
+    ) -> bool {
+        self.quick_path_exists_on_layers(
+            self.world_to_grid(from),
+            self.layer_for_destination(from, ground_source),
+            self.world_to_grid(to),
+            self.layer_for_destination(to, ground_source),
+            surfaces,
+            false,
+        )
+    }
+
     /// C++ checks the resolved cells and their zones on the actual endpoint layers.
     pub(super) fn quick_path_exists_on_layers(
         &self,
@@ -599,16 +617,9 @@ impl PathfindingGrid {
     ) -> bool {
         let start_type = self.resolved_cell_type(start_layer, start);
         let goal_type = self.resolved_cell_type(goal_layer, goal);
-        if goal_type == PathfindCellType::Cliff {
-            return false;
-        }
-        // C++ validMovementPosition: water dest needs WATER or AIR.
-        if goal_type == PathfindCellType::Water
-            && (surfaces & (SURFACE_WATER | SURFACE_AIR)) == 0
+        if goal_type == PathfindCellType::Cliff
+            || !self.cell_passable_for_layer(goal, goal_layer, surfaces, is_crusher)
         {
-            return false;
-        }
-        if goal_type == PathfindCellType::Obstacle && !self.is_obstacle_fence(goal) {
             return false;
         }
         let z1 = self.path_zone_on_layer(start, start_layer);
