@@ -322,6 +322,11 @@ Locomotor HqAwymWings
   Speed = 30
   Appearance = WINGS
 End
+Locomotor HqOccupancyGround
+  Surfaces = GROUND
+  Speed = 30
+  Appearance = FOUR_WHEELS
+End
 "#,
     )
     .expect("authored flight locomotors");
@@ -354,6 +359,19 @@ Object HqAwymWingAircraft
     NeedsRunway = Yes
   End
   Locomotor = SET_NORMAL HqAwymWings
+End
+Object HqOccupancyVehicle
+  KindOf = VEHICLE
+  Geometry = CYLINDER
+  GeometryMajorRadius = 3
+  GeometryHeight = 12
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 220
+    InitialHealth = 220
+  End
+  Behavior = AIUpdateInterface ModuleTag_AI
+  End
+  Locomotor = SET_NORMAL HqOccupancyGround
 End
 "#
         .into(),
@@ -784,4 +802,84 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
             }
         };
     }
+}
+
+#[test]
+fn ground_position_events_are_owned_by_the_receiving_world() {
+    if isolated("ground_position_events_are_owned_by_the_receiving_world") {
+        return;
+    }
+    let make_world = || {
+        let mut world = admitted_aircraft_world();
+        world.override_world_size(600.0, 600.0);
+        world.pathfinding_system.map_ready = true;
+        world
+    };
+    let mut first = make_world();
+    let mut second = make_world();
+    let start = Vec3::new(75.0, 0.0, 75.0);
+    let peer_start = Vec3::new(125.0, 0.0, 75.0);
+    let first_id = first.create_object("HqOccupancyVehicle", Team::USA, start).unwrap();
+    let second_id = second.create_object("HqOccupancyVehicle", Team::USA, peer_start).unwrap();
+    assert_eq!(first_id, second_id);
+    let at = |world: &GameLogic, position| {
+        let grid = &world.pathfinding_system.grid;
+        grid.ground_position_unit(grid.world_to_grid(position))
+    };
+    assert_eq!(at(&first, start), first_id.0);
+    assert_eq!(at(&second, start), 0);
+    assert_eq!(at(&second, peer_start), second_id.0);
+
+    let destination = Vec3::new(175.0, 0.0, 75.0);
+    assert!(first.set_registered_object_position(first_id, destination));
+    assert_eq!(at(&first, start), 0);
+    assert_eq!(at(&first, destination), first_id.0);
+    assert_eq!(at(&second, peer_start), second_id.0);
+    assert_eq!(at(&second, destination), 0);
+    second.change_owned_containment_world_membership(second_id, false);
+    assert_eq!(at(&second, peer_start), 0);
+    assert_eq!(at(&first, destination), first_id.0);
+    second.change_owned_containment_world_membership(second_id, true);
+    let exit = Vec3::new(225.0, 0.0, 75.0);
+    assert!(second.set_registered_object_position(second_id, exit));
+    assert_eq!(at(&second, exit), second_id.0);
+    first.destroy_object(first_id).unwrap();
+    // destroyObject queues deletion; Object::~Object removes the footprint
+    // when GameLogic::processDestroyList physically retires the actor.
+    assert_eq!(at(&first, destination), first_id.0);
+    first.process_destroy_list();
+    assert_eq!(at(&first, destination), 0);
+    assert_eq!(at(&second, exit), second_id.0);
+}
+
+#[test]
+fn ground_position_postload_rebuilds_idle_occupancy_in_receiving_world() {
+    if isolated("ground_position_postload_rebuilds_idle_occupancy_in_receiving_world") {
+        return;
+    }
+    let mut source = admitted_aircraft_world();
+    source.override_world_size(600.0, 600.0);
+    source.pathfinding_system.map_ready = true;
+    let position = Vec3::new(75.0, 0.0, 75.0);
+    let id = source.create_object("HqOccupancyVehicle", Team::USA, position).unwrap();
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut manager = crate::save_load::SaveFileManager::with_save_directory(dir.path());
+    manager.init().unwrap();
+    manager.quick_save(&source).unwrap();
+    let crate::save_load::DecodedGameSave { snapshot, .. } =
+        manager.load_game_snapshot("quicksave").unwrap();
+    let mut restored = admitted_aircraft_world();
+    restored.override_world_size(600.0, 600.0);
+    restored.pathfinding_system.map_ready = true;
+    manager.restore_game_snapshot(&snapshot, &mut restored).unwrap();
+    let at = |world: &GameLogic, p| {
+        let grid = &world.pathfinding_system.grid;
+        grid.ground_position_unit(grid.world_to_grid(p))
+    };
+    assert_eq!(at(&restored, position), id.0);
+    let moved = Vec3::new(125.0, 0.0, 75.0);
+    assert!(restored.set_registered_object_position(id, moved));
+    assert_eq!(at(&restored, position), 0);
+    assert_eq!(at(&restored, moved), id.0);
+    assert_eq!(at(&source, position), id.0);
 }

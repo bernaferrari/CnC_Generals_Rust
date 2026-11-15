@@ -58,8 +58,9 @@ batch with `with_*` helpers.
 Main pose changes pass the receiving pathfinder through movement, containment,
 creation and restore callbacks. Position occupancy is updated at the original
 integer trigger-position transition; an enclosed garrison passenger is held
-before its center-position callback. This does not establish complete
-pathfinder-event or save/load parity.
+before its center-position callback. Same-ID worlds are exercised across
+creation, movement, containment, deferred destruction and save/load. This does
+not establish complete pathfinder-event or save/load parity.
 
 Main path searches return owned raw nodes with optimized links and per-node
 layers. Movement uses a validated raw-node cursor and the raw predecessor for
@@ -73,8 +74,9 @@ as in C++.
 The Core construction manager lives directly in its world manager bundle;
 construction ticks borrow it mutably and release the lock before callbacks.
 The lock and scoped world selection remain until the scheduler can loan the
-driving instance directly. Owned Build and ordered wall-fall callbacks are
-not yet migrated.
+driving instance directly. Superweapon completion alerts select the local player
+from the structure's world. Other completion effects, owned Build and ordered
+wall-fall callbacks are not yet migrated.
 
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power

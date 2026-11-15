@@ -105,10 +105,9 @@ impl Player {
         let structure_world = structure.read().ok().and_then(|guard| guard.owning_world_services());
         crate::control_bar::mark_ui_dirty_from(structure_world.as_ref());
 
-        let __player_list_arc = crate::player::player_list();
-            let local_player = __player_list_arc.read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned());
+        let local_player = structure_world.as_ref().and_then(|world| {
+            world.players().read().ok()?.get_local_player().cloned()
+        });
         // C++ queries current ownership and powers after the AI callback.
         use crate::object::special_power_types::SpecialPowerType as Power;
         let (

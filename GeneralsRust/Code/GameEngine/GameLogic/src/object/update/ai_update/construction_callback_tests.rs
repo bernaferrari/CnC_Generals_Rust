@@ -953,3 +953,59 @@ fn dozer_update_completion_releases_manager_for_create_callback_with_same_id_pee
     });
     manager.write().unwrap().cancel_dozer_construction(builder_id);
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn construction_superweapon_alert_uses_structure_world_local_player() {
+    const TEST: &str = "object::update::ai_update::dozer_ai_update::construction_callback_tests::construction_superweapon_alert_uses_structure_world_local_player";
+    if matches!(
+        crate::test_process::run_bounded(TEST, "DOZER_COMPLETION_EVA_CHILD"),
+        crate::test_process::TestProcess::ParentVerified
+    ) {
+        return;
+    }
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+    let fixture = CompletionFixture::new(0);
+    let owner = crate::system::engine_stores::new_world_services();
+    let peer = crate::system::engine_stores::new_world_services();
+    {
+        let mut players = owner.players().write().unwrap();
+        players.add_player(fixture.player.clone());
+        players.add_player(Arc::new(RwLock::new(Player::new(1))));
+        players.set_local_player_index(1);
+    }
+    {
+        let mut players = peer.players().write().unwrap();
+        players.add_player(Arc::new(RwLock::new(Player::new(0))));
+        players.set_local_player_index(0);
+    }
+    let mut other = {
+        let mut structure = fixture.structure.write().unwrap();
+        structure.bind_owner_world_for_test(&owner);
+        structure.set_special_power_available(
+            crate::object::special_power_types::SpecialPowerType::NeutronMissile,
+            true,
+        );
+        Object::new_test_from_template(structure.get_id(), 100.0, structure.get_template().clone())
+    };
+    other.bind_owner_world_for_test(&peer);
+    other.set_special_power_available(
+        crate::object::special_power_types::SpecialPowerType::NeutronMissile,
+        true,
+    );
+    Player::on_structure_construction_complete(
+        &fixture.player,
+        None,
+        &fixture.structure,
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        crate::helpers::TheEva::drain_events_in(&owner).unwrap(),
+        vec![crate::helpers::EvaEvent::SuperweaponDetectedAllyNuke]
+    );
+    assert!(crate::helpers::TheEva::drain_events_in(&peer).unwrap().is_empty());
+    assert!(other.has_special_power(
+        crate::object::special_power_types::SpecialPowerType::NeutronMissile
+    ));
+}
