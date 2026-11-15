@@ -211,3 +211,99 @@ fn pathfind_cluster_reserved_slot_capacity_is_511() {
     owner.queue_for_path_request(request(1, 99.0)).unwrap();
     assert_eq!(owner.inner.request_queue.len(), PATHFIND_QUEUE_LEN - 1);
 }
+
+#[test]
+fn active_callback_retains_ring_head_and_capacity_until_it_returns() {
+    // AIPathfind.cpp:5905-5918 clears the current slot before doPathfind,
+    // but advances the head only after the callback returns.
+    let mut owner = crate::ai::Pathfinder::new();
+    owner.reset_with_size(2, 2);
+    owner.inner.new_map_from_classified_cells();
+    let extent = crate::common::Region3D {
+        lo: Coord3D::new(0.0, 0.0, 0.0),
+        hi: Coord3D::new(20.0, 20.0, 0.0),
+    };
+    owner.inner.process_queue_with_owner(500, Some(extent), |_, _| {
+        panic!("empty ring")
+    }).unwrap();
+    for id in 1..PATHFIND_QUEUE_LEN as ObjectID {
+        assert!(owner.queue_for_path(id));
+    }
+    let mut called = false;
+    let result = owner.inner.process_queue_with_owner(500, Some(extent), |id, pathfinder| {
+        assert_eq!(id, 1);
+        called = true;
+        assert_eq!(pathfinder.object_path_queue.head, 0);
+        assert_eq!(pathfinder.object_path_queue.slots[0], INVALID_ID);
+        assert!(!pathfinder.queue_for_path(id), "the current slot is not free yet");
+        Err("stop before admission".into())
+    });
+    assert!(called);
+    assert!(result.is_err());
+    assert_eq!(owner.inner.object_path_queue.head, 0);
+    assert_eq!(owner.inner.object_path_queue.slots[0], 1);
+    assert_eq!(owner.inner.object_path_queue.tail, PATHFIND_QUEUE_LEN - 1);
+}
+
+#[test]
+fn callback_requeue_survives_budget_and_preserves_fifo() {
+    let mut owner = crate::ai::Pathfinder::new();
+    owner.reset_with_size(2, 2);
+    owner.inner.new_map_from_classified_cells();
+    let extent = crate::common::Region3D {
+        lo: Coord3D::new(0.0, 0.0, 0.0),
+        hi: Coord3D::new(20.0, 20.0, 0.0),
+    };
+    owner.inner.process_queue_with_owner(500, Some(extent), |_, _| {
+        panic!("empty ring")
+    }).unwrap();
+    owner.queue_for_path_request(request(77, 20.0)).unwrap();
+    owner.queue_for_path_request(request(78, 30.0)).unwrap();
+    let mut seen = Vec::new();
+    assert_eq!(owner.inner.process_queue_with_owner(500, Some(extent), |id, pathfinder| {
+        seen.push(id);
+        pathfinder.queue_path_request(request(77, 99.0))?;
+        pathfinder.note_open_closed_cells(500, 0);
+        pathfinder.clean_open_and_closed_lists();
+        Ok(true)
+    }).unwrap(), 1);
+    assert_eq!(seen, [77]);
+    assert_eq!(owner.inner.request_queue.len(), 2);
+    assert_eq!(owner.inner.request_queue[0].object_id, 78);
+    assert_eq!(owner.inner.request_queue[1].to.x, 99.0);
+    assert_eq!(owner.inner.process_queue_with_owner(500, Some(extent), |id, _| {
+        seen.push(id);
+        Ok(true)
+    }).unwrap(), 2);
+    assert_eq!(seen, [77, 78, 77]);
+    assert!(owner.inner.request_queue.is_empty());
+}
+
+#[test]
+fn queue_refresh_uses_unclamped_receiving_terrain_extent() {
+    // AIPathfind.cpp:5887-5897 floors the terrain extent and decrements
+    // the high edges; it does not clamp those bounds to the backing map.
+    let mut first = crate::ai::Pathfinder::new();
+    let mut peer = crate::ai::Pathfinder::new();
+    for owner in [&mut first, &mut peer] {
+        owner.reset_with_size(2, 2);
+        owner.inner.new_map_from_classified_cells();
+    }
+    let extent = crate::common::Region3D {
+        lo: Coord3D::new(-10.0, -1.0, 0.0),
+        hi: Coord3D::new(105.0, 41.0, 0.0),
+    };
+    let peer_before = peer.inner.logical_extent();
+    for _ in 0..2 {
+        first.inner.process_queue_with_owner(500, Some(extent), |_, _| {
+            panic!("empty ring")
+        }).unwrap();
+    }
+    let (lo, hi) = first.inner.logical_extent();
+    assert_eq!((lo.x, lo.y, hi.x, hi.y), (-2, -1, 9, 3));
+    let (peer_lo, peer_hi) = peer.inner.logical_extent();
+    assert_eq!(
+        (peer_lo.x, peer_lo.y, peer_hi.x, peer_hi.y),
+        (peer_before.0.x, peer_before.0.y, peer_before.1.x, peer_before.1.y)
+    );
+}

@@ -458,6 +458,12 @@ impl UnitAIUpdate {
         if !Arc::ptr_eq(&owner, &supplied) {
             return Err("queued Enter belongs to another factory".into());
         }
+        // AIUpdateInterface::doPathfind returns immediately for a canceled
+        // request. In particular, its current state may no longer belong to
+        // any of the path families admitted below.
+        if !self.runtime.data.waiting_for_path {
+            return Ok(false);
+        }
         let state = self
             .ai_state_machine
             .as_ref()

@@ -548,15 +548,24 @@ impl ObjectPathQueue {
         true
     }
 
-    /// Undo a failed supplied callback before that callback admitted any queue effects.
+    /// Clear the current slot, retaining the head during the synchronous callback.
+    pub(crate) fn begin_front(&mut self) -> Option<ObjectID> {
+        if self.head == self.tail {
+            return None;
+        }
+        let id = self.slots[self.head];
+        self.slots[self.head] = INVALID_ID;
+        Some(id)
+    }
+
+    pub(crate) fn finish_front(&mut self) {
+        self.head = (self.head + 1) % PATHFIND_QUEUE_LEN;
+    }
+
+    /// Undo a failed supplied callback before it admitted any queue effects.
     pub(crate) fn restore_front(&mut self, id: ObjectID) {
-        let previous = (self.head + PATHFIND_QUEUE_LEN - 1) % PATHFIND_QUEUE_LEN;
-        assert_eq!(
-            self.slots[previous], INVALID_ID,
-            "failed queue callback changed the popped slot"
-        );
-        self.slots[previous] = id;
-        self.head = previous;
+        assert_eq!(self.slots[self.head], INVALID_ID);
+        self.slots[self.head] = id;
     }
 
     pub(crate) fn pop_front(&mut self) -> Option<ObjectID> {

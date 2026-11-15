@@ -258,7 +258,8 @@ impl<'a> BorrowedAiWorld<'a> {
                         .map_err(|_| "queued Enter object poisoned")?
                         .get_ai_update_interface();
                     let Some(ai) = ai else {
-                        return Err("native Enter queue owner has no installed AI".into());
+                        // AIPathfind.cpp:5907-5915 skips objects without AI.
+                        return Ok(true);
                     };
                     let mut ai = ai.lock().map_err(|_| "queued Enter interface poisoned")?;
                     ai.do_enter_pathfind_with_services(

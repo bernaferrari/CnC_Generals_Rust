@@ -128,18 +128,16 @@ impl PathfindingSystem {
         // C++: TheTerrainLogic->getExtent → floor(/PATHFIND_CELL_SIZE_F); hi--.
         let (lo, hi) = if let Some(terrain) = TheTerrainLogic::get() {
             let ext = terrain.get_extent();
-            let mut lo_x = (ext.lo.x / PATHFIND_CELL_SIZE_F).floor() as i32;
-            let mut lo_y = (ext.lo.y / PATHFIND_CELL_SIZE_F).floor() as i32;
-            let mut hi_x = (ext.hi.x / PATHFIND_CELL_SIZE_F).floor() as i32;
-            let mut hi_y = (ext.hi.y / PATHFIND_CELL_SIZE_F).floor() as i32;
-            hi_x -= 1;
-            hi_y -= 1;
-            // Clamp to pathfind map.
-            lo_x = lo_x.max(0);
-            lo_y = lo_y.max(0);
-            hi_x = hi_x.min(self.width.saturating_sub(1) as i32).max(lo_x);
-            hi_y = hi_y.min(self.height.saturating_sub(1) as i32).max(lo_y);
-            (ICoord2D::new(lo_x, lo_y), ICoord2D::new(hi_x, hi_y))
+            (
+                ICoord2D::new(
+                    game_engine::base_type::real_to_int_floor(ext.lo.x / PATHFIND_CELL_SIZE_F),
+                    game_engine::base_type::real_to_int_floor(ext.lo.y / PATHFIND_CELL_SIZE_F),
+                ),
+                ICoord2D::new(
+                    game_engine::base_type::real_to_int_floor(ext.hi.x / PATHFIND_CELL_SIZE_F) - 1,
+                    game_engine::base_type::real_to_int_floor(ext.hi.y / PATHFIND_CELL_SIZE_F) - 1,
+                ),
+            )
         } else {
             (
                 ICoord2D::new(0, 0),
@@ -224,22 +222,14 @@ impl PathfindingSystem {
         // C++ processPathfindQueue: refresh m_logicalExtent from terrain extent.
         if let Some(extent) = extent {
             let lo = ICoord2D::new(
-                (extent.lo.x / PATHFIND_CELL_SIZE_F).floor() as i32,
-                (extent.lo.y / PATHFIND_CELL_SIZE_F).floor() as i32,
+                game_engine::base_type::real_to_int_floor(extent.lo.x / PATHFIND_CELL_SIZE_F),
+                game_engine::base_type::real_to_int_floor(extent.lo.y / PATHFIND_CELL_SIZE_F),
             );
             let hi = ICoord2D::new(
-                (extent.hi.x / PATHFIND_CELL_SIZE_F).floor() as i32 - 1,
-                (extent.hi.y / PATHFIND_CELL_SIZE_F).floor() as i32 - 1,
+                game_engine::base_type::real_to_int_floor(extent.hi.x / PATHFIND_CELL_SIZE_F) - 1,
+                game_engine::base_type::real_to_int_floor(extent.hi.y / PATHFIND_CELL_SIZE_F) - 1,
             );
-            self.set_logical_extent(
-                ICoord2D::new(lo.x.max(0), lo.y.max(0)),
-                ICoord2D::new(
-                    hi.x.min(self.width.saturating_sub(1) as i32)
-                        .max(lo.x.max(0)),
-                    hi.y.min(self.height.saturating_sub(1) as i32)
-                        .max(lo.y.max(0)),
-                ),
-            );
+            self.set_logical_extent(lo, hi);
         } else {
             self.refresh_logical_extent();
         }
@@ -255,34 +245,41 @@ impl PathfindingSystem {
             let next = if self.cumulative_cells_allocated() as usize >= cell_budget {
                 None
             } else {
-                self.object_path_queue.pop_front()
+                self.object_path_queue.begin_front()
             };
             let Some(id) = next else {
                 break;
             };
-            // C++: Object* obj = findObjectByID; if (ai) ai->doPathfind(this);
+            // The residual belongs to this occurrence only. A callback may
+            // synchronously enqueue the same ID again with a new request.
+            let pending = self
+                .request_queue
+                .iter()
+                .position(|request| request.object_id == id)
+                .and_then(|position| {
+                    self.request_queue
+                        .remove(position)
+                        .map(|request| (position, request))
+                });
             if id != INVALID_ID {
                 let handled = match do_pathfind(id, self) {
                     Ok(handled) => handled,
                     Err(error) => {
                         self.object_path_queue.restore_front(id);
+                        if let Some((position, request)) = pending {
+                            self.request_queue.insert(position, request);
+                        }
                         return Err(error);
                     }
                 };
-                if handled {
-                    self.request_queue.retain(|request| request.object_id != id);
-                } else {
-                    // Fallback: PathRequest residual for host/tests without registry object.
-                    let request = self
-                        .request_queue
-                        .iter()
-                        .position(|request| request.object_id == id)
-                        .and_then(|position| self.request_queue.remove(position));
-                    if let Some(request) = request {
+                if !handled {
+                    // Compatibility residual for host/tests without an object.
+                    if let Some((_, request)) = pending {
                         let _ = self.find_path_internal(request);
                     }
                 }
             }
+            self.object_path_queue.finish_front();
             processed += 1;
         }
 

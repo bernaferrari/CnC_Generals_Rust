@@ -3267,6 +3267,14 @@ without completing the pending request; the next pick can cancel it. Native
 worker Build/Repair execution and derived worker save/load remain separate,
 incomplete migrations (hq-d1xih).
 
+The Core receiving path queue now leaves its cleared head reserved throughout
+the synchronous callback, preserving C++ reentry capacity and FIFO requeues.
+Canceled requests and objects without AI drain without path-family dispatch.
+Terrain bounds use the original unclamped `REAL_TO_INT_FLOOR` conversion.
+Production integration remains incomplete: the owner-bound queue and scheduler
+must share the real match services and preserve all generic sleepy callbacks
+(hq-39rg4w).
+
 ## Cave snapshot ownership
 
 GameLogic transfers its receiving world's CaveSystem, even if another world is

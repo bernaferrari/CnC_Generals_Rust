@@ -201,6 +201,40 @@ fn load(game: &NativeMatch, bytes: Vec<u8>) {
         .unwrap();
 }
 #[test]
+fn canceled_dozer_path_queue_entry_is_drained_without_touching_same_id_peer() {
+    // AIUpdate.cpp:378-382 returns before inspecting the path family when
+    // an earlier command has already cleared m_waitingForPath.
+    let mut game = world();
+    let mut peer = world();
+    idle(&mut game, 10);
+    idle(&mut peer, 10);
+    let id = game.source.read().unwrap().get_id();
+    assert_eq!(id, peer.source.read().unwrap().get_id());
+    // A live object with no installed AI is skipped before the later dozer,
+    // just like a removed object in the original queue.
+    let target = game.target.read().unwrap().get_id();
+    assert!(game.pathfinder.queue_for_path(target));
+    assert!(game.pathfinder.queue_for_path(id));
+    assert!(peer.pathfinder.queue_for_path(id));
+    let before = *game.source.read().unwrap().get_position();
+    let peer_before = *peer.source.read().unwrap().get_position();
+
+    let mut processed = 0;
+    for frame in 11..14 {
+        processed += game.operate(frame, |world| world.process_enter_path_queue(10)).unwrap();
+    }
+    assert_eq!(processed, 2);
+    assert_eq!(*game.source.read().unwrap().get_position(), before);
+    assert_eq!(*peer.source.read().unwrap().get_position(), peer_before);
+    let mut peer_processed = 0;
+    for frame in 11..14 {
+        peer_processed += peer.operate(frame, |world| world.process_enter_path_queue(10)).unwrap();
+    }
+    assert_eq!(peer_processed, 1, "the other factory retained its own ring entry");
+    assert_eq!(*peer.source.read().unwrap().get_position(), peer_before);
+}
+
+#[test]
 fn actual_fortify_runs_installed_ai_and_physics_without_moving_same_id_peer() {
     let mut game = world();
     let peer = world();
