@@ -162,7 +162,7 @@ impl GameLogic {
             2,
             now,
             effects,
-        );
+        )?;
         let sole = self.objects.get(&repair_target_id).map(|target| {
             (
                 target.health.current >= target.health.maximum,
@@ -425,7 +425,7 @@ impl GameLogic {
         };
         if let Some(before) = heal_pad_before {
             if self
-                .apply_owned_healing_with_effects(object_id, HEAL_RATE * dt, None, effects)
+                .apply_owned_healing_with_effects(object_id, HEAL_RATE * dt, None, effects)?
                 .is_none()
             {
                 // A synchronous body callback removed or replaced

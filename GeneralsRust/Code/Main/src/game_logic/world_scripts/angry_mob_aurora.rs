@@ -678,14 +678,14 @@ impl GameLogic {
     }
 
     /// Advance FireWall residual: apply periodic flame damage along active segments.
-    pub(in super::super) fn update_firewalls(&mut self) {
+    pub(in super::super) fn update_firewalls(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_firewalls_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_firewalls_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -722,7 +722,7 @@ impl GameLogic {
                             None,
                             effects,
                         )
-                    };
+                    }?;
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -746,6 +746,7 @@ impl GameLogic {
         }
 
         self.fire_walls.prune_expired(frame);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -792,7 +793,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_inferno_shell_residual_at_with_effects(
             impact,
             source,
@@ -807,7 +808,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_inferno_cannon::{
             INFERNO_CANNON_DAMAGE_TYPE, INFERNO_CANNON_DEATH_TYPE, INFERNO_CANNON_SHELL_DAMAGE,
             INFERNO_CANNON_SHELL_RADIUS, inferno_shell_damage_at, is_inferno_cannon_template,
@@ -815,13 +816,13 @@ impl GameLogic {
 
         let (source_team, shell_dmg) = {
             let Some(sid) = source else {
-                return (0, false);
+                return Ok((0, false));
             };
             let Some(obj) = self.objects.lookup(&sid) else {
-                return (0, false);
+                return Ok((0, false));
             };
             if !is_inferno_cannon_template(&obj.template_name) {
-                return (0, false);
+                return Ok((0, false));
             }
             let dmg = obj
                 .weapon
@@ -896,7 +897,7 @@ impl GameLogic {
                         None,
                         effects,
                     )
-                };
+                }?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -907,7 +908,7 @@ impl GameLogic {
         for (id, killer) in destroy_ids {
             self.mark_object_for_destruction_with_effects(id, killer, effects);
         }
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     pub fn spawn_inferno_fire_zone(
@@ -1047,14 +1048,14 @@ impl GameLogic {
     }
 
     /// Advance Inferno fire zones: apply periodic flame damage in residual radius.
-    pub(in super::super) fn update_inferno_fire_zones(&mut self) {
+    pub(in super::super) fn update_inferno_fire_zones(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_inferno_fire_zones_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_inferno_fire_zones_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -1091,7 +1092,7 @@ impl GameLogic {
                             None,
                             effects,
                         )
-                    };
+                    }?;
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1115,6 +1116,7 @@ impl GameLogic {
         }
 
         self.inferno_fire_zones.prune_expired(frame);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -1385,14 +1387,14 @@ impl GameLogic {
         }
     }
 
-    pub fn update_angry_mobs(&mut self) {
+    pub fn update_angry_mobs(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_angry_mobs_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_angry_mobs_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_angry_mob::{ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB};
 
         let frame = self.frame;
@@ -1432,7 +1434,7 @@ impl GameLogic {
 
 
         if self.angry_mobs.active_count() == 0 {
-            return;
+            return Ok(());
         }
 
         // Candidates for residual aggregate fire.
@@ -1562,7 +1564,7 @@ impl GameLogic {
                         let owned_victim_id = target.id;
                         let owned_damage_type = crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE);
                         self.apply_residual_damage_owned_with_effects(owned_victim_id, hit.damage, Some(plan.mob_id), owned_damage_type, crate::game_logic::host_armor_residual::host_death_type_from_residual_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE), None, effects)
-                    };
+                    }?;
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1625,6 +1627,7 @@ impl GameLogic {
                 );
             }
         }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -2039,14 +2042,14 @@ impl GameLogic {
         self.aurora_fuel_air_gas_spawned > 0
     }
 
-    pub(in super::super) fn update_aurora_bombs(&mut self) {
+    pub(in super::super) fn update_aurora_bombs(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_aurora_bombs_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_aurora_bombs_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.aurora_bombs.clear_frame_events();
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
@@ -2119,7 +2122,7 @@ impl GameLogic {
                             None,
                             effects,
                         )
-                    };
+                    }?;
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -2165,6 +2168,7 @@ impl GameLogic {
                 objects_destroyed
             );
         }
+        Ok(())
     }
 }
 
@@ -2260,7 +2264,7 @@ mod spawn_behavior_parity {
     fn fill_initial_members(logic: &mut GameLogic, nid: ObjectId) {
         let first = logic.frame;
         tick_spawn_modules(logic, nid);
-        logic.update_angry_mobs();
+        logic.update_angry_mobs().unwrap();
         assert_eq!(
             live_members(logic, nid).len() as u32,
             ANGRY_MOB_INITIAL_MEMBERS
@@ -2270,7 +2274,7 @@ mod spawn_behavior_parity {
         for frame in first + 1..=first + ANGRY_MOB_EXIT_DELAY_FRAMES * ANGRY_MOB_MAX_MEMBERS {
             logic.frame = frame;
             tick_spawn_modules(logic, nid);
-            logic.update_angry_mobs();
+            logic.update_angry_mobs().unwrap();
             if live_members(logic, nid).len() as u32 == ANGRY_MOB_MAX_MEMBERS {
                 return;
             }
@@ -2289,7 +2293,7 @@ mod spawn_behavior_parity {
     }
 
     fn kill_member(logic: &mut GameLogic, mid: ObjectId) {
-        logic.apply_host_damage(mid, 1000.0);
+        logic.apply_host_damage(mid, 1000.0).unwrap();
     }
 
     #[test]
@@ -2372,7 +2376,7 @@ mod spawn_behavior_parity {
         }
         kill_member(&mut logic, members[0]);
         logic.compute_spawn_behavior_aggregate(nid);
-        logic.update_angry_mobs();
+        logic.update_angry_mobs().unwrap();
         assert_eq!(live_members(&logic, nid).len() as u32, ANGRY_MOB_MAX_MEMBERS - 1);
         let nexus = logic.host_object(nid).unwrap();
         assert!((nexus.health.current - nexus.initial_health * 0.9).abs() < 0.1);
@@ -2492,13 +2496,13 @@ mod spawn_behavior_parity {
         tick_spawn_modules(&mut owner, nid);
         assert_eq!(live_members(&owner, nid).len() as u32, ANGRY_MOB_INITIAL_MEMBERS);
         assert!(live_members(&owner, nid).iter().all(|id| !old_members.contains(id)));
-        owner.update_angry_mobs();
+        owner.update_angry_mobs().unwrap();
         assert_eq!(owner.angry_mobs().active_count(), 1);
         let state = &owner.angry_mobs().active_mobs()[0];
         assert_eq!(state.next_tick_frame, frame + 1 + ANGRY_MOB_TICK_INTERVAL_FRAMES);
         assert_eq!(state.total_damage_applied, 0.0);
         peer.frame = frame + 1;
-        peer.update_angry_mobs();
+        peer.update_angry_mobs().unwrap();
         let state = &peer.angry_mobs().active_mobs()[0];
         assert_eq!(state.next_tick_frame, frame + 8);
         assert_eq!(state.total_damage_applied, 7.0);
@@ -2515,7 +2519,7 @@ mod spawn_behavior_parity {
         for mid in members {
             kill_member(&mut logic, mid);
         }
-        logic.update_angry_mobs();
+        logic.update_angry_mobs().unwrap();
         let nexus_gone = logic
             .host_object(nid)
             .map(|o| !o.is_alive() || o.status.destroyed)
@@ -2530,7 +2534,7 @@ mod spawn_behavior_parity {
     fn aggregate_nexus_is_masked_and_not_a_weapon_target() {
         let (mut logic, nid) = make_nexus_logic();
         logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
-        logic.update_angry_mobs();
+        logic.update_angry_mobs().unwrap();
         let nexus = logic.host_object(nid).expect("nexus");
         assert!(nexus.status.masked, "AggregateHealth masks the nexus");
         assert!(nexus.can_move(), "nexus locomotor/AI accepts move orders");

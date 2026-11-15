@@ -71,7 +71,7 @@ fn transport_return_path_admission_preserves_each_receiving_frame() {
         // then runs the actual receiving return continuation.
         logic.host_object_mut(id).unwrap().transport_return_state =
             Some(TransportReturnState::MoveAndEvacuate { origin });
-        let _ = logic.evacuate_container_now(id, true);
+        logic.evacuate_container_now(id, true).unwrap();
     }
 
     for (logic, id, frame) in [

@@ -148,7 +148,7 @@ impl GameLogic {
     }
 
     /// Bounded owned continuation after this object's real motion/arrival phase.
-    pub(crate) fn finish_transport_return_phase(&mut self, id: ObjectId) {
+    pub(crate) fn finish_transport_return_phase(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.finish_transport_return_phase_with_effects(id, &mut Default::default())
     }
 
@@ -156,7 +156,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if self.host_object(id).is_some_and(|object| {
             matches!(
                 object.transport_return_state,
@@ -175,7 +175,7 @@ impl GameLogic {
                     })
             });
             if continuing {
-                return;
+                return Ok(());
             }
             if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id) {
                 object.end_temporary_move_overlay(&mut crate::game_logic::ObjectAudio::queue(
@@ -196,23 +196,23 @@ impl GameLogic {
                 )
             })
         }) else {
-            return;
+            return Ok(());
         };
         if !alive {
             if let Some(object) = self.host_object_mut(id) {
                 object.transport_return_state = None;
             }
-            return;
+            return Ok(());
         }
         if !terminal {
-            return;
+            return Ok(());
         }
         match state {
-            TransportReturnState::TemporaryMove { .. } => return,
+            TransportReturnState::TemporaryMove { .. } => return Ok(()),
             TransportReturnState::MoveAndEvacuate { origin } => {
                 // CPP orders riders to exit, activates the team and returns
                 // immediately; delayed rider exits do not hold the hull here.
-                self.evacuate_container_now_with_effects(id, false, effects);
+                self.evacuate_container_now_with_effects(id, false, effects)?;
                 self.activate_leftover_team_for_host_object_with_effects(id, effects);
                 self.begin_transport_return(id, origin);
             }
@@ -223,9 +223,10 @@ impl GameLogic {
                 }
                 // Actual GameLogic destruction at the completed state callback,
                 // never a fabricated health/death flag or end-frame substitute.
-                self.destroy_object_with_effects(id, effects);
+                self.destroy_object_with_effects(id, effects)?;
             }
         }
+        Ok(())
     }
 
     fn begin_transport_return(&mut self, id: ObjectId, origin: Vec3) {
@@ -303,7 +304,7 @@ mod tests {
             let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
             object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(output));
         }
-        logic.finish_transport_return_phase(id);
+        logic.finish_transport_return_phase(id).unwrap();
         let owner = logic.host_object(id).unwrap();
         assert!(owner.status.destroyed);
         assert_eq!(owner.health.current, 200.0);
@@ -400,7 +401,7 @@ mod tests {
             owner.movement.path.last().copied(),
             Some(Vec3::new(900.0, 0.0, 900.0))
         );
-        logic.finish_transport_return_phase(id);
+        logic.finish_transport_return_phase(id).unwrap();
         assert!(!logic.host_object(id).unwrap().status.destroyed);
         for _ in 0..600 {
             let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
@@ -415,13 +416,13 @@ mod tests {
             601
         );
         logic.frame = 600;
-        logic.finish_transport_return_phase(id);
+        logic.finish_transport_return_phase(id).unwrap();
         assert!(matches!(
             logic.host_object(id).unwrap().transport_return_state,
             Some(TransportReturnState::TemporaryMove { .. })
         ));
         logic.frame = 900; // A receiving-world jump crosses the absolute deadline.
-        logic.finish_transport_return_phase(id);
+        logic.finish_transport_return_phase(id).unwrap();
         let owner = logic.host_object(id).unwrap();
         assert_eq!(
             owner.transport_return_state,
@@ -492,13 +493,13 @@ mod tests {
             assert!(receiving.host_object(id).unwrap().pending_evacuate_on_stop);
             if temporary {
                 receiving.frame = 680;
-                receiving.finish_transport_return_phase(id);
+                receiving.finish_transport_return_phase(id).unwrap();
                 assert!(matches!(
                     receiving.host_object(id).unwrap().transport_return_state,
                     Some(TransportReturnState::TemporaryMove { .. })
                 ));
                 receiving.frame = 681;
-                receiving.finish_transport_return_phase(id);
+                receiving.finish_transport_return_phase(id).unwrap();
                 assert!(matches!(
                     receiving.host_object(id).unwrap().transport_return_state,
                     Some(TransportReturnState::MoveAndEvacuate { .. })
@@ -517,7 +518,7 @@ mod tests {
                     let (object, output) = receiving.host_object_and_audio_events_mut(id).unwrap();
                     object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(output));
                 }
-                receiving.finish_transport_return_phase(id);
+                receiving.finish_transport_return_phase(id).unwrap();
                 assert!(receiving.host_object(id).unwrap().status.destroyed);
                 assert_eq!(receiving.host_object(id).unwrap().health.current, 200.0);
                 receiving.process_destroy_list();

@@ -66,7 +66,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_marauder_residual_at_with_effects(
             impact,
             source,
@@ -81,7 +81,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_marauder::{
             MARAUDER_DAMAGE_TYPE, MARAUDER_DEATH_TYPE, MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
             is_legal_marauder_splash_target, marauder_scatter_aim,
@@ -202,7 +202,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -212,7 +212,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects)?;
         }
 
         self.marauder_residual_fires = self.marauder_residual_fires.saturating_add(1);
@@ -226,7 +226,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Apply Scorpion salvage gun tier residual (primary damage 20 → 25).

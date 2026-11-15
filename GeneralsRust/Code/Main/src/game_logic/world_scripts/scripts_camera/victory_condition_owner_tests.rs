@@ -54,8 +54,8 @@ fn same_id_victory_conditions_survive_peer_reset_and_encoded_restore() {
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-    assert!(owner.evaluate_victory_condition().is_some());
-    assert!(peer.evaluate_victory_condition().is_none());
+    assert!(owner.evaluate_victory_condition().unwrap().is_some());
+    assert!(peer.evaluate_victory_condition().unwrap().is_none());
     assert!(query(&mut owner, ConditionType::MultiplayerAlliedVictory));
     assert!(!query(&mut peer, ConditionType::MultiplayerAlliedVictory));
     assert!(!query(&mut peer, ConditionType::MultiplayerAlliedDefeat));
@@ -65,7 +65,7 @@ fn same_id_victory_conditions_survive_peer_reset_and_encoded_restore() {
     builder
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();
-    assert!(restored.evaluate_victory_condition().is_some());
+    assert!(restored.evaluate_victory_condition().unwrap().is_some());
     assert!(query(
         &mut restored,
         ConditionType::MultiplayerAlliedVictory
@@ -85,7 +85,7 @@ fn receiving_defeat_keeps_script_and_native_presentation_events() {
     // defeat wins over the separate pre-final-alliance player-defeat condition.
     let (object, health_events) = owner.host_object_and_health_events_mut(unit).unwrap();
     object.take_damage_from_immediate(1_000_000.0, None, 0, health_events);
-    assert!(owner.evaluate_victory_condition().is_some());
+    assert!(owner.evaluate_victory_condition().unwrap().is_some());
     assert!(query(&mut owner, ConditionType::MultiplayerAlliedDefeat));
     assert!(!query(&mut owner, ConditionType::MultiplayerPlayerDefeat));
     assert!(!query(&mut peer, ConditionType::MultiplayerAlliedDefeat));

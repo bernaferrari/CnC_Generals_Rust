@@ -330,8 +330,9 @@ fn booby_trap_plant_spawns_special_object() {
     assert!((cpos.x - 40.0).abs() < 0.1 && (cpos.z - 20.0).abs() < 0.1);
 
     // Detonate destroys special object.
-    let hits =
-        logic.detonate_booby_trap_at(structure, Vec3::new(40.0, 0.0, 20.0), None, false, true);
+    let hits = logic
+        .detonate_booby_trap_at(structure, Vec3::new(40.0, 0.0, 20.0), None, false, true)
+        .expect("booby trap detonation");
     let _ = hits;
     assert!(
         logic
@@ -519,7 +520,9 @@ fn booby_trap_registry_does_not_override_cpp_status_gate() {
     let object = logic.host_object_mut(target).expect("target object");
     object.set_status_booby_trapped(false);
     let health_before = object.health.current;
-    let hits = logic.detonate_booby_trap_at(target, Vec3::ZERO, None, false, true);
+    let hits = logic
+        .detonate_booby_trap_at(target, Vec3::ZERO, None, false, true)
+        .expect("booby trap detonation");
 
     assert_eq!(hits, 0, "registry metadata alone cannot trigger the plant");
     assert_eq!(
@@ -536,7 +539,9 @@ fn booby_trap_registry_does_not_override_cpp_status_gate() {
         .host_object_mut(target)
         .unwrap()
         .set_status_booby_trapped(true);
-    let _ = logic.detonate_booby_trap_at(target, Vec3::ZERO, None, false, true);
+    logic
+        .detonate_booby_trap_at(target, Vec3::ZERO, None, false, true)
+        .expect("booby trap detonation");
     assert!(!logic.booby_trap.is_booby_trapped(target));
     assert!(
         logic
@@ -613,7 +618,9 @@ fn booby_trap_detonation_rejects_missing_wrong_and_reused_charge_ids() {
             _ => unreachable!(),
         }
 
-        let hits = logic.detonate_booby_trap_at(target, Vec3::ZERO, None, false, true);
+        let hits = logic
+            .detonate_booby_trap_at(target, Vec3::ZERO, None, false, true)
+            .expect("booby trap detonation");
         assert_eq!(hits, 0, "{case} charge metadata cannot trigger damage");
         assert!(logic.booby_trap.is_booby_trapped(target), "{case}");
         assert!(
@@ -660,6 +667,7 @@ fn helix_napalm_bomb_projectile_falls_and_height_dies() {
 
     let zone = logic
         .activate_helix_napalm_bomb(helix_id, Vec3::new(5.0, 0.0, 0.0))
+        .expect("helix napalm activation")
         .expect("drop");
     let _ = zone;
     assert!(logic.helix_napalm.honesty_projectile_ok());
@@ -1025,7 +1033,7 @@ fn aurora_fuel_air_impact_spawns_gas_object() {
     // Advance gas SlowDeath phase-by-phase (one event per update residual).
     for _ in 0..(FUEL_AIR_GAS_DESTRUCTION_DELAY_FRAMES + 4) {
         logic.frame = logic.frame.saturating_add(1);
-        logic.update_fuel_air_gas_slow_death();
+        logic.update_fuel_air_gas_slow_death().unwrap();
     }
     assert!(
         logic.fuel_air_gas_reg.final_detonations > 0 || logic.fuel_air_gas_reg.midpoint_flames > 0,
@@ -1623,7 +1631,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
 
     // Advance many frames — remote charge must NOT auto-detonate.
     for _ in 0..400 {
-        game_logic.update_mines_and_demo_traps();
+        game_logic.update_mines_and_demo_traps().unwrap();
         game_logic.frame = game_logic.frame.saturating_add(1);
     }
     assert!(

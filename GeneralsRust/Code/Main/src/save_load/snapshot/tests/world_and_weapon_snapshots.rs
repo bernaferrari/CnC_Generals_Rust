@@ -27,6 +27,71 @@ fn authored_snapshot_world(ini: &str) -> GameLogic {
 }
 
 #[test]
+fn encoded_object_pose_preserves_cached_angle_at_pi_without_touching_peer() {
+    const CONTENT: &str = "Object SavedPoseProbe\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n";
+    for matrix_edge in [false, true] {
+        let mut source = authored_snapshot_world(CONTENT);
+        let mut peer = authored_snapshot_world(CONTENT);
+        let id = source.create_object("SavedPoseProbe", Team::USA, Vec3::new(11.0, 2.0, 7.0)).unwrap();
+        let peer_id = peer.create_object("SavedPoseProbe", Team::USA, Vec3::new(40.0, 2.0, 7.0)).unwrap();
+        assert_eq!(id, peer_id);
+        {
+            let (object, partition) = source.host_object_and_partition_mut(id).unwrap();
+            if matrix_edge {
+                // atan2(-0, -1) legitimately produces the closed -π edge.
+                let mut matrix = glam::Mat4::IDENTITY;
+                matrix.x_axis = glam::Vec4::new(-1.0, 0.0, 0.0, 0.0);
+                matrix.z_axis = glam::Vec4::new(0.0, 0.0, -1.0, 0.0);
+                matrix.w_axis = glam::Vec4::new(11.0, 2.0, 7.0, 1.0);
+                object.set_transform_matrix_with_partition_owner(
+                    matrix, 0, &mut Default::default(), partition,
+                );
+            } else {
+                object.set_orientation_with_partition_owner(std::f32::consts::PI, partition);
+            }
+        }
+        let actor = source.host_object(id).unwrap();
+        let expected_matrix = actor.get_transform_matrix();
+        let expected_angle = actor.get_orientation().to_bits();
+        let actual_angle = f32::from_bits(expected_angle);
+        assert!((actual_angle.abs() - std::f32::consts::PI).abs() < 1.0e-6);
+        assert_eq!(actual_angle.is_sign_negative(), matrix_edge);
+        let builder = SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&saved).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut restored = authored_snapshot_world(CONTENT);
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+        let loaded = restored.host_object(id).unwrap();
+        assert_eq!(loaded.get_transform_matrix(), expected_matrix);
+        assert_eq!(loaded.get_orientation().to_bits(), expected_angle);
+        assert_eq!(loaded.thing().geometry.rotation.to_bits(), expected_angle);
+        assert_eq!(peer.host_object(peer_id).unwrap().get_position(), Vec3::new(40.0, 2.0, 7.0));
+    }
+}
+
+#[test]
+fn encoded_object_pose_rejects_unnormalized_angles_before_world_mutation() {
+    const CONTENT: &str = "Object SavedPoseProbe\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n";
+    let mut source = authored_snapshot_world(CONTENT);
+    let mut receiving = authored_snapshot_world(CONTENT);
+    let id = source.create_object("SavedPoseProbe", Team::USA, Vec3::new(11.0, 2.0, 7.0)).unwrap();
+    let peer = receiving.create_object("SavedPoseProbe", Team::USA, Vec3::new(40.0, 2.0, 7.0)).unwrap();
+    assert_eq!(id, peer);
+    let builder = SnapshotBuilder::new();
+    let beyond_pi = f32::from_bits(std::f32::consts::PI.to_bits() + 1);
+    for invalid in [f32::MAX, -f32::MAX, beyond_pi, -beyond_pi, f32::NAN] {
+        let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+        snapshot.objects.get_mut(&id).unwrap().geometry.rotation = invalid;
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let error = builder.restore_from_snapshot(&decoded, &mut receiving).unwrap_err();
+        assert!(error.to_string().contains("Invalid Object pose"), "{error}");
+        assert_eq!(receiving.host_object(peer).unwrap().get_position(), Vec3::new(40.0, 2.0, 7.0));
+    }
+}
+
+#[test]
 fn queue_exit_nonbuilding_snapshot_continues_without_affecting_same_id_world() {
     let metadata = crate::game_logic::ProductionExitMetadata {
         style: crate::game_logic::ProductionExitStyle::Queue,

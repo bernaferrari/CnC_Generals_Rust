@@ -45,7 +45,7 @@ fn status_bits_upgrade_updates_visibility_state_per_receiving_world() {
             generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
             None,
             Some(first_id),
-        ),
+        ).unwrap(),
         (true, false)
     );
 
@@ -82,7 +82,7 @@ fn status_bits_upgrade_updates_visibility_state_per_receiving_world() {
             generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
             None,
             Some(peer_id),
-        ),
+        ).unwrap(),
         (true, false)
     );
     let detected = peer.host_object(peer_id).expect("peer updated object");
@@ -138,7 +138,7 @@ fn status_bits_visibility_projection_survives_encoded_save_restore() {
             generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
             None,
             Some(source_id),
-        ),
+        ).unwrap(),
         (true, false)
     );
     assert!(source.host_object(source_id).unwrap().status.stealthed);

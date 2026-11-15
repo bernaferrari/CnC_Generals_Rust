@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 const TAG: &[u8; 4] = b"CPRJ";
-const VERSION: u32 = 6;
+const VERSION: u32 = 8;
 
 /// The nested arena includes each flight's captured and live bonus conditions.
 /// Stream and Team bindings, geometry, and missile motion are kept in the outer frame.
@@ -36,12 +36,21 @@ struct ArenaWithMotion {
     projectile_team_ids: Vec<(crate::game_logic::ObjectId, u32)>,
     geometries: Vec<(crate::game_logic::ObjectId, crate::game_logic::HostGeometryInfo)>,
     // An entry for every flight distinguishes missing state from an absent motion.
-    // JSON supports the object-shaped serde representations nested in missile motion.
+    // JSON encodes only flight metadata; the world snapshot owns the Object.
     motions: Vec<(crate::game_logic::ObjectId, Option<Vec<u8>>)>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArenaWithActorIdentity {
+    motion: ArenaWithMotion,
+    // Captured from the birth-validated factory Object, not the presentation
+    // projectile name or a receiving-world actor with the same numeric ID.
+    missile_templates: Vec<(crate::game_logic::ObjectId, String)>,
 }
 
 pub(super) struct Decoded<'a> {
     pub arena: ValidatedLiveProjectileArena,
+    missile_objects: Vec<(crate::game_logic::ObjectId, String)>,
     pub legacy_tail: Cow<'a, [u8]>,
 }
 
@@ -55,12 +64,33 @@ pub(super) fn empty_lifecycle_tail() -> Vec<u8> {
 }
 
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
-    append_record(bytes, &world.combat_system.live_projectile_arena_snapshot())
+    world.validate_missile_actor_births().map_err(corrupted)?;
+    let record = world.combat_system.live_projectile_arena_snapshot();
+    let missile_templates = record.projectiles.iter()
+        .filter(|projectile| projectile.missile_motion.is_some())
+        .map(|projectile| {
+            let object = world.host_object(projectile.id)
+                .ok_or_else(|| corrupted("missile motion references missing world Object"))?;
+            if !object.template_name.eq_ignore_ascii_case(&projectile.projectile_object_name) {
+                return Err(corrupted("missile projectile template differs from its factory Object"));
+            }
+            Ok((projectile.id, object.template_name.clone()))
+        })
+        .collect::<SaveLoadResult<Vec<_>>>()?;
+    append_record_with_identities(bytes, &record, missile_templates)
 }
 
 pub(super) fn append_record(
     bytes: &mut Vec<u8>,
     record: &LiveProjectileArenaSnapshot,
+) -> SaveLoadResult<()> {
+    append_record_with_identities(bytes, record, Vec::new())
+}
+
+fn append_record_with_identities(
+    bytes: &mut Vec<u8>,
+    record: &LiveProjectileArenaSnapshot,
+    missile_templates: Vec<(crate::game_logic::ObjectId, String)>,
 ) -> SaveLoadResult<()> {
     let arena = bincode_legacy::serialize(record)
         .map_err(|error| corrupted(format!("encoding projectile arena: {error}")))?;
@@ -96,12 +126,15 @@ pub(super) fn append_record(
         }).transpose()?;
         Ok((projectile.id, motion))
     }).collect::<SaveLoadResult<Vec<_>>>()?;
-    let payload = bincode_legacy::serialize(&ArenaWithMotion {
-        arena,
-        bindings,
-        projectile_team_ids,
-        geometries,
-        motions,
+    let payload = bincode_legacy::serialize(&ArenaWithActorIdentity {
+        motion: ArenaWithMotion {
+            arena,
+            bindings,
+            projectile_team_ids,
+            geometries,
+            motions,
+        },
+        missile_templates,
     })
     .map_err(|error| corrupted(format!("encoding projectile stream bindings: {error}")))?;
     let length = u32::try_from(payload.len())
@@ -111,6 +144,22 @@ pub(super) fn append_record(
     bytes.extend_from_slice(&length.to_le_bytes());
     bytes.extend_from_slice(&payload);
     Ok(())
+}
+
+impl Decoded<'_> {
+    pub(super) fn validate_world_objects(
+        &self,
+        objects: &std::collections::HashMap<crate::game_logic::ObjectId, super::ObjectSnapshot>,
+    ) -> SaveLoadResult<()> {
+        for (id, template_name) in &self.missile_objects {
+            let object = objects.get(id)
+                .ok_or_else(|| corrupted("missile motion references missing world Object"))?;
+            if object.id != *id || !object.template_name.eq_ignore_ascii_case(template_name) {
+                return Err(corrupted("missile motion references mismatched world Object identity"));
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded<'_>> {
@@ -128,13 +177,14 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
             arena: LiveProjectileArenaSnapshot::default()
                 .validate()
                 .map_err(corrupted)?,
+            missile_objects: Vec::new(),
             legacy_tail: Cow::Borrowed(bytes),
         });
     }
     let mut offset = 4;
     let version = word(suffix, &mut offset)?;
     let length = word(suffix, &mut offset)? as usize;
-    if !matches!(version, 4 | 5 | VERSION) {
+    if !matches!(version, 4 | 5 | 6 | 7 | VERSION) {
         return Err(corrupted("invalid projectile arena version or length"));
     }
     let end = offset
@@ -143,25 +193,35 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
     let payload = suffix
         .get(offset..end)
         .ok_or_else(|| corrupted("projectile arena truncated"))?;
-    let record: LiveProjectileArenaSnapshot = match version {
-        4 | 5 | VERSION => {
-            let (framed, geometries, motions) = match version {
-                4 => (decode_exact::<ArenaWithStreamsV3>(payload)?, Vec::new(), None),
+    let (record, missile_templates): (LiveProjectileArenaSnapshot, Vec<_>) = match version {
+        4 | 5 | 6 | 7 | VERSION => {
+            let (framed, geometries, motions, missile_templates) = match version {
+                4 => (decode_exact::<ArenaWithStreamsV3>(payload)?, Vec::new(), None, Vec::new()),
                 5 => {
                     let frame: ArenaWithGeometry = decode_exact(payload)?;
                     (ArenaWithStreamsV3 {
                         arena: frame.arena,
                         bindings: frame.bindings,
                         projectile_team_ids: frame.projectile_team_ids,
-                    }, frame.geometries, None)
+                    }, frame.geometries, None, Vec::new())
                 }
-                VERSION => {
-                    let frame: ArenaWithMotion = decode_exact(payload)?;
+                6 | 7 | VERSION => {
+                    let (frame, identities) = if version == VERSION {
+                        let frame: ArenaWithActorIdentity = decode_exact(payload)?;
+                        (frame.motion, frame.missile_templates)
+                    } else {
+                        (decode_exact::<ArenaWithMotion>(payload)?, Vec::new())
+                    };
+                    // v6 held synthetic actors; v7 did not record the actual
+                    // factory Object template. Neither can bind live missiles.
+                    if version != VERSION && frame.motions.iter().any(|(_, motion)| motion.is_some()) {
+                        return Err(corrupted("legacy missile motion lacks factory Object identity"));
+                    }
                     (ArenaWithStreamsV3 {
                         arena: frame.arena,
                         bindings: frame.bindings,
                         projectile_team_ids: frame.projectile_team_ids,
-                    }, frame.geometries, Some(frame.motions))
+                    }, frame.geometries, Some(frame.motions), identities)
                 }
                 _ => unreachable!("version checked above"),
             };
@@ -198,12 +258,30 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
             if let Some(motions) = motions {
                 apply_motions(&mut arena, motions)?;
             }
-            arena
+            (arena, missile_templates)
         }
         _ => unreachable!("version checked above"),
     };
     if suffix[end..].starts_with(TAG) {
         return Err(corrupted("duplicate projectile arena frame"));
+    }
+    let mut identities = std::collections::HashMap::new();
+    for (id, template) in missile_templates {
+        if template.is_empty() || identities.insert(id, template).is_some() {
+            return Err(corrupted("invalid or duplicate missile Object identity"));
+        }
+    }
+    let mut missile_objects = Vec::new();
+    for projectile in record.projectiles.iter().filter(|projectile| projectile.missile_motion.is_some()) {
+        let template = identities.remove(&projectile.id)
+            .ok_or_else(|| corrupted("missile motion missing factory Object identity"))?;
+        if !template.eq_ignore_ascii_case(&projectile.projectile_object_name) {
+            return Err(corrupted("missile projectile template differs from its factory Object"));
+        }
+        missile_objects.push((projectile.id, template));
+    }
+    if !identities.is_empty() {
+        return Err(corrupted("missile Object identity references unknown flight"));
     }
     let arena = record.validate().map_err(corrupted)?;
     let mut legacy = Vec::with_capacity(bytes.len() - (end));
@@ -211,6 +289,7 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
     legacy.extend_from_slice(&suffix[end..]);
     Ok(Decoded {
         arena,
+        missile_objects,
         legacy_tail: Cow::Owned(legacy),
     })
 }
@@ -509,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn version_six_rejects_duplicate_missing_unknown_and_malformed_motion_entries() {
+    fn current_frame_rejects_duplicate_missing_unknown_and_malformed_motion_entries() {
         let record = one_bound_flight();
         let id = record.projectiles[0].id;
         for motions in [
@@ -526,13 +605,69 @@ mod tests {
                 geometries: Vec::new(),
                 motions,
             };
-            let payload = bincode_legacy::serialize(&framed).unwrap();
+            let payload = bincode_legacy::serialize(&ArenaWithActorIdentity {
+                motion: framed,
+                missile_templates: Vec::new(),
+            }).unwrap();
             let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
             bytes.extend_from_slice(TAG);
-            bytes.extend_from_slice(&6_u32.to_le_bytes());
+            bytes.extend_from_slice(&VERSION.to_le_bytes());
             bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
             bytes.extend_from_slice(&payload);
             assert!(decode(&bytes, true).is_err());
+        }
+    }
+
+    #[test]
+    fn current_frame_rejects_unbound_and_duplicate_actor_identities() {
+        let record = one_bound_flight();
+        let id = record.projectiles[0].id;
+        for missile_templates in [
+            vec![(id, String::new())],
+            vec![(id, "SameMissile".into())],
+            vec![(id, "SameMissile".into()), (id, "SameMissile".into())],
+        ] {
+            let framed = ArenaWithActorIdentity {
+                motion: ArenaWithMotion {
+                    arena: bincode_legacy::serialize(&record).unwrap(),
+                    bindings: Vec::new(),
+                    projectile_team_ids: Vec::new(),
+                    geometries: Vec::new(),
+                    motions: vec![(id, None)],
+                },
+                missile_templates,
+            };
+            let payload = bincode_legacy::serialize(&framed).unwrap();
+            let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+            bytes.extend_from_slice(TAG);
+            bytes.extend_from_slice(&VERSION.to_le_bytes());
+            bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&payload);
+            assert!(decode(&bytes, true).is_err());
+        }
+    }
+
+    #[test]
+    fn legacy_frames_reject_missile_motion_but_accept_absent_motion() {
+        let record = one_bound_flight();
+        let id = record.projectiles[0].id;
+        for version in [6_u32, 7] {
+            for (motion, accepted) in [(None, true), (Some(br#"{"actor":{}}"#.to_vec()), false)] {
+                let framed = ArenaWithMotion {
+                    arena: bincode_legacy::serialize(&record).unwrap(),
+                    bindings: Vec::new(),
+                    projectile_team_ids: Vec::new(),
+                    geometries: Vec::new(),
+                    motions: vec![(id, motion)],
+                };
+                let payload = bincode_legacy::serialize(&framed).unwrap();
+                let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+                bytes.extend_from_slice(TAG);
+                bytes.extend_from_slice(&version.to_le_bytes());
+                bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+                bytes.extend_from_slice(&payload);
+                assert_eq!(decode(&bytes, true).is_ok(), accepted);
+            }
         }
     }
 

@@ -579,7 +579,7 @@ fn warehouse_set_value_updates_live_host_stock() {
     logic
         .mission_scripts
         .queue_warehouse_set_value("MapWarehouse", 1000);
-    logic.update_supply_warehouse_crippling();
+    logic.update_supply_warehouse_crippling().unwrap();
     let obj = logic.host_object(id).expect("after set");
     assert_eq!(obj.stored_resources.supplies, 14 * 75);
     assert_eq!(obj.drawable_supply_boxes, 14);
@@ -612,8 +612,8 @@ fn warehouses_keep_script_values_and_heal_clocks_per_world() {
     second.queue_warehouse_set_value_request("MapWarehouse", 3000);
     first.queue_warehouse_set_value_request("MapWarehouse", 2000);
 
-    second.update_supply_warehouse_crippling();
-    first.update_supply_warehouse_crippling();
+    second.update_supply_warehouse_crippling().unwrap();
+    first.update_supply_warehouse_crippling().unwrap();
     assert_eq!(
         first
             .host_object(first_id)
@@ -673,7 +673,7 @@ fn warehouses_keep_script_values_and_heal_clocks_per_world() {
         second_clock
     );
     second.destroy_object(second_id).unwrap();
-    second.update_supply_warehouse_crippling();
+    second.update_supply_warehouse_crippling().unwrap();
     assert!(
         second.snapshot_warehouse_crippling_states().is_empty(),
         "destroyed warehouse clocks are pruned from that world"
@@ -695,21 +695,21 @@ fn warehouse_crippling_self_heals_after_suppression() {
         .create_object("SupplyWarehouse", Team::Neutral, Vec3::ZERO)
         .expect("warehouse");
     logic.set_current_frame(1);
-    logic.update_supply_warehouse_crippling();
+    logic.update_supply_warehouse_crippling().unwrap();
     {
         let obj = logic.host_object_mut(id).expect("wh");
         obj.health.current = 200.0;
         obj.refresh_model_condition_bits();
     }
     logic.set_current_frame(2);
-    logic.update_supply_warehouse_crippling();
+    logic.update_supply_warehouse_crippling().unwrap();
     let after_hit = logic.host_object(id).expect("hit").health.current;
     assert!(
         (after_hit - 200.0).abs() < 0.01,
         "suppressed immediately after damage"
     );
     logic.set_current_frame(92);
-    logic.update_supply_warehouse_crippling();
+    logic.update_supply_warehouse_crippling().unwrap();
     let after_heal = logic.host_object(id).expect("heal").health.current;
     assert!(
         after_heal > 200.0,
@@ -3010,7 +3010,7 @@ fn angry_mob_projectile_flies_and_impacts() {
         angry_mob_projectile_flight_frames(from, aim, AngryMobProjectileKind::Molotov).max(5);
     for _ in 0..max_steps {
         logic.frame = logic.frame.saturating_add(1);
-        logic.update_angry_mob_projectiles();
+        logic.update_angry_mob_projectiles().unwrap();
         if !logic
             .objects
             .registered_values()
@@ -3224,7 +3224,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         .collect();
     assert_eq!(member_ids.len() as u32, ANGRY_MOB_MAX_MEMBERS);
     if let Some(first) = member_ids.first() {
-        game_logic.apply_host_damage(*first, 1000.0);
+        game_logic.apply_host_damage(*first, 1000.0).unwrap();
     }
     game_logic.update_angry_mobs();
     assert_eq!(game_logic.host_object(mob_id).unwrap().spawn_behavior_children().len(), (ANGRY_MOB_MAX_MEMBERS - 1) as usize);

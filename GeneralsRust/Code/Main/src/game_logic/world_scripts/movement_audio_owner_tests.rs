@@ -301,6 +301,7 @@ fn actual_body_death_and_encoded_restore_keep_output_on_the_receiver() {
                         &DamageHitContext::default()
                     )
                     .unwrap()
+                    .expect("receiving Body")
                     .destroyed()
             );
             let stops: Vec<_> = owner

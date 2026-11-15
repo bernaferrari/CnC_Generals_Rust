@@ -419,25 +419,25 @@ impl GameLogic {
 
     /// CPP AIExitState::update. The goal and passenger are resolved from this
     /// instance each time, so deletion/replacement cannot select another world.
-    pub(crate) fn update_owned_passenger_exit(&mut self, passenger: ObjectId) {
-        self.update_owned_passenger_exit_with_effects(passenger, &mut Default::default());
+    pub(crate) fn update_owned_passenger_exit(&mut self, passenger: ObjectId) -> gamelogic::GameLogicResult<()> {
+        self.update_owned_passenger_exit_with_effects(passenger, &mut Default::default())
     }
     pub(crate) fn update_owned_passenger_exit_with_effects(
         &mut self,
         passenger: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.host_object(passenger) else {
-            return;
+            return Ok(());
         };
         let Some(container_id) = object.target.filter(|id| *id != passenger) else {
             self.apply_owned_script_idle(passenger);
-            return;
+            return Ok(());
         };
         let can_rappel = object.is_kind_of(KindOf::Infantry);
         let Some(container) = self.host_object(container_id) else {
             self.apply_owned_script_idle(passenger);
-            return;
+            return Ok(());
         };
         // A malformed or stale restored relationship must not eject a rider
         // from a different container or manufacture a passenger at this one.
@@ -450,14 +450,14 @@ impl GameLogic {
         };
         if !valid_membership {
             self.apply_owned_script_idle(passenger);
-            return;
+            return Ok(());
         }
         let rail_contain = container.thing().template.contain_module.kind
             == crate::game_logic::ContainModuleKind::RailedTransport;
         if rail_contain && self.railed_dock_config(container_id).is_some()
             && !self.railed_dock_reserve_exit(container_id)
         {
-            return;
+            return Ok(());
         }
         if container.is_subdued_disabled()
             || (!rail_contain && container.is_transport_exit_busy(self.frame))
@@ -466,11 +466,11 @@ impl GameLogic {
                     == crate::game_logic::host_combat_chinook::HostChinookFreeToExit::WaitToExit
             })
         {
-            return;
+            return Ok(());
         }
         if container.is_garrison_contain() {
             self.remove_owned_occupant_with_bonus_callback(container_id, passenger, effects);
-            self.garrison_exit_occupant_via_door_with_effects(passenger, container_id, effects);
+            self.garrison_exit_occupant_via_door_with_effects(passenger, container_id, effects)?;
         } else {
             self.unit_command_exit_via_open_contain_with_effects(passenger, container_id, effects);
         }
@@ -480,6 +480,7 @@ impl GameLogic {
         {
             self.apply_owned_script_idle(passenger);
         }
+        Ok(())
     }
 
     pub(super) fn apply_owned_named_script_command(

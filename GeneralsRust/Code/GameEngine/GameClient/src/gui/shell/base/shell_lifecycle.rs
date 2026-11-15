@@ -739,6 +739,15 @@ impl Shell {
 
 
 impl Shell {
+    #[cfg(test)]
+    pub(crate) fn test_install_update_layout(
+        &mut self,
+        layout: std::rc::Rc<std::cell::RefCell<crate::gui::window_manager::WindowLayout>>,
+    ) {
+        self.screen_stack.push(Box::new(BasicWindowLayout::test_with_manager_layout(layout)));
+        self.last_update = Instant::now() - self.update_interval;
+    }
+
     pub fn test_push(&mut self, filename: &str, shutdown_immediate: bool) -> Result<(), ShellError> {
         crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             self.push(filename, shutdown_immediate, effects)

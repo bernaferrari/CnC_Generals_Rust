@@ -1,6 +1,6 @@
 //! Actual receiving archive admission, not a second projectile runtime.
 use super::*;
-use crate::game_logic::GameLogic;
+use crate::game_logic::{GameLogic, Player, Team};
 
 fn definitions(fields: &str) -> Vec<(String, ObjectDefinition)> {
     let text = format!(
@@ -45,6 +45,135 @@ fn missile_launch_uses_receiving_locomotor_and_physics_content() {
     let mut absent = GameLogic::new();
     absent.admit_weapon_content_snapshot(Vec::new(), &rows).unwrap();
     assert!(absent.projectile_definitions.get("OwnedMissile").unwrap().locomotor.is_none());
+}
+
+#[test]
+fn weapon_speed_caps_authored_missile_locomotor_without_raising_either_condition() {
+    let source = "Object SpeedCapMissile\n\
+KindOf = PROJECTILE\n\
+Body = ActiveBody Body\nMaxHealth = 1\nInitialHealth = 1\nEnd\n\
+Locomotor = SET_NORMAL SpeedCapLocomotor\n\
+Behavior = MissileAIUpdate Flight\nUseWeaponSpeed = Yes\nEnd\n\
+Behavior = PhysicsBehavior Physics\nMass = 1\nEnd\nEnd\n";
+    let mut parser = crate::assets::ini_parser::IniParser::new();
+    parser.parse_ini_content(source, "speed-cap.ini").unwrap();
+    let rows: Vec<_> = parser.get_all_definitions().iter()
+        .map(|(name, row)| (name.clone(), row.clone())).collect();
+    let mut world = GameLogic::new();
+    let mut player = Player::new(0, Team::China, "missile owner", false);
+    player.alliance_team = 0;
+    world.add_player(player);
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source("Locomotor SpeedCapLocomotor\nSurfaces = AIR\nSpeed = 60\nSpeedDamaged = 45\nAcceleration = 1200\nAccelerationDamaged = 600\nAppearance = THRUST\nEnd\n").unwrap();
+    world.admit_locomotor_definitions(locomotors).unwrap();
+    world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+        ("speed-cap.ini".into(), source.into()),
+    ]).unwrap()).unwrap();
+    world.admit_weapon_content_snapshot(Vec::new(), &rows).unwrap();
+
+    for (weapon_speed, expected) in [
+        (100.0, (60.0, 45.0, 1200.0, 600.0)),
+        (10.0, (10.0, 10.0, 300.0, 300.0)),
+    ] {
+        let mut shot = crate::game_logic::combat::tests::lifecycle_test_pending_projectile(
+            "SpeedCapMissile", None, glam::Vec3::new(100.0, 30.0, 0.0),
+        );
+        shot.speed = weapon_speed;
+        let context = shot.source_context.as_mut().unwrap();
+        context.source_owner_player_id = Some(0);
+        context.launch_transform = Some(glam::Mat4::from_translation(glam::Vec3::new(0.0, 30.0, 0.0)));
+        world.materialize_owned_passive_shot(shot, None).unwrap();
+        let projectile = world.combat_system.projectiles_snapshot().into_iter()
+            .find(|shot| (shot.speed - weapon_speed).abs() < 0.001).unwrap();
+        let actor = world.host_object(projectile.id).expect("factory-created missile Object");
+        let actual = (actor.movement.max_speed, actor.movement.max_speed_damaged,
+            actor.movement.acceleration, actor.movement.acceleration_damaged);
+        for (actual, expected) in [actual.0, actual.1, actual.2, actual.3]
+            .into_iter().zip([expected.0, expected.1, expected.2, expected.3]) {
+            assert!((actual - expected).abs() < 0.01, "actual {actual}, expected {expected}");
+        }
+    }
+}
+
+#[test]
+fn vanished_queued_target_does_not_run_missile_factory_callbacks() {
+    let source = "Object CallbackMissile\n\
+KindOf = PROJECTILE\n\
+Body = ActiveBody Body\nMaxHealth = 1\nInitialHealth = 1\nEnd\n\
+Locomotor = SET_NORMAL CallbackLocomotor\n\
+Behavior = MissileAIUpdate Flight\nTryToFollowTarget = Yes\nEnd\n\
+Behavior = PhysicsBehavior Physics\nMass = 1\nEnd\n\
+Behavior = GrantUpgradeCreate Grant\nUpgradeToGrant = Upgrade_CallbackRadar\nExemptStatus = UNDER_CONSTRUCTION\nEnd\nEnd\n\
+Object CallbackTarget\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n";
+    let mut parser = crate::assets::ini_parser::IniParser::new();
+    parser.parse_ini_content(source, "callback-missile.ini").unwrap();
+    let rows: Vec<_> = parser.get_all_definitions().iter()
+        .map(|(name, row)| (name.clone(), row.clone())).collect();
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::China, "owner", false));
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut world, "Upgrade_CallbackRadar", "PLAYER", 0, 1,
+    );
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source("Locomotor CallbackLocomotor\nSurfaces = AIR\nSpeed = 60\nAppearance = THRUST\nEnd\n").unwrap();
+    world.admit_locomotor_definitions(locomotors).unwrap();
+    world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+        ("callback-missile.ini".into(), source.into()),
+    ]).unwrap()).unwrap();
+    world.admit_weapon_content_snapshot(Vec::new(), &rows).unwrap();
+    let target = world.create_object_for_player("CallbackTarget", 0, glam::Vec3::X * 100.0).unwrap();
+    let mut shot = crate::game_logic::combat::tests::lifecycle_test_pending_projectile(
+        "CallbackMissile", Some(target), glam::Vec3::X * 100.0,
+    );
+    shot.target_pos = None;
+    shot.fire_fx_name = "FX_AcceptedBeforeTargetLoss".into();
+    let context = shot.source_context.as_mut().unwrap();
+    context.source_owner_player_id = Some(0);
+    context.launch_transform = Some(glam::Mat4::from_translation(glam::Vec3::Y * 30.0));
+    crate::game_logic::combat::queue_projectile_direct(&mut world.combat_system, shot.clone());
+    world.destroy_object(target).unwrap();
+    world.process_destroy_list_if_needed_with_effects_checked(&mut Default::default()).unwrap();
+    assert!(world.host_object(target).is_none(), "queued target is physically removed");
+    let before_count = world.host_objects().registered_len();
+    // Observe the accepted FX at the queued materialization boundary, before
+    // the normal drain dispatches and consumes that presentation event.
+    world.materialize_owned_queued_projectiles_with_effects(&mut Default::default()).unwrap();
+    assert!(!world.get_player(0).unwrap().completed_upgrades.contains("Upgrade_CallbackRadar"),
+        "missile onCreate must not grant its player upgrade");
+    assert_eq!(world.host_objects().registered_len(), before_count, "no projectile factory admission");
+    assert_eq!(world.combat_system.projectile_count(), 0);
+    let fire_effects = world.combat_system.take_fire_ocl();
+    assert_eq!(fire_effects.len(), 1);
+    assert_eq!(fire_effects[0].fire_fx_name, "FX_AcceptedBeforeTargetLoss");
+
+    // A captured position remains a valid aim even though its object is gone.
+    shot.target_pos = Some(glam::Vec3::X * 100.0);
+    world.materialize_owned_passive_shot(shot, None).unwrap();
+    assert_eq!(world.combat_system.projectile_count(), 1);
+    assert!(world.get_player(0).unwrap().completed_upgrades.contains("Upgrade_CallbackRadar"),
+        "valid shot ran onCreate");
+
+    let mut coordinate = crate::game_logic::combat::tests::lifecycle_test_pending_projectile(
+        "CallbackMissile", None, glam::Vec3::X * 120.0,
+    );
+    let context = coordinate.source_context.as_mut().unwrap();
+    context.source_owner_player_id = Some(0);
+    context.launch_transform = Some(glam::Mat4::from_translation(glam::Vec3::Y * 30.0));
+    world.materialize_owned_passive_shot(coordinate, None).unwrap();
+    assert_eq!(world.combat_system.projectile_count(), 2);
+
+    let live_target = world.create_object_for_player(
+        "CallbackTarget", 0, glam::Vec3::X * 140.0,
+    ).unwrap();
+    let mut tracked = crate::game_logic::combat::tests::lifecycle_test_pending_projectile(
+        "CallbackMissile", Some(live_target), glam::Vec3::ZERO,
+    );
+    tracked.target_pos = None;
+    let context = tracked.source_context.as_mut().unwrap();
+    context.source_owner_player_id = Some(0);
+    context.launch_transform = Some(glam::Mat4::from_translation(glam::Vec3::Y * 30.0));
+    world.materialize_owned_passive_shot(tracked, None).unwrap();
+    assert_eq!(world.combat_system.projectile_count(), 3);
 }
 
 #[test]

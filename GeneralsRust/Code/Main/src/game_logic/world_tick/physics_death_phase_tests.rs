@@ -169,7 +169,7 @@ fn installed_overlap_completes_death_and_promotion_before_armor_in_both_crush_pa
                 admit_fx(&mut owner, &catalog);
                 let (peer, peer_victim) = world(squish);
                 assert_eq!(victim, peer_victim);
-                assert!(owner.apply_overlap_crush_check(CRUSHER, victim, false));
+                assert!(owner.apply_overlap_crush_check(CRUSHER, victim, false).unwrap());
                 assert_eq!(owner.objects[&victim].health.current, 100.);
                 assert!(!owner.objects[&victim].is_undetected_defector());
                 assert_eq!(
@@ -186,7 +186,7 @@ fn installed_overlap_completes_death_and_promotion_before_armor_in_both_crush_pa
                     CRUSHER,
                     Vec3::new(if squish { -0.5 } else { 2.2 }, 0., 0.),
                 );
-                assert!(owner.apply_overlap_crush_check(CRUSHER, victim, false));
+                assert!(owner.apply_overlap_crush_check(CRUSHER, victim, false).unwrap());
                 assert_eq!(
                     events.try_iter().collect::<Vec<_>>(),
                     vec![(DIE, Some(CRUSHER.0)), (VETERAN, Some(CRUSHER.0))],

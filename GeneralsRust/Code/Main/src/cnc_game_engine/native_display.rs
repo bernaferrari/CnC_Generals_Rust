@@ -238,6 +238,7 @@ impl CnCGameEngine {
             }
             // GameClient returned before Display::draw. Do not offer the
             // clock, Sync, device poll, camera update or GPU attempt.
+            let menu_world = self.receiving_menu_world_facts();
             let pending_commands = &mut self.game_logic.replay_pending;
             let mut receive = |messages| {
                 pending_commands
@@ -256,6 +257,7 @@ impl CnCGameEngine {
                     },
                     pending_commands.recorder_owned(),
                     &mut receive,
+                    menu_world,
                 )
                 .map_err(|error| error.to_string());
         }
@@ -362,6 +364,7 @@ impl CnCGameEngine {
             };
             let phase = NativeDisplayState::cpu_phase(decision);
             let pending = self.native_display.pending.take();
+            let menu_world = self.receiving_menu_world_facts();
             if let Some(pending) = pending {
                 self.with_native_particle_object_lifecycle(
                     |client, lifecycle, pending_commands, content| {
@@ -380,11 +383,12 @@ impl CnCGameEngine {
                                 &mut receive,
                                 lifecycle,
                                 content,
+                                menu_world,
                             )
                         } else {
                             client.finish_presentation_shell_with_receiving_commands_and_object_lifecycle(
                                 pending.step, &pending.facts, &views, phase,
-                                pending_commands.recorder_owned(), &mut receive, lifecycle,
+                                pending_commands.recorder_owned(), &mut receive, lifecycle, menu_world,
                             )
                         }
                     },

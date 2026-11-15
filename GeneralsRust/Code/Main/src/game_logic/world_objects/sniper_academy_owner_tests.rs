@@ -119,7 +119,7 @@ fn actual_neutron_unmanning_is_not_an_academy_sniper_event() {
     // ActiveBody DAMAGE_KILLPILOT or recordVehicleSniped.
     let (mut owner, [victim, caster]) = world(100);
     let (peer, _) = world(700);
-    let (_, unmanned, _) = owner.apply_neutron_blast_at(Vec3::ZERO, Team::GLA, Some(caster), false);
+    let (_, unmanned, _) = owner.apply_neutron_blast_at(Vec3::ZERO, Team::GLA, Some(caster), false).unwrap();
     assert_eq!(unmanned, 1);
     assert!(owner.host_object(victim).unwrap().status.disabled_unmanned);
     assert_eq!(count(&owner, 0), 0);

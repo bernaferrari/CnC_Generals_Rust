@@ -331,6 +331,27 @@ impl ReceivingClientTemplate {
         }
     }
 
+    /// Repair rate from the installed Dozer/Worker AI definition.
+    pub(crate) fn dozer_repair_health_per_second(&self) -> Option<f32> {
+        let entry = self
+            .0
+            .behavior_modules()
+            .iter()
+            .nth(self.receiving_ai_source_index()?)?;
+        let guard = entry.data.read();
+        let data = guard.as_any();
+        if let Some(dozer) = data.downcast_ref::<
+            gamelogic::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData,
+        >() {
+            Some(dozer.repair_health_percent_per_second)
+        } else {
+            data.downcast_ref::<
+                gamelogic::object::update::ai_update::worker_ai_update::WorkerAIUpdateModuleData,
+            >()
+            .map(|worker| worker.repair_health_percent_per_second)
+        }
+    }
+
     pub(crate) fn dozer_ai_identity(&self) -> Option<(u32, String)> {
         let ordinal = self.receiving_ai_source_index()?;
         self.dozer_ai_is_worker()?;

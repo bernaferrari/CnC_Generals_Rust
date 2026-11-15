@@ -517,11 +517,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current: Option<&str>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         if let Some(id) = self.script_player_id(player, current) {
-            self.world.kill_player_with_interpreter_with_effects(
+            return Some(self.world.kill_player_with_interpreter_with_effects(
                 id,
                 self.interpreter,
                 &mut self.ui,
-            );
+            ));
         }
         Some(Ok(()))
     }
@@ -1004,13 +1004,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         unit: &str,
         waypoint_path: &str,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        self.world
+        Some(self.world
             .host_script_named_fire_weapon_following_path_with_effects(
                 unit,
                 waypoint_path,
                 &mut self.ui,
-            );
-        Some(Ok(()))
+            ))
     }
     fn team_hunt_button(
         &mut self,
@@ -1136,8 +1135,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current_player: Option<&str>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         if let Some(player) = self.script_player_id(player, current_player) {
-            self.world
-                .apply_owned_sell_everything_with_effects(player, &mut self.ui);
+            return Some(self.world
+                .apply_owned_sell_everything_with_effects(player, &mut self.ui));
         }
         Some(Ok(()))
     }
@@ -2458,13 +2457,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .world
             .owned_named_script_object(name, this_object.map(ObjectId));
         if let Some(id) = id {
-            self.world.host_script_damage_with_interpreter_with_effects(
+            return Some(self.world.host_script_damage_with_interpreter_with_effects(
                 id,
                 amount as f32,
                 false,
                 self.interpreter,
                 &mut self.ui,
-            );
+            ));
         }
         Some(Ok(()))
     }

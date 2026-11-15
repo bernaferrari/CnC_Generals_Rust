@@ -24,6 +24,8 @@ pub(crate) fn decode_bincode_world_snapshot(payload: &[u8]) -> SaveLoadResult<Wo
             .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
     validate_direct_world_snapshot_version(version)?;
     let mut snapshot: WorldSnapshot = decode_exact(payload)?;
+    snapshot.pending_combat.validate_launch_transforms()
+        .map_err(SaveLoadError::Serialization)?;
     validate_world_path_links(&snapshot)?;
     snapshot.persist_v18.script_engine_tail =
         super::player_team_chunks::script_engine_tail_from_world(&snapshot)?;
@@ -41,10 +43,13 @@ pub(super) fn xfer_pending_combat(
         projectileless_weapon_details: Vec<(Option<[f32; 3]>, Option<bool>)>,
     }
     const TAG: &[u8; 4] = b"PCID";
-    const VERSION: u32 = 3;
+    // V4 cuts over the positional pending payload to include exact optional
+    // accepted launch transforms in both queued and delayed records.
+    const VERSION: u32 = 4;
     let mut bytes = if xfer.get_mode() == XferMode::Load {
         Vec::new()
     } else {
+        snapshot.validate_launch_transforms().map_err(SaveLoadError::Serialization)?;
         let pending = bincode_legacy::serialize(snapshot)
             .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
         let envelope = PendingCombatEnvelopeV2 {
@@ -112,6 +117,7 @@ pub(super) fn xfer_pending_combat(
                 "Unsupported pending projectile frame".to_string(),
             ));
         };
+        decoded.validate_launch_transforms().map_err(SaveLoadError::Serialization)?;
         *snapshot = decoded;
     } else {
         xfer.xfer_raw(&mut bytes)?;
@@ -143,6 +149,19 @@ mod tests {
             assert!(xfer_pending_combat(&mut reader, &mut destination).is_err());
             assert_eq!(bincode_legacy::serialize(&destination).unwrap(), expected);
         }
+    }
+
+    #[test]
+    fn pending_combat_rejects_previous_positional_frame_without_mutation() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(b"PCID");
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        let mut destination = PendingCombatSnapshot::default();
+        let before = bincode_legacy::serialize(&destination).unwrap();
+        let mut reader = XferLoad::new(Cursor::new(bytes));
+        assert!(xfer_pending_combat(&mut reader, &mut destination).is_err());
+        assert_eq!(bincode_legacy::serialize(&destination).unwrap(), before);
     }
 
     #[test]

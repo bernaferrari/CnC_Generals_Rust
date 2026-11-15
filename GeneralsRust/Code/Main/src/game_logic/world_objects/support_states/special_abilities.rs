@@ -1009,7 +1009,7 @@ impl GameLogic {
             ));
         }
         let dropped = self
-            .activate_helix_napalm_bomb_with_effects(object_id, target, effects)
+            .activate_helix_napalm_bomb_with_effects(object_id, target, effects)?
             .is_some();
         self.pending_special_abilities.remove(&object_id);
         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -1482,7 +1482,7 @@ impl GameLogic {
         planter_id: ObjectId,
         target_id: ObjectId,
         planter_team: crate::game_logic::Team,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.leftover_probe_booby_at_target_with_effects(
             planter_id,
             target_id,
@@ -1497,7 +1497,7 @@ impl GameLogic {
         target_id: ObjectId,
         _planter_team: crate::game_logic::Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let trap_position = self.objects.get(&target_id).map(|t| t.get_position());
         // C++ Object::checkAndDetonateBoobyTrap gates on the object's status
         // bit. The registry carries planter/charge metadata, not trap authority.
@@ -1506,17 +1506,17 @@ impl GameLogic {
             .get(&target_id)
             .is_some_and(|target| target.status.booby_trapped);
         if !target_is_trapped {
-            return false;
+            return Ok(false);
         }
         if let Some(trap_position) = trap_position {
-            let _ = self.detonate_booby_trap_at_with_effects(
+            self.detonate_booby_trap_at_with_effects(
                 target_id,
                 trap_position,
                 Some(planter_id),
                 true,
                 false,
                 effects,
-            );
+            )?;
         }
         let target_dead = self
             .objects
@@ -1528,7 +1528,7 @@ impl GameLogic {
             .get(&planter_id)
             .map(|p| !p.is_alive() || p.status.destroyed)
             .unwrap_or(true);
-        target_dead || planter_dead
+        Ok(target_dead || planter_dead)
     }
 
     /// C++ `OpenContain::addToContain`: `checkAndDetonateBoobyTrap(rider)`
@@ -1539,7 +1539,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         rider_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.should_cancel_containment_after_booby_trap_with_effects(
             container_id,
             rider_id,
@@ -1552,9 +1552,9 @@ impl GameLogic {
         container_id: ObjectId,
         rider_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(rider_team) = self.objects.get(&rider_id).map(|r| r.team) else {
-            return false;
+            return Ok(false);
         };
         self.leftover_probe_booby_at_target_with_effects(
             rider_id,
@@ -2402,7 +2402,7 @@ impl GameLogic {
             container_id,
             rider_id,
             effects,
-        ) {
+        )? {
             return Ok(false);
         }
 
@@ -2852,7 +2852,7 @@ impl GameLogic {
         if self.objects.get(&container_id).is_some_and(|container| {
             container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
         }) {
-            self.kick_other_controller_occupants_for_enter_with_effects(container_id, entering_id, effects);
+            self.kick_other_controller_occupants_for_enter_with_effects(container_id, entering_id, effects)?;
             return Ok(());
         }
         let Some(enterer) = self.objects.get(&entering_id) else {
@@ -2896,7 +2896,7 @@ impl GameLogic {
                 }
             }
         }
-        self.recalc_garrison_apparent_controller(container_id);
+        self.recalc_garrison_apparent_controller_with_effects(container_id, effects)?;
         Ok(())
     }
 
@@ -2949,7 +2949,7 @@ impl GameLogic {
         target_id: ObjectId,
         power: crate::game_logic::CapturePowerKind,
         preparation_time_ms: u32,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.start_capture_preparation_with_effects(
             object_id,
             target_id,
@@ -2966,14 +2966,14 @@ impl GameLogic {
         power: crate::game_logic::CapturePowerKind,
         preparation_time_ms: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(power_type) = power.special_power_type() else {
-            return false;
+            return Ok(false);
         };
         // Preserve the original capture source lookup before the trap can
         // detonate; a stale/reentrantly removed capturer must not trigger it.
         if !self.objects.contains_key(&object_id) {
-            return false;
+            return Ok(false);
         }
         // C++ checks/detonates a hostile trap when preparation begins, before
         // it marks the SpecialPower as triggered or begins its progress bar.
@@ -2987,21 +2987,21 @@ impl GameLogic {
                 .get(&target_id)
                 .is_some_and(|target| target.status.booby_trapped);
             if target_is_trapped {
-                let _ = self.detonate_booby_trap_at_with_effects(
+                self.detonate_booby_trap_at_with_effects(
                     target_id,
                     trap_position,
                     Some(object_id),
                     true,
                     false,
                     effects,
-                );
+                )?;
             }
         }
 
         if !self.can_unit_capture_building(object_id, target_id, false)
             || !self.consume_special_power_charge_for(object_id, &power_type)
         {
-            return false;
+            return Ok(false);
         }
 
         // C++ starts victim warning/infiltration exactly as the preparation
@@ -3011,10 +3011,10 @@ impl GameLogic {
         self.try_infiltration_event(target_id);
 
         let Some(object) = self.objects.get_mut(&object_id) else {
-            return false;
+            return Ok(false);
         };
         if !object.is_alive() {
-            return false;
+            return Ok(false);
         }
         // C++ startPreparation calls aiIdle too (SpecialAbilityUpdate.cpp:1070).
         // A zero UnpackTime skips startFacing/unpacking, so clear its goal here.
@@ -3075,7 +3075,7 @@ impl GameLogic {
             false,
             effects.script_events,
         );
-        true
+        Ok(true)
     }
 
     /// Clear a completed Hacker Disable Building channel.  Unlike a generic

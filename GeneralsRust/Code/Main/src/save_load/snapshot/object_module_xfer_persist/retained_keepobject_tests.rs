@@ -119,7 +119,7 @@ fn heal(logic: &mut GameLogic, id: ObjectId) {
     // CPP Object::attemptHealing preserves bridge revival after restoration;
     // weapon damage with DAMAGE_HEALING still rejects effectively dead bodies.
     let result = logic.apply_owned_healing(id, 25.0, None).unwrap();
-    assert!(!result.destroyed());
+    assert!(!result.unwrap().destroyed());
 }
 
 #[test]

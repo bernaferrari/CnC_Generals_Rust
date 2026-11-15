@@ -43,8 +43,8 @@ fn garrison_exit_uses_the_receiving_world_frame_for_movement_entry() {
     let peer_frame = peer.get_frame();
     assert_ne!(owner_frame, peer_frame);
 
-    assert!(owner.garrison_exit_occupant_via_door(owner_passenger, owner_bunker));
-    assert!(peer.garrison_exit_occupant_via_door(peer_passenger, peer_bunker));
+    assert!(owner.garrison_exit_occupant_via_door(owner_passenger, owner_bunker).unwrap());
+    assert!(peer.garrison_exit_occupant_via_door(peer_passenger, peer_bunker).unwrap());
 
     for (logic, passenger, frame) in [
         (&owner, owner_passenger, owner_frame),

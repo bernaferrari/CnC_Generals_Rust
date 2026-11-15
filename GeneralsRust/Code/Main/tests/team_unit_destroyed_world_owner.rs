@@ -171,7 +171,7 @@ fn resident_team_death_subroutine_runs_synchronously_in_its_receiving_world() {
             generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
             None,
             Some(owner_survivor),
-        ),
+        ).unwrap(),
         (true, false)
     );
     assert_eq!(
@@ -197,7 +197,7 @@ fn resident_team_death_subroutine_runs_synchronously_in_its_receiving_world() {
             generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
             None,
             Some(peer_survivor),
-        ),
+        ).unwrap(),
         (true, false)
     );
     assert_eq!(

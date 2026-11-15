@@ -52,6 +52,20 @@ pub(super) fn for_each_transition_slot(
     event: &HostTransitionDamageFxEvent,
     mut execute: impl FnMut(TransitionSlotEffect<'_>),
 ) {
+    let result: Result<(), std::convert::Infallible> = try_for_each_transition_slot(event, |effect| {
+        execute(effect);
+        Ok(())
+    });
+    match result {
+        Ok(()) => {}
+        Err(never) => match never {},
+    }
+}
+
+fn try_for_each_transition_slot<E>(
+    event: &HostTransitionDamageFxEvent,
+    mut execute: impl FnMut(TransitionSlotEffect<'_>) -> Result<(), E>,
+) -> Result<(), E> {
     let fx_len = if event.extra_fx_names.is_empty() {
         usize::from(event.fx_name.is_some())
     } else {
@@ -72,19 +86,20 @@ pub(super) fn for_each_transition_slot(
                 slot,
                 name,
                 loc: event.fx_locs.get(slot),
-            });
+            })?;
         }
         if let Some(name) = event.ocl_names.get(slot).filter(|name| named(name)) {
             execute(TransitionSlotEffect::Ocl {
                 slot,
                 name,
                 loc: event.ocl_locs.get(slot),
-            });
+            })?;
         }
         if let Some(definition) = event.particles.get(slot).filter(|p| named(&p.name)) {
-            execute(TransitionSlotEffect::Particle { slot, definition });
+            execute(TransitionSlotEffect::Particle { slot, definition })?;
         }
     }
+    Ok(())
 }
 
 /// Read the actual host pose at each effect, rather than selecting a same-ID Core object.
@@ -231,7 +246,7 @@ impl crate::game_logic::GameLogic {
         frame: u32,
         player: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let environment = self.observe_object_fx_environment();
         let shroud = std::sync::Arc::clone(self.world_services.shroud());
         let terrain = std::sync::Arc::clone(self.world_services.terrain());
@@ -251,7 +266,7 @@ impl crate::game_logic::GameLogic {
         // C++ retires every old-state particle before starting slot zero.
         if let Some(old) = event.clear_old_state.take() {
             if !still_same_victim(self) {
-                return;
+                return Ok(());
             }
             Self::with_object_fx_services(
                 &mut self.session_view,
@@ -279,9 +294,9 @@ impl crate::game_logic::GameLogic {
             );
         }
 
-        for_each_transition_slot(&event, |effect| {
+        try_for_each_transition_slot(&event, |effect| {
             if !still_same_victim(self) {
-                return;
+                return Ok(());
             }
             match effect {
                 TransitionSlotEffect::Fx { name, loc, .. } => {
@@ -299,7 +314,7 @@ impl crate::game_logic::GameLogic {
                             effects,
                         )
                     }) else {
-                        return;
+                        return Ok(());
                     };
                     Self::with_object_fx_services(
                         &mut self.session_view,
@@ -340,10 +355,10 @@ impl crate::game_logic::GameLogic {
                             )
                         })
                     else {
-                        return;
+                        return Ok(());
                     };
                     if !still_same_victim(self) {
-                        return;
+                        return Ok(());
                     }
                     // The OCL receives the victim as primary and the damage
                     // source's live position as secondary.
@@ -360,7 +375,7 @@ impl crate::game_logic::GameLogic {
                         effects,
                     );
                     if let Some(error) = outcome.error {
-                        log::error!("{error}");
+                        return Err(error);
                     }
                 }
                 TransitionSlotEffect::Particle { slot, definition } => {
@@ -384,7 +399,7 @@ impl crate::game_logic::GameLogic {
                             )
                         })
                     else {
-                        return;
+                        return Ok(());
                     };
                     let mut created = None;
                     Self::with_object_fx_services(
@@ -439,7 +454,8 @@ impl crate::game_logic::GameLogic {
                     );
                 }
             }
-        });
+            Ok(())
+        })?;
 
         if still_same_victim(self) {
             if let Some(object) = self.objects.get_mut(&victim_id) {
@@ -453,7 +469,7 @@ impl crate::game_logic::GameLogic {
                 }
             }
         }
-        let _ = source; // Secondary OCL position is tracked as unsupported above.
+        Ok(())
     }
 
     pub(crate) fn execute_transition_damage_fx_with_view(
@@ -565,7 +581,7 @@ impl crate::game_logic::GameLogic {
         _frame: u32,
         _player: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let same_victim = |world: &Self| {
             world
                 .objects
@@ -576,9 +592,9 @@ impl crate::game_logic::GameLogic {
             let id = crate::game_logic::ObjectId(source.id);
             self.objects.get(&id).map(|object| (id, self.live_draw_playback_identity(object)))
         });
-        for_each_transition_slot(&event, |effect| {
+        try_for_each_transition_slot(&event, |effect| {
             if !same_victim(self) {
-                return;
+                return Ok(());
             }
             match effect {
                 TransitionSlotEffect::Fx { name, loc, .. } => {
@@ -595,7 +611,7 @@ impl crate::game_logic::GameLogic {
                             effects,
                         )
                     }) else {
-                        return;
+                        return Ok(());
                     };
                     let _ = crate::game_logic::dispatch_fx_list_at_pos(name, position);
                 }
@@ -621,7 +637,7 @@ impl crate::game_logic::GameLogic {
                             )
                         })
                     else {
-                        return;
+                        return Ok(());
                     };
                     let outcome = self.execute_parsed_weapon_ocl_with_secondary_and_births(
                         name,
@@ -636,14 +652,15 @@ impl crate::game_logic::GameLogic {
                         effects,
                     );
                     if let Some(error) = outcome.error {
-                        log::error!("{error}");
+                        return Err(error);
                     }
                 }
                 TransitionSlotEffect::Particle { .. } => {
                     // No native particle runtime is available in this build.
                 }
             }
-        });
+            Ok(())
+        })?;
         if same_victim(self) && event.audio_name.is_some() {
             event.fx_name = None;
             event.extra_fx_names.clear();
@@ -654,6 +671,7 @@ impl crate::game_logic::GameLogic {
                 object.pending_transition_damage_fx.push(event);
             }
         }
+        Ok(())
     }
 }
 

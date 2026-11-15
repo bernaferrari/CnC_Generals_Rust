@@ -126,7 +126,7 @@ fn authored_damage_order_observes_regen_clamp_before_later_reaction() {
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             )
-            .unwrap();
+            .unwrap().unwrap();
         assert!(!result.destroyed());
         let object = world.host_object(id).unwrap();
         assert_eq!(
@@ -168,7 +168,7 @@ fn later_rubble_reaction_runs_before_body_on_die_even_when_direct_delete_pending
             crate::game_logic::combat::DamageType::Unresistable,
             false,
             &mut Default::default(),
-        ),
+        ).unwrap(),
         Some(true)
     );
     let object = world.host_object(id).unwrap();

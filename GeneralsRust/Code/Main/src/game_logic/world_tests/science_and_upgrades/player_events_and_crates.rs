@@ -1439,7 +1439,7 @@ fn america_parachute_midair_death_free_fall_damages_rider() {
     let max_hp = logic.objects[&hid].health.maximum;
 
     assert!(
-        logic.destroy_eject_parachute_midair(chute_id),
+        logic.destroy_eject_parachute_midair(chute_id).unwrap(),
         "chute mid-air death must FreeFallDamage rider"
     );
     assert!(logic.honesty_pilot_free_fall_damage_ok());

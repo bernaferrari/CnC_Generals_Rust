@@ -194,7 +194,7 @@ fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
 
     // C++ ordinary evacuation and GameLogic::destroyObject are distinct
     // operations. An immobile bunker cannot enter MoveAndEvacuateAndExit.
-    assert!(logic.evacuate_container_now(bunker, false));
+    assert!(logic.evacuate_container_now(bunker, false).unwrap());
     assert!(logic.host_object(bunker).unwrap().occupants.is_empty());
     assert!(logic.host_object(inf).unwrap().contained_by.is_none());
     logic.destroy_object(bunker);

@@ -14,7 +14,7 @@ impl GameLogic {
     pub(crate) fn update_a10_strike_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_a10_strike_flight::{
             A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES, tick_a10_dive,
@@ -234,7 +234,7 @@ impl GameLogic {
                             A10_VULCAN_PRIMARY_RADIUS,
                             DamageType::Bullet,
                             presentation_effects,
-                        );
+                        )?;
                     if let Some(strike) = self.a10_strike_flight_reg.delivery_strike_id(delivery) {
                         self.special_power_strikes.credit_live_a10_delivery_impact(
                             strike, damage, hits, destroyed, false, position,
@@ -344,7 +344,7 @@ impl GameLogic {
                     A10_MISSILE_PRIMARY_RADIUS,
                     DamageType::Explosive,
                     presentation_effects,
-                );
+                )?;
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,
                     position,
@@ -378,6 +378,7 @@ impl GameLogic {
             }
         }
         self.finish_ready_a10_deliveries();
+        Ok(())
     }
 
     /// Reconcile only delivery capability receipts against the actual owner.

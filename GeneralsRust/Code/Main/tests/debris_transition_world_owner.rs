@@ -46,11 +46,11 @@ fn transition_debris_uses_each_worlds_catalog_and_lod_counter() {
     assert_eq!(first_victim, peer_victim);
     first.admit_dynamic_debris_skip_mask(1);
 
-    first.apply_host_damage(first_victim, 60.0);
+    first.apply_host_damage(first_victim, 60.0).unwrap();
     assert_eq!(debris(&first), vec![("FirstChunk".to_owned(), 5.0)]);
     assert!(debris(&peer).is_empty());
 
-    peer.apply_host_damage(peer_victim, 60.0);
+    peer.apply_host_damage(peer_victim, 60.0).unwrap();
     assert_eq!(debris(&peer), vec![("PeerChunk".to_owned(), 9.0); 2]);
     assert_eq!(debris(&first), vec![("FirstChunk".to_owned(), 5.0)]);
 
@@ -85,8 +85,8 @@ fn debris_generation_save_continuation_is_owned_by_the_restored_world() {
         logic.admit_dynamic_debris_skip_mask(3);
     }
 
-    source.apply_host_damage(victim, 60.0);
-    peer.apply_host_damage(peer_victim, 60.0);
+    source.apply_host_damage(victim, 60.0).unwrap();
+    peer.apply_host_damage(peer_victim, 60.0).unwrap();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     assert_eq!(snapshot.dynamic_debris_generations, 2);
     let peer_before = builder
@@ -122,7 +122,7 @@ fn debris_generation_save_continuation_is_owned_by_the_restored_world() {
         let next = logic
             .create_object_for_player("DebrisTransitionVictim", 7, glam::Vec3::X)
             .unwrap();
-        logic.apply_host_damage(next, 60.0);
+        logic.apply_host_damage(next, 60.0).unwrap();
     }
     assert_eq!(debris(&restored), debris(&source));
     assert_eq!(

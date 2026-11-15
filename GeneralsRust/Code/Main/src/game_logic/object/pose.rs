@@ -219,6 +219,13 @@ impl Object {
         self.set_transform_matrix_with_effects(transform, 0, &mut Default::default());
     }
 
+    /// Restore an Object's complete saved pose before its partition admission.
+    pub(crate) fn restore_snapshot_transform(&mut self, transform: Mat4, angle: f32) {
+        self.require_partition_owner(None);
+        self.thing.restore_transform_and_orientation(transform, angle);
+        self.notify_native_pose_installed();
+    }
+
     pub(crate) fn set_transform_matrix_with_effects(
         &mut self,
         transform: Mat4,

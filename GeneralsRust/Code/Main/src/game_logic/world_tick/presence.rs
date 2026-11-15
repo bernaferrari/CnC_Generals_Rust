@@ -224,7 +224,7 @@ impl GameLogic {
     /// C++ `Player::killPlayer` after `VictoryConditions` marks a slot dead:
     /// evacuate containers, Neutral-transfer KINDOF_TECH_BUILDING, kill army
     /// (including beacons), then wipe money unless single-player computer.
-    pub(crate) fn kill_player_for_victory(&mut self, player_id: u32) {
+    pub(crate) fn kill_player_for_victory(&mut self, player_id: u32) -> gamelogic::GameLogicResult<()> {
         self.kill_player_for_victory_with_effects(player_id, &mut Default::default())
     }
 
@@ -232,15 +232,15 @@ impl GameLogic {
         &mut self,
         player_id: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.kill_player_with_interpreter_with_effects(player_id, None, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.kill_player_with_interpreter_with_effects(player_id, None, effects)
     }
 
     pub(crate) fn kill_player_with_interpreter(
         &mut self,
         player_id: u32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.kill_player_with_interpreter_with_effects(
             player_id,
             interpreter,
@@ -253,7 +253,7 @@ impl GameLogic {
         player_id: u32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let player_team = self.players.get(&player_id).map(|p| p.team);
         let unique_team = player_team.and_then(|team| {
             let mut found = None;
@@ -280,7 +280,7 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for container_id in container_ids {
-            let _ = self.evacuate_container_now_with_effects(container_id, false, effects);
+            self.evacuate_container_now_with_effects(container_id, false, effects)?;
         }
 
         if let Some(player) = self.players.get_mut(&player_id) {
@@ -328,7 +328,7 @@ impl GameLogic {
                 true,
                 interpreter,
                 effects,
-            );
+            )?;
         }
 
         self.clear_player_drawable_selection(player_id);
@@ -339,7 +339,7 @@ impl GameLogic {
                 player.is_alive = true;
                 player.selected_objects.clear();
             }
-            return;
+            return Ok(());
         }
 
         if let Some(player) = self.players.get_mut(&player_id) {
@@ -348,6 +348,7 @@ impl GameLogic {
 
             player.selected_objects.clear();
         }
+        Ok(())
     }
 
     /// Player.cpp2055: the killed Player's own controller, independent of

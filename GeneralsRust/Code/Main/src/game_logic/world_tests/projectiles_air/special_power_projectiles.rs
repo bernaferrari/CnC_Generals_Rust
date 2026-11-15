@@ -567,7 +567,7 @@ fn scud_storm_anthrax_beta_spawns_poison_field_upgraded_large() {
     assert!((obj.health.maximum - 120.0).abs() < 0.01);
     let oid = obj.id;
     logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
-    logic.update_anthrax_toxin_field_objects();
+    logic.update_anthrax_toxin_field_objects().unwrap();
     assert!(
         logic
             .host_object(oid)
@@ -614,7 +614,7 @@ fn scud_storm_spawns_poison_field_large_object() {
     assert_eq!(field.object_id, Some(obj.id));
     let oid = obj.id;
     logic.frame = SCUD_STORM_POISON_DURATION_FRAMES + 5;
-    logic.update_anthrax_toxin_field_objects();
+    logic.update_anthrax_toxin_field_objects().unwrap();
     assert!(
         logic
             .host_object(oid)
@@ -662,7 +662,7 @@ fn anthrax_bomb_spawns_toxin_field_object() {
         .and_then(|f| f.object_id);
     assert_eq!(bound, Some(oid));
     logic.frame = ANTHRAX_TOXIN_DURATION_FRAMES + 5;
-    logic.update_anthrax_toxin_field_objects();
+    logic.update_anthrax_toxin_field_objects().unwrap();
     assert!(
         logic
             .host_object(oid)
@@ -720,7 +720,7 @@ fn nuclear_missile_spawns_radiation_field_object() {
         .and_then(|f| f.object_id);
     assert_eq!(bound, Some(oid));
     logic.frame = NUKE_RADIATION_DURATION_FRAMES + 5;
-    logic.update_nuke_radiation_field_objects();
+    logic.update_nuke_radiation_field_objects().unwrap();
     assert!(
         logic
             .host_object(oid)
@@ -3531,7 +3531,7 @@ fn eject_pilot_invulnerable_time_residual() {
     }
 
     let hp_before = game_logic.host_object(pilot_id).unwrap().health.current;
-    let (destroyed, blocked) = game_logic.apply_host_damage(pilot_id, 50.0);
+    let (destroyed, blocked) = game_logic.apply_host_damage(pilot_id, 50.0).unwrap();
     assert!(!destroyed, "invulnerable pilot must not die");
     assert!(blocked, "InvulnerableTime must block damage");
     assert!(
@@ -3558,7 +3558,7 @@ fn eject_pilot_invulnerable_time_residual() {
         "InvulnerableTime must expire after 60 frames"
     );
 
-    let (destroyed2, blocked2) = game_logic.apply_host_damage(pilot_id, 25.0);
+    let (destroyed2, blocked2) = game_logic.apply_host_damage(pilot_id, 25.0).unwrap();
     assert!(!blocked2, "post-expiry damage must not be blocked");
     assert!(!destroyed2);
     let hp_after = game_logic.host_object(pilot_id).unwrap().health.current;

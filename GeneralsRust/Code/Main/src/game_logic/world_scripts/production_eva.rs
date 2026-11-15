@@ -49,7 +49,7 @@ impl GameLogic {
     /// (SUICIDED). The unit's authored FireWeaponWhenDeadBehavior modules
     /// (`DeathTypes = NONE +SUICIDED`, TriggeredBy Demo_Upgrade_SuicideBomb)
     /// then fire on the ordinary die path. No unit name selects the unit.
-    pub fn issue_demo_tertiary_suicide(&mut self, unit_id: ObjectId) -> bool {
+    pub fn issue_demo_tertiary_suicide(&mut self, unit_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.issue_demo_tertiary_suicide_with_effects(unit_id, &mut Default::default())
     }
 
@@ -57,36 +57,36 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         /// C++ `HUGE_DAMAGE_AMOUNT` (Damage.h).
         const HUGE_DAMAGE_AMOUNT: f32 = 999_999.0;
         let Some(object) = self.objects.get(&unit_id) else {
-            return false;
+            return Ok(false);
         };
         if !object.is_alive() {
-            return false;
+            return Ok(false);
         }
         let team = object.team;
         let template = &object.thing().template;
         let weapon = if template.has_receiving_weapon_sets() {
             let Some(rule) = object.selected_native_weapon_rule(2) else {
-                return false;
+                return Ok(false);
             };
             (rule.affects_mask.bits(), rule.damage_type, rule.death_type)
         } else if template.receiving_client_template.is_some() {
             // An admitted object with no receiving row must not consult the
             // process-global catalog (including a legacy pre-bound row).
-            return false;
+            return Ok(false);
         } else if let Some(rule) = object.selected_native_weapon_rule(2) {
             (rule.affects_mask.bits(), rule.damage_type, rule.death_type)
         } else {
             let Some(name) = object.authored_weapon_name_for_slot(2) else {
-                return false;
+                return Ok(false);
             };
             let Ok(Some(rule)) = crate::game_logic::weapon_bootstrap::with_host_weapon_store(
                 |store| store.find_weapon_template(name).cloned(),
             ) else {
-                return false;
+                return Ok(false);
             };
             (rule.affects_mask.bits(), rule.damage_type, rule.death_type)
         };
@@ -94,7 +94,7 @@ impl GameLogic {
             & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF
             == 0
         {
-            return false;
+            return Ok(false);
         }
         if self.apply_residual_damage_owned_with_effects(
             unit_id,
@@ -104,10 +104,10 @@ impl GameLogic {
             crate::game_logic::host_usa_pilot::HostDeathType::from_store(weapon.2),
             None,
             effects,
-        ) {
+        )? {
             self.mark_object_for_destruction_with_effects(unit_id, Some(team), effects);
         }
-        true
+        Ok(true)
     }
 
     /// Snapshot pending radar texts for PresentationFrame (does not drain).
@@ -1240,7 +1240,7 @@ impl GameLogic {
     /// Object::setDisabled(DISABLED_UNMANNED) calls Object::kill for a
     /// non-drone whose template has a matching CARBOMB weapon set. Any
     /// explosion is produced by the object's authored death modules.
-    pub fn maybe_detonate_carbomb_on_unmanned(&mut self, vehicle_id: ObjectId) -> bool {
+    pub fn maybe_detonate_carbomb_on_unmanned(&mut self, vehicle_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.maybe_detonate_carbomb_on_unmanned_with_effects(vehicle_id, &mut Default::default())
     }
 
@@ -1248,14 +1248,14 @@ impl GameLogic {
         &mut self,
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let dead_man = self.objects.get(&vehicle_id).is_some_and(|object| {
             object.is_alive()
                 && !object.is_kind_of(KindOf::Drone)
                 && object.authors_carbomb_weapon_set()
         });
         if !dead_man {
-            return false;
+            return Ok(false);
         }
         let birth = self.objects.get(&vehicle_id)
             .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token));
@@ -1273,25 +1273,25 @@ impl GameLogic {
         if let Some(source) = source.filter(|id| self.objects.get(id).is_some()) {
             self.score_the_kill_experience_with_effects_and_interpreter(
                 source, vehicle_id, None, effects,
-            ).expect("dead-man score callback must complete");
+            )?;
         }
         if !self.objects.get(&vehicle_id).is_some_and(|object| {
             birth.as_ref().is_some_and(|birth| std::sync::Weak::ptr_eq(
                 birth, &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
             ))
         }) {
-            return false;
+            return Ok(false);
         }
         let ok = self.apply_owned_kill_with_effects(
             vehicle_id,
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             effects,
-        ).is_some();
+        )?.is_some();
         if ok {
             self.carbomb_unmanned_detonations = self.carbomb_unmanned_detonations.saturating_add(1);
         }
-        ok
+        Ok(ok)
     }
 
     /// C++ `OverchargeBehavior::enable(FALSE)`: PowerPlantUpdate owns rod
@@ -1367,7 +1367,7 @@ impl GameLogic {
 
     /// C++ OverchargeBehavior::update residual — drain HP while the typed
     /// behavior is active, then evaluate its authored strict health threshold.
-    pub fn update_overcharge_drain(&mut self, dt: f32) {
+    pub fn update_overcharge_drain(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
         self.update_overcharge_drain_with_effects(dt, &mut Default::default())
     }
 
@@ -1375,9 +1375,9 @@ impl GameLogic {
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if dt <= 0.0 {
-            return;
+            return Ok(());
         }
         let ids: Vec<ObjectId> = self
             .objects
@@ -1426,7 +1426,7 @@ impl GameLogic {
                             let owned_victim_id = obj.id;
                             let owned_damage_type = crate::game_logic::combat::DamageType::Penalty;
                             self.apply_residual_damage_owned_with_effects(owned_victim_id, damage, Some(id), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None, effects)
-                        };
+                        }?;
                     }
                     self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);
                     let Some(obj) = self.objects.get(&id) else {
@@ -1478,6 +1478,7 @@ impl GameLogic {
                 self.mark_object_for_destruction_with_effects(id, None, effects);
             }
         }
+        Ok(())
     }
 }
 

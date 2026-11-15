@@ -798,7 +798,7 @@ mod integration_tests {
 
         let (loaded, _) = save_and_load("active_units", &game_logic);
         let loaded_dozer = loaded.get_object(dozer).expect("moving dozer should load");
-        assert_eq!(loaded_dozer.ai_state, AIState::Moving);
+        assert_eq!(loaded_dozer.ai_state(), AIState::Moving);
         assert!(loaded_dozer.status.moving);
         assert_eq!(
             loaded_dozer.movement.target_position,
@@ -822,6 +822,8 @@ mod integration_tests {
                 Vec3::new(60.0, 0.0, 0.0),
             )
             .expect("target should spawn");
+        let frame = game_logic.get_current_frame() as u32;
+        let mut audio = generals_main::game_logic::SessionAudio::default();
         {
             let attacker = game_logic
                 .get_object_mut(attacker)
@@ -835,14 +837,15 @@ mod integration_tests {
             });
             attacker.attack_target(
                 target,
+                frame,
                 &mut _attack_output,
-                &mut generals_main::game_logic::ObjectAudio::record(&mut Vec::new()),
+                &mut generals_main::game_logic::ObjectAudio::queue(&mut audio),
             );
         }
 
         let (mut loaded, _) = save_and_load("active_combat", &game_logic);
         let loaded_attacker = loaded.get_object(attacker).expect("attacker should load");
-        assert_eq!(loaded_attacker.ai_state, AIState::Attacking);
+        assert_eq!(loaded_attacker.ai_state(), AIState::Attacking);
         assert_eq!(loaded_attacker.target, Some(target));
         assert!(loaded_attacker.weapon.is_some());
 

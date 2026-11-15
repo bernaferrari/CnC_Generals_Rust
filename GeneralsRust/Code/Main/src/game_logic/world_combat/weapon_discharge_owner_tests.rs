@@ -400,7 +400,7 @@ fn accepted_discharge_victory_fallback_freezes_post_defeat_cash() {
         assert_eq!(sparse.rebuild_objects_from_gameworld(&shadow), 0);
         assert_eq!(logic.get_player(0).unwrap().resources.supplies, 1_234);
         // Match production order: the logic phase updates before presentation.
-        assert!(logic.evaluate_victory_condition().is_some());
+        assert!(logic.evaluate_victory_condition().unwrap().is_some());
         let frame = publish_shadow_case(&mut logic, &shadow, case);
         assert!(
             frame.match_over,

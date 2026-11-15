@@ -28,7 +28,7 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         key: TemporaryWeaponRuntimeKey,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.force_fire_temporary_runtime_with_effects(source, key, &mut Default::default())
     }
 
@@ -37,11 +37,11 @@ impl GameLogic {
         source: ObjectId,
         key: TemporaryWeaponRuntimeKey,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let (template_name, fire_state, identity) = {
             let object = match self.objects.get_mut(&source) {
                 Some(object) => object,
-                None => return 0,
+                None => return Ok(0),
             };
             let weapon = match object
                 .temporary_weapon_runtime
@@ -50,18 +50,18 @@ impl GameLogic {
                 .find_map(|runtime| runtime.weapon_mut(key))
             {
                 Some(weapon) => weapon,
-                None => return 0,
+                None => return Ok(0),
             };
             if promote_temporary_weapon_status(weapon, self.frame)
                 != TemporaryWeaponStatus::ReadyToFire
             {
-                return 0;
+                return Ok(0);
             }
             let fire_state = (weapon.current_barrel, weapon.suspend_fx_frame, weapon.ammo_in_clip);
             (weapon.weapon_template_name.clone(), fire_state, object.visual_draw_identity_token.clone())
         };
         let Some(mut fields) = self.temporary_weapon_fields(&template_name) else {
-            return 0;
+            return Ok(0);
         };
         if let Some(rule) = self.weapon_definitions.as_ref()
             .and_then(|definitions| definitions.get(&template_name.to_ascii_lowercase()))
@@ -84,17 +84,17 @@ impl GameLogic {
             // synchronous Body reentry) precede private Weapon mutation.
             let Some(hits) = self.fire_named_temporary_with_owned_state(
                 source, &spec, Some(fire_state), None, effects,
-            ) else {
-                return 0;
+            )? else {
+                return Ok(0);
             };
-            let Some(object) = self.objects.get(&source) else { return hits; };
+            let Some(object) = self.objects.get(&source) else { return Ok(hits); };
             if !std::sync::Arc::ptr_eq(&identity, &object.visual_draw_identity_token) {
-                return hits;
+                return Ok(hits);
             }
             // Reentry can spend ammunition on this same private Weapon. Read
             // the remaining clip after the callback, not the capture's clip.
             let Some(weapon) = object.temporary_weapon_runtime.damaged.iter()
-                .find_map(|runtime| runtime.weapon(key)) else { return hits; };
+                .find_map(|runtime| runtime.weapon(key)) else { return Ok(hits); };
             if weapon.ammo_in_clip > 1 {
                 fields.delay_between_shots =
                     rule.get_delay_between_shots_with_random(&bonus, &self.logic_random).max(0) as u32;
@@ -112,7 +112,7 @@ impl GameLogic {
             {
                 apply_private_fire_mutation(weapon, fields, frame);
             }
-            return hits;
+            return Ok(hits);
         }
         self.force_fire_named_temporary_with_effects(
             source,
@@ -128,7 +128,7 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
-    ) -> Option<u32> {
+    ) -> gamelogic::GameLogicResult<Option<u32>> {
         self.create_and_fire_temp_weapon_with_effects(source, spec, &mut Default::default())
     }
 
@@ -137,7 +137,7 @@ impl GameLogic {
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<u32> {
+    ) -> gamelogic::GameLogicResult<Option<u32>> {
         self.fire_named_temporary_with_owned_state(source, spec, None, None, effects)
     }
 
@@ -148,7 +148,7 @@ impl GameLogic {
         state: Option<(i32, u32, u32)>,
         target: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<u32> {
+    ) -> gamelogic::GameLogicResult<Option<u32>> {
         self.fire_named_temporary_at_with_owned_state(source, spec, state, target, None, effects)
     }
 
@@ -160,18 +160,19 @@ impl GameLogic {
         weapon_name: &str,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if !self.weapon_definitions.as_ref().is_some_and(|definitions| {
             definitions.contains_key(&weapon_name.trim().to_ascii_lowercase())
         }) {
-            return;
+            return Ok(());
         }
         let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
             module_source_index: 0,
             weapon_template_name: weapon_name.trim().to_owned(),
             weapon_slot: TemporaryWeaponSlot::Primary,
         };
-        let _ = self.fire_named_temporary_at_with_owned_state(source, &spec, None, None, Some(position), effects);
+        self.fire_named_temporary_at_with_owned_state(source, &spec, None, None, Some(position), effects)?;
+        Ok(())
     }
 
     fn fire_named_temporary_at_with_owned_state(
@@ -182,12 +183,12 @@ impl GameLogic {
         target: Option<ObjectId>,
         target_position: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<u32> {
+    ) -> gamelogic::GameLogicResult<Option<u32>> {
         if let Some(rule) = self.weapon_definitions.as_ref()
             .and_then(|definitions| definitions.get(&spec.weapon_template_name.to_ascii_lowercase()))
             .cloned()
         {
-            let object = self.objects.get(&source)?;
+            let Some(object) = self.objects.get(&source) else { return Ok(None); };
             let position = object.get_position();
             let target_position = target_position.or_else(|| target.and_then(|id| self.objects.get(&id).map(|o| o.get_position()))).unwrap_or(position);
             let bonuses = self.receiving_weapon_bonus_fields(object, Some(&rule));
@@ -254,7 +255,7 @@ impl GameLogic {
                 historic_bonus_weapon: rule.historic_bonus_weapon_name.clone(),
                 die_on_detonate: rule.die_on_detonate,
             };
-            let object = self.objects.get_mut(&source)?;
+            let Some(object) = self.objects.get_mut(&source) else { return Ok(None); };
             let _ = object.capture_pending_temporary_weapon_visual_dispatch(
                 &spec.weapon_template_name,
                 state.map_or(0, |weapon| weapon.0),
@@ -267,10 +268,10 @@ impl GameLogic {
                 capture.weapon_slot = spec.weapon_slot as u8;
                 capture.target_id = target;
             }
-            self.deliver_owned_weapon_shot_with_rule_and_effects(spec.weapon_slot as u8, shot, capture, Some(rule), effects);
-            return Some(0);
+            self.deliver_owned_weapon_shot_with_rule_and_effects(spec.weapon_slot as u8, shot, capture, Some(rule), effects)?;
+            return Ok(Some(0));
         }
-        let fields = self.temporary_weapon_fields(&spec.weapon_template_name)?;
+        let Some(fields) = self.temporary_weapon_fields(&spec.weapon_template_name) else { return Ok(None); };
         let runtime_spec = TemporaryWeaponRuntimeSpec {
             key: TemporaryWeaponRuntimeKey {
                 module_source_index: spec.module_source_index,
@@ -288,16 +289,16 @@ impl GameLogic {
         if promote_temporary_weapon_status(&mut ephemeral, self.frame)
             != TemporaryWeaponStatus::ReadyToFire
         {
-            return None;
+            return Ok(None);
         }
-        Some(self.force_fire_named_temporary_with_effects(
+        Ok(Some(self.force_fire_named_temporary_with_effects(
             source,
             &spec.weapon_template_name,
             ephemeral.current_barrel,
             None,
             fields,
             effects,
-        ))
+        )?))
     }
 
     fn force_fire_named_temporary(
@@ -307,7 +308,7 @@ impl GameLogic {
         current_barrel: i32,
         persist: Option<TemporaryWeaponRuntimeKey>,
         fields: super::temporary_weapon_status::TemporaryWeaponStoreFields,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.force_fire_named_temporary_with_effects(
             source,
             template_name,
@@ -326,7 +327,7 @@ impl GameLogic {
         persist: Option<TemporaryWeaponRuntimeKey>,
         fields: super::temporary_weapon_status::TemporaryWeaponStoreFields,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let Some((pos, team, suspend_fx_frame, ammo, identity)) =
             self.objects.get(&source).map(|object| {
                 let persisted = persist.and_then(|key| {
@@ -345,7 +346,7 @@ impl GameLogic {
                 )
             })
         else {
-            return 0;
+            return Ok(0);
         };
         if let Some(object) = self.objects.get_mut(&source) {
             let _ = object.capture_pending_temporary_weapon_visual_dispatch(
@@ -368,13 +369,13 @@ impl GameLogic {
             source,
             Some(template_name),
             effects,
-        );
+        )?;
         if !self
             .objects
             .get(&source)
             .is_some_and(|object| self.live_draw_playback_identity(object) == identity)
         {
-            return hits;
+            return Ok(hits);
         }
         if let Some(key) = persist {
             if let Some(object) = self.objects.get_mut(&source) {
@@ -389,6 +390,6 @@ impl GameLogic {
             }
         }
         let _ = self.record_accepted_weapon_discharge_with_effects(source, 0, effects);
-        hits
+        Ok(hits)
     }
 }

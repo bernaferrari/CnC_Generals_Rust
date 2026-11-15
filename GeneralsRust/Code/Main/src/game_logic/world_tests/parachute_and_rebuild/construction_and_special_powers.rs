@@ -2169,6 +2169,7 @@ fn kill_grants_player_skill_points_residual() {
                 &crate::game_logic::object::DamageHitContext::default(),
             )
             .expect("lethal owned damage")
+            .expect("receiving Body")
             .destroyed
     );
     logic.process_destroy_list();

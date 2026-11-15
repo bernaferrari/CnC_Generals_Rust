@@ -10,6 +10,7 @@ impl GameLogic {
     /// enemy in weapon range. HelixContain riders fire from hull origin +8 Y
     /// (`HelixContain::redeployOccupants`). Other transports use sequential
     /// `FIREPOINT` bones (`OpenContain::putObjAtNextFirePoint`); hull if none.
+    #[cfg(test)]
     pub(in crate::game_logic) fn try_transport_passenger_residual_fire(
         &mut self,
         passenger_id: ObjectId,
@@ -17,42 +18,42 @@ impl GameLogic {
         self.try_transport_passenger_residual_fire_with_effects(
             passenger_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        ).expect("transport passenger fire")
     }
 
     pub(in crate::game_logic) fn try_transport_passenger_residual_fire_with_effects(
         &mut self,
         passenger_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&passenger_id) else {
-            return;
+            return Ok(());
         };
         if !attacker.is_alive() {
-            return;
+            return Ok(());
         }
 
         let container_id = attacker.container_id();
         let Some(cid) = container_id else {
-            return;
+            return Ok(());
         };
         let Some(container) = self.objects.get(&cid) else {
-            return;
+            return Ok(());
         };
         // C++ ActiveBody::onSubdualChange → OpenContain::orderAllPassengersToIdle
         // (flashbang / ECM-jammed Humvee/Chinook). Garrison sibling already
         // gates DISABLED_SUBDUED (hq-8ikxi); transport residual fire did not.
         if container.status.disabled_subdued {
-            return;
+            return Ok(());
         }
         // C++ OverlordContain::isPassengerAllowedToFire — nested contain voids fire.
         let outer = container
             .contained_by
             .filter(|outer| self.redirected_containment_owner(*outer) == cid);
         if !self.passenger_allowed_to_fire(passenger_id) {
-            return;
+            return Ok(());
         }
         let helix_rider = container.is_helix_transport
             && container.overlord_portable_occupant == Some(passenger_id);
@@ -112,9 +113,9 @@ impl GameLogic {
             if let Some((target, _, slot)) = best {
                 self.fire_owned_passive_weapon_with_effects(
                     passenger_id, target, slot, fire_pos, presentation_effects,
-                );
+                )?;
             }
-            return;
+            return Ok(());
         }
 
         let mut best = None;
@@ -150,7 +151,7 @@ impl GameLogic {
         }
 
         let Some((target_id, _, slot)) = best else {
-            return;
+            return Ok(());
         };
 
         if !self.fire_owned_passive_weapon_with_effects(
@@ -159,8 +160,8 @@ impl GameLogic {
             slot,
             fire_pos,
             presentation_effects,
-        ) {
-            return;
+        )? {
+            return Ok(());
         }
 
         if is_battle_bus {
@@ -170,6 +171,7 @@ impl GameLogic {
         } else if is_listening_outpost {
             self.listening_outpost.record_passenger_fire();
         }
+        Ok(())
     }
 
     /// C++ `OpenContain::markAllPassengersDetected` (`OpenContain.cpp:1322-1343`).

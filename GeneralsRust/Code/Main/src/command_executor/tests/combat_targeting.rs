@@ -322,7 +322,7 @@ fn weapon_lock_forces_slot_and_release() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_set_weapon_lock(&[id], 1, 2) == CommandResult::Success);
+            exec.execute_set_weapon_lock(&[id], 1, 2).unwrap() == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
@@ -930,7 +930,7 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
         t.pending_evacuate_on_stop = true;
     }
     // Direct evacuate_now residual (arrival hook)
-    assert!(logic.evacuate_container_now(transport, false));
+    assert!(logic.evacuate_container_now(transport, false).unwrap());
     assert!(
         logic
             .host_object(transport)

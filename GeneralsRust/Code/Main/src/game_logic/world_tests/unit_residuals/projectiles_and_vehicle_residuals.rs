@@ -55,7 +55,7 @@ fn combat_cycle_use_rider_stealth_cloaks_from_rider() {
         .create_object("TestPlainRider", Team::GLA, Vec3::ZERO)
         .expect("plain rider");
 
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(bike_id).unwrap().status.stealthed,
         "riderless UseRiderStealth bike lacks CAN_STEALTH"
@@ -66,7 +66,7 @@ fn combat_cycle_use_rider_stealth_cloaks_from_rider() {
         .unwrap()
         .occupants
         .push(stealth_rider);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.host_object(bike_id).unwrap().status.stealthed,
         "stealthy rider cloaks the bike"
@@ -76,7 +76,7 @@ fn combat_cycle_use_rider_stealth_cloaks_from_rider() {
         .host_object_mut(bike_id)
         .unwrap()
         .set_status_firing_weapon(true);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(bike_id).unwrap().status.stealthed,
         "the rider's FIRING_WEAPON rule reveals the firing bike"
@@ -88,7 +88,7 @@ fn combat_cycle_use_rider_stealth_cloaks_from_rider() {
         bike.occupants = vec![plain_rider];
     }
     game_logic.frame += 1;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(bike_id).unwrap().status.stealthed,
         "a rider without CAN_STEALTH does not cloak the bike"
@@ -127,7 +127,7 @@ fn stealth_black_market_requires_live_owned_black_market_kind() {
             market.status.destroyed = true;
         }
         logic.frame = 1;
-        logic.update_stealth_and_detection();
+        logic.update_stealth_and_detection().unwrap();
         logic.host_object(unit).unwrap().status.stealthed
     };
     assert!(run(false, false, false, false, true));

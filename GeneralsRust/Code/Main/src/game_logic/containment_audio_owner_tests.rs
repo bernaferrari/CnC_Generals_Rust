@@ -82,7 +82,7 @@ fn remove(
     passenger: ObjectId,
     output: &mut game_engine::common::audio::AudioManager,
 ) {
-    assert!(world.unit_command_remove_occupant(container, passenger));
+    assert!(world.unit_command_remove_occupant(container, passenger).unwrap());
     assert_eq!(world.unit_command_exit_drop_with_effects(
         passenger,
         Vec3::new(50.0, 0.0, 50.0),

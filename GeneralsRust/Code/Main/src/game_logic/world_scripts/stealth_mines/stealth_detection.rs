@@ -7,14 +7,14 @@ impl GameLogic {
     ///
     /// - Runs every awake authored StealthUpdate module, including detection expiry
     /// - Mines keep their innate cloak; detectors mark nearby enemy stealth as detected
-    pub fn update_stealth_and_detection(&mut self) {
+    pub fn update_stealth_and_detection(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_stealth_and_detection_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_stealth_and_detection_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         // C++ StealthUpdate.cpp:725-780 cloak/destalth/detect SoundStealthOn/Off.
         let stealth_snap: Vec<(ObjectId, bool, bool)> = self
@@ -26,7 +26,7 @@ impl GameLogic {
 
 
         // C++ StealthUpdate::update for every authored module.
-        self.update_stealth_update_modules(frame);
+        self.update_stealth_update_modules(frame)?;
 
         // Mines / demo traps / charges: InnateStealth + 0 opacity
         // (C++ StealthUpdate.cpp mine setEffectiveOpacity(0,0)).
@@ -161,7 +161,7 @@ impl GameLogic {
 
         if detectors.is_empty() {
             self.play_stealth_transition_sounds(&stealth_snap);
-            return;
+            return Ok(());
         }
 
         // Leftover StealthDetectorUpdate::update clears IR grids at each scan
@@ -333,6 +333,7 @@ impl GameLogic {
         let scanned: Vec<ObjectId> = detectors.iter().map(|d| d.0).collect();
         self.play_detector_ir_scan_fx(&scanned, &spotted_detectors, effects);
         self.play_stealth_transition_sounds(&stealth_snap);
+        Ok(())
     }
 
     /// C++ StealthUpdate.cpp:725-780 SoundStealthOn / SoundStealthOff.

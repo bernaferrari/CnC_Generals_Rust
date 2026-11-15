@@ -68,7 +68,7 @@ fn impact(world: &mut GameLogic, id: ObjectId, deck: f32) {
     // The projectile query itself must never consult its duplicate Core AI.
     let services = std::sync::Arc::clone(&world.world_services);
     let retired = gamelogic::system::engine_stores::with_world_services(&services, || {
-        world.update_owned_projectile_impacts(1.0 / 30.0)
+        world.update_owned_projectile_impacts(1.0 / 30.0).unwrap()
     });
     assert_eq!(retired, vec![id]);
     assert_eq!(world.combat_system.projectile_count(), 0);

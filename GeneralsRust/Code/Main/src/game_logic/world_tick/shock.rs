@@ -75,6 +75,18 @@ impl GameLogic {
         let ground_heights: Vec<(ObjectId, std::sync::Weak<()>, f32)> = {
             let mut out = Vec::new();
             for (id, o) in self.objects.registered() {
+                // Live MissileMotion performs its own force and contact step on
+                // this same Object during the projectile phase.
+                if self.combat_system.get_projectiles().get(id)
+                    .is_some_and(|shot| {
+                        shot.missile_motion.is_some()
+                            && shot.missile_actor_birth.is_some_and(|birth| {
+                                self.spawn_identity_matches(*id, birth.0, birth.1)
+                            })
+                    })
+                {
+                    continue;
+                }
                 let wreck = o.status.destroyed || !o.is_alive();
                 let wreck_airborne = wreck && o.get_position().y > o.ground_height + 0.05;
                 let physics_active = o.can_move()
@@ -511,7 +523,7 @@ impl GameLogic {
         attacker_team: Team,
         intended_id: ObjectId,
         weapon_name: Option<&str>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.with_own_services_mut(|this| {
             this.apply_instant_hit_splash_at_with_effects(
                 impact,
@@ -540,7 +552,7 @@ impl GameLogic {
         intended_id: ObjectId,
         weapon_name: Option<&str>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         // Content cannot be changed by an earlier victim's callbacks. Keep
         // this accepted rule alive while preserving original visitation order.
         let native_rule = weapon_name.and_then(|name| {
@@ -551,12 +563,12 @@ impl GameLogic {
         });
         if self.weapon_definitions.is_some() && weapon_name.is_some() && native_rule.is_none() {
             log::error!("Receiving weapon definition missing for accepted splash/shock");
-            return 0;
+            return Ok(0);
         }
 
         let max_r = primary_radius.max(secondary_radius);
         if max_r <= 0.0 || (primary_damage <= 0.0 && secondary_damage <= 0.0) {
-            return 0;
+            return Ok(0);
         }
         use crate::game_logic::weapon_bootstrap::{
             host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
@@ -737,7 +749,7 @@ impl GameLogic {
                         &context,
                         Some(attacker_team),
                         effects,
-                    )
+                    )?
                     .is_some()
                 {
                     hits = hits.saturating_add(1);
@@ -750,7 +762,7 @@ impl GameLogic {
             .map(|a| a.get_position())
             .unwrap_or(impact);
         let _ = self.apply_shock_wave_at_impact(impact, source_pos, max_r, weapon_name, None);
-        hits
+        Ok(hits)
     }
 
     pub(crate) fn apply_scatter_miss_splash_at(
@@ -762,7 +774,7 @@ impl GameLogic {
         attacker_team: Team,
         skip_id: ObjectId,
         weapon_name: Option<&str>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.with_own_services_mut(|this| {
             this.apply_scatter_miss_splash_at_with_effects(
                 impact,
@@ -787,7 +799,7 @@ impl GameLogic {
         skip_id: ObjectId,
         weapon_name: Option<&str>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         // Content cannot be changed by an earlier victim's callbacks. Keep
         // this accepted rule alive while preserving original visitation order.
         let native_rule = weapon_name.and_then(|name| {
@@ -798,7 +810,7 @@ impl GameLogic {
         });
         if self.weapon_definitions.is_some() && weapon_name.is_some() && native_rule.is_none() {
             log::error!("Receiving weapon definition missing for accepted splash/shock");
-            return 0;
+            return Ok(0);
         }
 
         use crate::game_logic::weapon_bootstrap::{
@@ -847,7 +859,7 @@ impl GameLogic {
             };
         let max_r = primary_r.max(secondary_r);
         if max_r <= 0.0 || (primary_dmg <= 0.0 && secondary_dmg <= 0.0) {
-            return 0;
+            return Ok(0);
         }
         let affects = native_rule
             .as_ref()
@@ -1031,7 +1043,7 @@ impl GameLogic {
                         &context,
                         Some(attacker_team),
                         effects,
-                    )
+                    )?
                     .is_some()
                 {
                     hits = hits.saturating_add(1);
@@ -1045,7 +1057,7 @@ impl GameLogic {
             .unwrap_or(impact);
         let _ =
             self.apply_shock_wave_at_impact(impact, source_pos, max_r, weapon_name, Some(skip_id));
-        hits
+        Ok(hits)
     }
 
     pub(crate) fn instant_scatter_misses_shot(

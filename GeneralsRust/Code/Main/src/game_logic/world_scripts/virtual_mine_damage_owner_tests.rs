@@ -24,7 +24,7 @@ fn virtual_detonation_runs_guarded_body_callbacks_once_in_receiving_world() {
         .as_ref()
         .unwrap()
         .virtual_mines_remaining;
-    assert!(world.trip_virtual_land_mine(id, Vec3::ZERO));
+    assert!(world.trip_virtual_land_mine(id, Vec3::ZERO).unwrap());
     let mine = &world.objects[&id];
     let data = mine.mine_data.as_ref().unwrap();
     assert_eq!(data.virtual_mines_remaining, before - 1);
@@ -67,8 +67,8 @@ fn virtual_detonation_runs_guarded_body_callbacks_once_in_receiving_world() {
     for frame in [78, 526, 527, 676, 677] {
         world.frame = frame;
         restored.frame = frame;
-        world.update_mines_and_demo_traps();
-        restored.update_mines_and_demo_traps();
+        world.update_mines_and_demo_traps().unwrap();
+        restored.update_mines_and_demo_traps().unwrap();
         let pulses = if frame < 527 {
             0.0
         } else if frame < 677 {
@@ -119,7 +119,7 @@ fn regenerating_disarm_preserves_real_damage_callback_delay_without_blast() {
     let (peer, peer_id) = mine_world();
     assert_eq!(id, peer_id);
     world.frame = 170;
-    assert!(world.clear_mine_internal(id, ObjectId(99001)));
+    assert!(world.clear_mine_internal(id, ObjectId(99001)).unwrap());
     let mine = &world.objects[&id];
     let data = mine.mine_data.as_ref().unwrap();
     assert_eq!(data.virtual_mines_remaining, 0);
@@ -166,7 +166,7 @@ fn last_virtual_charge_fires_once_before_direct_retirement_without_self_damage()
         data.detonation_radius = 20.0;
     }
     world.frame = 211;
-    assert!(world.trip_virtual_land_mine(id, Vec3::ZERO));
+    assert!(world.trip_virtual_land_mine(id, Vec3::ZERO).unwrap());
     assert_eq!(world.mine_residual_proximity_detonations, 1);
     assert!(
         world.objects[&id].status.destroyed,
@@ -235,7 +235,7 @@ fn reciprocal_mine_callbacks_observe_source_charge_before_outer_decrement() {
         data.detonation_damage = 100.0;
     }
     world.frame = 250;
-    assert!(world.trip_virtual_land_mine(first, Vec3::ZERO));
+    assert!(world.trip_virtual_land_mine(first, Vec3::ZERO).unwrap());
     // Outer A fires with TWO charges still visible. B's immediate onDamage
     // fires back; A completes both nested charges, then B completes its two.
     // The original outer A call finally decrements the already-empty count.
@@ -280,7 +280,7 @@ fn authored_standard_mine_weapon_does_not_chain_allied_pad() {
         .unwrap()
         .virtual_mines_remaining;
     world.frame = 260;
-    assert!(world.trip_virtual_land_mine(first, Vec3::ZERO));
+    assert!(world.trip_virtual_land_mine(first, Vec3::ZERO).unwrap());
     assert_eq!(world.mine_residual_proximity_detonations, 1);
     assert_eq!(world.objects[&second].health.current, before_health);
     assert_eq!(
@@ -490,7 +490,7 @@ fn land_mine_splash_uses_land_mine_type_not_unresistable() {
         data.detonation_radius = 25.0;
     }
     world.frame = 44;
-    assert!(world.trip_virtual_land_mine(id, Vec3::ZERO));
+    assert!(world.trip_virtual_land_mine(id, Vec3::ZERO).unwrap());
     let victim = &world.objects[&victim_id];
     assert!(
         victim.health.current < 500.0,

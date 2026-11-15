@@ -562,7 +562,7 @@ fn fire_base_scatter_misses_infantry_residual() {
                 .get(&inf)
                 .map(|o| o.get_position())
                 .unwrap_or(glam::Vec3::new(80.0, 0.0, 0.0));
-            let _ = logic.apply_fire_base_residual_at(impact, Some(fb), Some(inf));
+            logic.apply_fire_base_residual_at(impact, Some(fb), Some(inf)).unwrap();
         }
         logic.update_combat(&[fb, inf], LOGIC_FRAME_TIMESTEP);
         if logic.fire_base_scatter_applied > 0 || logic.fire_base_scatter_misses > 0 {
@@ -585,7 +585,7 @@ fn fire_base_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_fire_base_residual_at(impact, Some(fb), Some(tank));
+    let (hits, _) = logic.apply_fire_base_residual_at(impact, Some(fb), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -645,7 +645,7 @@ fn technical_cannon_scatter_misses_infantry_residual() {
         .get(&inf)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(60.0, 0.0, 0.0));
-    let _ = logic.apply_technical_residual_at(impact, Some(tech), Some(inf));
+    logic.apply_technical_residual_at(impact, Some(tech), Some(inf)).unwrap();
     assert!(
         logic.technical_cannon_scatter_applied > 0
             || logic.technical_cannon_scatter_misses > 0
@@ -666,7 +666,7 @@ fn technical_cannon_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(55.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_technical_residual_at(impact, Some(tech), Some(tank));
+    let (hits, _) = logic.apply_technical_residual_at(impact, Some(tech), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -741,7 +741,7 @@ fn rpg_trooper_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_rpg_trooper_residual_at(impact, Some(rpg), Some(tank));
+    let (hits, _) = logic.apply_rpg_trooper_residual_at(impact, Some(rpg), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -816,7 +816,7 @@ fn missile_defender_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_missile_defender_residual_at(impact, Some(md), Some(tank), false);
+    let (hits, _) = logic.apply_missile_defender_residual_at(impact, Some(md), Some(tank), false).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -891,7 +891,7 @@ fn tank_hunter_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_tank_hunter_residual_at(impact, Some(th), Some(tank));
+    let (hits, _) = logic.apply_tank_hunter_residual_at(impact, Some(th), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -944,7 +944,7 @@ fn scorpion_scatter_misses_infantry_residual() {
         .get(&inf)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
-    let _ = logic.apply_scorpion_residual_at(impact, Some(sc), Some(inf), 0);
+    logic.apply_scorpion_residual_at(impact, Some(sc), Some(inf), 0).unwrap();
     assert!(
         logic.scorpion_scatter_applied > 0
             || logic.scorpion_scatter_misses > 0
@@ -964,7 +964,7 @@ fn scorpion_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_scorpion_residual_at(impact, Some(sc), Some(tank), 0);
+    let (hits, _) = logic.apply_scorpion_residual_at(impact, Some(sc), Some(tank), 0).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1017,7 +1017,7 @@ fn marauder_scatter_misses_infantry_residual() {
         .get(&inf)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
-    let _ = logic.apply_marauder_residual_at(impact, Some(ma), Some(inf));
+    logic.apply_marauder_residual_at(impact, Some(ma), Some(inf)).unwrap();
     assert!(
         logic.marauder_scatter_applied > 0
             || logic.marauder_scatter_misses > 0
@@ -1037,7 +1037,7 @@ fn marauder_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_marauder_residual_at(impact, Some(ma), Some(tank));
+    let (hits, _) = logic.apply_marauder_residual_at(impact, Some(ma), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1090,7 +1090,7 @@ fn tomahawk_scatter_misses_infantry_residual() {
         .get(&inf)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(80.0, 0.0, 0.0));
-    let _ = logic.apply_tomahawk_residual_at(impact, Some(th), Some(inf));
+    logic.apply_tomahawk_residual_at(impact, Some(th), Some(inf)).unwrap();
     assert!(
         logic.tomahawk_scatter_applied > 0
             || logic.tomahawk_scatter_misses > 0
@@ -1110,7 +1110,7 @@ fn tomahawk_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_tomahawk_residual_at(impact, Some(th), Some(tank));
+    let (hits, _) = logic.apply_tomahawk_residual_at(impact, Some(th), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1185,7 +1185,7 @@ fn battlemaster_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_battlemaster_residual_at(impact, Some(bm), Some(tank));
+    let (hits, _) = logic.apply_battlemaster_residual_at(impact, Some(bm), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1210,7 +1210,7 @@ fn anthrax_scud_structure_uses_poison_armor() {
         .get(&bldg)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(40.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_scud_area_at(impact, None, Team::GLA, true);
+    let (hits, _) = logic.apply_scud_area_at(impact, None, Team::GLA, true).unwrap();
     let hp_after = logic
         .host_object(bldg)
         .map(|o| o.health.current)
@@ -1290,7 +1290,7 @@ fn overlord_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_overlord_gun_residual_at(impact, Some(ol), Some(tank));
+    let (hits, _) = logic.apply_overlord_gun_residual_at(impact, Some(ol), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1343,7 +1343,7 @@ fn raptor_scatter_misses_infantry_residual() {
         .get(&inf)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(80.0, 0.0, 0.0));
-    let _ = logic.apply_raptor_residual_at(impact, Some(rp), Some(inf));
+    logic.apply_raptor_residual_at(impact, Some(rp), Some(inf)).unwrap();
     assert!(
         logic.raptor_scatter_applied > 0
             || logic.raptor_scatter_misses > 0
@@ -1363,7 +1363,7 @@ fn raptor_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(70.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_raptor_residual_at(impact, Some(rp), Some(tank));
+    let (hits, _) = logic.apply_raptor_residual_at(impact, Some(rp), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1436,7 +1436,7 @@ fn usa_tank_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_usa_tank_gun_residual_at(impact, Some(cr), Some(tank));
+    let (hits, _) = logic.apply_usa_tank_gun_residual_at(impact, Some(cr), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1487,7 +1487,7 @@ fn stealth_jet_scatter_misses_infantry_residual() {
         .get(&inf)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
-    let _ = logic.apply_stealth_fighter_residual_at(impact, Some(jet), Some(inf));
+    logic.apply_stealth_fighter_residual_at(impact, Some(jet), Some(inf)).unwrap();
     assert!(
         logic.stealth_jet_scatter_applied > 0
             || logic.stealth_jet_scatter_misses > 0
@@ -1507,7 +1507,7 @@ fn stealth_jet_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_stealth_fighter_residual_at(impact, Some(jet), Some(tank));
+    let (hits, _) = logic.apply_stealth_fighter_residual_at(impact, Some(jet), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1581,7 +1581,7 @@ fn flashbang_scatter_misses_intended_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_ranger_residual_at(impact, Some(ranger), Some(tank), true);
+    let (hits, _) = logic.apply_ranger_residual_at(impact, Some(ranger), Some(tank), true).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1653,7 +1653,7 @@ fn rocket_buggy_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_rocket_buggy_residual_at(impact, Some(bg), Some(tank));
+    let (hits, _) = logic.apply_rocket_buggy_residual_at(impact, Some(bg), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1698,7 +1698,7 @@ fn mig_scatter_misses_infantry_residual() {
         .get(&inf)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
-    let _ = logic.apply_mig_residual_at(impact, Some(mig), Some(inf));
+    logic.apply_mig_residual_at(impact, Some(mig), Some(inf)).unwrap();
     assert!(
         logic.mig_scatter_applied > 0
             || logic.mig_scatter_misses > 0
@@ -1718,7 +1718,7 @@ fn mig_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_mig_residual_at(impact, Some(mig), Some(tank));
+    let (hits, _) = logic.apply_mig_residual_at(impact, Some(mig), Some(tank)).unwrap();
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -1778,7 +1778,7 @@ fn vehicle_shells_residual_impact_spawns_no_muzzle_hq_2qedt_87_1() {
             "AmericaJetRaptor" => logic.apply_raptor_residual_at(impact, Some(src), Some(tank)),
             "ChinaJetMIG" => logic.apply_mig_residual_at(impact, Some(src), Some(tank)),
             _ => logic.apply_fire_base_residual_at(impact, Some(src), Some(tank)),
-        };
+        }.unwrap();
         let after = logic
             .combat_particles()
             .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
@@ -1820,7 +1820,7 @@ fn neutron_scud_residual_impact_spawns_no_muzzle_hq_2qedt_87_5() {
         let before = count(&logic);
         match case {
             "neutron" => {
-                let _ = logic.apply_neutron_blast_at(impact, Team::USA, Some(src), false);
+                logic.apply_neutron_blast_at(impact, Team::USA, Some(src), false).unwrap();
             }
             "scud" => {
                 let _ = logic.apply_scud_area_at(impact, Some(src), Team::USA, false);

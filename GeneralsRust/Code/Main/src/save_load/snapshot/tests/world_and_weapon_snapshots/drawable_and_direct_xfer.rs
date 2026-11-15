@@ -89,7 +89,7 @@ fn stealth_detection_expires_frame_survives_snapshot_and_clears_detected() {
 
     // Before expiry: DETECTED must hold (C++ `m_detectionExpiresFrame > now`).
     restored.frame = 99;
-    restored.update_stealth_and_detection();
+    restored.update_stealth_and_detection().unwrap();
     {
         let obj = restored.host_object(id).expect("pre-expiry");
         assert!(
@@ -101,7 +101,7 @@ fn stealth_detection_expires_frame_survives_snapshot_and_clears_detected() {
 
     // At expiry: host gate `frame >= detection_expires_frame` clears DETECTED.
     restored.frame = 100;
-    restored.update_stealth_and_detection();
+    restored.update_stealth_and_detection().unwrap();
     let obj = restored.host_object(id).expect("post-expiry");
     assert!(
         !obj.status.detected,

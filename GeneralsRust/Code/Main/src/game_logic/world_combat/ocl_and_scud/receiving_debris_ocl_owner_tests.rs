@@ -121,7 +121,7 @@ fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
         0.0,
         Vec3::ZERO,
         Vec3::new(10.0, 0.0, 20.0),
-    );
+    ).unwrap();
     let right_ids = right.execute_parsed_weapon_ocl_at(
         "OCL_HelixGattlingCannon",
         Some(right_source),
@@ -130,7 +130,7 @@ fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
         0.0,
         Vec3::ZERO,
         Vec3::new(100.0, 0.0, 200.0),
-    );
+    ).unwrap();
 
     assert_eq!(left_ids.len(), 1);
     assert_eq!(right_ids.len(), 1);
@@ -157,7 +157,7 @@ fn helix_portable_rider_fires_its_own_weapon_without_passenger_upgrade() {
     let rider = world.execute_parsed_weapon_ocl_at(
         "OCL_HelixGattlingCannon", Some(helix), Team::China,
         VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
-    )[0];
+    ).unwrap()[0];
     {
         let object = world.host_object_mut(rider).unwrap();
         assert!(!object.status.disabled_held);
@@ -197,7 +197,7 @@ fn retail_helix_contain_inside_rejects_an_occupied_portable_slot() {
         0.0,
         Vec3::ZERO,
         Vec3::ZERO,
-    );
+    ).unwrap();
 
     assert_eq!(
         created.len(),
@@ -238,7 +238,7 @@ fn other_contain_inside_source_routes_remain_guarded_before_creation() {
         0.0,
         Vec3::ZERO,
         Vec3::ZERO,
-    );
+    ).unwrap();
 
     assert!(created.is_empty());
     assert!(
@@ -320,7 +320,7 @@ fn portable_admission_uses_authored_kindof_not_template_spelling() {
         0.0,
         Vec3::ZERO,
         Vec3::ZERO,
-    );
+    ).unwrap();
     assert_eq!(tagged_ids.len(), 1);
     assert!(
         world
@@ -356,7 +356,7 @@ fn portable_admission_uses_authored_kindof_not_template_spelling() {
         0.0,
         Vec3::ZERO,
         Vec3::ZERO,
-    );
+    ).unwrap();
     assert!(misleading_ids.is_empty());
     assert!(
         world
@@ -400,7 +400,7 @@ fn later_factory_error_retains_the_ordered_committed_ocl_prefix() {
         .create_object("OclPartialSource", Team::USA, Vec3::ZERO)
         .expect("OCL source object");
 
-    let created = world.execute_parsed_weapon_ocl_at(
+    let result = world.execute_parsed_weapon_ocl_at(
         "OCL_PartialFactoryError",
         Some(source_id),
         Team::USA,
@@ -410,10 +410,14 @@ fn later_factory_error_retains_the_ordered_committed_ocl_prefix() {
         Vec3::ZERO,
     );
 
-    assert_eq!(created.len(), 1);
+    assert!(result.is_err());
     assert_eq!(
-        world.host_object(created[0]).unwrap().template_name,
-        "OclPartialGood"
+        world
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.template_name == "OclPartialGood")
+            .count(),
+        1
     );
     assert!(
         world
@@ -440,7 +444,7 @@ fn parsed_bridge_debris_is_owned_per_world_and_uses_receiving_lod_mask() {
         0.0,
         Vec3::ZERO,
         Vec3::new(20.0, 0.0, 30.0),
-    );
+    ).unwrap();
     let right_ids = right.execute_parsed_weapon_ocl_at(
         "OCL_ReceivingBridgeDebris",
         Some(right_source),
@@ -449,7 +453,7 @@ fn parsed_bridge_debris_is_owned_per_world_and_uses_receiving_lod_mask() {
         0.0,
         Vec3::ZERO,
         Vec3::new(20.0, 0.0, 30.0),
-    );
+    ).unwrap();
 
     assert_eq!(left_ids.len(), 1);
     assert_eq!(right_ids.len(), 2);
@@ -564,7 +568,7 @@ fn debris_model_override_does_not_invent_missing_receiving_draw_geometry() {
         0.0,
         Vec3::ZERO,
         Vec3::ZERO,
-    );
+    ).unwrap();
     assert_eq!(ids.len(), 1);
     assert_eq!(
         world.objects[&ids[0]]
@@ -606,7 +610,7 @@ fn authored_debris_model_choices_mass_and_lifetime_ranges_stay_with_each_owner()
         0.0,
         Vec3::ZERO,
         Vec3::new(20.0, 0.0, 30.0),
-    );
+    ).unwrap();
     let right_ids = right.execute_parsed_weapon_ocl_at(
         "OCL_ReceivingBridgeDebris",
         Some(right_source),
@@ -615,7 +619,7 @@ fn authored_debris_model_choices_mass_and_lifetime_ranges_stay_with_each_owner()
         0.0,
         Vec3::ZERO,
         Vec3::new(20.0, 0.0, 30.0),
-    );
+    ).unwrap();
     assert_eq!(left_ids.len(), 6);
     assert_eq!(right_ids.len(), 6);
 
@@ -690,7 +694,7 @@ fn deleting_helix_destroys_separate_portable_rider() {
     let rider = world.execute_parsed_weapon_ocl_at(
         "OCL_HelixGattlingCannon", Some(helix), Team::China,
         VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
-    )[0];
+    ).unwrap()[0];
     assert!(!world.host_object(helix).unwrap().occupants.contains(&rider));
     world.destroy_object(helix).unwrap();
     assert!(world.host_object(rider).is_none_or(|object| object.status.destroyed));
@@ -702,7 +706,7 @@ fn helix_portable_update_follows_hull_position_and_orientation() {
     let rider = world.execute_parsed_weapon_ocl_at(
         "OCL_HelixGattlingCannon", Some(helix), Team::China,
         VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
-    )[0];
+    ).unwrap()[0];
     {
         let (host, partition) = world.host_object_and_partition_mut(helix).unwrap();
         host.set_orientation_with_partition_owner(1.2, partition);

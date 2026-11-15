@@ -18,7 +18,8 @@ fn attack_ground_advances_reload_without_victim() {
         .map(|weapon| weapon.last_fire_time)
         .unwrap_or_default();
 
-    game_logic.update_combat(&[attacker_id], 1.0 / 60.0);
+    game_logic.update_combat(&[attacker_id], 1.0 / 60.0)
+        .expect("ground attack combat update");
 
     let last_fire_after = game_logic
         .host_object(attacker_id)
@@ -50,7 +51,8 @@ fn force_attack_ground_can_damage_friendlies() {
         .health
         .current;
 
-    game_logic.update_combat(&[attacker_id, friendly_id], 1.0 / 60.0);
+    game_logic.update_combat(&[attacker_id, friendly_id], 1.0 / 60.0)
+        .expect("ground attack combat update");
 
     let health_after = game_logic
         .host_object(friendly_id)

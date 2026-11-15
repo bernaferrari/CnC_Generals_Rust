@@ -71,6 +71,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         validate_world_path_links(snapshot)?;
+        snapshot.pending_combat.validate_launch_transforms().map_err(SaveLoadError::Corrupted)?;
         snapshot.audio_policy.validate()?;
         validate_cave_tracker(snapshot)?;
         validate_flight_decks(snapshot, candidate)?;
@@ -377,6 +378,7 @@ impl SnapshotBuilder {
             },
             dynamic_debris_generations: game_logic.current_dynamic_debris_generations(),
         };
+        snapshot.pending_combat.validate_launch_transforms().map_err(SaveLoadError::Corrupted)?;
 
         let chunks = super::super::player_team_chunks::stamp_from_live(game_logic)?;
         super::super::player_team_chunks::validate_roster(&snapshot, &chunks)?;
@@ -422,6 +424,7 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
         validate_world_path_links(snapshot)?;
+        snapshot.pending_combat.validate_launch_transforms().map_err(SaveLoadError::Corrupted)?;
         // Older snapshots contain only the frame-derived timer and no host
         // partial step. Validate before retiring the receiving world's objects.
         let timers = &snapshot.global_ai_state.global_timers;
@@ -627,6 +630,7 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             snapshot.version >= 28,
         )?;
+        projectile_continuation.validate_world_objects(&snapshot.objects)?;
         let partition_continuation = super::super::partition_continuation_persist::decode(
             projectile_continuation.legacy_tail.as_ref(),
         )?;
@@ -1205,6 +1209,8 @@ impl SnapshotBuilder {
         game_logic
             .combat_system
             .restore_live_projectile_arena(projectile_continuation.arena);
+        // Runtime birth tokens belong to this receiving world, not the saved world.
+        game_logic.rebind_missile_actor_births();
 
         // Energy::xfer deliberately omits derived production/consumption.
         // Rebuild only after all object/status tails (including disabled_held)

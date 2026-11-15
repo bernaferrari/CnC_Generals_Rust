@@ -136,7 +136,7 @@ impl GameLogic {
             }
 
             // C++ FireWeaponWhenDeadBehavior::onDie residual.
-            self.apply_fire_weapon_when_dead_with_effects(event.id, presentation_effects);
+            self.apply_fire_weapon_when_dead_with_effects(event.id, presentation_effects)?;
 
             // C++ classifyObjectFootprint: kill anyone still on LAYER_WALL
             // for this piece, then reclassify (AIPathfind.cpp:4126-4153).
@@ -165,7 +165,7 @@ impl GameLogic {
                             crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
                             None,
                             presentation_effects,
-                        ) {
+                        )? {
                             self.queue_after_death_completion(sid, event.killer);
                         }
                     }
@@ -234,7 +234,7 @@ impl GameLogic {
                         );
                     }
                     if is_garrison {
-                        self.recalc_garrison_apparent_controller(cid);
+                        self.recalc_garrison_apparent_controller_with_effects(cid, presentation_effects)?;
                     }
                 }
                 // C++ TunnelTracker::removeFromContain on occupant death.
@@ -368,27 +368,27 @@ impl GameLogic {
                         && has_nuclear_tanks_upgrade(&obj.applied_upgrades)
                     {
                         let nuke_gen = is_nuke_general_nuclear_tanks(&obj.template_name);
-                        let _ = self.apply_nuclear_tanks_death_detonation_at_with_effects(
+                        self.apply_nuclear_tanks_death_detonation_at_with_effects(
                             event.id,
                             obj.team,
                             death_pos,
                             nuke_gen,
                             presentation_effects,
-                        );
+                        )?;
                     }
                 }
 
                 // GLA Rebel BoobyTrap residual: structure death detonates trap.
                 // C++ Object::checkAndDetonateBoobyTrap(NULL) on die path.
                 if obj.status.booby_trapped {
-                    let _ = self.detonate_booby_trap_at_with_effects(
+                    self.detonate_booby_trap_at_with_effects(
                         event.id,
                         death_pos,
                         None,
                         false,
                         true,
                         presentation_effects,
-                    );
+                    )?;
                 }
 
                 log::debug!(
@@ -754,7 +754,7 @@ mod tests {
     fn bunker_buster_record_exit_removes_tunnel_pool() {
         // C++ TunnelContain.cpp:95 harmAndForceExitAllContained + record_exit.
         let (mut logic, t1, _t2, uid, key) = setup_two_tunnels_and_rider();
-        let (kills, _, _) = logic.apply_bunker_buster_to_target(t1, Team::USA, 100.0, None);
+        let (kills, _, _) = logic.apply_bunker_buster_to_target(t1, Team::USA, 100.0, None).unwrap();
         assert!(kills >= 1);
         assert!(
             !logic.tunnel_network.is_in_network(key, uid),
@@ -786,7 +786,7 @@ mod tests {
             Team::USA,
             t1,
             None,
-        );
+        ).unwrap();
         let rider = logic.host_object(uid).expect("rider lives");
         assert!(
             rider.is_alive(),
@@ -1457,7 +1457,7 @@ End
                 None,
                 &crate::game_logic::object::DamageHitContext::default(),
             )
-            .expect("receiving owned Body");
+            .expect("receiving owned Body").expect("victim exists");
         assert!(result.destroyed(), "lethal blow must destroy the victim");
         assert_eq!(
             logic.host_object(killer).unwrap().experience.current,

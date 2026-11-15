@@ -533,7 +533,7 @@ fn charge_detonation_is_isolated_between_worlds_with_matching_ids() {
     let peer_health = peer.host_object(peer_target).unwrap().health.current;
 
     let first_health = first.host_object(first_target).unwrap().health.current;
-    first.detonate_booby_trap_at(first_target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    first.detonate_booby_trap_at(first_target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
     assert!(first.host_object(first_target).unwrap().health.current < first_health);
     assert_eq!(
         peer.host_object(peer_target).unwrap().health.current,
@@ -597,7 +597,7 @@ fn detonation_kills_the_receiving_charge_through_its_authored_die_callback() {
     assert!(!first.host_object(charge).unwrap().booby_trap_special);
     assert!(!first.booby_trap_residual().is_booby_trapped(target));
 
-    first.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    first.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
 
     assert!(
         first
@@ -678,7 +678,7 @@ fn public_booby_blast_damages_player_allied_splash_victim_across_factions() {
         .health
         .current;
     let target_health = game.host_object(target).unwrap().health.current;
-    let hits = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    let hits = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
 
     assert!(hits <= 1, "return value is destroyed-victim count");
     assert!(game.host_object(target).unwrap().health.current < target_health);
@@ -714,7 +714,7 @@ fn sticky_blast_geometry_center_offset_uses_host_height_axis() {
     game.tick_logic_frame(1.0 / 30.0, None, Some(1));
     let before = game.host_object(victim).unwrap().health.current;
 
-    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
 
     let after = game.host_object(victim).unwrap().health.current;
     assert_eq!(
@@ -762,7 +762,7 @@ fn public_booby_trigger_gate_uses_charge_owner_player_relationship() {
             Some(allied_trigger),
             false,
             false,
-        ),
+        ).unwrap(),
         0,
         "C++ rejects an allied trigger using the selected charge owner"
     );
@@ -815,7 +815,7 @@ fn public_booby_trigger_relationship_uses_exact_same_named_team_identity() {
             Some(trigger),
             false,
             false,
-        ),
+        ).unwrap(),
         0,
         "Player::getRelationship(target Team ID) blocks the matching exact Team"
     );
@@ -838,7 +838,7 @@ fn public_booby_trigger_relationship_uses_exact_same_named_team_identity() {
         Some(trigger),
         false,
         false,
-    );
+    ).unwrap();
     assert!(game.host_object(target).unwrap().health.current < health_before);
     assert!(
         !game
@@ -864,7 +864,7 @@ fn public_booby_trigger_gate_rejects_missing_trigger_object() {
             Some(ObjectId(u32::MAX)),
             false,
             false,
-        ),
+        ).unwrap(),
         0,
         "a supplied but missing trigger object fails closed"
     );
@@ -892,7 +892,7 @@ fn lethal_sticky_damage_reentry_detonates_once() {
 
     // The authored primary blast kills its own target. Death processing can
     // synchronously ask to detonate the same planted trap again.
-    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
 
     assert_eq!(
         game.booby_trap_residual().detonations_total,
@@ -927,7 +927,7 @@ fn public_booby_trigger_uses_charge_player_to_team_even_for_defector() {
         Some(enemy_trigger),
         false,
         false,
-    );
+    ).unwrap();
     assert!(game.host_object(target).unwrap().health.current < target_health);
     assert!(
         !game
@@ -952,7 +952,7 @@ fn public_booby_charge_scan_keeps_nearest_invalid_and_rejects_missing_charge() {
 
     let health_before = game.host_object(target).unwrap().health.current;
     assert_eq!(
-        game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true),
+        game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap(),
         0,
         "nearest producer-matched charge lacks StickyBombUpdate"
     );
@@ -976,7 +976,7 @@ fn public_booby_charge_scan_keeps_nearest_invalid_and_rejects_missing_charge() {
     let stale_target = game.host_object(target).unwrap().health.current;
     install_public_registry(&mut game, planter, target, Some(ObjectId(u32::MAX)));
     assert_eq!(
-        game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true),
+        game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap(),
         0,
         "missing actual charge is rejected despite stale registry metadata"
     );
@@ -1048,7 +1048,7 @@ fn sticky_charge_retains_exact_team_and_experience_sink_after_save() {
                 .is_some_and(|members| members.contains(&planter.0) && members.contains(&charge.0))
     }));
 
-    restored.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    restored.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
     assert!(!restored.host_object(victim).unwrap().is_alive());
     assert_eq!(
         restored.host_object(planter).unwrap().experience.level,
@@ -1064,7 +1064,7 @@ fn sticky_charge_retains_exact_team_and_experience_sink_after_save() {
     peer.destroy_object(peer_planter).unwrap();
     peer.process_destroy_list();
     assert!(peer.host_object(peer_planter).is_none());
-    peer.detonate_booby_trap_at(peer_target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    peer.detonate_booby_trap_at(peer_target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
     assert!(!peer.host_object(peer_victim).unwrap().is_alive());
     assert_eq!(
         restored.host_object(planter).unwrap().experience.level,
@@ -1128,8 +1128,8 @@ fn sticky_kill_credit_uses_receiving_objects_exact_team_relationship() {
         (peer_target, peer_planter, peer_victim)
     );
 
-    peer.detonate_booby_trap_at(peer_target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
-    owner.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    peer.detonate_booby_trap_at(peer_target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
+    owner.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
     assert!(!owner.host_object(victim).unwrap().is_alive());
     assert!(!peer.host_object(peer_victim).unwrap().is_alive());
     assert_eq!(
@@ -1167,7 +1167,7 @@ fn lethal_sticky_blast_on_target_still_damages_remaining_victims_and_kills_charg
     game.tick_logic_frame(1.0 / 30.0, None, Some(1));
     game.host_object_mut(target).unwrap().health.current = 1.0;
 
-    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true).unwrap();
 
     for victim in victims {
         let v = game.host_object(victim).expect("victim present");

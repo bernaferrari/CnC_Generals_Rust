@@ -398,7 +398,9 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 d.is_detector = true;
                 d.detection_range = 50.0;
             }
-            logic.update_stealth_and_detection();
+            if let Err(error) = logic.update_stealth_and_detection() {
+                return BreadthCategoryResult { category: "economy_combat_variants".into(), ok: false, detail: format!("stealth update: {error}") };
+            }
             detected_ok = logic
                 .host_object(sid)
                 .map(|o| {
@@ -441,7 +443,9 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             u.set_status_firing_weapon(true);
         }
         // StealthUpdate::allowedToStealth reveals while IS_FIRING_WEAPON.
-        logic.update_stealth_and_detection();
+        if let Err(error) = logic.update_stealth_and_detection() {
+            return BreadthCategoryResult { category: "economy_combat_variants".into(), ok: false, detail: format!("stealth update: {error}") };
+        }
         fire_break_ok &= logic.host_object(sid).is_some_and(|u| !u.status.stealthed);
 
         stealth_ok = hidden && detected_ok && fire_break_ok;
@@ -503,7 +507,13 @@ pub fn breadth_scripts_victory_hooks() -> BreadthCategoryResult {
             }
         }
     }
-    let _victory = logic.evaluate_victory_condition();
+    if let Err(error) = logic.evaluate_victory_condition() {
+        return BreadthCategoryResult {
+            category: "scripts_victory".into(),
+            ok: false,
+            detail: format!("victory evaluation: {error}"),
+        };
+    }
     // Pass if we exercised the real loader on an existing map (even empty scripts)
     // OR successfully loaded scripts with content.
     let ok = map_used != "none" || scripts_loaded;

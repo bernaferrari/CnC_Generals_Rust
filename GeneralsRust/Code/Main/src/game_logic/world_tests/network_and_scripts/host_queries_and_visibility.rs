@@ -609,7 +609,7 @@ fn live_host_script_unmanned_radar_stealth_apply() {
             "SET_STEALTH false stamps SCRIPT_UNSTEALTHED"
         );
     }
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     {
         let hero = logic.host_object(hero_id).expect("hero after tick");
         assert!(

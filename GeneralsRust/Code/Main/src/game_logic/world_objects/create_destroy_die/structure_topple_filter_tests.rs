@@ -124,6 +124,7 @@ fn actual_on_die_reads_death_type_from_its_same_id_owner() {
                         crate::game_logic::host_usa_pilot::HostDeathType::Normal
                     )
                     .unwrap()
+                    .expect("receiving Body accepts kill")
                     .destroyed
             );
             let rejected = owner.host_object(id).unwrap();
@@ -148,6 +149,7 @@ fn actual_on_die_reads_death_type_from_its_same_id_owner() {
                     crate::game_logic::host_usa_pilot::HostDeathType::Crushed
                 )
                 .unwrap()
+                .expect("receiving Body accepts kill")
                 .destroyed
             );
             assert!(
@@ -267,6 +269,7 @@ fn current_damage_type_is_observed_again_and_active_body_defaults_to_explosion()
                         crate::game_logic::host_usa_pilot::HostDeathType::Normal
                     )
                     .unwrap()
+                    .expect("receiving Body accepts kill")
                     .destroyed
             );
             assert_eq!(

@@ -159,6 +159,12 @@ pub struct Projectile {
     /// Live Object-owned THRUST and Physics continuation, framed by CPRJ.
     #[serde(skip)]
     pub(crate) missile_motion: Option<MissileMotion>,
+    /// Factory-created projectile Object generation and world epoch.
+    #[serde(skip)]
+    pub(crate) missile_actor_birth: Option<(u64, u64)>,
+    /// Impact pose captured before the same frame's PhysicsBehavior update.
+    #[serde(skip)]
+    pub(super) detonation_position: Option<Vec3>,
     /// C++ MissileAIUpdate `m_framesTillDecoyed` (absolute frame, 0 = none).
     #[serde(default)]
     pub frames_till_decoyed: u32,
@@ -241,6 +247,8 @@ impl Projectile {
             flight: None,
             flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime::default(),
             missile_motion: None,
+            missile_actor_birth: None,
+            detonation_position: None,
             frames_till_decoyed: 0,
             no_damage: false,
             cm_reported: false,
@@ -434,7 +442,9 @@ impl Projectile {
             self.projectile_lifecycle,
             Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
         ) {
-            self.missile_kill_self_started_frame = Some(self.elapsed_logic_frames());
+            if self.missile_kill_self_started_frame.is_none() {
+                self.missile_kill_self_started_frame = Some(self.elapsed_logic_frames());
+            }
             self.flight_runtime.missile_phase =
                 crate::game_logic::weapon_bootstrap::HostMissilePhase::Detonated;
             true
@@ -567,6 +577,9 @@ impl Projectile {
             dt,
             target_is_live,
             terrain,
+            None,
+            None,
+            None,
             &mut ProjectileFxCallbacks { fx, pose: publish },
         )
     }
@@ -575,8 +588,15 @@ impl Projectile {
         dt: f32,
         target_is_live: bool,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        mut actor: Option<&mut Object>,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        world_frame: Option<u32>,
         runtime: &mut dyn ProjectilePresentationRuntime,
     ) -> ProjectileStep {
+        if let Some(actor) = actor.as_deref() {
+            self.position = actor.get_position();
+            self.velocity = actor.movement.velocity;
+        }
         if dt.is_finite() && dt > 0.0 {
             self.lifetime += dt;
         }
@@ -591,13 +611,15 @@ impl Projectile {
 
         // C++ runs LAUNCH/IGNITION before airborneTargetGone (doAttackState).
         let frame = self.elapsed_logic_frames();
+        let physics_frame = world_frame.unwrap_or(frame);
         let missile_was_armed = self.flight_runtime.missile_armed;
         let ignition_ready = self.try_enter_missile_ignition(frame, runtime);
         if !ignition_ready {
             if let Some(motion) = &mut self.missile_motion {
-                motion.advance(self.target_position, false, false, false, false, frame, terrain);
-                self.position = motion.position();
-                self.velocity = motion.velocity();
+                let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
+                motion.advance(actor, self.target_position, false, false, false, false, physics_frame, terrain, partition.as_deref_mut());
+                self.position = actor.get_position();
+                self.velocity = actor.movement.velocity;
             }
             return ProjectileStep::Alive;
         }
@@ -610,6 +632,25 @@ impl Projectile {
         ) {
             let lifecycle_step = self.lifecycle_step(target_is_live);
             if lifecycle_step != ProjectileStep::Alive {
+                if matches!(lifecycle_step, ProjectileStep::Hold | ProjectileStep::DetonateAndHold) {
+                    let impact = self.position;
+                    if let Some(motion) = &mut self.missile_motion {
+                        let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
+                        let contact = motion.advance_held(actor, self.target_position, physics_frame, terrain, partition.as_deref_mut());
+                        self.position = actor.get_position();
+                        self.velocity = actor.movement.velocity;
+                        if contact && !self.missile_drawable_hidden() {
+                            let delta = self.position - self.target_position;
+                            let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                            if delta.y <= cell || delta.length_squared() <= (3.0 * cell).powi(2) {
+                                return self.detonation_step();
+                            }
+                        }
+                    }
+                    if lifecycle_step == ProjectileStep::DetonateAndHold {
+                        self.detonation_position = Some(impact);
+                    }
+                }
                 return lifecycle_step;
             }
         }
@@ -639,9 +680,10 @@ impl Projectile {
                         }),
                 _ => false,
             };
-            let ground_contact = motion.advance(goal, true, !expired, missile_was_armed, was_kill, frame, terrain);
-            self.position = motion.position();
-            self.velocity = motion.velocity();
+            let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
+            let ground_contact = motion.advance(actor, goal, true, !expired, missile_was_armed, was_kill, physics_frame, terrain, partition.as_deref_mut());
+            self.position = actor.get_position();
+            self.velocity = actor.movement.velocity;
             if ground_contact {
                 // MissileAIUpdate::projectileHandleCollision ignores a
                 // ground contact only when above and far from its AI goal.

@@ -20,7 +20,7 @@ fn missing_session_death_fx_does_not_play_a_foreign_global_sound() {
     let victim = world
         .create_object_for_player("FXDieOwner", 1, Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
-    let (hits, _) = world.apply_scud_area_at(Vec3::new(30.0, 0.0, 0.0), None, Team::USA, false);
+    let (hits, _) = world.apply_scud_area_at(Vec3::new(30.0, 0.0, 0.0), None, Team::USA, false).unwrap();
     assert!(hits > 0, "the actual lethal hit must reach the victim");
     let object = world
         .host_object(victim)

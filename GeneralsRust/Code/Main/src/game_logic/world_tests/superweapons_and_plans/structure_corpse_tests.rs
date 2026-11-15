@@ -185,7 +185,7 @@ End
     };
     // apply_host_damage executes the canonical body damage path and returns its
     // lethal transition; the normal caller then dispatches the one onDie boundary.
-    assert_eq!(world.apply_host_damage(id, 200.0), (true, false));
+    assert_eq!(world.apply_host_damage(id, 200.0).unwrap(), (true, false));
     assert_eq!(world.host_object(id).unwrap().health.current, 0.0);
     assert!(world.host_object(id).unwrap().status.destroyed);
     world.mark_object_for_destruction(id, None);

@@ -165,7 +165,7 @@ fn dynamic_water_uses_owned_frame_fractional_duration_and_terminal_damage() {
                 1
             );
             world.frame = 1;
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             assert_eq!(
                 world.host_object(id).unwrap().health.current,
                 100.0,
@@ -189,7 +189,7 @@ fn dynamic_water_uses_owned_frame_fractional_duration_and_terminal_damage() {
                 );
             }
             world.frame = 2;
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             assert_eq!(
                 world.host_object(id).unwrap().health.current,
                 90.0,
@@ -209,7 +209,7 @@ fn dynamic_water_uses_owned_frame_fractional_duration_and_terminal_damage() {
             assert_eq!(world.host_object(id).unwrap().health.current, 90.0);
             assert_eq!(handle.read().unwrap().dynamic_water_count(), 1);
             world.frame = 3;
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             assert_eq!(world.host_object(id).unwrap().health.current, 85.0);
         },
     );
@@ -272,7 +272,7 @@ fn water_admission_failure_preserves_existing_transition_and_continuation() {
                 })
                 .unwrap();
             world.frame = 1;
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             let handle = world.world_services.terrain().clone();
             let saved = handle.read().unwrap().snapshot_dynamic_water_entries();
             let mut malformed = saved.clone();
@@ -306,8 +306,8 @@ fn water_admission_failure_preserves_existing_transition_and_continuation() {
             for frame in [2, 3] {
                 world.frame = frame;
                 restored.frame = frame;
-                world.update_owned_water();
-                restored.update_owned_water();
+                world.update_owned_water().unwrap();
+                restored.update_owned_water().unwrap();
                 assert_eq!(
                     world.host_object(id).unwrap().health.current,
                     restored.host_object(restored_id).unwrap().health.current

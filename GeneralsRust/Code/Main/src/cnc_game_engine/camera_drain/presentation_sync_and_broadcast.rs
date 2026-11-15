@@ -433,6 +433,7 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn host_tick_game_client_presentation_shell(&mut self) {
         if let Err(error) = self.native_display.require_shell_slot() {
             log::error!("Native Client prefix rejected: {error}");
+            self.native_display.fail_shell(error);
             return;
         }
         self.game_client

@@ -394,8 +394,8 @@ mod anthrax_gamma_authored_tests {
             for frame in start..start + 10 {
                 world.set_current_frame(frame);
                 world.update_combat(&[id, target], LOGIC_FRAME_TIMESTEP).unwrap();
-                world.apply_owned_projectileless_delayed_damage();
-                let _ = world.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
+                world.apply_owned_projectileless_delayed_damage().unwrap();
+                let _ = world.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP).unwrap();
             }
             assert_eq!(world.host_object(target).unwrap().health.current, 1000.0 - damage, "shooter {id:?}");
         }

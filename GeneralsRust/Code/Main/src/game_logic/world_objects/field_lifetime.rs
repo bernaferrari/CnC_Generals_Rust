@@ -78,40 +78,40 @@ impl FieldLifetime {
 }
 
 impl GameLogic {
-    pub fn update_inferno_fire_field_objects(&mut self) {
+    pub fn update_inferno_fire_field_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_inferno_fire_field_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_inferno_fire_field_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.expire_field_lifetimes_with_effects(FieldLifetime::Fire, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.expire_field_lifetimes_with_effects(FieldLifetime::Fire, effects)
     }
 
-    pub fn update_anthrax_toxin_field_objects(&mut self) {
+    pub fn update_anthrax_toxin_field_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_anthrax_toxin_field_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_anthrax_toxin_field_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.expire_field_lifetimes_with_effects(FieldLifetime::Toxin, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.expire_field_lifetimes_with_effects(FieldLifetime::Toxin, effects)
     }
 
-    pub fn update_nuke_radiation_field_objects(&mut self) {
+    pub fn update_nuke_radiation_field_objects(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_nuke_radiation_field_objects_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_nuke_radiation_field_objects_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.expire_field_lifetimes_with_effects(FieldLifetime::Radiation, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.expire_field_lifetimes_with_effects(FieldLifetime::Radiation, effects)
     }
 
-    fn expire_field_lifetimes(&mut self, kind: FieldLifetime) {
+    fn expire_field_lifetimes(&mut self, kind: FieldLifetime) -> gamelogic::GameLogicResult<()> {
         self.expire_field_lifetimes_with_effects(kind, &mut Default::default())
     }
 
@@ -119,7 +119,7 @@ impl GameLogic {
         &mut self,
         kind: FieldLifetime,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         let hulk_override_frames = self.native_hulk_max_lifetime_override;
         let due: Vec<_> = self
@@ -146,7 +146,7 @@ impl GameLogic {
             };
             kind.consume_projection(object);
             if object.native_lifecycle.is_some() {
-                self.tick_native_lifetime_timers_with_effects(id, effects);
+                self.tick_native_lifetime_timers_with_effects(id, effects)?;
                 continue;
             }
             let deletion = matches!(kind, FieldLifetime::Fire);
@@ -171,7 +171,7 @@ impl GameLogic {
             // End the Object loan before immediate onDelete/onDie callbacks.
             if deletion {
                 // CPP DeletionUpdate.cpp:82: direct destruction bypasses Body.
-                self.destroy_object_with_effects(id, effects);
+                self.destroy_object_with_effects(id, effects)?;
             } else {
                 // CPP LifetimeUpdate.cpp:70 / Object.h:206 default kill input.
                 self.apply_owned_kill_with_effects(
@@ -179,8 +179,9 @@ impl GameLogic {
                     crate::game_logic::combat::DamageType::Unresistable,
                     crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                     effects,
-                );
+                )?;
             }
         }
+        Ok(())
     }
 }

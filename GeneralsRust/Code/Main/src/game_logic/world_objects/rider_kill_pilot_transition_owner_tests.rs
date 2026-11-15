@@ -64,7 +64,7 @@ fn moving_rider_kill_pilot_yields_to_the_receiving_world_before_its_tail() {
                         None,
                         &DamageHitContext::default(),
                     )
-                    .expect("owned RiderChange damage");
+                    .expect("owned RiderChange damage").expect("victim exists");
                 assert!(result.destroyed);
             }
 

@@ -318,7 +318,7 @@ fn captured_master_transfers_actual_slave_owner_before_repair_observation() {
     let (mut game, master, drone) = world();
     let (peer, _, peer_drone) = world();
     game.add_player(Player::new(1, Team::China, "captor", false));
-    assert!(game.transfer_object_to_player(master, 1));
+    assert!(game.transfer_object_to_player(master, 1).unwrap());
     game.update_owned_slaved_object(drone)
         .expect("valid slaved fixture");
     let slave = game.host_object(drone).unwrap();
@@ -703,7 +703,7 @@ fn named_master_team(game: &mut GameLogic, master: crate::game_logic::ObjectId) 
         let identity = team.read().unwrap().get_id();
         identity
     };
-    assert!(game.set_host_object_team(master, identity));
+    assert!(game.set_host_object_team(master, identity).unwrap());
     identity
 }
 

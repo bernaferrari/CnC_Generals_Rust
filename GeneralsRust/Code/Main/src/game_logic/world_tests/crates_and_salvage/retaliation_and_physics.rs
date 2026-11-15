@@ -54,6 +54,7 @@ fn damaged_can_be_repulsed_sets_temporary_repulsor() {
             &crate::game_logic::object::DamageHitContext::default(),
         )
         .unwrap()
+        .expect("receiving Body")
         .destroyed;
     assert!(!destroyed);
     {
@@ -212,6 +213,7 @@ fn start_new_game_applies_retail_enable_repulsors() {
             &crate::game_logic::object::DamageHitContext::default(),
         )
         .unwrap()
+        .expect("receiving Body")
         .destroyed;
     assert!(!destroyed);
     assert!(

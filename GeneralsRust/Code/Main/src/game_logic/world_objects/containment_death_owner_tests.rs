@@ -127,6 +127,7 @@ fn kill(owner: &mut GameLogic, id: ObjectId) {
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             )
             .unwrap()
+            .unwrap()
             .destroyed()
     );
 }
@@ -448,7 +449,7 @@ fn selling_cave_orders_shared_riders_through_sold_entrance_without_immediate_rem
     assert_eq!(peer.host_object(rider).unwrap().contained_by, Some(first));
     assert_ne!(peer.host_object(rider).unwrap().ai_state(), crate::game_logic::AIState::Exiting);
 
-    owner.update_owned_passenger_exit(rider);
+    owner.update_owned_passenger_exit(rider).unwrap();
     assert_eq!(owner.host_object(rider).unwrap().contained_by, None);
     assert!(owner.cave_system.contained_for_index(index).is_empty());
     assert_eq!(owner.cave_system.cross_exits, 1);
@@ -504,7 +505,7 @@ fn cave_evacuation_removes_the_receiving_shared_roster_once() {
     let (peer, peer_cave, peer_rider) = parsed_world("CaveContain", "", 100);
     assert_eq!((cave, rider), (peer_cave, peer_rider));
     let index = owner.host_object(cave).unwrap().cave_index;
-    assert!(owner.evacuate_container_now(cave, false));
+    assert!(owner.evacuate_container_now(cave, false).unwrap());
     assert!(owner.cave_system.contained_for_index(index).is_empty());
     assert_eq!(owner.cave_system.exits, 1);
     assert_eq!(owner.host_object(rider).unwrap().contained_by, None);

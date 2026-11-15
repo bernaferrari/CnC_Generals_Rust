@@ -476,7 +476,7 @@ fn troop_crawler_residual_detect_stealth_in_range() {
     // (crawler next-scan ~frame 6 at creation); one tick is not a scan.
     for f in 1..60u32 {
         game_logic.frame = f;
-        game_logic.update_stealth_and_detection();
+        game_logic.update_stealth_and_detection().unwrap();
         if game_logic
             .host_object(stealth_id)
             .is_some_and(|e| e.status.detected)
@@ -510,7 +510,7 @@ fn troop_crawler_residual_detect_stealth_in_range() {
     // FROM_CENTER_2D range gate).
     for f in 60..120u32 {
         game_logic.frame = f;
-        game_logic.update_stealth_and_detection();
+        game_logic.update_stealth_and_detection().unwrap();
     }
     {
         let e = game_logic.host_object(far_id).expect("far");
@@ -1831,7 +1831,7 @@ fn water_edge_damage_on_dry_to_wet_transition() {
     assert!((hp - 75.0).abs() < 1e-3, "hp={hp}");
 
     // API smoke: apply_water_rise_damage should not panic without terrain water.
-    let _ = logic.apply_water_rise_damage(999.0);
+    logic.apply_water_rise_damage(999.0).unwrap();
     let _ = logic.refresh_surface_cells_and_water_edge_damage(25.0);
 }
 

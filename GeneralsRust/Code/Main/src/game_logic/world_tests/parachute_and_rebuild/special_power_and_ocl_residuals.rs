@@ -658,6 +658,7 @@ fn host_upgrade_complete_helix_nuke_bomb_tags_helix() {
     assert!(
         logic
             .activate_helix_napalm_bomb(id, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("helix napalm activation")
             .is_some()
     );
 }
@@ -696,6 +697,7 @@ fn helix_nuke_bomb_maps_to_helix_napalm_residual() {
     assert!(
         logic
             .activate_helix_napalm_bomb(src, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("helix napalm activation")
             .is_none()
     );
     if let Some(o) = logic.host_object_mut(src) {
@@ -711,6 +713,7 @@ fn helix_nuke_bomb_maps_to_helix_napalm_residual() {
     assert!(
         logic
             .activate_helix_napalm_bomb(src, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("helix napalm activation")
             .is_some()
     );
     let _ = SpecialPowerType::HelixNukeBomb;
@@ -1213,7 +1216,7 @@ fn early_frenzy_and_emergency_repair_powers_activate() {
         glam::Vec3::new(10.0, 0.0, 0.0),
         Some(src),
         HostEmergencyRepairLevel::One,
-    ));
+    ).unwrap());
     let _ = SpecialPowerType::EarlyFrenzy;
     let _ = SpecialPowerType::EarlyEmergencyRepair;
 }

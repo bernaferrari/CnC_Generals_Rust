@@ -512,7 +512,7 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     // C++ StealthUpdate advances its owned phase during update; freezing a
     // presentation alone must never synthesize another pulse from frame time.
     logic.frame = 0;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     let opacity_a = logic.host_object(id).unwrap().camo_friendly_opacity;
     let phase_a = logic.host_object(id).unwrap().camo_opacity_pulse_phase;
     let a = PresentationFrame::build_from_logic(&mut logic, 0)
@@ -533,7 +533,7 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     );
     for frame in 1..=8 {
         logic.frame = frame;
-        logic.update_stealth_and_detection();
+        logic.update_stealth_and_detection().unwrap();
     }
     let opacity_b = logic.host_object(id).unwrap().camo_friendly_opacity;
     assert!(logic.host_object(id).unwrap().camo_opacity_pulse_phase > phase_a);

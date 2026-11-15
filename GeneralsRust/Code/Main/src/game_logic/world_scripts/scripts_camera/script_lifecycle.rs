@@ -44,7 +44,7 @@ impl GameLogic {
                         true,
                         interpreter,
                         effects,
-                    );
+                    )?;
                 }
             }
             Request::NamedDamage { unit, amount } => {
@@ -55,7 +55,7 @@ impl GameLogic {
                         false,
                         interpreter,
                         effects,
-                    );
+                    )?;
                 }
             }
             Request::TeamDamage { team, amount } => {
@@ -102,7 +102,7 @@ impl GameLogic {
                             true,
                             interpreter,
                             effects,
-                        );
+                        )?;
                     }
                 }
             }
@@ -167,7 +167,7 @@ impl GameLogic {
                 })
                 .collect();
             for id in containers {
-                self.evacuate_container_now_with_effects(id, false, effects);
+                self.evacuate_container_now_with_effects(id, false, effects)?;
             }
         }
         let members = {
@@ -200,7 +200,7 @@ impl GameLogic {
                 if ignore_dead && object.status.effectively_dead {
                     continue;
                 }
-                self.destroy_object_with_effects(id, effects);
+                self.destroy_object_with_effects(id, effects)?;
                 continue;
             }
             if object.status.destroyed
@@ -259,7 +259,7 @@ impl GameLogic {
                     true,
                     interpreter,
                     effects,
-                );
+                )?;
             }
         }
         Ok(())

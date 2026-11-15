@@ -400,9 +400,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::Sell { object_id } => {
                 // C++ MSG_SELL → currentlySelectedGroup->groupSell.
                 if command.selected_units.is_empty() {
-                    self.execute_sell(*object_id, command.player_id)
+                    self.execute_sell(*object_id, command.player_id).map_err(|error| error.to_string())?
                 } else {
-                    self.execute_sell_selected(&command.selected_units, command.player_id)
+                    self.execute_sell_selected(&command.selected_units, command.player_id).map_err(|error| error.to_string())?
                 }
             }
 
@@ -439,7 +439,7 @@ impl<'a> CommandExecutor<'a> {
             CommandType::Enter { target_id } => self
                 .execute_enter(&command.selected_units, *target_id)
                 .map_err(|error| error.to_string())?,
-            CommandType::Exit => self.execute_exit(&command.selected_units),
+            CommandType::Exit => self.execute_exit(&command.selected_units).map_err(|error| error.to_string())?,
             CommandType::Evacuate => self
                 .execute_evacuate(&command.selected_units)
                 .map_err(|error| error.to_string())?,
@@ -463,9 +463,9 @@ impl<'a> CommandExecutor<'a> {
                 self.execute_set_mine_clearing_detail(&command.selected_units, *enabled)
             }
             CommandType::GoProne => self.execute_go_prone(&command.selected_units),
-            CommandType::SetWeaponLock { slot, lock_type } => {
-                self.execute_set_weapon_lock(&command.selected_units, *slot, *lock_type)
-            }
+            CommandType::SetWeaponLock { slot, lock_type } => self
+                .execute_set_weapon_lock(&command.selected_units, *slot, *lock_type)
+                .map_err(|error| error.to_string())?,
             CommandType::ReleaseWeaponLock { lock_type } => {
                 self.execute_release_weapon_lock(&command.selected_units, *lock_type)
             }
@@ -539,12 +539,12 @@ impl<'a> CommandExecutor<'a> {
             CommandType::PlantRemoteDemoCharge { target_id } => self
                 .execute_plant_remote_demo_charge(&command.selected_units, *target_id)
                 .map_err(|error| error.to_string())?,
-            CommandType::DetonateRemoteDemoCharges => {
-                self.execute_detonate_remote_demo_charges(&command.selected_units)
-            }
-            CommandType::DemoTertiarySuicide => {
-                self.execute_demo_tertiary_suicide(&command.selected_units)
-            }
+            CommandType::DetonateRemoteDemoCharges => self
+                .execute_detonate_remote_demo_charges(&command.selected_units)
+                .map_err(|error| error.to_string())?,
+            CommandType::DemoTertiarySuicide => self
+                .execute_demo_tertiary_suicide(&command.selected_units)
+                .map_err(|error| error.to_string())?,
             CommandType::StealCashHack { target_id } => self
                 .execute_steal_cash_hack(&command.selected_units, *target_id)
                 .map_err(|error| error.to_string())?,
@@ -560,9 +560,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::PlantBoobyTrap { target_id } => self
                 .execute_plant_booby_trap(&command.selected_units, *target_id)
                 .map_err(|error| error.to_string())?,
-            CommandType::SwitchWeapons { slot } => {
-                self.execute_switch_weapons(&command.selected_units, *slot)
-            }
+            CommandType::SwitchWeapons { slot } => self
+                .execute_switch_weapons(&command.selected_units, *slot)
+                .map_err(|error| error.to_string())?,
             CommandType::ToggleOvercharge => {
                 self.execute_toggle_overcharge(&command.selected_units)
             }
@@ -587,6 +587,7 @@ impl<'a> CommandExecutor<'a> {
             } => self.execute_enable_retaliation(*player_index, *enabled),
             CommandType::SelfDestruct { transfer_to_ally } => {
                 self.execute_self_destruct(command.player_id, *transfer_to_ally)
+                    .map_err(|error| error.to_string())?
             }
             CommandType::ViewRadarAt { position } => self.execute_view_radar_at(*position),
 

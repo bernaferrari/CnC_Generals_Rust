@@ -175,7 +175,7 @@ fn both_original_types_defer_native_timer_and_stealth_except_held_override() {
             "source StealthUpdate mask processes HELD even mixed"
         );
         object.set_status_disabled_held(false);
-        world.tick_native_lifetime_timers(id);
+        world.tick_native_lifetime_timers(id).unwrap();
         assert!(world.objects[&id].is_alive());
         assert!(
             world.objects[&id]
@@ -198,7 +198,7 @@ fn both_original_types_defer_native_timer_and_stealth_except_held_override() {
             .unwrap()
             .tick_remaining_disabled(20);
         assert!(world.objects[&id].stealth_or_detector_update_processes());
-        world.tick_native_lifetime_timers(id);
+        world.tick_native_lifetime_timers(id).unwrap();
         assert!(!world.objects[&id].is_alive());
     }
 }

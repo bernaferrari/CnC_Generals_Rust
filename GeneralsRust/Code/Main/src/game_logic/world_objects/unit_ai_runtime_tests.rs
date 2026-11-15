@@ -295,7 +295,7 @@ fn unit_ai_runtime_query_clone_and_live_crush_reinsert_preserve_existing_state()
 
     // This real physics API extracts and reinserts the same crushee to split
     // mutable borrows; it is not a new admission or a new AI state lifetime.
-    assert!(!world.apply_overlap_crush_check(crusher_id, id, false));
+    assert!(!world.apply_overlap_crush_check(crusher_id, id, false).unwrap());
     assert_eq!(runtime(&world, id), expected);
     assert_eq!(
         world.host_object(id).unwrap().visual_object_generation,

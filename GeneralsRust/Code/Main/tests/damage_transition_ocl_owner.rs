@@ -73,11 +73,11 @@ fn same_id_transition_ocl_uses_the_receiving_world_synchronously() {
     let (mut peer, peer_id) = world("PeerTransitionChild");
     assert_eq!(first_id, peer_id);
 
-    first.apply_host_damage(first_id, 60.0);
+    first.apply_host_damage(first_id, 60.0).unwrap();
     assert_eq!(children(&first), vec!["FirstTransitionChild".to_owned()]);
     assert!(children(&peer).is_empty());
 
-    peer.apply_host_damage(peer_id, 60.0);
+    peer.apply_host_damage(peer_id, 60.0).unwrap();
     assert_eq!(children(&peer), vec!["PeerTransitionChild".to_owned()]);
     assert_eq!(children(&first), vec!["FirstTransitionChild".to_owned()]);
 }
@@ -104,7 +104,7 @@ fn body_damage_retires_only_the_receiving_worlds_particles_immediately() {
         None,
     );
 
-    first.apply_host_damage(first_id, 60.0);
+    first.apply_host_damage(first_id, 60.0).unwrap();
     assert!(!first.combat_particles().get(first_particle).unwrap().active);
     assert!(peer.combat_particles().get(peer_particle).unwrap().active);
 }
@@ -121,8 +121,8 @@ fn emergency_repair_updates_receiving_body_without_replaying_damage_effects() {
 
     // 100/400 is ReallyDamaged; Level One repairs 100 HP to 200/400
     // (Damaged), which has the supported DamagedOCL1 slot.
-    owner.apply_host_damage(owner_id, 300.0);
-    peer.apply_host_damage(peer_id, 300.0);
+    owner.apply_host_damage(owner_id, 300.0).unwrap();
+    peer.apply_host_damage(peer_id, 300.0).unwrap();
     assert_eq!(owner.host_object(owner_id).unwrap().health.current, 100.0);
     assert_eq!(peer.host_object(peer_id).unwrap().health.current, 100.0);
 
@@ -133,7 +133,7 @@ fn emergency_repair_updates_receiving_body_without_replaying_damage_effects() {
             glam::Vec3::ZERO,
             None,
             HostEmergencyRepairLevel::One,
-        ));
+        ).unwrap());
     });
 
     let healed = owner

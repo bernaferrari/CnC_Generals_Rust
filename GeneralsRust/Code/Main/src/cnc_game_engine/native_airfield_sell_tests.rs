@@ -215,7 +215,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                     view: Some(&mut *runtime),
                     ..Default::default()
 },
-            ));
+            ).unwrap());
             let object = &world.objects[&jet];
             assert_eq!(
                 object.health.current, 0.,
@@ -331,7 +331,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                     view: Some(&mut *runtime),
                     ..Default::default()
 },
-            ));
+            ).unwrap());
             assert_eq!(peer.objects[&peer_jet].health.current, 0.);
             assert_eq!(
                 runtime.drawables.binding_key(EPOCH + 1, peer_jet.0),

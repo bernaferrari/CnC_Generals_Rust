@@ -139,7 +139,7 @@ fn camo_netting_upgrade_stealths_gla_structures() {
     );
     drop(tunnel);
     game_logic.frame = cloak_at.max(game_logic.frame);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.host_object(cc_id).expect("cc").status.stealthed,
         "Slth Command Center cloaks after StealthDelay"
@@ -278,11 +278,11 @@ fn chem_demo_trap_gamma_and_demo_he_residual() {
         .expect("enemy");
     let zones_before = game_logic.toxin_tractor_registry().zones_spawned;
     let hp_before = game_logic.host_object(enemy).unwrap().health.current;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     game_logic.frame = game_logic
         .frame
         .saturating_add(crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES);
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
     let enemy_after = game_logic.host_object(enemy);
     let damaged = enemy_after
@@ -320,11 +320,11 @@ fn chem_demo_trap_gamma_and_demo_he_residual() {
         .expect("near enemy");
     let far_hp = game_logic.host_object(far2).unwrap().health.current;
     let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     game_logic.frame = game_logic
         .frame
         .saturating_add(crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES);
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert!(
         game_logic.mine_residual_proximity_detonations() >= 2,
         "Demo HE trap must proximity detonate"

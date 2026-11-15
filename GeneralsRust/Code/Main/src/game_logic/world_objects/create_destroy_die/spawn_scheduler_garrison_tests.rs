@@ -233,7 +233,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         HostHiveDamageClass::PropagateToSlaves,
         Some((999.0, 999.0)), // position is resolved from the actual source Object
         Some(shooter),
-    );
+    ).unwrap();
     assert_eq!(
         first
             .host_object(ObjectId(first_roster[0]))
@@ -269,7 +269,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         None,
-    );
+    ).unwrap();
     assert_eq!(
         first.host_object(site).unwrap().health.current,
         site_health - 7.0
@@ -281,7 +281,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(shooter),
-    );
+    ).unwrap();
     assert_eq!(roster(&first, site), first_roster[1..]);
     let tail = capture_lifecycle_tail(&first).expect("capture ordered replacement deadline");
     let record = tail
@@ -298,7 +298,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(peer_shooter),
-    );
+    ).unwrap();
     let peer_tail = capture_lifecycle_tail(&peer).expect("capture peer replacement deadline");
     let peer_record = peer_tail
         .spawn_behavior_rosters
@@ -332,7 +332,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(active_source),
-    );
+    ).unwrap();
     assert_eq!(
         active_body
             .host_object(ObjectId(active_children[0]))
@@ -406,14 +406,14 @@ fn hive_damage_masks_follow_receiving_body_and_source() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(shooter),
-    );
+    ).unwrap();
     peer.apply_host_hive_damage_from(
         peer_site,
         10.0,
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(peer_shooter),
-    );
+    ).unwrap();
     assert!(roster(&first, site).is_empty());
     assert_eq!(peer.host_object(peer_child).unwrap().health.current, 100.0);
     assert_eq!(first.host_object(site).unwrap().health.current, 1000.0);
@@ -426,7 +426,7 @@ fn hive_damage_masks_follow_receiving_body_and_source() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(shooter),
-    );
+    ).unwrap();
     assert_eq!(first.host_object(site).unwrap().health.current, 1000.0);
     first.apply_host_hive_damage_from(
         site,
@@ -434,7 +434,7 @@ fn hive_damage_masks_follow_receiving_body_and_source() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         None,
-    );
+    ).unwrap();
     assert_eq!(first.host_object(site).unwrap().health.current, 990.0);
 }
 }

@@ -51,13 +51,13 @@ fn same_named_create_object_die_ocl_uses_receiving_world_and_selects_one_candida
 
     // Each C++ onDie-equivalent resolves the same OCL identity against its
     // own immutable catalog. Count=1 chooses one candidate, never both.
-    first.apply_host_damage(first_id, 1000.0);
+    first.apply_host_damage(first_id, 1000.0).unwrap();
     let first_children = spawned_templates(&first);
     assert_eq!(first_children.len(), 1);
     assert!(first_children[0].starts_with("FirstChild"));
     assert!(spawned_templates(&second).is_empty());
 
-    second.apply_host_damage(second_id, 1000.0);
+    second.apply_host_damage(second_id, 1000.0).unwrap();
     let second_children = spawned_templates(&second);
     assert_eq!(second_children.len(), 1);
     assert!(second_children[0].starts_with("SecondChild"));
@@ -69,13 +69,13 @@ fn same_named_create_object_die_ocl_uses_receiving_world_and_selects_one_candida
 #[test]
 fn receiving_zero_count_and_missing_ocl_do_not_invent_spawns() {
     let (mut zero, zero_id) = world(true, "ZeroCountList", &["ZeroCountChild"], 0);
-    zero.apply_host_damage(zero_id, 1000.0);
+    zero.apply_host_damage(zero_id, 1000.0).unwrap();
     assert!(spawned_templates(&zero).is_empty());
 
     // This identity has a legacy one-name peel, but the receiving owner's
     // missing OCL is the C++ null handle and must not select that fallback.
     let (mut missing, missing_id) = world(false, "OCL_PoisonFieldSmall", &["PoisonFieldSmall"], 1);
-    missing.apply_host_damage(missing_id, 1000.0);
+    missing.apply_host_damage(missing_id, 1000.0).unwrap();
     assert!(spawned_templates(&missing).is_empty());
 }
 
@@ -90,7 +90,7 @@ fn standalone_body_pending_receipt_resolves_through_the_receiving_owner() {
         assert!(object.pending_create_object_die_spawns.is_empty());
     }
     assert!(!spawned_templates(&game).contains(&"PendingChild".to_owned()));
-    game.apply_pending_create_object_die(victim);
+    game.apply_pending_create_object_die(victim).unwrap();
     assert!(spawned_templates(&game).contains(&"PendingChild".to_owned()));
 }
 

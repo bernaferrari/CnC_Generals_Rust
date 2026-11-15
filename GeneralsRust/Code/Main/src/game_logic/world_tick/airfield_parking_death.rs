@@ -66,14 +66,14 @@ impl GameLogic {
         &mut self,
         airfield_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let Some(capacity) = self
             .objects
             .get(&airfield_id)
             .and_then(|object| object.thing().template.parking_place.as_ref())
             .and_then(|metadata| metadata.capacity())
         else {
-            return 0;
+            return Ok(0);
         };
         self.airfield_parking_spaces
             .entry(airfield_id)
@@ -107,12 +107,12 @@ impl GameLogic {
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 presentation_effects,
-            );
+            )?;
             if result.is_some_and(|result| result.destroyed) {
                 killed = killed.saturating_add(1);
             }
         }
         self.purge_dead_airfield_reservations(airfield_id);
-        killed
+        Ok(killed)
     }
 }

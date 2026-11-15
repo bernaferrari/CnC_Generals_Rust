@@ -13,7 +13,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_stealth_fighter_residual_at_with_effects(
             impact,
             source,
@@ -28,7 +28,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_bunker_buster::{
             UPGRADE_AMERICA_BUNKER_BUSTERS, should_apply_bunker_buster,
         };
@@ -126,7 +126,7 @@ impl GameLogic {
                         STEALTH_FIGHTER_DAMAGE,
                         source,
                         presentation_effects,
-                    );
+                    )?;
                 hits = hits.saturating_add(1).saturating_add(kills);
                 if destroyed {
                     any_destroyed = true;
@@ -191,7 +191,7 @@ impl GameLogic {
                         ),
                         None,
                         presentation_effects,
-                    );
+                    )?;
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -217,7 +217,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Apply the Uranium Shells tag to a carrier of the authored Overlord gun.
@@ -246,7 +246,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_overlord_gun_residual_at_with_effects(
             impact,
             source,
@@ -261,7 +261,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_overlord_gun::{
             OVERLORD_DAMAGE_TYPE, OVERLORD_DEATH_TYPE, OVERLORD_FIRE_AUDIO,
             OVERLORD_SECONDARY_RADIUS, has_uranium_shells_upgrade,
@@ -271,13 +271,13 @@ impl GameLogic {
 
         let (source_team, has_uranium) = {
             let Some(sid) = source else {
-                return (0, false);
+                return Ok((0, false));
             };
             let Some(obj) = self.objects.get(&sid) else {
-                return (0, false);
+                return Ok((0, false));
             };
             if !obj.authors_overlord_tank_gun() {
-                return (0, false);
+                return Ok((0, false));
             }
             (obj.team, has_uranium_shells_upgrade(&obj.applied_upgrades))
         };
@@ -388,7 +388,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -413,7 +413,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Apply AP Bullets residual tag + rebind Jarmen Kell sniper.
@@ -490,7 +490,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_usa_tank_gun_residual_at_with_effects(
             impact,
             source,
@@ -505,7 +505,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_usa_tanks::{
             CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO, USA_TANK_GUN_DAMAGE, USA_TANK_GUN_DAMAGE_TYPE,
             USA_TANK_GUN_DEATH_TYPE, USA_TANK_GUN_PRIMARY_RADIUS, is_crusader_template,
@@ -515,15 +515,15 @@ impl GameLogic {
 
         let (source_team, damage, is_paladin) = {
             let Some(sid) = source else {
-                return (0, false);
+                return Ok((0, false));
             };
             let Some(obj) = self.objects.get(&sid) else {
-                return (0, false);
+                return Ok((0, false));
             };
             let is_c = is_crusader_template(&obj.template_name);
             let is_p = is_paladin_template(&obj.template_name);
             if !is_c && !is_p {
-                return (0, false);
+                return Ok((0, false));
             }
             let dmg = obj
                 .weapon
@@ -640,7 +640,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -658,6 +658,6 @@ impl GameLogic {
             CRUSADER_FIRE_AUDIO
         };
         let _ = _audio;
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 }

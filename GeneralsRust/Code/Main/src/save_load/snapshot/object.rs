@@ -388,6 +388,9 @@ pub enum ModuleSnapshot {
         cave_index: i32,
     },
     QueueExit(crate::game_logic::buildings::ProductionExitRuntimeState),
+    /// Authoritative Object transform, in column-major order. Older records
+    /// without this capsule retain their historical position/yaw restore.
+    ObjectTransform([f32; 16]),
 }
 
 /// AI update module snapshot
@@ -1670,6 +1673,7 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::OpenContainDoor(_) => 18,
             ModuleSnapshot::CaveContain { .. } => 19,
             ModuleSnapshot::QueueExit(_) => 20,
+            ModuleSnapshot::ObjectTransform(_) => 21,
         };
         xfer.xfer_u32(&mut disc)?;
         if xfer.get_mode() == XferMode::Save {
@@ -1684,6 +1688,11 @@ impl XferData for ModuleSnapshot {
                 ModuleSnapshot::Upgrade(d) => d.xfer(xfer)?,
                 ModuleSnapshot::DozerTasks(d) => d.xfer(xfer)?,
                 ModuleSnapshot::BaseAi(d) => d.xfer(xfer)?,
+                ModuleSnapshot::ObjectTransform(matrix) => {
+                    for value in matrix {
+                        xfer.xfer_f32(value)?;
+                    }
+                }
                 ModuleSnapshot::ActiveWeaponStatus(status) => {
                     let mut value = *status as u8;
                     xfer.xfer_u8(&mut value)?;
@@ -1791,6 +1800,13 @@ impl XferData for ModuleSnapshot {
                     let mut d = super::base_ai_machine_persist::BaseAiObjectSnapshot::default();
                     d.xfer(xfer)?;
                     ModuleSnapshot::BaseAi(d)
+                }
+                21 => {
+                    let mut matrix = [0.0; 16];
+                    for value in &mut matrix {
+                        xfer.xfer_f32(value)?;
+                    }
+                    ModuleSnapshot::ObjectTransform(matrix)
                 }
                 16 => {
                     let mut value = 0;

@@ -65,24 +65,24 @@ mod owned_receipt_tests {
         let (mut owner, object) = world();
         let (mut peer, peer_object) = world();
         assert_eq!(object, peer_object);
-        assert!(owner.transfer_object_to_player(object, 1));
+        assert!(owner.transfer_object_to_player(object, 1).unwrap());
         assert_eq!(owner.host_object(object).unwrap().team, Team::USA);
         assert_eq!(owner.host_object(object).unwrap().owner_player_id, Some(1));
         owner.ownership_events.complete_boundary();
-        assert!(peer.transfer_object_to_player(peer_object, 2));
+        assert!(peer.transfer_object_to_player(peer_object, 2).unwrap());
         peer.ownership_events.complete_boundary();
         assert_eq!(peer.ownership_events.take_completed().len(), 1);
         peer.reset();
-        assert!(owner.transfer_object_to_player(object, 2));
+        assert!(owner.transfer_object_to_player(object, 2).unwrap());
         assert_eq!(owner.host_object(object).unwrap().team, Team::GLA);
         assert_eq!(owner.host_object(object).unwrap().owner_player_id, Some(2));
         owner.ownership_events.complete_boundary();
-        assert!(owner.transfer_object_to_player(object, 2));
+        assert!(owner.transfer_object_to_player(object, 2).unwrap());
         owner.ownership_events.complete_boundary();
         let builder = crate::save_load::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&owner).unwrap();
         let (mut peer, peer_object) = world();
-        assert!(peer.transfer_object_to_player(peer_object, 1));
+        assert!(peer.transfer_object_to_player(peer_object, 1).unwrap());
         builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
         assert!(peer.ownership_events.take_completed().is_empty());
         assert_eq!(peer.host_object(object).unwrap().owner_player_id, Some(2));
@@ -104,7 +104,7 @@ mod owned_receipt_tests {
                 .iter()
                 .any(|event| matches!(event, PresentationEvent::OwnerChanged { .. }))
         );
-        assert!(peer.transfer_object_to_player(object, 0));
+        assert!(peer.transfer_object_to_player(object, 0).unwrap());
         assert_eq!(peer.host_object(object).unwrap().owner_player_id, Some(0));
         assert_eq!(owner.host_object(object).unwrap().owner_player_id, Some(2));
     }
@@ -139,7 +139,7 @@ mod owned_receipt_tests {
                 &DamageHitContext::default(),
             )
             .unwrap();
-        assert!(!result.destroyed);
+        assert!(!result.unwrap().destroyed);
         let vehicle = owner.host_object(tank).unwrap();
         assert!(vehicle.is_unmanned());
         assert_eq!(vehicle.health.current, 200.0);

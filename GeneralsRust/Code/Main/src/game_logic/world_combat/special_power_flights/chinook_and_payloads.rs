@@ -116,7 +116,7 @@ impl GameLogic {
             // OnRemoving may access the owner and passengers. Never hold an
             // Object borrow while invoking the immediate contain-domain action.
             if let Some(effect) = effect {
-                if self.evacuate_chinook_flight_with_effects(id, presentation_effects) {
+                if self.evacuate_chinook_flight_with_effects(id, presentation_effects)? {
                     if let Some(obj) = self.objects.get_mut(&id) {
                         let p = obj.get_position();
                         let remaining = obj.contained_units().len() as u32;

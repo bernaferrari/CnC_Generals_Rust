@@ -1246,7 +1246,7 @@ fn boarding_save_and_evacuation_preserve_session_bonus_ownership() {
         restored.weapon_cursor_radii(passenger, 0).unwrap().damage,
         50.0
     );
-    assert!(owner.evacuate_container_now(carrier, false));
+    assert!(owner.evacuate_container_now(carrier, false).unwrap());
     assert_eq!(owner.host_object(passenger).unwrap().contained_by, None);
     assert_eq!(
         owner.weapon_cursor_radii(passenger, 0).unwrap().damage,

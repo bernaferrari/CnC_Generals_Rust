@@ -1480,7 +1480,52 @@ fn parse_map_header_meta(map_name: &str, path: &std::path::Path) -> Option<MapMe
     Some(meta)
 }
 
-fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut WindowEventEffects<'_>) {
+enum SkirmishStartResult {
+    Done,
+    Error(String),
+    CheckCd,
+}
+
+/// Run after both the selected gadget and its owner have been released.
+pub(crate) struct PendingSkirmishStart {
+    owner: crate::gui::window_manager::WindowManagerOwner,
+}
+
+impl PendingSkirmishStart {
+    pub(crate) fn complete(self, effects: &mut WindowEventEffects<'_>) {
+        complete_skirmish_start(&self.owner, effects);
+    }
+}
+
+fn skirmish_cd_retry() -> crate::cd_check::GameStartCallback {
+    Box::new(|effects| {
+        let owner = effects.window_manager_owner.expect("skirmish CD retry requires receiving owner");
+        complete_skirmish_start(owner, effects);
+    })
+}
+
+fn complete_skirmish_start(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    effects: &mut WindowEventEffects<'_>,
+) {
+    let result = with_state_on_owner(Some(owner), |state| start_skirmish_game(state, effects));
+    match result {
+        SkirmishStartResult::Done => {}
+        SkirmishStartResult::Error(body) => {
+            effects.with_manager(|manager, effects| {
+                message_box_ok(&GameText::fetch("GUI:ErrorStartingGame"), &body, None, manager, effects)
+            });
+        }
+        SkirmishStartResult::CheckCd => {
+            crate::cd_check::check_for_cd_at_game_start(
+                skirmish_cd_retry(),
+                effects,
+            );
+        }
+    }
+}
+
+fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut WindowEventEffects<'_>) -> SkirmishStartResult {
     ensure_default_slots(&state.setup);
     // Wave 837/840: prefer options/map-select residual over a stale shell/default map.
     // ShellMapMD must never beat a non-shell control/setup selection.
@@ -1537,7 +1582,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
         log::warn!("Skirmish Start aborted: no map");
         state.button_pushed = false;
         set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
-        return;
+        return SkirmishStartResult::Done;
     }
     log::info!("Skirmish Start map={map_name}");
 
@@ -1559,16 +1604,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
         drop(cache_guard);
         state.button_pushed = false;
         set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
-        let _ = effects.with_manager(|receiving_manager, effects| {
-            message_box_ok(
-                &GameText::fetch("GUI:ErrorStartingGame"),
-                &GameText::fetch("GUI:CantFindMap"),
-                None,
-                receiving_manager,
-                effects,
-            )
-        });
-        return;
+        return SkirmishStartResult::Error(GameText::fetch("GUI:CantFindMap"));
     };
 
     let player_count = {
@@ -1585,19 +1621,12 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
             GameText::fetch("GUI:TooManyPlayers"),
             meta.num_players.max(0)
         );
-        let _ = effects.with_manager(|receiving_manager, effects| {
-            message_box_ok(
-                &GameText::fetch("GUI:ErrorStartingGame"),
-                &body,
-                None,
-                receiving_manager,
-                effects,
-            )
-        });
-        return;
+        return SkirmishStartResult::Error(body);
     }
-    if !check_for_cd_at_game_start(state, effects) {
-        return;
+    if !is_first_cd_present() {
+        state.button_pushed = false;
+        set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+        return SkirmishStartResult::CheckCd;
     }
 
     let mut max_fps = effects
@@ -1676,6 +1705,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     msg.set_skirmish_launch(descriptor);
     effects.emitted_messages.push(msg);
     log::info!("Skirmish Start posted NewGame skirmish={is_skirmish} fps={max_fps} map={map_name}");
+    SkirmishStartResult::Done
 }
 
 fn is_first_cd_present() -> bool {
@@ -1683,23 +1713,6 @@ fn is_first_cd_present() -> bool {
     crate::cd_check::is_first_cd_present()
 }
 
-fn check_for_cd_at_game_start(
-    state: &mut SkirmishGameOptionsState,
-    effects: &mut WindowEventEffects<'_>,
-) -> bool {
-    if is_first_cd_present() {
-        return true;
-    }
-    state.button_pushed = false;
-    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
-    crate::cd_check::check_for_cd_at_game_start(
-        Box::new(|effects| {
-            with_state_on_owner(effects.window_manager_owner, |state| start_skirmish_game(state, effects));
-        }),
-        effects,
-    );
-    false
-}
 
 pub fn skirmish_game_options_menu_init(
     layout: &WindowLayout,
@@ -2066,6 +2079,7 @@ pub fn simulate_skirmish_start_button_gadget_selected(
                 effects,
             )
         };
+        effects.complete_window_callbacks();
         if matches!(handled, WindowMsgHandled::Handled) || skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
             return true;
         }
@@ -2074,14 +2088,17 @@ pub fn simulate_skirmish_start_button_gadget_selected(
     // through start_skirmish_game so NewGame posts when map/slots are latched.
     // Return true only when button stays pushed (start_skirmish_game clears it on fail).
     set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
-    with_state_on_owner(owner, |state| {
+    let start = with_state_on_owner(owner, |state| {
         if state.button_pushed || skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
-            return;
+            return false;
         }
         state.button_pushed = true;
         set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
-        start_skirmish_game(state, effects);
+        true
     });
+    if start {
+        complete_skirmish_start(owner.expect("skirmish start requires WindowManagerOwner"), effects);
+    }
     // start_skirmish_game clears button_pushed on map-missing / too-many-players fail.
     skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"))
 }
@@ -2347,7 +2364,11 @@ pub fn skirmish_game_options_menu_system(
             if control_id == state.button_start_id {
                 state.button_pushed = true;
                 set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
-                start_skirmish_game(state, effects);
+                effects.queue_window_callback(crate::gui::game_window::PendingWindowCallback::SkirmishStart(
+                    PendingSkirmishStart {
+                        owner: effects.window_manager_owner.expect("skirmish start requires WindowManagerOwner").clone(),
+                    },
+                ));
                 handled = true;
                 return;
             }
@@ -2556,6 +2577,92 @@ mod tests {
     }
 
     #[test]
+    fn physical_start_dispatch_launches_only_receiving_owner() {
+        use crate::gui::gadgets::PushButton;
+        use crate::gui::window_manager::{
+            dispatch_os_mouse_to_window_manager_for_owner, WindowManagerOwner, WindowMouseFacts,
+        };
+        use crate::gui::window_script::WindowDefinition;
+        use std::io::Write;
+
+        crate::test_support::ensure_ambient_host();
+        let dir = tempfile::tempdir().unwrap();
+        let map_path = dir.path().join("physical_start.map");
+        std::fs::File::create(&map_path).unwrap().write_all(b"map").unwrap();
+        let map = map_path.to_string_lossy().into_owned();
+        let first = WindowManagerOwner::new();
+        let peer = WindowManagerOwner::new();
+        let button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
+        let first_selections = Rc::new(std::cell::Cell::new(0));
+        let peer_selections = Rc::new(std::cell::Cell::new(0));
+        for (owner, selections) in [(&first, &first_selections), (&peer, &peer_selections)] {
+            let selections = Rc::clone(selections);
+            owner.with_manager(|manager| {
+                let parent = manager.test_create_window(None, 0, 0, 200, 100).unwrap();
+                parent.borrow_mut().set_system_callback_with_message_sink(
+                    move |window, msg, data1, data2, effects| {
+                        if msg == WindowMessage::GadgetSelected && data1 as i32 == button_id {
+                            selections.set(selections.get() + 1);
+                        }
+                        skirmish_game_options_menu_system(window, msg, data1, data2, effects)
+                    },
+                );
+                let button = manager
+                    .test_create_window_with_id(Some(&parent), 10, 10, 80, 30, button_id)
+                    .unwrap();
+                button.borrow_mut().set_widget(crate::gui::WindowWidget::PushButton(
+                    PushButton::new(button_id as u32, 0, 0, 80, 30),
+                ));
+                manager.bind_window_callbacks(
+                    &mut button.borrow_mut(),
+                    &WindowDefinition {
+                        input_callback: "GadgetPushButtonInput".into(),
+                        ..Default::default()
+                    },
+                );
+            });
+            with_state_on_owner(Some(owner), |state| {
+                state.button_start_id = button_id;
+                state.slider_game_speed_id = name_to_id("SkirmishGameOptionsMenu.wnd:SliderGameSpeed");
+                state.selected_map = Some(map.clone());
+            });
+        }
+        with_state_on_owner(Some(&peer), |state| {
+            state.selected_map = Some("Maps/Peer/Peer.map".into());
+        });
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&first);
+        effects.menu_world = Some(Default::default());
+        for msg in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
+            assert_eq!(
+                dispatch_os_mouse_to_window_manager_for_owner(
+                    &first, msg, 15, 15, WindowMouseFacts::default(), &mut effects,
+                ),
+                crate::gui::game_window::WindowInputReturnCode::Used,
+            );
+        }
+        assert_eq!(first_selections.get(), 1);
+        assert_eq!(peer_selections.get(), 0);
+        assert_eq!(
+            effects.emitted_messages.iter()
+                .filter(|message| message.get_type() == &GameMessageType::NewGame)
+                .count(),
+            1,
+        );
+        let launch = effects.emitted_messages.iter()
+            .find_map(|message| message.skirmish_launch())
+            .expect("physical start must carry its receiving lobby");
+        assert_eq!(launch.map, map);
+        with_state_on_owner(Some(&first), |state| assert!(state.button_pushed));
+        with_state_on_owner(Some(&peer), |state| {
+            assert!(!state.button_pushed);
+            assert_eq!(state.selected_map.as_deref(), Some("Maps/Peer/Peer.map"));
+        });
+        assert!(!skirmish_button_pushed(&peer));
+    }
+
+    #[test]
     fn os_wnd_skirmish_start_hits_button_start_then_start_skirmish_game() {
         crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
@@ -2617,6 +2724,49 @@ mod ownership_isolation_tests {
     use super::*;
     use crate::gui::window_manager::WindowManagerOwner;
     use std::rc::Rc;
+
+    #[test]
+    fn cd_retry_uses_receiving_owner_and_does_not_keep_dialog_tree_alive() {
+        use std::io::Write;
+
+        crate::test_support::ensure_ambient_host();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("retry.map");
+        std::fs::File::create(&path).unwrap().write_all(b"map").unwrap();
+        let map = path.to_string_lossy().into_owned();
+        let owner = WindowManagerOwner::new();
+        let peer = WindowManagerOwner::new();
+        with_state_on_owner(Some(&owner), |state| state.selected_map = Some(map.clone()));
+        with_state_on_owner(Some(&peer), |state| state.selected_map = Some("Maps/Peer/Peer.map".into()));
+
+        let mut messages = Vec::new();
+        {
+            let mut effects = WindowEventEffects::new(&mut messages);
+            effects.window_manager_owner = Some(&owner);
+            effects.menu_world = Some(Default::default());
+            skirmish_cd_retry()(&mut effects);
+        }
+        assert_eq!(
+            messages.iter().find_map(|message| message.skirmish_launch()).unwrap().map,
+            map,
+        );
+        with_state_on_owner(Some(&peer), |state| {
+            assert_eq!(state.selected_map.as_deref(), Some("Maps/Peer/Peer.map"));
+        });
+
+        let weak_dialog = owner.with_manager(|manager| {
+            let dialog = manager.test_create_window(None, 0, 0, 20, 20).unwrap();
+            dialog.borrow_mut().set_user_data(Rc::new(
+                crate::gui::callbacks::message_box::WindowMessageBoxData::new(
+                    None, None, Some(skirmish_cd_retry()), None,
+                ),
+            ));
+            Rc::downgrade(&dialog)
+        });
+        assert!(weak_dialog.upgrade().is_some());
+        drop(owner);
+        assert!(weak_dialog.upgrade().is_none(), "dialog callback must not retain its owner");
+    }
 
     #[test]
     fn two_same_thread_owners_with_matching_window_ids_keep_independent_skirmish_state() {

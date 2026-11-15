@@ -257,7 +257,7 @@ impl<'a> CommandExecutor<'a> {
             || obj.contained_by.is_some()
     }
 
-    pub(super) fn execute_exit(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(super) fn execute_exit(&mut self, units: &[ObjectId]) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut to_unload: Vec<(ObjectId, Option<ObjectId>, Vec3)> = Vec::new();
         let mut seen_units: HashSet<ObjectId> = HashSet::new();
@@ -439,7 +439,7 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if to_unload.is_empty() {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
 
         // C++ AIUpdateInterface::privateEvacuate → markAllPassengersDetected
@@ -542,7 +542,7 @@ impl<'a> CommandExecutor<'a> {
                 Ok(exited) => exited,
                 Err(error) => {
                     log::error!("Cave owner restoration failed: {error}");
-                    return CommandResult::InvalidCommand;
+                    return Ok(CommandResult::InvalidCommand);
                 }
             };
 
@@ -553,7 +553,7 @@ impl<'a> CommandExecutor<'a> {
                         container_id,
                         unit_id,
                         &mut self.ui,
-                    );
+                    )?;
                 }
             }
 
@@ -689,7 +689,7 @@ impl<'a> CommandExecutor<'a> {
                 if let Some(cid) = container_id {
                     let _ = self
                         .game_logic
-                        .garrison_exit_occupant_via_door_with_effects(unit_id, cid, &mut self.ui);
+                        .garrison_exit_occupant_via_door_with_effects(unit_id, cid, &mut self.ui)?;
                 } else {
                     let _ = self.game_logic.unit_command_exit_drop_with_effects(
                         unit_id,
@@ -770,7 +770,7 @@ impl<'a> CommandExecutor<'a> {
             }
         }
 
-        CommandResult::Success
+        Ok(CommandResult::Success)
     }
 
     pub(crate) fn execute_evacuate(
@@ -841,7 +841,7 @@ impl<'a> CommandExecutor<'a> {
         }
         if !ground_containers.is_empty() {
             if matches!(
-                self.execute_exit(&ground_containers),
+                self.execute_exit(&ground_containers)?,
                 CommandResult::Success
             ) {
                 any = true;
@@ -1161,11 +1161,11 @@ impl<'a> CommandExecutor<'a> {
                     ai.arrive_for_combat_drop();
                 }
                 any = true;
-                let _ = self.game_logic.evacuate_container_now_with_effects(
+                self.game_logic.evacuate_container_now_with_effects(
                     unit_id,
                     false,
                     &mut self.ui,
-                );
+                )?;
             }
         }
         Ok(if any {

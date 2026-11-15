@@ -219,7 +219,7 @@ impl GameLogic {
                         death_ty,
                         Some(crate::game_logic::host_poisoned_behavior::poison_dot_fx_override()),
                         presentation_effects,
-                    );
+                    )?;
                 }
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
@@ -242,7 +242,7 @@ impl GameLogic {
                     self.native_hulk_max_lifetime_override,
                 );
                 let _ = obj;
-                self.tick_native_lifecycle_with_effects(object_id, presentation_effects);
+                self.tick_native_lifecycle_with_effects(object_id, presentation_effects)?;
                 if lifetime_due {
                     lifetime_kill = self
                         .apply_owned_kill_with_effects(
@@ -250,7 +250,7 @@ impl GameLogic {
                             crate::game_logic::combat::DamageType::Unresistable,
                             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                             presentation_effects,
-                        )
+                        )?
                         .is_some_and(|result| result.destroyed());
                 }
                 #[cfg(feature = "game_client")]
@@ -634,7 +634,7 @@ impl GameLogic {
                             weapon_slot: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
                         };
                         if !self.weapon_definitions.as_ref().is_some_and(|weapons| weapons.contains_key(&weapon.to_ascii_lowercase()))
-                            || self.create_and_fire_temp_weapon_with_effects(object_id, &spec, presentation_effects).is_none()
+                            || self.create_and_fire_temp_weapon_with_effects(object_id, &spec, presentation_effects)?.is_none()
                         {
                             log::error!("SlowDeath FINAL weapon '{weapon}' is not available in the receiving world");
                         }
@@ -649,11 +649,8 @@ impl GameLogic {
             }
             self.sync_helicopter_attach_particle(object_id);
             if !topple_kill {
-                if let Err(error) =
-                    self.update_owned_structure_topple_with_effects(object_id, presentation_effects)
-                {
-                    log::error!("Owned StructureTopple update rejected: {error}");
-                }
+                self.update_owned_structure_topple_with_effects(object_id, presentation_effects)
+                    .map_err(gamelogic::GameLogicError::Configuration)?;
             } else {
             }
             // Reactions completed at the released Body onDamage point. Only
@@ -667,20 +664,20 @@ impl GameLogic {
                     .objects
                     .get_mut(&object_id)
                     .and_then(|o| o.take_pending_fire_when_damaged_weapon());
-                let _ = self.execute_temporary_weapon_continuous_with_effects(
+                self.execute_temporary_weapon_continuous_with_effects(
                     object_id,
                     presentation_effects,
-                );
+                )?;
             } else if let Some(wname) = self
                 .objects
                 .get_mut(&object_id)
                 .and_then(|o| o.take_pending_fire_when_damaged_weapon())
             {
-                let _ = self.apply_fire_weapon_when_damaged_named_with_effects(
+                self.apply_fire_weapon_when_damaged_named_with_effects(
                     object_id,
                     &wname,
                     presentation_effects,
-                );
+                )?;
             }
             // C++ TransitionDamageFX + FXListDie → FXList::doFXObj / doFXPos.
             {
@@ -777,7 +774,7 @@ impl GameLogic {
                         // Replace the Core-global OCL bridge with the existing
                         // synchronous receiving-session dispatcher. Preserve
                         // this caller's authored owner position and effect order.
-                        let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                        self.execute_parsed_weapon_ocl_at_with_effects(
                             &ocl,
                             Some(object_id),
                             team,
@@ -786,7 +783,7 @@ impl GameLogic {
                             velocity,
                             pos,
                             presentation_effects,
-                        );
+                        )?;
                         if !self.objects.get(&object_id).is_some_and(|object| {
                             self.live_draw_playback_identity(object) == *expected_identity
                         }) {
@@ -889,7 +886,7 @@ impl GameLogic {
             // C++ BoneFXUpdate::update: bounded borrow -> effect -> timer -> next slot.
             self.update_owned_bone_fx_with_effects(object_id, presentation_effects)?;
             // C++ CreateObjectDie residual (spawn after death FX).
-            self.apply_pending_create_object_die_with_effects(object_id, presentation_effects);
+            self.apply_pending_create_object_die_with_effects(object_id, presentation_effects)?;
             // C++ AIUpdateInterface::update transitions a marked AI to AI_DEAD
             // only after the die callbacks and provider update have run. The
             // transition locks AI commands but does not skip locomotor/physics.
@@ -1003,13 +1000,13 @@ impl GameLogic {
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
             if !self.uses_authored_parachute_path(object_id) {
-                self.tick_eject_parachute_residual_with_effects(object_id, presentation_effects);
+                self.tick_eject_parachute_residual_with_effects(object_id, presentation_effects)?;
                 // Separately tracked synthetic cargo residual; genuine authored
                 // ParachuteContain advances only through its selected locomotor/Physics.
                 self.tick_crate_parachute_residual_with_effects(object_id, presentation_effects);
             }
             // C++ AIRappelState: combat-drop rappel dest Z / kill-2 / addToContain.
-            self.tick_rappel_into_with_effects(object_id, presentation_effects);
+            self.tick_rappel_into_with_effects(object_id, presentation_effects)?;
             // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
             // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
             // C++ human players sleep forever — host residual: is_local → skip.
@@ -1150,7 +1147,7 @@ impl GameLogic {
         // HijackerUpdate ride residual.
         self.tick_hijacker_updates_with_effects(presentation_effects)?;
         // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
-        self.tick_battle_bus_slow_deaths_with_effects(presentation_effects);
+        self.tick_battle_bus_slow_deaths_with_effects(presentation_effects)?;
         // C++ ChinookAIUpdate idle auto-land / evac / combat-drop residual.
         self.tick_chinook_ai_with_effects(1.0 / 30.0, presentation_effects)?;
 
@@ -1165,7 +1162,7 @@ impl GameLogic {
         // C++ SlavedUpdate.cpp:91-261 follow / guard / 2x GuardMaxRange recall.
         self.update_slaved_drone_follow_with_effects(object_ids, presentation_effects)?;
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
-        self.update_demo_trap_detonate_when_killed_with_effects(presentation_effects);
+        self.update_demo_trap_detonate_when_killed_with_effects(presentation_effects)?;
         self.update_support_states_with_effects(object_ids, dt, presentation_effects)?;
 
         // ParachuteContain inherits the normal-phase OpenContain update.
@@ -1207,7 +1204,7 @@ impl GameLogic {
     }
 
     /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
-    pub(in super::super) fn update_demo_trap_detonate_when_killed(&mut self) {
+    pub(in super::super) fn update_demo_trap_detonate_when_killed(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_demo_trap_detonate_when_killed_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1216,7 +1213,7 @@ impl GameLogic {
     pub(in super::super) fn update_demo_trap_detonate_when_killed_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_mines::{
             DEMO_TRAP_DETONATE_WHEN_KILLED, HostMineDetonateReason, should_detonate_when_killed,
         };
@@ -1239,13 +1236,14 @@ impl GameLogic {
             })
             .collect();
         for id in due {
-            let _ = self.detonate_mine_internal_with_effects(
+            self.detonate_mine_internal_with_effects(
                 id,
                 HostMineDetonateReason::Killed,
                 None,
                 presentation_effects,
-            );
+            )?;
         }
+        Ok(())
     }
 
     /// C++ HelicopterSlowDeath beginSlowDeath attachParticle + follow object.

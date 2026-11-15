@@ -73,10 +73,10 @@ fn tertiary_suicide_uses_the_authored_kills_self_weapon() {
         .create_object_for_player("Demo_GLAInfantryRebel", 0, Vec3::new(50.0, 0.0, 0.0))
         .unwrap();
 
-    assert!(!logic.issue_demo_tertiary_suicide(named));
+    assert!(!logic.issue_demo_tertiary_suicide(named).unwrap());
     assert!(logic.host_object(named).unwrap().is_alive());
 
-    assert!(logic.issue_demo_tertiary_suicide(bomber));
+    assert!(logic.issue_demo_tertiary_suicide(bomber).unwrap());
     let dead = logic.host_object(bomber).unwrap();
     assert!(!dead.is_alive());
     assert_eq!(

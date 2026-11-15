@@ -43,7 +43,7 @@ impl GameLogic {
     pub(in super::super) fn try_strategy_center_bombardment_turret_fire(
         &mut self,
         center_id: ObjectId,
-    ) -> AttackFireResult {
+    ) -> gamelogic::GameLogicResult<AttackFireResult> {
         self.try_strategy_center_bombardment_turret_fire_with_effects(
             center_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -54,7 +54,7 @@ impl GameLogic {
         &mut self,
         center_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> AttackFireResult {
+    ) -> gamelogic::GameLogicResult<AttackFireResult> {
         use crate::game_logic::host_strategy_center::{
             STRATEGY_CENTER_GUN_FIRE_AUDIO, STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
             is_legal_strategy_center_gun_target, strategy_center_gun_damage_at,
@@ -63,16 +63,16 @@ impl GameLogic {
         use crate::game_logic::object::TurretSubState;
 
         if !self.strategy_center_bombardment_turret_active(center_id) {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         }
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
         let Some(attacker) = self.objects.get(&center_id) else {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         };
         // FIRE must consume exactly the goal whose AIM succeeded. Never select
         // a new nearest enemy here or use this PRIMARY residual for another slot.
         let Some(target_id) = attacker.turret_ai.turret_target_id else {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         };
         if !attacker.turret_ai.turret_mood_target
             || attacker.target != Some(target_id)
@@ -80,36 +80,36 @@ impl GameLogic {
             || attacker.selected_weapon_slot() != Some(0)
             || !attacker.is_weapon_slot_on_turret(0)
         {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         }
         let Some(weapon) = attacker.weapon.as_ref() else {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         };
         // AIStates.cpp:5189-5197: PRE_ATTACK waits in FIRE; other not-ready
         // states fail back to AIM. Read the existing live weapon state only.
         if attacker.pre_attack_target == Some(target_id)
             && attacker.pre_attack_ready_at > current_time + 1e-6
         {
-            return AttackFireResult::Continue;
+            return Ok(AttackFireResult::Continue);
         }
         if attacker.selected_native_weapon_rule(0).is_some() {
             let origin = attacker.get_position();
             let fired = self.fire_owned_passive_weapon_with_effects(
                 center_id, target_id, 0, origin, presentation_effects,
-            );
+            )?;
             if fired {
                 self.notify_turret_fired(center_id);
                 self.battle_plans.record_turret_fire(0);
             }
-            return if fired { AttackFireResult::Success } else { AttackFireResult::Failure };
+            return Ok(if fired { AttackFireResult::Success } else { AttackFireResult::Failure });
         }
         if !Object::weapon_ready(weapon, current_time) {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         }
         let team = attacker.team;
         let fire_pos = attacker.get_position();
         let Some(victim) = self.objects.get(&target_id) else {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         };
         let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
             victim.is_kind_of(KindOf::Attackable),
@@ -138,7 +138,7 @@ impl GameLogic {
                 &self.solo_weapon_bonus_set,
             )
         {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         }
 
         let impact = self
@@ -263,7 +263,7 @@ impl GameLogic {
                 weapon_snap.as_ref(),
                 0,
                 presentation_effects,
-            );
+            )?;
             hits = hits.saturating_add(1);
             if destroyed {
                 destroy_ids.push((id, Some(team)));
@@ -350,7 +350,7 @@ impl GameLogic {
                 .with_position(muzzle_pos)
                 .with_priority(165),
         );
-        AttackFireResult::Success
+        Ok(AttackFireResult::Success)
     }
 
     /// Residual base-defense auto-fire: Patriot / Gattling / FSBaseDefense
@@ -589,7 +589,7 @@ impl GameLogic {
             }
             if self.fire_owned_passive_weapon_with_effects(
                 defense_id, target_id, slot, fire_pos, presentation_effects,
-            ) {
+            )? {
                 if turret_enabled { self.notify_turret_fired(defense_id); }
                 self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
                 if is_patriot {
@@ -671,7 +671,7 @@ impl GameLogic {
                     Some(defense_id),
                     Some(target_id),
                     presentation_effects,
-                )
+                )?
             };
             destroyed = any_destroyed;
             let _ = hits;
@@ -736,7 +736,7 @@ impl GameLogic {
                     weapon_snap.as_ref(),
                     slot,
                     presentation_effects,
-                );
+                )?;
                 destroyed = d;
                 let _ = xp;
             }
@@ -1765,7 +1765,7 @@ impl GameLogic {
         (best.map(|(_, _, id)| id), best.is_some_and(|(band, _, _)| band < 2))
     }
 
-    pub fn update_point_defense_intercept(&mut self) {
+    pub fn update_point_defense_intercept(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_point_defense_intercept_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1774,7 +1774,7 @@ impl GameLogic {
     pub(crate) fn update_point_defense_intercept_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_point_defense::{authored_modules, PointDefenseState};
 
         let carriers: Vec<_> = self.objects.registered().filter_map(|(&id, object)| {
@@ -1829,7 +1829,7 @@ impl GameLogic {
                                 weapon_template_name: config.weapon.clone(),
                                 weapon_slot: TemporaryWeaponSlot::Tertiary,
                             };
-                            if self.fire_named_temporary_with_owned_state(carrier_id, &spec, None, Some(target_id), presentation_effects).is_some() {
+                            if self.fire_named_temporary_with_owned_state(carrier_id, &spec, None, Some(target_id), presentation_effects)?.is_some() {
                                 if !weapon.laser_name.is_empty() && !weapon.laser_name.eq_ignore_ascii_case("NONE") {
                                     self.weapon_lasers.push(crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
                                         weapon.laser_name.clone(), weapon.laser_bone_name.clone(), carrier_id,
@@ -1868,6 +1868,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// Residual honesty: at least one PDL intercept residual shot.

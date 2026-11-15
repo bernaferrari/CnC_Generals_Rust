@@ -97,7 +97,9 @@ impl GameLogic {
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
         {
-            self.update_nuke_radiation_field_objects_with_effects(&mut ui);
+            if let Err(error) = self.update_nuke_radiation_field_objects_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Gate: mirror of the radiation gate above, for toxin fields.
         if !self
@@ -113,7 +115,9 @@ impl GameLogic {
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
         {
-            self.update_anthrax_toxin_field_objects_with_effects(&mut ui);
+            if let Err(error) = self.update_anthrax_toxin_field_objects_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host America Paradrop residual: spawn infantry after approach delay.
@@ -192,7 +196,9 @@ impl GameLogic {
         // are provable no-ops (pending_shockwaves is pushed only alongside a
         // mission insert).
         if self.host_sneak_attacks.mission_count() > 0 {
-            self.update_sneak_attacks_with_effects(&mut ui);
+            if let Err(error) = self.update_sneak_attacks_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::SNEAK_ATTACKS);
@@ -202,25 +208,37 @@ impl GameLogic {
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_mines_and_demo_traps_with_effects(&mut ui);
+            if let Err(error) = self.update_mines_and_demo_traps_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host USA Ambulance AutoHeal residual: heal ally infantry in radius.
         // Fail-closed vs full AutoHealBehavior particle / world-anim pulse FX.
-        self.update_ambulance_auto_heal_with_effects(dt, &mut ui);
-        self.update_default_auto_heal_with_effects(&mut ui);
+        if let Err(error) = self.update_ambulance_auto_heal_with_effects(dt, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
+        if let Err(error) = self.update_default_auto_heal_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // First TransportContain update creates InitialPayload before rider
         // regeneration. This Result must reach the native tick's caller.
         if let Err(error) = self.update_initial_transport_payloads_with_effects(&mut ui) {
             return SimulationStepOutcome::Failed(error);
         }
         // C++ TransportContain::update HealthRegen%PerSec on embarked riders.
-        self.update_transport_health_regen_with_effects(dt, &mut ui);
+        if let Err(error) = self.update_transport_health_regen_with_effects(dt, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
-        self.update_propaganda_tower_pulse_with_effects(dt, &mut ui);
-        self.update_overcharge_drain_with_effects(dt, &mut ui);
+        if let Err(error) = self.update_propaganda_tower_pulse_with_effects(dt, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
+        if let Err(error) = self.update_overcharge_drain_with_effects(dt, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Wave 810: host-sole unless movement authority live: rods completion owned by GW expire + logs.
         {
             self.update_power_plant_rods();
@@ -238,18 +256,24 @@ impl GameLogic {
         // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_microwave_disable_with_effects(&mut ui);
+            if let Err(error) = self.update_microwave_disable_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_microwave_emitter_field_with_effects(&mut ui);
+            if let Err(error) = self.update_microwave_emitter_field_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_point_defense_intercept_with_effects(&mut ui);
+            if let Err(error) = self.update_point_defense_intercept_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
         {
@@ -259,17 +283,23 @@ impl GameLogic {
         {
             self.update_weapon_laser_beam_objects_with_effects(&mut ui);
         }
-        self.update_tomahawk_missile_projectiles_with_effects(&mut ui);
+        if let Err(error) = self.update_tomahawk_missile_projectiles_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Gate (latched counter): see the technical_rpg gate below.
         if self.fire_base_shells_spawned > 0 {
-            self.update_fire_base_shell_projectiles_with_effects(&mut ui);
+            if let Err(error) = self.update_fire_base_shell_projectiles_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::FIRE_BASE_SHELLS);
         }
         // Gate (latched counter): see the technical_rpg gate above.
         if self.technical_cannon_shells_spawned > 0 {
-            self.update_technical_cannon_shell_projectiles_with_effects(&mut ui);
+            if let Err(error) = self.update_technical_cannon_shell_projectiles_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::TECHNICAL_CANNON_SHELLS);
@@ -277,14 +307,18 @@ impl GameLogic {
         // Gate: no queued cleanup order -> take_orders/restore_orders are
         // provable no-ops and the per-order hazard scan never runs.
         if !self.cleanup_areas.orders().is_empty() {
-            self.update_cleanup_area_orders_with_effects(&mut ui);
+            if let Err(error) = self.update_cleanup_area_orders_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::CLEANUP_AREA_ORDERS);
         }
         // Gate (latched counter): see the technical_rpg gate above.
         if self.cleanup_stream_missiles_spawned > 0 {
-            self.update_cleanup_stream_projectiles_with_effects(&mut ui);
+            if let Err(error) = self.update_cleanup_stream_projectiles_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::CLEANUP_STREAM_MISSILES);
@@ -333,19 +367,25 @@ impl GameLogic {
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_firewalls_with_effects(&mut ui);
+            if let Err(error) = self.update_firewalls_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_inferno_fire_zones_with_effects(&mut ui);
+            if let Err(error) = self.update_inferno_fire_zones_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
         {
-            self.update_inferno_fire_field_objects_with_effects(&mut ui);
+            if let Err(error) = self.update_inferno_fire_field_objects_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host China Helix NapalmBomb residual: tick FirestormSmall DoT at drop zones.
@@ -353,7 +393,9 @@ impl GameLogic {
         // Gate: no active firestorm zone -> advance_geometry, the whole-world
         // position snapshot, and plan_due_ticks are provable no-ops.
         if !self.helix_napalm.active_zones().is_empty() {
-            self.update_helix_napalm_firestorms_with_effects(&mut ui);
+            if let Err(error) = self.update_helix_napalm_firestorms_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::HELIX_NAPALM_FIRESTORMS);
@@ -366,27 +408,37 @@ impl GameLogic {
         // Nuclear Tanks SmallRadiationField residual ticks.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_nuclear_tanks_radiation_zones_with_effects(&mut ui);
+            if let Err(error) = self.update_nuclear_tanks_radiation_zones_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_scud_poison_zones_with_effects(&mut ui);
+            if let Err(error) = self.update_scud_poison_zones_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         self.update_tensile_formations_with_effects(&mut ui);
         // Wave 820: host-sole unless movement authority live: fire-spread owned by GW expire + logs.
         {
-            self.update_fire_spread_with_effects(&mut ui);
+            if let Err(error) = self.update_fire_spread_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 780: BaseRegenerateUpdate is host-sole (C++ has one store; the
         // GW dual-peel heal tick is retired with wave780). Host skips only
         // while damage authority is live and the shadow session last-writes HP.
         {
-            self.update_base_regenerate_with_effects(&mut ui);
+            if let Err(error) = self.update_base_regenerate_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
-        self.update_supply_warehouse_crippling_with_effects(&mut ui);
+        if let Err(error) = self.update_supply_warehouse_crippling_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // Wave 781: host-sole unless movement authority live: EnemyNearUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
@@ -426,28 +478,42 @@ impl GameLogic {
             self.update_smart_bomb_target_homing_with_effects(&mut ui);
         }
         self.update_spectre_gunship_flights_with_effects(&mut ui);
-        self.update_fuel_air_gas_slow_death_with_effects(&mut ui);
-        self.update_neutron_missile_flights_with_effects(&mut ui);
-        self.update_scud_storm_missile_flights_with_effects(&mut ui);
+        if let Err(error) = self.update_fuel_air_gas_slow_death_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
+        if let Err(error) = self.update_neutron_missile_flights_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
+        if let Err(error) = self.update_scud_storm_missile_flights_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Wave 794: host-sole unless movement authority live: CarpetBomb flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_carpet_bomb_flights_with_effects(&mut ui);
+            if let Err(error) = self.update_carpet_bomb_flights_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 793: host-sole unless movement authority live: ArtilleryBarrage flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_artillery_barrage_flights_with_effects(&mut ui);
+            if let Err(error) = self.update_artillery_barrage_flights_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 792: host-sole unless movement authority live: A10 strike flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_a10_strike_flights_with_effects(&mut ui);
+            if let Err(error) = self.update_a10_strike_flights_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 788: host-sole unless movement authority live: DaisyCutter/MOAB flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
         {
-            self.update_daisy_cutter_flights_with_effects(&mut ui);
+            if let Err(error) = self.update_daisy_cutter_flights_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 789: host-sole unless movement authority live: AnthraxBomb flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
@@ -500,7 +566,9 @@ impl GameLogic {
         // whole-world object-position snapshot, plan_due_ticks, and
         // prune_expired are provable no-ops on the empty registry.
         if self.nuke_cannon_residual.active_count() > 0 {
-            self.update_nuke_cannon_radiation_zones_with_effects(&mut ui);
+            if let Err(error) = self.update_nuke_cannon_radiation_zones_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         } else {
             #[cfg(test)]
             residual_gate_seam::note(&residual_gate_seam::NUKE_CANNON_ZONES);
@@ -508,14 +576,18 @@ impl GameLogic {
         self.tick_fire_ocl_after_weapon_cooldown();
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {
-            self.update_toxin_tractor_poison_zones_with_effects(&mut ui);
+            if let Err(error) = self.update_toxin_tractor_poison_zones_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
         {
-            self.update_aurora_bombs_with_effects(&mut ui);
+            if let Err(error) = self.update_aurora_bombs_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
         // Wave 797: host-sole unless movement authority live: AuroraBomb projectile dive is owned by
         // GW tick_status_timer_expirations + destroy logs.
@@ -525,11 +597,15 @@ impl GameLogic {
 
         // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
         // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.
-        self.update_angry_mobs_with_effects(&mut ui);
+        if let Err(error) = self.update_angry_mobs_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Wave 799: host-sole unless movement authority live: AngryMob projectile flight is owned by
         // GW tick_status_timer_expirations + impact logs.
         {
-            self.update_angry_mob_projectiles_with_effects(&mut ui);
+            if let Err(error) = self.update_angry_mob_projectiles_with_effects(&mut ui) {
+                return SimulationStepOutcome::Failed(error);
+            }
         }
 
         // Host RailroadBehavior residual: locomotives follow track waypoints,
@@ -551,7 +627,9 @@ impl GameLogic {
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).
-        self.update_stealth_and_detection_with_effects(&mut ui);
+        if let Err(error) = self.update_stealth_and_detection_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // QueueProductionExitUpdate and SpawnBehavior are independent ordered
         // object modules. Capture births once so a replacement object with the
@@ -596,7 +674,9 @@ impl GameLogic {
             return SimulationStepOutcome::Failed(error);
         }
         self.mirror_overlord_addon_damage_after_combat_with_effects(&mut ui);
-        self.flush_pending_garrison_really_damaged_ejects_with_effects(&mut ui);
+        if let Err(error) = self.flush_pending_garrison_really_damaged_ejects_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         if let Err(error) = self.flush_subdual_passenger_orders_with_effects(&mut ui) {
             return SimulationStepOutcome::Failed(error);
         }
@@ -637,27 +717,25 @@ impl GameLogic {
         // Admit accepted shots from this session's CombatSystem before flight.
         // The same owner applies ordered impact damage and body callbacks.
 
-        {
-            let objects = &self.objects;
-            crate::game_logic::combat::drain_pending_projectiles_with_partition(
-                &mut self.combat_system,
-                objects.read(),
-                self.frame,
-                &self.projectile_definitions,
-                Some(&self.partition_manager),
-                &mut self.next_object_id,
-                &self.logic_random,
-            );
+        if let Err(error) = self.materialize_owned_queued_projectiles_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
         }
         self.update_projectile_weapon_bonus_upgrades(None);
-        self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui);
+        if let Err(error) = self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,
         // independently of whether the projectile later finds a target.
-        self.execute_pending_weapon_fire_ocls_with_effects(&mut ui);
+        if let Err(error) = self.execute_pending_weapon_fire_ocls_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // Apply countermeasure diversion within the receiving projectile
         // operation, before committing damage; never repair health afterward.
-        let projectile_hits = self.update_owned_projectile_impacts_with_effects(dt, &mut ui);
+        let projectile_hits = match self.update_owned_projectile_impacts_with_effects(dt, &mut ui) {
+            Ok(hits) => hits,
+            Err(error) => return SimulationStepOutcome::Failed(error),
+        };
         for victim in self.combat_system.take_pending_under_attack() {
             let _ = self.try_under_attack_from_damage(victim);
         }
@@ -688,7 +766,9 @@ impl GameLogic {
         }
         // C++ Weapon.ini ProjectileDetonationFX/OCL residual at real impact
         // (not fire-time), for either host or GameWorld flight ownership.
-        self.flush_projectile_impact_fx_with_effects(&mut ui);
+        if let Err(error) = self.flush_projectile_impact_fx_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         // MissileAI exhaust attaches at IGNITION to this native manager;
         // its receiving lifecycle resolves actual Object/projectile poses.
         {
@@ -696,13 +776,22 @@ impl GameLogic {
             let snaps = self.combat_system.projectiles_snapshot();
             let mut exhausts: Vec<_> = snaps
                 .into_iter()
-                .map(|p| {
-                    (
+                .filter_map(|p| {
+                    let position = if p.missile_motion.is_some() {
+                        let birth = p.missile_actor_birth?;
+                        if !self.spawn_identity_matches(p.id, birth.0, birth.1) {
+                            return None;
+                        }
+                        self.objects.get(&p.id)?.get_position()
+                    } else {
+                        p.position
+                    };
+                    Some((
                         p.id,
                         p.shooter_id,
-                        p.position,
+                        position,
                         p.live_exhaust_name().to_string(),
-                    )
+                    ))
                 })
                 .collect();
             // HashMap-backed projectile storage has no stable iteration order;
@@ -730,6 +819,15 @@ impl GameLogic {
                 .projectiles_snapshot()
                 .into_iter()
                 .filter_map(|p| {
+                    let position = if p.missile_motion.is_some() {
+                        let birth = p.missile_actor_birth?;
+                        if !self.spawn_identity_matches(p.id, birth.0, birth.1) {
+                            return None;
+                        }
+                        self.objects.get(&p.id)?.get_position()
+                    } else {
+                        p.position
+                    };
                     let shooter = self.objects.get(&p.shooter_id);
                     let firing_name = if !p.historic_weapon_key.is_empty() {
                         Some(p.historic_weapon_key.as_str())
@@ -756,7 +854,7 @@ impl GameLogic {
                         slot,
                         p.id,
                         sname,
-                        p.position,
+                        position,
                         p.target_id,
                         p.target_position,
                     ))
@@ -809,7 +907,9 @@ impl GameLogic {
         // C++ parity (GarrisonContain::onBodyDamageStateChange): when a garrisoned
         // building drops to ReallyDamaged health (<= 30%), all occupants are
         // force-ejected. This runs after combat so the health state is current.
-        self.check_building_damage_states_with_effects(&object_ids, &mut ui);
+        if let Err(error) = self.check_building_damage_states_with_effects(&object_ids, &mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // Object AI is part of the object/module pass, before the system AI
         // queue drain (C++ GameLogic.cpp:3699-3743). The existing owned host
@@ -920,7 +1020,9 @@ impl GameLogic {
         // C++: processDestroyList();
         // Same-frame cascades: iterator re-evaluates end() so objects queued
         // during deletion are processed this logic frame (GameLogic.cpp:2449-2510).
-        self.fire_temporary_weapons_for_pending_deaths_with_effects(&mut ui);
+        if let Err(error) = self.fire_temporary_weapons_for_pending_deaths_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         if let Err(error) = self.process_destroy_list_with_effects_checked(&mut ui) {
             return SimulationStepOutcome::Failed(error);
         }
@@ -935,7 +1037,9 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: TheWeaponStore->UPDATE();
         // Process delayed weapon damage that is now ready.
-        self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui);
+        if let Err(error) = self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         match with_weapon_store_mut(|store| store.take_due_delayed_damage()) {
             Ok(due) => {
                 for info in due {
@@ -965,7 +1069,9 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: TheVictoryConditions->UPDATE();
         // This logic phase owns evaluation; presentation and probes only observe.
-        let _ = self.evaluate_victory_condition_with_effects(&mut ui);
+        if let Err(error) = self.evaluate_victory_condition_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
 
         // -----------------------------------------------------------------------
         // Phase 16: Disabled Status Check (C++ lines 3783-3792)

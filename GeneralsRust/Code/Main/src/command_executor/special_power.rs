@@ -914,7 +914,7 @@ impl<'a> CommandExecutor<'a> {
                         Some(unit_id),
                         level,
                         &mut self.ui,
-                    ) {
+                    )? {
                         continue;
                     }
                 } else if *power_type == SpecialPowerType::GpsScrambler

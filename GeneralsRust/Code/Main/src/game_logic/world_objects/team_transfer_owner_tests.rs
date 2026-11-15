@@ -25,7 +25,7 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
         frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    assert!(game.transfer_object_to_player(object, 1));
+    assert!(game.transfer_object_to_player(object, 1).unwrap());
     assert_eq!(game.objects[&object].team_instance_id, Some(destination));
     assert_eq!(game.objects[&object].ai_state(), AIState::Idle);
     assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
@@ -48,7 +48,7 @@ fn same_faction_player_transfer_moves_roster_before_capture_once_and_isolates_pe
         &[object.0]
     );
     drop(factory);
-    assert!(game.transfer_object_to_player(object, 1));
+    assert!(game.transfer_object_to_player(object, 1).unwrap());
     assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
     assert_eq!(peer.objects[&peer_object].team_instance_id, Some(previous));
     assert_eq!(peer.get_player(1).unwrap().statistics.objects_captured(), 0);
@@ -64,7 +64,7 @@ fn exact_team_no_op_keeps_order_orders_and_capture_score() {
         frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    assert!(game.set_host_object_team(object, identity));
+    assert!(game.set_host_object_team(object, identity).unwrap());
     assert_eq!(game.objects[&object].ai_state(), AIState::Moving);
     assert_eq!(game.get_player(0).unwrap().statistics.objects_captured(), 0);
     assert!(
@@ -177,7 +177,7 @@ fn admitted_ai_presence_is_local_and_no_ai_capture_preserves_non_ai_orders() {
         frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    assert!(game.transfer_object_to_player(object, 1));
+    assert!(game.transfer_object_to_player(object, 1).unwrap());
     assert_eq!(
         game.objects[&object].ai_state(),
         AIState::Moving,
@@ -199,12 +199,12 @@ fn structure_capture_score_obeys_scoring_flag_and_exact_same_team_no_op() {
         .create_object_for_player("OwnedCaptureStructure", 0, Vec3::ZERO)
         .unwrap();
     game.set_scoring_enabled(false);
-    assert!(game.transfer_object_to_player(object, 1));
+    assert!(game.transfer_object_to_player(object, 1).unwrap());
     assert_eq!(game.get_player(1).unwrap().statistics.objects_captured(), 0);
     game.set_scoring_enabled(true);
-    assert!(game.transfer_object_to_player(object, 0));
+    assert!(game.transfer_object_to_player(object, 0).unwrap());
     assert_eq!(game.get_player(0).unwrap().statistics.objects_captured(), 1);
-    assert!(game.transfer_object_to_player(object, 0));
+    assert!(game.transfer_object_to_player(object, 0).unwrap());
     assert_eq!(game.get_player(0).unwrap().statistics.objects_captured(), 1);
     let sibling = {
         let mut factory = game.team_factory.lock().unwrap();
@@ -221,7 +221,7 @@ fn structure_capture_score_obeys_scoring_flag_and_exact_same_team_no_op() {
         let identity = instance.read().unwrap().get_id();
         identity
     };
-    assert!(game.set_host_object_team(object, sibling));
+    assert!(game.set_host_object_team(object, sibling).unwrap());
     assert_eq!(
         game.get_player(0).unwrap().statistics.objects_captured(),
         2,

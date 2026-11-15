@@ -916,7 +916,7 @@ fn fuel_air_gas_slow_death_detonates() {
     let hp0 = logic.host_object(foe).unwrap().health.current;
     for f in 0..=35 {
         logic.frame = f;
-        logic.update_fuel_air_gas_slow_death();
+        logic.update_fuel_air_gas_slow_death().unwrap();
     }
     assert!(logic.fuel_air_gas_reg.final_detonations >= 1);
     assert!(logic.fuel_air_gas_reg.midpoint_flames >= 1);
@@ -951,7 +951,7 @@ fn daisy_bomb_create_object_die_spawns_gas() {
         o.ensure_create_object_die();
         o.fire_create_object_die();
     }
-    logic.apply_pending_create_object_die(id);
+    logic.apply_pending_create_object_die(id).unwrap();
     let gas = logic
         .objects
         .registered_values()
@@ -993,7 +993,7 @@ fn moab_flight_uses_jet_b3() {
     assert!(logic.daisy_cutter_flight_reg.moab_transports_spawned >= 1);
     for f in 0..400 {
         logic.frame = f;
-        logic.update_daisy_cutter_flights();
+        logic.update_daisy_cutter_flights().unwrap();
         if logic.daisy_cutter_flight_reg.detonations >= 1 {
             break;
         }
@@ -1123,7 +1123,7 @@ fn daisy_cutter_flight_drops_bomb() {
     assert!(logic.daisy_cutter_flight_reg.transports_spawned >= 1);
     for f in 0..400 {
         logic.frame = f;
-        logic.update_daisy_cutter_flights();
+        logic.update_daisy_cutter_flights().unwrap();
         if logic.daisy_cutter_flight_reg.detonations >= 1 {
             break;
         }
@@ -2237,7 +2237,7 @@ fn base_regenerate_structure_heals_after_delay() {
     logic.set_current_frame(0);
     logic.notify_base_regenerate_damage(id, false);
     // Immediately after damage: still delayed.
-    logic.update_base_regenerate();
+    logic.update_base_regenerate().unwrap();
     let mid = logic.host_object(id).unwrap().health.current;
     assert!(
         (mid - 500.0).abs() < 0.01,
@@ -2247,7 +2247,7 @@ fn base_regenerate_structure_heals_after_delay() {
     // After delay, heal ticks.
     let wake = BASE_REGEN_DELAY_FRAMES;
     logic.set_current_frame(u64::from(wake));
-    logic.update_base_regenerate();
+    logic.update_base_regenerate().unwrap();
     let after = logic.host_object(id).unwrap().health.current;
     assert!(after > 500.0, "must heal after delay (after={after})");
     assert!(logic.base_regenerate_reg.heal_ticks >= 1);
@@ -2283,7 +2283,7 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
         }
     }
     logic.set_current_frame(0);
-    logic.update_default_auto_heal();
+    logic.update_default_auto_heal().unwrap();
     let mid = logic.host_object(id).unwrap().health.current;
     assert!(
         (mid - 50.0).abs() < 0.01,
@@ -2291,7 +2291,7 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
     );
 
     logic.set_current_frame(u64::from(DEFAULT_AUTO_HEAL_START_DELAY_FRAMES));
-    logic.update_default_auto_heal();
+    logic.update_default_auto_heal().unwrap();
     let after = logic.host_object(id).unwrap().health.current;
     assert!(
         (after - (50.0 + DEFAULT_AUTO_HEAL_AMOUNT)).abs() < 0.01,
@@ -2303,7 +2303,7 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
         let o = logic.host_object_mut(id).unwrap();
         o.health.current = o.health.maximum;
     }
-    logic.update_default_auto_heal();
+    logic.update_default_auto_heal().unwrap();
     let damage_frame = logic.frame;
     {
         let o = logic.host_object_mut(id).unwrap();
@@ -2312,7 +2312,7 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
             ah.on_damage(damage_frame);
         }
     }
-    logic.update_default_auto_heal();
+    logic.update_default_auto_heal().unwrap();
     let after_second_hit = logic.host_object(id).unwrap().health.current;
     assert!(
         (after_second_hit - 50.0).abs() < 0.01,
@@ -2321,7 +2321,7 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
     logic.set_current_frame(
         u64::from(logic.frame) + u64::from(DEFAULT_AUTO_HEAL_START_DELAY_FRAMES),
     );
-    logic.update_default_auto_heal();
+    logic.update_default_auto_heal().unwrap();
     let after_restart = logic.host_object(id).unwrap().health.current;
     assert!(
         (after_restart - (50.0 + DEFAULT_AUTO_HEAL_AMOUNT)).abs() < 0.01,
@@ -2383,7 +2383,7 @@ fn fire_spread_tree_ignites_neighbor() {
         }
     }
     logic.set_current_frame(30);
-    logic.update_fire_spread();
+    logic.update_fire_spread().unwrap();
     assert!(
         logic.fire_spread_reg.spreads > 0,
         "aflame tree must attempt spread"
@@ -2435,7 +2435,7 @@ fn effectively_dead_aflame_object_keeps_spreading_fire_like_cpp() {
         }
     }
     logic.set_current_frame(30);
-    logic.update_fire_spread();
+    logic.update_fire_spread().unwrap();
     assert!(
         logic
             .host_object(b)
@@ -2478,7 +2478,7 @@ fn fire_spread_lights_effectively_dead_neighbor_like_cpp() {
         fs.next_spread_frame = 0;
     }
     logic.set_current_frame(30);
-    logic.update_fire_spread();
+    logic.update_fire_spread().unwrap();
     assert!(
         logic
             .host_object(b)
@@ -2541,7 +2541,7 @@ fn fire_spread_skips_destroyed_and_aflame_neighbours_and_isolates_peer_world() {
         fs.next_spread_frame = 0;
     }
     logic.set_current_frame(30);
-    logic.update_fire_spread();
+    logic.update_fire_spread().unwrap();
 
     assert!(!lit(&logic, destroyed), "destroyed neighbour left the partition");
     assert!(
@@ -2589,7 +2589,7 @@ fn flammable_buildings_ignite_and_play_burning_loop() {
         assert!(o.model_condition_bits & (1u128 << aflame_model_bit()) != 0);
     }
     logic.set_current_frame(10);
-    logic.update_fire_spread();
+    logic.update_fire_spread().unwrap();
     assert!(
         logic
             .queued_audio_events
@@ -2627,7 +2627,7 @@ fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
         }
     }
     logic.set_current_frame(30);
-    logic.update_fire_spread();
+    logic.update_fire_spread().unwrap();
     assert!(logic.fire_spread_reg.embers > 0);
     assert!(
         logic
@@ -2670,7 +2670,7 @@ fn tree_smolders_while_still_aflame() {
         }
     }
     logic.set_current_frame(TREE_BURNED_DELAY_FRAMES as u64);
-    logic.update_fire_spread();
+    logic.update_fire_spread().unwrap();
     let o = logic.host_object(id).unwrap();
     assert!(o.fire_spread.as_ref().unwrap().is_aflame());
     assert!(o.fire_spread.as_ref().unwrap().smoldering);

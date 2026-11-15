@@ -3,6 +3,21 @@
 //! Detonation FX/OCL and complete UpdateModule ordering remain separate work.
 use super::*;
 
+fn mark_missile_detonated(
+    objects: &mut crate::game_logic::HostObjectStore,
+    projectile: &Projectile,
+    collision: bool,
+) {
+    if let Some(actor) = objects.get_mut(&projectile.id) {
+        if projectile.missile_actor_birth.map(|birth| birth.0) == Some(actor.visual_object_generation) {
+            actor.set_status_missile_killing_self(true);
+            if collision {
+                actor.status.no_collisions = true;
+            }
+        }
+    }
+}
+
 impl CombatSystem {
     pub(in crate::game_logic) fn prepare_projectile_impact(
         &mut self,
@@ -111,7 +126,7 @@ impl CombatSystem {
         >,
         frame: u32,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
-        partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
+        mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
         historic_damage_limit: u32,
         receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
@@ -120,6 +135,15 @@ impl CombatSystem {
         let mut damage_events = Vec::new();
         let mut projectiles_to_remove = Vec::new();
         if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
+            if projectile.missile_motion.is_some()
+                && !objects.get(&proj_id).is_some_and(|actor| {
+                    projectile.missile_actor_birth.map(|birth| birth.0)
+                        == Some(actor.visual_object_generation)
+                })
+            {
+                projectiles_to_remove.push(proj_id);
+                return (damage_events, projectiles_to_remove);
+            }
             if let Some(reg) = countermeasures.as_mut() {
                 apply_countermeasure_report_and_decoy(
                     projectile,
@@ -154,7 +178,7 @@ impl CombatSystem {
                                 &mut projectile.flight_runtime,
                                 dumb,
                                 dumb_projectile_target_center(tgt),
-                                |start, end| partition.and_then(|owner| owner.terrain_high_along_line(start, end)),
+                                |start, end| partition.as_deref().and_then(|owner| owner.terrain_high_along_line(start, end)),
                             );
                             projectile.target_position = projectile.flight_runtime.path_end;
                         }
@@ -164,7 +188,19 @@ impl CombatSystem {
             let step = if retarget_failed {
                 ProjectileStep::Detonate
             } else {
-                projectile.update_with_terrain_runtime(dt, target_exists, terrain, runtime)
+                let actor = if projectile.missile_motion.is_some() {
+                    let expected = projectile.missile_actor_birth.map(|birth| birth.0);
+                    match objects.get_mut(&proj_id) {
+                        Some(actor) if Some(actor.visual_object_generation) == expected => Some(actor),
+                        _ => {
+                            projectiles_to_remove.push(proj_id);
+                            return (damage_events, projectiles_to_remove);
+                        }
+                    }
+                } else {
+                    None
+                };
+                projectile.update_with_terrain_runtime(dt, target_exists, terrain, actor, partition.as_deref_mut(), Some(frame), runtime)
             };
             match step {
                 ProjectileStep::Alive => {
@@ -173,20 +209,25 @@ impl CombatSystem {
                     }
                 }
                 ProjectileStep::Hold => {
-                    // C++ MissileAIUpdate::KILL_SELF holds for the parsed
-                    // contrail delay, with no impact FX/OCL or damage.
-                    return (damage_events, projectiles_to_remove);
+                    // Detonation disables further collisions, but a missile
+                    // holding after target loss remains armed and collidable.
+                    if projectile.missile_drawable_hidden() || !projectile.is_warhead_armed() {
+                        return (damage_events, projectiles_to_remove);
+                    }
                 }
                 ProjectileStep::Remove => {
                     projectiles_to_remove.push(proj_id);
                     return (damage_events, projectiles_to_remove);
                 }
                 step @ (ProjectileStep::Detonate | ProjectileStep::DetonateAndHold) => {
+                    if step == ProjectileStep::DetonateAndHold {
+                        mark_missile_detonated(objects, projectile, false);
+                    }
                     // C++ DumbProjectileBehavior lifespan and
                     // MissileAIUpdate DetonateOnNoFuel both call the
                     // detonation weapon at the projectile's current pose.
                     // A zero-radius weapon has no guessed direct victim.
-                    let impact = projectile.position;
+                    let impact = projectile.detonation_position.take().unwrap_or(projectile.position);
                     Self::maybe_record_historic_bonus(
                         &mut self.historic_bonus,
                         frame,
@@ -411,6 +452,8 @@ impl CombatSystem {
 
                 if !projectile.retain_detonated_missile() {
                     projectiles_to_remove.push(proj_id);
+                } else {
+                    mark_missile_detonated(objects, projectile, true);
                 }
                 return (damage_events, projectiles_to_remove);
             }
@@ -497,6 +540,8 @@ impl CombatSystem {
 
                         if !projectile.retain_detonated_missile() {
                             projectiles_to_remove.push(proj_id);
+                        } else {
+                            mark_missile_detonated(objects, projectile, true);
                         }
                     }
                 }
@@ -547,6 +592,8 @@ impl CombatSystem {
 
                     if !projectile.retain_detonated_missile() {
                         projectiles_to_remove.push(proj_id);
+                    } else {
+                        mark_missile_detonated(objects, projectile, true);
                     }
                 }
             }

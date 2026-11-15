@@ -148,7 +148,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         source_team: Team,
         toxin_warhead: bool,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_scud_area_at_with_effects(
             impact,
             source,
@@ -165,7 +165,7 @@ impl GameLogic {
         source_team: Team,
         toxin_warhead: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_scud_launcher::{
             SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO, SCUD_POISON_AUDIO,
             SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE, UPGRADE_GLA_ANTHRAX_BETA,
@@ -241,7 +241,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -302,7 +302,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact uses ProjectileDetonateFX, never a muzzle flash.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Apply residual multi-barrel salvage tier to a Quad Cannon (crate upgrade residual).
@@ -1737,7 +1737,7 @@ impl GameLogic {
 
     /// C++ SmartBombTargetHomingUpdate::update residual.
     /// C++ SlowDeathBehavior on FuelAir gas: midpoint flame + final detonation.
-    pub fn update_fuel_air_gas_slow_death(&mut self) {
+    pub fn update_fuel_air_gas_slow_death(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_fuel_air_gas_slow_death_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1746,7 +1746,7 @@ impl GameLogic {
     pub(crate) fn update_fuel_air_gas_slow_death_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_fuel_air_gas_slow_death::FuelAirGasTickEvent;
 
@@ -1805,7 +1805,7 @@ impl GameLogic {
                         radius,
                         DamageType::Flame,
                         presentation_effects,
-                    );
+                    )?;
                 }
                 FuelAirGasTickEvent::FinalDetonation {
                     damage,
@@ -1823,7 +1823,7 @@ impl GameLogic {
                         radius,
                         DamageType::Explosive,
                         presentation_effects,
-                    );
+                    )?;
                     let _ = self.combat_particles.spawn(
                         CombatParticleKind::DeathExplosion,
                         pos,
@@ -1841,6 +1841,7 @@ impl GameLogic {
             // destruction, never a second authored Object::onDie admission.
             self.destroy_object_with_effects(id, presentation_effects);
         }
+        Ok(())
     }
 
     /// Applies radius damage; returns (attempted damage, direct objects hit,
@@ -1855,7 +1856,7 @@ impl GameLogic {
         damage: f32,
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
-    ) -> (f32, u32, u32) {
+    ) -> gamelogic::GameLogicResult<(f32, u32, u32)> {
         self.apply_fuel_air_radius_damage_with_effects(
             source_id,
             producer,
@@ -1878,7 +1879,7 @@ impl GameLogic {
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (f32, u32, u32) {
+    ) -> gamelogic::GameLogicResult<(f32, u32, u32)> {
         self.apply_radius_damage_from_source_with_effects(
             source_id,
             producer.or(Some(source_id)),
@@ -1902,7 +1903,7 @@ impl GameLogic {
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (f32, u32, u32) {
+    ) -> gamelogic::GameLogicResult<(f32, u32, u32)> {
         let r2 = radius * radius;
         let victims: Vec<ObjectId> = self
             .objects
@@ -1941,7 +1942,7 @@ impl GameLogic {
                 None,
                 &crate::game_logic::object::DamageHitContext::default(),
                 presentation_effects,
-            ) else {
+            )? else {
                 continue;
             };
             total_damage += damage;
@@ -1950,7 +1951,7 @@ impl GameLogic {
             // linked callbacks and armor clipping do not inflate these counts.
             destroyed += u32::from(result.destroyed);
         }
-        (total_damage, objects_hit, destroyed)
+        Ok((total_damage, objects_hit, destroyed))
     }
 
     pub(in super::super) fn update_smart_bomb_target_homing(&mut self) {
@@ -2246,7 +2247,7 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_base_regenerate(&mut self) {
+    pub(in super::super) fn update_base_regenerate(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_base_regenerate_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2255,7 +2256,7 @@ impl GameLogic {
     pub(in super::super) fn update_base_regenerate_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -2287,15 +2288,16 @@ impl GameLogic {
             }
             if amount > 0.0 {
                 // CPP BaseRenerateUpdate118 uses Object::attemptHealing.
-                let _ = self.apply_owned_healing_with_effects(
+                self.apply_owned_healing_with_effects(
                     id,
                     amount,
                     Some(id),
                     presentation_effects,
-                );
+                )?;
                 self.base_regenerate_reg.record_heal(amount);
             }
         }
+        Ok(())
     }
 
     /// Notify BaseRegenerateUpdate residual after non-heal damage.
@@ -2380,7 +2382,7 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_fire_spread(&mut self) {
+    pub(in super::super) fn update_fire_spread(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_fire_spread_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2389,7 +2391,7 @@ impl GameLogic {
     pub(crate) fn update_fire_spread_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_fire_spread::fire_spread_center_3d_distance;
 
         let frame = self.frame as u32;
@@ -2402,7 +2404,7 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         if ids.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut ignited_this_update = std::collections::HashSet::new();
@@ -2437,7 +2439,7 @@ impl GameLogic {
                     crate::game_logic::host_usa_pilot::HostDeathType::Burned,
                     None,
                     presentation_effects,
-                );
+                )?;
             }
             // DOT runs the full synchronous Body callback chain. It may remove
             // this object or replace the slot with a new incarnation using the
@@ -2573,6 +2575,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     pub(in super::super) fn update_tensile_formations(&mut self) {
@@ -2767,7 +2770,7 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_scud_poison_zones(&mut self) {
+    pub(in super::super) fn update_scud_poison_zones(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_scud_poison_zones_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2776,7 +2779,7 @@ impl GameLogic {
     pub(in super::super) fn update_scud_poison_zones_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .registered()
@@ -2816,7 +2819,7 @@ impl GameLogic {
                         plan.death_type,
                         None,
                         presentation_effects,
-                    );
+                    )?;
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -2844,10 +2847,11 @@ impl GameLogic {
         }
 
         self.scud_poison_zones.prune_expired(frame);
+        Ok(())
     }
 
     /// Advance Nuke Cannon MediumRadiationField residual zones.
-    pub(in super::super) fn update_nuke_cannon_radiation_zones(&mut self) {
+    pub(in super::super) fn update_nuke_cannon_radiation_zones(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_nuke_cannon_radiation_zones_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2856,7 +2860,7 @@ impl GameLogic {
     pub(in super::super) fn update_nuke_cannon_radiation_zones_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -2879,7 +2883,7 @@ impl GameLogic {
                     plan.source_object,
                     plan.source_team,
                     presentation_effects,
-                ) else {
+                )? else {
                     continue;
                 };
                 total_damage += hit.damage;
@@ -2897,6 +2901,7 @@ impl GameLogic {
         }
 
         self.nuke_cannon_residual.prune_expired(frame);
+        Ok(())
     }
 
     pub fn honesty_nuke_cannon_shell_projectile_ok(&self) -> bool {

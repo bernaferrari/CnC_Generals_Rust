@@ -379,7 +379,7 @@ fn stealth_fighter_lockon_keys_on_authored_weapon_not_template_name() {
         .create_object("A225xAuthoredJet", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("authored");
     game_logic.set_current_frame(5);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     let f = game_logic.host_object(foreign).unwrap();
     assert_eq!(f.jet_lockon_time_frames(), 0, "name-only lockon residual");
     let a = game_logic.host_object(authored).unwrap();

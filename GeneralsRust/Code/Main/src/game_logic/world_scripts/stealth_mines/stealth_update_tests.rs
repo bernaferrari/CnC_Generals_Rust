@@ -28,7 +28,7 @@ fn world(objects: &[String]) -> GameLogic {
 fn tick_to(world: &mut GameLogic, frame: u32) {
     while world.frame < frame {
         world.frame += 1;
-        world.update_stealth_and_detection();
+        world.update_stealth_and_detection().unwrap();
     }
 }
 

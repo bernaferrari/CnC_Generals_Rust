@@ -678,47 +678,16 @@ impl CnCGameEngine {
                 .note_menu_wnd_click(physical, wnd_used, hit_wnd_widget);
             #[cfg(feature = "game_client")]
             {
-                if physical {
-                    // C++ MainMenuInput first-run GWM_CHAR/mouse-move unhides
-                    // DROPDOWN_MAIN (MapBorder2) before Solo Play is hittable.
-                    let _ = self.with_receiving_menu_effects(|effects| {
-                        game_client::gui::reveal_main_menu_first_input_like_cpp(effects)
-                    });
-                }
-                if let Some(Some(name)) =
-                    game_client::gui::os_wnd_widget_under_cursor_name_for_owner(
-                        &receiving_window_manager,
-                        x,
-                        y,
-                    )
-                {
-                    self.interactive_playability
-                        .note_skirmish_path_gadget(physical, &name);
-                    if physical {
-                        if crate::executable_smoke::ExecutableSmokeResult::wnd_nav_gadget_is_skirmish_path(
-                            &name,
-                        ) {
-                            // [None] SYSTEMCALLBACK does not return Used; GBM
-                            // notify is the C++ delivery for these gadgets.
-                            self.interactive_playability.note_menu_wnd_click(
-                                true, true, true,
-                            );
-                        }
-                        if name.starts_with("MainMenu.wnd:Button") {
-                            self.with_receiving_menu_effects(|effects| {
-                                game_client::gui::notify_physical_main_menu_gadget_gbm_selected(
-                                    &name, effects,
-                                )
-                            });
-                        } else if name.contains("ButtonStart")
-                            && name.contains("SkirmishGameOptionsMenu")
-                        {
-                            let _ = self.with_receiving_menu_effects(|effects| {
-                                game_client::gui::simulate_skirmish_start_button_gadget_selected(
-                                    effects,
-                                )
-                            });
-                        }
+                if physical && wnd_used && hit_wnd_widget {
+                    if let Some(Some(name)) =
+                        game_client::gui::os_wnd_widget_under_cursor_name_for_owner(
+                            &receiving_window_manager,
+                            x,
+                            y,
+                        )
+                    {
+                        self.interactive_playability
+                            .note_skirmish_path_gadget(true, &name);
                     }
                 }
             }

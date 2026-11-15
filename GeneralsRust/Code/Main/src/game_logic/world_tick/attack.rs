@@ -660,12 +660,12 @@ impl GameLogic {
                         self.visual_world_epoch,
                     ))
                 });
-                let fire = self.attack_fire_weapon_update_with_effects(
+                let fire = self.attack_fire_weapon_update_checked_with_effects(
                     unit_id,
                     victim_id,
                     current_time,
                     presentation_effects,
-                );
+                )?;
                 if matches!(fire, AttackFireResult::Success) {
                     if let Some((position, range, attacker_birth, victim_birth, epoch)) =
                         continuation
@@ -1567,14 +1567,14 @@ impl GameLogic {
                             self.try_strategy_center_bombardment_turret_fire_with_effects(
                                 unit_id,
                                 presentation_effects,
-                            )
+                            )?
                         } else {
-                            self.attack_fire_weapon_update_with_effects(
+                            self.attack_fire_weapon_update_checked_with_effects(
                                 unit_id,
                                 vid,
                                 current_time,
                                 presentation_effects,
-                            )
+                            )?
                         };
                         match fire {
                             AttackFireResult::Continue => AttackAimResult::Continue,
@@ -2322,25 +2322,36 @@ impl GameLogic {
         current_time: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> AttackFireResult {
+        self.attack_fire_weapon_update_checked_with_effects(unit_id, victim_id, current_time, presentation_effects)
+            .expect("receiving projectile admission failed")
+    }
+
+    fn attack_fire_weapon_update_checked_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: ObjectId,
+        current_time: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<AttackFireResult> {
         // Snapshot checks without holding mut.
         let (alive, can_fire_now, pre_continue, in_range) = {
             let Some(atk) = self.objects.get(&unit_id) else {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             };
             if !atk.is_alive() {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             }
             let Some(vic) = self.objects.get(&victim_id) else {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             };
             if !vic.is_alive() || vic.status.destroyed {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             }
             let pre_continue = atk.pre_attack_target == Some(victim_id)
                 && atk.pre_attack_ready_at > current_time + 1e-6;
             let can = atk.can_fire_with_solo_set(current_time, &self.solo_weapon_bonus_set);
             let Some(slot) = atk.selected_weapon_slot() else {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             };
             let range_ok = atk.is_within_attack_range_for_slot_with_solo_set(
                 slot,
@@ -2351,7 +2362,7 @@ impl GameLogic {
         };
         let _ = alive;
         if pre_continue {
-            return AttackFireResult::Continue;
+            return Ok(AttackFireResult::Continue);
         }
         if !can_fire_now {
             // Try fire_at anyway — it may arm pre-attack.
@@ -2360,10 +2371,10 @@ impl GameLogic {
             // Still allow fire_at to arm pre-attack if can_fire and target set.
             // Out of range without wind-up => failure.
             let Some(atk) = self.objects.get(&unit_id) else {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             };
             if atk.pre_attack_ready_at <= 0.0 {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             }
         }
 
@@ -2373,7 +2384,7 @@ impl GameLogic {
         // the parsed DeployStyleAIUpdate state machine.  Do not start an
         // unpack merely for an out-of-range approach.
         if in_range && !self.ensure_deploy_style_ready_to_fire(unit_id) {
-            return AttackFireResult::Continue;
+            return Ok(AttackFireResult::Continue);
         }
 
         let (victim_infantry, victim_faerie) = self
@@ -2389,7 +2400,7 @@ impl GameLogic {
             .and_then(|player_id| self.host_default_team_id(player_id));
         {
             let Some(u) = self.objects.get_mut(&unit_id) else {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             };
             u.set_status_firing_weapon(true);
             u.note_attack_target_with_operation(
@@ -2419,11 +2430,11 @@ impl GameLogic {
             });
             (bonuses.map(|fields| fields.2), bonuses)
         }) else {
-            return AttackFireResult::Failure;
+            return Ok(AttackFireResult::Failure);
         };
         let prepared = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             };
             // TARGET_FAERIE_FIRE ROF residual when victim is painted.
             u.prepare_autonomous_weapon_shot_with_operation_and_solo_set(
@@ -2458,7 +2469,7 @@ impl GameLogic {
                 shot,
                 capture,
                 presentation_effects,
-            ) {
+            )? {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
                     unit.advance_weapon_barrel_after_shot(slot);
                 }
@@ -2467,16 +2478,16 @@ impl GameLogic {
             self.commit_owned_weapon_fire_after_effects(unit_id);
             // max_shots_to_fire is decremented inside the accepted Object
             // shot (C++ Weapon::m_maxShotCount).
-            AttackFireResult::Success
+            Ok(AttackFireResult::Success)
         } else {
             // fire_at false: either pre-attack armed or cannot fire.
             let Some(u) = self.objects.get(&unit_id) else {
-                return AttackFireResult::Failure;
+                return Ok(AttackFireResult::Failure);
             };
             if u.pre_attack_ready_at > current_time + 1e-6 {
-                AttackFireResult::Continue
+                Ok(AttackFireResult::Continue)
             } else {
-                AttackFireResult::Failure
+                Ok(AttackFireResult::Failure)
             }
         }
     }

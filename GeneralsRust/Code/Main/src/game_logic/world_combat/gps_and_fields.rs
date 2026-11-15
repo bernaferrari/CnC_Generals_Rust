@@ -322,7 +322,7 @@ impl GameLogic {
         self.ecm_missiles_jammed > 0
     }
 
-    pub fn update_microwave_disable(&mut self) {
+    pub fn update_microwave_disable(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_microwave_disable_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -331,7 +331,7 @@ impl GameLogic {
     pub(crate) fn update_microwave_disable_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_microwave::{
             HOST_MICROWAVE_DELAY_FRAMES, HOST_MICROWAVE_DISABLE_RANGE,
             HOST_MICROWAVE_SUBDUAL_PULSE, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
@@ -475,7 +475,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 let target = self
                     .objects
                     .get_mut(&receiving_damage_id)
@@ -569,13 +569,14 @@ impl GameLogic {
                 );
             }
         }
+        Ok(())
     }
 
     /// C++ MicrowaveTankEmitterWeapon: DamageType MICROWAVE (Damage.h:63),
     /// PrimaryDamage 8, radius 100. TankArmor MICROWAVE is 0%; HumanArmor 100%.
     /// Not Unresistable — Crusaders/Battlemasters in the field take 0 HP.
     ///
-    pub fn update_microwave_emitter_field(&mut self) {
+    pub fn update_microwave_emitter_field(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_microwave_emitter_field_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -584,7 +585,7 @@ impl GameLogic {
     pub(crate) fn update_microwave_emitter_field_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_microwave::{
             HOST_MICROWAVE_EMITTER_DELAY_FRAMES, HOST_MICROWAVE_EMITTER_FX,
             HOST_MICROWAVE_EMITTER_RADIUS, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
@@ -594,7 +595,7 @@ impl GameLogic {
         let frame = self.frame;
         // Pulse cadence residual (DelayBetweenShots 250ms → 8f).
         if frame % HOST_MICROWAVE_EMITTER_DELAY_FRAMES.max(1) != 0 {
-            return;
+            return Ok(());
         }
 
         let emitters: Vec<(ObjectId, Option<u32>, Option<u32>, String, f32, f32, f32)> = self
@@ -627,7 +628,7 @@ impl GameLogic {
             })
             .collect();
         if emitters.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut hits: Vec<(ObjectId, ObjectId, f32)> = Vec::new();
@@ -701,7 +702,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 let o = self
                     .objects
                     .get_mut(&receiving_damage_id)
@@ -726,6 +727,7 @@ impl GameLogic {
         for (id, team) in destroy_ids {
             self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
+        Ok(())
     }
 
     /// Host China Propaganda / Speaker Tower residual: heal + weapon buff in radius.
@@ -740,7 +742,7 @@ impl GameLogic {
     /// Each tower dispatches scan removals, then its inside list in C++ order.
     /// Every changed condition synchronously restarts the receiving weapon clock;
     /// overlapping towers do not union their flags or erase each other's events.
-    pub fn update_propaganda_tower_pulse(&mut self, dt: f32) {
+    pub fn update_propaganda_tower_pulse(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
         self.update_propaganda_tower_pulse_with_effects(
             dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -751,7 +753,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_overlord_addons::overlord_propaganda_heal_amount;
         use crate::game_logic::host_propaganda::{
             HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES, HOST_PROPAGANDA_TOWER_RADIUS,
@@ -764,7 +766,7 @@ impl GameLogic {
         use gamelogic::common::Relationship;
 
         if dt <= 0.0 {
-            return;
+            return Ok(());
         }
 
         struct TowerSnap {
@@ -979,7 +981,7 @@ impl GameLogic {
                             heal_amt,
                             Some(tower.id),
                             presentation_effects,
-                        )
+                        )?
                         .is_some()
                         && self
                             .objects
@@ -998,6 +1000,7 @@ impl GameLogic {
         for _ in 0..buff_ticks {
             self.record_propaganda_residual_buff();
         }
+        Ok(())
     }
 
     /// PropagandaTowerBehavior::onDie/onDelete/removeAllInfluence.
@@ -1046,7 +1049,7 @@ impl GameLogic {
     ///   ForbiddenKindOf=AIRCRAFT, SkipSelfForHealing=Yes.
     /// Pulse every HealingDelay (not continuous HP/s). ALLOW_ALLIES (player relationship,
     /// leftover same-team fallback). Sole-benefactor lasts HealingDelay frames.
-    pub fn update_ambulance_auto_heal(&mut self, dt: f32) {
+    pub fn update_ambulance_auto_heal(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
         self.update_ambulance_auto_heal_with_effects(
             dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1057,7 +1060,7 @@ impl GameLogic {
         &mut self,
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_heal::{
             AMBULANCE_HEAL_DELAY_FRAMES, AMBULANCE_INFANTRY_HEAL_AMOUNT,
             AMBULANCE_VEHICLE_HEAL_AMOUNT, HOST_AMBULANCE_HEAL_RADIUS, ambulance_heal_is_ally,
@@ -1067,7 +1070,7 @@ impl GameLogic {
         use gamelogic::common::Relationship;
 
         if !ambulance_pulse_ready(&mut self.ambulance_auto_heal_pulse_accum, dt) {
-            return;
+            return Ok(());
         }
 
         // Snapshot healers: alive ambulance/medic residual units.
@@ -1084,7 +1087,7 @@ impl GameLogic {
             .collect();
 
         if healers.is_empty() {
-            return;
+            return Ok(());
         }
 
         // Snapshot damaged candidates: infantry (ModuleTag_22) or ground vehicles (ModuleTag_23).
@@ -1123,7 +1126,7 @@ impl GameLogic {
             .collect();
 
         if candidates.is_empty() {
-            return;
+            return Ok(());
         }
 
         let now = self.frame as u32;
@@ -1186,7 +1189,7 @@ impl GameLogic {
                         AMBULANCE_HEAL_DELAY_FRAMES,
                         now,
                         presentation_effects,
-                    )
+                    )?
                 {
                     heal_ticks = heal_ticks.saturating_add(1);
                 }
@@ -1196,11 +1199,12 @@ impl GameLogic {
         for _ in 0..heal_ticks {
             self.record_ambulance_residual_heal();
         }
+        Ok(())
     }
 
     /// Host leftover DefaultAutoHealBehavior: trainable units self-heal after StartHealingDelay.
     /// HELD / garrisoned units still pulse (C++ DISABLED_HELD).
-    pub fn update_default_auto_heal(&mut self) {
+    pub fn update_default_auto_heal(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_default_auto_heal_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1209,7 +1213,7 @@ impl GameLogic {
     pub(crate) fn update_default_auto_heal_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
             .objects
@@ -1234,12 +1238,12 @@ impl GameLogic {
             if amount > 0.0 {
                 // Radius-zero pulseHealObject uses the healer itself as source.
                 // Release the module loan before the real synchronous callbacks.
-                let _ = self.apply_owned_healing_with_effects(
+                self.apply_owned_healing_with_effects(
                     id,
                     amount,
                     Some(id),
                     presentation_effects,
-                );
+                )?;
                 if let Some(ah) = self
                     .objects
                     .get_mut(&id)
@@ -1249,6 +1253,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -1490,7 +1495,7 @@ mod tests {
         let expected = game_engine::common::random_value::SessionRandom::from_state(
             game.logic_random.snapshot(),
         );
-        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         for &id in &inside {
             // ENTHUSIASTIC's first restart floors the delay to zero. The
             // subsequent SUBLIMINAL callback now sees READY and must not draw.
@@ -1511,7 +1516,7 @@ mod tests {
         let expected = game_engine::common::random_value::SessionRandom::from_state(
             game.logic_random.snapshot(),
         );
-        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert_propaganda_clock_events(&game, &expected, &inside, 2);
         for &id in &inside {
             let target = game.host_object(id).unwrap();
@@ -1523,7 +1528,7 @@ mod tests {
             .map(|id| game.host_object(*id).unwrap().weapon_slot(0).unwrap().next_fire_frame)
             .collect();
         game.frame += 1;
-        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert_eq!(game.logic_random.seed_words(), expected.seed_words());
         for (&id, deadline) in inside.iter().zip(deadlines) {
             assert_eq!(game.host_object(id).unwrap().weapon_slot(0).unwrap().next_fire_frame, deadline);
@@ -1535,7 +1540,7 @@ mod tests {
         for leaving_index in [0, 1] {
             for disabled in [false, true] {
                 let (mut game, towers, inside) = propaganda_clock_world();
-                game.update_propaganda_tower_pulse(1.0 / 30.0);
+                game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
                 game.frame += 60;
                 if disabled {
                     game.host_object_mut(towers[leaving_index]).unwrap().status.disabled_emp = true;
@@ -1553,7 +1558,7 @@ mod tests {
                         expected.next_int(600, 900);
                     }
                 }
-                game.update_propaganda_tower_pulse(1.0 / 30.0);
+                game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
                 assert_propaganda_clock_events(&game, &expected, &inside, 2);
                 for &id in &inside {
                     let target = game.host_object(id).unwrap();
@@ -1564,7 +1569,7 @@ mod tests {
                 // coverage union at the end of this tick.
                 if leaving_index == 1 {
                     game.frame += 1;
-                    game.update_propaganda_tower_pulse(1.0 / 30.0);
+                    game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
                     assert_propaganda_clock_events(&game, &expected, &inside, 2);
                 }
             }
@@ -1574,7 +1579,7 @@ mod tests {
     #[test]
     fn propaganda_clock_delete_clears_immediately_even_with_another_tower_covering() {
         let (mut game, towers, inside) = propaganda_clock_world();
-        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         game.frame += 1;
         let expected = game_engine::common::random_value::SessionRandom::from_state(
             game.logic_random.snapshot(),
@@ -1588,14 +1593,14 @@ mod tests {
         assert!(game.propaganda_scan.inside(towers[0]).is_empty());
         game.destroy_object(towers[0]).unwrap();
         assert_eq!(game.logic_random.seed_words(), expected.seed_words());
-        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert_propaganda_clock_events(&game, &expected, &inside, 2);
     }
 
     #[test]
     fn propaganda_clock_base_tower_does_not_clear_an_existing_subliminal_bit() {
         let (mut game, towers, inside) = propaganda_clock_world();
-        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         for tower in towers {
             let owner = game.host_object(tower).unwrap().owner_player_id.unwrap();
             game.get_player_mut(owner).unwrap().completed_upgrades.clear();
@@ -1603,7 +1608,7 @@ mod tests {
         }
         let before = game.logic_random.seed_words();
         game.frame += 1;
-        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         for &id in &inside {
             assert!(game.host_object(id).unwrap().weapon_bonus_subliminal);
         }
@@ -1630,7 +1635,7 @@ mod tests {
         }
 
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         {
             let unit = logic.host_object(unit_id).expect("unit");
             assert!(
@@ -1646,7 +1651,7 @@ mod tests {
             assert!(tower.is_disabled());
         }
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         {
             let unit = logic.host_object(unit_id).expect("unit");
             assert!(
@@ -1668,7 +1673,7 @@ mod tests {
             assert!(!tower.is_disabled());
         }
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         {
             let unit = logic.host_object(unit_id).expect("unit");
             assert!(
@@ -1698,7 +1703,7 @@ mod tests {
         }
 
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         {
             let unit = logic.host_object(unit_id).expect("unit");
             assert!(
@@ -1714,7 +1719,7 @@ mod tests {
             assert!(tower.is_alive(), "sold tower is still alive during sell");
         }
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         {
             let unit = logic.host_object(unit_id).expect("unit");
             assert!(
@@ -1758,7 +1763,7 @@ mod tests {
         }
         let before = logic.host_object(unit_id).expect("unit").health.current;
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         let unit = logic.host_object(unit_id).expect("unit");
         assert!(!unit.weapon_bonus_enthusiastic);
         assert!((unit.health.current - before).abs() < 0.01);
@@ -1775,7 +1780,7 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
             .expect("unit");
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert!(
             !logic
                 .host_object(unit_id)
@@ -1785,7 +1790,7 @@ mod tests {
 
         logic.set_fixture_object_position(unit_id, Vec3::new(20.0, 0.0, 0.0));
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert!(
             !logic
                 .host_object(unit_id)
@@ -1797,7 +1802,7 @@ mod tests {
         logic.frame +=
             crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert!(
             logic
                 .host_object(unit_id)
@@ -1807,7 +1812,7 @@ mod tests {
 
         logic.set_fixture_object_position(unit_id, Vec3::new(300.0, 0.0, 0.0));
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert!(
             logic
                 .host_object(unit_id)
@@ -1818,7 +1823,7 @@ mod tests {
         logic.frame +=
             crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert!(
             !logic
                 .host_object(unit_id)
@@ -1861,7 +1866,7 @@ mod tests {
         }
         let before = logic.host_object(unit_id).unwrap().health.current;
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         let unit = logic.host_object(unit_id).unwrap();
         assert!(!unit.weapon_bonus_enthusiastic);
         assert!((unit.health.current - before).abs() < 0.01);
@@ -1885,7 +1890,7 @@ mod tests {
             .create_object_for_player("TestInfantry", 2, Vec3::new(20.0, 0.0, 0.0))
             .expect("ally");
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert!(
             logic
                 .host_object(unit_id)
@@ -1932,7 +1937,7 @@ mod tests {
         let dozer_before = logic.host_object(dozer_id).unwrap().health.current;
         logic.frame = 1;
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         assert!(
             !logic
                 .host_object(drone_id)
@@ -1990,7 +1995,7 @@ mod tests {
         );
 
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         {
             let unit = logic.host_object(unit_id).expect("unit");
             assert!(
@@ -2010,7 +2015,7 @@ mod tests {
             );
         }
         logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
         {
             let unit = logic.host_object(unit_id).expect("unit");
             assert!(
@@ -2352,7 +2357,7 @@ mod tests {
             b.object_type = ObjectType::Building;
         }
         logic.frame = 0;
-        logic.update_microwave_disable();
+        logic.update_microwave_disable().unwrap();
         let after_one = logic.host_object(bldg).unwrap();
         assert!(
             !after_one.is_subdued_disabled(),
@@ -2363,7 +2368,7 @@ mod tests {
 
         for i in 1..24 {
             logic.frame = i * HOST_MICROWAVE_DELAY_FRAMES;
-            logic.update_microwave_disable();
+            logic.update_microwave_disable().unwrap();
         }
         assert!(
             logic.host_object(bldg).unwrap().is_subdued_disabled(),
@@ -2441,7 +2446,7 @@ mod tests {
         logic.frame = HOST_MICROWAVE_EMITTER_DELAY_FRAMES;
         let tank_hp = logic.host_object(tank).unwrap().health.current;
         let inf_hp = logic.host_object(inf).unwrap().health.current;
-        logic.update_microwave_emitter_field();
+        logic.update_microwave_emitter_field().unwrap();
         assert!(
             (logic.host_object(tank).unwrap().health.current - tank_hp).abs() < 1e-3,
             "TankArmor MICROWAVE 0% — crusader must not take Unresistable cook"
@@ -2525,7 +2530,7 @@ mod tests {
         logic.frame = HOST_MICROWAVE_EMITTER_DELAY_FRAMES;
         let civ_hp = logic.host_object(civ).unwrap().health.current;
         let enemy_hp = logic.host_object(enemy).unwrap().health.current;
-        logic.update_microwave_emitter_field();
+        logic.update_microwave_emitter_field().unwrap();
         assert!(
             (logic.host_object(civ).unwrap().health.current - civ_hp).abs() < 1e-3,
             "emitter RadiusDamageAffects ENEMIES only — neutrals must not cook"

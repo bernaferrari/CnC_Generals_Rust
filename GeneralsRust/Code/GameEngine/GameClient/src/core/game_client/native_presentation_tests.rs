@@ -288,6 +288,55 @@ fn native_views_empty_view_list_does_not_advance_draw_or_install_emitters() {
 }
 
 #[test]
+fn hosted_post_draw_main_menu_update_receives_its_world_after_match_start() {
+    use crate::gui::campaign_launch_host_bridge::MenuWorldFacts;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    crate::test_support::ensure_ambient_host();
+    let mut client = GameClient::new().unwrap();
+    let mut peer = GameClient::new().unwrap();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let peer_seen = Rc::new(RefCell::new(Vec::new()));
+    for (receiver, observed) in [(&mut client, &seen), (&mut peer, &peer_seen)] {
+        receiver.window_manager_owner().shell_handle().init().unwrap();
+        receiver.initialized = true;
+        receiver.set_frame(37);
+        let layout = Rc::new(RefCell::new(crate::gui::window_manager::WindowLayout::new(
+            "Menus/MainMenu.wnd".into(),
+        )));
+        let observed = Rc::clone(observed);
+        layout.borrow_mut().update_callback_with_effects = Some(Box::new(move |layout, data, effects| {
+            observed.borrow_mut().push(effects.menu_world());
+            effects.with_main_menu(|menu, effects| menu.update(layout, data, effects)).unwrap();
+        }));
+        receiver.window_manager_owner().with_shell_mut(|shell| shell.test_install_update_layout(layout)).unwrap();
+    }
+    let frames = NativeParticleFrames { logic_frame: 91, client_frame: 37 };
+    let prepared = client.begin_presentation_shell_with_material_frames(0., frames, &[], 0).unwrap();
+    let world = MenuWorldFacts {
+        script_engine_available: true,
+        chat: None,
+        game_mode: 3,
+        client_frame: 37,
+        logic_frame: 91,
+        in_game: true,
+        in_shell_game: false,
+    };
+    client.finish_presentation_shell_with_receiving_commands(
+        prepared,
+        &[],
+        &[],
+        NativeDrawPhase { draw_drawables: false, update_particles: false },
+        &game_engine::common::recorder::Recorder::new(),
+        &mut |_| Ok(()),
+        world,
+    ).unwrap();
+    assert_eq!(&*seen.borrow(), &[world]);
+    assert!(peer_seen.borrow().is_empty());
+}
+
+#[test]
 fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
     crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();

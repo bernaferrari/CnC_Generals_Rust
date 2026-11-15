@@ -99,7 +99,7 @@ impl GameLogic {
         )?;
         self.apply_host_hunt_guard_script_requests(&mut ui)?;
         self.apply_host_idle_script_requests_with_effects(&mut ui);
-        self.apply_host_kill_delete_damage_script_requests_with_effects(&mut ui);
+        self.apply_host_kill_delete_damage_script_requests_with_effects(&mut ui)?;
 
         self.apply_host_follow_waypoints_script_requests();
         self.apply_host_skirmish_approach_path_script_requests();
@@ -110,7 +110,7 @@ impl GameLogic {
         self.apply_host_radar_event_script_requests();
         self.apply_host_stealth_enabled_script_requests();
         self.apply_host_team_attitude_script_requests();
-        self.apply_host_script_visual_status_requests_with_effects(&mut ui);
+        self.apply_host_script_visual_status_requests_with_effects(&mut ui)?;
         self.apply_host_guard_supply_center_script_requests();
         self.apply_host_guard_variant_script_requests_with_effects(&mut ui);
         self.apply_host_named_fire_special_script_requests();

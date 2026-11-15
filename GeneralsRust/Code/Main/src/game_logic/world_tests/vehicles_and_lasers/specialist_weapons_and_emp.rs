@@ -50,13 +50,13 @@ fn hero_spawn_waits_stealth_delay() {
         );
         assert_eq!(b.stealth_allowed_frame, BURTON_STEALTH_DELAY_FRAMES);
     }
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(burton_id).unwrap().status.stealthed,
         "must stay visible during StealthDelay"
     );
     game_logic.frame = BURTON_STEALTH_DELAY_FRAMES;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.host_object(burton_id).unwrap().status.stealthed,
         "hero cloaks after StealthDelay"

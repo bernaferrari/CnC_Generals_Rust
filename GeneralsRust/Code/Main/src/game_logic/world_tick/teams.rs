@@ -1763,10 +1763,11 @@ impl GameLogic {
         unit: &str,
         waypoint: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(id) = self.host_object_id_by_script_name(unit) {
-            self.host_script_fire_weapon_following_path_for(id, waypoint, effects);
+            self.host_script_fire_weapon_following_path_for(id, waypoint, effects)?;
         }
+        Ok(())
     }
 
     pub(crate) fn host_script_fire_weapon_following_path_for(
@@ -1774,7 +1775,7 @@ impl GameLogic {
         id: ObjectId,
         waypoint: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((pos, owner, proj_name)) = self.host_object(id).and_then(|obj| {
             if !obj.is_alive() || obj.status.destroyed {
                 return None;
@@ -1783,18 +1784,18 @@ impl GameLogic {
             let owner = self.player_owner_for_host_object(obj)?;
             Some((obj.get_position(), owner, projectile_name))
         }) else {
-            return;
+            return Ok(());
         };
         let Some(path) = self.host_script_waypoint_route_from(waypoint, pos) else {
-            return;
+            return Ok(());
         };
         if proj_name.is_empty() {
-            return;
+            return Ok(());
         }
         let Some(proj_id) =
-            self.create_projectile_for_controller_with_effects(&proj_name, owner, pos, effects)
+            self.create_projectile_for_controller_with_effects(&proj_name, owner, pos, effects)?
         else {
-            return;
+            return Ok(());
         };
         if let Some(obj) = self.host_object_mut(proj_id) {
             obj.note_producer(id);
@@ -1803,15 +1804,14 @@ impl GameLogic {
             // authored projectile without AI is still created, but none of
             // those operations belong to it.
             if !obj.has_ai_update_interface() {
-                return;
+                return Ok(());
             }
             obj.set_formation(0, glam::Vec2::ZERO);
         }
         let _ = self.apply_unit_locomotor_set(proj_id, "normal");
-        if path.points.is_empty() {
-            return;
-        }
-        let goal = *path.points.last().unwrap();
+        let Some(&goal) = path.points.last() else {
+            return Ok(());
+        };
         let via = &path.points[..path.points.len().saturating_sub(1)];
         let _ = self.unit_command_waypoint_path_prep(proj_id, false);
         if self.assign_unit_path(proj_id, goal, via) {
@@ -1821,6 +1821,7 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ `WeaponSet::findWaypointFollowingCapableWeapon` (TERTIARY..PRIMARY)
@@ -3198,6 +3199,15 @@ mod tests {
                 "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd\nObject Scr2ScudLauncher\n KindOf = VEHICLE\n WeaponSet\n  Conditions = None\n  Weapon = PRIMARY ScudStormWeapon\n End\n Body = ActiveBody BodyTag\n  MaxHealth = 400\n  InitialHealth = 400\n End\nEnd\n".to_owned(),
             )])
             .expect("admit authored Scr2Scud objects");
+        assert!(logic
+            .create_projectile_for_controller_with_effects(
+                "Scr2ScudMissile",
+                u32::MAX,
+                glam::Vec3::ZERO,
+                &mut Default::default(),
+            )
+            .expect("absent player is not an error")
+            .is_none());
         logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
 
         let id = logic
@@ -3227,7 +3237,7 @@ mod tests {
             "NamedScud",
             "Scr2Cruise",
             &mut Default::default(),
-        );
+        ).expect("fire waypoint projectile");
 
         let proj = logic
             .host_objects()

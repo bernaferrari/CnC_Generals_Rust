@@ -145,6 +145,7 @@ fn receiving_damage_emits_once_with_owned_definition_position_and_player() {
                     None,
                     &DamageHitContext::default()
                 )
+                .expect("damage application")
                 .is_none()
             );
             assert_eq!(a.queued_audio_events.len(), 1);
@@ -281,7 +282,7 @@ fn residual_body_route_uses_the_same_receiving_audio_owner() {
                 DamageType::Unresistable,
                 HostDeathType::Normal,
                 None
-            ));
+            ).expect("residual damage application"));
             assert_fear(
                 &world.queued_audio_events,
                 "ResidualFear",
@@ -391,7 +392,7 @@ fn actual_radiation_producers_deliver_fear_to_their_receiving_world() {
                             position,
                             world.frame,
                         );
-                        world.update_nuke_cannon_radiation_zones();
+                        world.update_nuke_cannon_radiation_zones().unwrap();
                     }
                     1 => {
                         world.special_power_strikes.spawn_radiation_field(
@@ -401,7 +402,7 @@ fn actual_radiation_producers_deliver_fear_to_their_receiving_world() {
                             world.frame,
                             0,
                         );
-                        world.update_nuclear_radiation_fields();
+                        world.update_nuclear_radiation_fields().unwrap();
                     }
                     _ => {
                         world.nuclear_tanks.spawn_radiation_zone(

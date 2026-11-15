@@ -25,7 +25,7 @@ fn launch(delay: u32) -> (GameLogic, super::super::ObjectId, super::super::Objec
     assert!(world.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
     assert_eq!(world.combat_system.projectile_count(), 1);
     world.frame += 1;
-    assert!(world.update_owned_projectile_impacts(1.0 / 30.0).is_empty());
+    assert!(world.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
     assert_eq!(
         world.combat_system.projectile_count(),
         1,
@@ -47,7 +47,7 @@ fn continue_flight(world: &mut GameLogic, target: super::super::ObjectId) -> Vec
     let mut observations = Vec::new();
     for _ in 0..40 {
         world.frame += 1;
-        let retired = world.update_owned_projectile_impacts(1.0 / 30.0);
+        let retired = world.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
         observations.push(FrameObservation {
             frame: world.frame,
             retired,
@@ -113,6 +113,58 @@ fn encoded_live_missile_restores_exact_flight_and_real_body_future() {
 }
 
 #[test]
+fn encoded_wrong_template_missile_is_rejected_without_touching_receiver_or_peer() {
+    let (original, _, _) = launch(0);
+    let id = original.combat_system.projectiles_snapshot()[0].id;
+    let mut corrupted = encoded_snapshot(&original);
+    assert_eq!(corrupted.objects[&id].template_name, "SameMissile");
+    // ProfileTarget is another real authored receiving template, not a missing
+    // template that would fail the generic Object factory preflight.
+    corrupted.objects.get_mut(&id).unwrap().template_name = "ProfileTarget".into();
+    let bytes = bincode_legacy::serialize(&corrupted).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+
+    let (mut receiving, _, _) = launch(1000);
+    let (peer, _, _) = launch(2000);
+    assert_eq!(receiving.combat_system.projectiles_snapshot()[0].id, id);
+    assert_eq!(peer.combat_system.projectiles_snapshot()[0].id, id);
+    let receiver_before = (receiving.frame, arena_bytes(&receiving),
+        receiving.host_object(id).unwrap().get_position(),
+        receiving.host_object(id).unwrap().template_name.clone());
+    let peer_before = (peer.frame, arena_bytes(&peer),
+        peer.host_object(id).unwrap().get_position(),
+        peer.host_object(id).unwrap().template_name.clone());
+    assert!(SnapshotBuilder::new().restore_from_snapshot(&decoded, &mut receiving).is_err());
+    assert_eq!((receiving.frame, arena_bytes(&receiving),
+        receiving.host_object(id).unwrap().get_position(),
+        receiving.host_object(id).unwrap().template_name.clone()), receiver_before);
+    assert_eq!((peer.frame, arena_bytes(&peer),
+        peer.host_object(id).unwrap().get_position(),
+        peer.host_object(id).unwrap().template_name.clone()), peer_before);
+}
+
+#[test]
+fn corrupted_projectile_template_cannot_rebind_a_live_actor() {
+    let (mut original, _, _) = launch(0);
+    let id = original.combat_system.projectiles_snapshot()[0].id;
+    let mut saved = encoded_snapshot(&original);
+    let frame = saved.lifecycle_tail.windows(4).position(|bytes| bytes == b"CPRJ").unwrap();
+    let payload = frame + 12;
+    let offset = saved.lifecycle_tail[payload..].windows(b"SameMissile".len())
+        .position(|bytes| bytes == b"SameMissile").unwrap() + payload;
+    saved.lifecycle_tail[offset..offset + 11].copy_from_slice(b"OtherMissil");
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut receiving, _, _) = launch(1000);
+    let before = arena_bytes(&receiving);
+    assert!(SnapshotBuilder::new().restore_from_snapshot(&decoded, &mut receiving).is_err());
+    assert_eq!(arena_bytes(&receiving), before);
+
+    original.combat_system.projectile_mut(id).unwrap().projectile_object_name = "OtherMissil".into();
+    assert!(SnapshotBuilder::new().create_world_snapshot(&original).is_err());
+}
+
+#[test]
 fn restored_live_flight_survives_missing_launcher_and_keeps_allocation_cursor() {
     let (mut original, source, target) = launch(0);
     original.destroy_object(source).unwrap();
@@ -150,11 +202,10 @@ fn restored_live_flight_survives_missing_launcher_and_keeps_allocation_cursor() 
 }
 
 #[test]
-fn projectile_names_cannot_spoof_legacy_tail_tags() {
+fn projectile_effect_names_cannot_spoof_legacy_tail_tags() {
     let (mut original, _, _) = launch(0);
     let id = original.combat_system.projectiles_snapshot()[0].id;
     let projectile = original.combat_system.projectile_mut(id).unwrap();
-    projectile.projectile_object_name = "CPAD_APRO_SPCD_PJST".into();
     projectile.detonation_fx_name = "PJST_SPCD_APRO_CPAD".into();
     let saved = encoded_snapshot(&original);
     let (mut restored, _, _) = world(1000);
@@ -204,8 +255,8 @@ fn encoded_missing_target_keeps_actual_missile_retirement_without_body_damage() 
         original.frame += 1;
         restored.frame += 1;
         assert_eq!(
-            restored.update_owned_projectile_impacts(1.0 / 30.0),
-            original.update_owned_projectile_impacts(1.0 / 30.0)
+            restored.update_owned_projectile_impacts(1.0 / 30.0).unwrap(),
+            original.update_owned_projectile_impacts(1.0 / 30.0).unwrap()
         );
         assert_eq!(arena_bytes(&restored), arena_bytes(&original));
         assert!(original.health_events.drain_ordered().is_empty());

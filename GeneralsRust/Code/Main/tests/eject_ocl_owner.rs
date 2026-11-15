@@ -84,7 +84,7 @@ fn same_named_eject_lists_use_their_own_world_and_never_a_foreign_fallback() {
     assert_eq!(first_id, peer_id);
     assert_eq!(first_id, missing_id);
 
-    first.apply_host_damage(first_id, 1000.0);
+    first.apply_host_damage(first_id, 1000.0).unwrap();
     let first_deadline = pilot_deadline(&first).expect("first world ejects its own pilot");
     let first_sounds = first.queued_audio_events.drain_requests();
     assert!(
@@ -98,7 +98,7 @@ fn same_named_eject_lists_use_their_own_world_and_never_a_foreign_fallback() {
             .any(|event| event.event_type == "FirstEjectSound")
     );
     assert_eq!(pilot_deadline(&peer), None);
-    peer.apply_host_damage(peer_id, 1000.0);
+    peer.apply_host_damage(peer_id, 1000.0).unwrap();
     let peer_deadline = pilot_deadline(&peer).expect("peer ejects its own pilot");
     let peer_sounds = peer.queued_audio_events.drain_requests();
     assert!(
@@ -112,7 +112,7 @@ fn same_named_eject_lists_use_their_own_world_and_never_a_foreign_fallback() {
             .any(|event| event.event_type == "PeerEjectSound")
     );
     assert_eq!(peer_deadline - first_deadline, 60);
-    missing.apply_host_damage(missing_id, 1000.0);
+    missing.apply_host_damage(missing_id, 1000.0).unwrap();
     assert_eq!(pilot_deadline(&missing), None);
     peer.reset();
     assert_eq!(pilot_deadline(&first), Some(first_deadline));

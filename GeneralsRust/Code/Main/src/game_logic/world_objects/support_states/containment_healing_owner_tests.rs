@@ -151,7 +151,7 @@ fn heal_contain_uses_container_source_and_receiving_body_callbacks() {
     let (mut owner, container, passenger) = world("HealContain", "");
     let (peer, peer_container, peer_passenger) = world("HealContain", "");
     assert_eq!((container, passenger), (peer_container, peer_passenger));
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, Some(container), 20.0 + 100.0 / 30.0);
     assert_eq!(
         owner.host_object(passenger).unwrap().contained_by,
@@ -162,7 +162,7 @@ fn heal_contain_uses_container_source_and_receiving_body_callbacks() {
         .unwrap()
         .door_close_countdown = 99;
     owner.frame = 130;
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, Some(container), 100.0);
     assert_eq!(owner.host_object(passenger).unwrap().contained_by, None);
     assert!(
@@ -194,10 +194,10 @@ fn heal_contain_uses_container_source_and_receiving_body_callbacks() {
 #[test]
 fn garrison_heal_objects_true_has_no_source_or_auto_exit() {
     let (mut owner, container, passenger) = world("GarrisonContain", "HealObjects = Yes");
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, None, 20.0 + 100.0 / 30.0);
     owner.frame = 130;
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, None, 100.0);
     assert_eq!(
         owner.host_object(passenger).unwrap().contained_by,
@@ -224,7 +224,7 @@ fn garrison_heal_objects_true_has_no_source_or_auto_exit() {
 fn garrison_time_for_full_heal_without_heal_objects_does_not_heal() {
     let (mut owner, container, passenger) = world("GarrisonContain", "HealObjects = No");
     owner.frame = 130;
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     let object = owner.host_object(passenger).unwrap();
     assert_eq!(object.health.current, 20.0);
     assert_eq!(object.last_damage_info_type, Some(DamageType::Bullet));
@@ -245,7 +245,7 @@ fn each_tunnel_entrance_heals_shared_passenger_with_no_source() {
         owner.host_object(second).unwrap().tunnel_system_key(),
         owner.host_object(container).unwrap().tunnel_system_key()
     );
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, None, 20.0 + 2.0 * (100.0 / 30.0));
     assert_eq!(owner.tunnel_network.heal_ticks, 2);
     assert_eq!(
@@ -255,7 +255,7 @@ fn each_tunnel_entrance_heals_shared_passenger_with_no_source() {
     assert_eq!(peer.host_object(passenger).unwrap().health.current, 20.0);
     assert_eq!(peer.tunnel_network.heal_ticks, 0);
     owner.frame = 130;
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, None, 100.0);
     assert_eq!(owner.tunnel_network.heal_ticks, 4);
     assert_eq!(owner.tunnel_network.heal_auto_exits, 0);
@@ -279,7 +279,7 @@ fn contained_duration_wraps_at_logic_frame_boundary() {
         .tunnel_network
         .stamp_contained_by_frame(passenger, u32::MAX - 4);
     owner.frame = 25; // elapsed = 30, not a saturating zero
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, None, 100.0);
     assert_eq!(
         owner.host_object(passenger).unwrap().contained_by,
@@ -290,7 +290,7 @@ fn contained_duration_wraps_at_logic_frame_boundary() {
 #[test]
 fn zero_duration_heal_contain_completes_on_first_pulse() {
     let (mut owner, container, passenger) = world_with_duration("HealContain", "", 0);
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, Some(container), 100.0);
     assert_eq!(owner.host_object(passenger).unwrap().contained_by, None);
     assert!(
@@ -310,7 +310,7 @@ fn tunnel_healing_continues_after_real_world_snapshot_restore() {
     let second = owner
         .create_object_for_player("ContainmentHealingOwner", 1, Vec3::new(100.0, 0.0, 50.0))
         .unwrap();
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     let builder = crate::save_load::SnapshotBuilder::new();
     let bytes = bincode_legacy::serialize(&builder.create_world_snapshot(&owner).unwrap()).unwrap();
     let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
@@ -330,7 +330,7 @@ fn tunnel_healing_continues_after_real_world_snapshot_restore() {
     assert!(restored.host_object(second).is_some());
     for receiving in [&mut owner, &mut restored] {
         receiving.frame = 102;
-        receiving.tick_heal_contain_and_tunnel();
+        receiving.tick_heal_contain_and_tunnel().unwrap();
         assert_healing(receiving, passenger, None, 20.0 + 4.0 * (100.0 / 30.0));
         assert_eq!(
             receiving.host_object(passenger).unwrap().contained_by,
@@ -347,7 +347,7 @@ fn tunnel_healing_continues_after_real_world_snapshot_restore() {
 fn zero_duration_enabled_garrison_heals_fully_without_exit() {
     let (mut owner, container, passenger) =
         world_with_duration("GarrisonContain", "HealObjects = Yes", 0);
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     assert_healing(&owner, passenger, None, 100.0);
     assert_eq!(
         owner.host_object(passenger).unwrap().contained_by,
@@ -415,7 +415,7 @@ fn heal_contain_admits_healing_in_passenger_insertion_order_not_object_id_order(
     owner.tunnel_network.stamp_contained_by_frame(second, 100);
     owner.health_events.drain_ordered();
     owner.frame = 130;
-    owner.tick_heal_contain_and_tunnel();
+    owner.tick_heal_contain_and_tunnel().unwrap();
     let targets: Vec<_> = owner
         .health_events
         .snapshot_ordered()

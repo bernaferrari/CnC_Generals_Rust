@@ -178,14 +178,14 @@ fn crush_zero_then_huge_keeps_inline_owned_effects_and_receiving_crusher_pose() 
             let mut owner = world_fx(false, Some(&catalog));
             let mut peer = world_fx(true, Some(&catalog));
             for world in [&mut peer, &mut owner] {
-                assert!(world.apply_overlap_crush_check(CRUSHER, VICTIM, false));
+                assert!(world.apply_overlap_crush_check(CRUSHER, VICTIM, false).unwrap());
                 assert_eq!(world.objects[&VICTIM].health.current, 100.);
                 assert!(
                     events.try_recv().is_err(),
                     "zero hit must not fabricate a Body state edge"
                 );
                 world.set_fixture_object_position(CRUSHER, Vec3::new(6., 0., 0.));
-                assert!(world.apply_overlap_crush_check(CRUSHER, VICTIM, false));
+                assert!(world.apply_overlap_crush_check(CRUSHER, VICTIM, false).unwrap());
                 assert!(world.objects[&VICTIM].status.destroyed);
                 assert_effects(&events, Some(CRUSHER), Some(Coord3D::new(6., 0., 0.)));
                 assert_eq!(

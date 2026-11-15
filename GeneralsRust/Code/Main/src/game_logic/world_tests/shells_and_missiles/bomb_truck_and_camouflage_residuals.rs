@@ -181,7 +181,7 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
         );
         truck.set_status_attacking(true);
     }
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     // C++ reveal transition halfpoint restores true look; end clears STEALTHED.
     advance_disguise_reveal_halfpoint(&mut game_logic, &[truck_id, usa_tank_id, victim_id]);
     // Finish remaining reveal frames for STEALTHED clear residual.
@@ -261,7 +261,7 @@ fn bomb_truck_disguise_holds_without_victim() {
         );
         truck.set_status_attacking(true);
     }
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic
             .host_object(truck_id)
@@ -281,7 +281,7 @@ fn bomb_truck_disguise_holds_without_victim() {
         truck.set_status_attacking(true);
         truck.set_status_firing_weapon(true);
     }
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic
             .host_object(truck_id)
@@ -391,6 +391,7 @@ fn helix_napalm_bomb_special_power_residual_blast_and_firestorm() {
         assert!(
             game_logic
                 .activate_helix_napalm_bomb(helix_id, Vec3::new(100.0, 0.0, 0.0))
+                .expect("helix napalm activation")
                 .is_some(),
             "direct Helix Napalm activate residual"
         );
@@ -680,7 +681,7 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
     );
     drop(rebel);
     game_logic.frame = allowed;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     let rebel = game_logic.host_object(rebel_id).expect("rebel cloaked");
     assert!(
         rebel.status.stealthed,
@@ -823,7 +824,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         rebel.target = None;
     }
     game_logic.frame = 1;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic
             .host_object(rebel_id)
@@ -842,7 +843,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
 
     // After delay: idle re-cloak residual.
     game_logic.frame = allowed;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic
             .host_object(rebel_id)

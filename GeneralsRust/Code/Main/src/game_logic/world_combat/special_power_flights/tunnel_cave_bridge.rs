@@ -471,7 +471,7 @@ impl GameLogic {
         &mut self,
         span_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let pos = self
             .bridge_behavior
             .span(span_id)
@@ -483,7 +483,7 @@ impl GameLogic {
             span_id,
             pos,
             presentation_effects,
-        );
+        )
     }
 
     /// Create a bridge cue through this GameLogic's admitted OCL catalog and
@@ -495,7 +495,7 @@ impl GameLogic {
         span_id: ObjectId,
         position: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((team, veterancy, orientation, velocity)) =
             self.objects.get(&span_id).map(|bridge| {
                 (
@@ -506,9 +506,9 @@ impl GameLogic {
                 )
             })
         else {
-            return;
+            return Ok(());
         };
-        let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+        let outcome = self.execute_parsed_weapon_ocl_with_births(
             ocl,
             Some(span_id),
             team,
@@ -516,8 +516,13 @@ impl GameLogic {
             orientation,
             velocity,
             position,
+            None,
             presentation_effects,
         );
+        if let Some(error) = outcome.error {
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub(in crate::game_logic) fn play_bridge_body_transition(
@@ -525,7 +530,7 @@ impl GameLogic {
         span_id: ObjectId,
         old_state: u8,
         new_state: u8,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.play_bridge_body_transition_with_effects(
             span_id,
             old_state,
@@ -540,7 +545,7 @@ impl GameLogic {
         old_state: u8,
         new_state: u8,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let cue = self
             .bridge_behavior
             .body_transition_cues(old_state, new_state);
@@ -571,8 +576,9 @@ impl GameLogic {
                 .span(span_id)
                 .map(|s| s.random_surface_position(self.frame.wrapping_add(i as u32 * 11 + 3)))
                 .unwrap_or(glam::Vec3::ZERO);
-            self.execute_bridge_ocl_at_with_effects(ocl, span_id, pos, effects);
+            self.execute_bridge_ocl_at_with_effects(ocl, span_id, pos, effects)?;
         }
+        Ok(())
     }
 
     pub(in super::super::super) fn sync_host_bridge_rubble_and_scaffolds(
@@ -672,7 +678,7 @@ impl GameLogic {
                     old_state,
                     body_state.ordinal(),
                     presentation_effects,
-                );
+                )?;
                 if matches!(
                     body_state,
                     crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged
@@ -731,7 +737,7 @@ impl GameLogic {
                     for uid in occupants {
                         if let Some(unit) = self.objects.get_mut(&uid) {
                             let receiving_damage_target_id = unit.id;
-                            let _ = self.apply_residual_damage_owned_with_effects(
+                            self.apply_residual_damage_owned_with_effects(
                                 receiving_damage_target_id,
                                 crate::game_logic::host_bridge_behavior::BRIDGE_SPLAT_DAMAGE,
                                 Some(id),
@@ -739,7 +745,7 @@ impl GameLogic {
                                 crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
                                 None,
                                 presentation_effects,
-                            );
+                            )?;
                         }
                     }
                     self.host_radar_queue_terrain_refresh();
@@ -750,7 +756,7 @@ impl GameLogic {
                 }
                 let due_ocl = self.bridge_behavior.take_due_die_ocl(id, self.frame);
                 for _ in 0..due_ocl {
-                    self.play_bridge_die_ocl_at_with_effects(id, presentation_effects);
+                    self.play_bridge_die_ocl_at_with_effects(id, presentation_effects)?;
                 }
             } else {
                 self.bridge_behavior.on_leave_rubble(id);

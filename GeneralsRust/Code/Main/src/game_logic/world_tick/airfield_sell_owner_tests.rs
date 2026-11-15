@@ -169,7 +169,7 @@ fn authored_airfield_sell_dispatches_ordered_die_callbacks_without_flushing_othe
     );
     world.destroy_object(unrelated).unwrap();
     assert_eq!(queued(&world), vec![unrelated]);
-    assert!(world.start_sell_object(rack));
+    assert!(world.start_sell_object(rack).unwrap());
     assert!(world.host_object(rack).unwrap().status.sold);
     assert_eq!(world.host_object(rack).unwrap().construction_percent, 0.999);
     assert_eq!(world.host_object(rack).unwrap().ai_state(), AIState::Idle);
@@ -193,7 +193,7 @@ fn authored_airfield_sell_dispatches_ordered_die_callbacks_without_flushing_othe
     assert_eq!(delay.sink_at_frame, 46);
     assert_eq!(delay.destroy_at_frame, 70);
     assert!(delay.is_active());
-    assert!(!world.start_sell_object(rack), "duplicate sale is rejected");
+    assert!(!world.start_sell_object(rack).unwrap(), "duplicate sale is rejected");
     assert_eq!(queued(&world), vec![unrelated, slots[0], slots[2]]);
     assert!(
         world.host_object(unrelated).is_some(),
@@ -259,7 +259,7 @@ fn authored_airfield_sell_uses_height_above_ground_and_actual_takeoff_landing_fl
         if runway {
             assert_eq!(world.reserve_airfield_runway(rack, id), Some(0));
         }
-        assert!(world.start_sell_object(rack), "{label}");
+        assert!(world.start_sell_object(rack).unwrap(), "{label}");
         if dies {
             assert_instant_die(&world, id);
             assert!(!world.airfield_has_reserved_space(rack, id), "{label}");
@@ -305,7 +305,7 @@ fn authored_airfield_sell_does_not_treat_containment_links_as_parking_reservatio
             .contained_units()
             .is_empty()
     );
-    assert!(world.start_sell_object(rack));
+    assert!(world.start_sell_object(rack).unwrap());
     assert_instant_die(&world, reserved);
     assert_eq!(queued(&world), vec![reserved]);
     let object = world.host_object(unrostered).unwrap();
@@ -333,7 +333,7 @@ fn authored_airfield_sell_keeps_the_reservation_when_the_actual_body_rejects_kil
     assert_eq!(world.reserve_airfield_parking_space(rack, id), Some(0));
     assert_eq!(world.reserve_airfield_runway(rack, id), Some(0));
     world.host_object_mut(id).unwrap().indestructible = true;
-    assert!(world.start_sell_object(rack));
+    assert!(world.start_sell_object(rack).unwrap());
     let object = world.host_object(id).unwrap();
     assert_eq!(object.health.current, 100.0);
     assert!(!object.status.on_die_started);
@@ -392,7 +392,7 @@ fn authored_airfield_sell_does_not_eject_real_docked_aircraft_through_nonexisten
         vec![dying, survivor]
     );
     world.host_object_mut(survivor).unwrap().indestructible = true;
-    assert!(world.start_sell_object(rack));
+    assert!(world.start_sell_object(rack).unwrap());
     assert_instant_die(&world, dying);
     let dead = world.host_object(dying).unwrap();
     assert_eq!(

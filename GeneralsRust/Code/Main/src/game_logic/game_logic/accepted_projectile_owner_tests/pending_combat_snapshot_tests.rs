@@ -51,6 +51,77 @@ fn fire_children(world: &GameLogic) -> Vec<(ObjectId, String, Option<ObjectId>)>
 }
 
 #[test]
+fn encoded_pending_missile_keeps_accepted_launch_pose_after_shooter_is_destroyed() {
+    let (mut source_world, source, target) = world(FLIGHT_FIRST);
+    let target_pos = source_world.objects[&target].get_position();
+    let (_, shot) = source_world.objects.get_mut(&source).unwrap()
+        .prepare_passive_weapon_shot(
+            0, target, 10.0, false, false, source_world.frame, target_pos,
+            &mut source_world.combat_system.fire_sound_loop_events,
+            &mut source_world.attack_events,
+            Some(&source_world.projectile_definitions),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        ).unwrap();
+    let transform = shot.source_context.as_ref().unwrap().launch_transform.unwrap();
+    crate::game_logic::combat::queue_projectile_direct(&mut source_world.combat_system, shot);
+    source_world.set_fixture_object_position(source, Vec3::new(35.0, 0.0, 20.0));
+    source_world.destroy_object(source).unwrap();
+    source_world.process_destroy_list_if_needed();
+
+    let mut original = SnapshotBuilder::new().create_world_snapshot(&source_world).unwrap();
+    let expected_pending = bincode_legacy::serialize(&original.pending_combat).unwrap();
+    let captured = encoded_snapshot(&source_world);
+    use crate::save_load::{Snapshot, XferLoad, XferSave};
+    use std::io::Cursor;
+    let mut bytes = Cursor::new(Vec::new());
+    original.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut direct = WorldSnapshot::default();
+    direct.xfer(&mut XferLoad::new(Cursor::new(bytes.into_inner()))).unwrap();
+    assert_eq!(direct.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
+    for saved in [&captured, &direct] {
+        assert_eq!(bincode_legacy::serialize(&saved.pending_combat).unwrap(), expected_pending);
+        let (mut destination, _, _) = world(FLIGHT_FIRST);
+        SnapshotBuilder::new().restore_from_snapshot(saved, &mut destination).unwrap();
+        assert!(!destination.objects.contains_key(&source));
+        destination.materialize_owned_queued_projectiles_with_effects(&mut Default::default()).unwrap();
+        let projectiles = destination.combat_system.projectiles_snapshot();
+        assert_eq!(projectiles.len(), 1);
+        assert_eq!(projectiles[0].position, transform.w_axis.truncate());
+        assert_eq!(destination.objects[&projectiles[0].id].get_position(), transform.w_axis.truncate());
+    }
+}
+
+#[test]
+fn nonfinite_queued_launch_is_rejected_before_encoded_or_world_restore() {
+    let (mut source_world, source, target) = world(FLIGHT_FIRST);
+    let target_pos = source_world.objects[&target].get_position();
+    let (_, mut shot) = source_world.objects.get_mut(&source).unwrap()
+        .prepare_passive_weapon_shot(
+            0, target, 10.0, false, false, source_world.frame, target_pos,
+            &mut source_world.combat_system.fire_sound_loop_events,
+            &mut source_world.attack_events,
+            Some(&source_world.projectile_definitions),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        ).unwrap();
+    let mut captured = SnapshotBuilder::new().create_world_snapshot(&source_world).unwrap();
+    shot.source_context.as_mut().unwrap().launch_transform =
+        Some(glam::Mat4::from_cols_array(&[f32::INFINITY; 16]));
+    crate::game_logic::combat::queue_projectile_direct(&mut source_world.combat_system, shot);
+    assert!(SnapshotBuilder::new().create_world_snapshot(&source_world).is_err());
+    // Model an encoded corrupt record without bypassing capture validation.
+    captured.pending_combat = source_world.combat_system.pending_combat_snapshot();
+    let wire = bincode_legacy::serialize(&captured).unwrap();
+    assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&wire).is_err());
+    use crate::save_load::{Snapshot, XferSave};
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    assert!(captured.xfer(&mut XferSave::new(&mut bytes)).is_err());
+    let (mut destination, receiver, _) = world(FLIGHT_FIRST);
+    let position = destination.objects[&receiver].get_position();
+    assert!(SnapshotBuilder::new().restore_from_snapshot(&captured, &mut destination).is_err());
+    assert_eq!(destination.objects[&receiver].get_position(), position);
+}
+
+#[test]
 fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retired_source() {
     let (mut source_world, source, target) = world(FLIGHT_FIRST);
     {
@@ -351,10 +422,10 @@ fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
     for _ in 0..40 {
         source.frame += 1;
         restored.frame += 1;
-        source.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
-        restored.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
-        source.apply_owned_projectileless_delayed_damage();
-        restored.apply_owned_projectileless_delayed_damage();
+        source.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP).unwrap();
+        restored.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP).unwrap();
+        source.apply_owned_projectileless_delayed_damage().unwrap();
+        restored.apply_owned_projectileless_delayed_damage().unwrap();
         assert_eq!(restored.frame, source.frame);
         assert_eq!(
             restored.objects[&target].health.current,
@@ -385,7 +456,7 @@ fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
         0
     );
     finish_accepted_flight(&mut restored);
-    restored.apply_owned_projectileless_delayed_damage();
+    restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(restored.objects[&target].health.current, 70.0);
     assert_eq!(fire_children(&restored), children);
 }
@@ -431,12 +502,12 @@ fn pending_combat_snapshot_direct_xfer_continues_real_queue_and_following_record
         1
     );
     restored.frame = 102;
-    restored.apply_owned_projectileless_delayed_damage();
+    restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(restored.objects[&target].health.current, 100.0);
     restored.frame = 103;
-    restored.apply_owned_projectileless_delayed_damage();
+    restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(restored.objects[&target].health.current, 83.0);
-    restored.apply_owned_projectileless_delayed_damage();
+    restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(restored.objects[&target].health.current, 83.0);
     assert_eq!(
         live_projectileless_delayed_count_for_test(&restored.combat_system),

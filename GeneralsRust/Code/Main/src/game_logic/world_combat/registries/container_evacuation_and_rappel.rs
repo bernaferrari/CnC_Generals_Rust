@@ -6,7 +6,7 @@ impl GameLogic {
     pub(crate) fn flush_pending_garrison_really_damaged_ejects_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -17,13 +17,14 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 let _ = obj.take_pending_garrison_really_damaged_eject();
             }
-            let _ = self.evacuate_container_now_with_effects(id, false, presentation_effects);
+            self.evacuate_container_now_with_effects(id, false, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
-    pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
+    pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> gamelogic::GameLogicResult<bool> {
         self.with_own_services_mut(|this| {
             this.evacuate_container_now_with_effects(
                 container_id,
@@ -38,7 +39,7 @@ impl GameLogic {
         container_id: ObjectId,
         and_exit: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         if and_exit
             && !self.host_object(container_id).is_some_and(|object| {
                 object.chinook_ai.is_some() || object.transport_return_state.is_some()
@@ -46,7 +47,7 @@ impl GameLogic {
         {
             // Return/delete needs the origin recorded by the actual command.
             // An arbitrary contain call cannot invent that state or a death.
-            return false;
+            return Ok(false);
         }
         let effective = self.redirected_containment_owner(container_id);
         if effective != container_id {
@@ -54,21 +55,21 @@ impl GameLogic {
                 .host_object(container_id)
                 .is_some_and(|outer| outer.is_alive() && !outer.is_subdued_disabled())
             {
-                return false;
+                return Ok(false);
             }
             let evacuated = self.evacuate_transport_with_effects(
                 effective,
                 false,
                 TransportEvacuationMode::Command,
                 presentation_effects,
-            );
+            )?;
             let empty = self
                 .host_object(effective)
                 .is_some_and(|object| object.contained_units().is_empty());
             if and_exit && empty {
-                self.finish_transport_return_phase_with_effects(container_id, presentation_effects);
+                self.finish_transport_return_phase_with_effects(container_id, presentation_effects)?;
             }
-            return evacuated;
+            return Ok(evacuated);
         }
         self.evacuate_transport_with_effects(
             container_id,
@@ -83,7 +84,7 @@ impl GameLogic {
     pub(in super::super::super) fn evacuate_chinook_flight(
         &mut self,
         container_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.evacuate_chinook_flight_with_effects(
             container_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -94,13 +95,13 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(container_id_birth) = self
             .objects
             .get(&container_id)
             .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
         else {
-            return false;
+            return Ok(false);
         };
 
         use crate::game_logic::host_combat_chinook::HostChinookAIState;
@@ -113,20 +114,20 @@ impl GameLogic {
                     )
                 })
         }) {
-            return false;
+            return Ok(false);
         }
         self.evacuate_transport_with_effects(
             container_id,
             false,
             TransportEvacuationMode::ChinookFlight,
             presentation_effects,
-        );
+        )?;
         if !self.objects.get(&container_id).is_some_and(|object| {
             container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
                 &object.visual_draw_identity_token,
             ))
         }) {
-            return false;
+            return Ok(false);
         }
         let empty = self
             .objects
@@ -139,7 +140,7 @@ impl GameLogic {
                 presentation_effects,
             );
         }
-        empty
+        Ok(empty)
     }
 
     pub(super) fn evacuate_transport(
@@ -147,7 +148,7 @@ impl GameLogic {
         container_id: ObjectId,
         and_exit: bool,
         mode: TransportEvacuationMode,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.evacuate_transport_with_effects(
             container_id,
             and_exit,
@@ -162,13 +163,13 @@ impl GameLogic {
         and_exit: bool,
         mode: TransportEvacuationMode,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(container_id_birth) = self
             .objects
             .get(&container_id)
             .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
         else {
-            return false;
+            return Ok(false);
         };
 
         let Some((alive, is_chinook_dropper, subdued)) = self.objects.get(&container_id).map(|c| {
@@ -178,15 +179,15 @@ impl GameLogic {
                 c.is_subdued_disabled(),
             )
         }) else {
-            return false;
+            return Ok(false);
         };
         if !alive {
-            return false;
+            return Ok(false);
         }
         // C++ AIUpdateInterface::privateEvacuate / privateExit:
         // DISABLED_SUBDUED holds the doors shut while a Microwave cooks.
         if subdued && mode == TransportEvacuationMode::Command {
-            return false;
+            return Ok(false);
         }
         let rail_ai = self.objects.get(&container_id).is_some_and(|object| {
             object.thing().template.receiving_client_template.as_ref()
@@ -194,24 +195,23 @@ impl GameLogic {
                 .is_some_and(|name| name.eq_ignore_ascii_case("RailedTransportAIUpdate"))
         });
         if rail_ai && mode == TransportEvacuationMode::Command {
-            return self.railed_transport_unload_all_with_effects(container_id, presentation_effects)
-                .expect("rail evacuation requires its receiving services");
+            return self.railed_transport_unload_all_with_effects(container_id, presentation_effects);
         }
         if mode == TransportEvacuationMode::Command && self.objects.get(&container_id).is_some_and(|object| {
             object.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
         }) {
-            if !self.railed_dock_reserve_exit(container_id) { return false; }
-            let Some(config) = self.railed_dock_config(container_id) else { return false };
+            if !self.railed_dock_reserve_exit(container_id) { return Ok(false); }
+            let Some(config) = self.railed_dock_config(container_id) else { return Ok(false) };
             let riders = self.objects.get(&container_id).unwrap().contained_units();
             let mut any = false;
             for rider in riders {
                 if self.objects.get(&rider).is_some_and(|object| object.has_ai_update_interface()) {
                     self.railed_dock_unload(container_id, config, false, presentation_effects)
-                        .expect("rail evacuation requires its receiving services");
+                        .map_err(gamelogic::GameLogicError::Configuration)?;
                     any = true;
                 }
             }
-            return any;
+            return Ok(any);
         }
         // C++ privateEvacuate: markAllPassengersDetected before dump.
         if mode == TransportEvacuationMode::Command {
@@ -276,18 +276,18 @@ impl GameLogic {
                     c.pending_evacuate_on_stop = true;
                     c.pending_exit_after_evacuate = and_exit;
                 }
-                return false;
+                return Ok(false);
             }
         }
 
         let Some(container) = self.objects.get(&container_id) else {
-            return false;
+            return Ok(false);
         };
         let is_garrison = container.is_garrison_contain();
         let is_tunnel = container.is_tunnel_network_style_container();
         let is_cave = container.is_cave_style_container();
         let Some(container) = self.objects.get(&container_id) else {
-            return false;
+            return Ok(false);
         };
         let evac = if is_garrison {
             container.garrison_evac_disposition()
@@ -321,7 +321,7 @@ impl GameLogic {
                 c.pending_stream_exit = false;
             }
 
-            return false;
+            return Ok(false);
         }
         let uses_exit_busy = mode == TransportEvacuationMode::Command
             && !is_garrison
@@ -339,7 +339,7 @@ impl GameLogic {
                 c.pending_evacuate_on_stop = true;
                 c.pending_exit_after_evacuate = and_exit;
             }
-            return false;
+            return Ok(false);
         }
         let stagger = uses_exit_busy
             && self
@@ -411,7 +411,7 @@ impl GameLogic {
                     &object.visual_draw_identity_token,
                 ))
             }) {
-                return false;
+                return Ok(false);
             }
             if !self.objects.get(pid).is_some_and(|object| {
                 passenger_births.get(pid).is_some_and(|birth| {
@@ -425,13 +425,8 @@ impl GameLogic {
             let mut walked_transport = false;
             let mut side_end: Option<glam::Vec3> = None;
             if is_cave {
-                match self.exit_cave_unit_with_effects(*pid, container_id, presentation_effects) {
-                    Ok(true) => {}
-                    Ok(false) => continue,
-                    Err(error) => {
-                        log::error!("Cave removal failed: {error}");
-                        return false;
-                    }
+                if !self.exit_cave_unit_with_effects(*pid, container_id, presentation_effects)? {
+                    continue;
                 }
                 if !self.objects.get(pid).is_some_and(|object| {
                     passenger_births.get(pid).is_some_and(|birth| {
@@ -480,7 +475,7 @@ impl GameLogic {
                             &object.visual_draw_identity_token,
                         ))
                     }) {
-                        return false;
+                        return Ok(false);
                     }
                     p = match self.objects.get_mut(&containment_actor_id) {
                         Some(object) => object,
@@ -507,7 +502,7 @@ impl GameLogic {
                                     &object.visual_draw_identity_token,
                                 ))
                             }) {
-                                return false;
+                                return Ok(false);
                             }
                             p = match self.objects.get_mut(&containment_actor_id) {
                                 Some(object) => object,
@@ -609,7 +604,7 @@ impl GameLogic {
                         &object.visual_draw_identity_token,
                     ))
                 }) {
-                    return false;
+                    return Ok(false);
                 }
                 if !self.objects.get(pid).is_some_and(|object| {
                     passenger_births.get(pid).is_some_and(|birth| {
@@ -664,11 +659,11 @@ impl GameLogic {
                 &object.visual_draw_identity_token,
             ))
         }) {
-            return false;
+            return Ok(false);
         }
         if is_garrison {
             // C++ GarrisonContain::removeAllContained → recalcApparentControllingPlayer.
-            self.recalc_garrison_apparent_controller(container_id);
+            self.recalc_garrison_apparent_controller_with_effects(container_id, presentation_effects)?;
         } else {
             // C++ OpenContain::removeContained / TransportContain
             // onContainListChange: leaving riders re-evaluate
@@ -708,7 +703,7 @@ impl GameLogic {
                 if and_exit && !more_remain {
                     // Keep spawn `original_pos`; do not re-issue evac at the LZ.
                     ai.begin_takeoff_and_exit();
-                    return any;
+                    return Ok(any);
                 }
             }
         }
@@ -717,10 +712,10 @@ impl GameLogic {
             // The admitted MoveAndEvacuate state owns its saved origin and
             // transitions through actual movement before requesting deletion.
             // This contain operation never manufactures a destroyed/body-death latch.
-            self.finish_transport_return_phase_with_effects(container_id, presentation_effects);
+            self.finish_transport_return_phase_with_effects(container_id, presentation_effects)?;
         }
 
-        any
+        Ok(any)
     }
 
     /// C++ `ChinookCombatDropState::update`: rope delay + `aiRappelInto` at `m_rappelSpeed`.
@@ -729,11 +724,11 @@ impl GameLogic {
         container_id: ObjectId,
         and_exit: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let now = self.frame;
         let hover = match self.objects.get(&container_id) {
             Some(c) if c.is_alive() => c.get_position(),
-            _ => return false,
+            _ => return Ok(false),
         };
         let passengers: Vec<ObjectId> = self
             .objects
@@ -761,7 +756,7 @@ impl GameLogic {
                 c.pending_evacuate_on_stop = remaining > 0;
                 c.pending_exit_after_evacuate = and_exit && remaining == 0;
             }
-            return false;
+            return Ok(false);
         };
         let can_release = self.objects.get(&container_id).is_some_and(|c| {
             c.chinook_ai
@@ -773,7 +768,7 @@ impl GameLogic {
                 c.pending_evacuate_on_stop = true;
                 c.pending_exit_after_evacuate = and_exit;
             }
-            return false;
+            return Ok(false);
         }
         let rappel_speed = self
             .objects
@@ -811,9 +806,9 @@ impl GameLogic {
             p.target = drop_target;
             let _ = p;
             if !self.set_owned_object_position_with_effects(pid, hover, self.frame, presentation_effects) {
-                return false;
+                return Ok(false);
             }
-            let Some(p) = self.objects.get_mut(&pid) else { return false };
+            let Some(p) = self.objects.get_mut(&pid) else { return Ok(false) };
             let dest = glam::Vec3::new(hover.x, dest_y, hover.z);
             p.movement.clear_path();
             p.movement.target_position = Some(dest);
@@ -847,7 +842,7 @@ impl GameLogic {
             c.pending_exit_after_evacuate = and_exit && !more;
         }
 
-        true
+        Ok(true)
     }
 
     /// C++ `AIRappelState::onEnter` dest Z: layer height, plus structure roof.
@@ -871,7 +866,7 @@ impl GameLogic {
     }
 
     /// C++ `AIRappelState::update`: descend at rappel rate, then kill-2 / addToContain.
-    pub(crate) fn tick_rappel_into(&mut self, pid: ObjectId) {
+    pub(crate) fn tick_rappel_into(&mut self, pid: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.with_own_services_mut(|this| {
             this.tick_rappel_into_with_effects(
                 pid,
@@ -884,12 +879,12 @@ impl GameLogic {
         &mut self,
         pid: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(obj) = self.objects.get(&pid) else {
-            return;
+            return Ok(());
         };
         if !obj.status.rappelling || !obj.is_alive() {
-            return;
+            return Ok(());
         }
         let mut target_is_bldg = obj.status.rappel_target_is_bldg;
         let mut dest_y = obj.status.rappel_dest_y;
@@ -923,9 +918,9 @@ impl GameLogic {
             p.y = new_y;
             let _ = obj;
             if !self.set_owned_object_position_with_effects(pid, p, self.frame, presentation_effects) {
-                return;
+                return Ok(());
             }
-            let Some(obj) = self.objects.get_mut(&pid) else { return };
+            let Some(obj) = self.objects.get_mut(&pid) else { return Ok(()) };
             obj.movement.velocity = glam::Vec3::new(0.0, -speed, 0.0);
             obj.status.rappel_target_is_bldg = target_is_bldg;
             obj.status.rappel_dest_y = dest_y;
@@ -938,13 +933,14 @@ impl GameLogic {
         }
         if arrived && target_is_bldg {
             if let Some(tid) = target_id {
-                self.rappel_arrive_at_building_with_effects(pid, tid, presentation_effects);
+                self.rappel_arrive_at_building_with_effects(pid, tid, presentation_effects)?;
             }
         }
+        Ok(())
     }
 
     /// C++ `AIRappelState::update` arrival: kill up to 2, else addToContain / scatter.
-    pub(super) fn rappel_arrive_at_building(&mut self, pid: ObjectId, bldg_id: ObjectId) {
+    pub(super) fn rappel_arrive_at_building(&mut self, pid: ObjectId, bldg_id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.rappel_arrive_at_building_with_effects(
             pid,
             bldg_id,
@@ -957,12 +953,12 @@ impl GameLogic {
         pid: ObjectId,
         bldg_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(bldg) = self.objects.get(&bldg_id) else {
-            return;
+            return Ok(());
         };
         if !bldg.is_alive() {
-            return;
+            return Ok(());
         }
         const MAX_TO_KILL: i32 = 2;
         let num_killed = self.kill_enemies_in_container_with_effects(
@@ -970,7 +966,7 @@ impl GameLogic {
             bldg_id,
             MAX_TO_KILL,
             presentation_effects,
-        );
+        )?;
         // C++ AIStates.cpp:561-564: getPerUnitFX(CombatDropKillFX) on the
         // rappeller, FXList::doFXObj on the building, even if the rappeller dies.
         if num_killed > 0 {
@@ -993,8 +989,8 @@ impl GameLogic {
                 DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 presentation_effects,
-            );
-            return;
+            )?;
+            return Ok(());
         }
         let can_enter = self.objects.get(&bldg_id).is_some_and(|b| {
             b.is_alive()
@@ -1003,10 +999,11 @@ impl GameLogic {
                 && b.garrison_container_accepts_entry()
         });
         if can_enter {
-            self.rappel_add_to_contain_with_effects(pid, bldg_id, presentation_effects);
+            self.rappel_add_to_contain_with_effects(pid, bldg_id, presentation_effects)?;
         } else {
             self.rappel_scatter_at_building(pid, bldg_id, presentation_effects);
         }
+        Ok(())
     }
 
     /// C++ `killEnemiesInContainer` (AIStates.cpp:415).
@@ -1015,7 +1012,7 @@ impl GameLogic {
         killer_id: ObjectId,
         bldg_id: ObjectId,
         max_to_kill: i32,
-    ) -> i32 {
+    ) -> gamelogic::GameLogicResult<i32> {
         self.kill_enemies_in_container_with_effects(
             killer_id,
             bldg_id,
@@ -1030,7 +1027,7 @@ impl GameLogic {
         bldg_id: ObjectId,
         max_to_kill: i32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> i32 {
+    ) -> gamelogic::GameLogicResult<i32> {
         let mut num_killed = 0;
         while num_killed < max_to_kill {
             let occupants = self
@@ -1054,7 +1051,7 @@ impl GameLogic {
                 container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
             }) {
                 if !self.railed_remove_contained_with_effects(bldg_id, enemy_id, presentation_effects)
-                    .expect("rail enemy removal requires its receiving services")
+                    .map_err(gamelogic::GameLogicError::Configuration)?
                 {
                     break;
                 }
@@ -1088,14 +1085,14 @@ impl GameLogic {
                 DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 presentation_effects,
-            );
+            )?;
             num_killed += 1;
         }
-        num_killed
+        Ok(num_killed)
     }
 
     /// C++ `bldg->getContain()->addToContain(obj)` + garrison onContaining.
-    pub(super) fn rappel_add_to_contain(&mut self, pid: ObjectId, bldg_id: ObjectId) {
+    pub(super) fn rappel_add_to_contain(&mut self, pid: ObjectId, bldg_id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.rappel_add_to_contain_with_effects(
             pid,
             bldg_id,
@@ -1108,14 +1105,14 @@ impl GameLogic {
         pid: ObjectId,
         bldg_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).
         if self.should_cancel_containment_after_booby_trap_with_effects(
             bldg_id,
             pid,
             presentation_effects,
-        ) {
-            return;
+        )? {
+            return Ok(());
         }
         let entered = self
             .objects
@@ -1124,7 +1121,7 @@ impl GameLogic {
             .unwrap_or(false);
         if !entered {
             self.rappel_scatter_at_building(pid, bldg_id, presentation_effects);
-            return;
+            return Ok(());
         }
         let container_pos = self
             .objects
@@ -1165,9 +1162,9 @@ impl GameLogic {
             if enclosing && !self.set_owned_object_position_with_effects(
                 pid, container_pos, self.frame, presentation_effects,
             ) {
-                return;
+                return Ok(());
             }
-            let Some(obj) = self.objects.get_mut(&pid) else { return };
+            let Some(obj) = self.objects.get_mut(&pid) else { return Ok(()) };
             obj.set_ai_state(
                 AIState::Garrisoned,
                 self.frame,
@@ -1181,6 +1178,7 @@ impl GameLogic {
         self.apply_garrison_contain_on_enter_with_effects(bldg_id, pid, presentation_effects);
         // C++ OpenContain::addToContain doLoadSound.
         self.play_container_enter_sound(bldg_id, presentation_effects);
+        Ok(())
     }
 
     /// C++ full-building scatter + `aiFollowPath` (AIStates.cpp:581-613).

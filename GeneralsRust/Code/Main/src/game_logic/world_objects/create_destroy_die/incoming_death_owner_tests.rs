@@ -74,6 +74,7 @@ fn hit(
     world
         .apply_owned_damage(victim, amount, source, kind, death, None, &context)
         .unwrap()
+        .unwrap()
         .destroyed
 }
 
@@ -236,6 +237,7 @@ fn immortal_body_rejects_both_ordinary_detonation_and_explicit_kill() {
         !owner
             .apply_owned_kill(victim, DamageType::Unresistable, HostDeathType::Detonated)
             .unwrap()
+            .unwrap()
             .destroyed
     );
     assert_eq!(owner.host_object(victim).unwrap().health.current, 1.0);
@@ -264,6 +266,7 @@ fn missing_incoming_source_id_does_not_reuse_captured_pose_or_preferred_history(
                 None,
                 &context,
             )
+            .unwrap()
             .unwrap()
             .destroyed
     );
@@ -382,7 +385,7 @@ fn authored_body_subclass_binds_immortal_floor_not_template_name() {
     assert!(!hit(&mut owner, immortal, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated));
     assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
     assert!(!owner.host_object(immortal).unwrap().status.on_die_started);
-    assert!(!owner.apply_owned_kill(immortal, DamageType::Unresistable, HostDeathType::Detonated).unwrap().destroyed);
+    assert!(!owner.apply_owned_kill(immortal, DamageType::Unresistable, HostDeathType::Detonated).unwrap().unwrap().destroyed);
     assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
     hit(&mut owner, active, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated);
     let active_obj = owner.host_object(active);

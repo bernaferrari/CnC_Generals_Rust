@@ -283,6 +283,7 @@ fn native_second_life_start_uses_receiving_view_for_normal_and_indestructible_bo
                         },
                         effects
                     ))
+                .unwrap()
                 .is_some()
             );
             assert!(

@@ -44,13 +44,13 @@ fn rappel_garrison_holds_rider_before_center_pose_in_each_world() {
     let (mut peer, peer_building, peer_rider) = setup();
     assert_eq!((building, rider), (peer_building, peer_rider));
     assert_eq!(world.pathfinding_ground_position(GridPos::new(4, 10)), Some(rider));
-    world.rappel_add_to_contain(rider, building);
+    world.rappel_add_to_contain(rider, building).unwrap();
     assert!(world.host_object(rider).unwrap().status.disabled_held);
     assert_eq!(world.host_object(rider).unwrap().get_position(), Vec3::new(100.0, 0.0, 100.0));
     assert_eq!(world.pathfinding_ground_position(GridPos::new(4, 10)), None);
     assert_eq!(world.pathfinding_ground_position(GridPos::new(10, 10)), None);
     assert_eq!(peer.pathfinding_ground_position(GridPos::new(4, 10)), Some(peer_rider));
-    peer.rappel_add_to_contain(peer_rider, peer_building);
+    peer.rappel_add_to_contain(peer_rider, peer_building).unwrap();
     assert_eq!(peer.pathfinding_ground_position(GridPos::new(10, 10)), None);
 }
 
@@ -83,7 +83,7 @@ fn garrison_exit_occupant_via_door_bursts_from_center() {
             glam::Vec3::new(12.0, 0.0, 20.0),
         )
         .unwrap();
-    assert!(logic.garrison_exit_occupant_via_door(pax, bunker));
+    assert!(logic.garrison_exit_occupant_via_door(pax, bunker).unwrap());
     let p = logic.host_object(pax).unwrap();
     assert_eq!(p.ai_state(), AIState::Moving);
     let dest = p.movement.target_position.expect("door dest");
@@ -138,7 +138,7 @@ fn firebase_exit_snaps_station_height_to_ground() {
             fixture_partition_p,
         );
     }
-    assert!(logic.garrison_exit_occupant_via_door(pax, fb));
+    assert!(logic.garrison_exit_occupant_via_door(pax, fb).unwrap());
     let p = logic.host_object(pax).unwrap();
     assert!(
         (p.get_position().y - origin.y).abs() < 0.01,
@@ -163,7 +163,7 @@ fn firebase_exit_snaps_station_height_to_ground() {
             partition,
         );
     }
-    assert!(logic.evacuate_container_now(fb, false));
+    assert!(logic.evacuate_container_now(fb, false).unwrap());
     let p2 = logic.host_object(pax2).unwrap();
     assert!(
         (p2.get_position().y - origin.y).abs() < 0.01,

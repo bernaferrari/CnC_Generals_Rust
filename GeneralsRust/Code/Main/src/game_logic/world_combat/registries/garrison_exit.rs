@@ -37,7 +37,7 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         container_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.garrison_exit_occupant_via_door_with_effects(
             unit_id,
             container_id,
@@ -50,20 +50,20 @@ impl GameLogic {
         unit_id: ObjectId,
         container_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(container_id_birth) = self
             .objects
             .get(&container_id)
             .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
         else {
-            return false;
+            return Ok(false);
         };
 
         let Some(container) = self.objects.get(&container_id) else {
-            return false;
+            return Ok(false);
         };
         if !container.is_garrison_contain() {
-            return false;
+            return Ok(false);
         }
         let evac = container.garrison_evac_disposition();
         let enclosing = container.is_enclosing_garrison_container();
@@ -86,7 +86,7 @@ impl GameLogic {
             let (start, mut end) =
                 garrison_evac_side_points(building_pos, yaw, major, minor, evac, seed);
             let Some(p) = self.objects.get_mut(&unit_id) else {
-                return false;
+                return Ok(false);
             };
             let containment_actor_id = p.id;
             Self::set_owned_containment_in_parts(
@@ -110,24 +110,24 @@ impl GameLogic {
                 self.frame,
                 presentation_effects,
             ) {
-                return false;
+                return Ok(false);
             }
             if !self.objects.get(&container_id).is_some_and(|object| {
                 container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
                     &object.visual_draw_identity_token,
                 ))
             }) {
-                return false;
+                return Ok(false);
             }
             p = match self.objects.get_mut(&containment_actor_id) {
                 Some(object) => object,
-                None => return false,
+                None => return Ok(false),
             };
             p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             drop(p);
             let _ = self.adjust_to_possible_destination(unit_id, &mut end);
             let Some(p) = self.objects.get_mut(&unit_id) else {
-                return false;
+                return Ok(false);
             };
             p.movement.path.clear();
             p.movement.path.push(end);
@@ -171,7 +171,7 @@ impl GameLogic {
                 garrison_evac_burst_end(start, major, &self.pathfinding_system.grid, &ground)
             };
             let Some(p) = self.objects.get_mut(&unit_id) else {
-                return false;
+                return Ok(false);
             };
             let containment_actor_id = p.id;
             Self::set_owned_containment_in_parts(
@@ -196,18 +196,18 @@ impl GameLogic {
                     self.frame,
                     presentation_effects,
                 ) {
-                    return false;
+                    return Ok(false);
                 }
                 if !self.objects.get(&container_id).is_some_and(|object| {
                     container_id_birth.ptr_eq(&std::sync::Arc::downgrade(
                         &object.visual_draw_identity_token,
                     ))
                 }) {
-                    return false;
+                    return Ok(false);
                 }
                 p = match self.objects.get_mut(&containment_actor_id) {
                     Some(object) => object,
-                    None => return false,
+                    None => return Ok(false),
                 };
             }
             p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
@@ -248,7 +248,7 @@ impl GameLogic {
 
         // set_destination → move_to already records the goal.
         // C++ GarrisonContain::exitObjectViaDoor ends in recalcApparentControllingPlayer.
-        self.recalc_garrison_apparent_controller(container_id);
-        true
+        self.recalc_garrison_apparent_controller_with_effects(container_id, presentation_effects)?;
+        Ok(true)
     }
 }

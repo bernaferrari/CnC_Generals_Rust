@@ -316,7 +316,7 @@ impl GameLogic {
             {
                 continue;
             }
-            if !self.set_host_object_team_with_effects(id, destination_id, ui) {
+            if !self.set_host_object_team_with_effects(id, destination_id, ui)? {
                 return Err(gamelogic::GameLogicError::Configuration(
                     "team merge could not transfer its receiving member".into(),
                 ));

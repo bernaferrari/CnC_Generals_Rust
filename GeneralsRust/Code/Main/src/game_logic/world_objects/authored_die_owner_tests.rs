@@ -495,7 +495,7 @@ fn standalone_body_create_receipt_resolves_against_the_receiving_world() {
     }
     // Deliver the real bounded-body pending receipt through the receiving
     // owner's continuation. It must resolve the admitted list at this point.
-    owner.apply_pending_create_object_die(victim);
+    owner.apply_pending_create_object_die(victim).unwrap();
     assert!(owner
         .host_objects()
         .registered_values()

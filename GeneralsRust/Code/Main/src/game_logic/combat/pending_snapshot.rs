@@ -8,6 +8,19 @@ pub struct PendingCombatSnapshot {
 }
 
 impl PendingCombatSnapshot {
+    /// Validate both accepted and delayed records before committing a restore.
+    pub(crate) fn validate_launch_transforms(&self) -> Result<(), String> {
+        if self.accepted.iter()
+            .chain(self.delayed.iter().map(|entry| &entry.pending))
+            .filter_map(|pending| pending.source_context.as_ref())
+            .filter_map(|context| context.launch_transform)
+            .any(|transform| !transform.is_finite())
+        {
+            return Err("Invalid pending projectile launch transform".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn projectile_team_ids(&self) -> Vec<Option<u32>> {
         self.accepted
             .iter()
@@ -96,5 +109,44 @@ impl CombatSystem {
         self.fire_sound_loop_events.clear();
         self.pending_projectiles.clone_from(&snapshot.accepted);
         self.projectileless_delayed.clone_from(&snapshot.delayed);
+    }
+}
+
+#[cfg(test)]
+mod pending_launch_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn queued_and_delayed_transforms_round_trip_and_reject_nonfinite_values() {
+        let mut queued = tests::lifecycle_test_pending_projectile("Missile", None, Vec3::X);
+        let queued_transform = glam::Mat4::from_cols_array(&[
+            0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0, 11.5, -7.25, 3.0, 1.0,
+        ]);
+        let delayed_transform = glam::Mat4::from_translation(Vec3::new(-4.0, 8.0, 13.0));
+        queued.source_context.as_mut().unwrap().launch_transform = Some(queued_transform);
+        let mut delayed = queued.clone();
+        delayed.source_context.as_mut().unwrap().launch_transform = Some(delayed_transform);
+        let snapshot = PendingCombatSnapshot {
+            accepted: vec![queued],
+            delayed: vec![LiveProjectilelessDelayedDamage {
+                when: 123,
+                pending: delayed,
+                damage_pos: Vec3::X,
+                damage_id: None,
+            }],
+        };
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded: PendingCombatSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+        assert_eq!(decoded.accepted[0].source_context.unwrap().launch_transform.unwrap().to_cols_array(), queued_transform.to_cols_array());
+        assert_eq!(decoded.delayed[0].pending.source_context.unwrap().launch_transform.unwrap().to_cols_array(), delayed_transform.to_cols_array());
+        assert!(decoded.validate_launch_transforms().is_ok());
+        for delayed in [false, true] {
+            let mut invalid = decoded.clone();
+            let pending = if delayed { &mut invalid.delayed[0].pending } else { &mut invalid.accepted[0] };
+            pending.source_context.as_mut().unwrap().launch_transform =
+                Some(glam::Mat4::from_cols_array(&[f32::NAN; 16]));
+            assert!(invalid.validate_launch_transforms().is_err());
+        }
     }
 }

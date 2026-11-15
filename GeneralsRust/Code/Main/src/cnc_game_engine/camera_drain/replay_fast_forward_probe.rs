@@ -146,6 +146,19 @@ fn host_queue_state(engine: &CnCGameEngine, producer_id: ObjectId) -> (u32, u32)
     )
 }
 
+fn direct_probe_frame(engine: &mut CnCGameEngine, dt: f32) -> Result<(), String> {
+    #[cfg(feature = "game_client")]
+    engine.native_display.require_shell_slot()?;
+    engine.host_run_ingame_logic_presentation_frame(dt)?;
+    engine.complete_native_display_step()?;
+    #[cfg(feature = "game_client")]
+    engine.native_display.require_shell_slot()?;
+    if engine.should_present_w3d_frame() {
+        engine.render().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 fn run_engine_replay_batch(
     engine: &mut CnCGameEngine,
     replay_fast_forward: bool,
@@ -159,7 +172,7 @@ fn run_engine_replay_batch(
         // Exercise the actual engine boundary: it decides fixed-step count,
         // completes Main gameplay, copies observations, and finalizes one
         // presentation frame per outer update.
-        engine.host_run_ingame_logic_presentation_frame(dt);
+        direct_probe_frame(engine, dt).expect("complete replay probe frame");
     }
     let after = host_queue_state(engine, producer_id);
     (
@@ -306,7 +319,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
         .replay_pending
         .receive_client_messages(vec![rejected])
         .unwrap();
-    engine.host_run_ingame_logic_presentation_frame(4. * (1. / 30.));
+    direct_probe_frame(engine, 4. * (1. / 30.)).expect("complete rejected replay frame");
     assert_eq!(
         engine.game_logic.frame, 41,
         "rejected admission completes all four original budgeted steps without a prepared-start guard"
@@ -349,7 +362,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
         .replay_pending
         .receive_client_messages(vec![GameMessage::new(GameMessageType::ClearGameData)])
         .unwrap();
-    engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+    direct_probe_frame(engine, 1. / 30.).expect("complete clear-game frame");
     let mut score_frame = None;
     engine.game_client.window_manager_owner().with_manager(|manager| {
         score_frame = manager.find_window_by_name("ScoreScreen.wnd:ParentScoreScreen")
@@ -394,7 +407,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
             newgame,
         ])
         .unwrap();
-    engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+    direct_probe_frame(engine, 1. / 30.).expect("complete shell-start frame");
     assert_eq!(
         engine.game_logic.frame, 0,
         "actual prepared NewGame suppresses source frame increment"
@@ -475,7 +488,7 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
         .replay_pending
         .receive_client_messages(vec![unavailable])
         .unwrap();
-    engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+    direct_probe_frame(engine, 1. / 30.).expect("complete rejected-background frame");
     assert_eq!(engine.game_logic.frame, 38);
     assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
     assert_eq!(
@@ -673,7 +686,7 @@ fn source_shell_load_engine_witness(
             newgame,
         ])
         .map_err(anyhow::Error::msg)?;
-    engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+    longevity_frame(engine)?;
     assert_eq!(engine.current_state, GameState::Loading);
     assert_eq!(engine.game_logic.game_mode(), GameMode::Shell);
     assert_eq!(
@@ -761,7 +774,7 @@ fn source_shell_load_engine_witness(
         engine.game_logic.frame, 0,
         "Loading does not consume a gameplay frame"
     );
-    engine.host_run_ingame_logic_presentation_frame(1. / 30.);
+    longevity_frame(engine)?;
     assert_eq!(
         engine.game_logic.frame, 1,
         "prepared-start guard is released after real load"
@@ -772,6 +785,113 @@ fn source_shell_load_engine_witness(
         expected.width, expected.height
     );
     Ok(true)
+}
+
+#[cfg(feature = "game_client")]
+fn longevity_frame(engine: &mut CnCGameEngine) -> anyhow::Result<()> {
+    // update() completes the Client continuation before optional GPU presentation.
+    engine.native_display.require_shell_slot().map_err(anyhow::Error::msg)?;
+    engine.update(1. / 30.).map_err(anyhow::Error::msg)?;
+    engine.native_display.require_shell_slot().map_err(anyhow::Error::msg)?;
+    if engine.should_present_w3d_frame() {
+        engine.render()?;
+    }
+    Ok(())
+}
+
+/// Exercise the real Shell -> ordered clear/new-game -> retail map continuation.
+/// This gate uses normal lobby slots and authored starting objects, not a
+/// fabricated army or an altered victory timer.
+#[cfg(feature = "game_client")]
+fn shell_to_skirmish_longevity_witness(engine: &mut CnCGameEngine) -> anyhow::Result<()> {
+    use crate::cnc_game_engine::GameState;
+    use crate::game_logic::GameMode;
+    use game_client::gui::skirmish_setup::{SkirmishSetup, snapshot_skirmish_lobby};
+    use game_client::SlotState;
+    use game_engine::common::message_stream::{ClientSkirmishLaunch, GameMessage, GameMessageType};
+
+    let Some(map) = std::env::var_os("GENERALS_SKIRMISH_LONGEVITY_GATE_MAP") else {
+        return Ok(());
+    };
+    let map = std::path::PathBuf::from(map).canonicalize()?;
+    let map = map.to_str().ok_or_else(|| anyhow::anyhow!("map path is not UTF-8"))?.to_owned();
+    let definitions = engine.game_logic.player_template_definitions.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("retail PlayerTemplate definitions unavailable"))?;
+    let america = definitions.find_template_index("FactionAmerica")
+        .ok_or_else(|| anyhow::anyhow!("FactionAmerica unavailable"))? as i32;
+    let gla = definitions.find_template_index("FactionGLA")
+        .ok_or_else(|| anyhow::anyhow!("FactionGLA unavailable"))? as i32;
+
+    // Reproduce the actual stack present under the skirmish options screen.
+    engine.with_receiving_menu_shell(|shell, effects| {
+        shell.reset_receiving(effects).map_err(|error| error.to_string())?;
+        shell.push("Menus/MainMenu.wnd", true, effects).map_err(|error| error.to_string())?;
+        shell.push("Menus/SkirmishGameOptionsMenu.wnd", true, effects).map_err(|error| error.to_string())?;
+        Ok::<_, String>(())
+    }).map_err(anyhow::Error::msg)?.ok_or_else(|| anyhow::anyhow!("missing Shell"))?
+        .map_err(anyhow::Error::msg)?;
+
+    let mut setup = SkirmishSetup::default();
+    setup.set_selected_map(map.clone());
+    let info = setup.game_info_mut().game_info_mut();
+    info.enter_game();
+    info.set_map(map.clone());
+    info.set_seed(73);
+    for (index, state, name, template) in [
+        (0, SlotState::Player, "Player", america),
+        (1, SlotState::MedAI, "Medium Army", gla),
+    ] {
+        let slot = info.get_slot_mut(index).expect("retail lobby slot");
+        slot.set_state(state, name.into(), if index == 0 { 1 } else { 0 });
+        slot.set_player_template(template);
+        slot.set_color(index as i32);
+        slot.set_start_pos(index as i32);
+        slot.set_team_number(index as i32);
+        slot.save_off_original_info();
+    }
+    info.set_local_ip(1);
+    info.start_game(0);
+    let mut new_game = GameMessage::new(GameMessageType::NewGame);
+    for value in [2, 1, 0, 30] { new_game.append_integer_argument(value); }
+    new_game.set_skirmish_launch(ClientSkirmishLaunch {
+        map: map.clone(),
+        game_info: snapshot_skirmish_lobby(&setup),
+        local_slot: 0,
+        old_factions_only: false,
+        fog_of_war: true,
+        game_mode_code: 2,
+        max_fps: 30,
+    });
+    let stream = engine.game_client.message_stream_mut();
+    stream.append_message(GameMessageType::ClearGameData);
+    stream.append_message_value(new_game);
+    longevity_frame(engine)?;
+    assert_eq!(engine.current_state, GameState::Loading);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    while engine.current_state == GameState::Loading {
+        anyhow::ensure!(std::time::Instant::now() < deadline, "skirmish loading timed out");
+        longevity_frame(engine)?;
+    }
+    assert_eq!(engine.current_state, GameState::InGame);
+    assert_eq!(engine.game_logic.get_current_map_name(), map);
+    for player in [0, 1] {
+        assert!(engine.game_logic.host_objects().registered_values().any(|object|
+            object.owner_player_id == Some(player)
+                && object.is_alive()
+                && object.is_kind_of(KindOf::Structure)
+                && object.is_kind_of(KindOf::MpCountForVictory)
+        ), "player {player} must receive an authored victory-counting starting building");
+    }
+    for frame in 1..=8 {
+        longevity_frame(engine)?;
+        assert_eq!(engine.current_state, GameState::InGame, "match left gameplay at frame {frame}");
+        assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
+        assert!(engine.pending_match_start.is_none(), "shell game queued at frame {frame}");
+        assert!(!engine.game_logic.current_victory_observation().match_over, "two live armies must not end the match");
+    }
+    assert!(engine.game_logic.frame > 1, "real match did not advance beyond its first logic frame");
+    println!("shell_to_skirmish_longevity_witness passed: map={map}, frame={}", engine.game_logic.frame);
+    Ok(())
 }
 
 fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameEngine) {
@@ -994,7 +1114,45 @@ pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         crate::gameworld_shadow::gameworld_shadow_enabled(),
         "replay fast-forward probe requires shadow enabled at process launch"
     );
+    if std::env::var_os("GENERALS_SKIRMISH_LONGEVITY_GATE_MAP").is_some() {
+        eprintln!("Running skirmish longevity only: replay fast-forward, command-phase and team-failure regressions are NOT RUN");
+        anyhow::ensure!(
+            cfg!(feature = "game_client")
+                && std::env::var("GENERALS_SHELL_LOAD_GATE").as_deref() == Ok("1"),
+            "skirmish longevity gate requires game_client and GENERALS_SHELL_LOAD_GATE=1"
+        );
+    }
     let (_event_loop, _application_services, mut engine) = replay_fixture_engine()?;
+    #[cfg(feature = "game_client")]
+    if std::env::var_os("GENERALS_SKIRMISH_LONGEVITY_GATE_MAP").is_some() {
+        // Keep the actual startup worker and admit its ordered retail content
+        // through the same native map/Client boundary as an application boot.
+        // The queue/replay fixtures below replace GameLogic, so they cannot be
+        // used as the owner for this match-start regression.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        while matches!(engine.startup_load_state, super::super::StartupLoadState::InProgress { .. }) {
+            anyhow::ensure!(std::time::Instant::now() < deadline, "retail startup timed out");
+            engine.update_startup_loading()?;
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        anyhow::ensure!(
+            engine.current_state == crate::cnc_game_engine::GameState::Menu
+                && engine.game_logic.game_mode() == crate::game_logic::GameMode::Shell,
+            "retail startup did not complete a Shell game"
+        );
+        let requested = std::env::var_os("GENERALS_SHELL_LOAD_GATE_MAP")
+            .ok_or_else(|| anyhow::anyhow!("Shell load gate requires GENERALS_SHELL_LOAD_GATE_MAP"))?;
+        let expected = std::path::PathBuf::from(requested).canonicalize()?;
+        let actual = crate::game_logic::script_loader::load_chunky_map(
+            engine.game_logic.get_current_map_name(),
+        )
+        .map_err(|error| anyhow::anyhow!("Cannot resolve startup Shell map: {error:?}"))?
+        .ok_or_else(|| anyhow::anyhow!("Startup Shell map cannot be resolved"))?
+        .source.canonicalize()?;
+        anyhow::ensure!(actual == expected, "startup Shell map differs from requested gate map");
+        shell_to_skirmish_longevity_witness(&mut engine)?;
+        return Ok(());
+    }
     // Keep the real startup producer owned outside synthetic command fixtures,
     // whose reset paths legitimately cancel their own pending startup work.
     let startup_catalogs = std::mem::replace(
@@ -1074,6 +1232,7 @@ pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
     source_command_phase_engine_witness(&mut engine);
     #[cfg(feature = "game_client")]
     if source_shell_load_engine_witness(&mut engine, startup_catalogs)? {
+        shell_to_skirmish_longevity_witness(&mut engine)?;
         // This witness requires the actual admitted native Shell/map owner.
         // An unrequested licensed-content gate does not claim its coverage.
         actual_team_failure_stops_native_shell_and_fast_forward(&mut engine);

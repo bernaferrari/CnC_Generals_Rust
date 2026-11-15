@@ -733,7 +733,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         slot: u8,
         lock_type_code: u8,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // Wave 233: weapon lock via GameLogic unit_command_set_weapon_lock.
         use crate::game_logic::WeaponLockType;
@@ -749,15 +749,15 @@ impl<'a> CommandExecutor<'a> {
                 slot,
                 lock_type,
                 &mut self.ui,
-            ) {
+            )? {
                 any = true;
             }
         }
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// C++ AIGroup::releaseWeaponLockForGroup residual.

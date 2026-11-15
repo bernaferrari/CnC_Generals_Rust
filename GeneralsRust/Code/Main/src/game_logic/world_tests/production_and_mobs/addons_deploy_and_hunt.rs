@@ -856,7 +856,7 @@ fn overlord_propaganda_addon_residual_heals_allies() {
     game_logic.frame = 1;
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
     let hp_after = game_logic.host_object(ally_id).unwrap().health.current;
     assert!(
@@ -988,7 +988,7 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
     game_logic.frame = 1;
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
     let hp_after = game_logic.host_object(ally_id).unwrap().health.current;
     assert!(
@@ -1438,6 +1438,7 @@ fn battle_bus_undead_body_first_life_converts_to_second_life() {
             &crate::game_logic::object::DamageHitContext::new(None, None, damage_type),
         )
         .expect("receiving BattleBus body")
+        .expect("receiving BattleBus damage result")
         .destroyed();
     assert!(!killed, "UndeadBody must intercept first lethal hit");
     let bus = game_logic.host_object(bus_id).unwrap();
@@ -1454,7 +1455,8 @@ fn battle_bus_undead_body_first_life_converts_to_second_life() {
     // Tick drains pending passenger damage + progresses air time / land.
     for f in 1..25 {
         game_logic.frame = f;
-        game_logic.tick_battle_bus_slow_deaths();
+        game_logic.tick_battle_bus_slow_deaths_with_effects(&mut Default::default())
+            .expect("battle bus slow death tick");
     }
     assert!(game_logic.battle_bus.honesty_undeath_detonate_ok());
     let bus = game_logic.host_object(bus_id).unwrap();
@@ -1511,10 +1513,12 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
             &crate::game_logic::object::DamageHitContext::new(None, None, damage_type),
         )
         .expect("receiving BattleBus body")
+        .expect("receiving BattleBus damage result")
         .destroyed();
     // First tick applies 50% passenger damage.
     game_logic.frame = 1;
-    game_logic.tick_battle_bus_slow_deaths();
+    game_logic.tick_battle_bus_slow_deaths_with_effects(&mut Default::default())
+        .expect("battle bus slow death tick");
     let rider_hp = game_logic
         .host_object(rider_id)
         .map(|r| r.health.current)
@@ -1533,7 +1537,8 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
     // Advance past ground check + land + empty delay.
     for f in 2..90 {
         game_logic.frame = f;
-        game_logic.tick_battle_bus_slow_deaths();
+        game_logic.tick_battle_bus_slow_deaths_with_effects(&mut Default::default())
+            .expect("battle bus slow death tick");
     }
     let bus = game_logic
         .host_object(bus_id)

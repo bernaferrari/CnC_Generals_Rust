@@ -2,6 +2,8 @@
 //!
 //! Run with:
 //! `cargo run -p generals_main --features internal --bin replay_fast_forward_probe`
+//! Setting `GENERALS_SKIRMISH_LONGEVITY_GATE_MAP` selects a separate retail
+//! match-start run: it does not execute or claim the replay regressions.
 //!
 //! The parent owns child-process configuration. The child starts Tokio only
 //! after its inherited environment has been fixed by Command, so no running
@@ -80,6 +82,11 @@ fn main() -> anyhow::Result<()> {
             std::env::var_os(SOURCE_ROOT)
                 .ok_or_else(|| anyhow::anyhow!("probe child requires source asset root"))?,
         );
+        // Like the application bootstrap, path admission and Engine creation
+        // run under owned services for this child; world callbacks later bind
+        // their own receiving owners. Keep these scopes through shutdown.
+        let _main_services = generals_main::main_services::MainServicesScope::new();
+        let _common_services = game_engine::common::common_services::CommonServicesScope::new();
         // Synchronous admission precedes #[tokio::main], winit and every Engine.
         generals_main::cnc_game_engine::prepare_replay_probe_private_paths(&root, &source)?;
         let result = run_probe_child();

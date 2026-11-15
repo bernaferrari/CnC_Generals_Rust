@@ -94,7 +94,7 @@ End\n"
 fn null_team_garrison_recalculation_and_save_keep_null_original_identity() {
     let (mut source, host, rider) = no_team_world();
     assert!(source.host_object_mut(host).unwrap().add_occupant(rider));
-    assert!(source.unit_command_remove_occupant(host, rider));
+    assert!(source.unit_command_remove_occupant(host, rider).unwrap());
     let building = source
         .host_object(host)
         .unwrap()

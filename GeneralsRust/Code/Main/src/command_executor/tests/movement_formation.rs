@@ -816,7 +816,7 @@ fn sell_selected_sells_friendly_structures_only() {
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert!(
-        exec.execute_sell_selected(&[s, v], 0) == CommandResult::Success);
+        exec.execute_sell_selected(&[s, v], 0).unwrap() == CommandResult::Success);
     // Structure entered sell residual; vehicle rejected.
     assert!(
         logic.is_object_being_sold(s)

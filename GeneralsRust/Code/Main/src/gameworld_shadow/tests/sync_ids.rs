@@ -222,7 +222,7 @@ fn shadow_damage_mutation_matches_host() {
 
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
-    logic.apply_host_damage(id, 35.0);
+    logic.apply_host_damage(id, 35.0).unwrap();
     assert_eq!(logic.host_object(id).unwrap().health.current, 165.0);
     shadow.sync_from_host(&logic);
     // ID remains stable after damage.

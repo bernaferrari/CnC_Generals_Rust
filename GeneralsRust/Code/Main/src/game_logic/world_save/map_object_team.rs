@@ -566,7 +566,7 @@ mod tests {
             destination
         };
         let expected_owner = if inactive { 0 } else { 2 };
-        assert!(world.set_host_object_team(id, destination));
+        assert!(world.set_host_object_team(id, destination).unwrap());
         let actor = world.host_object(id).unwrap();
         assert_eq!(actor.owner_player_id, Some(expected_owner));
         assert_eq!(actor.team_instance_id, Some(expected_team));
@@ -660,7 +660,7 @@ mod tests {
         // Deliberately corrupt the already-admitted roster; ordinary admission
         // rejects this duplicate role before publication.
         world.get_player_mut(1).unwrap().map_side.role = PlayerSideRole::Neutral;
-        assert!(!world.set_host_object_team(id, destination));
+        assert!(!world.set_host_object_team(id, destination).unwrap());
         let actor = world.host_object(id).unwrap();
         assert_eq!(actor.owner_player_id, Some(1));
         assert_eq!(actor.team, Team::USA);
@@ -723,7 +723,7 @@ mod tests {
                 .disabled_underpowered
         );
         let destination = world.host_default_team_id(2).unwrap();
-        assert!(world.set_host_object_team(plant, destination));
+        assert!(world.set_host_object_team(plant, destination).unwrap());
         assert_eq!(world.get_player(1).unwrap().power_produced, 0);
         assert_eq!(world.get_player(2).unwrap().power_produced, 20);
         assert!(
@@ -741,7 +741,7 @@ mod tests {
                 .disabled_underpowered
         );
         assert!(
-            world.set_host_object_team(plant, destination),
+            world.set_host_object_team(plant, destination).unwrap(),
             "exact Team no-op"
         );
         assert_eq!(world.get_player(1).unwrap().power_produced, 0);
@@ -758,7 +758,7 @@ mod tests {
             .create_object_under_construction_for_player("ChinaMapPlant", 1, Vec3::ZERO, 0.)
             .unwrap().expect("ObjectId");
         let destination = world.host_default_team_id(2).unwrap();
-        assert!(world.set_host_object_team(scaffold, destination));
+        assert!(world.set_host_object_team(scaffold, destination).unwrap());
         assert_eq!(
             world.host_object(scaffold).unwrap().owner_player_id,
             Some(2)

@@ -271,7 +271,7 @@ fn victory_phase_updates_the_receiving_players_from_owned_objects() {
                         .map(|entity| entity.health),
                     Some(0.0)
                 );
-                world.evaluate_victory_condition();
+                world.evaluate_victory_condition().unwrap();
                 assert!(
                     world.players[&0].is_alive,
                     "victory derives life from this world's actual objects"

@@ -38,8 +38,7 @@ pub enum DamageEvent {
         radius_source_id: ObjectId,
         radius_source_producer: Option<ObjectId>,
         radius_source_team_id: Option<u32>,
-        /// Moving projectiles are not stored in the host Object arena. Their
-        /// actual impact pose is distinct from the launcher's current pose.
+        /// Projectile impact pose is distinct from the launcher's current pose.
         radius_source_pose: Option<(Vec3, (f32, f32))>,
         /// Shooter controlling player frozen at impact (C++ getRelationship).
         shooter_owner_player_id: Option<u32>,
@@ -335,7 +334,6 @@ pub struct ProjectileLaunchContext {
     pub source_orientation: f32,
     pub source_velocity: Vec3,
     /// Exact firing barrel transform captured at acceptance, when available.
-    #[serde(skip)]
     pub launch_transform: Option<glam::Mat4>,
     /// Launcher Object conditions captured by projectileLaunchAtObjectOrPosition.
     pub launcher_bonus_mask: u64,
@@ -444,6 +442,19 @@ pub fn queue_projectile(combat: &mut CombatSystem, mut pending: PendingProjectil
 pub fn queue_projectile_direct(combat: &mut CombatSystem, mut pending: PendingProjectile) {
     stamp_pending_projectile_lifecycle(&mut pending);
     combat.pending_projectiles.push(pending);
+}
+
+impl CombatSystem {
+    pub(in crate::game_logic) fn take_pending_projectiles(&mut self) -> Vec<PendingProjectile> {
+        std::mem::take(&mut self.pending_projectiles)
+    }
+
+    pub(in crate::game_logic) fn defer_projectileless_shot(
+        &mut self,
+        shot: LiveProjectilelessDelayedDamage,
+    ) {
+        self.projectileless_delayed.push(shot);
+    }
 }
 
 /// Normalize only the lifecycle already captured by the receiving shot.
@@ -590,6 +601,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
             geometry,
             partition,
             next_object_id,
+            None,
             random,
         ) {
             combat.projectileless_delayed.push(immediate);
@@ -612,6 +624,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     geometry: Option<crate::game_logic::HostGeometryInfo>,
     partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
     next_object_id: &mut ObjectId,
+    missile_actor_id: Option<ObjectId>,
     random: &game_engine::common::random_value::SessionRandom,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     // Accepted records retain their captured lifecycle. Otherwise resolve only
@@ -822,8 +835,18 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         frame_clock_active: false,
         frame_clock_status: Default::default(),
     };
-    let id =
-        crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat);
+    let is_missile = profile.is_some_and(|profile| matches!(
+        profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)
+    )) || matches!(
+        projectile_lifecycle,
+        Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
+    );
+    let id = if is_missile {
+        // Only the receiving world can admit a real missile Object.
+        missile_actor_id?
+    } else {
+        crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
+    };
     let pid = combat.fire_projectile_ex_with_id(
         id,
         launch_pos,
@@ -890,18 +913,6 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
                         try_to_follow_target: true, ..
                     })
                 ) && fire_target_id.is_some();
-            }
-        }
-        if let (Some(profile), Some(transform)) = (profile, source_context.launch_transform) {
-            if matches!(profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)) {
-                proj.missile_motion = MissileMotion::launch(
-                    pid, profile, transform, source_context.source_velocity,
-                    target_pos, flight_speed_per_second,
-                );
-                if let Some(motion) = &proj.missile_motion {
-                    proj.position = motion.position();
-                    proj.velocity = motion.velocity();
-                }
             }
         }
         if profile.is_some() {

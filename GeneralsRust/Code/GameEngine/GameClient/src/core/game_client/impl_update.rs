@@ -2174,7 +2174,7 @@ impl GameClient {
         phase: NativeDrawPhase,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
-            prepared, materials, views, phase, None, None, None,
+            prepared, materials, views, phase, None, None, None, None,
         )
     }
 
@@ -2186,6 +2186,7 @@ impl GameClient {
         phase: NativeDrawPhase,
         recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
+        menu_world: crate::gui::campaign_launch_host_bridge::MenuWorldFacts,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
             prepared,
@@ -2195,6 +2196,7 @@ impl GameClient {
             Some((recorder, receive)),
             None,
             None,
+            Some(menu_world),
         )
     }
 
@@ -2207,6 +2209,7 @@ impl GameClient {
         recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
         lifecycle: &mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
+        menu_world: crate::gui::campaign_launch_host_bridge::MenuWorldFacts,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
             prepared,
@@ -2216,6 +2219,7 @@ impl GameClient {
             Some((recorder, receive)),
             Some(lifecycle),
             None,
+            Some(menu_world),
         )
     }
 
@@ -2229,6 +2233,7 @@ impl GameClient {
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
         lifecycle: &mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
         content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        menu_world: crate::gui::campaign_launch_host_bridge::MenuWorldFacts,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
             prepared,
@@ -2238,6 +2243,7 @@ impl GameClient {
             Some((recorder, receive)),
             Some(lifecycle),
             Some(content),
+            Some(menu_world),
         )
     }
 
@@ -2253,6 +2259,7 @@ impl GameClient {
         )>,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
         content: Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     ) -> GameClientResult<()> {
         if !std::sync::Arc::ptr_eq(&prepared.owner, &self.presentation_shell_owner)
             || prepared.generation != self.presentation_shell_generation
@@ -2282,14 +2289,14 @@ impl GameClient {
                 )?;
             }
         }
-        self.finish_presentation_shell_routed(prepared, receive)
+        self.finish_presentation_shell_routed(prepared, receive, menu_world)
     }
 
     fn finish_presentation_shell(
         &mut self,
         prepared: PreparedPresentationShell,
     ) -> GameClientResult<()> {
-        self.finish_presentation_shell_routed(prepared, None)
+        self.finish_presentation_shell_routed(prepared, None, None)
     }
 
     fn finish_presentation_shell_routed(
@@ -2299,6 +2306,7 @@ impl GameClient {
             &game_engine::common::recorder::Recorder,
             &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
         )>,
+        menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     ) -> GameClientResult<()> {
         if prepared.skip_draw {
             return Ok(());
@@ -2317,7 +2325,7 @@ impl GameClient {
         // C++ DisplayStringManager after drawable/effects residual.
         self.update_display_string_manager()?;
 
-        self.update_post_draw_ui(None, None)?;
+        self.update_post_draw_ui(menu_world, None)?;
         self.process_beacon_notifications(prepared.frames.logic_frame)?;
         if let Some((recorder, receive)) = receive {
             self.pump_message_stream_to_receiving_owner(
@@ -2879,6 +2887,9 @@ impl GameClient {
             shell.update(&mut effects).map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell update failed: {err}"))
             })?;
+            // Shell update callbacks may enqueue owned continuations. Complete
+            // them with this same world's effects after the Shell loan ends.
+            self.window_manager_owner.complete_event_callbacks(&mut effects);
             for message in messages {
                 self.message_stream.append_message_value(message);
             }

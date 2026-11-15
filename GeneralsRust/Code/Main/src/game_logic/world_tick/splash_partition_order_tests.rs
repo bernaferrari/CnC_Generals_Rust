@@ -77,7 +77,7 @@ fn instant_splash_follows_partition_prepend_order_for_nested_kills() {
                 Team::China,
                 ObjectId(0),
                 None,
-            );
+            ).unwrap();
             assert_eq!(hits, 3, "only the three partition occupants take splash");
             assert_eq!(
                 world.objects[&ghost].health.current, before_ghost,

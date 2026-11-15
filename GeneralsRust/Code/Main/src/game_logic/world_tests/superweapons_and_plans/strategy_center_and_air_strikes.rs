@@ -784,7 +784,7 @@ fn strategy_center_stealth_detector_enable_residual() {
 
     // Without S&D: detector off → no residual detect.
     assert!(!game_logic.host_object(sc_id).unwrap().is_detector);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic
             .host_object(near_id)
@@ -823,13 +823,13 @@ fn strategy_center_stealth_detector_enable_residual() {
         );
     }
 
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.honesty_stealth_detector_rate_ok(),
         "DetectionRate residual must record scan honesty"
     );
     assert!(game_logic.host_object(near_id).unwrap().is_effectively_stealthed());
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic
             .host_object(near_id)
@@ -883,7 +883,7 @@ fn strategy_center_stealth_detector_enable_residual() {
         e.apply_grant_stealth(frame);
     }
     game_logic.frame = game_logic.host_object(near_id).unwrap().detection_expires_frame;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic
             .host_object(near_id)
@@ -947,7 +947,7 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
     // Frame 0: immediate first DetectionRate residual scan.
     game_logic.frame = 0;
     let scans_before = game_logic.stealth_detector_rate_scans();
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.stealth_detector_rate_scans() > scans_before,
         "first DetectionRate residual scan must fire immediately"
@@ -961,7 +961,7 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
         );
     }
     game_logic.frame = 1;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(game_logic.host_object(enemy_id).unwrap().status.detected);
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
@@ -974,7 +974,7 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
     // Mid-rate frames: detector sleeps — no new rate scan.
     let scans_after_first = game_logic.stealth_detector_rate_scans();
     game_logic.frame = 7;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert_eq!(
         game_logic.stealth_detector_rate_scans(),
         scans_after_first,
@@ -983,7 +983,7 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
 
     // Next DetectionRate wake at frame 15.
     game_logic.frame = STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.stealth_detector_rate_scans() > scans_after_first,
         "DetectionRate residual must re-scan after 15 frames"
@@ -1833,7 +1833,7 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
         .host_object_mut(ally_vehicle_id)
         .expect("ally vehicle")
         .set_status_firing_weapon(true);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     let after_fire = game_logic
         .host_object(ally_vehicle_id)
         .expect("ally vehicle");
@@ -2328,7 +2328,7 @@ fn radar_van_scan_fires_stealth_discover_feedback() {
         "first scan must mark the detection timer"
     );
     logic.frame += 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(logic.host_object(lotus).unwrap().status.detected);
     let text = logic
         .last_radar_message_text()
@@ -2428,7 +2428,7 @@ fn spy_satellite_destalths_units_in_scan() {
         "DetectionRange 0 → VisionRange 300"
     );
     assert!(!logic.host_object(kell).unwrap().status.detected);
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     let kell_after = logic.host_object(kell).unwrap();
     assert!(
         kell_after.status.detected,
@@ -2524,7 +2524,7 @@ fn emergency_repair_spawns_invisible_marker() {
         Vec3::new(10.0, 0.0, 0.0),
         Some(tank),
         HostEmergencyRepairLevel::One,
-    ));
+    ).unwrap());
     assert!(logic.emergency_repairs.markers_spawned >= 1);
     assert!(logic.emergency_repairs.honesty_marker_ok());
     // Marker dies same frame (DeletionUpdate 0).
@@ -2580,7 +2580,7 @@ fn emergency_repair_heals_allies_not_same_faction() {
         Vec3::new(10.0, 0.0, 0.0),
         Some(caster),
         HostEmergencyRepairLevel::One,
-    ));
+    ).unwrap());
     let ally_hp = logic.objects.get(&ally).unwrap().health.current;
     assert!(
         ally_hp > 100.5,
@@ -2612,7 +2612,7 @@ fn emergency_repair_heals_allies_not_same_faction() {
         Vec3::new(10.0, 0.0, 0.0),
         Some(caster),
         HostEmergencyRepairLevel::One,
-    ));
+    ).unwrap());
     let enemy_hp = ffa.objects.get(&enemy).unwrap().health.current;
     assert!(
         (enemy_hp - 100.0).abs() < 0.1,

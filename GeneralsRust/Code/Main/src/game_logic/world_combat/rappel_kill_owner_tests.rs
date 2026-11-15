@@ -85,7 +85,7 @@ fn two_ordered_combat_drop_kills_score_before_receiving_rappeller_death_and_save
         ),
         gamelogic::common::Relationship::Enemies
     );
-    owner.rappel_arrive_at_building(rappeller, building);
+    owner.rappel_arrive_at_building(rappeller, building).unwrap();
     let actor = owner.host_object(rappeller).unwrap();
     assert_eq!(actor.experience.current, 20.0);
     assert_eq!(actor.health.current, 0.0);
@@ -154,7 +154,7 @@ fn combat_drop_uses_receiving_relationships_not_different_faction_names() {
         ),
         gamelogic::common::Relationship::Allies
     );
-    owner.rappel_arrive_at_building(rappeller, building);
+    owner.rappel_arrive_at_building(rappeller, building).unwrap();
     assert_eq!(owner.host_object(rappeller).unwrap().health.current, 100.0);
     assert_eq!(
         owner.host_object(rappeller).unwrap().experience.current,

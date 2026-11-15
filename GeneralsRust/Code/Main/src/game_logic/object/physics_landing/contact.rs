@@ -1062,7 +1062,7 @@ impl crate::game_logic::GameLogic {
                             &context,
                             presentation_effects,
                         )
-                    };
+                    }?;
                     killed = result.is_some_and(|result| result.destroyed());
                     state = next;
                 }

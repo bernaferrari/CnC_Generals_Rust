@@ -17,7 +17,7 @@ impl GameLogic {
         source: ObjectId,
         actual_damage: f32,
         damage_type_ordinal: u32,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.execute_temporary_weapon_on_damage_with_effects(
             source,
             actual_damage,
@@ -32,12 +32,12 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         // C++ Object::onDamage delivers to every damage module; leftover
         // FireWeaponWhenDamagedBehavior::on_damage fires each instance whose
         // reaction weapon is READY_TO_FIRE. Do not stop at the first ready.
         let Some(object) = self.objects.get(&source) else {
-            return 0;
+            return Ok(0);
         };
         let identity = self.live_draw_playback_identity(object);
         let modules: Vec<_> = object
@@ -61,9 +61,9 @@ impl GameLogic {
                 actual_damage,
                 damage_type_ordinal,
                 effects,
-            ));
+            )?);
         }
-        hits
+        Ok(hits)
     }
 
     /// One actual authored DamageModule slot; shared by the complete weapon
@@ -75,9 +75,9 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let Some(object) = self.objects.get(&source) else {
-            return 0;
+            return Ok(0);
         };
         let identity = self.live_draw_playback_identity(object);
         let plans = self.damaged_reaction_plan_for_module(
@@ -96,16 +96,16 @@ impl GameLogic {
                 break;
             }
             hits = hits.saturating_add(
-                self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+                self.force_fire_temporary_runtime_with_effects(source, plan, effects)?,
             );
         }
-        hits
+        Ok(hits)
     }
 
     pub(in super::super) fn execute_temporary_weapon_continuous(
         &mut self,
         source: ObjectId,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.execute_temporary_weapon_continuous_with_effects(source, &mut Default::default())
     }
 
@@ -113,10 +113,10 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         // Each update observes Body/upgrade state after the preceding module's
         // synchronous fire callbacks (FireWeaponWhenDamagedBehavior.cpp:208).
-        let Some(object) = self.objects.get(&source) else { return 0; };
+        let Some(object) = self.objects.get(&source) else { return Ok(0); };
         // First visual capture can assign a generation to an unstamped live
         // object. The stable birth token, not that lazy stamp, identifies it.
         let identity = object.visual_draw_identity_token.clone();
@@ -132,14 +132,14 @@ impl GameLogic {
             }
             for plan in self.damaged_continuous_plan_for_module(source, Some(module)) {
                 hits = hits.saturating_add(
-                    self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+                    self.force_fire_temporary_runtime_with_effects(source, plan, effects)?,
                 );
             }
         }
-        hits
+        Ok(hits)
     }
 
-    pub(in super::super) fn execute_temporary_weapon_on_die(&mut self, source: ObjectId) -> u32 {
+    pub(in super::super) fn execute_temporary_weapon_on_die(&mut self, source: ObjectId) -> gamelogic::GameLogicResult<u32> {
         self.execute_temporary_weapon_on_die_with_effects(source, &mut Default::default())
     }
 
@@ -147,16 +147,16 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let specs = self.dead_ephemeral_specs(source);
         if specs.is_empty() {
-            return 0;
+            return Ok(0);
         }
         let mut hits = 0u32;
         let mut fired = false;
         for spec in specs {
             if let Some(fired_hits) =
-                self.create_and_fire_temp_weapon_with_effects(source, &spec, effects)
+                self.create_and_fire_temp_weapon_with_effects(source, &spec, effects)?
             {
                 fired = true;
                 hits = hits.saturating_add(fired_hits);
@@ -169,7 +169,7 @@ impl GameLogic {
                 object.fire_weapon_when_dead_fired = true;
             }
         }
-        hits
+        Ok(hits)
     }
 
 
@@ -179,7 +179,7 @@ impl GameLogic {
         source_index: usize,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let specs = self.dead_ephemeral_specs_for(source, Some(source_index), Some(death_type));
         let mut hits = 0;
         for spec in specs
@@ -187,22 +187,22 @@ impl GameLogic {
             .filter(|spec| spec.module_source_index as usize == source_index)
         {
             if let Some(count) =
-                self.create_and_fire_temp_weapon_with_effects(source, &spec, effects)
+                self.create_and_fire_temp_weapon_with_effects(source, &spec, effects)?
             {
                 hits += count;
             }
         }
-        hits
+        Ok(hits)
     }
 
-    pub(in super::super) fn fire_temporary_weapons_for_pending_deaths(&mut self) {
+    pub(in super::super) fn fire_temporary_weapons_for_pending_deaths(&mut self) -> gamelogic::GameLogicResult<()> {
         self.fire_temporary_weapons_for_pending_deaths_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn fire_temporary_weapons_for_pending_deaths_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -213,8 +213,9 @@ impl GameLogic {
             })
             .collect();
         for id in ids {
-            let _ = self.execute_temporary_weapon_on_die_with_effects(id, effects);
+            self.execute_temporary_weapon_on_die_with_effects(id, effects)?;
         }
+        Ok(())
     }
     /// FireWeaponUpdate owns a private Weapon, independent of Object's slots.
     /// The native lifecycle walker calls this at the declaration's position.
@@ -223,34 +224,34 @@ impl GameLogic {
         source: ObjectId,
         index: usize,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::native_lifecycle::NativeLifecycleState;
         use crate::game_logic::native_lifecycle_definition::NativeLifecycleKind;
         use crate::game_logic::host_temporary_weapon_behavior::{
             FireWeaponWhenDeadEphemeralWeaponSpec, TemporaryWeaponSlot,
         };
-        let Some(object) = self.objects.get_mut(&source) else { return; };
-        if object.status.under_construction { return; }
+        let Some(object) = self.objects.get_mut(&source) else { return Ok(()); };
+        if object.status.under_construction { return Ok(()); }
         let last_shot = (0..3)
             .filter_map(|slot| object.weapon_slot(slot).map(|weapon| weapon.last_fire_frame))
             .max().unwrap_or(0);
         let identity = object.visual_draw_identity_token.clone();
-        let Some(runtime) = object.native_lifecycle.as_mut() else { return; };
+        let Some(runtime) = object.native_lifecycle.as_mut() else { return Ok(()); };
         let Some(NativeLifecycleKind::FireWeapon(definition)) =
             runtime.definitions.get(index).map(|definition| &definition.kind)
-        else { return; };
+        else { return Ok(()); };
         if definition.exclusive_delay > 0
             && self.frame < last_shot.wrapping_add(definition.exclusive_delay)
         {
-            return;
+            return Ok(());
         }
         let Some(NativeLifecycleState::FireWeapon { initial_delay_frame, weapon: Some(weapon) }) =
             runtime.states.get_mut(index)
-        else { return; };
+        else { return Ok(()); };
         if self.frame < *initial_delay_frame
             || promote_temporary_weapon_status(weapon, self.frame) != TemporaryWeaponStatus::ReadyToFire
         {
-            return;
+            return Ok(());
         }
         let spec = FireWeaponWhenDeadEphemeralWeaponSpec {
             module_source_index: weapon.key.module_source_index,
@@ -258,7 +259,7 @@ impl GameLogic {
             weapon_slot: TemporaryWeaponSlot::Primary,
         };
         let fire_state = (weapon.current_barrel, weapon.suspend_fx_frame, weapon.ammo_in_clip);
-        let Some(mut fields) = self.temporary_weapon_fields(&spec.weapon_template_name) else { return; };
+        let Some(mut fields) = self.temporary_weapon_fields(&spec.weapon_template_name) else { return Ok(()); };
         let rule = self.weapon_definitions.as_ref()
             .and_then(|catalog| catalog.get(&spec.weapon_template_name.to_ascii_lowercase()))
             .cloned();
@@ -267,8 +268,8 @@ impl GameLogic {
             let rate = self.receiving_weapon_bonus_fields(object, Some(rule)).2;
             bonus.set_field(gamelogic::weapon::WeaponBonusField::RateOfFire, rate);
         }
-        if self.fire_named_temporary_with_owned_state(source, &spec, Some(fire_state), None, effects).is_none() {
-            return;
+        if self.fire_named_temporary_with_owned_state(source, &spec, Some(fire_state), None, effects)?.is_none() {
+            return Ok(());
         }
         if let Some(rule) = rule {
             if fire_state.2 > 1 {
@@ -278,13 +279,14 @@ impl GameLogic {
                 fields.defaults.clip_reload_frames = rule.get_clip_reload_time(&bonus).max(0) as u32;
             }
         }
-        let Some(object) = self.objects.get_mut(&source) else { return; };
-        if !std::sync::Arc::ptr_eq(&identity, &object.visual_draw_identity_token) { return; }
+        let Some(object) = self.objects.get_mut(&source) else { return Ok(()); };
+        if !std::sync::Arc::ptr_eq(&identity, &object.visual_draw_identity_token) { return Ok(()); }
         if let Some(NativeLifecycleState::FireWeapon { weapon: Some(weapon), .. }) =
             object.native_lifecycle.as_mut().and_then(|runtime| runtime.states.get_mut(index))
         {
             super::temporary_weapon_status::apply_private_fire_mutation(weapon, fields, self.frame);
         }
+        Ok(())
     }
 
     pub(in super::super) fn damaged_reaction_plan(

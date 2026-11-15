@@ -174,7 +174,7 @@ fn actual_uc_edges_kill_enemy_bodies_and_destroy_other_mines_inline_only_in_the_
     assert_silently_destroyed(&owner, first[2]);
     assert_live(&peer, peer_first);
     // A foreign ObjectId must not be delivered by the next world's mine phase.
-    peer.update_mines_and_demo_traps();
+    peer.update_mines_and_demo_traps().unwrap();
     assert_live(&peer, peer_first);
     let second = wave(&mut owner);
     let peer_second = wave(&mut peer);
@@ -190,7 +190,7 @@ fn actual_uc_edges_kill_enemy_bodies_and_destroy_other_mines_inline_only_in_the_
         assert_silently_destroyed(&peer, id);
     }
     assert_live(&owner, second);
-    owner.update_mines_and_demo_traps();
+    owner.update_mines_and_demo_traps().unwrap();
     assert_live(&owner, second);
     // Clearing the bit is also a real source edge, not merely construction entry.
     assert!(owner.set_object_under_construction_with_effects(site, false, &mut Default::default()));
@@ -212,8 +212,8 @@ fn actual_uc_edges_kill_enemy_bodies_and_destroy_other_mines_inline_only_in_the_
         true,
         &mut Default::default()
     ));
-    owner.update_mines_and_demo_traps();
-    peer.update_mines_and_demo_traps();
+    owner.update_mines_and_demo_traps().unwrap();
+    peer.update_mines_and_demo_traps().unwrap();
     assert_live(&owner, third);
     assert_live(&peer, peer_third);
     for id in first.into_iter().chain(second) {
@@ -332,7 +332,7 @@ fn effective_uc_edges_normalize_bool_and_raw_bits_without_duplicate_callback_or_
         .unwrap()
         .set_status_under_construction(true);
     assert_live(&owner, [id]);
-    owner.update_mines_and_demo_traps();
+    owner.update_mines_and_demo_traps().unwrap();
     assert_live(&owner, [id]);
     assert!(!owner.set_object_under_construction_with_effects(site, true, &mut Default::default()));
     assert_live(&owner, [id]);

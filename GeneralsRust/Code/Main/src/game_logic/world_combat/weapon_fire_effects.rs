@@ -26,7 +26,7 @@ impl GameLogic {
         slot: u8,
         mut shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.deliver_owned_weapon_shot_with_effects(
             slot,
             shot,
@@ -41,7 +41,7 @@ impl GameLogic {
         shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.deliver_owned_weapon_shot_with_rule_and_effects(
             slot, shot, capture, None, presentation_effects,
         )
@@ -54,7 +54,7 @@ impl GameLogic {
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         explicit_rule: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         // Retain the selected immutable template before FireFX/FireOCL callbacks
         // can change content, selection, ownership or the firing object itself.
         let stream_rule = explicit_rule.clone().or_else(|| {
@@ -81,14 +81,14 @@ impl GameLogic {
             capture,
             explicit_rule,
             presentation_effects,
-        );
+        )?;
         // Accepted effects belong to this callback, never to later flight.
         shot.fire_fx_name.clear();
         shot.fire_ocl_name.clear();
         if self.visual_world_epoch != epoch {
             // The receiving match itself ended during the effect phase. An
             // old shot must not enter its replacement match's combat queue.
-            return false;
+            return Ok(false);
         }
         self.refresh_accepted_self_damage_pose(&mut shot, source_pose);
         if let Some(source) = self.objects.get(&shot.shooter_id).filter(|object| {
@@ -108,13 +108,13 @@ impl GameLogic {
             shot,
             stream_binding,
             presentation_effects,
-        );
-        if let Some(accepted) = accepted {
+        )?;
+        Ok(if let Some(accepted) = accepted {
             self.finish_accepted_weapon_discharge(accepted);
             true
         } else {
             false
-        }
+        })
     }
 
     /// Retain source identity across callbacks without retaining a borrow.
@@ -151,7 +151,7 @@ impl GameLogic {
         target_position: Option<Vec3>,
         origin: Vec3,
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
-    ) -> Option<AcceptedWeaponDischarge> {
+    ) -> gamelogic::GameLogicResult<Option<AcceptedWeaponDischarge>> {
         self.begin_owned_weapon_effects_with_effects(
             source,
             slot,
@@ -172,7 +172,7 @@ impl GameLogic {
         origin: Vec3,
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<AcceptedWeaponDischarge> {
+    ) -> gamelogic::GameLogicResult<Option<AcceptedWeaponDischarge>> {
         self.begin_owned_weapon_effects_with_rule_and_effects(
             source, slot, target, target_position, origin, prepared_capture, None,
             presentation_effects,
@@ -189,8 +189,8 @@ impl GameLogic {
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         explicit_rule: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<AcceptedWeaponDischarge> {
-        let object = self.objects.get(&source)?;
+    ) -> gamelogic::GameLogicResult<Option<AcceptedWeaponDischarge>> {
+        let Some(object) = self.objects.get(&source) else { return Ok(None) };
         let name = explicit_rule.as_ref().map(|rule| rule.name.clone())
             .or_else(|| object.weapon_name_for_slot(slot).map(str::to_owned));
         let native = explicit_rule.or_else(|| object.selected_native_weapon_rule(slot));
@@ -215,7 +215,7 @@ impl GameLogic {
                         .map(|effects| effects.play_fx_when_stealthed)
                 })
             });
-        let object = self.objects.get_mut(&source)?;
+        let Some(object) = self.objects.get_mut(&source) else { return Ok(None) };
         if let Some(capture) = prepared_capture {
             object.pending_weapon_visual_capture = Some(capture);
         } else {
@@ -248,8 +248,8 @@ impl GameLogic {
             object.movement.velocity,
             object.get_position(),
         );
-        let accepted =
-            self.begin_accepted_weapon_discharge_with_effects(source, slot, presentation_effects)?;
+        let Some(accepted) =
+            self.begin_accepted_weapon_discharge_with_effects(source, slot, presentation_effects) else { return Ok(None) };
         // CPP943 samples the source rank again AFTER FireFX when the original
         // object still lives. Same-ID replacements keep the frozen facts.
         let (team, orientation, velocity, source_position, rank, ocl) =
@@ -290,9 +290,9 @@ impl GameLogic {
                 velocity,
                 source_position,
                 presentation_effects,
-            );
+            )?;
         }
-        Some(accepted)
+        Ok(Some(accepted))
     }
 }
 
@@ -455,7 +455,7 @@ mod ye145_source_generation_tests {
         // team is USA (original). Then prove mismatch filter with helper.
         let accepted = world
             .begin_owned_weapon_effects(source, 0, None, None, origin, None)
-            .expect("accepted");
+            .expect("fire effects succeed").expect("accepted");
         assert_eq!(accepted.source_generation, generation);
         let child = world
             .host_objects()

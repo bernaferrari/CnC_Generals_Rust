@@ -216,7 +216,7 @@ impl Object {
     }
 }
 impl GameLogic {
-    pub(crate) fn tick_native_lifecycle(&mut self, id: ObjectId) {
+    pub(crate) fn tick_native_lifecycle(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.tick_native_lifecycle_with_effects(id, &mut Default::default())
     }
 
@@ -224,11 +224,11 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.drive_native_lifecycle_with_effects(id, false, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.drive_native_lifecycle_with_effects(id, false, effects)
     }
     /// Field expiry has its existing phase, but must not advance HeightDie twice.
-    pub(crate) fn tick_native_lifetime_timers(&mut self, id: ObjectId) {
+    pub(crate) fn tick_native_lifetime_timers(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.tick_native_lifetime_timers_with_effects(id, &mut Default::default())
     }
 
@@ -236,10 +236,10 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.drive_native_lifecycle_with_effects(id, true, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.drive_native_lifecycle_with_effects(id, true, effects)
     }
-    fn drive_native_lifecycle(&mut self, id: ObjectId, timers_only: bool) {
+    fn drive_native_lifecycle(&mut self, id: ObjectId, timers_only: bool) -> gamelogic::GameLogicResult<()> {
         self.drive_native_lifecycle_with_effects(id, timers_only, &mut Default::default())
     }
 
@@ -248,12 +248,12 @@ impl GameLogic {
         id: ObjectId,
         timers_only: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
         let Some(runtime) = object.native_lifecycle.as_ref() else {
-            return;
+            return Ok(());
         };
         let count = runtime.states.len();
         // Existing object incarnation token guards synchronous callback replacement.
@@ -268,7 +268,7 @@ impl GameLogic {
             // All three original modules inherit DISABLEDMASK_NONE. The
             // scheduler retries next frame without consuming their continuation.
             if object.has_disabled_type() {
-                return;
+                return Ok(());
             }
             let Some(kind) = object
                 .native_lifecycle
@@ -289,30 +289,31 @@ impl GameLogic {
                         continue;
                     };
                     if action == NativeTimerAction::Delete {
-                        self.destroy_object_with_effects(id, effects);
+                        self.destroy_object_with_effects(id, effects)?;
                     } else {
                         self.apply_owned_kill_with_effects(
                             id,
                             super::combat::DamageType::Unresistable,
                             super::host_usa_pilot::HostDeathType::Normal,
                             effects,
-                        );
+                        )?;
                     }
                 }
                 NativeLifecycleKind::FireWeapon(_) => {
                     if !timers_only {
-                        self.tick_native_fire_weapon_update_with_effects(id, index, effects);
+                        self.tick_native_fire_weapon_update_with_effects(id, index, effects)?;
                     }
                 }
                 NativeLifecycleKind::HeightDie(definition) => {
                     if !timers_only {
                         self.tick_native_height_die_with_effects(
                             id, index, &identity, definition, effects,
-                        );
+                        )?;
                     }
                 }
             }
         }
+        Ok(())
     }
     fn native_height_die_surface(
         &self,
@@ -368,7 +369,7 @@ impl GameLogic {
         index: usize,
         identity: &std::sync::Arc<()>,
         definition: HeightDieDefinition,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.tick_native_height_die_with_effects(
             id,
             index,
@@ -385,10 +386,10 @@ impl GameLogic {
         identity: &std::sync::Arc<()>,
         definition: HeightDieDefinition,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let pose_frame = self.frame;
         let Some(object) = self.objects.get_mut(&id) else {
-            return;
+            return Ok(());
         };
         let position = object.get_position();
         let contained = object.contained_by.is_some();
@@ -402,22 +403,22 @@ impl GameLogic {
             .as_mut()
             .and_then(|runtime| runtime.states.get_mut(index))
         else {
-            return;
+            return Ok(());
         };
         if *earliest_frame == u32::MAX {
             *earliest_frame = self.frame.wrapping_add(definition.initial_delay);
         }
         if self.frame < *earliest_frame {
-            return;
+            return Ok(());
         }
         if contained {
             *last_position = position;
-            return;
+            return Ok(());
         }
         let direction_ok = !definition.only_when_moving_down || position.y < last_position.y;
         let may_die = !*has_died && direction_ok;
         let Some((terrain, target)) = self.native_height_die_surface(id, definition) else {
-            return;
+            return Ok(());
         };
         if may_die && position.y < target {
             if definition.snap_to_ground_on_death || position.y < terrain {
@@ -427,7 +428,7 @@ impl GameLogic {
                     pose_frame,
                     effects,
                 ) {
-                    return;
+                    return Ok(());
                 }
             }
             self.apply_owned_kill_with_effects(
@@ -435,12 +436,12 @@ impl GameLogic {
                 super::combat::DamageType::Unresistable,
                 super::host_usa_pilot::HostDeathType::Normal,
                 effects,
-            );
+            )?;
             let Some(object) = self.objects.get_mut(&id) else {
-                return;
+                return Ok(());
             };
             if !std::sync::Arc::ptr_eq(identity, &object.visual_draw_identity_token) {
-                return;
+                return Ok(());
             }
             if let Some(NativeLifecycleState::HeightDie { has_died, .. }) = object
                 .native_lifecycle
@@ -451,10 +452,10 @@ impl GameLogic {
             }
         }
         let Some(object) = self.objects.get_mut(&id) else {
-            return;
+            return Ok(());
         };
         if !std::sync::Arc::ptr_eq(identity, &object.visual_draw_identity_token) {
-            return;
+            return Ok(());
         }
         let current = object.get_position();
         let Some(NativeLifecycleState::HeightDie {
@@ -467,7 +468,7 @@ impl GameLogic {
             .as_mut()
             .and_then(|runtime| runtime.states.get_mut(index))
         else {
-            return;
+            return Ok(());
         };
         let destroy_particles = !*particles_destroyed
             && current.y < definition.destroy_attached_particles_at_height
@@ -480,5 +481,6 @@ impl GameLogic {
             self.combat_particles_mut()
                 .destroy_attached_to_object(id, effects);
         }
+        Ok(())
     }
 }

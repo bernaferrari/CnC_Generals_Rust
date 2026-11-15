@@ -119,7 +119,7 @@ impl GameLogic {
             };
             match ai_state {
                 AIState::Exiting => {
-                    self.update_owned_passenger_exit_with_effects(object_id, effects);
+                    self.update_owned_passenger_exit_with_effects(object_id, effects)?;
                 }
                 AIState::GuardingArea | AIState::GuardingObject => {
                     self.tick_host_guard_states_with_effects(&[object_id], effects)?;
@@ -269,7 +269,7 @@ impl GameLogic {
         self.tick_scuttled_riders_with_effects(effects);
 
         // C++ HealContain::update + TunnelContain::update → TunnelTracker::healObjects.
-        self.tick_heal_contain_and_tunnel_with_effects(effects);
+        self.tick_heal_contain_and_tunnel_with_effects(effects)?;
         // C++ TunnelContain::update nemesis + AITNGuard::lookForInnerTarget.
         self.tick_tunnel_network_nemesis_with_effects(effects);
         Ok(())

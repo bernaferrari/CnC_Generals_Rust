@@ -365,7 +365,8 @@ fn actual_retained_dead_ai_clears_completed_waypoint_on_next_movement_wake() {
             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
             &mut effects,
         )
-        .expect("actual receiving Body death");
+        .expect("actual receiving Body death")
+        .expect("receiving Body");
     assert!(result.destroyed);
     let corpse = source
         .host_object(id)

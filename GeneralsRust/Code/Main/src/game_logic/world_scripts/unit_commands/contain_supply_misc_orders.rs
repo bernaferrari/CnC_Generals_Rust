@@ -409,7 +409,7 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         occupant_id: ObjectId,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_remove_occupant_with_effects(
             container_id,
             occupant_id,
@@ -422,14 +422,12 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         if self.objects.get(&container_id).is_some_and(|container| {
             container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
         }) {
-            return match self.railed_remove_contained_with_effects(container_id, occupant_id, effects) {
-                Ok(removed) => removed,
-                Err(error) => { log::error!("rail removal failed: {error}"); false }
-            };
+            return self.railed_remove_contained_with_effects(container_id, occupant_id, effects)
+                .map_err(gamelogic::GameLogicError::Configuration);
         }
         // C++ TransportContain onRemoving: bike secondary → Kell secondary.
         self.transfer_kell_snipe_reload_from_bike(container_id, occupant_id);
@@ -441,11 +439,11 @@ impl GameLogic {
             // RiderChangeContain removal owns selection/veterancy/scuttle
             // ordering.  It must not be reduced to a bare Vec removal or the
             // next normal Enter would leave the old rider/container corrupted.
-            return self.rider_change_remove_occupant_with_effects(
+            return Ok(self.rider_change_remove_occupant_with_effects(
                 container_id,
                 occupant_id,
                 effects,
-            );
+            ));
         }
         let is_garrison = self
             .objects
@@ -453,9 +451,9 @@ impl GameLogic {
             .is_some_and(|c| c.is_garrison_contain());
         let removed = self.remove_owned_occupant_with_bonus_callback(container_id, occupant_id, effects);
         if removed && is_garrison {
-            self.recalc_garrison_apparent_controller(container_id);
+            self.recalc_garrison_apparent_controller(container_id)?;
         }
-        removed
+        Ok(removed)
     }
 
     /// C++ TransportContain patch 1.01: CLIFF_JUMPER + HERO/SALVAGER shot-stat copy.
@@ -908,7 +906,7 @@ impl GameLogic {
         id: ObjectId,
         slot: u8,
         lock_type: WeaponLockType,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_set_weapon_lock_with_effects(id, slot, lock_type, &mut Default::default())
     }
 
@@ -918,7 +916,7 @@ impl GameLogic {
         slot: u8,
         lock_type: WeaponLockType,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let is_demo_trap = self
             .objects
             .get(&id)
@@ -931,10 +929,10 @@ impl GameLogic {
             });
         let locked = {
             let Some(unit) = self.objects.get_mut(&id) else {
-                return false;
+                return Ok(false);
             };
             if !unit.is_alive() {
-                return false;
+                return Ok(false);
             }
             unit.set_weapon_lock(slot, lock_type)
         };
@@ -944,11 +942,11 @@ impl GameLogic {
                 0 => DemoTrapMode::Detonate,
                 1 => DemoTrapMode::Proximity,
                 2 => DemoTrapMode::Manual,
-                _ => return locked,
+                _ => return Ok(locked),
             };
-            let _ = self.set_demo_trap_mode_with_effects(id, mode, effects);
+            self.set_demo_trap_mode_with_effects(id, mode, effects)?;
         }
-        locked
+        Ok(locked)
     }
 
     /// Wave 233: release weapon lock residual.

@@ -461,7 +461,7 @@ fn delayed(label: &str, remove_source: bool) {
     }
     f.accept();
     if remove_source {
-        f.world.destroy_object(source);
+        f.world.destroy_object(source).unwrap();
         f.world.update();
         assert!(!f.world.host_objects().lookup(&source).is_some());
     }

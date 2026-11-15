@@ -37,7 +37,7 @@ fn actual_regen_healing_is_immediate_self_sourced_and_peer_local() {
     let (peer, peer_id) = world(700);
     assert_eq!(id, peer_id);
     assert!(owner.host_object(id).unwrap().is_poison_tinted());
-    owner.update_base_regenerate();
+    owner.update_base_regenerate().unwrap();
     let body = owner.host_object(id).unwrap();
     assert!((body.health.current - (500.0 + base_regen_heal_amount(1000.0))).abs() < 1e-4);
     assert_eq!(body.previous_health, 500.0);
@@ -59,11 +59,11 @@ fn actual_regen_healing_is_immediate_self_sourced_and_peer_local() {
 #[test]
 fn healing_keeps_three_frame_timer_and_sold_construction_gates() {
     let (mut owner, id) = world(100);
-    owner.update_base_regenerate();
+    owner.update_base_regenerate().unwrap();
     let first = owner.host_object(id).unwrap().health.current;
     for frame in [101, 102] {
         owner.frame = frame;
-        owner.update_base_regenerate();
+        owner.update_base_regenerate().unwrap();
         assert_eq!(owner.host_object(id).unwrap().health.current, first);
     }
     owner.frame = 103;
@@ -71,13 +71,13 @@ fn healing_keeps_three_frame_timer_and_sold_construction_gates() {
         .host_object_mut(id)
         .unwrap()
         .set_status_under_construction(true);
-    owner.update_base_regenerate();
+    owner.update_base_regenerate().unwrap();
     assert_eq!(owner.host_object(id).unwrap().health.current, first);
     owner
         .host_object_mut(id)
         .unwrap()
         .set_status_under_construction(false);
-    owner.update_base_regenerate();
+    owner.update_base_regenerate().unwrap();
     assert_eq!(owner.base_regenerate_reg.heal_ticks, 2);
     assert_eq!(
         owner.host_object(id).unwrap().last_healing_timestamp,
@@ -86,7 +86,7 @@ fn healing_keeps_three_frame_timer_and_sold_construction_gates() {
     owner.frame = 106;
     owner.host_object_mut(id).unwrap().status.sold = true;
     let before_sold = owner.host_object(id).unwrap().health.current;
-    owner.update_base_regenerate();
+    owner.update_base_regenerate().unwrap();
     assert_eq!(owner.host_object(id).unwrap().health.current, before_sold);
     assert!(
         owner
@@ -102,7 +102,7 @@ fn healing_keeps_three_frame_timer_and_sold_construction_gates() {
 #[test]
 fn normal_saved_regen_continues_same_body_and_callback_future() {
     let (mut owner, id) = world(100);
-    owner.update_base_regenerate();
+    owner.update_base_regenerate().unwrap();
     let builder = crate::save_load::SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&owner).unwrap();
     let (mut restored, peer_id) = world(900);
@@ -113,8 +113,8 @@ fn normal_saved_regen_continues_same_body_and_callback_future() {
     for frame in [101, 102, 103] {
         owner.frame = frame;
         restored.frame = frame;
-        owner.update_base_regenerate();
-        restored.update_base_regenerate();
+        owner.update_base_regenerate().unwrap();
+        restored.update_base_regenerate().unwrap();
         let expected = owner.host_object(id).unwrap();
         let actual = restored.host_object(id).unwrap();
         assert_eq!(actual.health.current, expected.health.current);

@@ -98,8 +98,8 @@ fn real_death_and_snapshot_continuation_keep_each_worlds_collapse_definition() {
     let (mut peer, peer_id) = world(4400, "FX_SecondCollapseInitial");
     assert_eq!(first_id, peer_id);
 
-    assert_eq!(first.apply_host_damage(first_id, 200.0), (true, false));
-    assert_eq!(peer.apply_host_damage(peer_id, 200.0), (true, false));
+    assert_eq!(first.apply_host_damage(first_id, 200.0).unwrap(), (true, false));
+    assert_eq!(peer.apply_host_damage(peer_id, 200.0).unwrap(), (true, false));
     for (owner, id, delay, fx) in [
         (&first, first_id, 66, "FX_FirstCollapseInitial"),
         (&peer, peer_id, 132, "FX_SecondCollapseInitial"),

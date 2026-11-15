@@ -47,11 +47,11 @@ fn scud_area_damage_reads_the_driving_world_repulsor_policy() {
             let (mut second, other) = civilian_world(false);
             assert_eq!(id, other);
             assert_eq!(
-                first.apply_scud_area_at(Vec3::ZERO, None, Team::GLA, false),
+                first.apply_scud_area_at(Vec3::ZERO, None, Team::GLA, false).unwrap(),
                 (1, false)
             );
             assert_eq!(
-                second.apply_scud_area_at(Vec3::ZERO, None, Team::GLA, false),
+                second.apply_scud_area_at(Vec3::ZERO, None, Team::GLA, false).unwrap(),
                 (1, false)
             );
             assert_policy_and_damage(&first, id, true);
@@ -66,7 +66,7 @@ fn scud_area_damage_reads_the_driving_world_repulsor_policy() {
                 .unwrap()
                 .set_status_repulsor(false);
             assert_eq!(
-                first.apply_scud_area_at(Vec3::ZERO, None, Team::GLA, false),
+                first.apply_scud_area_at(Vec3::ZERO, None, Team::GLA, false).unwrap(),
                 (1, false)
             );
             assert!(!first.host_object(id).unwrap().status.repulsor);
@@ -92,7 +92,7 @@ fn fuel_air_radius_damage_reads_the_driving_world_repulsor_policy() {
                     10.0,
                     50.0,
                     crate::game_logic::combat::DamageType::Explosive,
-                );
+                ).unwrap();
                 assert_eq!(
                     result,
                     (10.0, 1, 0),

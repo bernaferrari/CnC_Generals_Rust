@@ -80,7 +80,7 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
                 ));
                 view.reset_camera_shake();
             });
-            owner.update_owned_projectile_impacts(1. / 30.);
+            owner.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(owner.session_view.impulse.intensity, 0.);
             assert!(
                 !owner.combat_system.projectiles[&id]
@@ -98,13 +98,13 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
                 .combat_system
                 .projectiles
                 .insert(id, serde_json::from_slice(&encoded).unwrap());
-            peer.update_owned_projectile_impacts(2. / 30.);
+            peer.update_owned_projectile_impacts(2. / 30.).unwrap();
             assert_eq!(
                 peer.session_view.impulse.intensity, 0.,
                 "same ID peer uses its own far target"
             );
-            owner.update_owned_projectile_impacts(1. / 30.);
-            restored.update_owned_projectile_impacts(1. / 30.);
+            owner.update_owned_projectile_impacts(1. / 30.).unwrap();
+            restored.update_owned_projectile_impacts(1. / 30.).unwrap();
             let expected = if rules.shake_normal_intensity > rules.max_shake_intensity {
                 3.
             } else {
@@ -142,8 +142,8 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
                 .unwrap();
             for _ in 0..4 {
                 let before = owner.session_view.impulse.intensity;
-                owner.update_owned_projectile_impacts(1. / 30.);
-                restored.update_owned_projectile_impacts(1. / 30.);
+                owner.update_owned_projectile_impacts(1. / 30.).unwrap();
+                restored.update_owned_projectile_impacts(1. / 30.).unwrap();
                 assert_eq!(
                     owner.session_view.impulse.intensity, before,
                     "armed missile must not replay ignition"
@@ -154,8 +154,8 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
                 );
                 // Draw decay makes an accidental second ignition observable.
                 let decayed = owner.session_view.impulse.intensity;
-                owner.update_owned_projectile_impacts(0.);
-                restored.update_owned_projectile_impacts(0.);
+                owner.update_owned_projectile_impacts(0.).unwrap();
+                restored.update_owned_projectile_impacts(0.).unwrap();
                 assert_eq!(owner.session_view.impulse.intensity, decayed);
             }
             game_client::display::view::with_tactical_view(|view| {
@@ -242,7 +242,7 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                 }));
                 p.detonation_fx_name = "FX_NormalDetonation".into();
                 owner.combat_system.projectiles.insert(projectile, p);
-                let retired = owner.update_owned_projectile_impacts(1. / 30.);
+                let retired = owner.update_owned_projectile_impacts(1. / 30.).unwrap();
                 assert_eq!(retired, vec![projectile]);
                 if eligible {
                     assert!(
@@ -310,12 +310,12 @@ fn native_no_fx_ignition_pose_uses_receiving_visibility_for_colliding_ids() {
             }
             source.combat_system.projectiles.insert(id, p.clone());
             peer.combat_system.projectiles.insert(id, p);
-            source.update_owned_projectile_impacts(1.0 / 30.0);
+            source.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
             let pose = gamelogic::helpers::host_fx_object_pose(id.0).unwrap();
             assert!(!pose.is_shrouded);
             assert_eq!(pose.position.x, 10.0);
             assert_eq!(pose.position.z, 4.0);
-            peer.update_owned_projectile_impacts(1.0 / 30.0);
+            peer.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
             assert!(
                 gamelogic::helpers::host_fx_object_pose(id.0)
                     .unwrap()
@@ -377,7 +377,7 @@ fn detonation_fx_flushes_before_body_damage_and_empties_deferred_queue() {
             }));
             owner.combat_system.projectiles.insert(projectile, p);
             let before = owner.objects[&victim].health.current;
-            let retired = owner.update_owned_projectile_impacts(1. / 30.);
+            let retired = owner.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(retired, vec![projectile], "projectile must detonate");
             let after = owner.objects[&victim].health.current;
             assert!(

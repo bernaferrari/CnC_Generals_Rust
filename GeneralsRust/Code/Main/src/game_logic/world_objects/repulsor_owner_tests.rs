@@ -40,7 +40,7 @@ fn same_id_damage_reads_only_the_driving_world_repulsor_policy() {
                         None,
                         &DamageHitContext::default(),
                     )
-                    .unwrap();
+                    .unwrap().unwrap();
                 assert!(!result.destroyed);
             }
             assert!(

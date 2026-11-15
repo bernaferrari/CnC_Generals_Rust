@@ -25,7 +25,7 @@ fn command_sell_deselect_log() -> bool {
     if let Some(obj) = logic.host_object_mut(bid) {
         obj.select();
     }
-    if !logic.start_sell_object(bid) {
+    if !logic.start_sell_object(bid).unwrap() {
         return false;
     }
     logic

@@ -265,7 +265,7 @@ impl GameLogic {
                     *rider,
                     position,
                     presentation_effects,
-                );
+                )?;
             }
             self.car_bomb.record_airborne_parachute_free_fall();
         }
@@ -462,7 +462,7 @@ impl GameLogic {
                         passenger_death_type,
                         None,
                         presentation_effects,
-                    );
+                    )?;
                     if !died
                         && damage_percentage == 1.0
                         && self.objects.get(id).is_some_and(Object::is_alive)
@@ -473,7 +473,7 @@ impl GameLogic {
                                 crate::game_logic::combat::DamageType::Unresistable,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                                 presentation_effects,
-                            )
+                            )?
                             .is_some_and(|result| result.destroyed());
                     }
                 }

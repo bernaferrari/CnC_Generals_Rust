@@ -70,7 +70,7 @@ impl super::super::GameLogic {
                 // final isValidContainerFor check.
                 self.kick_other_controller_occupants_for_enter_with_effects(
                     other_id, self_id, effects,
-                );
+                )?;
             }
             let eligible = if let Some(key) = tunnel_key {
                 self.objects
@@ -139,7 +139,7 @@ impl super::super::GameLogic {
                 && (is_garrison || is_transport || tunnel_key.is_some() || cave_index.is_some())
                 && self.should_cancel_containment_after_booby_trap_with_effects(
                     other_id, self_id, effects,
-                );
+                )?;
             let uncontained = self
                 .objects
                 .get(&self_id)

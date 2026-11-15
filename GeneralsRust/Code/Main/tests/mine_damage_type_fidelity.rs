@@ -54,7 +54,7 @@ fn land_mine_detonation_uses_land_mine_armor_type() {
         data.detonation_damage = 500.0;
         data.detonation_radius = 100.0;
     }
-    assert!(world.manual_detonate_mine(mine));
+    assert!(world.manual_detonate_mine(mine).unwrap());
 
     assert_eq!(
         world.host_object(victim).unwrap().health.current,
@@ -73,7 +73,7 @@ fn manual_demo_trap_uses_explosion_armor_type() {
         .place_demo_trap(Team::China, position, None)
         .expect("place demo trap");
 
-    assert!(world.manual_detonate_mine(trap));
+    assert!(world.manual_detonate_mine(trap).unwrap());
 
     let remaining = world.host_object(victim).unwrap().health.current;
     assert_eq!(

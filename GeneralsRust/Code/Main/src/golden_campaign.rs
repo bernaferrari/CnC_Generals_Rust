@@ -489,10 +489,13 @@ pub fn run_golden_campaign_ex(
         scripts_installed && mission_script_counter > script_counter_before && frames_advanced > 0;
 
     // Victory evaluation must not panic; result may be None mid-mission.
-    let victory_eval_ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = logic.evaluate_victory_condition();
-    }))
-    .is_ok();
+    let victory_eval = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        logic.evaluate_victory_condition()
+    }));
+    let victory_eval_ok = match victory_eval {
+        Ok(result) => { result?; true }
+        Err(_) => false,
+    };
 
     // Progression complete after runtime path.
     let completion = MissionCompletionData {

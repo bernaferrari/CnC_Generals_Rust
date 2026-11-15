@@ -29,7 +29,7 @@ fn authored_airfield_sale_slow_death_world_snapshot_continues_to_original_retire
         (peer_rack, peer_slots, peer_survivor)
     );
     let slow = slots[1];
-    assert!(source.start_sell_object(rack));
+    assert!(source.start_sell_object(rack).unwrap());
     assert_instant_die(&source, slots[0]);
     assert_instant_die(&source, slots[2]);
     // Destruction requests are not a saved queue. Complete the actual removal

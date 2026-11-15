@@ -61,7 +61,7 @@ fn kill_pilot_and_kill_garrisoned_complete_without_target_lock_reentry() {
             &context,
         )
         .expect("KillPilot must complete without reentrant target lock");
-    assert!(!result.destroyed);
+    assert!(!result.unwrap().destroyed);
     let object = owner.host_object(vehicle).unwrap();
     assert!(object.status.disabled_unmanned);
     assert_eq!(object.health.current, 100.0);
@@ -79,7 +79,7 @@ fn kill_pilot_and_kill_garrisoned_complete_without_target_lock_reentry() {
             &context,
         )
         .expect("KillGarrisoned must complete without reentrant target lock");
-    assert!(!result.destroyed);
+    assert!(!result.unwrap().destroyed);
     let building = owner.host_object(building).unwrap();
     assert_eq!(building.health.current, 100.0);
     assert_eq!(building.status.pending_kill_garrisoned, 3);

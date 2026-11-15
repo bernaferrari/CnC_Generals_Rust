@@ -226,7 +226,7 @@ fn borrowed_body_death_weapon_reborrows_same_notification_recipient_into_nested_
                     true,
                     Some(engine),
                     &mut Default::default(),
-                );
+                ).unwrap();
             });
             assert!(
                 completed(engine, CREATOR),
@@ -263,7 +263,7 @@ fn special_power_event_encoded_continuation_preserves_receiving_history_and_flus
         true,
         None,
         &mut Default::default(),
-    );
+    ).unwrap();
     assert!(completed(
         owner.owned_script_engine.as_ref().unwrap(),
         CREATOR
@@ -317,7 +317,7 @@ fn direct_delete_and_invalid_creator_do_not_manufacture_completion_events() {
         true,
         None,
         &mut Default::default(),
-    );
+    ).unwrap();
     assert!(!completed(invalid.owned_script_engine.as_ref().unwrap(), 0));
     assert_eq!(invalid.special_power_completion_log.notifications, 0);
 }

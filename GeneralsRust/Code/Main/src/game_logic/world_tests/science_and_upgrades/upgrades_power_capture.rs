@@ -742,7 +742,7 @@ End
         plant.health.current
     };
 
-    logic.update_overcharge_drain(0.1); // 1500 × 3% × 0.1 = 4.5
+    logic.update_overcharge_drain(0.1).unwrap(); // 1500 × 3% × 0.1 = 4.5
     let after_drain = logic.host_object(plant_id).expect("drained plant");
     assert!(after_drain.overcharge_enabled);
     let raw_requested_drain =
@@ -790,7 +790,7 @@ End
         .expect("re-enabled plant")
         .health
         .current = actual_damage * 0.5;
-    logic.update_overcharge_drain(0.1);
+    logic.update_overcharge_drain(0.1).unwrap();
     let dead_plant = logic.host_object(plant_id).expect("death-start plant");
     // Retail ChinaPowerPlant authors DestroyDie, not either structure animation.
     assert!(dead_plant.structure_topple_data.is_none());
@@ -864,12 +864,12 @@ fn typed_overcharge_capture_keeps_disabled_bonus_in_cxx_energy_pool() {
     // Enabled C++ OverchargeBehavior explicitly removes the old owner's
     // EnergyBonus and adds it to the new owner; the ordinary ownership scan
     // already represents that path without a correction.
-    assert!(logic.transfer_object_to_player(plant_id, 1));
+    assert!(logic.transfer_object_to_player(plant_id, 1).unwrap());
     logic.update_player_resources(0.0);
     assert_eq!(logic.get_player(0).unwrap().power_produced, 0);
     assert_eq!(logic.get_player(1).unwrap().power_produced, 15);
 
-    assert!(logic.transfer_object_to_player(plant_id, 0));
+    assert!(logic.transfer_object_to_player(plant_id, 0).unwrap());
     logic.update_player_resources(0.0);
     assert_eq!(logic.get_player(0).unwrap().power_produced, 15);
     assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
@@ -884,7 +884,7 @@ fn typed_overcharge_capture_keeps_disabled_bonus_in_cxx_energy_pool() {
         .set_status_disabled_hacked(true);
     assert!(logic.host_object(plant_id).unwrap().is_disabled());
     assert!(logic.host_object(plant_id).unwrap().overcharge_enabled);
-    assert!(logic.transfer_object_to_player(plant_id, 1));
+    assert!(logic.transfer_object_to_player(plant_id, 1).unwrap());
     logic.update_player_resources(0.0);
     assert_eq!(logic.get_player(0).unwrap().power_produced, 0);
     assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
@@ -1016,7 +1016,7 @@ End
         .expect("shack");
     let before_hp = logic.host_object(sid).unwrap().health.current;
 
-    assert!(logic.maybe_detonate_carbomb_on_unmanned(cid));
+    assert!(logic.maybe_detonate_carbomb_on_unmanned(cid).unwrap());
     assert!(logic.carbomb_unmanned_detonations > 0);
     // Car destroyed.
     assert!(
@@ -1028,7 +1028,7 @@ End
     );
     // Object::kill invokes the authored death module rather than firing the
     // selected CARBOMB weapon or manufacturing a residual blast.
-    logic.apply_owned_projectileless_delayed_damage();
+    logic.apply_owned_projectileless_delayed_damage().unwrap();
     assert!(logic.host_object(sid).unwrap().health.current < before_hp);
 }
 
@@ -1772,7 +1772,7 @@ fn sell_last_tunnel_ejects_shared_pool() {
         .expect("tn key");
     assert!(logic.tunnel_network.record_enter(gla_key, uid, tid));
     assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
-    assert!(logic.start_sell_object(tid));
+    assert!(logic.start_sell_object(tid).unwrap());
     assert!(logic.sell_tunnel_last_ejects > 0);
     assert_eq!(logic.tunnel_network.contain_count(gla_key), 0);
     let u = logic.host_object(uid).expect("ejected");
@@ -1849,7 +1849,7 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
-    assert!(logic.start_sell_object(bid));
+    assert!(logic.start_sell_object(bid).unwrap());
     assert!(logic.sell_passengers_ejected > 0);
     let r = logic.host_object(rid).expect("ranger ejected");
     assert!(r.contained_by.is_none());
@@ -1885,7 +1885,7 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
         j.status.airborne_target = false;
     }
     assert!(logic.reserve_produced_aircraft_parking_space(afid, jid));
-    assert!(logic.start_sell_object(afid));
+    assert!(logic.start_sell_object(afid).unwrap());
     let killed = logic
         .host_object(jid)
         .expect("Body-dead jet awaits retirement");
@@ -1938,7 +1938,7 @@ fn sell_destroys_owned_mines_by_producer() {
         o.mine_data = Some(md);
         o.producer_id = Some(sid);
     }
-    assert!(logic.start_sell_object(sid));
+    assert!(logic.start_sell_object(sid).unwrap());
     logic.process_destroy_list();
     assert!(logic.host_object(mid).is_none() || logic.sell_owned_mines_destroyed > 0);
     // Mine should be marked for destroy
@@ -1970,7 +1970,7 @@ fn sell_allows_under_construction_and_reconstructing() {
         o.set_status_under_construction(true);
         o.construction_percent = 0.5;
     }
-    assert!(logic.start_sell_object(uc));
+    assert!(logic.start_sell_object(uc).unwrap());
     assert!(logic.is_object_being_sold(uc));
     assert!(logic.host_object(uc).unwrap().status.under_construction);
     let recon = logic
@@ -1985,7 +1985,7 @@ fn sell_allows_under_construction_and_reconstructing() {
         o.set_status_reconstructing(true);
         o.construction_percent = 0.3;
     }
-    assert!(logic.start_sell_object(recon));
+    assert!(logic.start_sell_object(recon).unwrap());
     assert!(logic.is_object_being_sold(recon));
     assert!(logic.host_object(recon).unwrap().status.under_construction);
     assert!(logic.host_object(recon).unwrap().status.reconstructing);
@@ -2029,7 +2029,7 @@ fn sell_process_scaffold_sold_model_and_refund() {
         p.selected_objects = vec![id];
         p.resources.supplies = 1000;
     }
-    assert!(logic.start_sell_object(id));
+    assert!(logic.start_sell_object(id).unwrap());
     assert!(logic.is_object_being_sold(id));
     let o = logic.host_object(id).expect("sold start");
     assert!(o.status.sold);

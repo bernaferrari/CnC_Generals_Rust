@@ -311,7 +311,7 @@ fn demo_trap_weapon_slot_mode_residual() {
     }
 
     // ManualModeWeaponSlot residual: proximity off.
-    assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Manual));
+    assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Manual).unwrap());
     {
         let md = game_logic
             .host_object(trap_id)
@@ -333,7 +333,7 @@ fn demo_trap_weapon_slot_mode_residual() {
 
     // Manual mode: enemy in trigger range must NOT proximity-detonate.
     game_logic.frame = 5;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert!(
         game_logic.host_object(trap_id).is_some(),
         "manual-mode trap must survive proximity of enemy"
@@ -348,11 +348,11 @@ fn demo_trap_weapon_slot_mode_residual() {
     );
 
     // ProximityModeWeaponSlot residual: re-enable scan → detonate.
-    assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Proximity));
+    assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Proximity).unwrap());
     game_logic.frame = 6;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     game_logic.frame = 6 + crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert!(
         game_logic.mine_residual_proximity_detonations() > 0
             || game_logic.host_object(trap_id).is_none()
@@ -368,7 +368,7 @@ fn demo_trap_weapon_slot_mode_residual() {
     let trap2 = game_logic
         .place_demo_trap(Team::GLA, Vec3::new(200.0, 0.0, 0.0), None)
         .expect("trap2");
-    assert!(game_logic.set_demo_trap_mode(trap2, DemoTrapMode::Detonate));
+    assert!(game_logic.set_demo_trap_mode(trap2, DemoTrapMode::Detonate).unwrap());
     assert!(
         game_logic.mine_residual_manual_detonations() > 0
             || game_logic
@@ -1001,7 +1001,7 @@ fn point_defense_laser_residual_skips_non_carrier() {
     }
 
     game_logic.frame = 1;
-    game_logic.update_point_defense_intercept();
+    game_logic.update_point_defense_intercept().unwrap();
     assert!(
         !game_logic.honesty_point_defense_intercept_ok(),
         "fail-closed: ordinary tank must not PDL-intercept"
@@ -1402,7 +1402,7 @@ fn microwave_disable_spawns_laser_stream() {
         o.target = Some(bldg);
     }
     logic.frame = 0;
-    logic.update_microwave_disable();
+    logic.update_microwave_disable().unwrap();
     // Laser attaches while cooking; disable waits for subdual >= maxHealth.
     assert!(logic.honesty_microwave_laser_ok());
     let beams = logic
@@ -1475,7 +1475,7 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
     // Align frame to emitter cadence.
     logic.frame = HOST_MICROWAVE_EMITTER_DELAY_FRAMES;
     let hp_before = logic.host_object(inf).unwrap().health.current;
-    logic.update_microwave_emitter_field();
+    logic.update_microwave_emitter_field().unwrap();
     let hp_after = logic
         .host_object(inf)
         .map(|o| o.health.current)
@@ -1514,11 +1514,11 @@ fn bunker_buster_blasts_for_fighter(template: &str, primary_weapon: &str) -> u32
         .host_object_mut(jet)
         .unwrap()
         .apply_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS);
-    let _ = game_logic.apply_stealth_fighter_residual_at(
+    game_logic.apply_stealth_fighter_residual_at(
         Vec3::new(50.0, 0.0, 0.0),
         Some(jet),
         Some(bunker),
-    );
+    ).unwrap();
     game_logic.bunker_buster_residual().blasts
 }
 

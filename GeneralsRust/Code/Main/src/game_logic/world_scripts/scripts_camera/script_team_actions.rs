@@ -1535,7 +1535,7 @@ impl GameLogic {
                 {
                     return Ok(());
                 }
-                self.host_script_ai_evacuate_with_effects(id, effects);
+                self.host_script_ai_evacuate_with_effects(id, effects)?;
             }
             HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest { team } => {
                 self.host_script_team_garrison_nearest(&team, calling, condition)?;
@@ -1574,7 +1574,7 @@ impl GameLogic {
                 self.host_script_player_garrison_all(&player)?;
             }
             HostScriptGarrisonEnterExitRequest::PlayerExitAll { player } => {
-                self.host_script_player_exit_all_with_effects(&player, effects);
+                self.host_script_player_exit_all_with_effects(&player, effects)?;
             }
         }
         Ok(())
@@ -1646,7 +1646,7 @@ impl GameLogic {
         }
         Ok(())
     }
-    pub(super) fn host_script_ai_evacuate(&mut self, id: ObjectId) {
+    pub(super) fn host_script_ai_evacuate(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.host_script_ai_evacuate_with_effects(id, &mut Default::default())
     }
 
@@ -1654,10 +1654,11 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.host_object_leave_group(id);
         let _ = self.apply_unit_locomotor_set(id, "normal");
-        let _ = self.evacuate_container_now_with_effects(id, false, effects);
+        self.evacuate_container_now_with_effects(id, false, effects)?;
+        Ok(())
     }
 
     pub(super) fn host_script_ai_exit(&mut self, id: ObjectId) {
@@ -1927,7 +1928,7 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn host_script_player_exit_all(&mut self, player: &str) {
+    pub(super) fn host_script_player_exit_all(&mut self, player: &str) -> gamelogic::GameLogicResult<()> {
         self.host_script_player_exit_all_with_effects(player, &mut Default::default())
     }
 
@@ -1935,10 +1936,10 @@ impl GameLogic {
         &mut self,
         player: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         let Some(pid) = self.host_player_id_for_script_token(player) else {
-            return;
+            return Ok(());
         };
         let ids: Vec<ObjectId> = self
             .objects
@@ -1952,8 +1953,9 @@ impl GameLogic {
             .map(|obj| obj.id)
             .collect();
         for id in ids {
-            self.host_script_ai_evacuate_with_effects(id, effects);
+            self.host_script_ai_evacuate_with_effects(id, effects)?;
         }
+        Ok(())
     }
 
     /// C++ `ScriptEngine::getTeamNamed` / leftover `TeamFactory::find_team`.

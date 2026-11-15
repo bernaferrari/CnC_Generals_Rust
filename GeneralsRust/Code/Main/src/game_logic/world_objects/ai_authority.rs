@@ -655,7 +655,7 @@ impl GameLogic {
         shooter_pos: glam::Vec3,
         weapon: Option<&crate::game_logic::Weapon>,
         slot: u8,
-    ) -> (bool, f32) {
+    ) -> gamelogic::GameLogicResult<(bool, f32)> {
         self.residual_auto_fire_apply_damage_with_effects(
             attacker_id,
             target_id,
@@ -676,7 +676,7 @@ impl GameLogic {
         weapon: Option<&crate::game_logic::Weapon>,
         slot: u8,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (bool, f32) {
+    ) -> gamelogic::GameLogicResult<(bool, f32)> {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
@@ -708,7 +708,7 @@ impl GameLogic {
                 ),
                 None,
                 effects,
-            );
+            )?;
             let target = self
                 .objects
                 .get_mut(&receiving_damage_id)
@@ -717,7 +717,7 @@ impl GameLogic {
                 kill_xp = target.kill_experience_value();
             }
         }
-        (destroyed, kill_xp)
+        Ok((destroyed, kill_xp))
     }
 
     #[cfg(test)]

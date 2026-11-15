@@ -210,7 +210,7 @@ impl GameLogic {
         self.set_owned_drone_spotting_bonus(master_id, false);
         // CPP188: urgent repair precedes master's victim and scouting.
         if hp_percent <= data.repair_priority_percent {
-            self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects);
+            self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects)?;
             self.store_slave_state(id, state);
             return Ok(());
         }
@@ -243,7 +243,7 @@ impl GameLogic {
             return Ok(());
         }
         if hp_percent < 100 {
-            self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects);
+            self.slave_repair_with_effects(id, master_id, &data, &mut state, presentation_effects)?;
             self.store_slave_state(id, state);
             return Ok(());
         }
@@ -291,7 +291,7 @@ impl GameLogic {
         goal.z += state.guard_offset.z;
         state.guard_offset.y = self.terrain_height_at(*goal).unwrap_or(0.0);
     }
-    fn slave_repair(&mut self, id: ObjectId, master: ObjectId, data: &Data, state: &mut State) {
+    fn slave_repair(&mut self, id: ObjectId, master: ObjectId, data: &Data, state: &mut State) -> gamelogic::GameLogicResult<()> {
         self.slave_repair_with_effects(
             id,
             master,
@@ -308,7 +308,7 @@ impl GameLogic {
         data: &Data,
         state: &mut State,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mpos = self.objects.get(&master).unwrap().get_position();
         // CPP Partition object/object distance subtracts both bounding spheres.
         let source = self.objects.get(&id).unwrap();
@@ -378,12 +378,12 @@ impl GameLogic {
             self.store_slave_state(id, state.clone());
             let before = self.objects.get(&master).unwrap().health.current;
             // CPP SlavedUpdate493 enters Body::attemptHealing directly.
-            let _ = self.apply_owned_healing_with_effects(
+            self.apply_owned_healing_with_effects(
                 master,
                 data.repair_rate / 30.0,
                 None,
                 presentation_effects,
-            );
+            )?;
             let gain = self
                 .objects
                 .get(&master)
@@ -393,6 +393,7 @@ impl GameLogic {
                 self.battle_drone_residual_repair_amount += gain;
             }
         }
+        Ok(())
     }
     fn slave_set_model(object: &mut Object, flag: gamelogic::common::ModelConditionFlags) {
         use gamelogic::common::ModelConditionFlags as M;

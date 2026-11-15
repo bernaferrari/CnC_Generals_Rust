@@ -184,7 +184,7 @@ fn receiving_world_healing_keeps_same_id_peer_body_and_callbacks_unchanged() {
             &DamageHitContext::default(),
         )
         .expect("receiving native healing");
-    assert!(!result.destroyed());
+    assert!(!result.unwrap().destroyed());
     let object = &world.objects[&id];
     assert_eq!(object.health.current, 50.0);
     assert_eq!(object.last_damage_info_type, Some(DamageType::Healing));
@@ -326,7 +326,7 @@ fn receiving_world_above_max_healing_does_not_consume_a_pending_damage_reaction(
             &DamageHitContext::default(),
         )
         .expect("receiving native Healing upper clamp");
-    assert!(!result.destroyed());
+    assert!(!result.unwrap().destroyed());
     let object = &world.objects[&id];
     assert_eq!(
         (object.previous_health, object.health.current),
@@ -385,7 +385,7 @@ fn direct_healing_bypasses_indestructible_but_damage_healing_does_not() {
             )
         }
         .expect("installed receiving Body");
-        assert!(!result.destroyed());
+        assert!(!result.unwrap().destroyed());
         let object = &world.objects[&id];
         assert_eq!(object.health.current, if direct { 50.0 } else { 20.0 });
         assert_eq!(
@@ -517,7 +517,7 @@ fn receiving_positive_healing_preserves_prior_damage_reaction_without_firing_it(
             &DamageHitContext::default(),
         )
         .unwrap();
-    assert!(!result.destroyed());
+    assert!(!result.unwrap().destroyed());
     let object = world.host_object(id).unwrap();
     assert_eq!(object.health.current, 30.0);
     assert_eq!(

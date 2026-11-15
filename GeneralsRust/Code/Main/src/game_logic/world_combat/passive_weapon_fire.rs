@@ -2,6 +2,7 @@
 use super::super::*;
 
 impl GameLogic {
+    #[cfg(test)]
     pub(in crate::game_logic) fn fire_owned_passive_weapon(
         &mut self,
         source: ObjectId,
@@ -15,7 +16,7 @@ impl GameLogic {
             slot,
             origin,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        ).expect("passive weapon fire")
     }
 
     pub(in crate::game_logic) fn fire_owned_passive_weapon_with_effects(
@@ -25,9 +26,9 @@ impl GameLogic {
         slot: u8,
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(victim) = self.objects.get(&target).filter(|o| o.is_alive()) else {
-            return false;
+            return Ok(false);
         };
         let infantry = victim.is_kind_of(KindOf::Infantry);
         let faerie = victim.is_faerie_fire();
@@ -39,7 +40,7 @@ impl GameLogic {
         let contained = self.objects.get(&source).is_some_and(|object| object.contained_by.is_some());
         let allow_held = contained && self.passenger_allowed_to_fire(source);
         if contained && !allow_held {
-            return false;
+            return Ok(false);
         }
         let Some((bonuses, rates)) = self.objects.get(&source).map(|shooter| {
             (
@@ -47,10 +48,10 @@ impl GameLogic {
                 self.receiving_weapon_rates_of_fire(shooter),
             )
         }) else {
-            return false;
+            return Ok(false);
         };
         let Some(shooter) = self.objects.get_mut(&source) else {
-            return false;
+            return Ok(false);
         };
         let Some((slot, shot)) = shooter.prepare_passive_weapon_shot_with_operation_and_solo_set(
             slot,
@@ -76,14 +77,14 @@ impl GameLogic {
             projectile_team_id,
             allow_held,
         ) else {
-            return false;
+            return Ok(false);
         };
         let capture = shooter.take_pending_weapon_visual_capture();
         // Release the shooter loan before effects; ammo commit waits until after
         // FireFX/FireOCL per C++ Weapon.cpp2617–2669.
         drop(shooter);
-        self.deliver_owned_weapon_shot_with_effects(slot, shot, capture, presentation_effects);
+        self.deliver_owned_weapon_shot_with_effects(slot, shot, capture, presentation_effects)?;
         self.commit_owned_weapon_fire_after_effects(source);
-        true
+        Ok(true)
     }
 }

@@ -106,14 +106,14 @@ impl Default for HostFlightDeckState {
 
 impl GameLogic {
     /// C++ `FlightDeckBehavior::update` — first-build, replacements, taxi, launch.
-    pub(crate) fn tick_flight_decks(&mut self) {
+    pub(crate) fn tick_flight_decks(&mut self) -> gamelogic::GameLogicResult<()> {
         self.tick_flight_decks_with_effects(&mut Default::default())
     }
 
     pub(crate) fn tick_flight_decks_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut carriers: Vec<ObjectId> = self.flight_decks.keys().copied().collect();
         for (&id, object) in self.objects.registered() {
             if object.thing().template.flight_deck.is_some() {
@@ -123,11 +123,12 @@ impl GameLogic {
         carriers.sort_by_key(|id| id.0);
         carriers.dedup();
         for carrier_id in carriers {
-            self.tick_one_flight_deck_with_effects(carrier_id, effects);
+            self.tick_one_flight_deck_with_effects(carrier_id, effects)?;
         }
+        Ok(())
     }
 
-    fn tick_one_flight_deck(&mut self, carrier_id: ObjectId) {
+    fn tick_one_flight_deck(&mut self, carrier_id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.tick_one_flight_deck_with_effects(carrier_id, &mut Default::default())
     }
 
@@ -135,25 +136,25 @@ impl GameLogic {
         &mut self,
         carrier_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(carrier) = self.objects.get(&carrier_id) else {
             self.flight_decks.remove(&carrier_id);
-            return;
+            return Ok(());
         };
         let carrier_id_birth = carrier.visual_object_generation;
         let epoch = self.visual_world_epoch;
-        if carrier_id_birth == 0 { return; }
+        if carrier_id_birth == 0 { return Ok(()); }
         if !carrier.is_alive() || carrier.status.destroyed || carrier.status.sold {
             self.kill_flight_deck_parked_units(carrier_id);
             self.flight_decks.remove(&carrier_id);
-            return;
+            return Ok(());
         }
         if carrier.status.under_construction {
-            return;
+            return Ok(());
         }
         if carrier.thing().template.flight_deck.is_none() {
             self.flight_decks.remove(&carrier_id);
-            return;
+            return Ok(());
         }
         if self.flight_decks.get(&carrier_id).is_some_and(|state| state.owner_generation != carrier_id_birth) {
             self.flight_decks.remove(&carrier_id);
@@ -167,25 +168,26 @@ impl GameLogic {
             let create_units = !self.flight_decks.contains_key(&carrier_id);
             self.flight_deck_build_info_with_effects(carrier_id, create_units, effects);
             if !self.flight_decks.get(&carrier_id).is_some_and(|state| state.got_info) {
-                return;
+                return Ok(());
             }
             if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
-                return;
+                return Ok(());
             }
         }
         self.flight_deck_purge_dead(carrier_id);
-        self.flight_deck_tick_healing(carrier_id, effects);
-        if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) { return; }
+        self.flight_deck_tick_healing(carrier_id, effects)?;
+        if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) { return Ok(()); }
         self.flight_deck_update_parking_assignments(carrier_id);
         self.flight_deck_update_replacements_with_effects(carrier_id, effects);
         if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
-            return;
+            return Ok(());
         }
         self.flight_deck_update_launch_waves(carrier_id, effects);
         if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
-            return;
+            return Ok(());
         }
         self.flight_deck_update_no_attack(carrier_id);
+        Ok(())
     }
 
     /// Object::getSingleLogicalBonePosition in the original Z-up basis.
@@ -444,20 +446,21 @@ impl GameLogic {
         state.next_heal_frame = if state.healing.is_empty() { FOREVER } else { self.frame.saturating_add(6) };
     }
 
-    fn flight_deck_tick_healing(&mut self, carrier_id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>) {
+    fn flight_deck_tick_healing(&mut self, carrier_id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>) -> gamelogic::GameLogicResult<()> {
         let Some(amount) = self.objects.get(&carrier_id).and_then(|c| c.thing().template.flight_deck.as_ref())
-            .map(|data| data.heal_amount_per_second * (6.0 / 30.0)) else { return };
-        let Some(state) = self.flight_decks.get_mut(&carrier_id) else { return };
-        if self.frame < state.next_heal_frame { return; }
+            .map(|data| data.heal_amount_per_second * (6.0 / 30.0)) else { return Ok(()) };
+        let Some(state) = self.flight_decks.get_mut(&carrier_id) else { return Ok(()) };
+        if self.frame < state.next_heal_frame { return Ok(()); }
         state.next_heal_frame = self.frame.saturating_add(6);
         state.healing.retain(|(id, _)| self.objects.get(id).is_some_and(|o| o.is_alive() && !o.status.effectively_dead));
         let healees: Vec<_> = state.healing.iter().map(|(id, _)| *id).collect();
         let epoch = self.visual_world_epoch;
-        let Some(owner_birth) = self.objects.get(&carrier_id).map(|o| o.visual_object_generation) else { return };
+        let Some(owner_birth) = self.objects.get(&carrier_id).map(|o| o.visual_object_generation) else { return Ok(()) };
         for id in healees {
-            let _ = self.apply_owned_healing_with_effects(id, amount, Some(carrier_id), effects);
-            if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|o| o.visual_object_generation == owner_birth) { return; }
+            self.apply_owned_healing_with_effects(id, amount, Some(carrier_id), effects)?;
+            if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|o| o.visual_object_generation == owner_birth) { return Ok(()); }
         }
+        Ok(())
     }
 
 
@@ -1562,7 +1565,7 @@ End
     fn carrier_without_receiving_bones_does_not_fabricate_deck() {
         let mut logic = GameLogic::new();
         let carrier = seed_carrier(&mut logic);
-        logic.tick_flight_decks();
+        logic.tick_flight_decks().unwrap();
         assert!(!logic.flight_decks.get(&carrier).is_some_and(|state| state.got_info));
     }
 

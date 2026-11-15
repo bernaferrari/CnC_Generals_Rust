@@ -213,6 +213,7 @@ fn kill(world: &mut GameLogic, id: ObjectId) {
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal
             )
             .unwrap()
+            .expect("receiving Body accepts kill")
             .destroyed
     );
     let object = world.host_object(id).unwrap();

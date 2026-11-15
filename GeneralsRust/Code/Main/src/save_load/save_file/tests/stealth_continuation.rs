@@ -52,9 +52,9 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
     let initial_phase = source_first_phase;
     for frame in 1..=5 {
         source.frame = frame;
-        source.update_stealth_and_detection();
+        source.update_stealth_and_detection().unwrap();
         peer.frame = frame;
-        peer.update_stealth_and_detection();
+        peer.update_stealth_and_detection().unwrap();
     }
     assert_ne!(source.host_object(id).unwrap().camo_opacity_pulse_phase, initial_phase);
     assert_eq!(source.session_view.client_random.seed_words(), source_random.seed_words());
@@ -79,11 +79,11 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
     for frame in 6..=10 {
         let phase_before = source.host_object(id).unwrap().camo_opacity_pulse_phase;
         peer.frame = frame;
-        peer.update_stealth_and_detection();
+        peer.update_stealth_and_detection().unwrap();
         source.frame = frame;
-        source.update_stealth_and_detection();
+        source.update_stealth_and_detection().unwrap();
         restored.frame = frame;
-        restored.update_stealth_and_detection();
+        restored.update_stealth_and_detection().unwrap();
         assert_eq!(
             source.host_object(id).unwrap().camo_opacity_pulse_phase,
             phase_before + 0.37

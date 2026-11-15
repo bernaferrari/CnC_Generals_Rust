@@ -142,7 +142,7 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
             0.0,
             Vec3::ZERO,
             Vec3::new(80.0, 0.0, 80.0),
-        );
+        ).expect("execute portable object creation list");
         assert_eq!(created.len(), 1);
         created[0]
     } else {

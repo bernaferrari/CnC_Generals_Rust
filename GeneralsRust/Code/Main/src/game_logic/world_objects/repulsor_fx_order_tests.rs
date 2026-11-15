@@ -49,7 +49,7 @@ fn lethal_damage_observes_repulsor_policy_after_actual_fx_callback() {
                     .contains(&FX.to_string()), "real configured DamageFX dispatch completed");
                 world.set_enable_repulsors(!initial);
             },
-        ).unwrap();
+        ).unwrap().unwrap();
                 assert!(observed);
                 assert!(result.destroyed);
                 assert_eq!(

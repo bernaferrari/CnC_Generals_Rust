@@ -194,7 +194,7 @@ fn victory_conditions_update_inside_each_logic_frame() {
         logic.get_object(gla).is_none(),
         "loser unit must be gone before victory UPDATE"
     );
-    let outcome = logic.evaluate_victory_condition();
+    let outcome = logic.evaluate_victory_condition().unwrap();
     assert!(
         matches!(outcome, Some(VictoryCondition::Winner(_))),
         "victory must be decided on the logic frame that processed destroy, got {outcome:?}"
@@ -234,7 +234,7 @@ fn skirmish_razing_last_enemy_building_defeats_player_with_units_left() {
         .expect("gla infantry leftover");
 
     assert!(
-        logic.evaluate_victory_condition().is_none(),
+        logic.evaluate_victory_condition().unwrap().is_none(),
         "match must continue while the enemy still has a building"
     );
     // C++ Team::hasAnyBuildings skips isEffectivelyDead / isDestroyed. Host
@@ -253,7 +253,7 @@ fn skirmish_razing_last_enemy_building_defeats_player_with_units_left() {
         "leftover enemy units must not block NOBUILDINGS defeat"
     );
 
-    let outcome = logic.evaluate_victory_condition();
+    let outcome = logic.evaluate_victory_condition().unwrap();
     assert!(
         matches!(outcome, Some(VictoryCondition::Winner(_))),
         "razing the last enemy building must end the skirmish, got {outcome:?}"
@@ -287,9 +287,9 @@ fn campaign_does_not_run_multiplayer_annihilation() {
         .create_object("TestInfantry", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("usa");
     assert!(
-        logic.evaluate_victory_condition().is_none(),
+        logic.evaluate_victory_condition().unwrap().is_none(),
         "campaign must not hard-end via MP annihilation, got {:?}",
-        logic.evaluate_victory_condition()
+        logic.evaluate_victory_condition().unwrap()
     );
     let _ = VictoryCondition::Draw;
 }

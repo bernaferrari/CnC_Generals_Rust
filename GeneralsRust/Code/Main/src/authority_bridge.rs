@@ -125,7 +125,7 @@ pub fn run_host_only_combat_victory() -> gamelogic::GameLogicResult<(bool, Strin
     // Victory only if combat removed the sole enemy CC (no force-destroy of leftovers).
     let victory = combat_killed
         && matches!(
-            logic.evaluate_victory_condition(),
+            logic.evaluate_victory_condition()?,
             Some(VictoryCondition::Winner(0))
         );
 

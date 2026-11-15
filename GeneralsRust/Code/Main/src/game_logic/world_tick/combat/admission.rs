@@ -113,11 +113,11 @@ impl GameLogic {
                 self.try_transport_passenger_residual_fire_with_effects(
                     attacker_id,
                     presentation_effects,
-                );
+                )?;
                 return Ok(None);
             }
             if garrisoned {
-                self.try_garrison_residual_fire_with_effects(attacker_id, presentation_effects);
+                self.try_garrison_residual_fire_with_effects(attacker_id, presentation_effects)?;
                 return Ok(None);
             }
             let Some(attacker) = self.objects.get(&attacker_id) else {
@@ -206,7 +206,7 @@ impl GameLogic {
                     self.try_sentry_drone_residual_fire_with_effects(
                         attacker_id,
                         presentation_effects,
-                    );
+                    )?;
                     return Ok(None);
                 }
             }

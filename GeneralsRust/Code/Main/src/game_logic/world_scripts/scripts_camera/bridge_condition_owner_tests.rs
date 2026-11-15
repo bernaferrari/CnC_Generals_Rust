@@ -84,7 +84,7 @@ fn bridge_queries_are_instance_owned_and_do_not_consume_transitions() {
                 (true, false),
                 "script queries do not consume a terrain event"
             );
-            second.update_owned_water();
+            second.update_owned_water().unwrap();
             assert_eq!(query(&second), (false, false));
             assert_eq!(
                 query(&first),
@@ -109,7 +109,7 @@ fn bridge_conditions_require_rubble_transition_and_clear_in_terrain_phase() {
             );
             change(&mut world, id, BodyDamageType::Rubble);
             assert_eq!(query(&world), (true, false));
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             assert_eq!(query(&world), (false, false));
             change(&mut world, id, BodyDamageType::Rubble);
             assert_eq!(
@@ -120,7 +120,7 @@ fn bridge_conditions_require_rubble_transition_and_clear_in_terrain_phase() {
             change(&mut world, id, BodyDamageType::Pristine);
             assert_eq!(query(&world), (false, true));
             assert_eq!(query(&world), (false, true));
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             assert_eq!(query(&world), (false, false));
         },
     );
@@ -142,7 +142,7 @@ fn one_bridge_damage_update_does_not_erase_another_bridge_break() {
             assert_eq!(query(&world), (true, false));
             assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("OtherCrossing"));
             assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("OtherCrossing"));
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             assert_eq!(query(&world), (false, false));
             assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_broken("OtherCrossing"));
             assert!(!gamelogic::scripting::HostScriptQuery::of(&world.world_services).host_bridge_repaired("OtherCrossing"));
@@ -301,7 +301,7 @@ fn real_engine_bridge_conditions_apply_frame_gate_without_consuming_record_flags
             change(&mut world, id, BodyDamageType::Rubble);
             assert!(execute_bridge_condition(&mut world, "Crossing", false));
             assert!(execute_bridge_condition(&mut world, "Crossing", false));
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             {
                 let terrain = world.world_services.terrain().read().unwrap();
                 assert!(!terrain.bridge_damage_states_changed());
@@ -314,7 +314,7 @@ fn real_engine_bridge_conditions_apply_frame_gate_without_consuming_record_flags
             change(&mut world, id, BodyDamageType::Pristine);
             assert!(execute_bridge_condition(&mut world, "Crossing", true));
             assert!(execute_bridge_condition(&mut world, "Crossing", true));
-            world.update_owned_water();
+            world.update_owned_water().unwrap();
             assert!(
                 world
                     .world_services

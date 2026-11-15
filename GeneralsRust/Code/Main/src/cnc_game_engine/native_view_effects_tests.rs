@@ -992,7 +992,8 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                         ..Default::default()
 },
                 )
-                .unwrap();
+                .unwrap()
+                .expect("receiving Body accepts damage");
             assert!(damage.destroyed());
             assert!(world.objects.contains_key(&reborn));
             assert!(world.objects[&reborn].health.current <= 0.);

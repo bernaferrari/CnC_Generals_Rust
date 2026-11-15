@@ -63,12 +63,12 @@ fn dozer_obstacle_relationship_uses_current_defector_objects_per_world() {
         !crosses_wall(&world, &mut finder, mover),
         "ordinary enemy obstacle blocks the dozer"
     );
-    assert!(world.transfer_object_to_player(wall, 0));
+    assert!(world.transfer_object_to_player(wall, 0).unwrap());
     assert!(
         crosses_wall(&world, &mut finder, mover),
         "the query must observe a same-frame change to the obstacle owner"
     );
-    assert!(world.transfer_object_to_player(wall, 1));
+    assert!(world.transfer_object_to_player(wall, 1).unwrap());
     assert!(
         !crosses_wall(&world, &mut finder, mover),
         "a second transfer must immediately restore the enemy obstacle"

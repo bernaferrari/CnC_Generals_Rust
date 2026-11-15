@@ -797,6 +797,7 @@ impl GameLogic {
         let Some(ferry_birth) = self.railed_birth(ferry) else { return Ok(false) };
         let Some(rider_birth) = self.railed_birth(passenger) else { return Ok(false) };
         if self.should_cancel_containment_after_booby_trap_with_effects(ferry, passenger, effects)
+            .map_err(|error| error.to_string())?
             || !self.railed_birth_alive(ferry_birth) || !self.railed_birth_alive(rider_birth)
             || self.objects[&passenger].contained_by.is_some()
         {

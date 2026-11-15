@@ -380,7 +380,7 @@ impl GameLogic {
             old_team != new_team,
             effects,
             None,
-        );
+        )?;
         if old_team != new_team {
             // Object::defect owns this phase; retain it only for unmigrated callers.
             self.defect_all_parked_units_with_effects(object_id, effects)?;
@@ -408,7 +408,7 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
         owner_changed: bool,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.on_capture_object_owned_with_effects(
             object_id,
             old_team,
@@ -427,9 +427,9 @@ impl GameLogic {
         owner_changed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         cost_modifier_capture: Option<(std::sync::Weak<()>, Option<u32>, Option<u32>)>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.objects.get(&object_id) else {
-            return;
+            return Ok(());
         };
         let captured_owner_player_id = self.player_owner_for_host_object(object);
 
@@ -559,10 +559,11 @@ impl GameLogic {
             .unwrap_or(false);
         if owner_changed && new_owner_is_ai && is_faction {
             // C++ TheBuildAssistant->sellObject(this)
-            if self.start_sell_object_with_effects(object_id, effects) {
+            if self.start_sell_object_with_effects(object_id, effects)? {
                 self.capture_ai_auto_sells = self.capture_ai_auto_sells.saturating_add(1);
             }
         }
+        Ok(())
     }
 
     /// C++ TransportContain/OpenContain::onCapture residual.
@@ -983,7 +984,7 @@ impl GameLogic {
         }
     }
 
-    pub fn start_sell_object(&mut self, object_id: ObjectId) -> bool {
+    pub fn start_sell_object(&mut self, object_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.start_sell_object_with_effects(object_id, &mut Default::default())
     }
 
@@ -991,24 +992,24 @@ impl GameLogic {
         &mut self,
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(obj) = self.objects.get(&object_id) else {
-            return false;
+            return Ok(false);
         };
         if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
-            return false;
+            return Ok(false);
         }
         // C++ BuildAssistant::sellObject has no UNDER_CONSTRUCTION / RECONSTRUCTING
         // gate (BuildAssistant.cpp:1478-1500). Already-sold matches the sell-list
         // duplicate check.
         if obj.status.sold {
-            return false;
+            return Ok(false);
         }
         if obj.is_script_unsellable() {
-            return false;
+            return Ok(false);
         }
         if self.sell_list.iter().any(|s| s.id == object_id) {
-            return false;
+            return Ok(false);
         }
         let team = obj.team;
         let frame = self.frame;
@@ -1042,7 +1043,7 @@ impl GameLogic {
             object_id,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
         );
-        let killed = self.kill_all_parked_units_with_effects(object_id, effects);
+        let killed = self.kill_all_parked_units_with_effects(object_id, effects)?;
         self.sell_parked_units_killed = self.sell_parked_units_killed.saturating_add(killed);
         // C++ sellObject: destroy mines owned by this structure (producerID).
         let mine_ids: Vec<ObjectId> = self
@@ -1070,7 +1071,7 @@ impl GameLogic {
             self.sell_owned_mines_destroyed = self.sell_owned_mines_destroyed.saturating_add(1);
         }
         let _ = team;
-        true
+        Ok(true)
     }
 
     /// C++ BuildAssistant::update sell list residual.
@@ -1359,6 +1360,10 @@ impl GameLogic {
 
     pub fn honesty_repair_complete_ok(&self) -> bool {
         self.repair_complete_events > 0
+    }
+
+    pub(in crate::game_logic) fn record_dozer_repair_complete(&mut self) {
+        self.repair_complete_events = self.repair_complete_events.saturating_add(1);
     }
 
     /// C++ `DozerAIUpdate::getBoredRange` (DozerAIUpdate.cpp:2305-2312).
@@ -2026,7 +2031,7 @@ impl GameLogic {
             if let Some(add) = heal_amount {
                 self.rebuild_hole_heals = self.rebuild_hole_heals.saturating_add(1);
                 if self
-                    .apply_owned_healing_with_effects(hole_id, add, Some(hole_id), effects)
+                    .apply_owned_healing_with_effects(hole_id, add, Some(hole_id), effects)?
                     .is_none()
                 {
                     // Do not continue this iteration with a replacement hole

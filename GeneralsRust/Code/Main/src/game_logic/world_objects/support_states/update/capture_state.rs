@@ -192,7 +192,7 @@ impl GameLogic {
                     capture_power,
                     preparation_time_ms,
                     effects,
-                ) {
+                )? {
                     self.abort_capture_channel(object_id)?;
                     return Ok(());
                 }
@@ -215,7 +215,7 @@ impl GameLogic {
                     capture_power,
                     preparation_time_ms,
                     effects,
-                ) {
+                )? {
                     self.abort_capture_channel(object_id)?;
                     return Ok(());
                 }
@@ -264,14 +264,14 @@ impl GameLogic {
             .get(&capture_target_id)
             .is_some_and(|target| target.status.booby_trapped);
         if target_is_trapped {
-            let _ = self.detonate_booby_trap_at_with_effects(
+            self.detonate_booby_trap_at_with_effects(
                 capture_target_id,
                 target_position,
                 Some(object_id),
                 true,
                 false,
                 effects,
-            );
+            )?;
         }
 
         // C++ `triggerAbilityEffect` awards XP before the capture

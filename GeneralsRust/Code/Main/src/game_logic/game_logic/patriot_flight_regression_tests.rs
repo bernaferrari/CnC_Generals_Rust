@@ -32,9 +32,10 @@ fn world_for(weapon_name: &str, projectile_name: &str, locomotor_name: &str) -> 
     assert_eq!(parse_weapon_definitions_ini_into(&mut weapons, &weapon_ini, WeaponDefinitionLoadType::Normal), 1);
     assert_eq!(weapons[&weapon_name.to_ascii_lowercase()].projectile_name, projectile_name);
 
+    let projectile_ini = single_block(&retail_ini("Object/WeaponObjects.ini"), &format!("Object {projectile_name}"));
     let mut parser = crate::assets::IniParser::new();
     parser.parse_ini_content(
-        &single_block(&retail_ini("Object/WeaponObjects.ini"), &format!("Object {projectile_name}")),
+        &projectile_ini,
         "WeaponObjects.ini",
     ).unwrap();
     let projectile = parser.get_definition(projectile_name).expect("retail missile").clone();
@@ -59,6 +60,7 @@ fn world_for(weapon_name: &str, projectile_name: &str, locomotor_name: &str) -> 
     }
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
         ("missile-regression.ini".into(), format!("Object PatriotRegressionCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nWeaponSet\nConditions = None\nWeapon = PRIMARY {weapon_name}\nEnd\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nEnd\nObject PatriotRegressionTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n")),
+        ("WeaponObjects.ini".into(), projectile_ini),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
     let source = world.create_object_for_player("PatriotRegressionCarrier", 0, Vec3::new(100.0, 30.0, 100.0)).unwrap();
@@ -82,6 +84,8 @@ fn launch(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
     assert_eq!(shot.projectile_object_name, "PatriotMissile");
     assert_eq!(shot.target_id, Some(target));
     assert!(shot.missile_motion.is_some(), "retail missile must bind its owned physics and locomotor");
+    assert_eq!(world.objects[&shot.id].template_name, "PatriotMissile");
+    assert_eq!(world.objects[&shot.id].get_position(), shot.position);
     assert_eq!(shot.damage, 30.0);
     assert_eq!(world.objects[&target].health.current, 1000.0);
 }
@@ -127,10 +131,14 @@ fn retail_tomahawk_accepted_shot_uses_authored_missile_flight() {
     assert_eq!(shots.len(), 1);
     assert_eq!(shots[0].projectile_object_name, "TomahawkMissile");
     assert!(shots[0].missile_motion.is_some());
+    let id = shots[0].id;
+    assert_eq!(world.objects[&id].template_name, "TomahawkMissile");
+    assert_eq!(world.objects[&id].get_position(), shots[0].position);
     assert!(shots[0].is_homing, "zero WeaponSpeed must not erase MissileAI's tracked victim");
     let start = shots[0].position;
     let _ = world.update_with_dt(1.0 / 30.0);
     assert_ne!(world.combat_system.projectiles_snapshot()[0].position, start);
+    assert_eq!(world.objects[&id].get_position(), world.combat_system.projectiles_snapshot()[0].position);
     let mut last_flight = None;
     for _ in 0..300 {
         let snapshot = world.combat_system.projectiles_snapshot();
@@ -162,12 +170,14 @@ fn accepted_missile_uses_launcher_pose_and_velocity_at_delivery() {
     let velocity = Vec3::new(9.0, 3.0, -6.0);
     world.set_fixture_object_position(source, position);
     world.objects.get_mut(&source).unwrap().movement.velocity = velocity;
-    world.deliver_owned_weapon_shot(0, shot, None);
+    world.deliver_owned_weapon_shot(0, shot, None).unwrap();
     let projectiles = world.combat_system.projectiles_snapshot();
     assert_eq!(projectiles.len(), 1);
     assert!(projectiles[0].missile_motion.is_some());
     assert_eq!(projectiles[0].position, position);
     assert_eq!(projectiles[0].velocity, velocity);
+    assert_eq!(world.objects[&projectiles[0].id].get_position(), position);
+    assert_eq!(world.objects[&projectiles[0].id].movement.velocity, velocity);
 }
 
 #[test]
@@ -189,7 +199,7 @@ fn missing_draw_launch_still_rotates_by_the_selected_turret() {
     let transform = shot.source_context.as_ref().unwrap().launch_transform.unwrap();
     let direction = transform.x_axis.truncate();
     assert!((direction - Vec3::new(0.0, 0.5, 0.866_025_4)).length() < 0.001);
-    world.deliver_owned_weapon_shot(0, shot, None);
+    world.deliver_owned_weapon_shot(0, shot, None).unwrap();
     let before = world.combat_system.projectiles_snapshot()[0].position;
     let _ = world.update_with_dt(1.0 / 30.0);
     let displacement = world.combat_system.projectiles_snapshot()[0].position - before;
@@ -217,6 +227,8 @@ fn retail_patriot_continues_in_flight_after_encoded_world_save() {
     let _ = original.update_with_dt(1.0 / 30.0);
     assert_eq!(original.combat_system.projectile_count(), 1);
     let position = original.combat_system.projectiles_snapshot()[0].position;
+    let id = original.combat_system.projectiles_snapshot()[0].id;
+    assert_eq!(original.objects[&id].get_position(), position);
     let builder = crate::save_load::SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&original).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
@@ -225,9 +237,94 @@ fn retail_patriot_continues_in_flight_after_encoded_world_save() {
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
     assert_eq!(restored.combat_system.projectile_count(), 1);
     assert_eq!(restored.combat_system.projectiles_snapshot()[0].position, position);
+    assert_eq!(restored.combat_system.projectiles_snapshot()[0].id, id);
+    assert_eq!(restored.objects[&id].template_name, "PatriotMissile");
+    assert_eq!(restored.objects[&id].get_position(), position);
     let _ = original.update_with_dt(1.0 / 30.0);
     let _ = restored.update_with_dt(1.0 / 30.0);
     assert_eq!(original.combat_system.projectiles_snapshot()[0].position, restored.combat_system.projectiles_snapshot()[0].position);
+    assert_eq!(original.objects[&id].get_position(), restored.objects[&id].get_position());
     advance_to_impact(&mut original, target);
     advance_to_impact(&mut restored, target);
+}
+
+#[test]
+fn retail_tomahawk_tracks_moving_target_and_continues_after_save_and_target_loss() {
+    let (mut original, source, target) = world_for(
+        "TomahawkMissileWeapon", "TomahawkMissile", "TomahawkMissileLocomotor",
+    );
+    original.objects.get_mut(&source).unwrap().set_max_shots_to_fire(1);
+    assert_eq!(original.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Continue);
+    original.frame += 8;
+    assert_eq!(original.attack_fire_weapon_update(source, target, 10.3), AttackFireResult::Success);
+    original.drain_pending_projectiles_into_combat();
+    let id = original.combat_system.projectiles_snapshot()[0].id;
+    let moved_target = Vec3::new(300.0, 30.0, 125.0);
+    original.set_fixture_object_position(target, moved_target);
+    let _ = original.update_with_dt(1.0 / 30.0);
+    let shot = original.combat_system.projectiles_snapshot()[0];
+    let live_target = original.objects[&target].get_position();
+    assert_eq!((live_target.x, live_target.z), (moved_target.x, moved_target.z));
+    assert_eq!(shot.target_position, live_target,
+        "missile observes the target after this frame's world physics");
+    assert_eq!(original.objects[&id].template_name, "TomahawkMissile");
+    assert_eq!(original.objects[&id].get_position(), shot.position);
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&original).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = world_for(
+        "TomahawkMissileWeapon", "TomahawkMissile", "TomahawkMissileLocomotor",
+    );
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    assert_eq!(restored.combat_system.projectiles_snapshot()[0].id, id);
+    assert_eq!(restored.objects[&id].template_name, "TomahawkMissile");
+    assert_eq!(restored.objects[&id].get_position(), original.objects[&id].get_position());
+    for _ in 0..5 {
+        let _ = original.update_with_dt(1.0 / 30.0);
+        let _ = restored.update_with_dt(1.0 / 30.0);
+        assert_eq!(original.objects[&id].get_position(), restored.objects[&id].get_position());
+        assert_eq!(original.objects[&id].movement.velocity, restored.objects[&id].movement.velocity);
+        let original_target = original.objects[&target].get_position();
+        let restored_target = restored.objects[&target].get_position();
+        assert_eq!(original_target, restored_target);
+        assert_eq!(original.combat_system.projectiles_snapshot()[0].target_position, original_target);
+        assert_eq!(restored.combat_system.projectiles_snapshot()[0].target_position, restored_target);
+    }
+    original.destroy_object(target).unwrap();
+    restored.destroy_object(target).unwrap();
+    original.process_destroy_list();
+    restored.process_destroy_list();
+    assert!(original.host_object(target).is_none());
+    assert!(restored.host_object(target).is_none());
+    for _ in 0..30 {
+        let _ = original.update_with_dt(1.0 / 30.0);
+        let _ = restored.update_with_dt(1.0 / 30.0);
+        let a = original.combat_system.projectiles_snapshot();
+        let b = restored.combat_system.projectiles_snapshot();
+        assert_eq!(a.len(), b.len());
+        if a.is_empty() { break; }
+        assert_eq!(a[0].id, id);
+        assert_eq!(b[0].id, id);
+        assert_eq!(a[0].is_missile_kill_self_holding(), b[0].is_missile_kill_self_holding());
+        assert_eq!(original.objects[&id].get_position(), restored.objects[&id].get_position());
+    }
+}
+
+#[test]
+fn queued_retail_missile_flight_uses_receiving_object_pose() {
+    let (mut moved, source, target) = world();
+    let (mut peer, peer_source, peer_target) = world();
+    launch(&mut moved, source, target);
+    launch(&mut peer, peer_source, peer_target);
+    let id = moved.combat_system.projectiles_snapshot()[0].id;
+    assert_eq!(peer.combat_system.projectiles_snapshot()[0].id, id);
+    let peer_position = peer.objects[&id].get_position();
+    moved.set_fixture_object_position(id, peer_position + Vec3::new(0.0, 0.0, 20.0));
+    let _ = moved.update_with_dt(1.0 / 30.0);
+    let _ = peer.update_with_dt(1.0 / 30.0);
+    assert_ne!(moved.objects[&id].get_position(), peer.objects[&id].get_position());
+    assert_eq!(moved.objects[&id].get_position(), moved.combat_system.projectiles_snapshot()[0].position);
+    assert_eq!(peer.objects[&id].get_position(), peer.combat_system.projectiles_snapshot()[0].position);
 }

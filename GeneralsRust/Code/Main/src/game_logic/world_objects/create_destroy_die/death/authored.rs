@@ -18,14 +18,14 @@ impl GameLogic {
         config: &NativeDieCreate,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if self
             .object_creation_list_definition(&config.ocl_name)
             .is_none()
         {
             // A missing receiving OCL is a null C++ handle. Never select a
             // name-based compatibility peel from another source.
-            return;
+            return Ok(());
         }
         let Some((team, position, orientation, veterancy, velocity)) =
             self.objects.get(&id).map(|object| {
@@ -38,9 +38,9 @@ impl GameLogic {
                 )
             })
         else {
-            return;
+            return Ok(());
         };
-        let created = self.execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
+        let outcome = self.execute_parsed_weapon_ocl_with_births(
             &config.ocl_name,
             Some(id),
             team,
@@ -51,8 +51,13 @@ impl GameLogic {
             interpreter,
             presentation_effects,
         );
+        if let Some(error) = outcome.error {
+            return Err(error);
+        }
         if config.transfer_previous_health {
-            if let Some(first) = created.first() {
+            if let Some(first) = outcome.created.into_iter().find_map(|(id, (generation, epoch))| {
+                self.spawn_identity_matches(id, generation, epoch).then_some(id)
+            }) {
                 // C++ create returns the first created object after every
                 // nugget has run. Re-read the dying Body after synchronous
                 // creation callbacks, then transfer only to that first Object.
@@ -65,18 +70,19 @@ impl GameLogic {
                     )
                 });
                 let Some((maximum, previous, subdual, source)) = transfer else {
-                    return;
+                    return Ok(());
                 };
                 self.apply_death_transfer_damage_with_effects(
-                    first,
+                    &first,
                     subdual,
                     (maximum - previous).max(0.0),
                     source,
                     presentation_effects,
-                );
-                let _ = self.transfer_attack(id, *first);
+                )?;
+                let _ = self.transfer_attack(id, first);
             }
         }
+        Ok(())
     }
 
     pub(super) fn run_authored_die_modules(
@@ -119,7 +125,7 @@ impl GameLogic {
                     id,
                     interpreter,
                     presentation_effects,
-                );
+                )?;
                 continue;
             }
             let jet_ground = matches!(
@@ -169,7 +175,7 @@ impl GameLogic {
                             config,
                             interpreter,
                             presentation_effects,
-                        );
+                        )?;
                     }
                 }
                 NativeDieKind::Crush => {
@@ -232,7 +238,7 @@ impl GameLogic {
                                 config,
                                 interpreter,
                                 presentation_effects,
-                            );
+                            )?;
                         }
                     }
                     if let Some(weapon) = self.choose_authored_die_entry(&ini.weapons) {
@@ -241,11 +247,11 @@ impl GameLogic {
                             weapon_template_name: weapon,
                             weapon_slot: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
                         };
-                        let _ = self.create_and_fire_temp_weapon_with_effects(
+                        self.create_and_fire_temp_weapon_with_effects(
                             id,
                             &spec,
                             presentation_effects,
-                        );
+                        )?;
                     }
                     self.request_object_destruction_with_effects(id, killer, presentation_effects)?;
                 }
@@ -286,7 +292,7 @@ impl GameLogic {
                                 presentation_effects,
                             );
                         }
-                        self.apply_pending_create_object_die_with_effects(id, presentation_effects);
+                        self.apply_pending_create_object_die_with_effects(id, presentation_effects)?;
                         self.request_object_destruction_with_effects(
                             id,
                             killer,
@@ -402,12 +408,12 @@ impl GameLogic {
                     );
                 }
                 NativeDieKind::DeadWeapon => {
-                    let _ = self.execute_temporary_weapon_die_slot_with_effects(
+                    self.execute_temporary_weapon_die_slot_with_effects(
                         id,
                         declaration.source_index as usize,
                         input.death_type,
                         presentation_effects,
-                    );
+                    )?;
                 }
                 NativeDieKind::Production => {
                     self.cancel_all_production(id);
@@ -420,7 +426,7 @@ impl GameLogic {
                     self.maybe_apply_eject_pilot_die_with_effects(id, presentation_effects)
                 }
                 NativeDieKind::Spawn => {
-                    self.apply_spawned_require_spawner_on_die_with_effects(id, presentation_effects)
+                    self.apply_spawned_require_spawner_on_die_with_effects(id, presentation_effects)?;
                 }
                 NativeDieKind::Upgrade { upgrade_to_remove } => {
                     self.apply_authored_upgrade_die(id, upgrade_to_remove)
@@ -440,7 +446,7 @@ impl GameLogic {
                                 crate::game_logic::combat::DamageType::Unresistable,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                                 presentation_effects,
-                            );
+                            )?;
                             self.remove_direct_contained_child_with_effects(
                                 id,
                                 redirected,
@@ -456,7 +462,7 @@ impl GameLogic {
                     )?;
                 }
                 NativeDieKind::Parking => {
-                    let _ = self.kill_all_parked_units_with_effects(id, presentation_effects);
+                    self.kill_all_parked_units_with_effects(id, presentation_effects)?;
                 }
                 NativeDieKind::Bridge => {
                     let deletion_queued =

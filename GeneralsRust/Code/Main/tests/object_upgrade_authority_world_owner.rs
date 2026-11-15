@@ -288,8 +288,8 @@ fn object_grant_capture_and_restore_keep_object_and_player_upgrade_authority_sep
         assert!(children(world, &object.template_name).is_empty());
     }
 
-    assert!(receiving.transfer_object_to_player(receiving_id, 2));
-    assert!(peer.transfer_object_to_player(peer_id, 2));
+    assert!(receiving.transfer_object_to_player(receiving_id, 2).unwrap());
+    assert!(peer.transfer_object_to_player(peer_id, 2).unwrap());
     // The peer's old owner has the stale former-player research, but its
     // receiving owner does not. Re-granting the Object upgrade invokes the
     // same Object::updateUpgradeModules path as NamedReceiveUpgrade; only the

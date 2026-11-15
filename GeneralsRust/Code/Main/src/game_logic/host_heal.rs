@@ -400,20 +400,20 @@ impl GameLogic {
     /// C++ `TransportContain::update` HealthRegen%PerSec on embarked riders.
     ///
     /// Leftover tick uses `dt` seconds: `maxHealth * percent / 100 * dt`.
-    pub fn update_transport_health_regen(&mut self, dt: f32) {
+    pub fn update_transport_health_regen(&mut self, dt: f32) -> gamelogic::GameLogicResult<()> {
         self.update_transport_health_regen_with_effects(
             dt,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        );
+        )
     }
 
     pub(crate) fn update_transport_health_regen_with_effects(
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if dt <= 0.0 {
-            return;
+            return Ok(());
         }
 
         let carriers: Vec<(
@@ -490,15 +490,16 @@ impl GameLogic {
                     // the carrier as the source. Resolve both objects through
                     // the receiving GameLogic callback path, retaining this
                     // tick's native presentation recipient across the body callback.
-                    let _ = self.apply_owned_healing_with_effects(
+                    self.apply_owned_healing_with_effects(
                         rider_id,
                         regen,
                         Some(carrier_id),
                         effects,
-                    );
+                    )?;
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -541,7 +542,7 @@ mod tests {
         let (peer, peer_carrier, peer_rider) = transport_heal_world();
         assert_eq!((carrier, rider), (peer_carrier, peer_rider));
         receiving.frame = 41;
-        receiving.update_transport_health_regen(1.0);
+        receiving.update_transport_health_regen(1.0).unwrap();
 
         let healed = receiving.host_object(rider).unwrap();
         assert!((healed.health.current - 45.0).abs() < 0.01);

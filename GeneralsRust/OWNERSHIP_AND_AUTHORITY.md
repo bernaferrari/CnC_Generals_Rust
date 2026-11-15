@@ -186,13 +186,16 @@ to that player; impact combines the captured and current conditions before
 applying the authored weapon bonus. Both survive Rust snapshot restoration.
 `DumbProjectileBehavior.cpp` defines the original condition lifetime.
 
-Authored missile flights carry their receiving session's locomotor and physics
-state in the combat projectile and preserve it in snapshots. Launch capture uses
-the receiving asset manager's selected draw and muzzle transform; cold lookups
-load the required W3D prototype and animation. Retail Patriot tests exercise
-powered battery fire, impact and in-flight save continuation; separate tests
-cover autonomous ground, anti-air and assisted targeting. These checks do not
-constitute a full original-game differential for every missile configuration.
+MissileAI flights now create a real projectile Object in the receiving world;
+the combat record retains flight-state metadata while locomotor, physics and
+pose live on that Object. Retirement checks the Object's birth identity and
+native snapshots retain both the Object and flight continuation. Ten projectile
+admission cases, seven retail battery cases and eight retail flight cases passed
+before the latest snapshot-validation hardening. Ten pending-shot snapshot cases,
+encoded pose boundaries and non-finite transform controls pass. Native world
+snapshot version 49 rejects earlier versions; C++ save compatibility,
+original-executable timing and sleepy-update ordering are not verified. Other
+projectile families still use combat-record ownership.
 
 Unsigned deadlines use `wrapping_add`, following C++ `Weapon.cpp:1057`. The
 existing raw current-frame comparison is retained: an overflowing deadline can
@@ -3111,8 +3114,9 @@ device no longer assert wasm Send or Sync unsafely; other GPU wrappers still
 contain independent unsafe wasm trait implementations.
 
 Materialized projectiles retain their launch owner, including Neutral, across
-launcher ID reuse and snapshot continuation. Impact OCL still needs a real
-projectile object and original update-scheduler ownership.
+launcher ID reuse and snapshot continuation. MissileAI impact OCL now has a
+receiving world Object; other projectile families and original update-scheduler
+ownership remain open.
 
 Standalone camera tracking borrows the receiving GameClient's View during its
 update rather than resolving the live-client slot. Other view consumers still

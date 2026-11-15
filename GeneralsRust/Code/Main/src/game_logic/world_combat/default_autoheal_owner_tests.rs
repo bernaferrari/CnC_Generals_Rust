@@ -59,7 +59,7 @@ fn receiving_default_autoheal_commits_history_with_self_source_and_isolates_peer
         .unwrap()
         .internal_change_health(-80.0);
     owner.frame = 17;
-    owner.update_default_auto_heal();
+    owner.update_default_auto_heal().unwrap();
     let object = owner.host_object(id).unwrap();
     assert_eq!(
         (object.previous_health, object.health.current),
@@ -99,7 +99,7 @@ fn held_default_autoheal_keeps_processing_the_receiving_body() {
     object.set_status_disabled_held(true);
     assert!(object.is_held_disabled());
     owner.frame = 23;
-    owner.update_default_auto_heal();
+    owner.update_default_auto_heal().unwrap();
     let object = owner.host_object(id).unwrap();
     assert!(object.is_held_disabled());
     assert_eq!(
@@ -118,7 +118,7 @@ fn default_autoheal_admission_uses_native_effectively_dead_flag_not_hp_predicate
     assert!(!object.status.effectively_dead);
     assert!(!object.is_alive());
     owner.frame = 29;
-    owner.update_default_auto_heal();
+    owner.update_default_auto_heal().unwrap();
     let object = owner.host_object(id).unwrap();
     assert_eq!((object.previous_health, object.health.current), (0.0, 2.0));
     assert!(!object.status.effectively_dead);
@@ -137,7 +137,7 @@ fn default_autoheal_admission_uses_native_effectively_dead_flag_not_hp_predicate
         object.default_auto_heal.as_ref().unwrap().wake_frame,
     );
     dead_owner.frame = 29;
-    dead_owner.update_default_auto_heal();
+    dead_owner.update_default_auto_heal().unwrap();
     let object = dead_owner.host_object(dead_id).unwrap();
     assert_eq!(object.health.current, 20.0);
     assert!(object.status.effectively_dead);
@@ -170,7 +170,7 @@ fn default_autoheal_bypasses_indestructible_and_delivers_healing_filtered_state_
     });
     object.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
     owner.frame = 19;
-    owner.update_default_auto_heal();
+    owner.update_default_auto_heal().unwrap();
     let object = owner.host_object(id).unwrap();
     assert_eq!(
         (object.previous_health, object.health.current),
@@ -192,7 +192,7 @@ fn default_autoheal_bypasses_indestructible_and_delivers_healing_filtered_state_
 fn default_autoheal_respects_native_zero_maximum_without_inventing_a_floor() {
     let (mut owner, id) = world(0.0, 0.25);
     owner.frame = 31;
-    owner.update_default_auto_heal();
+    owner.update_default_auto_heal().unwrap();
     let object = owner.host_object(id).unwrap();
     assert_eq!((object.health.current, object.health.maximum), (0.25, 0.0));
     assert_eq!(object.previous_health, 0.25);
@@ -222,7 +222,7 @@ fn default_autoheal_uses_strict_body_comparison_below_small_native_maximum() {
         .internal_change_health(below - 0.5);
     assert_eq!(owner.host_object(id).unwrap().health.current, below);
     owner.frame = 41;
-    owner.update_default_auto_heal();
+    owner.update_default_auto_heal().unwrap();
     let object = owner.host_object(id).unwrap();
     assert_eq!(
         (object.previous_health, object.health.current),
@@ -240,7 +240,7 @@ fn default_autoheal_owner_and_pulse_deadline_survive_real_world_snapshot() {
         .unwrap()
         .internal_change_health(-80.0);
     owner.frame = 51;
-    owner.update_default_auto_heal();
+    owner.update_default_auto_heal().unwrap();
     let builder = crate::save_load::SnapshotBuilder::new();
     let bytes = bincode_legacy::serialize(&builder.create_world_snapshot(&owner).unwrap()).unwrap();
     let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
@@ -255,7 +255,7 @@ fn default_autoheal_owner_and_pulse_deadline_survive_real_world_snapshot() {
     ] {
         for receiving in [&mut owner, &mut restored] {
             receiving.frame = frame;
-            receiving.update_default_auto_heal();
+            receiving.update_default_auto_heal().unwrap();
             let object = receiving.host_object(id).unwrap();
             assert_eq!(
                 object.health.current,

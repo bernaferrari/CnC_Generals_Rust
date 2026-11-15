@@ -232,13 +232,13 @@ mod tests {
         assert!(!object.innate_stealth);
 
         restored.frame += 1;
-        restored.update_stealth_and_detection();
+        restored.update_stealth_and_detection().unwrap();
         let object = restored.host_object(granted).unwrap();
         assert_eq!(object.stealth_frames_granted, 1);
         assert!(object.innate_stealth);
         assert!((object.camo_opacity_pulse_phase - 1.45).abs() < 1e-5);
         restored.frame += 1;
-        restored.update_stealth_and_detection();
+        restored.update_stealth_and_detection().unwrap();
         let object = restored.host_object(granted).unwrap();
         assert_eq!(object.stealth_frames_granted, 0);
         assert!(!object.innate_stealth);

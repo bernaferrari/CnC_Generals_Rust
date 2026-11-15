@@ -2023,7 +2023,7 @@ fn garrison_really_damaged_edge_ejects_occupants() {
             .contains(&infantry_id)
     );
 
-    let (destroyed, _) = game_logic.apply_host_damage(bunker_id, 800.0);
+    let (destroyed, _) = game_logic.apply_host_damage(bunker_id, 800.0).unwrap();
     assert!(!destroyed, "bunker must survive as a ReallyDamaged wreck");
     assert_eq!(
         game_logic.host_object(bunker_id).unwrap().body_damage_state,
@@ -2109,7 +2109,7 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
             .contains(&infantry_id)
     );
 
-    let (destroyed, _) = game_logic.apply_host_damage(bunker_id, 50.0);
+    let (destroyed, _) = game_logic.apply_host_damage(bunker_id, 50.0).unwrap();
     assert!(!destroyed);
     assert_eq!(
         game_logic.host_object(bunker_id).unwrap().body_damage_state,

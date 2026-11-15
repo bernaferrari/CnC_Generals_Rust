@@ -17,6 +17,24 @@ impl GameLogic {
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        // MissileMotion advances its registered Object's locomotor and physics
+        // together in the projectile phase; do not run the generic pass too.
+        let missile_ids = self.combat_system.get_projectiles();
+        let is_owned_missile = |id: &ObjectId| {
+            missile_ids.get(id).is_some_and(|shot| {
+                shot.missile_motion.is_some()
+                    && shot.missile_actor_birth.is_some_and(|birth| {
+                        self.spawn_identity_matches(*id, birth.0, birth.1)
+                    })
+            })
+        };
+        let filtered;
+        let object_ids = if object_ids.iter().any(&is_owned_missile) {
+            filtered = object_ids.iter().copied().filter(|id| !is_owned_missile(id)).collect::<Vec<_>>();
+            filtered.as_slice()
+        } else {
+            object_ids
+        };
         for &id in object_ids {
             if self.objects.lookup(&id).is_some_and(|unit| {
                 unit.pending_quick_path_goal
@@ -36,7 +54,7 @@ impl GameLogic {
 
     #[cfg(test)]
     pub fn drain_pending_transport_exits_for_test(&mut self) {
-        self.drain_pending_transport_exits();
+        self.drain_pending_transport_exits().expect("transport exit succeeds");
     }
 
     #[cfg(test)]

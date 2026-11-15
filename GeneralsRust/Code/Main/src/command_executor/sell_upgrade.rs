@@ -20,14 +20,14 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
-    pub(super) fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
+    pub(super) fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         if let Some(obj) = self.game_logic.host_object(object_id) {
             if obj.owner_player_id != Some(player_id)
                 || !obj.is_alive()
                 || !obj.is_kind_of(KindOf::Structure)
             {
-                return CommandResult::InvalidTarget;
+                return Ok(CommandResult::InvalidTarget);
             }
             if obj.status.sold
                 || obj.is_script_unsellable()
@@ -35,19 +35,19 @@ impl<'a> CommandExecutor<'a> {
             {
                 // C++ ControlBar hides GUI_COMMAND_SELL for SCRIPT_UNSELLABLE.
                 // sellObject itself has no UC / reconstructing gate.
-                return CommandResult::InvalidCommand;
+                return Ok(CommandResult::InvalidCommand);
             }
             // C++ BuildAssistant::sellObject multi-frame residual (scaffold → SOLD → refund).
-            if self
+            Ok(if self
                 .game_logic
-                .start_sell_object_with_effects(object_id, &mut self.ui)
+                .start_sell_object_with_effects(object_id, &mut self.ui)?
             {
                 CommandResult::Success
             } else {
                 CommandResult::InvalidCommand
-            }
+            })
         } else {
-            CommandResult::InvalidTarget
+            Ok(CommandResult::InvalidTarget)
         }
     }
 
@@ -56,19 +56,19 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         player_id: u32,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut any = false;
         for &id in units {
-            if matches!(self.execute_sell(id, player_id), CommandResult::Success) {
+            if matches!(self.execute_sell(id, player_id)?, CommandResult::Success) {
                 any = true;
             }
         }
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     // === Economy Commands ===

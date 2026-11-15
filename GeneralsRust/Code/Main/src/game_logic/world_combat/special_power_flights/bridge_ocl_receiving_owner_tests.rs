@@ -38,11 +38,11 @@ fn bridge_die_ocl_uses_the_receiving_world_for_same_id_bridges() {
     left.play_bridge_die_ocl_at_with_effects(
         left_bridge,
         &mut crate::game_logic::ScriptPresentationEffects::default(),
-    );
+    ).unwrap();
     right.play_bridge_die_ocl_at_with_effects(
         right_bridge,
         &mut crate::game_logic::ScriptPresentationEffects::default(),
-    );
+    ).unwrap();
 
     assert!(
         left.objects

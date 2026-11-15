@@ -675,7 +675,7 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_detonate_remote_demo_charges(
         &mut self,
         units: &[ObjectId],
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let producers: Vec<ObjectId> = units
             .iter()
@@ -688,37 +688,37 @@ impl<'a> CommandExecutor<'a> {
             })
             .collect();
         if producers.is_empty() {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
         let detonated = self
             .game_logic
-            .detonate_remote_demo_charges_with_effects(&producers, &mut self.ui);
-        if detonated > 0 {
+            .detonate_remote_demo_charges_with_effects(&producers, &mut self.ui)?;
+        Ok(if detonated > 0 {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// Demo SuicideBomb residual: intentional SUICIDED PlusFire detonation.
     ///
     /// Fail-closed: requires SuicideBomb CommandSetUpgrade residual tag.
-    pub(super) fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(super) fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             if self
                 .game_logic
-                .issue_demo_tertiary_suicide_with_effects(unit_id, &mut self.ui)
+                .issue_demo_tertiary_suicide_with_effects(unit_id, &mut self.ui)?
             {
                 any = true;
             }
         }
-        if any {
+        Ok(if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
-        }
+        })
     }
 
     /// Black Lotus residual: steal cash from enemy supply/cash building.
@@ -1044,11 +1044,11 @@ impl<'a> CommandExecutor<'a> {
         })
     }
 
-    pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId], slot: u8) -> CommandResult {
+    pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId], slot: u8) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:583-590 MSG_SWITCH_WEAPONS:
         // currentlySelectedGroup->setWeaponLockForGroup(weaponSlot, LOCKED_PERMANENTLY).
-        let result = self.execute_set_weapon_lock(units, slot, 2);
+        let result = self.execute_set_weapon_lock(units, slot, 2)?;
         if result == CommandResult::Success {
             // C++ CommandXlat.cpp:474-493 / ControlBarCommandProcessing.cpp:788-792
             // pickAndPlay PerUnitSound Voice*WeaponMode for the locked slot (skip=true).
@@ -1066,7 +1066,7 @@ impl<'a> CommandExecutor<'a> {
                 self.game_logic.queue_picked_unit_voice(units, voice);
             }
         }
-        result
+        Ok(result)
     }
 
     pub(super) fn execute_toggle_overcharge(&mut self, units: &[ObjectId]) -> CommandResult {

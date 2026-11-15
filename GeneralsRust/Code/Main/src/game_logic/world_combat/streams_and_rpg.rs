@@ -137,7 +137,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_technical_cannon_shell_projectiles(&mut self) {
+    pub fn update_technical_cannon_shell_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_technical_cannon_shell_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -146,7 +146,7 @@ impl GameLogic {
     pub(crate) fn update_technical_cannon_shell_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_technical::technical_cannon_shell_bezier_point;
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -210,14 +210,15 @@ impl GameLogic {
                     continue;
                 }
             }
-            let _ = self.apply_technical_residual_at_with_effects(
+            self.apply_technical_residual_at_with_effects(
                 pos,
                 source,
                 intended,
                 presentation_effects,
-            );
+            )?;
             self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
+        Ok(())
     }
 
     pub fn honesty_technical_cannon_shell_projectile_ok(&self) -> bool {
@@ -252,7 +253,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         air: bool,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_humvee_tow_residual_at_with_effects(
             impact,
             source,
@@ -269,7 +270,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         air: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_humvee::{
             HUMVEE_AIR_TOW_RADIUS, HUMVEE_GROUND_TOW_RADIUS, HUMVEE_TOW_DAMAGE_TYPE,
             HUMVEE_TOW_DEATH_TYPE, HUMVEE_TOW_FIRE_AUDIO, humvee_air_tow_damage_at,
@@ -330,7 +331,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 let v = self
                     .objects
                     .get_mut(&receiving_damage_id)
@@ -348,7 +349,7 @@ impl GameLogic {
             }
         }
         let _ = HUMVEE_TOW_FIRE_AUDIO;
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     pub fn honesty_flashbang_grenade_projectile_ok(&self) -> bool {
@@ -361,7 +362,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         flashbang_slot: bool,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_ranger_residual_at_with_effects(
             impact,
             source,
@@ -378,7 +379,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         flashbang_slot: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_ranger::{
             FLASHBANG_DAMAGE_TYPE, FLASHBANG_DEATH_TYPE, FLASHBANG_SECONDARY_RADIUS,
             RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_DAMAGE_TYPE,
@@ -492,7 +493,7 @@ impl GameLogic {
                         ),
                         None,
                         presentation_effects,
-                    );
+                    )?;
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -522,10 +523,10 @@ impl GameLogic {
                 .unwrap_or(RANGER_RIFLE_DAMAGE);
 
             let Some(target_id) = intended_target else {
-                return (0, false);
+                return Ok((0, false));
             };
             let Some(target) = self.objects.get(&target_id) else {
-                return (0, false);
+                return Ok((0, false));
             };
             let combat_kind = target.is_kind_of(KindOf::Attackable)
                 || target.is_kind_of(KindOf::Structure)
@@ -538,7 +539,7 @@ impl GameLogic {
                 target.status.under_construction,
                 combat_kind,
             ) {
-                return (0, false);
+                return Ok((0, false));
             }
             let target_pos = target.get_position();
 
@@ -556,7 +557,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -581,7 +582,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Apply China MiniGunner residual fire: intended-only ground/AA residual.
@@ -591,7 +592,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         slot: u8,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_minigunner_residual_at_with_effects(
             impact,
             source,
@@ -608,7 +609,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         slot: u8,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_minigunner::{
             MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_AIR_DAMAGE, MINIGUNNER_AIR_DAMAGE_TYPE,
             MINIGUNNER_AIR_DEATH_TYPE, MINIGUNNER_FIRE_AUDIO, MINIGUNNER_GROUND_DAMAGE,
@@ -641,7 +642,7 @@ impl GameLogic {
         let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
 
         let Some(tid) = intended_target else {
-            return (0, false);
+            return Ok((0, false));
         };
         if let Some(obj) = self.objects.get_mut(&tid) {
             let combat_kind = obj.is_kind_of(KindOf::Attackable)
@@ -673,7 +674,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -706,7 +707,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Advance MiniGunner continuous-fire ramp residual after a successful shot.
@@ -854,7 +855,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_rpg_trooper_residual_at_with_effects(
             impact,
             source,
@@ -869,7 +870,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_rpg_trooper::{
             RPG_TROOPER_DAMAGE, RPG_TROOPER_DAMAGE_TYPE, RPG_TROOPER_DEATH_TYPE,
             RPG_TROOPER_FIRE_AUDIO, RPG_TROOPER_SPLASH_RADIUS, is_legal_rpg_trooper_splash_target,
@@ -992,7 +993,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1017,7 +1018,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     pub fn honesty_missile_defender_missile_projectile_ok(&self) -> bool {
@@ -1030,7 +1031,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         laser_slot: bool,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_missile_defender_residual_at_with_effects(
             impact,
             source,
@@ -1047,7 +1048,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         laser_slot: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_missile_defender::{
             MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_DEATH_TYPE, MISSILE_DEFENDER_FIRE_AUDIO,
             MISSILE_DEFENDER_LASER_DAMAGE_TYPE, MISSILE_DEFENDER_PRIMARY_DAMAGE_TYPE,
@@ -1189,7 +1190,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1220,7 +1221,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Activate Missile Defender laser guided special residual: lock secondary + attack.

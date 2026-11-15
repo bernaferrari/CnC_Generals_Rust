@@ -455,7 +455,7 @@ impl GameLogic {
     /// Transfer an object to the player's default Team. As in Object::setTeam,
     /// an inactive controller redirects the object to this session's neutral
     /// player. Command authority follows the resulting `owner_player_id`.
-    pub fn transfer_object_to_player(&mut self, object_id: ObjectId, player_id: u32) -> bool {
+    pub fn transfer_object_to_player(&mut self, object_id: ObjectId, player_id: u32) -> gamelogic::GameLogicResult<bool> {
         self.transfer_object_to_player_with_effects(
             object_id,
             player_id,
@@ -468,9 +468,9 @@ impl GameLogic {
         object_id: ObjectId,
         player_id: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(destination) = self.host_default_team_id(player_id) else {
-            return false;
+            return Ok(false);
         };
         self.transfer_object_to_selected_team_with_effects(
             object_id,
@@ -489,7 +489,7 @@ impl GameLogic {
         player_id: u32,
         destination: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let requested_owner = self
             .team_factory
             .with_read_without_flushing(|factory| {
@@ -502,12 +502,12 @@ impl GameLogic {
             .ok()
             .flatten();
         if requested_owner != Some(player_id) {
-            return false;
+            return Ok(false);
         }
         let effective_player_id = match self.inactive_controller_neutral_team(player_id) {
             Ok(Some(neutral)) => neutral.owner,
             Ok(None) => player_id,
-            Err(_) => return false,
+            Err(error) => return Err(error),
         };
 
         // C++ Object::setTeam changes membership before it dispatches
@@ -534,8 +534,8 @@ impl GameLogic {
             })
             .unwrap_or((None, None));
 
-        if !self.set_host_object_team_with_effects(object_id, destination, presentation_effects) {
-            return false;
+        if !self.set_host_object_team_with_effects(object_id, destination, presentation_effects)? {
+            return Ok(false);
         }
 
         if let Some(bonus) = retained_overcharge_bonus {
@@ -552,7 +552,7 @@ impl GameLogic {
                     .saturating_sub(bonus);
             }
         }
-        true
+        Ok(true)
     }
 }
 

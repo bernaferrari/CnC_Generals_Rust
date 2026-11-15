@@ -2061,7 +2061,7 @@ End
         let new_team = a.players[&1]
             .default_team_id
             .expect("player's admitted default team");
-        assert!(a.set_host_object_team(source_a, new_team));
+        assert!(a.set_host_object_team(source_a, new_team).unwrap());
         assert_eq!(
             a.modified_build_cost_supplies(0, "CostModifierDualKind", 1000),
             1000

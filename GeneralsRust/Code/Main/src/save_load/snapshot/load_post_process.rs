@@ -34,6 +34,7 @@ impl Snapshot for WorldSnapshot {
         if xfer.get_mode() != XferMode::Load {
             validate_direct_world_snapshot_version(self.version)?;
             validate_world_path_links(self)?;
+            self.pending_combat.validate_launch_transforms().map_err(SaveLoadError::Corrupted)?;
             super::object_module_xfer_persist::upgrade_completion_capsule_for_save(
                 &mut self.lifecycle_tail,
                 self.version,

@@ -216,25 +216,26 @@ impl GameLogic {
     /// Residual fire-from-garrison: enclosing occupants fire from a FIREPOINT
     /// bone (C++ `calcBestGarrisonPosition`). Non-enclosing Fire Base fires
     /// from the occupant's pre-assigned STATION bone, not the building center.
+    #[cfg(test)]
     pub(in crate::game_logic) fn try_garrison_residual_fire(&mut self, garrisoned_id: ObjectId) {
         self.try_garrison_residual_fire_with_effects(
             garrisoned_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        ).expect("garrison passenger fire")
     }
 
     pub(in crate::game_logic) fn try_garrison_residual_fire_with_effects(
         &mut self,
         garrisoned_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&garrisoned_id) else {
-            return;
+            return Ok(());
         };
         if !attacker.is_alive() {
-            return;
+            return Ok(());
         }
         let container_id = attacker.container_id();
         if container_id
@@ -249,13 +250,13 @@ impl GameLogic {
             // (flashbang / neutron) silences window fire.
             // C++ TunnelContain::isGarrisonable is FALSE — occupants never
             // shoot out of an entrance (only TunnelNetworkGun does).
-            return;
+            return Ok(());
         }
         let has_any_weapon = attacker.weapon_slot(0).is_some()
             || attacker.weapon_slot(1).is_some()
             || attacker.weapon_slot(2).is_some();
         if !has_any_weapon {
-            return;
+            return Ok(());
         }
 
         let team = attacker.team;
@@ -336,7 +337,7 @@ impl GameLogic {
                 continue;
             }
             let Some(attacker) = self.objects.get(&garrisoned_id) else {
-                return;
+                return Ok(());
             };
             let slot = attacker
                 .select_combat_weapon_slot_with_solo_set(
@@ -394,7 +395,7 @@ impl GameLogic {
                     }
                 }
             }
-            return;
+            return Ok(());
         };
 
         if let Some(cid) = container_id {
@@ -424,7 +425,7 @@ impl GameLogic {
                     presentation_effects,
                 )
             {
-                return;
+                return Ok(());
             }
         }
         if !self.fire_owned_passive_weapon_with_effects(
@@ -433,8 +434,8 @@ impl GameLogic {
             slot,
             fire_pos,
             presentation_effects,
-        ) {
-            return;
+        )? {
+            return Ok(());
         }
         self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
         let flash_muzzle = self
@@ -450,6 +451,7 @@ impl GameLogic {
             aim_at,
             presentation_effects,
         );
+        Ok(())
     }
 
     /// C++ GarrisonContain::onContaining setTeam + academy + CAN_ATTACK + stations.
@@ -891,13 +893,11 @@ impl GameLogic {
     pub(in crate::game_logic) fn recalc_garrison_apparent_controller(
         &mut self,
         container_id: ObjectId,
-    ) {
-        if let Err(error) = self.recalc_garrison_apparent_controller_with_effects(
+    ) -> gamelogic::GameLogicResult<()> {
+        self.recalc_garrison_apparent_controller_with_effects(
             container_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        ) {
-            log::error!("Garrison owner-team recalculation failed: {error}");
-        }
+        )
     }
 
     pub(in crate::game_logic) fn recalc_garrison_apparent_controller_with_effects(
@@ -930,7 +930,7 @@ impl GameLogic {
                 }
             }
             if let Some((Some(original_id), _, _, _)) = original {
-                if !self.set_host_object_team_with_effects(container_id, original_id, effects) {
+                if !self.set_host_object_team_with_effects(container_id, original_id, effects)? {
                     return Err(gamelogic::GameLogicError::Configuration(
                         "Garrison original Team is unavailable in the receiving factory".into(),
                     ));
@@ -1017,7 +1017,7 @@ impl GameLogic {
                 "Garrison rider controller has no receiving default Team".into(),
             )
         })?;
-        if !self.set_host_object_team_with_effects(container_id, default_team, effects) {
+        if !self.set_host_object_team_with_effects(container_id, default_team, effects)? {
             return Err(gamelogic::GameLogicError::Configuration(
                 "Garrison owner failed receiving default-Team transfer".into(),
             ));
@@ -1031,7 +1031,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn recalc_garrisons_after_occupant_detect_change(
         &mut self,
         container_ids: &[ObjectId],
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut seen: Vec<ObjectId> = Vec::new();
         for &cid in container_ids {
             if seen.contains(&cid) {
@@ -1043,9 +1043,10 @@ impl GameLogic {
                 .get(&cid)
                 .is_some_and(|c| c.is_garrison_contain())
             {
-                self.recalc_garrison_apparent_controller(cid);
+                self.recalc_garrison_apparent_controller(cid)?;
             }
         }
+        Ok(())
     }
 
     /// C++ OpenContain::onCollide: eject other-player riders (STEALTH_GARRISON
@@ -1054,12 +1055,12 @@ impl GameLogic {
         &mut self,
         container_id: ObjectId,
         arriver_id: ObjectId,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.kick_other_controller_occupants_for_enter_with_effects(
             container_id,
             arriver_id,
             &mut Default::default(),
-        );
+        )
     }
 
     pub(in crate::game_logic) fn kick_other_controller_occupants_for_enter_with_effects(
@@ -1067,7 +1068,7 @@ impl GameLogic {
         container_id: ObjectId,
         arriver_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let arriver_owner = self
             .objects
             .get(&arriver_id)
@@ -1095,7 +1096,7 @@ impl GameLogic {
             }
         }
         if kick.is_empty() {
-            return;
+            return Ok(());
         }
         for pid in kick {
             let stealth_garrison = self
@@ -1112,11 +1113,11 @@ impl GameLogic {
                 if self.objects.get(&pid).is_some_and(|rider| rider.has_ai_update_interface()) {
                     if let Some(config) = self.railed_dock_config(container_id) {
                         self.railed_dock_unload(container_id, config, false, presentation_effects)
-                            .expect("rail collision exit requires its receiving services");
+                            .map_err(gamelogic::GameLogicError::Configuration)?;
                     }
                 } else {
                     self.railed_remove_contained_with_effects(container_id, pid, presentation_effects)
-                        .expect("rail collision removal requires its receiving services");
+                        .map_err(gamelogic::GameLogicError::Configuration)?;
                 }
                 continue;
             }
@@ -1132,8 +1133,9 @@ impl GameLogic {
             .get(&container_id)
             .is_some_and(|c| c.is_garrison_contain())
         {
-            self.recalc_garrison_apparent_controller(container_id);
+            self.recalc_garrison_apparent_controller_with_effects(container_id, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ OpenContain::exitObjectViaDoor — ExitStart/End + follow-path.

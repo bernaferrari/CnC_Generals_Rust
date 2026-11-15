@@ -658,7 +658,7 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
     assert_eq!(peer.host_object(peer_outsider).unwrap().get_position(),
         ghost_position
     );
-    assert!(!peer.evacuate_container_now(peer_b, false));
+    assert!(!peer.evacuate_container_now(peer_b, false).unwrap());
     assert_eq!(
         peer.host_object(peer_outsider).unwrap().get_position(),
         ghost_position
@@ -2150,7 +2150,7 @@ fn garrison_owner_switch_uses_each_receiving_default_team_and_restores_exact_tea
             .team_instance_identity(),
         "bincode and direct Xfer restore the same receiving Team identity"
     );
-    assert!(restored.unit_command_remove_occupant(first_host, first_rider));
+    assert!(restored.unit_command_remove_occupant(first_host, first_rider).unwrap());
     assert_eq!(
         restored
             .host_object(first_host)
@@ -2200,7 +2200,7 @@ fn empty_uninitialized_garrison_keeps_its_current_team_after_last_rider_exit() {
     building.original_team_instance_id = None;
     building.original_team_instance_name = None;
 
-    assert!(world.unit_command_remove_occupant(host, rider));
+    assert!(world.unit_command_remove_occupant(host, rider).unwrap());
     assert_eq!(
         world.host_object(host).unwrap().team_instance_identity(),
         current_team,

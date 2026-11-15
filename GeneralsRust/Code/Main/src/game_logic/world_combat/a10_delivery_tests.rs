@@ -449,6 +449,7 @@ fn actual_delivery_killed_before_any_payload_or_strafe_cancels_without_synthetic
             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
             &mut effects,
         )
+        .expect("kill completes")
         .expect("real receiving Body accepts kill");
     assert!(killed.destroyed);
     assert!(world.host_object(jet).unwrap().status.on_die_started);
@@ -981,7 +982,8 @@ fn encoded_world_snapshot_continues_live_missiles_after_transport_death() {
             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
             &mut effects,
         )
-        .unwrap();
+        .unwrap()
+        .expect("real receiving Body accepts kill");
     assert!(killed.destroyed);
     assert!(source.host_object(jet).unwrap().status.on_die_started);
     // This minimal receiving Body has no authored DestroyDie. Complete the

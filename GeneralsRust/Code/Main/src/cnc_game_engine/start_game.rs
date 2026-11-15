@@ -697,6 +697,7 @@ impl CnCGameEngine {
                 recorder_dispatch,
             },
             interactive_start_from_menu,
+            source_command,
             prelude_retry_at: std::time::Instant::now(),
         });
         info!("host_start_game_from_ui: parked match start for next Loading tick");
@@ -744,7 +745,14 @@ impl CnCGameEngine {
             None
         };
 
-        let reset = if replay_inputs.is_some() {
+        // MSG_NEW_GAME calls prepareNewGame/startNewGame without resetting the
+        // engine. A preceding MSG_CLEAR_GAME_DATA already performed its reset.
+        // Resetting again here reinitializes the underlying MainMenu while the
+        // new mode is Skirmish, causing showShellMap to queue a clear and a
+        // shell game that destroy the just-loaded match on its first tick.
+        let reset = if pending.source_command {
+            Ok(())
+        } else if replay_inputs.is_some() {
             self.host_reset_for_admitted_replay_start()
         } else if mode == GameMode::Shell {
             self.host_reset_for_clear_game_data()

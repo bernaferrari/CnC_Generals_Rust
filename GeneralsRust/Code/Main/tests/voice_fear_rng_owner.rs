@@ -62,7 +62,7 @@ fn receiving_world(seed: u32) -> (GameLogic, ObjectId) {
 }
 
 fn hit(game: &mut GameLogic, id: ObjectId) {
-    assert_eq!(game.apply_host_damage(id, 20.), (false, false));
+    assert_eq!(game.apply_host_damage(id, 20.).unwrap(), (false, false));
 }
 
 fn fear_events(game: &mut GameLogic) -> Vec<String> {

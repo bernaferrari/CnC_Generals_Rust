@@ -206,7 +206,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         requested: u32,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.set_host_object_team_with_effects(id, requested, &mut Default::default())
     }
 
@@ -215,9 +215,9 @@ impl GameLogic {
         id: ObjectId,
         requested: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let Some(old) = self.objects.get(&id) else {
-            return false;
+            return Ok(false);
         };
         let old_identity = old.team_instance_id;
         let old_owner = old.owner_player_id;
@@ -226,7 +226,7 @@ impl GameLogic {
         let destination_owner = {
             let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
             let Some(team) = factory.find_team_by_id(requested) else {
-                return false;
+                return Ok(false);
             };
             let owner = team
                 .read()
@@ -235,34 +235,34 @@ impl GameLogic {
             owner
         };
         let Some(owner) = destination_owner else {
-            return false;
+            return Ok(false);
         };
         let destination = match self.inactive_controller_neutral_team(owner) {
             Ok(Some(neutral)) => neutral.identity,
             Ok(None) => requested,
             Err(error) => {
                 log::error!("Cannot resolve receiving Team transfer: {error}");
-                return false;
+                return Ok(false);
             }
         };
         if old_identity == Some(destination) {
-            return true;
+            return Ok(true);
         }
         let (name, owner, faction, attitude, priority, destination_team, previous_teams) = {
             let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
             let Some(team) = factory.find_team_by_id(destination) else {
-                return false;
+                return Ok(false);
             };
             let selected = team.read().unwrap_or_else(|e| e.into_inner());
             let name = selected.get_name().as_str().to_owned();
             let Some(owner) = selected.get_controlling_player_id() else {
-                return false;
+                return Ok(false);
             };
             let Some(player) = self.players.get(&owner) else {
-                return false;
+                return Ok(false);
             };
             let Some(prototype) = factory.find_team_prototype(&name) else {
-                return false;
+                return Ok(false);
             };
             let attitude = match prototype.get_initial_team_attitude() {
                 gamelogic::team::AttitudeType::Sleep => -2,
@@ -341,7 +341,7 @@ impl GameLogic {
                 old_owner != Some(owner),
                 effects,
                 Some((old_birth, old_owner, Some(owner))),
-            );
+            )?;
         }
         if self.radar.contains_object(id.0) {
             self.host_radar_remove_object(id);
@@ -350,7 +350,7 @@ impl GameLogic {
         if old_owner != Some(owner) || old_faction != faction {
             self.ownership_events.record(id, faction, Some(owner));
         }
-        true
+        Ok(true)
     }
 
     /// Object.cpp:6111–6220. Defect has stronger admission gates and before/
@@ -412,7 +412,7 @@ impl GameLogic {
             .get_mut(&id)
             .expect("admitted defector")
             .begin_undetected_defection(self.frame, frames, true);
-        if !self.set_host_object_team_with_effects(id, destination, effects) {
+        if !self.set_host_object_team_with_effects(id, destination, effects)? {
             return Ok(false);
         }
         let has_ai = if let Some(object) = self.objects.get_mut(&id) {
@@ -473,7 +473,7 @@ impl GameLogic {
             })
             .collect();
         for mine in mines {
-            self.set_host_object_team_with_effects(mine, destination, effects);
+            self.set_host_object_team_with_effects(mine, destination, effects)?;
         }
         Ok(true)
     }

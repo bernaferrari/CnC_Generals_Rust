@@ -8,11 +8,11 @@ impl GameLogic {
     fn neutron_kill_railed_contained(
         &mut self, container_id: ObjectId, destroy_ids: &mut Vec<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let Some(birth) = self.objects.get(&container_id).and_then(|container| {
             (container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport)
                 .then_some(container.visual_object_generation)
-        }) else { return 0 };
+        }) else { return Ok(0) };
         let mut killed = 0u32;
         loop {
             let Some(rider) = self.objects.get(&container_id)
@@ -20,7 +20,7 @@ impl GameLogic {
                 .and_then(|container| container.contained_unit_ids().first().copied()) else { break };
             let Some(rider_birth) = self.objects.get(&rider).map(|object| object.visual_object_generation) else { break };
             if !self.railed_kill_contained_with_effects(container_id, rider, effects)
-                .expect("rail killAllContained requires its receiving services")
+                .map_err(gamelogic::GameLogicError::Configuration)?
             {
                 break;
             }
@@ -30,13 +30,13 @@ impl GameLogic {
             self.apply_owned_kill_with_effects(
                 rider, crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal, effects,
-            );
+            )?;
             if self.objects.get(&rider).is_some_and(|object| object.visual_object_generation == rider_birth) {
                 destroy_ids.push(rider);
             }
             killed = killed.saturating_add(1);
         }
-        killed
+        Ok(killed)
     }
 
     /// Apply NeutronBlast residual: kill infantry, unman vehicles, and
@@ -48,7 +48,7 @@ impl GameLogic {
         caster_team: Team,
         caster_id: Option<ObjectId>,
         affect_allies: bool,
-    ) -> (u32, u32, u32) {
+    ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
         self.apply_neutron_blast_at_with_effects(
             impact,
             caster_team,
@@ -65,7 +65,7 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
         affect_allies: bool,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, u32, u32) {
+    ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
         use crate::game_logic::host_neutron_shell::{
             HOST_NEUTRON_BLAST_RADIUS, NEUTRON_SHELL_AUDIO, NeutronEffect,
             in_neutron_blast_radius_2d, is_legal_neutron_blast_target, neutron_effect_for_target,
@@ -156,7 +156,7 @@ impl GameLogic {
             let birth = obj.visual_object_generation;
             let _ = obj;
             if !matches!(effect, NeutronEffect::KillInfantry) {
-                let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects);
+                let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects)?;
                 passengers_killed = passengers_killed.saturating_add(count);
                 infantry_kills = infantry_kills.saturating_add(count);
             }
@@ -167,7 +167,7 @@ impl GameLogic {
                     // Residual: kill infantry (take full health damage).
                     let receiving_damage_id = obj.id;
                     let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
-                    let _ = self.apply_residual_damage_owned_with_effects(
+                    self.apply_residual_damage_owned_with_effects(
                         receiving_damage_id,
                         receiving_damage_argument_1,
                         caster_id,
@@ -177,7 +177,7 @@ impl GameLogic {
                         ),
                         None,
                         presentation_effects,
-                    );
+                    )?;
                     let obj = self
                         .objects
                         .get_mut(&receiving_damage_id)
@@ -188,7 +188,7 @@ impl GameLogic {
                     } else {
                         // Force kill residual.
                         let receiving_damage_id = obj.id;
-                        let _ = self.apply_residual_damage_owned_with_effects(
+                        self.apply_residual_damage_owned_with_effects(
                             receiving_damage_id,
                             999_999.0,
                             caster_id,
@@ -198,7 +198,7 @@ impl GameLogic {
                             ),
                             None,
                             presentation_effects,
-                        );
+                        )?;
                         let obj = self
                             .objects
                             .get_mut(&receiving_damage_id)
@@ -206,7 +206,7 @@ impl GameLogic {
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     }
-                    let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects);
+                    let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects)?;
                     passengers_killed = passengers_killed.saturating_add(count);
                     infantry_kills = infantry_kills.saturating_add(count);
                 }
@@ -217,7 +217,7 @@ impl GameLogic {
                         // setDisabled kills synchronously before the neutron
                         // behavior idles and neutralizes the object.
                         drop(obj);
-                        self.maybe_detonate_carbomb_on_unmanned_with_effects(id, presentation_effects);
+                        self.maybe_detonate_carbomb_on_unmanned_with_effects(id, presentation_effects)?;
                     } else {
                         obj.apply_kill_pilot_unmanned_at_frame(
                             &mut self.health_events,
@@ -246,7 +246,7 @@ impl GameLogic {
                 NeutronEffect::KillVehicle => {
                     let receiving_damage_target_id = obj.id;
                     let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
-                    let _ = self.apply_residual_damage_owned_with_effects(
+                    self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         receiving_damage_argument_1,
                         caster_id,
@@ -256,7 +256,7 @@ impl GameLogic {
                         ),
                         None,
                         presentation_effects,
-                    );
+                    )?;
                     vehicle_kills = vehicle_kills.saturating_add(1);
                     destroy_ids.push(id);
                 }
@@ -299,7 +299,7 @@ impl GameLogic {
                 );
                 let receiving_damage_id = occ.id;
                 let receiving_damage_argument_1 = occ.health.current.max(1.0) * 10.0;
-                let _ = self.apply_residual_damage_owned_with_effects(
+                self.apply_residual_damage_owned_with_effects(
                     receiving_damage_id,
                     receiving_damage_argument_1,
                     caster_id,
@@ -309,14 +309,14 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 let occ = self
                     .objects
                     .get_mut(&receiving_damage_id)
                     .expect("bounded residual victim remains installed");
                 if occ.is_alive() && occ.health.current > 0.0 && !occ.status.destroyed {
                     let receiving_damage_target_id = occ.id;
-                    let _ = self.apply_residual_damage_owned_with_effects(
+                    self.apply_residual_damage_owned_with_effects(
                         receiving_damage_target_id,
                         999_999.0,
                         caster_id,
@@ -326,7 +326,7 @@ impl GameLogic {
                         ),
                         None,
                         presentation_effects,
-                    );
+                    )?;
                 }
                 passengers_killed = passengers_killed.saturating_add(1);
                 infantry_kills = infantry_kills.saturating_add(1);
@@ -352,7 +352,7 @@ impl GameLogic {
                 id,
                 Some(caster_team),
                 presentation_effects,
-            );
+            )?;
         }
 
         self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);
@@ -372,6 +372,6 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact uses ProjectileDetonateFX, never a muzzle flash.
 
-        (infantry_kills, vehicles_unmanned, vehicle_kills)
+        Ok((infantry_kills, vehicles_unmanned, vehicle_kills))
     }
 }

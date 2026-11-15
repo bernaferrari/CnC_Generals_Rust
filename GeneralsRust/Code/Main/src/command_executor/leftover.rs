@@ -187,7 +187,7 @@ impl<'a> CommandExecutor<'a> {
                 || name.contains("chinook")
                 || name.contains("combatdrop")
             {
-                let exit = self.execute_exit(&[unit_id]);
+                let exit = self.execute_exit(&[unit_id])?;
                 if matches!(exit, CommandResult::Success) {
                     any = true;
                     continue;
@@ -1135,19 +1135,19 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         player_id: u32,
         transfer_to_ally: bool,
-    ) -> CommandResult {
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1762-1797 MSG_SELF_DESTRUCT.
         if self.game_logic.get_player(player_id).is_none() {
-            return CommandResult::InvalidCommand;
+            return Ok(CommandResult::InvalidCommand);
         }
         if transfer_to_ally {
             if let Some(ally_id) = host_living_mutual_ally(self.game_logic, player_id) {
-                host_transfer_assets_from(self.game_logic, ally_id, player_id);
+                host_transfer_assets_from(self.game_logic, ally_id, player_id)?;
             }
         }
-        host_kill_player(self.game_logic, player_id, &mut self.ui);
-        CommandResult::Success
+        host_kill_player(self.game_logic, player_id, &mut self.ui)?;
+        Ok(CommandResult::Success)
     }
 
     fn notify_beacon_placement_failed(&mut self, location: Vec3) {
@@ -1271,7 +1271,11 @@ fn host_living_mutual_ally(logic: &GameLogic, player_id: u32) -> Option<u32> {
     None
 }
 
-fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_player: u32) {
+fn host_transfer_assets_from(
+    logic: &mut GameLogic,
+    dest_player: u32,
+    source_player: u32,
+) -> gamelogic::GameLogicResult<()> {
     // C++ Player::transferAssetsFromThat — skip beacon templates, then cash.
     let ids: Vec<ObjectId> = logic
         .host_objects()
@@ -1282,7 +1286,7 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
         })
         .collect();
     for id in ids {
-        let _ = logic.transfer_object_to_player(id, dest_player);
+        logic.transfer_object_to_player(id, dest_player)?;
     }
     let amount = logic
         .get_player(source_player)
@@ -1304,23 +1308,25 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
             dst.apply_supply_gain(amount, economy_events);
         }
     }
+    Ok(())
 }
 
 fn host_kill_player(
     logic: &mut GameLogic,
     player_id: u32,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-) {
+) -> gamelogic::GameLogicResult<()> {
     // C++ Player::killPlayer — same army/beacon/tech/SP-AI path as victory.
     let ids: Vec<ObjectId> = logic
         .host_objects()
         .registered()
         .filter_map(|(id, obj)| (obj.owner_player_id == Some(player_id)).then_some(*id))
         .collect();
-    logic.kill_player_for_victory_with_effects(player_id, effects);
+    logic.kill_player_for_victory_with_effects(player_id, effects)?;
     for id in ids {
         logic.beacon_client.remove(id);
     }
+    Ok(())
 }
 
 fn live_beacon_hide(

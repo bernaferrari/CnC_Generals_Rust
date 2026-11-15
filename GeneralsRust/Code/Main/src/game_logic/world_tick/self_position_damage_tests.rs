@@ -52,7 +52,7 @@ fn self_position_splash_centers_on_shooter_not_victim() {
                 Team::China,
                 ObjectId(0),
                 None,
-            );
+            ).unwrap();
             assert!(hits >= 1, "self-position splash must hit near occupants");
             assert!(
                 world.objects[&near_ally].health.current < 100.0,

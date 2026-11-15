@@ -1075,7 +1075,7 @@ impl GameLogic {
         &mut self,
         trap_id: ObjectId,
         mode: crate::game_logic::host_mines::DemoTrapMode,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.set_demo_trap_mode_with_effects(
             trap_id,
             mode,
@@ -1088,27 +1088,27 @@ impl GameLogic {
         trap_id: ObjectId,
         mode: crate::game_logic::host_mines::DemoTrapMode,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_mines::HostMineKind;
         let is_detonate = mode.is_detonate_command();
         {
             let Some(obj) = self.objects.get_mut(&trap_id) else {
-                return false;
+                return Ok(false);
             };
             let Some(md) = obj.mine_data.as_mut() else {
-                return false;
+                return Ok(false);
             };
             if !matches!(md.kind, HostMineKind::DemoTrap) || md.detonated {
-                return false;
+                return Ok(false);
             }
             if !md.set_demo_trap_mode(mode) {
-                return false;
+                return Ok(false);
             }
         }
         if is_detonate {
             return self.manual_detonate_mine_with_effects(trap_id, presentation_effects);
         }
-        true
+        Ok(true)
     }
 
     /// Apply AP Rockets residual to a Stinger Site (PLAYER_UPGRADE damage residual × 1.25).
@@ -1143,7 +1143,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_rocket_buggy_residual_at_with_effects(
             impact,
             source,
@@ -1158,7 +1158,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_rocket_buggy::{
             BUGGY_DAMAGE_TYPE, BUGGY_DEATH_TYPE, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
             is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at, rocket_buggy_scatter_aim,
@@ -1279,7 +1279,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1305,7 +1305,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     pub fn honesty_scud_missile_projectile_ok(&self) -> bool {

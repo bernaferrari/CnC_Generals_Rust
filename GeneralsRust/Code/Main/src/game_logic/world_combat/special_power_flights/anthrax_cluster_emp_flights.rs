@@ -134,7 +134,7 @@ impl GameLogic {
                     ANTHRAX_BOMB_IMPACT_RADIUS,
                     DamageType::Explosive,
                     presentation_effects,
-                );
+                )?;
                 // C++ FireOCL OCL_PoisonFieldAnthraxBomb / AnthraxGammaBomb.
                 let src = producer.unwrap_or(id);
                 let toxin_object = {

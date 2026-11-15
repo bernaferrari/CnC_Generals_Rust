@@ -339,7 +339,7 @@ fn waypoint_projectile_uses_shooter_owner_and_admitted_uncached_template() {
         Player::new(other_id, faction, "SameFactionPeer", false)
             .with_script_identity("SameFactionPeer"),
     );
-    assert!(world.transfer_object_to_player(shooter_id, owner));
+    assert!(world.transfer_object_to_player(shooter_id, owner).unwrap());
     // A second player of the same faction makes faction-to-player inference
     // ambiguous. The projectile belongs to the actual shooter's controller.
     world.templates.remove(OWNER_PROJECTILE);

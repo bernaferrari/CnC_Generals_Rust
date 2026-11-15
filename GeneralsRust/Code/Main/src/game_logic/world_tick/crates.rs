@@ -1483,13 +1483,13 @@ impl GameLogic {
     pub fn tick_battle_bus_slow_deaths(&mut self) {
         self.tick_battle_bus_slow_deaths_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        ).expect("receiving battle bus slow deaths failed")
     }
 
     pub(crate) fn tick_battle_bus_slow_deaths_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_battle_bus::battle_bus_undeath_passenger_damage;
 
@@ -1635,13 +1635,14 @@ impl GameLogic {
                     body.mark_real_death();
                 }
             }
-            let _ = self.apply_owned_kill_with_effects(
+            self.apply_owned_kill_with_effects(
                 bus_id,
                 DamageType::Penalty,
                 crate::game_logic::host_usa_pilot::HostDeathType::Extra4,
                 presentation_effects,
-            );
+            )?;
         }
+        Ok(())
     }
 
     /// C++ `Thing::isSignificantlyAboveTerrain`: height-above-terrain, not world Y.

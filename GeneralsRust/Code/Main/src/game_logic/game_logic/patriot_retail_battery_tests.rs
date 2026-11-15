@@ -127,6 +127,7 @@ fn world_for_target(air_target: bool, superweapon: bool) -> (GameLogic, ObjectId
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
         ("AmericaPowerPlant.ini".into(), power_plant),
         ("FactionBuilding.ini".into(), battery),
+        ("WeaponObjects.ini".into(), missile),
         ("retail-patriot-target.ini".into(), target.into()),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
@@ -178,6 +179,8 @@ fn launch_one(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
     assert_eq!(projectiles[0].target_id, Some(target));
     assert_eq!(projectiles[0].damage, if superweapon { 15.0 } else { 30.0 });
     assert!(projectiles[0].missile_motion.is_some(), "retail missile binds locomotor physics");
+    assert_eq!(world.objects[&projectiles[0].id].template_name, projectiles[0].projectile_object_name);
+    assert_eq!(world.objects[&projectiles[0].id].get_position(), projectiles[0].position);
     assert_ne!(projectiles[0].position, world.objects[&source].get_position(), "retail W3D launch bone supplies the launch position");
     let expected_health = if world.objects[&target].status.airborne_target { 200.0 } else { 1000.0 };
     assert_eq!(world.objects[&target].health.current, expected_health);
@@ -191,6 +194,25 @@ fn impact(world: &mut GameLogic, target: ObjectId) {
     }
     assert_eq!(world.combat_system.projectile_count(), 0, "retail missile reaches its target");
     assert_eq!(world.objects[&target].health.current, 970.0, "one retail warhead impacts once");
+}
+
+fn assert_missile_object_state_eq(a: &crate::game_logic::object::Object, b: &crate::game_logic::object::Object) {
+    assert_eq!(a.get_transform_matrix(), b.get_transform_matrix());
+    assert_eq!(a.movement.velocity, b.movement.velocity);
+    assert_eq!(a.cur_locomotor_name, b.cur_locomotor_name);
+    assert_eq!(a.locomotor_set_names, b.locomotor_set_names);
+    assert_eq!(a.locomotor_goal_type, b.locomotor_goal_type);
+    assert_eq!(a.locomotor_goal_angle, b.locomotor_goal_angle);
+    assert_eq!(a.is_braking, b.is_braking);
+    assert_eq!(a.braking_factor, b.braking_factor);
+    assert_eq!(a.physics_mass, b.physics_mass);
+    assert_eq!(a.physics_accel, b.physics_accel);
+    assert_eq!(a.physics_previous_accel, b.physics_previous_accel);
+    assert_eq!(a.motive_force_expires, b.motive_force_expires);
+    assert_eq!(a.physics_turning, b.physics_turning);
+    assert_eq!(a.is_in_freefall, b.is_in_freefall);
+    assert_eq!(a.was_airborne_last_frame, b.was_airborne_last_frame);
+    assert_eq!(a.pending_ground_collide, b.pending_ground_collide);
 }
 
 #[test]
@@ -208,13 +230,25 @@ fn superweapon_general_retail_patriot_uses_its_own_model_and_missile() {
 fn superweapon_missile_save_continues_the_same_owned_flight() {
     let (mut original, source, target) = world_for_target(false, true);
     launch_one(&mut original, source, target);
+    let moved_target = Vec3::new(300.0, 30.0, 125.0);
+    original.set_fixture_object_position(target, moved_target);
     let _ = original.update_with_dt(1.0 / 30.0);
+    let id = original.combat_system.projectiles_snapshot()[0].id;
+    assert_eq!(original.combat_system.projectiles_snapshot()[0].target_position, original.objects[&target].get_position());
+    let (mut peer, peer_source, peer_target) = world_for_target(false, true);
+    launch_one(&mut peer, peer_source, peer_target);
+    assert_eq!(peer.combat_system.projectiles_snapshot()[0].id, id);
+    let peer_before = peer.objects[&id].clone();
     let builder = crate::save_load::SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&original).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let (mut restored, _, _) = world_for_target(false, true);
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    assert_eq!(restored.combat_system.projectiles_snapshot()[0].id, id);
+    assert_eq!(restored.objects[&id].template_name, "PatriotMissileEMP");
+    assert_missile_object_state_eq(&original.objects[&id], &restored.objects[&id]);
+    assert_missile_object_state_eq(&peer_before, &peer.objects[&id]);
 
     for _ in 0..12 {
         let a = original.combat_system.projectiles_snapshot();
@@ -223,9 +257,15 @@ fn superweapon_missile_save_continues_the_same_owned_flight() {
         if a.is_empty() { break; }
         assert_eq!(a[0].position, b[0].position);
         assert_eq!(a[0].velocity, b[0].velocity);
+        assert_eq!(original.objects[&id].get_position(), a[0].position);
+        assert_eq!(restored.objects[&id].get_position(), b[0].position);
+        assert_eq!(original.objects[&id].movement.velocity, restored.objects[&id].movement.velocity);
+        assert_missile_object_state_eq(&original.objects[&id], &restored.objects[&id]);
+        assert_missile_object_state_eq(&peer_before, &peer.objects[&id]);
         let _ = original.update_with_dt(1.0 / 30.0);
         let _ = restored.update_with_dt(1.0 / 30.0);
     }
+    assert_missile_object_state_eq(&peer_before, &peer.objects[&id]);
 }
 
 #[test]
@@ -246,6 +286,7 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     let projectile = original.combat_system.projectiles_snapshot().into_iter()
         .find(|projectile| projectile.id == id).expect("detonated missile is retained");
     assert!(projectile.missile_drawable_hidden());
+    assert_eq!(original.objects[&id].template_name, "PatriotMissileEMP");
     assert!(projectile.is_missile_kill_self_holding());
     let frame = PresentationFrame::build_from_logic(&mut original, 0);
     assert!(frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
@@ -259,6 +300,7 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let (mut restored, _, _) = world_for_target(false, true);
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    assert_eq!(restored.objects[&id].template_name, "PatriotMissileEMP");
     let restored_frame = PresentationFrame::build_from_logic(&mut restored, 0);
     assert!(restored_frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
     assert!(!restored_frame.projectile_render_inputs().iter().any(|row| row.id == id));
@@ -282,6 +324,10 @@ fn lost_target_kill_self_retains_the_visible_retail_missile() {
     let (mut world, source, target) = world_for_target(false, true);
     launch_one(&mut world, source, target);
     let id = world.combat_system.projectiles_snapshot()[0].id;
+    for _ in 0..5 {
+        let _ = world.update_with_dt(1.0 / 30.0);
+    }
+    assert!(world.objects[&id].movement.velocity.length() > 0.0);
     world.destroy_object(target).unwrap();
     world.process_destroy_list();
     assert!(world.host_object(target).is_none());
@@ -295,10 +341,29 @@ fn lost_target_kill_self_retains_the_visible_retail_missile() {
     let projectile = world.combat_system.projectiles_snapshot().into_iter()
         .find(|projectile| projectile.id == id).expect("target-loss missile is retained");
     assert!(projectile.is_missile_kill_self_holding());
+    assert_eq!(world.objects[&id].template_name, "PatriotMissileEMP");
+    assert_eq!(world.objects[&id].get_position(), projectile.position);
     assert!(!projectile.missile_drawable_hidden());
     let frame = PresentationFrame::build_from_logic(&mut world, 0);
     assert!(frame.projectiles.iter().any(|row| row.id == id && !row.model_hidden));
     assert!(frame.projectile_render_inputs().iter().any(|row| row.id == id));
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _) = world_for_target(false, true);
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    let before = world.objects[&id].get_position();
+    assert_eq!(restored.objects[&id].get_position(), before);
+    assert!(restored.combat_system.projectiles_snapshot()[0].is_missile_kill_self_holding());
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let _ = restored.update_with_dt(1.0 / 30.0);
+    assert!(world.combat_system.projectiles_snapshot()[0].is_missile_kill_self_holding());
+    assert!(restored.combat_system.projectiles_snapshot()[0].is_missile_kill_self_holding());
+    assert_ne!(world.objects[&id].get_position(), before, "KILL_SELF retains moving world physics");
+    assert_eq!(restored.objects[&id].get_position(), world.objects[&id].get_position());
+    assert_eq!(restored.objects[&id].movement.velocity, world.objects[&id].movement.velocity);
 }
 
 #[test]
@@ -320,6 +385,11 @@ fn retail_battery_shot_continues_after_encoded_world_save() {
     let _ = original.update_with_dt(1.0 / 30.0);
     assert_eq!(original.combat_system.projectile_count(), 1);
     let position = original.combat_system.projectiles_snapshot()[0].position;
+    let id = original.combat_system.projectiles_snapshot()[0].id;
+    let (mut peer, peer_source, peer_target) = world();
+    launch_one(&mut peer, peer_source, peer_target);
+    assert_eq!(peer.combat_system.projectiles_snapshot()[0].id, id);
+    let peer_before = peer.objects[&id].clone();
     let builder = crate::save_load::SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&original).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
@@ -328,11 +398,18 @@ fn retail_battery_shot_continues_after_encoded_world_save() {
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
     assert_eq!(restored.combat_system.projectile_count(), 1);
     assert_eq!(restored.combat_system.projectiles_snapshot()[0].position, position);
+    assert_eq!(restored.combat_system.projectiles_snapshot()[0].id, id);
+    assert_eq!(restored.objects[&id].get_position(), position);
+    assert_missile_object_state_eq(&original.objects[&id], &restored.objects[&id]);
+    assert_missile_object_state_eq(&peer_before, &peer.objects[&id]);
     let _ = original.update_with_dt(1.0 / 30.0);
     let _ = restored.update_with_dt(1.0 / 30.0);
     assert_eq!(original.combat_system.projectiles_snapshot()[0].position, restored.combat_system.projectiles_snapshot()[0].position);
+    assert_missile_object_state_eq(&original.objects[&id], &restored.objects[&id]);
+    assert_missile_object_state_eq(&peer_before, &peer.objects[&id]);
     impact(&mut original, target);
     impact(&mut restored, target);
+    assert_missile_object_state_eq(&peer_before, &peer.objects[&id]);
 }
 
 #[test]
@@ -342,12 +419,16 @@ fn superweapon_retail_missile_motion_is_owned_by_its_world_even_with_matching_id
     assert_eq!((source, target), (other_source, other_target));
     launch_one(&mut first, source, target);
     launch_one(&mut second, other_source, other_target);
-    let first_shot = first.combat_system.projectiles_snapshot()[0];
-    let second_shot = second.combat_system.projectiles_snapshot()[0];
-    assert_eq!(first_shot.id, second_shot.id);
-    let second_position = second_shot.position;
+    let first_id = first.combat_system.projectiles_snapshot()[0].id;
+    let second_id = second.combat_system.projectiles_snapshot()[0].id;
+    assert_eq!(first_id, second_id);
+    assert_eq!(first.objects[&first_id].template_name, "PatriotMissileEMP");
+    assert_eq!(second.objects[&second_id].template_name, "PatriotMissileEMP");
+    let second_position = second.combat_system.projectiles_snapshot()[0].position;
     let _ = first.update_with_dt(1.0 / 30.0);
     assert_ne!(first.combat_system.projectiles_snapshot()[0].position, second_position);
+    assert_ne!(first.objects[&first_id].get_position(), second_position);
+    assert_eq!(second.objects[&second_id].get_position(), second_position);
     assert_eq!(second.combat_system.projectiles_snapshot()[0].position, second_position);
     assert_eq!(second.objects[&other_target].health.current, 1000.0);
     let _ = second.update_with_dt(1.0 / 30.0);
@@ -355,4 +436,5 @@ fn superweapon_retail_missile_motion_is_owned_by_its_world_even_with_matching_id
         first.combat_system.projectiles_snapshot()[0].position,
         second.combat_system.projectiles_snapshot()[0].position
     );
+    assert_eq!(first.objects[&first_id].get_position(), second.objects[&second_id].get_position());
 }

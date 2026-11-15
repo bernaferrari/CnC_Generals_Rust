@@ -579,7 +579,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_daisy_cutter_flights(&mut self) {
+    pub fn update_daisy_cutter_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_daisy_cutter_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -588,7 +588,7 @@ impl GameLogic {
     pub(crate) fn update_daisy_cutter_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
 
@@ -647,7 +647,7 @@ impl GameLogic {
             }
         }
         for id in leave {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
         for (team, target, producer, tier) in drops {
             let bomb = tier.bomb();
@@ -710,7 +710,7 @@ impl GameLogic {
                     tier.primary_radius(),
                     DamageType::Explosive,
                     presentation_effects,
-                );
+                )?;
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.ensure_fuel_air_gas_slow_death(self.frame);
                     if o.fuel_air_gas_slow_death.is_some() {
@@ -729,8 +729,9 @@ impl GameLogic {
             }
         }
         for id in destroy {
-            self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, None, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// C++ SUPERWEAPON_AnthraxBomb / AnthraxBombGamma GLAJetCargoPlane residual.

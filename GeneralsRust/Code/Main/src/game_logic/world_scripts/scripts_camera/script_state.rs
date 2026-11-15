@@ -891,14 +891,14 @@ impl GameLogic {
     /// C++ NAMED_RECEIVE_UPGRADE / FLASH / EMOTICON / HELD / CUSTOM_COLOR /
     /// NAMED_SET_ATTITUDE / REPULSOR / STOPPING_DISTANCE / FORCE_SELECT /
     /// PLAYER_SELL_EVERYTHING / REPAIR_NAMED / EXCLUDE_FROM_SCORE / SELECT_SKILLSET.
-    pub(super) fn apply_host_script_visual_status_requests(&mut self) {
+    pub(super) fn apply_host_script_visual_status_requests(&mut self) -> gamelogic::GameLogicResult<()> {
         self.apply_host_script_visual_status_requests_with_effects(&mut Default::default())
     }
 
     pub(super) fn apply_host_script_visual_status_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::{
             HostScriptEmoticonRequest, HostScriptFlashRequest, HostScriptPlayerMiscRequest,
@@ -1114,7 +1114,7 @@ impl GameLogic {
                         .map(|obj| obj.id)
                         .collect();
                     for id in ids {
-                        let _ = self.start_sell_object_with_effects(id, effects);
+                        self.start_sell_object_with_effects(id, effects)?;
                     }
                 }
                 HostScriptPlayerMiscRequest::RepairNamed { player, structure } => {
@@ -1140,10 +1140,11 @@ impl GameLogic {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
                         continue;
                     };
-                    self.kill_player_for_victory_with_effects(pid, effects);
+                    self.kill_player_for_victory_with_effects(pid, effects)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Observe this owner's body before borrowing its AI queue. The manager
@@ -1567,7 +1568,7 @@ impl GameLogic {
                     dest_player,
                     destination_id,
                     effects,
-                )
+                )?
             {
                 return Err(gamelogic::GameLogicError::Configuration(
                     "player asset transfer lost its selected Team or Object".into(),

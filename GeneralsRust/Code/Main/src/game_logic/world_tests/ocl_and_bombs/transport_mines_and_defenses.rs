@@ -308,7 +308,7 @@ fn mine_residual_place_enemy_triggers_damage() {
         .expect("enemy");
     let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         game_logic.mine_residual_proximity_detonations(),
         0,
@@ -327,7 +327,7 @@ fn mine_residual_place_enemy_triggers_damage() {
             fixture_partition_enemy,
         );
     }
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
 
     assert_eq!(
         game_logic.mine_residual_proximity_detonations(),
@@ -365,7 +365,7 @@ fn mine_residual_ally_does_not_trigger_land_mine() {
         .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .expect("ally");
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
     assert!(game_logic.host_object(mine_id).unwrap().is_alive());
     assert!(game_logic.host_object(ally_id).unwrap().is_alive());
@@ -406,7 +406,7 @@ fn mine_same_faction_enemy_triggers_land_mine() {
         gamelogic::common::Relationship::Enemies
     );
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         game_logic.mine_residual_proximity_detonations(),
         1,
@@ -444,7 +444,7 @@ fn demo_trap_residual_proximity_detonates_on_enemy() {
         .expect("enemy");
     let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
     {
         let trap = game_logic.host_object(trap_id).unwrap();
@@ -463,7 +463,7 @@ fn demo_trap_residual_proximity_detonates_on_enemy() {
     game_logic.frame = game_logic
         .frame
         .saturating_add(crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES);
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
     let enemy = game_logic.host_object(enemy_id).unwrap();
     assert!(
@@ -492,7 +492,7 @@ fn demo_trap_detonate_when_killed_fires() {
         trap.status.effectively_dead = true;
     }
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     {
         let trap = game_logic.host_object(trap_id);
         let armed = trap
@@ -503,7 +503,7 @@ fn demo_trap_detonate_when_killed_fires() {
     game_logic.frame = game_logic
         .frame
         .saturating_add(crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES);
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     let trap = game_logic.host_object(trap_id);
     let detonated = trap
         .and_then(|t| t.mine_data.as_ref())
@@ -538,13 +538,13 @@ fn timed_demo_charge_residual_detonates_after_delay() {
 
     // Before deadline: no detonation.
     game_logic.frame = 1;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_timed_detonations(), 0);
     assert!(game_logic.host_object(charge_id).unwrap().is_alive());
 
     // At deadline: detonate.
     game_logic.frame = 3;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_timed_detonations(), 1);
     assert!(
         game_logic.honesty_timed_demo_charge_ok(),
@@ -614,7 +614,7 @@ fn timed_c4_kill_sinks_xp_to_planter() {
     }
 
     game_logic.frame = 1;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
 
     let burton = game_logic.host_object(burton_id).unwrap();
     assert!(
@@ -757,7 +757,7 @@ fn demo_trap_manual_detonate_residual() {
     // The retail SlowDeath DestructionDelay = 1000 (FX_GLADemoTrapWarning)
     // is the visual death sequence only — it never defers damage or the
     // detonation count.
-    assert!(game_logic.manual_detonate_mine(trap_id));
+    assert!(game_logic.manual_detonate_mine(trap_id).unwrap());
     assert_eq!(game_logic.mine_residual_manual_detonations(), 1);
     let enemy = game_logic.host_object(enemy_id).unwrap();
     assert!(
@@ -800,7 +800,7 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
     );
 
     game_logic.frame = 1;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         game_logic.mine_residual_clears(),
         0,
@@ -808,7 +808,7 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
     );
 
     game_logic.frame = 1 + DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
 
     assert_eq!(
         game_logic.mine_residual_clears(),
@@ -872,7 +872,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         d.set_weapon_condition_at_frame(8, true, 0);
     }
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         game_logic.mine_residual_clears(),
         0,
@@ -906,7 +906,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         );
     }
     game_logic.frame = 10;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         game_logic.mine_residual_clears(),
         0,
@@ -914,7 +914,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
     );
 
     game_logic.frame = 10 + DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
 
     assert_eq!(game_logic.mine_residual_clears(), 1);
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
@@ -942,7 +942,7 @@ fn dozer_mine_clear_residual_skips_ally_mine() {
         )
         .expect("dozer");
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_clears(), 0);
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
     let mine = game_logic.host_object(mine_id).unwrap();
@@ -978,7 +978,7 @@ fn dozer_mine_clear_residual_infantry_still_triggers() {
         )
         .expect("infantry");
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(game_logic.mine_residual_clears(), 0);
     assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
 }
@@ -1013,7 +1013,7 @@ fn land_mine_trips_on_vehicle_geometry_contact() {
         e.template_mut().add_kind_of(KindOf::Vehicle);
     }
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         game_logic.mine_residual_proximity_detonations(),
         1,
@@ -1041,7 +1041,7 @@ fn land_mine_does_not_trip_when_geometry_misses() {
         e.template_mut().add_kind_of(KindOf::Vehicle);
     }
 
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         game_logic.mine_residual_proximity_detonations(),
         0,
@@ -1075,7 +1075,7 @@ fn dozer_mine_clear_defuses_demo_trap_without_detonation() {
         "demo trap is a DISARM target"
     );
     assert!(
-        game_logic.clear_mine_internal(trap_id, dozer_id),
+        game_logic.clear_mine_internal(trap_id, dozer_id).unwrap(),
         "DISARM must defuse demo traps"
     );
     assert_eq!(game_logic.mine_residual_clears(), 1);
@@ -1086,9 +1086,9 @@ fn dozer_mine_clear_defuses_demo_trap_without_detonation() {
     );
 
     game_logic.frame = 1;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
     game_logic.frame = 1 + DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES;
-    game_logic.update_mines_and_demo_traps();
+    game_logic.update_mines_and_demo_traps().unwrap();
 
     let gone_or_dead = game_logic
         .host_object(trap_id)
@@ -1119,7 +1119,7 @@ fn china_regen_pad_survives_disarm_and_refills() {
             STANDARD_MINE_NUM_VIRTUAL
         );
     }
-    assert!(logic.clear_mine_internal(mine_id, ObjectId(999)));
+    assert!(logic.clear_mine_internal(mine_id, ObjectId(999)).unwrap());
     let pad = logic.host_object(mine_id).expect("regen pad kept");
     assert!(pad.is_alive(), "China pad must survive disarm");
     assert!(!pad.status.destroyed);
@@ -1127,9 +1127,9 @@ fn china_regen_pad_survives_disarm_and_refills() {
     assert_eq!(pad.mine_data.as_ref().unwrap().virtual_mines_remaining, 0);
 
     logic.frame = 0;
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     logic.frame = MINE_AUTO_HEAL_START_DELAY_FRAMES;
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     let after = logic.host_object(mine_id).unwrap();
     assert!(
         after.health.current + 1e-3 >= MINE_MIN_HEALTH + MINE_AUTO_HEAL_AMOUNT,
@@ -1157,7 +1157,7 @@ fn weapon_fire_trips_virtual_mines_on_health_band() {
             md.last_synced_health = Some(100.0);
         }
     }
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     assert!(
         logic.mine_residual_proximity_detonations() >= 1,
         "health-band drop must detonateOnce"
@@ -1193,7 +1193,7 @@ fn lethal_weapon_hit_chain_detonates_virtual_mines() {
         assert!(!m.status.destroyed);
         assert!(m.health.current <= 0.0);
     }
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     assert!(
         logic.mine_residual_proximity_detonations() >= STANDARD_MINE_NUM_VIRTUAL,
         "lethal hit must chain-detonate remaining virtuals, got {}",
@@ -1222,7 +1222,7 @@ fn sold_demo_trap_stops_proximity_scan() {
         let trap = logic.host_object_mut(trap_id).unwrap();
         trap.set_status_sold(true);
     }
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         logic.mine_residual_proximity_detonations(),
         0,
@@ -1254,7 +1254,7 @@ fn land_mine_trips_neutral_unit() {
             Vec3::new(trigger * 0.25, 0.0, 0.0),
         )
         .expect("neutral");
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     assert_eq!(
         logic.mine_residual_proximity_detonations(),
         1,
@@ -1286,7 +1286,7 @@ fn emp_mine_neutron_unmans_vehicle_and_kills_infantry() {
         t.health.current = 400.0;
         t.health.maximum = 400.0;
     }
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     let inf_dead = logic
         .host_object(inf)
         .is_none_or(|o| o.status.destroyed || !o.is_alive());
@@ -1310,7 +1310,7 @@ fn demo_trap_proximity_uses_height_not_aircraft_kind() {
     let jumper = logic
         .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 5.0, 0.0))
         .expect("jumper");
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     assert!(
         logic
             .host_object(trap_id)
@@ -1327,7 +1327,7 @@ fn demo_trap_proximity_uses_height_not_aircraft_kind() {
         c.template_mut().add_kind_of(KindOf::Aircraft);
         c.status.airborne_target = false;
     }
-    logic.update_mines_and_demo_traps();
+    logic.update_mines_and_demo_traps().unwrap();
     assert!(
         logic
             .host_object(trap_id)
@@ -1462,8 +1462,8 @@ fn stealth_residual_not_auto_targeted_until_detected() {
         d.detection_range = 50.0;
     }
 
-    game_logic.update_stealth_and_detection();
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
+    game_logic.update_stealth_and_detection().unwrap();
 
     let stealth = game_logic.host_object(stealth_id).unwrap();
     assert!(
@@ -1548,7 +1548,7 @@ fn stealth_residual_fire_breaks_stealth() {
         .get_mut(&shooter_id)
         .unwrap()
         .set_status_firing_weapon(true);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(shooter_id).unwrap().status.stealthed,
         "firing destalths on the next StealthUpdate"
@@ -1575,14 +1575,14 @@ fn stealth_residual_detection_expires() {
     assert!(!game_logic.host_object(stealth_id).unwrap().status.detected);
 
     game_logic.frame = 4;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.host_object(stealth_id).unwrap().status.detected,
         "must remain detected before expiry frame"
     );
 
     game_logic.frame = 5;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     let stealth = game_logic.host_object(stealth_id).unwrap();
     assert!(
         !stealth.status.detected && stealth.status.stealthed,
@@ -1724,7 +1724,7 @@ fn residual_auto_fire_commits_canonical_target_before_observation() {
     assert!(logic.host_object(attacker).unwrap().target.is_none());
     let weapon = logic.host_object(attacker).and_then(|o| o.weapon.clone());
     let pos = logic.host_object(attacker).unwrap().get_position();
-    let _ = logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0);
+    let _ = logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0).unwrap();
     assert_eq!(logic.host_object(attacker).unwrap().target, Some(victim));
     let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -1988,7 +1988,7 @@ fn camo_netting_structure_attack_and_damage_reveal() {
         .map(|o| o.stealth_allowed_frame)
         .unwrap_or(0);
     game_logic.frame = cloak_at;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     for id in [tunnel_id, stinger_id] {
         let o = game_logic.host_object(id).unwrap();
         assert!(o.status.stealthed, "cloaks once StealthDelay elapsed");
@@ -2001,8 +2001,8 @@ fn camo_netting_structure_attack_and_damage_reveal() {
     }
 
     // TAKING_DAMAGE: the next update reveals and re-arms StealthDelay.
-    let _ = game_logic.apply_host_damage(tunnel_id, 10.0);
-    game_logic.update_stealth_and_detection();
+    let _ = game_logic.apply_host_damage(tunnel_id, 10.0).unwrap();
+    game_logic.update_stealth_and_detection().unwrap();
     {
         let o = game_logic.host_object(tunnel_id).unwrap();
         assert!(!o.status.stealthed, "damage reveals CamoNetting structure");
@@ -2015,7 +2015,7 @@ fn camo_netting_structure_attack_and_damage_reveal() {
         let s = game_logic.host_object_mut(stinger_id).unwrap();
         s.set_status_firing_weapon(true);
     }
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(stinger_id).unwrap().status.stealthed,
         "firing reveals CamoNetting structure"
@@ -2031,7 +2031,7 @@ fn camo_netting_structure_attack_and_damage_reveal() {
         .host_object(stinger_id)
         .unwrap()
         .stealth_allowed_frame;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(stinger_id).unwrap().status.stealthed,
         "using an ability keeps CamoNetting structure revealed"
@@ -2047,7 +2047,7 @@ fn camo_netting_structure_attack_and_damage_reveal() {
         .unwrap()
         .stealth_allowed_frame
         .max(game_logic.frame);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.host_object(tunnel_id).unwrap().status.stealthed,
         "idle after StealthDelay re-cloaks CamoNetting structure"

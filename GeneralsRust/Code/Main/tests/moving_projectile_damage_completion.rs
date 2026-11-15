@@ -185,7 +185,7 @@ fn projectile_damage_fx_continues_after_restore_and_peer_reset() {
         Some(different_type.shooters[0]),
         Team::USA,
         false,
-    );
+    ).unwrap();
     assert!(hits > 0);
     let victim = different_type
         .world
@@ -863,7 +863,7 @@ fn moving_case(
     assert_eq!(f.world.combat_system().projectiles_snapshot().len(), count);
     assert_eq!(f.xp(), 0.0);
     if missing {
-        f.world.destroy_object(source);
+        f.world.destroy_object(source).unwrap();
         f.world.update();
         assert!(f.world.host_object(source).is_none());
     }

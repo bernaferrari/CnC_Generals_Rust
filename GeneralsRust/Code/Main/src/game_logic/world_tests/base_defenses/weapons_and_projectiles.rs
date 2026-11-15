@@ -90,7 +90,7 @@ fn microwave_tank_residual_disables_enemy_structure() {
     }
 
     game_logic.frame = 0;
-    game_logic.update_microwave_disable();
+    game_logic.update_microwave_disable().unwrap();
 
     assert!(
         game_logic.honesty_microwave_disable_ok(),
@@ -140,7 +140,7 @@ fn microwave_tank_residual_disables_enemy_structure() {
         );
     }
     game_logic.frame = 2;
-    game_logic.update_microwave_disable();
+    game_logic.update_microwave_disable().unwrap();
     assert!(
         !game_logic
             .host_object(ally_id)
@@ -196,7 +196,7 @@ fn microwave_tank_residual_skips_non_microwave() {
     }
 
     game_logic.frame = 1;
-    game_logic.update_microwave_disable();
+    game_logic.update_microwave_disable().unwrap();
     assert!(
         !game_logic.honesty_microwave_disable_ok(),
         "fail-closed: ordinary tank must not microwave-disable"
@@ -348,7 +348,7 @@ fn king_raptor_residual_skips_regular_raptor() {
     }
 
     game_logic.frame = 1;
-    game_logic.update_point_defense_intercept();
+    game_logic.update_point_defense_intercept().unwrap();
     assert!(
         !game_logic.honesty_point_defense_intercept_ok(),
         "fail-closed: regular Raptor must not PDL-intercept"
@@ -535,7 +535,7 @@ fn scud_launcher_residual_area_and_toxin() {
             Some(scud_id),
             Team::GLA,
             false,
-        );
+        ).unwrap();
     }
 
     assert!(
@@ -603,7 +603,7 @@ fn scud_launcher_residual_area_and_toxin() {
             Some(scud_id),
             Team::GLA,
             true,
-        );
+        ).unwrap();
     }
 
     assert!(
@@ -632,7 +632,7 @@ fn scud_launcher_residual_area_and_toxin() {
     // Next tick is activate_frame (90) + 15 = 105; first tick already applied at spawn frame.
     // Force another tick by advancing frame.
     game_logic.set_current_frame(120);
-    game_logic.update_scud_poison_zones();
+    game_logic.update_scud_poison_zones().unwrap();
     let poison_hp_after = game_logic
         .host_object(toxin_inf)
         .map(|t| t.health.current)
@@ -702,7 +702,7 @@ fn tomahawk_missile_projectile_lobs_and_impacts() {
     let mut hit = false;
     for _ in 0..(TOMAHAWK_FUEL_LIFETIME_FRAMES + 40) {
         logic.frame = logic.frame.saturating_add(1);
-        logic.update_tomahawk_missile_projectiles();
+        logic.update_tomahawk_missile_projectiles().unwrap();
         let alive = logic
             .host_object(pid)
             .map(|o| o.is_alive() && o.tomahawk_missile_projectile)
@@ -829,7 +829,7 @@ fn inferno_fire_field_object_spawns_on_zone() {
     logic.frame = logic
         .frame
         .saturating_add(INFERNO_FIRE_DURATION_FRAMES.saturating_add(1));
-    logic.update_inferno_fire_field_objects();
+    logic.update_inferno_fire_field_objects().unwrap();
     logic.process_destroy_list();
     assert!(
         !logic
@@ -888,7 +888,7 @@ fn fire_base_shell_scale_speed_lob_and_blast() {
 
     for _ in 0..(frames + 5) {
         logic.frame = logic.frame.saturating_add(1);
-        logic.update_fire_base_shell_projectiles();
+        logic.update_fire_base_shell_projectiles().unwrap();
         if !logic
             .host_object(pid)
             .map(|o| o.is_alive() && o.fire_base_shell_projectile)
@@ -977,7 +977,7 @@ fn technical_cannon_shell_projectile_flies_and_impacts() {
         .max(10);
     for _ in 0..max_steps {
         logic.frame = logic.frame.saturating_add(1);
-        logic.update_technical_cannon_shell_projectiles();
+        logic.update_technical_cannon_shell_projectiles().unwrap();
         if !logic
             .objects
             .registered_values()
@@ -1206,24 +1206,24 @@ End
     let (mut a, carrier, infantry, vehicle) = world(11);
     let (mut b, other_carrier, other_infantry, other_vehicle) = world(23);
     assert_eq!((carrier, infantry, vehicle), (other_carrier, other_infantry, other_vehicle));
-    a.update_point_defense_intercept();
-    a.apply_owned_projectileless_delayed_damage();
+    a.update_point_defense_intercept().unwrap();
+    a.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(a.host_object(infantry).unwrap().health.current, 89.0);
     assert_eq!(a.host_object(vehicle).unwrap().health.current, 93.0);
     assert_eq!(b.host_object(other_infantry).unwrap().health.current, 100.0);
-    b.update_point_defense_intercept();
-    b.apply_owned_projectileless_delayed_damage();
+    b.update_point_defense_intercept().unwrap();
+    b.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(b.host_object(other_infantry).unwrap().health.current, 77.0);
     a.frame += 1;
-    a.update_point_defense_intercept();
-    a.apply_owned_projectileless_delayed_damage();
+    a.update_point_defense_intercept().unwrap();
+    a.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(a.host_object(infantry).unwrap().health.current, 78.0);
     assert_eq!(a.host_object(vehicle).unwrap().health.current, 93.0);
     assert_eq!(b.host_object(other_vehicle).unwrap().health.current, 93.0);
     let (mut named, authored, victim, _) = world(11);
     named.host_object_mut(authored).unwrap().status.effectively_dead = true;
     named.create_object_for_player("AmericaTankPaladin", 1, Vec3::ZERO).unwrap();
-    named.update_point_defense_intercept();
+    named.update_point_defense_intercept().unwrap();
     assert_eq!(named.host_object(victim).unwrap().health.current, 100.0,
         "retail carrier name alone does not install a point-defense module");
 }
@@ -1404,8 +1404,8 @@ End
     }
     fn fire_frame(world: &mut GameLogic, frame: u32) {
         world.set_current_frame(u64::from(frame));
-        world.update_point_defense_intercept();
-        world.apply_owned_projectileless_delayed_damage();
+        world.update_point_defense_intercept().unwrap();
+        world.apply_owned_projectileless_delayed_damage().unwrap();
     }
     fn health(world: &GameLogic, infantry: ObjectId, vehicle: ObjectId) -> (f32, f32) {
         (world.host_object(infantry).unwrap().health.current, world.host_object(vehicle).unwrap().health.current)

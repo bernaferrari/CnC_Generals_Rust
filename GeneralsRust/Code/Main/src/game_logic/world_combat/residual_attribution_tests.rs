@@ -45,7 +45,7 @@ fn transfer(world: &mut GameLogic, id: ObjectId, owner: u32) {
 }
 fn plan(world: &mut GameLogic, source: Option<ObjectId>, victim: ObjectId) {
     assert_eq!(
-        world.apply_scud_area_at(Vec3::ZERO, source, Team::USA, true),
+        world.apply_scud_area_at(Vec3::ZERO, source, Team::USA, true).unwrap(),
         (0, false)
     );
     assert_eq!(world.scud_poison_zones.active_count(), 1);
@@ -56,7 +56,7 @@ fn plan(world: &mut GameLogic, source: Option<ObjectId>, victim: ObjectId) {
     world.set_fixture_object_position(victim, Vec3::ZERO);
 }
 fn tick(world: &mut GameLogic, victim: ObjectId) {
-    world.update_scud_poison_zones();
+    world.update_scud_poison_zones().unwrap();
     assert!(world.objects[&victim].status.on_die_started);
     assert!(world.objects[&victim].status.destroyed);
     assert_eq!(
@@ -138,7 +138,7 @@ fn planned_scud_poison_uses_current_owner_not_captured_team() {
         assert_eq!(world.cash_bounty.floating_texts[0].killer_id, source);
         assert_eq!(world.cash_bounty.floating_texts[0].victim_id, victim);
         world.mark_object_for_destruction(victim, Some(Team::USA));
-        world.update_scud_poison_zones();
+        world.update_scud_poison_zones().unwrap();
         credited(&world, source, owner);
         world.process_destroy_list();
         assert!(!world.objects.contains_key(&victim));
@@ -218,9 +218,9 @@ fn immediate_comanche_and_scud_blasts_share_source_aware_score_order() {
         world.set_fixture_object_position(victim, Vec3::ZERO);
         transfer(&mut world, source, 1);
         let hit = if comanche {
-            world.apply_comanche_rocket_pod_area_at(Vec3::ZERO, Some(source))
+            world.apply_comanche_rocket_pod_area_at(Vec3::ZERO, Some(source)).unwrap()
         } else {
-            world.apply_scud_area_at(Vec3::ZERO, Some(source), Team::USA, false)
+            world.apply_scud_area_at(Vec3::ZERO, Some(source), Team::USA, false).unwrap()
         };
         assert_eq!(hit, (1, true));
         credited(&world, source, 1);
@@ -381,7 +381,7 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body() {
         );
         assert!(!world.objects[&victim].kill_experience_awarded);
         assert_eq!(
-            world.apply_comanche_rocket_pod_area_at(Vec3::ZERO, Some(source)),
+            world.apply_comanche_rocket_pod_area_at(Vec3::ZERO, Some(source)).unwrap(),
             (1, true)
         );
         for repeat in 0..2 {
@@ -398,7 +398,7 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body() {
             assert!(world.objects[&victim].kill_experience_awarded);
             world.mark_object_for_destruction(victim, Some(Team::USA));
             if repeat == 0 {
-                world.update_scud_poison_zones();
+                world.update_scud_poison_zones().unwrap();
             }
         }
         world.process_destroy_list();

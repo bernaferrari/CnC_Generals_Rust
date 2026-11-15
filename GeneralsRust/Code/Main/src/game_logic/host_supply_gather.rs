@@ -1180,16 +1180,16 @@ impl crate::game_logic::GameLogic {
     }
 
     /// C++ `SupplyWarehouseCripplingBehavior` + `WAREHOUSE_SET_VALUE` drain.
-    pub fn update_supply_warehouse_crippling(&mut self) {
+    pub fn update_supply_warehouse_crippling(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_supply_warehouse_crippling_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        );
+        )
     }
 
     pub(crate) fn update_supply_warehouse_crippling_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.drain_warehouse_script_set_values();
         let frame = self.frame as u32;
         let objects = &self.objects;
@@ -1249,7 +1249,7 @@ impl crate::game_logic::GameLogic {
             if amount > 0.0 {
                 // C++ SupplyWarehouseCripplingBehavior::update attemptHealing.
                 // The source argument is NULL in the C++ call.
-                let _ = self.apply_owned_healing_with_effects(id, amount, None, effects);
+                self.apply_owned_healing_with_effects(id, amount, None, effects)?;
                 // C++ resumes the module update after attemptHealing and reads
                 // the body's post-callback health before deciding its cadence.
                 let still_original = self.objects.get(&id).is_some_and(|obj| {
@@ -1265,6 +1265,7 @@ impl crate::game_logic::GameLogic {
                 state.last_health = cur;
             }
         }
+        Ok(())
     }
 
     pub fn drain_warehouse_script_set_values(&mut self) {
@@ -1486,9 +1487,9 @@ mod tests {
         let (peer, peer_id) = world();
         assert_eq!(id, peer_id);
         receiving.frame = 0;
-        receiving.update_supply_warehouse_crippling();
+        receiving.update_supply_warehouse_crippling().unwrap();
         receiving.frame = 90;
-        receiving.update_supply_warehouse_crippling();
+        receiving.update_supply_warehouse_crippling().unwrap();
 
         let healed = receiving.host_object(id).unwrap();
         assert!((healed.health.current - 205.0).abs() < 0.01);

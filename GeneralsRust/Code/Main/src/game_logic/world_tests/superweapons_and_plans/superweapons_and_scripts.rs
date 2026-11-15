@@ -983,7 +983,7 @@ End
     game_logic.set_fixture_object_position(car_id, Vec3::new(1.5, 0.0, 0.0));
     game_logic.frame = 30;
     game_logic.update_combat(&[car_id, structure_id], 1.0 / 30.0);
-    game_logic.apply_owned_projectileless_delayed_damage();
+    game_logic.apply_owned_projectileless_delayed_damage().unwrap();
 
     let structure_after = game_logic
         .host_object(structure_id)
@@ -1018,7 +1018,7 @@ End
     peer.set_fixture_object_position(peer_car_id, Vec3::new(1.5, 0.0, 0.0));
     peer.frame = 30;
     peer.update_combat(&[peer_car_id, peer_structure_id], 1.0 / 30.0);
-    peer.apply_owned_projectileless_delayed_damage();
+    peer.apply_owned_projectileless_delayed_damage().unwrap();
     let peer_hp = peer.host_object(peer_structure_id).unwrap().health.current;
     assert!(peer_hp < structure_hp_before);
     assert!(peer_hp > owner_hp, "each world must use its own weapon damage");
@@ -1045,7 +1045,7 @@ End
 
     let (mut neutron, neutron_car, neutron_nearby) = fixture(700);
     let nearby_hp = neutron.host_object(neutron_nearby).unwrap().health.current;
-    neutron.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false);
+    neutron.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false).unwrap();
     let car = neutron.host_object(neutron_car).unwrap();
     assert!(!car.is_alive());
     assert!(car.status.disabled_unmanned);
@@ -1063,7 +1063,7 @@ End
         car.experience.current = 200.0;
         car.default_auto_heal = Some(crate::game_logic::host_heal::HostDefaultAutoHealData::new());
     }
-    unconverted.apply_neutron_blast_at(Vec3::new(20.0, 0.0, 0.0), Team::USA, None, false);
+    unconverted.apply_neutron_blast_at(Vec3::new(20.0, 0.0, 0.0), Team::USA, None, false).unwrap();
     let car = unconverted.host_object(id).unwrap();
     assert!(!car.is_alive());
     assert!(car.status.disabled_unmanned);
@@ -1094,7 +1094,7 @@ fn kill_pilot_and_neutron_preserve_other_disables_until_their_deadlines() {
         let (peer, peer_id) = fixture();
         assert_eq!(id, peer_id);
         if neutron {
-            owner.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false);
+            owner.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false).unwrap();
         } else {
             owner.apply_owned_damage(
                 id, 1.0, None,

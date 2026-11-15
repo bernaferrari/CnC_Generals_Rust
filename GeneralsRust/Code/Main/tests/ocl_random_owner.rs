@@ -65,6 +65,7 @@ fn dispatch(logic: &mut GameLogic, source: ObjectId) -> ObjectId {
             Vec3::ZERO,
             Vec3::new(50.0, 0.0, 50.0),
         )
+        .expect("execute receiving map OCL")
         .into_iter()
         .next()
         .expect("receiving map OCL creates one child")

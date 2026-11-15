@@ -36,7 +36,7 @@ fn residual_lethal_completes_ondie_before_session_damage_fx() {
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 None,
                 &mut Default::default(),
-            );
+            ).expect("residual damage completes");
             // apply_residual doesn't take after_fx callback — observe post-state.
             let victim = world.objects.get(&id).unwrap();
             assert!(destroyed || victim.status.on_die_started || victim.health.current <= 0.0);

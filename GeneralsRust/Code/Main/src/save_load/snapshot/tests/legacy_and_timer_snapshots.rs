@@ -695,7 +695,7 @@ fn snapshot_round_trips_sell_list_mid_sell() {
         obj.set_status_under_construction(false);
         obj.set_status_reconstructing(false);
     }
-    assert!(source.start_sell_object(id));
+    assert!(source.start_sell_object(id).unwrap());
     assert!(source.is_object_being_sold(id));
     let sell_frame = source.sell_list_for_snapshot()[0].1;
 

@@ -499,7 +499,7 @@ fn apply_overlap_crush_check_crushes_enemy_infantry() {
     inf.set_position(Vec3::new(5.0, 0.0, 0.0));
     logic.objects.insert(iid, inf);
 
-    assert!(logic.apply_overlap_crush_check(tid, iid, false));
+    assert!(logic.apply_overlap_crush_check(tid, iid, false).unwrap());
     let inf = logic.objects.get(&iid).unwrap();
     assert!(inf.status.destroyed);
     assert_eq!(inf.status.death_type, HostDeathType::Crushed);
@@ -632,7 +632,7 @@ fn allied_player_tank_does_not_crush_friends() {
     inf.health.maximum = 100.0;
     logic.objects.insert(iid, inf);
 
-    assert!(!logic.apply_overlap_crush_check(tid, iid, true));
+    assert!(!logic.apply_overlap_crush_check(tid, iid, true).unwrap());
     let inf = logic.objects.get(&iid).unwrap();
     assert!(inf.is_alive());
     assert_ne!(inf.status.death_type, HostDeathType::Crushed);
@@ -667,7 +667,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     s.set_position(Vec3::new(5.0, 1.0, 0.0));
     logic.objects.insert(iid, s);
 
-    assert!(logic.apply_immobile_collide_bounce(mid, iid, 10.0));
+    assert!(logic.apply_immobile_collide_bounce(mid, iid, 10.0).unwrap());
     let m = logic.objects.get(&mid).unwrap();
     // Pushed back / velocity reversed residual along -X.
     assert!(
@@ -685,7 +685,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     p.movement.velocity = Vec3::new(3.0, -1.0, 0.0);
     p.set_status_parachuting(true);
     logic.objects.insert(pid, p);
-    assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0));
+    assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0).unwrap());
     let p = logic.objects.get(&pid).unwrap();
     assert_eq!(p.movement.velocity.x, 0.0);
     assert_eq!(p.movement.velocity.z, 0.0);
@@ -701,7 +701,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     w.status.destroyed = true;
     w.health.current = 0.0;
     logic.objects.insert(wid, w);
-    assert!(logic.apply_immobile_collide_bounce(wid, iid, 10.0));
+    assert!(logic.apply_immobile_collide_bounce(wid, iid, 10.0).unwrap());
     let w = logic.objects.get(&wid).unwrap();
     assert!(
         w.movement.velocity.x <= 0.0,
@@ -746,7 +746,7 @@ fn apply_immobile_collide_bounce_parachute_walks_contain_chain() {
 
     let rider_before = logic.objects.get(&pid).unwrap().get_position();
     let rider_vel_before = logic.objects.get(&pid).unwrap().movement.velocity;
-    assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0));
+    assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0).unwrap());
 
     let rider = logic.objects.get(&pid).unwrap();
     assert_eq!(
@@ -831,7 +831,7 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
     for other in [dead, emp, deployed, garrisoned, docked] {
         let before = logic.objects.get(&mid).unwrap().movement.velocity;
         assert!(
-            !logic.apply_immobile_collide_bounce(mid, other, 10.0),
+            !logic.apply_immobile_collide_bounce(mid, other, 10.0).unwrap(),
             "other {other:?} is not KINDOF_IMMOBILE"
         );
         let after = logic.objects.get(&mid).unwrap().movement.velocity;
@@ -844,7 +844,7 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
     let mut tree = Object::new(tree_t, tid, Team::Neutral);
     tree.set_position(Vec3::new(5.0, 1.0, 0.0));
     logic.objects.insert(tid, tree);
-    assert!(logic.apply_immobile_collide_bounce(mid, tid, 10.0));
+    assert!(logic.apply_immobile_collide_bounce(mid, tid, 10.0).unwrap());
 
     // Pair loop: dead wreck stays mobile-mobile (last_collidee, no vel zero).
     logic.objects.get_mut(&mid).unwrap().movement.velocity = Vec3::new(8.0, 0.0, 0.0);
@@ -882,6 +882,7 @@ fn apply_vehicle_crash_into_building_destroys() {
 
     let w = logic
         .apply_vehicle_crash_into_immobile(vid, sid)
+        .expect("crash admission")
         .expect("weapon");
     assert_eq!(w, PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON);
     assert!(logic.objects.get(&vid).unwrap().status.destroyed);
@@ -951,6 +952,7 @@ fn apply_vehicle_crash_destroys_non_vehicle_into_structure() {
 
     let w = logic
         .apply_vehicle_crash_into_immobile(iid, sid)
+        .expect("crash admission")
         .expect("destroy-only residual");
     assert_eq!(w, "");
     assert!(
@@ -1150,7 +1152,7 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
         Team::USA,
         tgt,
         Some("AmericaFireBaseHowitzer"),
-    );
+    ).unwrap();
     assert!(hits >= 1, "neighbor in primary ring must splash");
     let nh = logic
         .objects
@@ -1224,7 +1226,7 @@ fn splash_kill_awards_score_the_kill_experience() {
         Team::USA,
         tgt,
         Some("AmericaFireBaseHowitzer"),
-    );
+    ).unwrap();
     assert!(hits >= 1, "neighbor in splash ring must be hit");
     let near_dead = logic
         .objects
@@ -1309,7 +1311,7 @@ End
         Team::USA,
         ObjectId(0), // no skip
         Some("TestNoAllySplashWeapon"),
-    );
+    ).unwrap();
     let ah = logic
         .objects
         .get(&ally)
@@ -1334,7 +1336,7 @@ End
         o.health.current = 200.0;
     }
     let _ =
-        logic.apply_scatter_miss_splash_at(impact, 50.0, 30.0, src, Team::USA, ObjectId(0), None);
+        logic.apply_scatter_miss_splash_at(impact, 50.0, 30.0, src, Team::USA, ObjectId(0), None).unwrap();
     let ah2 = logic
         .objects
         .get(&ally)
@@ -1424,7 +1426,7 @@ End
         Team::USA,
         ObjectId(0),
         Some("TestNotAirborneSplashWeapon"),
-    );
+    ).unwrap();
     let gh = logic
         .objects
         .get(&ground)
@@ -1505,7 +1507,7 @@ fn scatter_miss_applies_splash_at_offset() {
         Team::USA,
         intended,
         Some("AmericaFireBaseHowitzer"),
-    );
+    ).unwrap();
     assert!(hits >= 1, "neighbor in splash must be hit");
     let nh = logic
         .objects
@@ -1558,7 +1560,7 @@ fn scatter_miss_splash_does_not_invent_1_5x_secondary() {
         Team::USA,
         ObjectId(0),
         None,
-    );
+    ).unwrap();
     let fh = logic
         .objects
         .get(&far)
@@ -1607,7 +1609,7 @@ fn scatter_miss_splash_uses_bounding_sphere_3d() {
         Team::USA,
         ObjectId(0),
         None,
-    );
+    ).unwrap();
     let hh = logic
         .objects
         .get(&high)

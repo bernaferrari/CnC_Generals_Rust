@@ -117,7 +117,7 @@ fn start_sell_sets_construction_percent_under_authority() {
         o.construction_percent = 1.0;
         o.set_status_under_construction(false);
     }
-    assert!(logic.start_sell_object(oid));
+    assert!(logic.start_sell_object(oid).unwrap());
     // CPP sell start changes the canonical percent immediately to 0.999.
     // Construction authority no longer freezes host percent (stalls multi-frame sell).
     assert!(
@@ -173,7 +173,7 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
         o.set_status_under_construction(false);
         o.construction_percent = 1.0;
     }
-    assert!(logic.start_sell_object(oid));
+    assert!(logic.start_sell_object(oid).unwrap());
 
     // Advance past scaffold into negative deconstruction via full host tick
     // (frame + update_sell_list). Stop once percent is clearly negative.

@@ -87,7 +87,7 @@ impl GameLogic {
                 "HijackerUpdate PutInContainer {name} is invalid for receiving rider"
             )));
         }
-        if self.should_cancel_containment_after_booby_trap_with_effects(chute_id, rider_id, effects)
+        if self.should_cancel_containment_after_booby_trap_with_effects(chute_id, rider_id, effects)?
             || !original(self)
         {
             return Ok(());

@@ -161,8 +161,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
                 ));
             }
             Request::FireWeaponPath { path, .. } => {
-                self.world
-                    .host_script_fire_weapon_following_path_for(id, path, &mut self.ui);
+                return Some(self.world
+                    .host_script_fire_weapon_following_path_for(id, path, &mut self.ui));
             }
             Request::TransferOwnership { player, .. } => {
                 let current = self
@@ -172,9 +172,13 @@ impl<'a> HostScriptExecutionDriver<'a> {
                     let birth = self.world.host_object(id).map(|object| {
                         std::sync::Arc::downgrade(&object.visual_draw_identity_token)
                     });
-                    if self
-                        .world
+                    let transferred = match self.world
                         .transfer_object_to_player_with_effects(id, player, &mut self.ui)
+                    {
+                        Ok(transferred) => transferred,
+                        Err(error) => return Some(Err(error)),
+                    };
+                    if transferred
                         && birth
                             .as_ref()
                             .is_some_and(|birth| self.world.object_birth_matches(id, birth))

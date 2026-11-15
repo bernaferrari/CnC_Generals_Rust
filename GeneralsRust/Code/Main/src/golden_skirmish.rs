@@ -1815,7 +1815,7 @@ fn run_map_world_skirmish(
     // such as a GLAInfantryWorker do not keep it alive.
     let victory = same_world_victory_ok
         && matches!(
-            logic.evaluate_victory_condition(),
+            logic.evaluate_victory_condition()?,
             Some(VictoryCondition::Winner(0))
         );
 

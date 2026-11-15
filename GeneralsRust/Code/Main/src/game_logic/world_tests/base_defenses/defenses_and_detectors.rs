@@ -106,7 +106,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     }
 
     run_detector_first_scan(&mut game_logic, sentry_id);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     {
         let e = game_logic.host_object(stealth_id).expect("enemy");
         assert!(
@@ -393,7 +393,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         s.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
     }
     game_logic.frame = 1;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(sentry_id).unwrap().status.stealthed,
         "sentry must uncloak while moving"
@@ -413,7 +413,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         s.set_status_attacking(false);
     }
     game_logic.frame = 2;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(sentry_id).unwrap().status.stealthed,
         "sentry must not re-cloak instantly after stopping"
@@ -425,7 +425,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
     assert!(allowed > 2, "StealthDelay must schedule re-cloak");
 
     game_logic.frame = allowed;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.host_object(sentry_id).unwrap().status.stealthed,
         "sentry re-cloaks after StealthDelay"
@@ -441,7 +441,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
     }
 
     game_logic.frame = allowed.saturating_add(1);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(sentry_id).unwrap().status.stealthed,
         "sentry must uncloak while firing"
@@ -460,7 +460,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
 
     let after_fire = game_logic.frame.saturating_add(1);
     game_logic.frame = after_fire;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         !game_logic.host_object(sentry_id).unwrap().status.stealthed,
         "sentry stays visible after first shot until StealthDelay"
@@ -470,7 +470,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         .unwrap()
         .stealth_allowed_frame;
     game_logic.frame = allowed_after_fire;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     assert!(
         game_logic.host_object(sentry_id).unwrap().status.stealthed,
         "sentry re-cloaks after fire StealthDelay"
@@ -614,7 +614,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
     }
     // Place scout at origin (already); enemy at 30 within 150.
     run_detector_first_scan(&mut game_logic, scout_id);
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     {
         let e = game_logic.host_object(stealth_id).unwrap();
         assert!(

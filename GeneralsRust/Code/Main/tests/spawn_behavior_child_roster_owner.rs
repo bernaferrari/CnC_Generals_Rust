@@ -92,8 +92,8 @@ fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    owner.apply_host_damage(parent, 1000.0);
-    restored.apply_host_damage(parent, 1000.0);
+    owner.apply_host_damage(parent, 1000.0).unwrap();
+    restored.apply_host_damage(parent, 1000.0).unwrap();
     let survivor = owner.host_object(child).unwrap();
     assert!(!survivor.status.unselectable);
     assert!(!survivor.status.disabled_held);
@@ -167,8 +167,8 @@ fn required_spawn_children_run_their_own_slow_death_in_the_receiving_world() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     assert_eq!(roster(&restored, parent), children);
-    owner.apply_host_damage(parent, 1000.0);
-    restored.apply_host_damage(parent, 1000.0);
+    owner.apply_host_damage(parent, 1000.0).unwrap();
+    restored.apply_host_damage(parent, 1000.0).unwrap();
     for child in children {
         let owner_child = owner
             .host_object(ObjectId(child))
@@ -546,7 +546,7 @@ fn hive_body_without_spawn_behavior_forwards_to_closest_contained_rider() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(shooter),
-    );
+    ).unwrap();
     assert_eq!(world.host_object(bunker).unwrap().health.current, 1000.0);
     assert_eq!(world.host_object(near).unwrap().health.current, 70.0);
     assert_eq!(world.host_object(far).unwrap().health.current, 100.0);
@@ -557,7 +557,7 @@ fn hive_body_without_spawn_behavior_forwards_to_closest_contained_rider() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         None,
-    );
+    ).unwrap();
     assert_eq!(world.host_object(bunker).unwrap().health.current, 990.0);
     // An empty Contain with a resolved source swallows.
     let empty = world
@@ -569,7 +569,7 @@ fn hive_body_without_spawn_behavior_forwards_to_closest_contained_rider() {
         HostHiveDamageClass::PropagateToSlaves,
         None,
         Some(shooter),
-    );
+    ).unwrap();
     assert_eq!(world.host_object(empty).unwrap().health.current, 1000.0);
 }
 
@@ -594,7 +594,7 @@ fn spawn_weapon_stealth_checks_child_eligibility_and_reveals_the_pack() {
     let first = ObjectId(children[0]);
     let second = ObjectId(children[1]);
     owner.host_object_mut(second).unwrap().innate_stealth = false;
-    owner.update_stealth_and_detection();
+    owner.update_stealth_and_detection().unwrap();
     assert!(!owner.host_object(parent).unwrap().status.stealthed);
     assert_eq!(owner.host_object(first).unwrap().detection_expires_frame, owner.get_current_frame() as u32 + 60);
     assert_eq!(owner.host_object(second).unwrap().detection_expires_frame, owner.get_current_frame() as u32 + 60);
@@ -603,9 +603,9 @@ fn spawn_weapon_stealth_checks_child_eligibility_and_reveals_the_pack() {
     // Eligibility, not the current cloak or detection bit, controls the nest.
     owner.host_object_mut(second).unwrap().innate_stealth = true;
     owner.host_object_mut(first).unwrap().set_status_stealthed(false);
-    owner.update_stealth_and_detection();
+    owner.update_stealth_and_detection().unwrap();
     assert!(owner.host_object(parent).unwrap().status.stealthed);
-    peer.update_stealth_and_detection();
+    peer.update_stealth_and_detection().unwrap();
     assert!(peer.host_object(peer_parent).unwrap().status.stealthed);
 }
 
@@ -622,21 +622,21 @@ fn temporary_stealth_grant_expires_after_awake_updates() {
     object.stealth_frames_granted = 2;
     object.set_status_disabled_emp(true);
 
-    world.update_stealth_and_detection();
+    world.update_stealth_and_detection().unwrap();
     assert_eq!(world.host_object(id).unwrap().stealth_frames_granted, 2);
     assert!(world.host_object(id).unwrap().innate_stealth);
     world.host_object_mut(id).unwrap().set_status_disabled_emp(false);
 
-    world.update_stealth_and_detection();
+    world.update_stealth_and_detection().unwrap();
     assert_eq!(world.host_object(id).unwrap().stealth_frames_granted, 1);
     assert!(world.host_object(id).unwrap().innate_stealth);
-    world.update_stealth_and_detection();
+    world.update_stealth_and_detection().unwrap();
     let object = world.host_object(id).unwrap();
     assert_eq!(object.stealth_frames_granted, 0);
     assert!(!object.innate_stealth);
     assert!(!object.status.stealthed);
     assert!(object.stealth_update_awake);
-    world.update_stealth_and_detection();
+    world.update_stealth_and_detection().unwrap();
     assert!(!world.host_object(id).unwrap().stealth_update_awake);
 
     let commanded = world.create_object_for_player("TemporaryCloakUnit", 1, Vec3::ZERO).unwrap();
@@ -646,7 +646,7 @@ fn temporary_stealth_grant_expires_after_awake_updates() {
     object.apply_grant_stealth(frame);
     object.stealth_frames_granted = 10;
     object.last_command_source = 0; // CMD_FROM_PLAYER
-    world.update_stealth_and_detection();
+    world.update_stealth_and_detection().unwrap();
     let object = world.host_object(commanded).unwrap();
     assert_eq!(object.stealth_frames_granted, 0);
     assert!(!object.innate_stealth);

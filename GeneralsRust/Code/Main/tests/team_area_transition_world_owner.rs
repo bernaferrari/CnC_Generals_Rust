@@ -325,7 +325,7 @@ fn public_garrison_exit_marks_the_receiving_team_through_owned_pose_completion()
     // set_owned_object_position_with_effects and must mark teamOwner now.
     owner.inject_host_script_query_snapshot();
     peer.inject_host_script_query_snapshot();
-    assert!(owner.garrison_exit_occupant_via_door(owner_unit, owner_bunker));
+    assert!(owner.garrison_exit_occupant_via_door(owner_unit, owner_bunker).unwrap());
     owner.inject_host_script_query_snapshot();
 
     let cases = || {
@@ -575,7 +575,7 @@ fn public_land_mine_scoot_marks_only_the_receiving_team() {
     // producer outside the polygon back to its authored target inside it.
     let _ = observe(&mut owner, "MineBeforeScoot", entered_cases());
     for _ in 0..240 {
-        owner.update_mines_and_demo_traps();
+        owner.update_mines_and_demo_traps().unwrap();
     }
     owner.inject_host_script_query_snapshot();
     peer.inject_host_script_query_snapshot();

@@ -1033,7 +1033,7 @@ impl GameLogic {
 
     /// C++ GarrisonContain::onBodyDamageStateChange: BODY_REALLYDAMAGED edge
     /// ejects occupants unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
-    pub(in super::super) fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) {
+    pub(in super::super) fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) -> gamelogic::GameLogicResult<()> {
         self.check_building_damage_states_with_effects(
             object_ids,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1044,7 +1044,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         // Collect garrison buildings that need evacuation (borrow-safe).
         let mut evacuate_ids: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
 
@@ -1072,7 +1072,7 @@ impl GameLogic {
 
         // C++ orderAllPassengersToExit → exitObjectViaDoor walk, not a ring dump.
         for (cid, occupants) in evacuate_ids {
-            let _ = self.evacuate_container_now_with_effects(cid, false, presentation_effects);
+            self.evacuate_container_now_with_effects(cid, false, presentation_effects)?;
             for occ_id in occupants {
                 if let Some(unit) = self.objects.get(&occ_id) {
                     let p = unit.get_position();
@@ -1082,6 +1082,7 @@ impl GameLogic {
                 self.record_garrison_residual_exit();
             }
         }
+        Ok(())
     }
 
     pub(in super::super) fn update_power_disabled_state(&mut self) {

@@ -94,7 +94,7 @@ fn execute(world: &mut GameLogic, source: crate::game_logic::ObjectId) -> String
         0.0,
         glam::Vec3::ZERO,
         glam::Vec3::ZERO,
-    );
+    ).unwrap();
     assert_eq!(created.len(), 1);
     world.host_object(created[0]).unwrap().template_name.clone()
 }

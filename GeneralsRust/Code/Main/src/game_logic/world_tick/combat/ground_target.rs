@@ -263,7 +263,7 @@ impl GameLogic {
                 .objects
                 .get(&attacker_id)
                 .map_or(Vec3::ZERO, Object::get_position);
-            let visual = self.begin_owned_weapon_effects_with_effects(
+            let visual = match self.begin_owned_weapon_effects_with_effects(
                 attacker_id,
                 ground_slot,
                 None,
@@ -271,7 +271,10 @@ impl GameLogic {
                 origin,
                 None,
                 effects,
-            );
+            ) {
+                Ok(visual) => visual,
+                Err(error) => return CombatShotResult::Failed(error),
+            };
             shot = CombatShotResult::Fired(ground_slot, visual);
 
             // Unadmitted bare weapon (no WeaponTemplate): damage the nearest
@@ -287,7 +290,7 @@ impl GameLogic {
                     damage_type,
                     None,
                 );
-                let _ = self.apply_owned_damage_with_effects(
+                if let Err(error) = self.apply_owned_damage_with_effects(
                     ground_target_id,
                     weapon_damage,
                     Some(attacker_id),
@@ -296,7 +299,9 @@ impl GameLogic {
                     None,
                     &context,
                     effects,
-                );
+                ) {
+                    return CombatShotResult::Failed(error);
+                }
             }
             // The common successful-shot finalizer owns ammo, temporary-slot
             // unlock, stealth disruption and accepted presentation/barrel commit

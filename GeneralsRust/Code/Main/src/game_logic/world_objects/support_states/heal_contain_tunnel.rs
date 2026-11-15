@@ -2,14 +2,14 @@
 use super::super::super::*;
 
 impl GameLogic {
-    pub(super) fn tick_heal_contain_and_tunnel(&mut self) {
+    pub(super) fn tick_heal_contain_and_tunnel(&mut self) -> gamelogic::GameLogicResult<()> {
         self.tick_heal_contain_and_tunnel_with_effects(&mut Default::default())
     }
 
     pub(super) fn tick_heal_contain_and_tunnel_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_tunnel_network::{
             TUNNEL_FULL_HEAL_FRAMES, heal_contain_done, tunnel_tracker_heal_amount,
         };
@@ -22,7 +22,7 @@ impl GameLogic {
                 self.frame,
                 &mut self.ownership_events, &mut self.partition_manager);
         for cid in dirty_garrisons {
-            self.recalc_garrison_apparent_controller(cid);
+            self.recalc_garrison_apparent_controller_with_effects(cid, effects)?;
         }
 
         let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>)> = Vec::new();
@@ -58,12 +58,12 @@ impl GameLogic {
                 }) {
                     // CPP HealContain::doHeal uses the container source and
                     // finishes Body callbacks before exit/next-passenger work.
-                    let _ = self.apply_owned_healing_with_effects(
+                    self.apply_owned_healing_with_effects(
                         unit_id,
                         amount,
                         Some(container_id),
                         effects,
-                    );
+                    )?;
                     if amount > 0.0 {
                         self.tunnel_network.record_heal_tick();
                     }
@@ -111,7 +111,7 @@ impl GameLogic {
                     tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames)
                 }) {
                     // CPP TunnelTracker::healObject leaves source invalid.
-                    let _ = self.apply_owned_healing_with_effects(unit_id, amount, None, effects);
+                    self.apply_owned_healing_with_effects(unit_id, amount, None, effects)?;
                     if amount > 0.0 {
                         self.tunnel_network.record_heal_tick();
                     }
@@ -160,10 +160,11 @@ impl GameLogic {
                     )
                 }) {
                     // CPP GarrisonContain::healSingleObject leaves source invalid.
-                    let _ = self.apply_owned_healing_with_effects(unit_id, amount, None, effects);
+                    self.apply_owned_healing_with_effects(unit_id, amount, None, effects)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ `TunnelTracker::getCurNemesis` object-validity half.

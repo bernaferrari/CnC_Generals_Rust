@@ -1773,7 +1773,7 @@ fn sold_status_freezes_into_presentation() {
         o.status.under_construction = false;
         o.construction_percent = 1.0;
     }
-    assert!(logic.start_sell_object(id));
+    assert!(logic.start_sell_object(id).unwrap());
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame
         .objects

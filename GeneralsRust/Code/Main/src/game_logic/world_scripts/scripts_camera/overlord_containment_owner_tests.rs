@@ -138,9 +138,9 @@ fn overlord_enter_uses_actual_payload_roster_and_preserves_same_id_peer() {
     );
     owner.host_object_mut(hull).unwrap().status.disabled_subdued = true;
     assert!(!owner.can_unit_enter_normal_target(peer_unit, hull));
-    assert!(!owner.evacuate_container_now(hull, false));
+    assert!(!owner.evacuate_container_now(hull, false).unwrap());
     owner.host_object_mut(hull).unwrap().status.disabled_subdued = false;
-    assert!(owner.evacuate_container_now(hull, false));
+    assert!(owner.evacuate_container_now(hull, false).unwrap());
     assert!(
         owner
             .host_object(payload)

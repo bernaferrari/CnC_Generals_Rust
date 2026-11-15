@@ -568,7 +568,7 @@ fn stealth_fighter_innate_stealth_residual_keys_on_authored_stealth_update() {
     let authored_id = game_logic
         .create_object("TestCloakJet", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("authored");
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
 
     let n = game_logic.host_object(named_id).expect("named");
     assert!(
@@ -666,6 +666,7 @@ fn scorpion_splash_residual_keys_on_authored_weapon_not_template_name() {
             .expect("enemy");
         let pos = gl.objects.get(&enemy).unwrap().get_position();
         gl.apply_scorpion_residual_at(pos, Some(shooter), Some(enemy), 0)
+            .unwrap()
             .0
     }
 

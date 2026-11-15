@@ -168,13 +168,13 @@ impl GameLogic {
         source_id: ObjectId,
         source_team: Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<bool> {
-        let victim = self.objects.get(&victim_id)?;
+    ) -> gamelogic::GameLogicResult<Option<bool>> {
+        let Some(victim) = self.objects.get(&victim_id) else { return Ok(None) };
         if !victim.is_alive() {
-            return None;
+            return Ok(None);
         }
         if victim.is_significantly_above_terrain() {
-            return Some(false);
+            return Ok(Some(false));
         }
         self.apply_owned_damage_with_killer_team_with_effects(
             victim_id,
@@ -187,7 +187,7 @@ impl GameLogic {
             Some(source_team),
             effects,
         )
-        .map(|result| result.destroyed())
+        .map(|result| result.map(|result| result.destroyed()))
     }
 
     /// Complete residual Body, Player and world callbacks on this receiving
@@ -200,7 +200,7 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.apply_residual_damage_owned_with_effects(
             victim_id,
             amount,
@@ -221,11 +221,11 @@ impl GameLogic {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         // Residual weapons and world effects use the same installed Body owner
         // as ordinary impacts. Finish reentrant bridge, score and onDie callbacks
         // before returning to the caller's original next-candidate boundary.
-        self.apply_owned_damage_with_effects(
+        Ok(self.apply_owned_damage_with_effects(
             victim_id,
             amount,
             source_id,
@@ -234,8 +234,8 @@ impl GameLogic {
             fx_override,
             &DamageHitContext::default(),
             effects,
-        )
-        .is_some_and(|result| result.destroyed)
+        )?
+        .is_some_and(|result| result.destroyed))
     }
 
     /// CPP Object1930–1940: preserve the requested damage/death types and
@@ -245,7 +245,7 @@ impl GameLogic {
         victim_id: ObjectId,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_kill_with_effects(
             victim_id,
             damage_type,
@@ -260,8 +260,8 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<OwnedDamageResult> {
-        let victim = self.objects.get(&victim_id)?;
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
+        let Some(victim) = self.objects.get(&victim_id) else { return Ok(None) };
         let amount = if victim.thing().template.body_kind.is_some() {
             // CPP Object::kill takes the actual receiving Body max health,
             // including zero for InactiveBody; the kill bit is independent.
@@ -295,7 +295,7 @@ impl GameLogic {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
         context: &DamageHitContext,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_effects(
             victim_id,
             damage,
@@ -318,7 +318,7 @@ impl GameLogic {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         context: &DamageHitContext,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_killer_team_with_effects(
             victim_id,
             damage,
@@ -340,7 +340,7 @@ impl GameLogic {
         victim_id: ObjectId,
         amount: f32,
         source_id: Option<ObjectId>,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_healing_with_effects(victim_id, amount, source_id, &mut Default::default())
     }
 
@@ -350,7 +350,7 @@ impl GameLogic {
         amount: f32,
         source_id: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         let context = DamageHitContext::new(
             source_id.and_then(|id| self.objects.get(&id)),
             None,
@@ -382,7 +382,7 @@ impl GameLogic {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_killer_team_with_effects(
             victim_id,
             damage,
@@ -407,7 +407,7 @@ impl GameLogic {
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         let result = self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
             victim_id,
             damage,
@@ -419,7 +419,7 @@ impl GameLogic {
             killer_team_override,
             |_, _| {},
             effects,
-        );
+        )?;
         // C++ ActiveBody::attemptDamage DAMAGE_KILL_GARRISONED kills
         // floor(amount) occupants synchronously inside the damage call
         // (ActiveBody.cpp:421-460); the body only records the count.
@@ -430,14 +430,14 @@ impl GameLogic {
             let source_team = source_id
                 .and_then(|id| self.objects.get(&id))
                 .map_or(Team::Neutral, |source| source.team);
-            let _ = self.flush_pending_kill_garrisoned_with_effects(
+            self.flush_pending_kill_garrisoned_with_effects(
                 victim_id,
                 source_id,
                 source_team,
                 effects,
-            );
+            )?;
         }
-        result
+        Ok(result)
     }
 
     /// The observer runs at this same real synchronous DamageFX boundary;
@@ -453,7 +453,7 @@ impl GameLogic {
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
             victim_id,
             damage,
@@ -480,7 +480,7 @@ impl GameLogic {
         killer_team_override: Option<Team>,
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
 
@@ -495,7 +495,7 @@ impl GameLogic {
         // this impact's source or its retained same/previous-frame source.
         // Resolve both from this receiving object store; the bounded body phase
         // cannot remove or transfer either source before its Player callback.
-        let previous_source = self.objects.get(&victim_id)?.last_damage_source;
+        let Some(previous_source) = self.objects.get(&victim_id).map(|victim| victim.last_damage_source) else { return Ok(None) };
         let source_players = [source_id, previous_source].map(|source| {
             source.and_then(|id| {
                 self.objects
@@ -532,11 +532,11 @@ impl GameLogic {
             &mut after_damage_fx,
             &context,
             effects,
-        ) {
-            return Some(result);
+        )? {
+            return Ok(Some(result));
         }
         let frame = self.frame;
-        let before_hp = self.objects.get(&victim_id)?.health.current;
+        let Some(before_hp) = self.objects.get(&victim_id).map(|victim| victim.health.current) else { return Ok(None) };
         let callback_player = self.local_player_id();
         #[cfg(feature = "game_client")]
         let begin_player = callback_player;
@@ -552,7 +552,7 @@ impl GameLogic {
         });
         #[cfg(feature = "game_client")]
         let native_body = {
-            let victim = self.objects.get(&victim_id)?;
+            let Some(victim) = self.objects.get(&victim_id) else { return Ok(None) };
             let source = victim.owner_player_id.map(|id| id as i32).unwrap_or(-1);
             (
                 self.live_draw_playback_identity(victim),
@@ -683,9 +683,8 @@ impl GameLogic {
                     frame: self.frame,
                 };
             let players = &mut self.players;
-            self.objects
-                .get_mut(&victim_id)?
-                .begin_damage_with_context_and_effects_with_operation(
+            let Some(victim) = self.objects.get_mut(&victim_id) else { return Ok(None) };
+            victim.begin_damage_with_context_and_effects_with_operation(
                     damage,
                     source_id,
                     damage_type,
@@ -717,12 +716,13 @@ impl GameLogic {
         };
         if let Some(continuation) = application.take_rider_change_kill_pilot() {
             if continuation.car_bomb {
-                let identity = self.live_draw_playback_identity(self.objects.get(&victim_id)?);
-                self.maybe_detonate_carbomb_on_unmanned_with_effects(victim_id, effects);
+                let Some(victim) = self.objects.get(&victim_id) else { return Ok(None) };
+                let identity = self.live_draw_playback_identity(victim);
+                self.maybe_detonate_carbomb_on_unmanned_with_effects(victim_id, effects)?;
                 if !self.objects.get(&victim_id).is_some_and(|victim| {
                     self.live_draw_playback_identity(victim) == identity
                 }) {
-                    return None;
+                    return Ok(None);
                 }
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
                     victim.set_team_and_owner_with_partition_owner(
@@ -735,7 +735,7 @@ impl GameLogic {
             }
             if let Some(transition) = continuation.transition.as_ref() {
                 let Some(victim) = self.objects.get(&victim_id) else {
-                    return None;
+                    return Ok(None);
                 };
                 let rider_identity = self.live_draw_playback_identity(victim);
                 self.execute_receiving_transition_damage_fx(
@@ -746,11 +746,11 @@ impl GameLogic {
                     self.frame,
                     callback_player,
                     effects,
-                );
+                )?;
                 if !self.objects.get(&victim_id).is_some_and(|object| {
                     self.live_draw_playback_identity(object) == rider_identity
                 }) {
-                    return None;
+                    return Ok(None);
                 }
             }
 
@@ -889,7 +889,7 @@ impl GameLogic {
                 damage_type,
                 healing,
                 effects,
-            )
+            )?
         } else {
             None
         };
@@ -918,12 +918,12 @@ impl GameLogic {
                             .objects
                             .get_mut(&victim_id)
                             .and_then(|object| object.take_pending_fire_when_damaged_weapon());
-                        let _ = self.execute_temporary_weapon_on_damage_with_effects(
+                        self.execute_temporary_weapon_on_damage_with_effects(
                             victim_id,
                             actual_damage,
                             damage_type.to_store() as u32,
                             effects,
-                        );
+                        )?;
                     }
                     #[cfg(feature = "game_client")]
                     let fx_operation_environment = self.observe_object_fx_environment();
@@ -933,9 +933,9 @@ impl GameLogic {
                     .and_then(|object| object.take_pending_fire_when_damaged_weapon())
                 {
                     reaction_callback_ran = true;
-                    let _ = self.apply_fire_weapon_when_damaged_named_with_effects(
+                    self.apply_fire_weapon_when_damaged_named_with_effects(
                         victim_id, &weapon, effects,
-                    );
+                    )?;
                 }
             }
         }
@@ -947,17 +947,17 @@ impl GameLogic {
         {
             // A reentrant callback retired/reset this incarnation. Its
             // continuation must never be completed against a replacement ID.
-            return None;
+            return Ok(None);
         }
         let bridge_callbacks = application.bridge_callbacks();
         if let Some(callbacks) = bridge_callbacks {
-            self.complete_owned_bridge_body_callbacks_with_effects(callbacks, effects);
+            self.complete_owned_bridge_body_callbacks_with_effects(callbacks, effects)?;
             if !self
                 .objects
                 .get(&victim_id)
                 .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
             {
-                return None;
+                return Ok(None);
             }
         }
         let callback_source = application
@@ -1018,13 +1018,13 @@ impl GameLogic {
                 self.frame,
                 callback_player,
                 effects,
-            );
+            )?;
             if !self
                 .objects
                 .get(&victim_id)
                 .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
             {
-                return None;
+                return Ok(None);
             }
             let environment = self.observe_object_fx_environment();
             Self::with_object_fx_services(
@@ -1110,13 +1110,13 @@ impl GameLogic {
                 self.frame,
                 None,
                 effects,
-            );
+            )?;
             if !self
                 .objects
                 .get(&victim_id)
                 .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
             {
-                return None;
+                return Ok(None);
             }
             let same_victim = self
                 .objects
@@ -1207,7 +1207,7 @@ impl GameLogic {
                 .get(&victim_id)
                 .is_some_and(|object| self.live_draw_playback_identity(object) == victim_identity)
             {
-                return None;
+                return Ok(None);
             }
             let killer_team = killer_team_override
                 .or_else(|| source_id.and_then(|id| self.objects.get(&id).map(|obj| obj.team)));
@@ -1223,7 +1223,7 @@ impl GameLogic {
                 },
                 context.topple_interpreter(),
                 effects,
-            );
+            )?;
         }
         let source = application
             .source_id()
@@ -1413,12 +1413,12 @@ impl GameLogic {
         };
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);
-        Some(OwnedDamageResult {
+        Ok(Some(OwnedDamageResult {
             destroyed,
             hp_lost,
             victim_position,
             victim_team,
-        })
+        }))
     }
 
     fn try_owned_hive_structure_damage(
@@ -1433,13 +1433,13 @@ impl GameLogic {
         after_damage_fx: &mut Option<impl FnOnce(&mut Self, ObjectId)>,
         context: &DamageHitContext,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<OwnedDamageResult> {
+    ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
         use crate::game_logic::host_base_defense::{
             HostHiveDamageClass, hive_damage_class_for_type,
         };
 
         let (template_name, position, team, hive) = {
-            let parent = self.objects.get(&victim_id)?;
+            let Some(parent) = self.objects.get(&victim_id) else { return Ok(None) };
             (
                 parent.template_name.clone(),
                 parent.get_position(),
@@ -1452,7 +1452,7 @@ impl GameLogic {
         // enough: otherwise this path would swallow damage C++ sends to the
         // ordinary structure body.
         let Some(parent) = self.objects.get(&victim_id) else {
-            return None;
+            return Ok(None);
         };
         let authored_hive_body = parent
             .thing()
@@ -1477,7 +1477,7 @@ impl GameLogic {
             // authoritative and an ActiveBody spawner is not a HiveBody.
             .unwrap_or(hive);
         if !authored_hive_body {
-            return None;
+            return Ok(None);
         }
         // C++ HiveStructureBody.cpp:55-100: SpawnBehavior interface first,
         // else the Contain module's riders; neither means ordinary Body.
@@ -1486,7 +1486,7 @@ impl GameLogic {
             && parent.thing().template.contain_module.kind
                 == crate::game_logic::ContainModuleKind::None
         {
-            return None;
+            return Ok(None);
         }
         // The effective typed body belongs to this receiving template. A
         // synthetic template with no admitted definition keeps the legacy
@@ -1526,14 +1526,13 @@ impl GameLogic {
                     "Admitted HiveStructureBody for '{}' has no typed receiving module data",
                     template_name
                 );
-                // The damage API cannot return an error; keep the invalid
-                // admission from being interpreted as an ordinary hull hit.
-                return Some(OwnedDamageResult {
+                // Keep invalid admission from becoming an ordinary hull hit.
+                return Ok(Some(OwnedDamageResult {
                     destroyed: false,
                     hp_lost: 0.0,
                     victim_position: position,
                     victim_team: team,
-                });
+                }));
             };
             data
         } else {
@@ -1544,12 +1543,12 @@ impl GameLogic {
             )
         };
         if !propagate {
-            return None;
+            return Ok(None);
         }
         let Some(source) = source_id.and_then(|id| self.objects.get(&id)) else {
             // HiveStructureBody only searches/forwards/swallow when its source
             // Object resolves. Missing source falls through to the structure.
-            return None;
+            return Ok(None);
         };
         let source_position = source.get_position();
         let mut closest: Option<(ObjectId, f32)> = None;
@@ -1604,8 +1603,8 @@ impl GameLogic {
         let closest = closest.map(|(child_id, _)| child_id);
 
         if let Some(child_id) = closest {
-            let child_before = self.objects.get(&child_id)?.health.current;
-            let child_after_fx = after_damage_fx.take()?;
+            let Some(child_before) = self.objects.get(&child_id).map(|child| child.health.current) else { return Ok(None) };
+            let Some(child_after_fx) = after_damage_fx.take() else { return Ok(None) };
             let child_context = context.clone();
             let child_result = self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
                 child_id,
@@ -1618,17 +1617,17 @@ impl GameLogic {
                 killer_team_override,
                 child_after_fx,
                 effects,
-            );
+            )?;
             let Some(child_result) = child_result else {
                 // The synchronous Body callback re-entered and retired the
                 // selected birth. C++ still returns from HiveStructureBody;
                 // do not fall through and damage the parent hull.
-                return Some(OwnedDamageResult {
+                return Ok(Some(OwnedDamageResult {
                     destroyed: false,
                     hp_lost: 0.0,
                     victim_position: position,
                     victim_team: team,
-                });
+                }));
             };
             let child_alive = self
                 .objects
@@ -1659,23 +1658,23 @@ impl GameLogic {
                 damage_type,
                 child_result.hp_lost,
             );
-            return Some(OwnedDamageResult {
+            return Ok(Some(OwnedDamageResult {
                 destroyed: false,
                 hp_lost: child_result.hp_lost,
                 victim_position: position,
                 victim_team: team,
-            });
+            }));
         }
         if swallow {
             let _ = (damage, context);
-            return Some(OwnedDamageResult {
+            return Ok(Some(OwnedDamageResult {
                 destroyed: false,
                 hp_lost: 0.0,
                 victim_position: position,
                 victim_team: team,
-            });
+            }));
         }
-        None
+        Ok(None)
     }
 }
 
@@ -1687,7 +1686,7 @@ impl GameLogic {
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.materialize_owned_passive_shot_with_effects(
             pending,
             stream_binding,
@@ -1700,20 +1699,8 @@ impl GameLogic {
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let projectile_name = pending.projectile_object_name.clone();
-        let ready = crate::game_logic::combat::materialize_accepted_projectile(
-            &mut self.combat_system,
-            self.objects.read(),
-            self.frame,
-            pending,
-            stream_binding,
-            self.projectile_definitions.get(&projectile_name),
-            self.projectile_definitions.geometry(&projectile_name),
-            Some(&self.partition_manager),
-            &mut self.next_object_id,
-            &self.logic_random,
-        );
+    ) -> gamelogic::GameLogicResult<()> {
+        let ready = self.materialize_owned_shot_with_effects(pending, stream_binding, effects)?;
         self.update_projectile_weapon_bonus_upgrades(None);
         if let Some(shot) = ready {
             let limit = self.combat_system.historic_damage_limit();
@@ -1724,19 +1711,166 @@ impl GameLogic {
                 limit,
             );
             for event in events {
-                self.apply_owned_combat_damage_with_effects(&event, effects);
+                self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
         }
+        Ok(())
     }
 
-    pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage(&mut self) {
+    /// Materialize the batch selected at the existing queue boundary. Shots
+    /// accepted reentrantly remain queued for the next boundary.
+    pub(in crate::game_logic) fn materialize_owned_queued_projectiles_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let pending = self.combat_system.take_pending_projectiles();
+        for shot in pending {
+            if let Some(immediate) = self.materialize_owned_shot_with_effects(shot, None, effects)? {
+                self.combat_system.defer_projectileless_shot(immediate);
+            }
+        }
+        Ok(())
+    }
+
+    fn materialize_owned_shot_with_effects(
+        &mut self,
+        pending: crate::game_logic::combat::PendingProjectile,
+        stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<crate::game_logic::combat::LiveProjectilelessDelayedDamage>> {
+        let projectile_name = pending.projectile_object_name.clone();
+        let missile = self.projectile_definitions.get(&projectile_name).is_some_and(|profile| {
+            matches!(profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_))
+        });
+        if !missile && matches!(
+            pending.projectile_lifecycle,
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
+        ) {
+            return Err(gamelogic::GameLogicError::Configuration(format!(
+                "Missile {projectile_name} has no receiving flight profile"
+            )));
+        }
+        let source = pending.source_context;
+        let source_object = self.objects.get(&pending.shooter_id);
+        let team = source.map(|context| context.source_team)
+            .or_else(|| source_object.map(|object| object.team))
+            .unwrap_or(crate::game_logic::Team::Neutral);
+        let owner = match source {
+            Some(context) => context.source_owner_player_id,
+            None => source_object.and_then(|object| object.owner_player_id),
+        };
+        let transform = source.and_then(|context| context.launch_transform).or_else(|| {
+            source_object.map(|object| {
+                let mut matrix = object.get_transform_matrix();
+                matrix.w_axis = pending.shooter_pos.extend(1.0);
+                matrix
+            })
+        });
+        let velocity = source.map(|context| context.source_velocity)
+            .or_else(|| source_object.map(|object| object.movement.velocity))
+            .unwrap_or_default();
+        let position = transform.map_or(pending.shooter_pos, |matrix| matrix.w_axis.truncate());
+        // Weapon fire effects are emitted by the shared materializer even
+        // when no aim remains. Do not run newObject/onCreate until the same
+        // live-target-or-captured-position test can produce an aim.
+        let has_aim = pending.target_pos.is_some()
+            || pending.target_id.is_some_and(|id| self.objects.lookup(&id).is_some());
+        let birth = if missile && has_aim {
+            if transform.is_none() {
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Missile {projectile_name} has no launch transform"
+                )));
+            }
+            match self.create_projectile_with_birth_checked(
+                &projectile_name, team, owner, position,
+                source.and_then(|context| context.projectile_team_id), effects,
+            ) {
+                Ok(Some(birth)) => Some(birth),
+                Ok(None) => return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Could not create missile {projectile_name}"
+                ))),
+                Err(error) => {
+                    if let Some((id, birth)) = error.committed {
+                        if self.spawn_identity_matches(id, birth.0, birth.1) {
+                            self.destroy_object_with_effects(id, effects)?;
+                        }
+                    }
+                    return Err(error.error);
+                }
+            }
+        } else {
+            None
+        };
+        let ready = crate::game_logic::combat::materialize_accepted_projectile(
+            &mut self.combat_system,
+            self.objects.read(),
+            self.frame,
+            pending,
+            stream_binding,
+            self.projectile_definitions.get(&projectile_name),
+            self.projectile_definitions.geometry(&projectile_name),
+            Some(&self.partition_manager),
+            &mut self.next_object_id,
+            birth.map(|(id, _)| id),
+            &self.logic_random,
+        );
+        if let Some((id, birth)) = birth {
+            let valid = self.spawn_identity_matches(id, birth.0, birth.1);
+            let motion = if valid {
+                match (
+                    self.projectile_definitions.get(&projectile_name),
+                    transform,
+                    self.combat_system.get_projectiles().get(&id),
+                    self.objects.get_mut(&id),
+                ) {
+                    (Some(profile), Some(transform), Some(projectile), Some(actor)) => {
+                        crate::game_logic::combat::MissileMotion::launch_pose(
+                            transform, projectile.target_position,
+                        ).and_then(|pose| {
+                            actor.set_transform_matrix_with_partition_owner(
+                                pose, self.frame, effects, &mut self.partition_manager,
+                            );
+                            crate::game_logic::combat::MissileMotion::launch(
+                                actor, profile, transform, velocity,
+                                projectile.target_position, projectile.speed, self.frame,
+                            ).map(|motion| (motion, actor.get_position(), actor.movement.velocity))
+                        })
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some((motion, position, velocity)) = motion {
+                if let Some(projectile) = self.combat_system.projectile_mut(id) {
+                    projectile.position = position;
+                    projectile.velocity = velocity;
+                    projectile.missile_motion = Some(motion);
+                    projectile.missile_actor_birth = Some(birth);
+                }
+            } else {
+                let had_projectile = self.combat_system.remove_projectile(id);
+                if self.spawn_identity_matches(id, birth.0, birth.1) {
+                    self.destroy_object_with_effects(id, effects)?;
+                }
+                if had_projectile || !valid {
+                    return Err(gamelogic::GameLogicError::Configuration(format!(
+                        "Could not launch missile {projectile_name}"
+                    )));
+                }
+            }
+        }
+        Ok(ready)
+    }
+
+    pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage(&mut self) -> gamelogic::GameLogicResult<()> {
         self.apply_owned_projectileless_delayed_damage_with_effects(&mut Default::default())
     }
 
     pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::take_ready_projectileless_delayed_damage;
         let ready = take_ready_projectileless_delayed_damage(&mut self.combat_system, self.frame);
         let limit = self.combat_system.historic_damage_limit();
@@ -1748,16 +1882,17 @@ impl GameLogic {
                 limit,
             );
             for event in events {
-                self.apply_owned_combat_damage_with_effects(&event, effects);
+                self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
         }
+        Ok(())
     }
 
     /// Host-only owner: CombatSystem remains installed through every callback.
     pub(in crate::game_logic) fn update_owned_projectile_impacts(
         &mut self,
         dt: f32,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
         self.update_owned_projectile_impacts_with_effects(dt, &mut Default::default())
     }
 
@@ -1765,18 +1900,36 @@ impl GameLogic {
         &mut self,
         dt: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
         let ids = self.combat_system.projectile_update_ids();
         let limit = self.combat_system.historic_damage_limit();
         let mut retired = Vec::new();
+        let mut births = Vec::new();
         for id in ids {
-            let removals = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects);
-            retired.extend(removals);
+            let birth = self.combat_system.get_projectiles().get(&id)
+                .and_then(|shot| shot.missile_actor_birth);
+            let removals = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects)?;
+            for removed in removals {
+                if removed == id {
+                    retired.push(removed);
+                    births.push(birth);
+                }
+            }
         }
-        // Retain registered entries across callbacks until the existing removal
-        // boundary. C++ destroyObject marks first; physical deletion is later.
-        self.combat_system.retire_projectile_impacts(&retired);
-        retired
+        // A callback can replace an ID. Retire only the selected missile
+        // incarnation, then destroy its matching ordinary Object.
+        for (&id, birth) in retired.iter().zip(births) {
+            let current = self.combat_system.get_projectiles().get(&id);
+            if current.is_some_and(|shot| shot.missile_actor_birth == birth) {
+                self.combat_system.retire_projectile_impacts(&[id]);
+                if let Some(birth) = birth {
+                    if self.spawn_identity_matches(id, birth.0, birth.1) {
+                        self.destroy_object_with_effects(id, effects)?;
+                    }
+                }
+            }
+        }
+        Ok(retired)
     }
 
     /// One bounded callback, suitable for the session UpdateModule dispatcher.
@@ -1786,7 +1939,7 @@ impl GameLogic {
         id: ObjectId,
         dt: f32,
         historic_damage_limit: u32,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
         self.update_owned_projectile_impact_with_effects(
             id,
             dt,
@@ -1801,7 +1954,14 @@ impl GameLogic {
         dt: f32,
         historic_damage_limit: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+        if let Some(birth) = self.combat_system.get_projectiles().get(&id)
+            .and_then(|projectile| projectile.missile_actor_birth)
+        {
+            if !self.spawn_identity_matches(id, birth.0, birth.1) {
+                return Ok(vec![id]);
+            }
+        }
         // Weapon.cpp:1504-1508 and 1797-1816 compute the detonation
         // weapon's bonus from the projectile's live conditions OR the
         // launcher conditions captured by its flight module at launch.
@@ -1868,7 +2028,7 @@ impl GameLogic {
                         Some(&mut self.countermeasures),
                         self.frame,
                         Some(&terrain),
-                        Some(&self.partition_manager),
+                        Some(&mut self.partition_manager),
                         &mut self.ownership_events,
                         historic_damage_limit,
                         self.receiving_object_definitions.as_ref(),
@@ -1885,7 +2045,7 @@ impl GameLogic {
             Some(&mut self.countermeasures),
             self.frame,
             Some(&terrain),
-            Some(&self.partition_manager),
+            Some(&mut self.partition_manager),
             &mut self.ownership_events,
             historic_damage_limit,
             self.receiving_object_definitions.as_ref(),
@@ -1895,21 +2055,21 @@ impl GameLogic {
         // C++ Weapon::handleProjectileDetonation → fireWeaponTemplate with
         // isProjectileDetonation: ProjectileDetonationFX/OCL run before Body
         // damage (Weapon.cpp:889-949 then dealDamageInternal).
-        self.flush_projectile_impact_fx_with_effects(effects);
+        self.flush_projectile_impact_fx_with_effects(effects)?;
 
         for event in events {
-            self.apply_owned_combat_damage_with_effects(&event, effects);
+            self.apply_owned_combat_damage_with_effects(&event, effects)?;
         }
         // Return deletion requests; do not physically remove the callback's
         // projectile while other callbacks can still inspect the arena.
-        retired
+        Ok(retired)
     }
 
     fn apply_owned_combat_damage_with_effects(
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageEvent;
         if let DamageEvent::Direct {
             target_id,
@@ -1937,7 +2097,7 @@ impl GameLogic {
                 None,
                 &context,
                 effects,
-            ) {
+            )? {
                 // Preserve excluded special-body deferred death fallback. Ordinary
                 // owned deaths have already set on_die_started and are never queued twice.
                 if let Some(target) = self.objects.get(&target_id) {
@@ -1964,8 +2124,9 @@ impl GameLogic {
                 }
             }
         } else {
-            self.apply_owned_area_damage_with_effects(event, effects);
+            self.apply_owned_area_damage_with_effects(event, effects)?;
         }
+        Ok(())
     }
 }
 
@@ -1974,7 +2135,7 @@ impl GameLogic {
         &mut self,
         event: &crate::game_logic::combat::DamageEvent,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::{AreaDamage, DamageEvent};
         let DamageEvent::Area {
             shooter_id,
@@ -1986,7 +2147,7 @@ impl GameLogic {
             ..
         } = event
         else {
-            return;
+            return Ok(());
         };
         // Weapon.cpp:1434 — mask from the live source (projectile controller
         // for moving detonations) before sourceID may become the launcher.
@@ -2001,7 +2162,7 @@ impl GameLogic {
                     "Receiving weapon definition '{}' is missing for directional splash",
                     radius_weapon_name
                 );
-                return;
+                return Ok(());
             };
             (
                 weapon.radius_damage_angle,
@@ -2049,7 +2210,7 @@ impl GameLogic {
                     None,
                     &context,
                     effects,
-                )
+                )?
             } else {
                 None
             };
@@ -2081,6 +2242,7 @@ impl GameLogic {
                 );
             }
         }
+        Ok(())
     }
 }
 

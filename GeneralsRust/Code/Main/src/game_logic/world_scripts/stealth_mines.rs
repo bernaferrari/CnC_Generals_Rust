@@ -22,7 +22,7 @@ mod reveal_response;
 
 impl GameLogic {
     /// Manually detonate a residual demo trap / charge (command residual).
-    pub fn manual_detonate_mine(&mut self, mine_id: ObjectId) -> bool {
+    pub fn manual_detonate_mine(&mut self, mine_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.manual_detonate_mine_with_effects(mine_id, &mut Default::default())
     }
 
@@ -30,7 +30,7 @@ impl GameLogic {
         &mut self,
         mine_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_mines::HostMineDetonateReason;
         self.detonate_mine_internal_with_effects(
             mine_id,
@@ -277,14 +277,14 @@ impl GameLogic {
     }
 
     /// C++ MinefieldBehavior::update producer-death drain + AutoHeal + onDamage virtual sync.
-    fn update_land_mine_regen_and_virtual(&mut self) {
+    fn update_land_mine_regen_and_virtual(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_land_mine_regen_and_virtual_with_effects(&mut Default::default())
     }
 
     fn update_land_mine_regen_and_virtual_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_mines::{HostMineKind, MINE_CREATOR_DEATH_CHECK_FRAMES};
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
@@ -353,7 +353,7 @@ impl GameLogic {
             if amount > 0.0 {
                 if healing {
                     // CPP AutoHealBehavior284: direct healing, self benefactor.
-                    let _ = self.apply_owned_healing_with_effects(id, amount, Some(id), effects);
+                    self.apply_owned_healing_with_effects(id, amount, Some(id), effects)?;
                 } else {
                     self.apply_residual_damage_owned_with_effects(
                         id,
@@ -363,7 +363,7 @@ impl GameLogic {
                         crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                         None,
                         effects,
-                    );
+                    )?;
                 }
             }
             // Finish this pad's real onHealing/onDamage callback before the
@@ -374,20 +374,21 @@ impl GameLogic {
                     amount > 0.0 && healing,
                     amount > 0.0 && self_drain,
                     effects,
-                );
+                )?;
             }
         }
         self.drain_masked_object_selection();
+        Ok(())
     }
 
-    pub fn update_mines_and_demo_traps(&mut self) {
+    pub fn update_mines_and_demo_traps(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_mines_and_demo_traps_with_effects(&mut Default::default())
     }
 
     pub(crate) fn update_mines_and_demo_traps_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_mines::{
             can_clear_mine_kind, demo_trap_skips_dozer_disarm_while_attacking, is_mine_clearer,
             land_mine_geometry_contacts, mine_clear_allowed_for_order, minefield_skips_worker,
@@ -398,7 +399,7 @@ impl GameLogic {
         let frame = self.frame;
         self.update_land_mine_scoot_with_effects(effects);
 
-        self.update_land_mine_regen_and_virtual_with_effects(effects);
+        self.update_land_mine_regen_and_virtual_with_effects(effects)?;
 
         // C++ StickyBombUpdate::update residual — stick to target / die with target.
         // Wave 807: under coupled shadow, attach follow owned by GW expire + logs.
@@ -806,7 +807,7 @@ impl GameLogic {
 
         // Safe clears first (mine gone, no splash).
         for (mine_id, clearer_id) in clear_due {
-            let _ = self.clear_mine_internal_with_effects(mine_id, clearer_id, effects);
+            self.clear_mine_internal_with_effects(mine_id, clearer_id, effects)?;
         }
 
         // Idle clearer approach: set move toward nearest enemy mine.
@@ -835,16 +836,17 @@ impl GameLogic {
         }
 
         for (mine_id, _victim, vpos) in land_trips {
-            let _ = self.trip_virtual_land_mine_with_effects(mine_id, vpos, effects);
+            self.trip_virtual_land_mine_with_effects(mine_id, vpos, effects)?;
         }
 
         for (mine_id, reason) in due {
-            let _ = self.detonate_mine_internal_with_effects(mine_id, reason, None, effects);
+            self.detonate_mine_internal_with_effects(mine_id, reason, None, effects)?;
         }
+        Ok(())
     }
 
     /// C++ MinefieldBehavior::detonateOnce — one virtual mine, pad may persist.
-    fn trip_virtual_land_mine(&mut self, mine_id: ObjectId, victim_pos: Vec3) -> bool {
+    fn trip_virtual_land_mine(&mut self, mine_id: ObjectId, victim_pos: Vec3) -> gamelogic::GameLogicResult<bool> {
         self.trip_virtual_land_mine_with_effects(mine_id, victim_pos, &mut Default::default())
     }
 
@@ -853,14 +855,14 @@ impl GameLogic {
         mine_id: ObjectId,
         victim_pos: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_enum_table_residual::rubble_model_bit;
         use crate::game_logic::host_mines::{
             clip_point_to_mine_footprint, LAND_MINE_GEOMETRY_RADIUS, MINE_MIN_HEALTH,
         };
 
         let Some(mine) = self.objects.get(&mine_id) else {
-            return false;
+            return Ok(false);
         };
         // C++ detonateOnce from onDamage while the pad may already be at 0 HP.
         let allow_zero_hp = mine
@@ -868,10 +870,10 @@ impl GameLogic {
             .as_ref()
             .is_some_and(|md| md.defers_lethal_body_destroy());
         if !mine.is_alive() && !allow_zero_hp {
-            return false;
+            return Ok(false);
         }
         let Some(data) = mine.mine_data.as_ref() else {
-            return false;
+            return Ok(false);
         };
         if !data.is_active()
             || !matches!(
@@ -879,7 +881,7 @@ impl GameLogic {
                 crate::game_logic::host_mines::HostMineKind::LandMine
             )
         {
-            return false;
+            return Ok(false);
         }
         let mine_pos = mine.get_position();
         let blast_pos =
@@ -898,20 +900,20 @@ impl GameLogic {
             self.mine_residual_proximity_detonations.saturating_add(1);
         self.apply_mine_splash_with_effects(
             mine_id, blast_pos, damage, radius, kind, mine_team, producer, effects,
-        );
+        )?;
         let destroy_pad = {
             let Some(obj) = self.objects.get_mut(&mine_id) else {
-                return false;
+                return Ok(false);
             };
             let Some(md) = obj.mine_data.as_mut() else {
-                return false;
+                return Ok(false);
             };
             md.consume_virtual_mine()
         };
         if destroy_pad {
             // This blast already ran. CPP requests deletion, not another
             // weapon fire or a synthetic lethal Body/onDie operation.
-            self.destroy_object_with_effects(mine_id, effects);
+            self.destroy_object_with_effects(mine_id, effects)?;
         }
 
         // CPP MinefieldBehavior.cpp:271-292: persistent pads drain through Body.
@@ -927,14 +929,14 @@ impl GameLogic {
             })
             .unwrap_or(0.0);
         if !destroy_pad {
-            self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, effects);
+            self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, effects)?;
         }
         // Re-resolve the canonical pad after callbacks. The guard suppresses
         // only Minefield's recursive virtual-count reaction, not other modules.
         if let Some(obj) = self.objects.get_mut(&mine_id) {
             let hp = obj.health.current;
             let Some(md) = obj.mine_data.as_mut() else {
-                return true;
+                return Ok(true);
             };
             md.last_synced_health = Some(hp);
             let empty = md.virtual_mines_remaining == 0;
@@ -948,12 +950,12 @@ impl GameLogic {
             }
         }
         self.admit_object_drawable_deselection(mine_id);
-        true
+        Ok(true)
     }
 
     /// CPP Minefield detonation/disarm ignoreDamage guards only its own
     /// virtual-count reaction; the admitted Body hit still reaches AutoHeal.
-    fn apply_guarded_mine_body_drain(&mut self, mine_id: ObjectId, amount: f32) {
+    fn apply_guarded_mine_body_drain(&mut self, mine_id: ObjectId, amount: f32) -> gamelogic::GameLogicResult<()> {
         self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, &mut Default::default())
     }
 
@@ -962,9 +964,9 @@ impl GameLogic {
         mine_id: ObjectId,
         amount: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if amount <= 0.0 {
-            return;
+            return Ok(());
         }
         let previous_ignore = {
             let Some(data) = self
@@ -972,13 +974,13 @@ impl GameLogic {
                 .get_mut(&mine_id)
                 .and_then(|obj| obj.mine_data.as_mut())
             else {
-                return;
+                return Ok(());
             };
             let previous = data.ignore_damage;
             data.ignore_damage = true;
             previous
         };
-        self.apply_residual_damage_owned_with_effects(
+        let result = self.apply_residual_damage_owned_with_effects(
             mine_id,
             amount,
             Some(mine_id),
@@ -994,6 +996,8 @@ impl GameLogic {
                 data.last_synced_health = Some(hp);
             }
         }
+        result?;
+        Ok(())
     }
 
 }

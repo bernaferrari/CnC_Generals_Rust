@@ -5,7 +5,7 @@ use super::*;
 impl GameLogic {
     /// C++ ApplyRandomForceNugget::create residual on primary (dying) object.
     /// C++ NeutronMissileUpdate::update residual.
-    pub fn update_neutron_missile_flights(&mut self) {
+    pub fn update_neutron_missile_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_neutron_missile_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -14,7 +14,7 @@ impl GameLogic {
     pub(crate) fn update_neutron_missile_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
 
@@ -159,7 +159,7 @@ impl GameLogic {
                     use crate::game_logic::special_power_strikes::{
                         CRUISE_MISSILE_DAMAGE, CRUISE_MISSILE_RADIUS, MOAB_FLAME_DAMAGE,
                     };
-                    let _ = self.apply_fuel_air_radius_damage_with_effects(
+                    self.apply_fuel_air_radius_damage_with_effects(
                         id,
                         producer,
                         team,
@@ -168,8 +168,8 @@ impl GameLogic {
                         CRUISE_MISSILE_RADIUS,
                         DamageType::Explosive,
                         presentation_effects,
-                    );
-                    let _ = self.apply_fuel_air_radius_damage_with_effects(
+                    )?;
+                    self.apply_fuel_air_radius_damage_with_effects(
                         id,
                         producer,
                         team,
@@ -178,7 +178,7 @@ impl GameLogic {
                         CRUISE_MISSILE_RADIUS,
                         DamageType::Flame,
                         presentation_effects,
-                    );
+                    )?;
                 } else {
                     {
                         let (fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4) =
@@ -227,7 +227,7 @@ impl GameLogic {
                     o.fire_create_object_die();
                 }
                 self.fire_owned_fx_list_die_with_effects(id, presentation_effects);
-                self.apply_pending_create_object_die_with_effects(id, presentation_effects);
+                self.apply_pending_create_object_die_with_effects(id, presentation_effects)?;
                 self.neutron_missile_update_reg.record_ground();
                 destroy.push(id);
             }
@@ -238,10 +238,11 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
         }
+        Ok(())
     }
 
     /// C++ ScudStormMissile MissileAIUpdate ballistic residual tick.
-    pub fn update_scud_storm_missile_flights(&mut self) {
+    pub fn update_scud_storm_missile_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_scud_storm_missile_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -250,7 +251,7 @@ impl GameLogic {
     pub(crate) fn update_scud_storm_missile_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
             SCUD_STORM_PRIMARY_RADIUS, SCUD_STORM_SECONDARY_RADIUS,
@@ -375,7 +376,7 @@ impl GameLogic {
                     .unwrap_or(false);
                 if chem_primary {
                     // Toxin primary blast residual (use secondary damage as toxin splash).
-                    let _ = self.apply_fuel_air_radius_damage_with_effects(
+                    self.apply_fuel_air_radius_damage_with_effects(
                         id,
                         producer,
                         team,
@@ -386,9 +387,9 @@ impl GameLogic {
                         SCUD_STORM_SECONDARY_RADIUS,
                         DamageType::Toxin,
                         presentation_effects,
-                    );
+                    )?;
                 } else {
-                    let _ = self.apply_fuel_air_radius_damage_with_effects(
+                    self.apply_fuel_air_radius_damage_with_effects(
                         id,
                         producer,
                         team,
@@ -397,8 +398,8 @@ impl GameLogic {
                         SCUD_STORM_PRIMARY_RADIUS,
                         DamageType::Explosive,
                         presentation_effects,
-                    );
-                    let _ = self.apply_fuel_air_radius_damage_with_effects(
+                    )?;
+                    self.apply_fuel_air_radius_damage_with_effects(
                         id,
                         producer,
                         team,
@@ -407,7 +408,7 @@ impl GameLogic {
                         SCUD_STORM_SECONDARY_RADIUS,
                         DamageType::Explosive,
                         presentation_effects,
-                    );
+                    )?;
                 }
                 // DeathFire OCL poison field residual (OCL_PoisonFieldLarge / upgraded).
                 let _ = self
@@ -422,6 +423,7 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
         }
+        Ok(())
     }
 
     /// C++ SUPERWEAPON_CarpetBomb DeliverPayload residual.
@@ -507,7 +509,7 @@ impl GameLogic {
         Some(tid)
     }
 
-    pub fn update_carpet_bomb_flights(&mut self) {
+    pub fn update_carpet_bomb_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_carpet_bomb_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -516,7 +518,7 @@ impl GameLogic {
     pub(crate) fn update_carpet_bomb_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
             CARPET_BOMB_DAMAGE, CARPET_BOMB_PAYLOAD_OBJECT, CARPET_BOMB_RADIUS,
@@ -676,7 +678,7 @@ impl GameLogic {
                     CARPET_BOMB_RADIUS,
                     DamageType::Explosive,
                     presentation_effects,
-                );
+                )?;
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,
                     pos,
@@ -714,6 +716,7 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
         }
+        Ok(())
     }
 
     /// C++ SUPERWEAPON_ArtilleryBarrage DeliverPayload residual.
@@ -847,7 +850,7 @@ impl GameLogic {
         first
     }
 
-    pub fn update_artillery_barrage_flights(&mut self) {
+    pub fn update_artillery_barrage_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_artillery_barrage_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -856,7 +859,7 @@ impl GameLogic {
     pub(crate) fn update_artillery_barrage_flights_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
             ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_RADIUS, ARTILLERY_BARRAGE_SHELL_OBJECT,
@@ -978,7 +981,7 @@ impl GameLogic {
                 if let Some(object) = self.objects.get_mut(&id) {
                     object.artillery_barrage_shell = false;
                 }
-                let _ = self.apply_fuel_air_radius_damage_with_effects(
+                self.apply_fuel_air_radius_damage_with_effects(
                     id,
                     producer,
                     team,
@@ -987,7 +990,7 @@ impl GameLogic {
                     ARTILLERY_BARRAGE_RADIUS,
                     DamageType::Explosive,
                     presentation_effects,
-                );
+                )?;
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,
                     pos,
@@ -1002,6 +1005,7 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction_with_effects(id, None, presentation_effects);
         }
+        Ok(())
     }
 
     /// C++ SUPERWEAPON_A10ThunderboltMissileStrike DeliverPayload residual.
@@ -1182,7 +1186,7 @@ impl GameLogic {
         }
     }
 
-    pub fn update_a10_strike_flights(&mut self) {
+    pub fn update_a10_strike_flights(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_a10_strike_flights_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )

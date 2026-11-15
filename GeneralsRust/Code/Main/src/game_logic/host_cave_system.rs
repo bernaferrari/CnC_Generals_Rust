@@ -348,8 +348,8 @@ fn cave_saved_world_continues_in_receiving_capacity_without_touching_same_id_pee
         let first = logic.create_object("SavedCaveEntrance", Team::Neutral, Vec3::ZERO).unwrap();
         let second = logic.create_object("SavedCaveEntrance", Team::Neutral, Vec3::new(40.0, 0.0, 0.0)).unwrap();
         let neutral = logic.host_default_team_id(3).unwrap();
-        assert!(logic.set_host_object_team(first, neutral));
-        assert!(logic.set_host_object_team(second, neutral));
+        assert!(logic.set_host_object_team(first, neutral).unwrap());
+        assert!(logic.set_host_object_team(second, neutral).unwrap());
         let a = logic.create_object("SavedCaveInfantry", Team::USA, Vec3::ZERO).unwrap();
         let b = logic.create_object("SavedCaveInfantry", Team::USA, Vec3::ZERO).unwrap();
         (logic, first, second, a, b)

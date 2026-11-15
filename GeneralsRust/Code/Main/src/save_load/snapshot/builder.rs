@@ -274,6 +274,13 @@ impl SnapshotBuilder {
         object: &Object,
     ) -> SaveLoadResult<HashMap<String, ModuleSnapshot>> {
         let mut modules = HashMap::new();
+        let transform = object.get_transform_matrix().to_cols_array();
+        if !transform.iter().all(|value| value.is_finite()) {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Object {} has a non-finite transform", object.id
+            )));
+        }
+        modules.insert("ObjectTransform".to_owned(), ModuleSnapshot::ObjectTransform(transform));
 
         if let Some(player_id) = object.player_who_entered {
             if game_logic.get_player(player_id).is_none()

@@ -48,8 +48,10 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version46 adds authoritative Weapon integer deadlines in an object tail.
 /// Version47 saves raw Movement path nodes and their optimized links.
 /// Version48 stores both raw cursor pointers instead of an optimized ordinal.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 48;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 48;
+/// Version49 stores the accepted projectile's exact optional launch transform.
+/// Positional pre-49 saves intentionally do not cross this format cutover.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 49;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 49;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
@@ -94,6 +96,18 @@ pub(crate) fn validate_path_links(path: &PathRoute) -> SaveLoadResult<()> {
 }
 
 pub(crate) fn validate_movement_path(movement: &Movement) -> SaveLoadResult<()> {
+    if !movement.velocity.is_finite()
+        || movement.target_position.is_some_and(|position| !position.is_finite())
+        || ![
+            movement.max_speed, movement.max_speed_damaged,
+            movement.acceleration, movement.acceleration_damaged,
+            movement.turn_rate, movement.turn_rate_damaged,
+        ].into_iter().all(f32::is_finite)
+    {
+        return Err(crate::save_load::SaveLoadError::Corrupted(
+            "non-finite movement state".into(),
+        ));
+    }
     validate_path_links(&movement.path)?;
     if movement.path.cursor_from_raw(
         movement.path_cursor.previous(),

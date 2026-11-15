@@ -190,7 +190,7 @@ fn tomahawk_residual_dual_radius_missile() {
     // Projectile lob residual: advance TomahawkMissile to impact splash.
     for _ in 0..160 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_tomahawk_missile_projectiles();
+        game_logic.update_tomahawk_missile_projectiles().unwrap();
         if !game_logic
             .objects
             .registered_values()
@@ -318,7 +318,7 @@ fn fire_base_residual_howitzer() {
     for f in 40..100 {
         game_logic.frame = f;
         game_logic.update_combat(&[fb_id, enemy, near_splash], LOGIC_FRAME_TIMESTEP);
-        game_logic.update_fire_base_shell_projectiles();
+        game_logic.update_fire_base_shell_projectiles().unwrap();
     }
     if game_logic.fire_base_residual_fires() == 0
         && !game_logic.honesty_fire_base_shell_projectile_ok()
@@ -340,7 +340,7 @@ fn fire_base_residual_howitzer() {
     }
     for _ in 0..120 {
         game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_fire_base_shell_projectiles();
+        game_logic.update_fire_base_shell_projectiles().unwrap();
         if !game_logic
             .objects
             .registered_values()

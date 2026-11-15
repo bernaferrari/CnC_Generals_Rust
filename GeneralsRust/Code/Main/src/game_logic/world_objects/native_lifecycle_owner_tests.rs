@@ -30,7 +30,7 @@ fn authored_with_extra(
 
 fn drive(world: &mut GameLogic, id: ObjectId, frame: u32) {
     world.frame = frame;
-    world.tick_native_lifecycle(id);
+    world.tick_native_lifecycle(id).unwrap();
 }
 
 #[test]
@@ -558,7 +558,7 @@ fn field_expiry_observes_earliest_timer_without_advancing_height_twice() {
     object.anthrax_toxin_field_expires_frame = Some(9999);
     object.indestructible = true;
     world.frame = 32;
-    world.update_anthrax_toxin_field_objects();
+    world.update_anthrax_toxin_field_objects().unwrap();
     let states = &world
         .host_object(id)
         .unwrap()
@@ -581,7 +581,7 @@ fn field_expiry_observes_earliest_timer_without_advancing_height_twice() {
             ..
         }
     ));
-    world.tick_native_lifecycle(id);
+    world.tick_native_lifecycle(id).unwrap();
     let states = &world
         .host_object(id)
         .unwrap()

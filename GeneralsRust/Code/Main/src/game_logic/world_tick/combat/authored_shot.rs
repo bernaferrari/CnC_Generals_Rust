@@ -88,7 +88,9 @@ impl GameLogic {
         let Some((fired_slot, shot)) = prepared else {
             return CombatShotResult::NoShot;
         };
-        self.deliver_and_commit_authored_shot(attacker_id, fired_slot, shot, effects);
+        if let Err(error) = self.deliver_and_commit_authored_shot(attacker_id, fired_slot, shot, effects) {
+            return CombatShotResult::Failed(error);
+        }
         self.queue_authored_shot_presentation(attacker_id, fired_slot, Some(target_id), None, effects);
         // C++ AssaultTransportAIUpdate (AssaultTransportAIUpdate.cpp:150-260)
         // sends the transport's passengers at the victim while it attacks.
@@ -161,7 +163,9 @@ impl GameLogic {
         let Some((fired_slot, shot)) = prepared else {
             return CombatShotResult::NoShot;
         };
-        self.deliver_and_commit_authored_shot(attacker_id, fired_slot, shot, effects);
+        if let Err(error) = self.deliver_and_commit_authored_shot(attacker_id, fired_slot, shot, effects) {
+            return CombatShotResult::Failed(error);
+        }
         self.queue_authored_shot_presentation(
             attacker_id,
             fired_slot,
@@ -199,17 +203,18 @@ impl GameLogic {
         slot: u8,
         shot: crate::game_logic::combat::PendingProjectile,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let capture = self
             .objects
             .get_mut(&attacker_id)
             .and_then(Object::take_pending_weapon_visual_capture);
-        if !self.deliver_owned_weapon_shot_with_effects(slot, shot, capture, effects) {
+        if !self.deliver_owned_weapon_shot_with_effects(slot, shot, capture, effects)? {
             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                 attacker.advance_weapon_barrel_after_shot(slot);
             }
         }
         self.commit_owned_weapon_fire_after_effects(attacker_id);
+        Ok(())
     }
 
     pub(in crate::game_logic) fn commit_owned_weapon_fire_after_effects(&mut self, id: ObjectId) {

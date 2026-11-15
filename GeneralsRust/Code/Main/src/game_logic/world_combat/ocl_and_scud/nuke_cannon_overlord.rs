@@ -8,7 +8,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         source_team: Team,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_nuke_cannon_primary_at_with_effects(
             impact,
             source,
@@ -23,7 +23,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         source_team: Team,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_nuke_cannon::{
             MEDIUM_RADIATION_AUDIO, NUKE_CANNON_DAMAGE_TYPE, NUKE_CANNON_DEATH_TYPE,
             NUKE_CANNON_FIRE_AUDIO, is_legal_nuke_cannon_splash_target,
@@ -89,7 +89,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -99,7 +99,7 @@ impl GameLogic {
         }
 
         for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
+            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects)?;
         }
 
         self.nuke_cannon_residual.record_primary_blast(hits);
@@ -125,7 +125,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
 

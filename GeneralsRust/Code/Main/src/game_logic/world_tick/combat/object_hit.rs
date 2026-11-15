@@ -18,7 +18,7 @@ impl GameLogic {
         slot: u8,
         enemy_or_forced: bool,
         weapon_damage: f32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_combat_object_hit_with_effects(
             attacker_id,
             attacker_team,
@@ -41,7 +41,7 @@ impl GameLogic {
         _enemy_or_forced: bool,
         weapon_damage: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let damage_type = crate::game_logic::combat::DamageType::Explosive;
         let death_type = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
         let context = crate::game_logic::object::DamageHitContext::new_selected(
@@ -64,7 +64,7 @@ impl GameLogic {
                 None,
                 &context,
                 effects,
-            ) {
+            )? {
                 if result.destroyed {
                     self.continue_or_stop_after_kill(
                         attacker_id,
@@ -82,7 +82,7 @@ impl GameLogic {
             .and_then(|attacker| attacker.weapon_slot(slot))
             .map_or(0.0, |weapon| weapon.splash_radius.max(0.0));
         if splash > 0.0 {
-            let _ = self.apply_instant_hit_splash_at_with_effects(
+            self.apply_instant_hit_splash_at_with_effects(
                 target_position,
                 weapon_damage,
                 0.0,
@@ -93,7 +93,8 @@ impl GameLogic {
                 target_id,
                 None,
                 effects,
-            );
+            )?;
         }
+        Ok(())
     }
 }

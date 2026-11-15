@@ -1243,7 +1243,7 @@ pub(crate) fn play_bone_fx_event_with_effects(
             velocity,
             effect_position,
             effects,
-        );
+        )?;
     }
     #[cfg(feature = "game_client")]
     {

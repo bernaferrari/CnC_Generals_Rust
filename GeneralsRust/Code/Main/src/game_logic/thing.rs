@@ -283,6 +283,13 @@ impl Thing {
         self.update_cache();
     }
 
+    /// Snapshot restores the matrix and the independently persisted cached
+    /// angle; deriving it with atan2 loses exact normalized boundary values.
+    pub(crate) fn restore_transform_and_orientation(&mut self, transform: Mat4, angle: f32) {
+        self.transform = transform;
+        self.refresh_cache_given_angle(angle);
+    }
+
     pub fn get_transform_matrix(&self) -> Mat4 {
         self.transform
     }

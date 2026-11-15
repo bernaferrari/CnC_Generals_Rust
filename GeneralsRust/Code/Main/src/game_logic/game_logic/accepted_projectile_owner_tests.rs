@@ -109,10 +109,34 @@ fn new_owned_world() -> GameLogic {
     for child in ["AcceptedFireFirstChild", "AcceptedFireSecondChild"] {
         objects.push(crate::fixture_content::FixtureObject::new(child));
     }
-    crate::fixture_content::admit_fixture_objects(&mut world, &objects);
+    let missile = crate::fixture_content::FixtureObject::new("AcceptedOwnerMissile")
+        .kind_of("PROJECTILE")
+        .health(1.0)
+        .field("Locomotor = SET_NORMAL AcceptedOwnerMissileLocomotor")
+        .module("Behavior = MissileAIUpdate ModuleTag_Flight\n IgnitionDelay = 0\n InitialVelocity = 300\n TryToFollowTarget = Yes\n End")
+        .module("Behavior = PhysicsBehavior ModuleTag_Physics\n Mass = 1\n End");
+    let missile_ini = missile.ini();
+    objects.push(missile);
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source(&format!(
+        "Locomotor {}\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n\
+         Locomotor AcceptedOwnerMissileLocomotor\n Surfaces = AIR\n Speed = 300\n MinSpeed = 30\n Acceleration = 600\n TurnRate = 3600\n Appearance = THRUST\nEnd\n",
+        crate::fixture_content::FIXTURE_WALK_LOCOMOTOR,
+    )).unwrap();
+    world.admit_locomotor_definitions(locomotors).unwrap();
+    let source: String = objects.iter().map(crate::fixture_content::FixtureObject::ini).collect();
+    world.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([
+            ("accepted-owner-content.ini".into(), source),
+        ]).unwrap(),
+    ).unwrap();
     for (name, damage, kind, projectile, speed, ocl) in names {
+        // MissileAI detonates a positional weapon. A zero-radius positional
+        // detonation has no primary victim in Weapon.cpp:1281-1294; author an
+        // actual warhead radius rather than relying on record-only direct hits.
+        let radius = if projectile == "AcceptedOwnerMissile" { 5 } else { 0 };
         let text = format!(
-            "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 0\n AttackRange = 200\n DamageType = {kind}\n ProjectileObject = {projectile}\n WeaponSpeed = {speed}\n MinWeaponSpeed = {speed}\n DelayBetweenShots = 1000\n ClipSize = 8\n ClipReloadTime = 1000\n PreAttackDelay = 0\n AntiGround = Yes\n FireOCL = {ocl}\nEnd\n"
+            "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = {radius}\n AttackRange = 200\n DamageType = {kind}\n ProjectileObject = {projectile}\n WeaponSpeed = {speed}\n MinWeaponSpeed = {speed}\n DelayBetweenShots = 1000\n ClipSize = 8\n ClipReloadTime = 1000\n PreAttackDelay = 0\n AntiGround = Yes\n FireOCL = {ocl}\nEnd\n"
         );
         assert_eq!(
             crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
@@ -124,6 +148,7 @@ fn new_owned_world() -> GameLogic {
         );
         let row = rows.get(&name.to_ascii_lowercase()).unwrap();
         assert_eq!(row.primary_damage, damage as f32);
+        assert_eq!(row.primary_damage_radius, radius as f32);
         // Original GameCommon.h f32 multiplication, executed at C++ O0/O2.
         assert_eq!(
             row.weapon_speed.to_bits(),
@@ -140,10 +165,7 @@ fn new_owned_world() -> GameLogic {
         assert_eq!(row.projectile_name, projectile);
     }
     let mut parser = crate::assets::ini_parser::IniParser::new();
-    parser.parse_ini_content(
-        "Object AcceptedOwnerMissile\n Behavior = MissileAIUpdate ModuleTag_Flight\n IgnitionDelay = 0\n TryToFollowTarget = Yes\n End\nEnd",
-        "accepted-owner-content.ini",
-    ).unwrap();
+    parser.parse_ini_content(&missile_ini, "accepted-owner-content.ini").unwrap();
     let objects: Vec<_> = parser
         .get_all_definitions()
         .iter()
@@ -248,7 +270,7 @@ fn accept(world: &mut GameLogic, source: ObjectId, target: ObjectId, time: f32) 
 fn finish_accepted_flight(world: &mut GameLogic) {
     for _ in 0..40 {
         world.frame += 1;
-        world.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
+        world.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP).unwrap();
         if world.combat_system.projectile_count() == 0 {
             return;
         }

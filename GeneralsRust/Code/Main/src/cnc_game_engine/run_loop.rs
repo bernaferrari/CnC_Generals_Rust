@@ -883,71 +883,9 @@ pub async fn run_cnc_game(
                     }
                 }
             }
-            #[cfg(target_os = "macos")]
-            Event::DeviceEvent {
-                event: DeviceEvent::Button { button, state },
-                ..
-            } if !runtime_headless_mode => {
-                // Inactive NSApp never gets WindowEvent::MouseInput. winit still
-                // emits DeviceEvent::Button from NSApplication.sendEvent for HID
-                // that reaches this process (including CGEventPostToPid).
-                log::info!("DeviceEvent::Button button={button} state={state:?}");
-                if let Some((x, y)) = macos_cursor_client_if_in_window(current_window) {
-                    let scale = current_window.scale_factor().max(0.0001) as f32;
-                    engine.apply_cursor_position(x * scale, y * scale)?;
-                    log::info!("DeviceEvent in-window client=({x:.0},{y:.0})");
-                    #[cfg(feature = "game_client")]
-                    let receiving_window_manager = engine.game_client.window_manager_owner();
-                    #[cfg(feature = "game_client")]
-                    if let Some(Some(name)) = game_client::gui::os_wnd_widget_under_cursor_name_for_owner(
-                        &receiving_window_manager,
-                        x as i32,
-                        y as i32,
-                    )
-                    {
-                        log::info!("DeviceEvent under={name}");
-                        if matches!(state, winit::event::ElementState::Pressed)
-                            && name.contains("SkirmishGameOptionsMenu.wnd:ButtonStart")
-                        {
-                            let ok = engine.with_receiving_menu_effects(|effects| game_client::gui::simulate_skirmish_start_button_gadget_selected(effects))?;
-                            log::info!("physical Skirmish Start GBM residual ok={ok}");
-                            if ok {
-                                if let Some(request) = engine.take_pending_new_game_start_request() {
-                                    if !matches!(request.mode, GameMode::Shell) {
-                                        log::info!(
-                                            "DeviceEvent Start drain mode={:?} map={}",
-                                            request.mode,
-                                            request.map
-                                        );
-                                        engine.start_game_from_ui(request);
-                                        let _ = super::CnCGameEngine::take_new_game_dispatch_from_common_stream(engine.game_client.message_stream_mut());
-                                    } else {
-                                        super::CnCGameEngine::take_shell_new_game_messages_from_common_stream(engine.game_client.message_stream_mut());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    engine.game_client.with_window_event_effects(None, |effects| {
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSinglePlayer", effects);
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSkirmish", effects);
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder", effects);
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:EarthMap", effects);
-                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder2", effects);
-                    game_client::gui::log_named_window_screen_rect(
-                        "SkirmishGameOptionsMenu.wnd:ButtonStart", effects,
-                    );
-                    });
-                    if let Some(btn) = device_button_to_mouse(button) {
-                        let pressed = matches!(state, ElementState::Pressed);
-                        engine.handle_mouse_button_input(
-                            btn,
-                            pressed,
-                            super::input::MouseInputOrigin::Physical,
-                        )?;
-                    }
-                }
-            }
+            // Mouse buttons are delivered only by the matching WindowEvent above.
+            // DeviceEvent is not window-targeted and can describe the same gesture;
+            // dispatching both duplicates presses, releases, and gameplay orders.
             Event::AboutToWait => {
                 let now = Instant::now();
                 if now >= next_redraw_at {

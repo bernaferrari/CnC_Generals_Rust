@@ -18,14 +18,18 @@ impl GameLogic {
         damage_type: crate::game_logic::combat::DamageType,
         healing: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<bool> {
-        let object = self.objects.get(&victim_id)?;
+    ) -> gamelogic::GameLogicResult<Option<bool>> {
+        let Some(object) = self.objects.get(&victim_id) else {
+            return Ok(None);
+        };
         let identity = self.live_draw_playback_identity(object);
-        let definition = object
+        let Some(definition) = object
             .thing()
             .template
             .receiving_object_definition
-            .as_ref()?;
+            .as_ref() else {
+                return Ok(None);
+            };
         let callbacks: Vec<_> = definition
             .behavior_modules
             .iter()
@@ -60,7 +64,7 @@ impl GameLogic {
                         && damage_type == crate::game_logic::combat::DamageType::Unresistable;
                     self.synchronize_mine_body_callback_with_effects(
                         victim_id, healing, self_drain, effects,
-                    );
+                    )?;
                 }
                 DamageCallback::ReactionWeapon(index) => {
                     self.execute_temporary_weapon_damage_slot_with_effects(
@@ -69,11 +73,11 @@ impl GameLogic {
                         actual_damage,
                         damage_type.to_store() as u32,
                         effects,
-                    );
+                    )?;
                 }
             }
         }
-        Some(ran)
+        Ok(Some(ran))
     }
 }
 

@@ -305,6 +305,11 @@ impl GameLogic {
             ));
         }
         unit.enter_base_ai_idle_control(frame, offset);
+        if unit.dozer_tasks.primary.control.initialized {
+            // DozerPrimaryIdleState::onEnter arms mine clearing as the
+            // receiving derived machine enters its initial Idle state.
+            unit.set_weapon_condition_at_frame(8, true, frame);
+        }
         unit.next_mood_check_time = frame.wrapping_add(mood_delay);
         unit.randomly_offset_mood_check = true;
         Ok(true)

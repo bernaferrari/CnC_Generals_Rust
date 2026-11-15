@@ -337,8 +337,63 @@ impl GameLogic {
                         }
                     }
                 }
+                if task == DozerTask::Repair {
+                    let Some(target_id) = target else {
+                        return Ok(());
+                    };
+                    let Some((health, maximum)) = self.objects.get(&target_id).map(|o| {
+                        (o.health.current, o.health.maximum)
+                    }) else {
+                        return Ok(());
+                    };
+                    if health == maximum {
+                        if let Some(ui) = effects.ui.as_deref_mut() {
+                            ui.hud_message("DOZER:RepairComplete", self.frame);
+                        }
+                        self.record_dozer_repair_complete();
+                        self.dozer_internal_task_complete(id, true);
+                        if let Some(actor) = self.objects.get_mut(&id)
+                            .filter(|o| std::sync::Arc::ptr_eq(&birth, &o.visual_draw_identity_token))
+                        {
+                            actor.dozer_tasks.primary.actions[slot].control.goal_object = 0;
+                            self.dozer_primary_reset_owned(id);
+                        }
+                        return Ok(());
+                    }
+                    let rate = self.objects.get(&id)
+                        .and_then(|o| o.thing().template.receiving_client_template.as_ref())
+                        .and_then(|source| source.dozer_repair_health_per_second())
+                        .ok_or_else(|| gamelogic::GameLogicError::Configuration(
+                            "Dozer repair action missing its receiving AI module data".into(),
+                        ))?;
+                    if let Some(actor) = self.objects.get_mut(&id) {
+                        actor.set_actively_constructing(true);
+                    }
+                    let healed = self.attempt_owned_healing_from_sole_benefactor_with_effects(
+                        target_id,
+                        maximum * rate * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
+                        id, 2, self.frame, effects,
+                    )?;
+                    if !self.objects.get(&id).is_some_and(|o| {
+                        std::sync::Arc::ptr_eq(&birth, &o.visual_draw_identity_token)
+                    }) {
+                        return Ok(());
+                    }
+                    if !healed {
+                        self.dozer_internal_task_complete(id, true);
+                        if let Some(actor) = self.objects.get_mut(&id)
+                            .filter(|o| std::sync::Arc::ptr_eq(&birth, &o.visual_draw_identity_token))
+                        {
+                            actor.dozer_tasks.primary.actions[slot].control.goal_object = 0;
+                            self.dozer_primary_reset_owned(id);
+                        }
+                        return Ok(());
+                    }
+                }
                 // CPP725 Fortify remains intentionally empty.
-                if let Some(actor) = self.objects.get_mut(&id) {
+                if let Some(actor) = self.objects.get_mut(&id)
+                    .filter(|o| std::sync::Arc::ptr_eq(&birth, &o.visual_draw_identity_token))
+                {
                     actor.set_weapon_condition_at_frame(8, false, self.frame);
                 }
             }

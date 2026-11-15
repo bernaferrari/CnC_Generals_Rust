@@ -137,7 +137,7 @@ impl GameLogic {
         source_orientation: f32,
         source_velocity: Vec3,
         origin: Vec3,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
         self.execute_parsed_weapon_ocl_at_with_effects(
             ocl_name,
             source_id,
@@ -160,7 +160,7 @@ impl GameLogic {
         source_velocity: Vec3,
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
         self.execute_parsed_weapon_ocl_at_with_interpreter_and_effects(
             ocl_name,
             source_id,
@@ -185,7 +185,7 @@ impl GameLogic {
         origin: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
         let outcome = self.execute_parsed_weapon_ocl_with_births(
             ocl_name,
             source_id,
@@ -198,15 +198,15 @@ impl GameLogic {
             presentation_effects,
         );
         if let Some(error) = outcome.error {
-            log::error!("{error}");
+            return Err(error);
         }
-        outcome
+        Ok(outcome
             .created
             .into_iter()
             .filter_map(|(id, (generation, epoch))| {
                 self.spawn_identity_matches(id, generation, epoch).then_some(id)
             })
-            .collect()
+            .collect())
     }
 
     pub(crate) fn execute_parsed_weapon_ocl_with_births(
@@ -290,7 +290,9 @@ impl GameLogic {
                 if let (Some(source), Some(position), Some(weapon)) =
                     (source_id, position, fire.weapon.as_deref())
                 {
-                    self.fire_ocl_temporary_weapon_at(source, weapon, position, presentation_effects);
+                    if let Err(error) = self.fire_ocl_temporary_weapon_at(source, weapon, position, presentation_effects) {
+                        return OclExecutionOutcome::failure(created, error);
+                    }
                 }
                 continue;
             }
@@ -951,7 +953,7 @@ impl GameLogic {
     /// Materialize FireFX and FireOCL events stamped when pending projectiles
     /// were drained. This is kept in GameLogic so both the normal host tick
     /// and GameWorld fire-spawn apply path use the same real object lifecycle.
-    pub(crate) fn execute_pending_weapon_fire_ocls(&mut self) {
+    pub(crate) fn execute_pending_weapon_fire_ocls(&mut self) -> gamelogic::GameLogicResult<()> {
         self.execute_pending_weapon_fire_ocls_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -960,7 +962,7 @@ impl GameLogic {
     pub(crate) fn execute_pending_weapon_fire_ocls_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let fire_ocls = self.combat_system.take_fire_ocl();
         for fire in fire_ocls {
             // C++ Weapon.cpp:889 wraps FireFX/muzzle in getDrawable(); FireOCL
@@ -998,7 +1000,7 @@ impl GameLogic {
             if !fire.fire_ocl_name.trim().is_empty()
                 && !fire.fire_ocl_name.trim().eq_ignore_ascii_case("None")
             {
-                let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                self.execute_parsed_weapon_ocl_at_with_effects(
                     &fire.fire_ocl_name,
                     Some(fire.shooter_id),
                     fire.source_team,
@@ -1007,15 +1009,16 @@ impl GameLogic {
                     fire.source_velocity,
                     fire.origin,
                     presentation_effects,
-                );
+                )?;
             }
         }
+        Ok(())
     }
 
     /// Flush real projectile impacts after either host- or GameWorld-owned
     /// flight integration.  Keeping this at the combat boundary ensures an
     /// OCL-only detonation cannot become a presentation-only no-op.
-    pub(crate) fn flush_projectile_impact_fx(&mut self) {
+    pub(crate) fn flush_projectile_impact_fx(&mut self) -> gamelogic::GameLogicResult<()> {
         self.flush_projectile_impact_fx_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1024,7 +1027,7 @@ impl GameLogic {
     pub(crate) fn flush_projectile_impact_fx_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let impacts = self.combat_system.take_impact_fx();
         for impact in impacts {
             // C++ executes ProjectileDetonationFX and
@@ -1061,7 +1064,7 @@ impl GameLogic {
                 );
             }
             if !impact.detonation_ocl_name.is_empty() {
-                let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                let outcome = self.execute_parsed_weapon_ocl_with_births(
                     &impact.detonation_ocl_name,
                     Some(impact.shooter_id),
                     impact.source_team,
@@ -1069,8 +1072,12 @@ impl GameLogic {
                     impact.source_orientation,
                     impact.source_velocity,
                     impact.position,
+                    None,
                     presentation_effects,
                 );
+                if let Some(error) = outcome.error {
+                    return Err(error);
+                }
             }
             for effect in &impact.projectile_die_effects {
                 match effect {
@@ -1109,7 +1116,7 @@ impl GameLogic {
                         // CreateObjectDie instead passes the dying projectile.
                         // Track that attribution mismatch in hq-6lwbil rather
                         // than dropping the authored effect or inventing an ID.
-                        let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                        let outcome = self.execute_parsed_weapon_ocl_with_births(
                             ocl,
                             Some(impact.shooter_id),
                             impact.source_team,
@@ -1117,12 +1124,17 @@ impl GameLogic {
                             impact.source_orientation,
                             impact.source_velocity,
                             impact.position,
+                            None,
                             presentation_effects,
                         );
+                        if let Some(error) = outcome.error {
+                            return Err(error);
+                        }
                     }
                 }
             }
         }
+        Ok(())
     }
 
 }

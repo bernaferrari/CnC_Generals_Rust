@@ -530,7 +530,7 @@ impl GameLogic {
                 container_id,
                 object_id,
                 effects,
-            );
+            )?;
         }
         let can_enter = if container_is_tunnel_network || container_is_cave {
             // The tracker owns admission; a stale or empty local
@@ -607,7 +607,7 @@ impl GameLogic {
                 container_id,
                 object_id,
                 effects,
-            )
+            )?
         {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(

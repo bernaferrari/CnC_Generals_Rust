@@ -79,7 +79,7 @@ fn first_body_callback_neutralizes_controller_before_next_incidental_collision()
     first.target_position = Vec3::ZERO;
     first.damage = 1.0;
     first.damage_type = DamageType::KillPilot;
-    let retired = owner.update_owned_projectile_impacts(0.0);
+    let retired = owner.update_owned_projectile_impacts(0.0).unwrap();
     assert_eq!(owner.host_object(blocker).unwrap().owner_player_id, Some(0));
     assert_eq!(
         owner.host_object(blocker).unwrap().health.current,
@@ -124,7 +124,7 @@ fn registered_dead_target_is_not_missile_target_disappearance() {
         kill_self_delay_frames: 30,
     });
     owner.combat_system.projectiles.insert(id, missile);
-    assert!(owner.update_owned_projectile_impacts(1.0 / 30.0).is_empty());
+    assert!(owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
     let missile = &owner.combat_system.projectiles[&id];
     assert_eq!(
         missile.missile_kill_self_started_frame, None,
@@ -133,7 +133,7 @@ fn registered_dead_target_is_not_missile_target_disappearance() {
     assert_eq!(missile.target_position.x, 1000.0);
     assert!(missile.position.x > 0.0);
     owner.objects.remove(&target);
-    assert!(owner.update_owned_projectile_impacts(1.0 / 30.0).is_empty());
+    assert!(owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
     assert!(
         owner.combat_system.projectiles[&id]
             .missile_kill_self_started_frame
@@ -175,9 +175,9 @@ fn authored_projectile_vertical_extent_controls_intervening_structure_collision_
     assert_eq!(worlds[0].2, worlds[1].2);
     let (mut above, above_blocker, above_id) = worlds.remove(0);
     let (mut touching, touching_blocker, touching_id) = worlds.remove(0);
-    assert!(above.update_owned_projectile_impacts(1.0 / 30.0).is_empty());
+    assert!(above.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
     assert!(above.combat_system.projectiles.contains_key(&above_id));
-    assert!(!touching.update_owned_projectile_impacts(1.0 / 30.0).is_empty());
+    assert!(!touching.update_owned_projectile_impacts(1.0 / 30.0).unwrap().is_empty());
     assert!(!touching.combat_system.projectiles.contains_key(&touching_id));
     assert!(above.combat_system.projectiles.contains_key(&above_id));
     assert_eq!(above.host_object(above_blocker).unwrap().health.current, 100.0);

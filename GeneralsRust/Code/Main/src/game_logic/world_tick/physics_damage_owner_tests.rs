@@ -46,7 +46,7 @@ fn resident_crush_zero_then_huge_uses_receiving_player_source_and_frame() {
     let (peer, peer_crusher, peer_victim) = crush_world();
     assert_eq!((crusher, victim), (peer_crusher, peer_victim));
     receiving.frame = 31;
-    assert!(receiving.apply_overlap_crush_check(crusher, victim, false));
+    assert!(receiving.apply_overlap_crush_check(crusher, victim, false).unwrap());
     assert_eq!(receiving.host_object(victim).unwrap().health.current, 100.0);
     assert!(receiving.host_object(crusher).is_some());
     assert!(
@@ -56,7 +56,7 @@ fn resident_crush_zero_then_huge_uses_receiving_player_source_and_frame() {
     assert_eq!(receiving.players[&1].attacked_frame, 0);
     receiving.set_fixture_object_position(crusher, Vec3::new(6.0, 0.0, 0.0));
     receiving.frame = 32;
-    assert!(receiving.apply_overlap_crush_check(crusher, victim, false));
+    assert!(receiving.apply_overlap_crush_check(crusher, victim, false).unwrap());
     let actual = receiving.host_object(victim).unwrap();
     assert!(actual.status.destroyed);
     assert_eq!(actual.last_damage_source, Some(crusher));

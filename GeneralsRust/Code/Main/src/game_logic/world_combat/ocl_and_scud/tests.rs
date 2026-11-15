@@ -45,7 +45,7 @@ fn fire_ocl_never_uses_a_foreign_list_or_foreign_object_template() {
             0.0,
             Vec3::ZERO,
             Vec3::ZERO,
-        )
+        ).unwrap()
     };
     assert!(execute(&mut first, first_id).is_empty());
     let children = execute(&mut peer, peer_id);
@@ -76,7 +76,7 @@ fn receiving_ocl_effects_follow_overlays_and_world_reset() {
         let ids = world.execute_parsed_weapon_ocl_at(
             "SameEffect", Some(id), Team::USA, VeterancyLevel::Rookie,
             0.0, Vec3::ZERO, Vec3::ZERO,
-        );
+        ).unwrap();
         assert_eq!(ids.len(), 1);
         world.objects[&ids[0]].template_name.clone()
     };
@@ -133,7 +133,7 @@ fn retail_fire_field_ocl_creates_the_authored_object_for_the_source_team() {
         0.0,
         Vec3::ZERO,
         Vec3::new(10.0, 3.0, 20.0),
-    );
+    ).unwrap();
 
     assert_eq!(created.len(), 1);
     let field = logic.objects.get(&created[0]).expect("created field");
@@ -185,7 +185,7 @@ End
         0.0,
         Vec3::ZERO,
         Vec3::new(4.0, 1.0, 8.0),
-    );
+    ).unwrap();
 
     assert_eq!(created.len(), 1);
     let field = logic.objects.get(&created[0]).expect("created field");
@@ -237,7 +237,7 @@ End
         0.0,
         Vec3::ZERO,
         Vec3::new(10.0, 3.0, 20.0),
-    );
+    ).unwrap();
 
     assert_eq!(created.len(), 1);
     let field = logic.objects.get(&created[0]).expect("created field");
@@ -306,7 +306,7 @@ End
         0.0,
         Vec3::ZERO,
         Vec3::new(2.0, 0.0, 4.0),
-    );
+    ).unwrap();
     assert_eq!(created.len(), 1);
     let pilot_id = created[0];
     let spawned = logic.objects.get(&pilot_id).expect("pilot");
@@ -339,7 +339,7 @@ End
         0.0,
         Vec3::ZERO,
         Vec3::new(8.0, 0.0, 4.0),
-    );
+    ).unwrap();
     assert_eq!(created_field.len(), 1);
     let field = logic.objects.get(&created_field[0]).expect("field");
     assert!(!field.is_trainable());
@@ -406,7 +406,7 @@ End
             0.0,
             Vec3::ZERO,
             Vec3::new(x, 0.0, 4.0),
-        );
+        ).unwrap();
         assert_eq!(created.len(), 1);
         assert_eq!(
             logic.objects.get(&created[0]).unwrap().experience.level,
@@ -515,7 +515,7 @@ End
         0.0,
         Vec3::ZERO,
         Vec3::new(1.0, 0.0, 1.0),
-    );
+    ).unwrap();
     assert_eq!(created.len(), 1);
     let debris = logic.objects.get(&created[0]).expect("faded debris");
     assert_eq!(

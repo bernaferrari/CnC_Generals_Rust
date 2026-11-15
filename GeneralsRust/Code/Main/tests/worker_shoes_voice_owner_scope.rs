@@ -109,7 +109,7 @@ fn upgraded_move_voice_uses_receiving_player_and_object_sound() {
 
     // Capture changes the controlling Player. The old Object effect tag stays
     // on the worker, but must not keep the prior Player's voice entitlement.
-    assert!(first.transfer_object_to_player(first_worker, 2));
+    assert!(first.transfer_object_to_player(first_worker, 2).unwrap());
     assert!(
         first
             .host_object(first_worker)

@@ -868,14 +868,14 @@ impl GameLogic {
     /// C++ ScriptActions NAMED/TEAM DELETE / KILL / DAMAGE.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
     /// queue [`gamelogic::scripting::HostScriptKillDeleteDamageRequest`].
-    pub(super) fn apply_host_kill_delete_damage_script_requests(&mut self) {
+    pub(super) fn apply_host_kill_delete_damage_script_requests(&mut self) -> gamelogic::GameLogicResult<()> {
         self.apply_host_kill_delete_damage_script_requests_with_effects(&mut Default::default())
     }
 
     pub(super) fn apply_host_kill_delete_damage_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptKillDeleteDamageRequest;
         for req in gamelogic::scripting::take_host_script_kill_delete_damage_requests() {
@@ -887,7 +887,7 @@ impl GameLogic {
                 }
                 HostScriptKillDeleteDamageRequest::NamedKill { unit } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_kill_object_with_effects(id, effects);
+                        self.host_script_kill_object_with_effects(id, effects)?;
                     }
                 }
                 HostScriptKillDeleteDamageRequest::NamedDamage { unit, amount } => {
@@ -896,7 +896,7 @@ impl GameLogic {
                             id,
                             amount as f32,
                             effects,
-                        );
+                        )?;
                     }
                 }
                 HostScriptKillDeleteDamageRequest::TeamDelete { team, ignore_dead } => {
@@ -927,7 +927,7 @@ impl GameLogic {
                             }
                             continue;
                         }
-                        self.host_script_kill_object_with_effects(id, effects);
+                        self.host_script_kill_object_with_effects(id, effects)?;
                     }
                 }
                 HostScriptKillDeleteDamageRequest::TeamDamage { team, amount } => {
@@ -943,9 +943,9 @@ impl GameLogic {
                         // CPP Team::damageTeamMembers2461 distinguishes kill;
                         // NamedDamage forwards the signed amount unchanged.
                         if amount < 0.0 {
-                            self.host_script_kill_object_with_effects(id, effects);
+                            self.host_script_kill_object_with_effects(id, effects)?;
                         } else {
-                            self.host_script_apply_unresistable_with_effects(id, amount, effects);
+                            self.host_script_apply_unresistable_with_effects(id, amount, effects)?;
                         }
                     }
                 }
@@ -966,7 +966,7 @@ impl GameLogic {
                     occupants.sort_by_key(|id| id.0);
                     occupants.dedup();
                     for occ in occupants {
-                        self.host_script_kill_object_with_effects(occ, effects);
+                        self.host_script_kill_object_with_effects(occ, effects)?;
                     }
                     if let Some(obj) = self.host_object_mut(container) {
                         if let Some(building) = obj.building_data.as_mut() {
@@ -977,10 +977,11 @@ impl GameLogic {
                 }
             }
         }
+        Ok(())
     }
 
     /// CPP Object::kill uses a max-health input and m_kill, with invalid source.
-    pub(super) fn host_script_kill_object(&mut self, id: ObjectId) {
+    pub(super) fn host_script_kill_object(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.host_script_kill_object_with_effects(id, &mut Default::default())
     }
 
@@ -988,13 +989,14 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let _ = self.apply_owned_kill_with_effects(
+    ) -> gamelogic::GameLogicResult<()> {
+        self.apply_owned_kill_with_effects(
             id,
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             effects,
-        );
+        )?;
+        Ok(())
     }
 
     pub(crate) fn host_script_damage_with_interpreter(
@@ -1003,7 +1005,7 @@ impl GameLogic {
         amount: f32,
         kill: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.host_script_damage_with_interpreter_with_effects(
             id,
             amount,
@@ -1020,7 +1022,7 @@ impl GameLogic {
         kill: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let context = if kill {
             crate::game_logic::object::DamageHitContext::for_kill()
         } else {
@@ -1049,11 +1051,12 @@ impl GameLogic {
             None,
             &context,
             effects,
-        );
+        )?;
+        Ok(())
     }
 
     /// CPP attemptDamage UNRESISTABLE with the original signed amount.
-    pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32) {
+    pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32) -> gamelogic::GameLogicResult<()> {
         self.host_script_apply_unresistable_with_effects(id, amount, &mut Default::default())
     }
 
@@ -1062,9 +1065,9 @@ impl GameLogic {
         id: ObjectId,
         amount: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let context = crate::game_logic::object::DamageHitContext::default();
-        let _ = self.apply_owned_damage_with_effects(
+        self.apply_owned_damage_with_effects(
             id,
             amount,
             None,
@@ -1073,7 +1076,8 @@ impl GameLogic {
             None,
             &context,
             effects,
-        );
+        )?;
+        Ok(())
     }
 
     /// C++ ScriptActions TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.

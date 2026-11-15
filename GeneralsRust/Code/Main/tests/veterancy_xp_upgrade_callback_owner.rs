@@ -46,7 +46,7 @@ fn kill_reward_dispatches_authored_status_upgrade_in_each_receiving_world() {
             generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
             None,
             Some(first_id),
-        ),
+        ).unwrap(),
         (true, false)
     );
     let promoted = first.host_object(first_id).expect("first world unit");
@@ -68,7 +68,7 @@ fn kill_reward_dispatches_authored_status_upgrade_in_each_receiving_world() {
             generals_main::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
             None,
             Some(peer_id),
-        ),
+        ).unwrap(),
         (true, false)
     );
     let peer_promoted = peer.host_object(peer_id).expect("peer promoted unit");

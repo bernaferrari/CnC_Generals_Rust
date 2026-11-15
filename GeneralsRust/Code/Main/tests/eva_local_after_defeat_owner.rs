@@ -120,8 +120,8 @@ fn defeated_local_owner_gets_overcharge_exhaustion_only_in_its_world() {
     assert!(local_owner_world.toggle_overcharge_object(local_owner_plant));
     assert!(peer_world.toggle_overcharge_object(peer_owner_plant));
 
-    local_owner_world.update_overcharge_drain(1.0);
-    peer_world.update_overcharge_drain(1.0);
+    local_owner_world.update_overcharge_drain(1.0).unwrap();
+    peer_world.update_overcharge_drain(1.0).unwrap();
 
     assert_eq!(
         local_owner_world.last_radar_event_position(),

@@ -291,10 +291,10 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
         return;
     }
     let (mut world, _) = admitted_match();
-    assert_eq!(world.evaluate_victory_condition(), None);
+    assert_eq!(world.evaluate_victory_condition().unwrap(), None);
     world.players.get_mut(&1).unwrap().alliance_team = 0;
     assert_eq!(
-        world.evaluate_victory_condition(),
+        world.evaluate_victory_condition().unwrap(),
         Some(VictoryCondition::Winner(0))
     );
     assert_eq!(
@@ -307,7 +307,7 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
     world.players.get_mut(&1).unwrap().alliance_team = 1;
     // Preserve the existing evaluator's exact None output even when end_frame
     // remains set. Inferring Draw from end_frame/winning_alliance is incorrect.
-    assert_eq!(world.evaluate_victory_condition(), None);
+    assert_eq!(world.evaluate_victory_condition().unwrap(), None);
     assert!(world.victory_conditions.end_frame().is_some());
     assert_eq!(world.current_victory_condition(), None);
     assert!(
@@ -331,7 +331,7 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
         object.take_damage_from_immediate(1_000_000.0, None, 0, health_events);
     }
     assert_eq!(
-        world.evaluate_victory_condition(),
+        world.evaluate_victory_condition().unwrap(),
         Some(VictoryCondition::Draw)
     );
     assert_eq!(
@@ -349,7 +349,7 @@ fn successful_restore_clears_only_transient_victory_observation() {
     let (mut receiver, _) = admitted_match();
     receiver.players.get_mut(&1).unwrap().alliance_team = 0;
     assert_eq!(
-        receiver.evaluate_victory_condition(),
+        receiver.evaluate_victory_condition().unwrap(),
         Some(VictoryCondition::Winner(0))
     );
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -378,7 +378,7 @@ fn successful_restore_clears_only_transient_victory_observation() {
     assert_eq!(source.current_victory_condition(), None);
     receiver.players.get_mut(&1).unwrap().alliance_team = 0;
     assert_eq!(
-        receiver.evaluate_victory_condition(),
+        receiver.evaluate_victory_condition().unwrap(),
         Some(VictoryCondition::Winner(0))
     );
     let before_rejection = gameplay_observation(&receiver);
@@ -407,7 +407,7 @@ fn foreign_observer_cannot_exempt_the_owners_dead_player_from_defeat() {
     other.get_player_mut(0).unwrap().is_observer = true;
     let _foreign = ForeignRoster::install(true, false);
     destroy_armies(&mut owner, ids);
-    assert!(owner.evaluate_victory_condition().is_some());
+    assert!(owner.evaluate_victory_condition().unwrap().is_some());
     let frame = PresentationFrame::build_with_victory_for_engine(&mut owner, 0, None);
     assert!(frame.match_over);
     assert_eq!(
@@ -436,7 +436,7 @@ fn foreign_civilian_cannot_exempt_the_owners_dead_player_from_defeat() {
     let (mut owner, ids) = admitted_match();
     let _foreign = ForeignRoster::install(false, true);
     destroy_armies(&mut owner, ids);
-    assert!(owner.evaluate_victory_condition().is_some());
+    assert!(owner.evaluate_victory_condition().unwrap().is_some());
     let frame = PresentationFrame::build_with_victory_for_engine(&mut owner, 0, None);
     assert!(frame.match_over);
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 0);
@@ -448,7 +448,7 @@ fn foreign_observer_cannot_remove_a_living_owner_army_from_the_match() {
     let _serial = crate::game_logic::combat::tests::combat_test_guard();
     let (mut owner, ids) = admitted_match();
     let _foreign = ForeignRoster::install(true, false);
-    assert!(owner.evaluate_victory_condition().is_none());
+    assert!(owner.evaluate_victory_condition().unwrap().is_none());
     assert!(owner.host_object(ids[0]).unwrap().is_alive());
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 1234);
 }
@@ -460,7 +460,7 @@ fn owned_observer_remains_exempt_with_an_ordinary_foreign_slot() {
     owner.get_player_mut(0).unwrap().is_observer = true;
     let _foreign = ForeignRoster::install(false, false);
     destroy_armies(&mut owner, ids);
-    assert!(owner.evaluate_victory_condition().is_some());
+    assert!(owner.evaluate_victory_condition().unwrap().is_some());
     let frame = PresentationFrame::build_with_victory_for_engine(&mut owner, 0, None);
     assert!(frame.match_over);
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 1234);
@@ -490,7 +490,7 @@ fn unresolved_owned_template_remains_excluded_without_foreign_fallback() {
     );
     let _foreign = ForeignRoster::install(false, false);
     destroy_armies(&mut owner, ids);
-    assert!(owner.evaluate_victory_condition().is_some());
+    assert!(owner.evaluate_victory_condition().unwrap().is_some());
     assert_eq!(owner.get_player(0).unwrap().resources.supplies, 1234);
     assert_eq!(owner.get_player(1).unwrap().resources.supplies, 0);
 }
@@ -504,12 +504,12 @@ fn defeat_reveal_belongs_to_victory_owner_without_loaded_scripts() {
     let (mut peer, _) = observation_match();
     assert!(!owner.partition_manager.has_revealed_map(1));
     assert!(!peer.partition_manager.has_revealed_map(1));
-    owner.evaluate_victory_condition();
+    owner.evaluate_victory_condition().unwrap();
     assert!(owner.partition_manager.has_revealed_map(1));
     assert!(!peer.partition_manager.has_revealed_map(1));
     // Same player IDs, same thread: updating the peer cannot consume an event
     // from the owner, and its own defeat gets its own permanent reveal.
-    peer.evaluate_victory_condition();
+    peer.evaluate_victory_condition().unwrap();
     assert!(peer.partition_manager.has_revealed_map(1));
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&owner).unwrap();
@@ -542,10 +542,10 @@ fn initial_defeat_frames_do_not_publish_a_late_reveal() {
     for frame in [0, 1] {
         let (mut world, _) = observation_match();
         world.frame = frame;
-        world.evaluate_victory_condition();
+        world.evaluate_victory_condition().unwrap();
         assert!(!world.partition_manager.has_revealed_map(1));
         world.frame = 2;
-        world.evaluate_victory_condition();
+        world.evaluate_victory_condition().unwrap();
         assert!(!world.partition_manager.has_revealed_map(1));
     }
 }

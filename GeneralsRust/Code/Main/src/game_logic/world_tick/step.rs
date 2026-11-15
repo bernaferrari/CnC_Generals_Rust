@@ -679,7 +679,9 @@ impl GameLogic {
         // C++: TheTerrainLogic->UPDATE();
         // Terrain (bridges, dynamic water, trigger areas) updates BEFORE objects
         // so bridge state changes from scripts are reflected during the object pass.
-        self.update_owned_water_with_effects(&mut ui);
+        if let Err(error) = self.update_owned_water_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
         self.refresh_owned_bridge_pathfinder_states();
 
         // Refresh underwater/cliff flags only. Do not invent a 25 HP dry→wet chip.

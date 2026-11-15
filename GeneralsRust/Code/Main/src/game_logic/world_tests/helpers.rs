@@ -871,7 +871,7 @@ pub(super) fn run_detector_first_scan(game_logic: &mut GameLogic, detector_id: O
         .unwrap_or(0)
         .max(1);
     game_logic.frame = due;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
 }
 
 /// Advance disguise reveal transition residual past halfpoint.
@@ -1079,8 +1079,8 @@ pub(super) fn step_authored_combat(game_logic: &mut GameLogic, ids: &[ObjectId])
     game_logic
         .update_combat(ids, LOGIC_FRAME_TIMESTEP)
         .expect("combat frame");
-    game_logic.apply_owned_projectileless_delayed_damage();
-    let _ = game_logic.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
+    game_logic.apply_owned_projectileless_delayed_damage().unwrap();
+    let _ = game_logic.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP).unwrap();
 }
 
 /// Admit authored module/weapon content for older mapless PDL behavior tests.
@@ -1125,6 +1125,6 @@ pub(super) fn step_test_point_defense(world: &mut GameLogic) {
             object.template_mut().add_kind_of(KindOf::SmallMissile);
         }
     }
-    world.update_point_defense_intercept();
-    world.apply_owned_projectileless_delayed_damage();
+    world.update_point_defense_intercept().unwrap();
+    world.apply_owned_projectileless_delayed_damage().unwrap();
 }

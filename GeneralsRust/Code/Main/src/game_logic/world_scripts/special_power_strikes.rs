@@ -740,7 +740,7 @@ impl GameLogic {
                             plan.kind.authored_death_type(),
                             None,
                             effects,
-                        )
+                        )?
                     };
 
                     total_damage += hit.damage;
@@ -938,7 +938,7 @@ impl GameLogic {
         // NuclearMissile residual radiation field ticks (after impact blasts).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
-            self.update_nuclear_radiation_fields_with_effects(effects);
+            self.update_nuclear_radiation_fields_with_effects(effects)?;
         }
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
         {
@@ -1148,7 +1148,7 @@ impl GameLogic {
                             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
                             None,
                             effects,
-                        )
+                        )?
                     };
 
                     if destroyed {
@@ -1496,7 +1496,7 @@ impl GameLogic {
                                 HostDeathType::Flooded,
                                 None,
                                 effects,
-                            )
+                            )?
                         };
                         if destroyed {
                             destroy_ids.push((vid, team));
@@ -1523,14 +1523,14 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(in super::super) fn update_nuclear_radiation_fields(&mut self) {
+    pub(in super::super) fn update_nuclear_radiation_fields(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_nuclear_radiation_fields_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_nuclear_radiation_fields_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -1553,7 +1553,7 @@ impl GameLogic {
                     plan.source_object,
                     plan.source_team,
                     effects,
-                ) else {
+                )? else {
                     continue;
                 };
                 total_damage += hit.damage;
@@ -1574,9 +1574,10 @@ impl GameLogic {
         self.spawn_nuke_radiation_field_objects_for_new_fields_with_effects(effects);
         // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
         {
-            self.update_nuke_radiation_field_objects_with_effects(effects);
+            self.update_nuke_radiation_field_objects_with_effects(effects)?;
         }
         self.special_power_strikes.prune_expired_radiation(frame);
+        Ok(())
     }
 
     /// Tick residual toxin fields spawned by AnthraxBomb impacts.
@@ -1633,7 +1634,7 @@ impl GameLogic {
                             plan.death_type,
                             None,
                             effects,
-                        )
+                        )?
                     };
                     total_damage += hit.damage;
                     applications += 1;
@@ -1660,7 +1661,7 @@ impl GameLogic {
         self.spawn_anthrax_toxin_field_objects_for_new_fields_with_effects(effects);
         // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
         {
-            self.update_anthrax_toxin_field_objects_with_effects(effects);
+            self.update_anthrax_toxin_field_objects_with_effects(effects)?;
         }
         self.special_power_strikes.prune_expired_toxin(frame);
         Ok(())
@@ -2141,7 +2142,7 @@ impl GameLogic {
                                 crate::game_logic::combat::DamageType::Unresistable;
                             self.apply_residual_damage_owned_with_effects(owned_victim_id, hit.damage, Some(plan.source_object), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None, effects)
                         }
-                    };
+                    }?;
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -2491,7 +2492,7 @@ impl GameLogic {
                             death_type,
                             None,
                             effects,
-                        )
+                        )?
                     };
 
                     total_damage += hit.damage;
@@ -3310,7 +3311,7 @@ impl GameLogic {
                             death_type,
                             None,
                             effects,
-                        )
+                        )?
                     };
 
                     total_damage += hit.damage;

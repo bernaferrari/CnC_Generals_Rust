@@ -204,17 +204,17 @@ fn real_passive_secondary_preserves_container_state_and_delays_damage_from_actua
         assert_eq!(health(&game), hp);
         assert_eq!(delayed(&game), 1);
         game.frame = 39;
-        game.apply_owned_projectileless_delayed_damage();
+        game.apply_owned_projectileless_delayed_damage().unwrap();
         assert_eq!(
             health(&game),
             hp,
             "90 / 9 is ten logic frames from supplied muzzle"
         );
         game.frame = 40;
-        game.apply_owned_projectileless_delayed_damage();
+        game.apply_owned_projectileless_delayed_damage().unwrap();
         assert_eq!(health(&game), hp - 37.0);
         assert_eq!(delayed(&game), 0);
-        game.apply_owned_projectileless_delayed_damage();
+        game.apply_owned_projectileless_delayed_damage().unwrap();
         assert_eq!(health(&game), hp - 37.0, "accepted shot is applied once");
         assert_eq!(health(&peer), hp);
         assert_eq!(
@@ -297,7 +297,7 @@ fn shipping_transport_passenger_driver_uses_owned_delayed_discharge() {
     assert_eq!(health(&game), hp);
     assert_eq!(delayed(&game), 1);
     game.frame = 40;
-    game.apply_owned_projectileless_delayed_damage();
+    game.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&game), hp - 37.0);
 }
 
@@ -355,12 +355,12 @@ fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() 
     );
     assert_eq!(delayed(&restored), 1);
     restored.frame = 39;
-    restored.apply_owned_projectileless_delayed_damage();
+    restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&restored), hp);
     restored.frame = 40;
-    restored.apply_owned_projectileless_delayed_damage();
+    restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&restored), hp - 37.0);
-    restored.apply_owned_projectileless_delayed_damage();
+    restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&restored), hp - 37.0);
     assert_eq!(delayed(&restored), 0);
     assert_eq!(

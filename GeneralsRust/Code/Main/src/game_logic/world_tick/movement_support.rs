@@ -3198,7 +3198,7 @@ impl GameLogic {
             if let Some(goal) = plant_goal {
                 self.apply_arrival_goal_snap(id, Some(goal));
             }
-            self.finish_transport_return_phase_with_effects(id, effects);
+            self.finish_transport_return_phase_with_effects(id, effects)?;
             if idle_after_locomotion && self.objects.contains_key(&id) {
                 let nested = self
                     .objects
@@ -3212,7 +3212,7 @@ impl GameLogic {
             }
         }
 
-        self.drain_pending_transport_exits_with_effects(effects);
+        self.drain_pending_transport_exits_with_effects(effects)?;
         Ok(())
     }
 
@@ -3542,14 +3542,14 @@ impl GameLogic {
     /// C++ AIExitState::update polls isExitBusy / getAiFreeToExit every frame
     /// with no hull-stop requirement. move-to-and-evacuate still waits for
     /// arrival (`pending_stream_exit` stays false until the first dump).
-    pub(in super::super) fn drain_pending_transport_exits(&mut self) {
+    pub(in super::super) fn drain_pending_transport_exits(&mut self) -> gamelogic::GameLogicResult<()> {
         self.drain_pending_transport_exits_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn drain_pending_transport_exits_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let mut evac_now: Vec<(ObjectId, bool)> = Vec::new();
         for (id, obj) in self.objects.registered() {
             if !obj.pending_evacuate_on_stop {
@@ -3581,8 +3581,9 @@ impl GameLogic {
             }
         }
         for (id, and_exit) in evac_now {
-            let _ = self.evacuate_container_now_with_effects(id, and_exit, effects);
+            self.evacuate_container_now_with_effects(id, and_exit, effects)?;
         }
+        Ok(())
     }
     /// Update AI behavior for all objects
     /// Enhanced with AI decision system for intelligent behavior
@@ -3590,41 +3591,36 @@ impl GameLogic {
     /// Drain this world's accepted shots into its CombatSystem (fire-spawn authority apply).
     pub(crate) fn drain_pending_projectiles_into_combat(&mut self) {
         self.drain_pending_projectiles_into_combat_with_effects(&mut Default::default())
+            .expect("receiving projectile admission failed")
     }
 
     pub(crate) fn drain_pending_projectiles_into_combat_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        crate::game_logic::combat::drain_pending_projectiles_with_partition(
-            &mut self.combat_system,
-            self.objects.read(),
-            self.frame,
-            &self.projectile_definitions,
-            Some(&self.partition_manager),
-            &mut self.next_object_id,
-            &self.logic_random,
-        );
+    ) -> gamelogic::GameLogicResult<()> {
+        self.materialize_owned_queued_projectiles_with_effects(effects)?;
         self.update_projectile_weapon_bonus_upgrades(None);
-        self.apply_owned_projectileless_delayed_damage_with_effects(effects);
-        self.execute_pending_weapon_fire_ocls_with_effects(effects);
+        self.apply_owned_projectileless_delayed_damage_with_effects(effects)?;
+        self.execute_pending_weapon_fire_ocls_with_effects(effects)?;
+        Ok(())
     }
 
     /// Complete projectile contacts without advancing their flight positions.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
         self.resolve_projectiles_hits_only_with_effects(&mut Default::default())
+            .expect("receiving projectile impact failed")
     }
 
     pub(crate) fn resolve_projectiles_hits_only_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<ObjectId> {
+    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
         self.combat_system.refresh_homing_aims(self.objects.read());
         // Use the same installed receiving-owner completion as the ordinary
         // projectile step; zero dt preserves this hit-only admission boundary.
-        let hits = self.update_owned_projectile_impacts_with_effects(0.0, effects);
-        self.flush_projectile_impact_fx_with_effects(effects);
-        hits
+        let hits = self.update_owned_projectile_impacts_with_effects(0.0, effects)?;
+        self.flush_projectile_impact_fx_with_effects(effects)?;
+        Ok(hits)
     }
 }
 

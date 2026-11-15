@@ -6,7 +6,7 @@ impl GameLogic {
     /// Safely disarm/clear a residual mine without detonation or area damage.
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
     /// Demo traps (KINDOF_DEMOTRAP) are disarmed the same way — no explosion.
-    pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> bool {
+    pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.clear_mine_internal_with_effects(mine_id, clearer_id, &mut Default::default())
     }
 
@@ -15,24 +15,24 @@ impl GameLogic {
         mine_id: ObjectId,
         clearer_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_mines::{MINE_CLEARED_AUDIO, can_clear_mine_kind};
 
         let Some(mine) = self.objects.get(&mine_id) else {
-            return false;
+            return Ok(false);
         };
         if !mine.is_alive() {
-            return false;
+            return Ok(false);
         }
         let Some(data) = mine.mine_data.as_ref() else {
-            return false;
+            return Ok(false);
         };
         if data.detonated || !can_clear_mine_kind(data.kind) {
-            return false;
+            return Ok(false);
         }
         let clearer_team = self.objects.get(&clearer_id).map(|o| o.team);
         if clearer_team == Some(mine.team) {
-            return false;
+            return Ok(false);
         }
         let mine_pos = mine.get_position();
         let keep_regen_pad = data.regenerates
@@ -49,7 +49,7 @@ impl GameLogic {
                 .get(&mine_id)
                 .map(|obj| obj.health.current - MINE_MIN_HEALTH)
                 .unwrap_or(0.0);
-            self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, effects);
+            self.apply_guarded_mine_body_drain_with_effects(mine_id, amount, effects)?;
             if let Some(obj) = self.objects.get_mut(&mine_id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     // CPP disarm's count reset follows the guarded damage callback.
@@ -78,7 +78,7 @@ impl GameLogic {
         );
 
         if !keep_regen_pad {
-            self.mark_object_for_destruction_with_effects(mine_id, None, effects);
+            self.mark_object_for_destruction_with_effects(mine_id, None, effects)?;
         }
 
         if let Some(clearer) = self.objects.get_mut(&clearer_id) {
@@ -98,7 +98,7 @@ impl GameLogic {
             }
         }
 
-        true
+        Ok(true)
     }
 
     pub(in super::super::super) fn detonate_mine_internal(
@@ -109,7 +109,7 @@ impl GameLogic {
         // detonation weapon at the clipped victim point (MinefieldBehavior.cpp:257,
         // :422-424); DemoTrapUpdate::detonate / onDamage pass the object position.
         blast_at: Option<Vec3>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.detonate_mine_internal_with_effects(mine_id, reason, blast_at, &mut Default::default())
     }
 
@@ -122,14 +122,14 @@ impl GameLogic {
         // :422-424); DemoTrapUpdate::detonate / onDamage pass the object position.
         blast_at: Option<Vec3>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_mines::{HostMineDetonateReason, damage_at_distance};
 
         let Some(mine) = self.objects.get(&mine_id) else {
-            return false;
+            return Ok(false);
         };
         if mine.status.sold {
-            return false;
+            return Ok(false);
         }
         if !mine.is_alive() && !matches!(reason, HostMineDetonateReason::Killed) {
             // Last detonateOnce of a 0-HP non-regen pad still fires + destroyObject.
@@ -140,17 +140,17 @@ impl GameLogic {
                 ) && !md.detonated
             });
             if !last_virtual {
-                return false;
+                return Ok(false);
             }
         }
         let Some(data) = mine.mine_data.as_ref() else {
-            return false;
+            return Ok(false);
         };
         if data.detonated {
-            return false;
+            return Ok(false);
         }
         if mine.status.under_construction {
-            return false;
+            return Ok(false);
         }
 
         if matches!(data.kind, crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge) {
@@ -167,7 +167,7 @@ impl GameLogic {
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 effects,
-            ).is_some();
+            )?.is_some();
             if killed {
                 match reason {
                     HostMineDetonateReason::Proximity => self.mine_residual_proximity_detonations = self.mine_residual_proximity_detonations.saturating_add(1),
@@ -175,7 +175,7 @@ impl GameLogic {
                     HostMineDetonateReason::Manual | HostMineDetonateReason::Killed => self.mine_residual_manual_detonations = self.mine_residual_manual_detonations.saturating_add(1),
                 }
             }
-            return killed;
+            return Ok(killed);
         }
 
         let kind = data.kind;
@@ -217,7 +217,7 @@ impl GameLogic {
                 Some(mine_id),
                 None,
             );
-            return true;
+            return Ok(true);
         }
 
         // Mark detonated before applying damage.
@@ -305,7 +305,7 @@ impl GameLogic {
                             ),
                             None,
                             effects,
-                        )
+                        )?
                     } && !chain_pad
                     {
                         if let Some(victim) = self.objects.get(&vid) {
@@ -321,7 +321,7 @@ impl GameLogic {
                 }
             }
             for id in chain_ids {
-                self.chain_detonate_land_mine_from_splash_with_effects(id, effects);
+                self.chain_detonate_land_mine_from_splash_with_effects(id, effects)?;
             }
         }
 
@@ -356,7 +356,7 @@ impl GameLogic {
             mine_id,
             producer.map(|_| mine_team),
             effects,
-        );
+        )?;
         for (vid, killer, victim_birth) in destroy_ids {
             if !self.objects.get(&vid).is_some_and(|victim| {
                 victim_birth.ptr_eq(&std::sync::Arc::downgrade(
@@ -368,18 +368,17 @@ impl GameLogic {
             // C++ scoreTheKill on the charge; addExperiencePoints sinks to planter.
             self.award_score_the_kill_experience_with_effects_and_interpreter(
                 mine_id, vid, None, effects,
-            )
-            .expect("mine kill XP callback must complete");
+            )?;
             if self.objects.get(&vid).is_some_and(|victim| {
                 victim_birth.ptr_eq(&std::sync::Arc::downgrade(
                     &victim.visual_draw_identity_token,
                 ))
             }) {
-                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects)?;
             }
         }
 
-        true
+        Ok(true)
     }
 
     pub(super) fn apply_mine_splash(
@@ -391,7 +390,7 @@ impl GameLogic {
         kind: crate::game_logic::host_mines::HostMineKind,
         mine_team: Team,
         producer: Option<ObjectId>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_mine_splash_with_effects(
             mine_id,
             blast_pos,
@@ -414,7 +413,7 @@ impl GameLogic {
         mine_team: Team,
         producer: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_mines::damage_at_distance;
         let neutron_blast = self
             .objects
@@ -446,17 +445,16 @@ impl GameLogic {
                 }
                 self.award_score_the_kill_experience_with_effects_and_interpreter(
                     mine_id, vid, None, effects,
-                )
-                .expect("mine kill XP callback must complete");
+                )?;
                 if self.objects.get(&vid).is_some_and(|victim| {
                     victim_birth.ptr_eq(&std::sync::Arc::downgrade(
                         &victim.visual_draw_identity_token,
                     ))
                 }) {
-                    self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+                    self.mark_object_for_destruction_with_effects(vid, Some(killer), effects)?;
                 }
             }
-            return;
+            return Ok(());
         }
         let hit_allies = matches!(
             kind,
@@ -510,7 +508,7 @@ impl GameLogic {
                         ),
                         None,
                         effects,
-                    )
+                    )?
                 } && !chain_pad
                 {
                     if let Some(victim) = self.objects.get(&vid) {
@@ -523,7 +521,7 @@ impl GameLogic {
                 } else if chain_pad {
                     // Original weapon iteration completes this victim's
                     // onDamage before advancing to the next radius victim.
-                    self.chain_detonate_land_mine_from_splash_with_effects(vid, effects);
+                    self.chain_detonate_land_mine_from_splash_with_effects(vid, effects)?;
                 }
             }
         }
@@ -550,20 +548,20 @@ impl GameLogic {
             }
             self.award_score_the_kill_experience_with_effects_and_interpreter(
                 mine_id, vid, None, effects,
-            )
-            .expect("mine kill XP callback must complete");
+            )?;
             if self.objects.get(&vid).is_some_and(|victim| {
                 victim_birth.ptr_eq(&std::sync::Arc::downgrade(
                     &victim.visual_draw_identity_token,
                 ))
             }) {
-                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
+                self.mark_object_for_destruction_with_effects(vid, Some(killer), effects)?;
             }
         }
+        Ok(())
     }
 
     /// C++ MinefieldBehavior::onDamage after splash `attemptDamage`.
-    pub(super) fn chain_detonate_land_mine_from_splash(&mut self, mine_id: ObjectId) {
+    pub(super) fn chain_detonate_land_mine_from_splash(&mut self, mine_id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.chain_detonate_land_mine_from_splash_with_effects(mine_id, &mut Default::default())
     }
 
@@ -571,8 +569,8 @@ impl GameLogic {
         &mut self,
         mine_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.synchronize_mine_body_owned_with_effects(mine_id, false, false, effects);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.synchronize_mine_body_owned_with_effects(mine_id, false, false, effects)
     }
 
     pub(super) fn synchronize_mine_body_owned(
@@ -580,7 +578,7 @@ impl GameLogic {
         mine_id: ObjectId,
         healing: bool,
         self_drain: bool,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.synchronize_mine_body_owned_with_effects(
             mine_id,
             healing,

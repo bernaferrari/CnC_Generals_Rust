@@ -286,7 +286,7 @@ impl GameLogic {
             }
         }
         if garrison {
-            self.recalc_garrison_apparent_controller(container_id);
+            self.recalc_garrison_apparent_controller_with_effects(container_id, effects)?;
         }
         if transport && !helix {
             self.scatter_dying_transport_rider_with_effects(container_id, child_id, effects);
@@ -442,7 +442,7 @@ impl GameLogic {
                     .expect("containment operation preserves this birth");
             }
             if garrison {
-                self.recalc_garrison_apparent_controller(cid);
+                self.recalc_garrison_apparent_controller_with_effects(cid, effects)?;
             }
         }
         if let Some(player) = self.tunnel_network.player_holding_unit(id) {

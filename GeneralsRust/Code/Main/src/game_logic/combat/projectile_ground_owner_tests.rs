@@ -98,8 +98,8 @@ fn high_world_object_ids_survive_projectile_continuation_in_independent_worlds()
             restored.materialize_owned_passive_shot(shot, None);
             assert_eq!(restored.combat_system.projectiles.len(), 2);
             assert!(restored.combat_system.projectiles.contains_key(&ObjectId(100001)));
-            first.update_owned_projectile_impacts(1. / 30.);
-            restored.update_owned_projectile_impacts(1. / 30.);
+            first.update_owned_projectile_impacts(1. / 30.).unwrap();
+            restored.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(
                 first.combat_system.projectiles[&id].position,
                 restored.combat_system.projectiles[&id].position,
@@ -129,7 +129,7 @@ fn dumb_projectile_aims_and_retargets_to_box_geometry_center() {
                 Vec3::new(120., 40., 30.));
             world.objects.get_mut(&ObjectId(42)).unwrap()
                 .set_position(Vec3::new(150., 20., 30.));
-            world.update_owned_projectile_impacts(1. / 30.);
+            world.update_owned_projectile_impacts(1. / 30.).unwrap();
             assert_eq!(world.combat_system.projectiles[&id].flight_runtime.path_end,
                 Vec3::new(122., 40., 30.));
         },
@@ -167,8 +167,8 @@ fn actual_receiving_projectile_initialization_and_retarget_ignore_locked_foreign
                     .clone();
                 move_target(&mut a);
                 move_target(&mut b);
-                a.update_owned_projectile_impacts(1. / 30.);
-                b.update_owned_projectile_impacts(1. / 30.);
+                a.update_owned_projectile_impacts(1. / 30.).unwrap();
+                b.update_owned_projectile_impacts(1. / 30.).unwrap();
                 assert_eq!(a.combat_system.projectiles[&aid].flight_runtime.path_segments, a_segments);
                 assert_eq!(b.combat_system.projectiles[&bid].flight_runtime.path_segments, b_segments);
                 assert_ne!(
@@ -201,8 +201,8 @@ fn actual_receiving_projectile_initialization_and_retarget_ignore_locked_foreign
                 foreign_terrain
                     .try_apply_logic_height_map_bytes_with_effects(&[8; 1024], &mut || {})
                     .unwrap();
-                a.update_owned_projectile_impacts(1. / 30.);
-                restored.update_owned_projectile_impacts(1. / 30.);
+                a.update_owned_projectile_impacts(1. / 30.).unwrap();
+                restored.update_owned_projectile_impacts(1. / 30.).unwrap();
                 assert_eq!(
                     a.combat_system.projectiles[&aid].flight_runtime.path,
                     restored.combat_system.projectiles[&aid].flight_runtime.path,
@@ -283,7 +283,7 @@ fn retarget_failure_detonates_before_advancing_when_grid_is_replaced() {
             let before = world.combat_system.projectiles[&id].position;
             let (_, retired) = world.combat_system.prepare_projectile_impact_with_runtime(
                 id, 1. / 30., &mut world.objects, None, world.frame, None,
-                Some(&world.partition_manager), &mut world.ownership_events, 0, None, &mut (),
+                Some(&mut world.partition_manager), &mut world.ownership_events, 0, None, &mut (),
             );
             assert_eq!(retired, vec![id]);
             assert_eq!(world.combat_system.projectiles[&id].position, before);

@@ -64,7 +64,7 @@ impl Field {
             Self::Fire => world.update_inferno_fire_field_objects(),
             Self::Toxin => world.update_anthrax_toxin_field_objects(),
             Self::Radiation => world.update_nuke_radiation_field_objects(),
-        }
+        }.unwrap()
     }
     fn deadline(self, object: &Object) -> Option<u32> {
         match self {

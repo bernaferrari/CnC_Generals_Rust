@@ -1683,7 +1683,7 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
         game_logic.frame = f;
         game_logic.update_neutron_missile_flights();
         game_logic.update_neutron_slow_death_fields();
-        game_logic.update_nuclear_radiation_fields();
+        game_logic.update_nuclear_radiation_fields().unwrap();
         if game_logic.special_power_strikes().honesty_radiation_ok() {
             break;
         }
@@ -1711,7 +1711,7 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
     for _ in 0..40 {
         game_logic.frame = game_logic.frame.saturating_add(1);
         game_logic.update_neutron_slow_death_fields();
-        game_logic.update_nuclear_radiation_fields();
+        game_logic.update_nuclear_radiation_fields().unwrap();
     }
 
     let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
@@ -1787,7 +1787,7 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
         // Frame is already past impact + multi-blast advance; step one radiation interval.
         game_logic.frame = game_logic.frame.saturating_add(23);
         game_logic.update_special_power_strikes();
-        game_logic.update_nuclear_radiation_fields();
+        game_logic.update_nuclear_radiation_fields().unwrap();
         let rad_later = game_logic
             .host_object(rad_victim_id)
             .map(|o| o.health.current)
@@ -2351,9 +2351,9 @@ fn detector_scan_uses_player_relationship_not_team_enum() {
     }
 
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     logic.frame = 2;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
 
     assert!(
         !logic
@@ -2396,10 +2396,10 @@ fn overlapping_detectors_each_refresh_detection() {
     }
 
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert_eq!(logic.host_object(target).unwrap().detection_expires_frame, 22);
     logic.frame = 2;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(logic.host_object(target).unwrap().status.detected);
 }
 
@@ -2470,11 +2470,11 @@ fn detected_hero_wakes_idle_enemies() {
     }
 
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(!logic.host_object(burton).unwrap().status.detected);
     logic.host_object_mut(detector).unwrap().is_detector = false;
     logic.frame = 2;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         logic.host_object(burton).unwrap().status.detected,
         "detector must mark Burton DETECTED"
@@ -2555,11 +2555,11 @@ fn detected_stealth_garrison_unhides_building() {
     }
 
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(!logic.host_object(burton).unwrap().status.detected);
     logic.host_object_mut(detector).unwrap().is_detector = false;
     logic.frame = 2;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(logic.host_object(burton).unwrap().status.detected);
     assert!(
         !logic
@@ -2603,7 +2603,7 @@ fn camo_netting_destalths_without_black_market() {
         t.stealth_allowed_frame = 0;
     }
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         !logic.host_object(tunnel_id).unwrap().status.stealthed,
         "CamoNetting must destalth without a live Black Market"
@@ -2617,7 +2617,7 @@ fn camo_netting_destalths_without_black_market() {
     }
 
     logic.frame = 2;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         logic.host_object(tunnel_id).unwrap().status.stealthed,
         "CamoNetting recloaks when a live Black Market exists"
@@ -2633,7 +2633,7 @@ fn camo_netting_destalths_without_black_market() {
         .unwrap()
         .stealth_next_black_market_check_frame = 0;
     logic.frame = 3;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         !logic.host_object(tunnel_id).unwrap().status.stealthed,
         "selling the Black Market must destalth CamoNetting"
@@ -2668,7 +2668,7 @@ fn cloak_and_detect_play_stealth_on_off() {
         .expect("burton");
     logic.queued_audio_events.clear();
     logic.frame = BURTON_STEALTH_DELAY_FRAMES;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(logic.host_object(burton).unwrap().status.stealthed);
     assert!(
         logic
@@ -2688,11 +2688,11 @@ fn cloak_and_detect_play_stealth_on_off() {
     }
     logic.queued_audio_events.clear();
     logic.frame = BURTON_STEALTH_DELAY_FRAMES.saturating_add(1);
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(!logic.host_object(burton).unwrap().status.detected);
     logic.host_object_mut(detector).unwrap().is_detector = false;
     logic.frame = BURTON_STEALTH_DELAY_FRAMES.saturating_add(2);
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(logic.host_object(burton).unwrap().status.detected);
     assert!(
         logic
@@ -2731,7 +2731,7 @@ fn sold_detector_stops_scanning() {
     }
 
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         !logic.host_object(stealth).unwrap().status.detected,
         "sold detector must not destalth nearby units"
@@ -2774,7 +2774,7 @@ fn stealth_attack_move_does_not_destalth() {
         b.set_status_firing_weapon(false);
     }
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         logic.host_object(burton).unwrap().status.stealthed,
         "approach / attack-move must not destalth; C++ gates on IS_FIRING_WEAPON"
@@ -2786,7 +2786,7 @@ fn stealth_attack_move_does_not_destalth() {
         b.last_fire_slot = 0;
         b.last_fire_frame = 1;
     }
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         !logic.host_object(burton).unwrap().status.stealthed,
         "FIRING_PRIMARY must destalth Burton"
@@ -2826,11 +2826,11 @@ fn stealth_detector_uses_horizontal_range() {
     }
 
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(!logic.host_object(stealth).unwrap().status.detected);
     logic.host_object_mut(detector).unwrap().is_detector = false;
     logic.frame = 2;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         logic.host_object(stealth).unwrap().status.detected,
         "FROM_CENTER_2D must detect at XZ=50 even when 3D distance includes altitude"
@@ -2885,7 +2885,7 @@ fn detector_scan_queues_ir_ping_and_heat_vision() {
 
     logic.queued_audio_events.clear();
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     let target = logic.host_object(burton).unwrap();
     assert!(target.detection_expires_frame > logic.frame);
     assert!(
@@ -2952,7 +2952,7 @@ fn pathfinder_grant_does_not_recloak_while_moving() {
         o.invalidate_velocity_magnitude();
     }
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         !logic.host_object(pf).unwrap().status.stealthed,
         "Pathfinder leftover velocity destalth must not be undone by grant recloak"
@@ -2989,7 +2989,7 @@ fn pathfinder_move_order_below_threshold_stays_stealthed() {
         o.invalidate_velocity_magnitude();
     }
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         logic.host_object(pf).unwrap().status.stealthed,
         "Pathfinder stays cloaked while leftover velocity is below leftover MoveThresholdSpeed"
@@ -3027,7 +3027,7 @@ fn pathfinder_sliding_stop_above_threshold_destalths() {
         o.invalidate_velocity_magnitude();
     }
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(
         !logic.host_object(pf).unwrap().status.stealthed,
         "Pathfinder destalths on leftover velocity above MoveThresholdSpeed even when idle"
@@ -3109,7 +3109,7 @@ fn detector_ir_grid_refreshes_on_already_detected_scan() {
     }
 
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     assert!(logic.host_object(stealth).unwrap().detection_expires_frame > logic.frame);
     let first: Vec<_> = logic
         .combat_particles()
@@ -3132,7 +3132,7 @@ fn detector_ir_grid_refreshes_on_already_detected_scan() {
     let first_frame = first[0].spawned_frame;
 
     logic.frame = 2;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     let second: Vec<_> = logic
         .combat_particles()
         .active_systems()

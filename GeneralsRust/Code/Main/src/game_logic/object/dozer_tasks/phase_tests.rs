@@ -9,12 +9,15 @@ use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 use gamelogic::object::update::ai_update::dozer_ai_update::owned_state::ActionState;
 
 fn world() -> (GameLogic, ObjectId, ObjectId) {
+    world_with_repair_rate("2")
+}
+fn world_with_repair_rate(rate: &str) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.frame = 10;
     world.add_player(Player::new(0, Team::USA, "DozerOwner", true));
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
         "dozer-request-phase.ini".into(),
-        "Object PhaseDozer\nKindOf = VEHICLE DOZER SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = DozerAIUpdate DozerTaskSource\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject PhaseSite\nKindOf = STRUCTURE\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nEnd\nObject PhasePaidSite\nKindOf = STRUCTURE\nBuildCost = 300\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = SupplyWarehouseCreate WarehouseBirth\nEnd\nEnd\nObject PhaseDamaged\nKindOf = STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 200\nEnd\nEnd\n".into(),
+        "Object PhaseDozer\nKindOf = VEHICLE DOZER SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = DozerAIUpdate DozerTaskSource\nRepairHealthPercentPerSecond = RATE\nEnd\nEnd\nObject PhaseSite\nKindOf = STRUCTURE\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nEnd\nObject PhasePaidSite\nKindOf = STRUCTURE\nBuildCost = 300\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = SupplyWarehouseCreate WarehouseBirth\nEnd\nEnd\nObject PhaseDamaged\nKindOf = STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 200\nEnd\nEnd\n".replace("RATE", rate),
     )]).expect("authored content")).expect("admission");
     let actor = world
         .create_object_for_player_with_effects_checked(
@@ -103,7 +106,31 @@ fn authored_repair_command_records_request_then_enters_action_on_original_phases
         "DoAction onEnter is not its update"
     );
     drive(&mut world, id, 14);
-    assert!(world.host_object(target).unwrap().health.current > hp);
+    assert!(
+        (world.host_object(target).unwrap().health.current - (hp + 500.0 * 0.02 / 30.0))
+            .abs()
+            < 0.001,
+        "DoAction heals exactly one authored repair contribution per logic frame"
+    );
+}
+
+#[test]
+fn repair_action_uses_each_worlds_authored_ai_rate() {
+    let (mut first, actor, target) = world_with_repair_rate("7");
+    let (mut peer, peer_actor, peer_target) = world_with_repair_rate("2");
+    assert_eq!((actor, target), (peer_actor, peer_target));
+    let first_health = first.host_object(target).unwrap().health.current;
+    let peer_health = peer.host_object(target).unwrap().health.current;
+    for game in [&mut first, &mut peer] {
+        assert_eq!(command(game, actor, CommandType::Repair { target_id: target }), CommandResult::Success);
+        for frame in 11..=14 {
+            drive(game, actor, frame);
+        }
+    }
+    let first_gain = first.host_object(target).unwrap().health.current - first_health;
+    let peer_gain = peer.host_object(target).unwrap().health.current - peer_health;
+    assert!((first_gain - 500.0 * 0.07 / 30.0).abs() < 0.001);
+    assert!((peer_gain - 500.0 * 0.02 / 30.0).abs() < 0.001);
 }
 #[test]
 fn frame_zero_pending_request_is_not_selected_and_same_positive_frame_tie_is_build() {
@@ -193,6 +220,7 @@ fn supplied_build_request_does_not_interrupt_busy_motion_but_repair_invalid_curr
         DozerTask::Invalid,
         "primary Idle waits for inherited AI Idle"
     );
+    let retained_path = world.host_object(id).unwrap().movement.path.clone();
     assert!(
         command(&mut world, id, CommandType::Repair { target_id: target }) == CommandResult::Success);
     let actor = world.host_object(id).unwrap();
@@ -200,7 +228,10 @@ fn supplied_build_request_does_not_interrupt_busy_motion_but_repair_invalid_curr
         AIState::Idle,
         "CPP2359 preamble only for INVALID current"
     );
-    assert!(actor.movement.path.is_empty());
+    assert_eq!(
+        actor.movement.path, retained_path,
+        "CPP AIMoveToState::onExit marks movement complete without destroying its path"
+    );
     assert_eq!(actor.dozer_tasks.current, DozerTask::Invalid);
     assert!(
         actor.dozer_tasks.requests[0].target.is_some(),
@@ -424,7 +455,7 @@ fn actual_player_move_cancels_only_the_receiving_dozer_same_id_task() {
     let snapshot = crate::save_load::snapshot::SnapshotBuilder::new()
         .create_world_snapshot(&first)
         .expect("cancelled construction source snapshot");
-    let mut restored = GameLogic::new();
+    let (mut restored, _, _) = world();
     crate::save_load::snapshot::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("cancelled construction restore");
@@ -635,10 +666,25 @@ fn action_build_world() -> (GameLogic, ObjectId, ObjectId) {
     logic
         .admit_receiving_module_content(ReceivingObjectContent::from_sources([(
             "wave715-dozer-phase.ini".into(),
-            "Object SfDozer\nKindOf = VEHICLE DOZER SELECTABLE\nEnergyProduction = 1\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = DozerAIUpdate DozerTaskSource\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject SfBarracks\nKindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\nEnergyProduction = 20\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = LockWeaponCreate CompletionLock\nSlotToLock = PRIMARY\nEnd\nEnd\nObject SfRebuildSite\nKindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER SCORE_CREATE\nEnergyProduction = 20\nBuildCost = 400\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = LockWeaponCreate CompletionLock\nSlotToLock = PRIMARY\nEnd\nEnd\n".into(),
+            "Object SfDozer\nKindOf = VEHICLE DOZER SELECTABLE\nEnergyProduction = 1\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = DozerAIUpdate DozerTaskSource\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject SfBarracks\nKindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\nEnergyProduction = 20\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = LockWeaponCreate CompletionLock\nSlotToLock = PRIMARY\nEnd\nEnd\nObject SfRebuildSite\nKindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER SCORE_CREATE\nEnergyProduction = 20\nBuildCost = 400\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nWeaponSet\nConditions = None\nWeapon = PRIMARY RebuildFixtureWeapon\nEnd\nBehavior = LockWeaponCreate CompletionLock\nSlotToLock = PRIMARY\nEnd\nEnd\n".into(),
         )])
         .expect("authored Dozer and structure content"))
         .expect("receiving module admission");
+    let mut definitions = std::collections::HashMap::new();
+    assert_eq!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut definitions,
+            "Weapon RebuildFixtureWeapon\nPrimaryDamage = 10\nAttackRange = 100\nEnd\n",
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ),
+        1
+    );
+    logic
+        .admit_weapon_content_snapshot(
+            definitions.into_values().map(|weapon| (weapon.name.clone(), weapon)).collect(),
+            &[],
+        )
+        .expect("authored rebuild weapon");
     let dozer = logic
         .create_object_for_player_with_effects_checked(
             "SfDozer",
@@ -781,6 +827,35 @@ fn actual_build_native_mid_action_resumes_progress_without_production_timer_cont
         Some(builder)
     );
 }
+
+#[test]
+fn scheduled_build_restore_and_same_id_peer_remain_world_owned() {
+    let (mut source, builder, site) = action_build_world();
+    let (mut peer, peer_builder, peer_site) = action_build_world();
+    assert_eq!((builder, site), (peer_builder, peer_site));
+    let peer_initial = peer.host_object(site).unwrap().construction_percent;
+
+    action_build_first_piece(&mut source, builder, site, 0.0);
+    let saved_progress = source.host_object(site).unwrap().construction_percent;
+    assert_eq!(peer.host_object(site).unwrap().construction_percent, peer_initial);
+
+    let factory = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = factory.create_world_snapshot(&source).unwrap();
+    let decoded: crate::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
+    let (mut restored, restored_builder, restored_site) = action_build_world();
+    assert_eq!((builder, site), (restored_builder, restored_site));
+    factory.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+    action_build_first_piece(&mut restored, builder, site, saved_progress);
+    assert_eq!(source.host_object(site).unwrap().construction_percent, saved_progress);
+    assert_eq!(peer.host_object(site).unwrap().construction_percent, peer_initial);
+
+    action_build_first_piece(&mut peer, builder, site, peer_initial);
+    assert_eq!(source.host_object(site).unwrap().construction_percent, saved_progress);
+    assert!(restored.host_object(site).unwrap().construction_percent > saved_progress);
+    assert_eq!(peer.host_object(site).unwrap().builder_id, Some(peer_builder));
+}
 #[test]
 fn actual_construct_latch_is_builder_owned_survives_resume_and_is_omitted_from_original_native_wire()
  {
@@ -791,6 +866,19 @@ fn actual_construct_latch_is_builder_owned_survives_resume_and_is_omitted_from_o
             .unwrap();
         let mut out = std::io::Cursor::new(Vec::new());
         snapshot.xfer(&mut XferSave::new(&mut out)).unwrap();
+        out.into_inner()
+    }
+    fn dozer_bytes(world: &GameLogic, builder: ObjectId) -> Vec<u8> {
+        let snapshot = crate::save_load::snapshot::SnapshotBuilder::new()
+            .create_world_snapshot(world)
+            .unwrap();
+        let object = snapshot.objects.get(&builder).unwrap();
+        let mut module = match object.modules.get("ReceivingDozerTasks").unwrap() {
+            crate::save_load::snapshot::ModuleSnapshot::DozerTasks(module) => module.clone(),
+            _ => panic!("receiving Dozer snapshot has wrong module type"),
+        };
+        let mut out = std::io::Cursor::new(Vec::new());
+        module.xfer(&mut XferSave::new(&mut out)).unwrap();
         out.into_inner()
     }
     let (mut source, builder, site) = action_build_world();
@@ -825,6 +913,7 @@ fn actual_construct_latch_is_builder_owned_survives_resume_and_is_omitted_from_o
         .unwrap()
         .set_status_reconstructing(true);
     let original = bytes(&source);
+    let original_dozer = dozer_bytes(&source, builder);
     // Same operation is called before RebuildHole's actual construct factory.
     source
         .dozer_record_construct_kind_owned(builder, &birth, true)
@@ -837,8 +926,8 @@ fn actual_construct_latch_is_builder_owned_survives_resume_and_is_omitted_from_o
             .construct_is_rebuild
     );
     assert_eq!(
-        bytes(&source),
-        original,
+        dozer_bytes(&source, builder),
+        original_dozer,
         "CPP Dozer/Worker Xfer omits m_isRebuild: no invented current-native field"
     );
     source.dozer_internal_task_complete(builder, false);
@@ -914,7 +1003,7 @@ fn actual_entered_build_rejects_changed_controller_without_canceling_pending_req
         let id = team.read().unwrap().get_id();
         id
     };
-    assert!(world.set_host_object_team(site, team));
+    assert!(world.set_host_object_team(site, team).unwrap());
     let before = (
         world.host_object(site).unwrap().construction_percent,
         world.host_object(site).unwrap().health.current,
@@ -992,6 +1081,7 @@ fn actual_rebuild_construct_supplies_birth_flags_before_factory_and_uses_builder
                 assert_eq!(target.health.current, 1000.);
                 assert_eq!(target.builder_id, None);
                 assert_eq!(target.producer_id, None);
+                assert!(target.weapon_slot(0).is_some(), "authored PRIMARY exists before completion");
                 assert_eq!(
                     target.weapon_lock_type,
                     crate::game_logic::WeaponLockType::NotLocked,

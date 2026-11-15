@@ -131,9 +131,9 @@ fn live_visibility_uses_receiving_object_status_not_core_singletons() {
     peer.host_object_mut(detector)
         .unwrap()
         .next_detection_scan_frame = frame;
-    peer.update_stealth_and_detection();
+    peer.update_stealth_and_detection().unwrap();
     assert!(!peer.host_object(peer_target).unwrap().status.detected);
-    peer.update_stealth_and_detection();
+    peer.update_stealth_and_detection().unwrap();
     assert!(peer.host_object(peer_target).unwrap().status.detected);
 
     // Seed the legacy Core singleton with a conflicting same-ID invisible

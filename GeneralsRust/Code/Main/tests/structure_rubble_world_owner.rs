@@ -65,7 +65,7 @@ fn live_world(
 }
 
 fn kill_structure(world: &mut GameLogic, id: generals_main::game_logic::ObjectId) -> f32 {
-    assert_eq!(world.apply_host_damage(id, 1000.0), (true, false));
+    assert_eq!(world.apply_host_damage(id, 1000.0).unwrap(), (true, false));
     world.host_object(id).unwrap().thing().geometry.bounds_max.y
 }
 

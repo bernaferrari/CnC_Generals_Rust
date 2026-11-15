@@ -105,7 +105,7 @@ impl GameLogic {
         tank_team: Team,
         tank_pos: Vec3,
         nuke_general: bool,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.apply_nuclear_tanks_death_detonation_at_with_effects(
             tank_id,
             tank_team,
@@ -122,7 +122,7 @@ impl GameLogic {
         tank_pos: Vec3,
         nuke_general: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_nuclear_tanks::{
             NUCLEAR_TANK_DAMAGE_TYPE, NUCLEAR_TANK_DEATH_AUDIO, NUCLEAR_TANK_DEATH_TYPE,
             SMALL_RADIATION_AUDIO, is_legal_nuclear_death_target, nuclear_tank_death_damage_at,
@@ -184,7 +184,7 @@ impl GameLogic {
                         ),
                         None,
                         effects,
-                    )
+                    )?
                 } {
                     destroy_ids.push((vid, tank_team));
                 }
@@ -219,18 +219,18 @@ impl GameLogic {
         for (vid, killer) in destroy_ids {
             self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
         }
-        true
+        Ok(true)
     }
 
     /// Advance Nuclear Tanks SmallRadiationField residual zones.
-    pub(in super::super) fn update_nuclear_tanks_radiation_zones(&mut self) {
+    pub(in super::super) fn update_nuclear_tanks_radiation_zones(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_nuclear_tanks_radiation_zones_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_nuclear_tanks_radiation_zones_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .registered()
@@ -253,7 +253,7 @@ impl GameLogic {
                     plan.source_object,
                     plan.source_team,
                     effects,
-                ) else {
+                )? else {
                     continue;
                 };
                 total_damage += hit.damage;
@@ -271,6 +271,7 @@ impl GameLogic {
         }
 
         self.nuclear_tanks.prune_expired(frame);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -896,7 +897,7 @@ impl GameLogic {
         trigger_unit: Option<ObjectId>,
         via_capture: bool,
         via_death: bool,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.detonate_booby_trap_at_with_effects(
             structure_id,
             structure_pos,
@@ -915,12 +916,12 @@ impl GameLogic {
         via_capture: bool,
         via_death: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         if !self
             .sticky_bomb_detonations_in_progress
             .insert(structure_id.0)
         {
-            return 0;
+            return Ok(0);
         }
         let hits = self.detonate_booby_trap_at_guarded(
             structure_id,
@@ -943,7 +944,7 @@ impl GameLogic {
         via_capture: bool,
         via_death: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         use crate::game_logic::host_booby_trap::BOOBY_TRAP_SCAN_RANGE;
         use crate::game_logic::object::DamageHitContext;
         use crate::game_logic::thing::HostGeometryType;
@@ -971,7 +972,7 @@ impl GameLogic {
                 })
             })
         else {
-            return 0;
+            return Ok(0);
         };
         let charge_ids = self.partition_manager.ids_in_radius_iterator_order(
             target_pos.x,
@@ -1015,13 +1016,13 @@ impl GameLogic {
         let Some((_, charge_id, charge_birth, charge_template_name, charge_owner)) =
             nearby_charges.into_iter().next()
         else {
-            return 0;
+            return Ok(0);
         };
         let Some((authored_weapon, authored_weapon_name, damage_fx)) =
             self.booby_trap_detonation_data(&charge_template_name)
         else {
             log::error!("Selected BoobyTrap charge lacks typed StickyBombUpdate data");
-            return 0;
+            return Ok(0);
         };
         // C++ INI::parseWeaponTemplate keeps the authored name; rebind it to
         // the receiving Weapon.ini catalog even if parse had no bound store.
@@ -1034,13 +1035,13 @@ impl GameLogic {
         });
         if weapon_was_authored && weapon.is_none() {
             log::error!("Selected StickyBombUpdate weapon is missing from receiving Weapon.ini");
-            return 0;
+            return Ok(0);
         }
         // Object.cpp:938 checks the selected charge's controlling Player
         // against the trigger's exact receiving Team.
         if let Some(trigger_id) = trigger_unit {
             let Some(trigger) = self.objects.get(&trigger_id) else {
-                return 0;
+                return Ok(0);
             };
             let trigger_team_name = if trigger.team_instance_name.is_empty() {
                 self.default_host_team_instance_name(trigger.owner_player_id, trigger.team)
@@ -1056,13 +1057,13 @@ impl GameLogic {
                 &trigger_team_name,
             ) == gamelogic::common::Relationship::Allies
             {
-                return 0;
+                return Ok(0);
             }
         }
         if !self.object_birth_matches(structure_id, &target_birth)
             || !self.object_birth_matches(charge_id, &charge_birth)
         {
-            return 0;
+            return Ok(0);
         }
 
         let mut hits = 0u32;
@@ -1081,8 +1082,8 @@ impl GameLogic {
                 None,
                 0.0,
                 effects,
-            );
-            return 0;
+            )?;
+            return Ok(0);
         };
         let target_geometry = self
             .objects
@@ -1101,7 +1102,7 @@ impl GameLogic {
             crate::game_logic::host_usa_pilot::HostDeathType::from_store(weapon.death_type);
         let damage_context = {
             let Some(charge) = self.objects.get(&charge_id) else {
-                return 0;
+                return Ok(0);
             };
             DamageHitContext::new_selected(Some(charge), None, damage_type, Some(weapon.as_ref()))
         };
@@ -1145,7 +1146,7 @@ impl GameLogic {
             if !self.object_birth_matches(structure_id, &target_birth)
                 || !self.object_birth_matches(charge_id, &charge_birth)
             {
-                return hits;
+                return Ok(hits);
             }
             if !self.object_birth_matches(victim_id, &victim_birth) {
                 continue;
@@ -1164,7 +1165,7 @@ impl GameLogic {
                 None,
                 &damage_context,
                 effects,
-            );
+            )?;
             if result.as_ref().is_some_and(|result| result.destroyed()) {
                 hits = hits.saturating_add(1);
             }
@@ -1174,7 +1175,7 @@ impl GameLogic {
             if !self.object_birth_matches(structure_id, &target_birth)
                 || !self.object_birth_matches(charge_id, &charge_birth)
             {
-                return hits;
+                return Ok(hits);
             }
         }
         let fx_position = self
@@ -1195,8 +1196,8 @@ impl GameLogic {
             damage_fx,
             secondary_range,
             effects,
-        );
-        hits
+        )?;
+        Ok(hits)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1213,7 +1214,7 @@ impl GameLogic {
         damage_fx: Option<gamelogic::effects::FXList>,
         secondary_range: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if let Some(fx) = damage_fx {
             let dispatched = self.dispatch_fx_list_at_host_position_oriented_with_effects(
                 fx.name(),
@@ -1234,7 +1235,7 @@ impl GameLogic {
         if !self.object_birth_matches(structure_id, target_birth)
             || !self.object_birth_matches(charge_id, charge_birth)
         {
-            return;
+            return Ok(());
         }
         // StickyBombUpdate clears status after damage and FX, then kills the
         // charge. Registry state is discarded afterward as metadata only.
@@ -1250,7 +1251,7 @@ impl GameLogic {
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 effects,
-            );
+            )?;
             if self.object_birth_matches(charge_id, charge_birth) {
                 if let Some(charge) = self.objects.get_mut(&charge_id) {
                     charge.booby_trap_special = false;
@@ -1261,6 +1262,7 @@ impl GameLogic {
         self.booby_trap.forget_structure(structure_id);
         self.booby_trap
             .record_detonation(hits, via_capture, via_death);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -1458,7 +1460,7 @@ impl GameLogic {
         &mut self,
         source_object: ObjectId,
         target_position: Vec3,
-    ) -> Option<u32> {
+    ) -> gamelogic::GameLogicResult<Option<u32>> {
         self.activate_helix_napalm_bomb_with_effects(
             source_object,
             target_position,
@@ -1471,19 +1473,21 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<u32> {
+    ) -> gamelogic::GameLogicResult<Option<u32>> {
         use crate::game_logic::host_helix_napalm::{
             HELIX_FIRESTORM_AUDIO, HELIX_NAPALM_DROP_AUDIO, UPGRADE_CHINA_BLACK_NAPALM,
             UPGRADE_HELIX_NAPALM_BOMB, helix_napalm_unlocked, is_helix_napalm_caster,
         };
 
         let (source_team, template_name, black_napalm, unlocked) = {
-            let obj = self.objects.get(&source_object)?;
+            let Some(obj) = self.objects.get(&source_object) else {
+                return Ok(None);
+            };
             if !obj.is_alive() {
-                return None;
+                return Ok(None);
             }
             if !is_helix_napalm_caster(&obj.template_name) {
-                return None;
+                return Ok(None);
             }
             let has_upgrade = obj.has_upgrade_tag(UPGRADE_HELIX_NAPALM_BOMB)
                 || obj.has_upgrade_tag("Upgrade_HelixNapalmBomb")
@@ -1493,7 +1497,7 @@ impl GameLogic {
                 || obj.has_upgrade_tag("Upgrade_HelixNukeBomb");
             let unlocked = helix_napalm_unlocked(&obj.template_name, has_upgrade);
             if !unlocked {
-                return None;
+                return Ok(None);
             }
             let black = obj.has_upgrade_tag(UPGRADE_CHINA_BLACK_NAPALM)
                 || obj.has_upgrade_tag("Upgrade_ChinaBlackNapalm");
@@ -1553,7 +1557,7 @@ impl GameLogic {
                     if {
                         let owned_victim_id = victim.id;
                         let owned_damage_type = crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DAMAGE_TYPE);
-                        self.apply_residual_damage_owned_with_effects(owned_victim_id, dmg, Some(source_object), owned_damage_type, crate::game_logic::host_armor_residual::host_death_type_from_residual_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE), None, effects)
+                        self.apply_residual_damage_owned_with_effects(owned_victim_id, dmg, Some(source_object), owned_damage_type, crate::game_logic::host_armor_residual::host_death_type_from_residual_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE), None, effects)?
                     } {
                         destroy_ids.push((vid, source_team));
                     }
@@ -1598,18 +1602,18 @@ impl GameLogic {
             None,
         );
 
-        Some(zone_id)
+        Ok(Some(zone_id))
     }
 
     /// Advance Helix Napalm FirestormSmall residual zones.
-    pub(in super::super) fn update_helix_napalm_firestorms(&mut self) {
+    pub(in super::super) fn update_helix_napalm_firestorms(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_helix_napalm_firestorms_with_effects(&mut Default::default())
     }
 
     pub(in super::super) fn update_helix_napalm_firestorms_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let frame = self.frame;
         self.helix_napalm.advance_geometry(frame);
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
@@ -1645,7 +1649,7 @@ impl GameLogic {
                             None,
                             effects,
                         )
-                    };
+                    }?;
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1687,6 +1691,7 @@ impl GameLogic {
         }
 
         self.helix_napalm.prune_expired(frame);
+        Ok(())
     }
 
 

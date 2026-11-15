@@ -123,7 +123,7 @@ fn authored_cost_modifier_isolated_across_capture_delete_and_encoded_restore() {
         750
     );
 
-    assert!(first.transfer_object_to_player(first_source, 2));
+    assert!(first.transfer_object_to_player(first_source, 2).unwrap());
     assert_eq!(
         first.modified_build_cost_supplies(1, "CostModifierDualKind", 1000),
         1000

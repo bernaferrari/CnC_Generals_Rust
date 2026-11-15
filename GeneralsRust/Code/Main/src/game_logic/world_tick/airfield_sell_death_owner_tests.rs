@@ -8,7 +8,7 @@ fn authored_airfield_update_does_not_retry_a_kill_rejected_when_sold() {
     let id = aircraft(&mut world, INSTANT, 12.0, 12.0);
     assert_eq!(world.reserve_airfield_parking_space(rack, id), Some(0));
     world.host_object_mut(id).unwrap().indestructible = true;
-    assert!(world.start_sell_object(rack));
+    assert!(world.start_sell_object(rack).unwrap());
     assert_eq!(world.host_object(id).unwrap().health.current, 100.0);
     assert!(!world.host_object(id).unwrap().status.on_die_started);
     assert!(world.airfield_has_reserved_space(rack, id));
@@ -39,7 +39,8 @@ fn authored_parking_on_die_kills_reserved_aircraft_synchronously_in_slot_order()
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
         )
-        .unwrap();
+        .unwrap()
+        .expect("receiving airfield Body");
     assert!(result.destroyed);
     assert!(world.host_object(rack).unwrap().status.on_die_started);
     assert!(!world.host_object(rack).unwrap().status.sold);

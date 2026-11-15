@@ -129,7 +129,7 @@ impl GameLogic {
             }) {
                 let _ = self.enter_jet_dead_airfield_return_owned(id);
             }
-            self.tick_return_or_circle_dead_airfield_with_effects(id, presentation_effects);
+            self.tick_return_or_circle_dead_airfield_with_effects(id, presentation_effects)?;
         }
 
         Ok(())
@@ -537,7 +537,7 @@ impl GameLogic {
 
     /// C++ RETURN_TO_DEAD_AIRFIELD then CIRCLING_DEAD_AIRFIELD.
     /// Damage only after arriving at the remembered wreck and entering circle.
-    fn tick_return_or_circle_dead_airfield(&mut self, jet_id: ObjectId) {
+    fn tick_return_or_circle_dead_airfield(&mut self, jet_id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.tick_return_or_circle_dead_airfield_with_effects(
             jet_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -548,10 +548,10 @@ impl GameLogic {
         &mut self,
         jet_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
-                return;
+                return Ok(());
             };
             if jet.jet_producer_location.is_none() {
                 jet.capture_jet_producer_location(None);
@@ -559,7 +559,7 @@ impl GameLogic {
         }
         let (needs, at_wreck, goal) = {
             let Some(jet) = self.objects.get(&jet_id) else {
-                return;
+                return Ok(());
             };
             (
                 matches!(
@@ -574,7 +574,7 @@ impl GameLogic {
             )
         };
         if !needs {
-            return;
+            return Ok(());
         }
         if !at_wreck {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
@@ -603,7 +603,7 @@ impl GameLogic {
                     let _ = self.assign_unit_path(jet_id, goal, &[]);
                 }
             }
-            return;
+            return Ok(());
         }
         let entered = self.objects.get_mut(&jet_id).is_some_and(|jet| {
             jet.enter_circling_dead_airfield(
@@ -623,7 +623,7 @@ impl GameLogic {
             // Full-ammo map placed units fail Circling::onEnter -> AI_IDLE.
             // No checked callback occurs between clear and this base entry.
             self.enter_base_ai_idle_after_dead_return_owned(jet_id);
-            return;
+            return Ok(());
         }
         if entered {
             // C++ JetOrHeliCirclingDeadAirfieldState::onEnter (JetAIUpdate.cpp:338-341):
@@ -655,7 +655,7 @@ impl GameLogic {
             }
         });
         if damage > 0.0 {
-            let _ = self.apply_residual_damage_owned_with_effects(
+            self.apply_residual_damage_owned_with_effects(
                 jet_id,
                 damage,
                 None,
@@ -663,8 +663,9 @@ impl GameLogic {
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 None,
                 presentation_effects,
-            );
+            )?;
         }
+        Ok(())
     }
 
     #[inline]
@@ -3296,9 +3297,9 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         self.apply_pending_helipad_exits(presentation_effects);
         self.tick_heli_takeoff_or_landing_with_effects(presentation_effects)?;
-        self.tick_flight_decks_with_effects(presentation_effects);
+        self.tick_flight_decks_with_effects(presentation_effects)?;
         self.sync_airfield_healees();
-        self.pulse_airfield_healees_with_effects(presentation_effects);
+        self.pulse_airfield_healees_with_effects(presentation_effects)?;
 
         use crate::game_logic::host_countermeasures::aircraft_has_countermeasures_upgrade;
         // Rearm / CM reload for docked aircraft. Helos skip hangar stalls.
@@ -3350,7 +3351,7 @@ impl GameLogic {
     }
 
     /// C++ `ParkingPlaceBehavior::update` 5 Hz `attemptHealing` pulse.
-    fn pulse_airfield_healees(&mut self) {
+    fn pulse_airfield_healees(&mut self) -> gamelogic::GameLogicResult<()> {
         self.pulse_airfield_healees_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -3359,7 +3360,7 @@ impl GameLogic {
     fn pulse_airfield_healees_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let now = self.frame;
         let airfields: Vec<ObjectId> = self.airfield_healing.keys().copied().collect();
         for airfield_id in airfields {
@@ -3397,18 +3398,19 @@ impl GameLogic {
                 }
                 if amount > 0.0 && jet.health.current + 1e-3 < jet.health.maximum {
                     // CPP ParkingPlaceBehavior684 calls Body::attemptHealing.
-                    let _ = self.apply_owned_healing_with_effects(
+                    self.apply_owned_healing_with_effects(
                         jet_id,
                         amount,
                         Some(airfield_id),
                         presentation_effects,
-                    );
+                    )?;
                 }
             }
             for jet_id in dead {
                 self.set_airfield_healee(airfield_id, jet_id, false);
             }
         }
+        Ok(())
     }
 
     /// C++ ParkingPlaceBehavior stall occupancy for WorldSnapshot.
@@ -3563,7 +3565,7 @@ mod owned_out_of_ammo_tests {
         assert!(owner.get_player(0).unwrap().get_attacked_by(1));
         let before = owner.host_object(jet).unwrap().health.current;
         owner.set_current_frame(41);
-        owner.tick_return_or_circle_dead_airfield(jet);
+        owner.tick_return_or_circle_dead_airfield(jet).unwrap();
         let aircraft = owner.host_object(jet).unwrap();
         assert!(aircraft.jet_circling_dead_airfield());
         let expected = Object::OUT_OF_AMMO_DAMAGE_PER_SECOND * (1.0 / 30.0) * 100.0;
@@ -3576,7 +3578,7 @@ mod owned_out_of_ammo_tests {
         );
         assert_eq!(peer.get_player(0).unwrap().get_attacked_frame(), 0);
         assert!(!peer.get_player(0).unwrap().get_attacked_by(1));
-        peer.tick_return_or_circle_dead_airfield(peer_jet);
+        peer.tick_return_or_circle_dead_airfield(peer_jet).unwrap();
         assert!(
             (peer.host_object(peer_jet).unwrap().health.current - (100.0 - expected)).abs()
                 < 0.0001

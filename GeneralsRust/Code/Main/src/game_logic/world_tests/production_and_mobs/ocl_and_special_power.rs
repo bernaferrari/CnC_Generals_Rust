@@ -481,7 +481,7 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     // the outpost's 900ms/27f stagger wakes at some frame <= 27, so tick
     // until the scan actually fires instead of assuming a frame-1 scan.
     for _ in 0..40 {
-        game_logic.update_stealth_and_detection();
+        game_logic.update_stealth_and_detection().unwrap();
         if game_logic
             .host_object(stealth_id)
             .map(|e| e.status.detected)
@@ -518,7 +518,7 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     // re-evaluates with the far enemy in world — fail-closed under a real scan.
     for _ in 0..40 {
         game_logic.frame += 1;
-        game_logic.update_stealth_and_detection();
+        game_logic.update_stealth_and_detection().unwrap();
     }
     {
         let e = game_logic.host_object(far_id).expect("far");
@@ -546,7 +546,7 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         o.invalidate_velocity_magnitude();
         o.set_status_stealthed(true);
     }
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     {
         let o = game_logic.host_object(outpost_id).expect("outpost");
         assert!(
@@ -578,7 +578,7 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         .unwrap()
         .stealth_allowed_frame;
     game_logic.frame = allowed;
-    game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection().unwrap();
     {
         let o = game_logic.host_object(outpost_id).expect("outpost");
         assert!(
@@ -1280,7 +1280,7 @@ fn spawned_require_spawner_kills_children_through_their_own_die_modules() {
         .collect();
     assert_eq!(children.len(), 2);
 
-    logic.apply_host_damage(nest, 1000.0);
+    logic.apply_host_damage(nest, 1000.0).unwrap();
 
     for id in children {
         let child = logic
@@ -1333,7 +1333,7 @@ fn authored_upgrade_die_removes_each_modules_upgrade_from_producer_like_cpp() {
             .has_object_upgrade_complete("Upgrade_FixtureA")
     );
 
-    logic.apply_host_damage(child, 1000.0);
+    logic.apply_host_damage(child, 1000.0).unwrap();
 
     let p = logic.host_object(producer).unwrap();
     assert!(!p.has_object_upgrade_complete("Upgrade_FixtureA"), "DieA removes its upgrade");

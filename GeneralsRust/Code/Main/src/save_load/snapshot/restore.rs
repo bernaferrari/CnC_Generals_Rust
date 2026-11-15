@@ -16,6 +16,31 @@ mod structure_topple_admission_tests;
 #[path = "armor_definition_owner_tests.rs"]
 mod armor_definition_owner_tests;
 
+fn validate_object_transform(object: &ObjectSnapshot) -> SaveLoadResult<()> {
+    if object.modules.iter().any(|(key, value)| {
+        matches!(value, ModuleSnapshot::ObjectTransform(_)) && key != "ObjectTransform"
+    }) || object.modules.get("ObjectTransform").is_some_and(|value| {
+        !matches!(value, ModuleSnapshot::ObjectTransform(_))
+    }) {
+        return Err(SaveLoadError::Corrupted("Invalid Object transform owner".into()));
+    }
+    // setOrientation normalizes to (-π, π], while setTransformMatrix may
+    // derive the exact -π endpoint from atan2. Both are valid Thing caches.
+    if !object.geometry.position.is_finite()
+        || !(-std::f32::consts::PI..=std::f32::consts::PI).contains(&object.geometry.rotation)
+    {
+        return Err(SaveLoadError::Corrupted("Invalid Object pose".into()));
+    }
+    if let Some(ModuleSnapshot::ObjectTransform(matrix)) = object.modules.get("ObjectTransform") {
+        if !matrix.iter().all(|value| value.is_finite())
+            || glam::Vec3::new(matrix[12], matrix[13], matrix[14]) != object.geometry.position
+        {
+            return Err(SaveLoadError::Corrupted("Invalid Object transform".into()));
+        }
+    }
+    Ok(())
+}
+
 impl SnapshotBuilder {
     pub(super) fn validate_receiving_object_templates(
         &self,
@@ -220,6 +245,7 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        validate_object_transform(snapshot)?;
         self.restore_object_with_body_kind(snapshot, None, None, None, None, None, game_logic)
     }
 
@@ -244,6 +270,7 @@ impl SnapshotBuilder {
             ));
         }
         for (id, object) in objects {
+            validate_object_transform(object)?;
             super::dozer_task_module::validate(object, game_logic)?;
             if object.modules.iter().any(|(key, value)| {
                 matches!(value, ModuleSnapshot::OpenContainEntered(_))
@@ -565,9 +592,16 @@ impl SnapshotBuilder {
             object.install_troop_crawler_transport();
         }
 
-        // Geometry / transform
-        object.set_position(snapshot.geometry.position);
-        object.set_orientation(snapshot.geometry.rotation);
+        // Install the saved matrix before admission: the receiving partition
+        // attaches the new Object using this pose, not a detached grid.
+        if let Some(ModuleSnapshot::ObjectTransform(matrix)) = snapshot.modules.get("ObjectTransform") {
+            object.restore_snapshot_transform(
+                glam::Mat4::from_cols_array(matrix), snapshot.geometry.rotation,
+            );
+        } else {
+            object.set_position(snapshot.geometry.position);
+            object.set_orientation(snapshot.geometry.rotation);
+        }
         object.set_geometry_bounds_min(snapshot.geometry.bounds_min);
         object.set_geometry_bounds_max(snapshot.geometry.bounds_max);
         object.set_geometry_radius(snapshot.geometry.radius);
@@ -926,6 +960,7 @@ impl SnapshotBuilder {
                     object.cave_index = *cave_index;
                 }
                 ModuleSnapshot::BaseAi(_) => {}
+                ModuleSnapshot::ObjectTransform(_) => {}
                 ModuleSnapshot::DozerTasks(_) => {}
                 ModuleSnapshot::ActiveWeaponStatus(status) => object.weapon_fire_status = *status,
                 ModuleSnapshot::AIUpdate(snapshot) => {

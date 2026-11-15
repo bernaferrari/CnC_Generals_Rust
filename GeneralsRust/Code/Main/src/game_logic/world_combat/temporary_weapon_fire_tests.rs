@@ -96,8 +96,7 @@ fn damaged_reaction_fires_when_ready_and_threshold_met() {
     );
     let source = ObjectId(11);
     logic.objects.insert(source, damaged_object(11, weapon));
-    let hits = logic.execute_temporary_weapon_on_damage(source, 10.0, 0);
-    let _ = hits;
+    logic.execute_temporary_weapon_on_damage(source, 10.0, 0).unwrap();
     let object = logic.host_object(source).expect("source");
     let state = object.temporary_weapon_runtime.damaged[0]
         .weapon(TemporaryWeaponRuntimeKey {
@@ -124,7 +123,7 @@ fn damaged_reaction_does_not_fire_below_damage_amount() {
     );
     let source = ObjectId(12);
     logic.objects.insert(source, damaged_object(12, weapon));
-    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 1.0, 0), 0);
+    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 1.0, 0).unwrap(), 0);
     let object = logic.host_object(source).expect("source");
     let state = object.temporary_weapon_runtime.damaged[0]
         .weapon(TemporaryWeaponRuntimeKey {
@@ -148,7 +147,7 @@ fn damaged_reaction_respects_between_shots_cooldown() {
     weapon.when_we_can_fire_again = 20;
     let source = ObjectId(13);
     logic.objects.insert(source, damaged_object(13, weapon));
-    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 10.0, 0), 0);
+    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 10.0, 0).unwrap(), 0);
 }
 
 #[test]
@@ -175,21 +174,21 @@ fn dead_behavior_fires_once_and_skips_under_construction() {
     object.status.destroyed = true;
     let source = ObjectId(14);
     logic.objects.insert(source, object);
-    let _ = logic.execute_temporary_weapon_on_die(source);
+    logic.execute_temporary_weapon_on_die(source).unwrap();
     assert!(
         logic
             .host_object(source)
             .expect("source")
             .fire_weapon_when_dead_fired
     );
-    let second = logic.execute_temporary_weapon_on_die(source);
+    let second = logic.execute_temporary_weapon_on_die(source).unwrap();
     assert_eq!(second, 0);
 
     if let Some(object) = logic.objects.get_mut(&source) {
         object.fire_weapon_when_dead_fired = false;
         object.status.under_construction = true;
     }
-    assert_eq!(logic.execute_temporary_weapon_on_die(source), 0);
+    assert_eq!(logic.execute_temporary_weapon_on_die(source).unwrap(), 0);
 }
 
 /// C++ FireWeaponWhenDeadBehavior.cpp:65-88 — TriggeredBy activates; ConflictsWith
@@ -219,7 +218,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
             "only the applicable death weapon deals its authored damage",
         );
         assert_eq!(temporary_children(&logic), 1, "only one death FireOCL executes");
-        logic.fire_temporary_weapons_for_pending_deaths();
+        logic.fire_temporary_weapons_for_pending_deaths().unwrap();
         assert_eq!(temporary_children(&logic), 1, "pending-death pump must not replay onDie");
     }
 }
@@ -245,7 +244,7 @@ fn dead_behavior_fires_every_matching_module() {
     ).unwrap();
     assert_eq!(logic.objects[&victim].health.current, 880.0);
     assert_eq!(temporary_children(&logic), 2, "HE and Bio each execute their template");
-    logic.fire_temporary_weapons_for_pending_deaths();
+    logic.fire_temporary_weapons_for_pending_deaths().unwrap();
     assert_eq!(logic.objects[&victim].health.current, 880.0);
     assert_eq!(temporary_children(&logic), 2);
 }
@@ -274,7 +273,7 @@ fn dead_behavior_store_miss_does_not_stamp_fired() {
     object.status.destroyed = true;
     let source = ObjectId(17);
     logic.objects.insert(source, object);
-    assert_eq!(logic.execute_temporary_weapon_on_die(source), 0);
+    assert_eq!(logic.execute_temporary_weapon_on_die(source).unwrap(), 0);
     assert!(
         !logic
             .host_object(source)
@@ -330,7 +329,7 @@ fn retail_named_authored_die_health(modules: Vec<FireWeaponWhenDeadMetadata>) ->
     logic.mark_object_for_destruction_with_topple(source, None, input, None).unwrap();
     assert!(!logic.objects[&source].fire_weapon_when_dead_fired);
     let health_after_callbacks = logic.objects[&victim].health.current;
-    logic.fire_temporary_weapons_for_pending_deaths();
+    logic.fire_temporary_weapons_for_pending_deaths().unwrap();
     logic.process_destroy_list();
     assert_eq!(logic.objects[&victim].health.current, health_after_callbacks);
     health_after_callbacks
@@ -484,7 +483,7 @@ fn authored_death_callbacks_fire_each_applicable_module_before_removal() {
     assert!(source_after.temporary_weapon_runtime.dead[1].upgrade_executed);
     assert!(source_after.temporary_weapon_runtime.dead[2].upgrade_executed);
     assert_eq!(logic.objects[&victim].health.current, 920.0);
-    logic.fire_temporary_weapons_for_pending_deaths();
+    logic.fire_temporary_weapons_for_pending_deaths().unwrap();
     logic.process_destroy_list();
     assert_eq!(logic.objects[&victim].health.current, 920.0);
 }
@@ -611,7 +610,7 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
         .filter(|object| object.template_name == "PoisonFieldMedium").count();
     assert_eq!(children(&logic), 1);
     assert_eq!(logic.objects[&victim].health.current, 3000.0);
-    logic.fire_temporary_weapons_for_pending_deaths();
+    logic.fire_temporary_weapons_for_pending_deaths().unwrap();
     logic.process_destroy_list();
     assert_eq!(children(&logic), 1);
     assert_eq!(logic.objects[&victim].health.current, 3000.0);
@@ -619,7 +618,7 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
         .find_map(|(id, object)| (object.template_name == "PoisonFieldMedium").then_some(*id))
         .expect("authored poison field");
     logic.frame = 1;
-    logic.tick_native_lifecycle(field_id);
+    logic.tick_native_lifecycle(field_id).unwrap();
     assert_eq!(logic.objects[&victim].health.current, 2998.0);
 
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -631,10 +630,10 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
     loaded.templates = logic.templates.clone();
     builder.restore_from_snapshot(&snapshot, &mut loaded).unwrap();
     loaded.frame = 15;
-    loaded.tick_native_lifecycle(field_id);
+    loaded.tick_native_lifecycle(field_id).unwrap();
     assert_eq!(loaded.objects[&victim].health.current, 2998.0);
     loaded.frame = 16;
-    loaded.tick_native_lifecycle(field_id);
+    loaded.tick_native_lifecycle(field_id).unwrap();
     assert_eq!(loaded.objects[&victim].health.current, 2996.0);
 }
 
@@ -672,10 +671,10 @@ fn authored_fire_weapon_update_suppresses_for_real_weapon_exclusive_delay() {
         ..Default::default()
     });
     logic.frame = 14;
-    logic.tick_native_lifecycle(source);
+    logic.tick_native_lifecycle(source).unwrap();
     assert_eq!(logic.objects[&victim].health.current, 100.0);
     logic.frame = 15;
-    logic.tick_native_lifecycle(source);
+    logic.tick_native_lifecycle(source).unwrap();
     assert_eq!(logic.objects[&victim].health.current, 95.0);
 }
 
@@ -695,7 +694,7 @@ fn damaged_reaction_rejects_non_matching_damage_type() {
     let source = ObjectId(16);
     logic.objects.insert(source, object);
     assert_eq!(
-        logic.execute_temporary_weapon_on_damage(source, 10.0, 0),
+        logic.execute_temporary_weapon_on_damage(source, 10.0, 0).unwrap(),
         0,
         "EXPLOSION must not spark a FLAME-only reaction"
     );
@@ -795,7 +794,7 @@ fn damaged_reaction_fires_every_ready_module() {
     );
     assert_eq!(keys[0].module_source_index, 0);
     assert_eq!(keys[1].module_source_index, 1);
-    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 10.0, 0), 0);
+    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 10.0, 0).unwrap(), 0);
     let object = logic.host_object(source).expect("source");
     assert_eq!(
         object.health.current, 80.0,
@@ -834,7 +833,7 @@ fn damaged_continuous_fires_every_ready_module() {
     let keys = logic.damaged_continuous_plan(source);
     assert_eq!(keys.len(), 2);
     assert_ne!(keys[0].module_source_index, keys[1].module_source_index);
-    logic.execute_temporary_weapon_continuous(source);
+    logic.execute_temporary_weapon_continuous(source).unwrap();
     assert_eq!(logic.objects[&victim].health.current, 66.0);
     let object = logic.host_object(source).unwrap();
     assert_ne!(object.visual_object_generation, 0);
@@ -1063,7 +1062,7 @@ fn authored_continuous_callbacks_reselect_role_after_previous_self_damage() {
     let (mut world, source, victim) = authored_temporary_world(modules, &weapons);
     let (peer, peer_source, peer_victim) = authored_temporary_world(modules, &weapons);
     world.frame = 10;
-    world.execute_temporary_weapon_continuous(source);
+    world.execute_temporary_weapon_continuous(source).unwrap();
     assert_eq!(world.objects[&source].health.current, 30.0);
     assert_eq!(world.objects[&victim].health.current, 83.0);
     let second = &world.objects[&source].temporary_weapon_runtime.damaged[1];

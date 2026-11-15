@@ -48,7 +48,7 @@ fn neutron_unman_deselects_and_idles_ai() {
     );
 
     let (kills, unmanned, vehicle_kills) =
-        logic.apply_neutron_blast_at(Vec3::ZERO, Team::China, None, true);
+        logic.apply_neutron_blast_at(Vec3::ZERO, Team::China, None, true).unwrap();
     assert_eq!(kills, 0);
     assert_eq!(unmanned, 1);
     assert_eq!(vehicle_kills, 0);
@@ -383,6 +383,7 @@ fn damage_garrison_to_really_damaged(logic: &mut GameLogic, building: crate::gam
             None,
             &DamageHitContext::default(),
         )
+        .expect("damage callback succeeds")
         .expect("receiving building must admit Body damage");
     assert!(!result.destroyed());
     assert_eq!(result.hp_lost, 800.0);
@@ -423,7 +424,7 @@ fn immune_to_clear_bunker_keeps_occupants() {
     if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
-    let killed = logic.apply_kill_garrisoned_to_target(bunker, Team::USA, 5.0, None);
+    let killed = logic.apply_kill_garrisoned_to_target(bunker, Team::USA, 5.0, None).unwrap();
     assert_eq!(killed, 0, "ImmuneToClear bunkers keep occupants");
     assert!(logic.host_object(ranger_id).unwrap().is_alive());
     assert_eq!(
@@ -490,7 +491,7 @@ fn microwave_clearer_delay_is_100ms_one_occupant_per_shot() {
         Team::USA,
         HOST_MICROWAVE_CLEAR_PER_SHOT,
         None,
-    );
+    ).unwrap();
     assert_eq!(
         killed, 1,
         "PrimaryDamage 1 kills one occupant per 100ms shot"
@@ -785,7 +786,7 @@ fn hide_uses_stealth_garrison_kind_not_stealthed_bits() {
     if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
-    logic.recalc_garrison_apparent_controller(bunker);
+    logic.recalc_garrison_apparent_controller(bunker).unwrap();
     assert!(
         !logic
             .host_object(bunker)
@@ -818,7 +819,7 @@ fn hide_uses_stealth_garrison_kind_not_stealthed_bits() {
     if let Some((n, fixture_partition_n)) = logic.host_object_and_partition_mut(ninja_id) {
         n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
     }
-    logic.recalc_garrison_apparent_controller(bunker);
+    logic.recalc_garrison_apparent_controller(bunker).unwrap();
     assert!(
         logic
             .host_object(bunker)
@@ -888,10 +889,10 @@ fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
         logic.can_unit_enter_normal_target(enemy, bunker),
         "C++ lets a non-owner Enter a stealth-garrison-only civilian"
     );
-    logic.kick_other_controller_occupants_for_enter(bunker, enemy);
+    logic.kick_other_controller_occupants_for_enter(bunker, enemy).unwrap();
     assert_eq!(logic.host_object(ninja_id).unwrap().detection_expires_frame, 30);
     logic.frame = 1;
-    logic.update_stealth_and_detection();
+    logic.update_stealth_and_detection().unwrap();
     let ninja = logic.host_object(ninja_id).unwrap();
     assert!(
         ninja.status.detected,
@@ -936,7 +937,7 @@ fn evac_burst_walks_out_instead_of_idling_at_origin() {
     if let Some((r, fixture_partition_r)) = logic.host_object_and_partition_mut(ranger_id) {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
     }
-    assert!(logic.evacuate_container_now(bunker, false));
+    assert!(logic.evacuate_container_now(bunker, false).unwrap());
     let r = logic.host_object(ranger_id).unwrap();
     assert!(matches!(r.ai_state(), AIState::Moving));
     assert!(r.status.moving);
@@ -1014,7 +1015,7 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
         );
     }
     damage_garrison_to_really_damaged(&mut logic, bunker);
-    logic.check_building_damage_states(&[bunker]);
+    logic.check_building_damage_states(&[bunker]).unwrap();
     let r = logic.host_object(ranger_id).unwrap();
     assert!(r.contained_by.is_none());
     assert!(
@@ -1061,7 +1062,7 @@ fn firebase_really_damaged_does_not_eject() {
         );
     }
     damage_garrison_to_really_damaged(&mut logic, fb);
-    logic.check_building_damage_states(&[fb]);
+    logic.check_building_damage_states(&[fb]).unwrap();
     assert_eq!(
         logic.host_object(ranger_id).unwrap().contained_by,
         Some(fb),
@@ -2493,7 +2494,7 @@ fn partial_exit_recalcs_hide_garrisoned_state() {
         n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
         n.status.detected = false;
     }
-    logic.recalc_garrison_apparent_controller(bunker);
+    logic.recalc_garrison_apparent_controller(bunker).unwrap();
     assert!(
         !logic
             .host_object(bunker)
@@ -2505,7 +2506,7 @@ fn partial_exit_recalcs_hide_garrisoned_state() {
         "mixed garrison must not hide"
     );
 
-    assert!(logic.unit_command_remove_occupant(bunker, ranger_id));
+    assert!(logic.unit_command_remove_occupant(bunker, ranger_id).unwrap());
     assert!(
         logic
             .host_object(bunker)
@@ -2560,7 +2561,7 @@ fn occupant_death_recalcs_hide_garrisoned_state() {
         n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
         n.status.detected = false;
     }
-    logic.recalc_garrison_apparent_controller(bunker);
+    logic.recalc_garrison_apparent_controller(bunker).unwrap();
     logic.mark_object_for_destruction(ranger_id, None);
     logic.process_destroy_list();
     assert!(

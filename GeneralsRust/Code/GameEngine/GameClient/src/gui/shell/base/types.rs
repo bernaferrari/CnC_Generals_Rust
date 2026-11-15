@@ -153,6 +153,19 @@ impl BasicWindowLayout {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_with_manager_layout(layout: Rc<RefCell<ManagerWindowLayout>>) -> Self {
+        let filename = layout.borrow().get_filename().to_owned();
+        Self {
+            filename,
+            state: LayoutState::Active,
+            hidden: false,
+            bounds: WindowRect::zero(),
+            created_at: Instant::now(),
+            layout: Some(layout),
+        }
+    }
+
     fn ensure_layout_with_effects(
         &mut self,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,

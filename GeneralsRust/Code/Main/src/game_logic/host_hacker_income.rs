@@ -1022,7 +1022,7 @@ mod tests {
         );
 
         assert!(
-            logic.evacuate_container_now(ic, false),
+            logic.evacuate_container_now(ic, false).unwrap(),
             "evacuate must dump the hacker"
         );
         assert!(

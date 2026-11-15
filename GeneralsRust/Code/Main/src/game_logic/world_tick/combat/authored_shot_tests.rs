@@ -71,8 +71,8 @@ fn engage(world: &mut GameLogic, shooter: ObjectId, victim: ObjectId) {
 
 fn step(world: &mut GameLogic, ids: &[ObjectId]) {
     world.update_combat(ids, LOGIC_FRAME_TIMESTEP).unwrap();
-    world.apply_owned_projectileless_delayed_damage();
-    let _ = world.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
+    world.apply_owned_projectileless_delayed_damage().unwrap();
+    let _ = world.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP).unwrap();
 }
 
 fn hp(world: &GameLogic, id: ObjectId) -> f32 {
@@ -337,16 +337,16 @@ fn authored_ecm_missile_jammer_uses_slot_shot_and_world_owned_delay() {
     let foreign_missile = second.host_objects().registered().find_map(|(id, object)|
         (object.template_name == "TestGuidedMissile").then_some(*id)).unwrap();
     second.set_current_frame(u64::from(last) + 30);
-    second.tick_native_lifecycle(other_source);
-    second.apply_owned_projectileless_delayed_damage();
+    second.tick_native_lifecycle(other_source).unwrap();
+    second.apply_owned_projectileless_delayed_damage().unwrap();
     assert!(second.objects[&foreign_missile].ecm_missile_jammed);
     first.set_current_frame(u64::from(last) + 29);
-    first.tick_native_lifecycle(source);
+    first.tick_native_lifecycle(source).unwrap();
     first.update_ecm_missile_jam();
     assert!(!first.objects[&missile].ecm_missile_jammed);
     first.set_current_frame(u64::from(last) + 30);
-    first.tick_native_lifecycle(source);
-    first.apply_owned_projectileless_delayed_damage();
+    first.tick_native_lifecycle(source).unwrap();
+    first.apply_owned_projectileless_delayed_damage().unwrap();
     assert!(first.objects[&missile].ecm_missile_jammed);
     assert_eq!(first.objects[&missile].health.current, 100.0);
 }

@@ -85,6 +85,21 @@ fn child(world: &GameLogic, name: &str) -> ObjectId {
     assert_eq!(ids.len(), 1, "one actual creation callback for {name}");
     ids[0]
 }
+
+#[test]
+fn accepted_fire_reports_ocl_factory_failure_before_delivery() {
+    let (mut owner, source, target) = world(false, 0);
+    owner.templates.get_mut(FIRE_CHILD).unwrap().body_definition_error =
+        Some("injected fire OCL factory failure".into());
+    let origin = owner.host_object(source).unwrap().get_position();
+    let target_position = owner.host_object(target).unwrap().get_position();
+    let result = owner.begin_owned_weapon_effects(
+        source, 0, Some(target), Some(target_position), origin, None,
+    );
+    assert!(result.is_err(), "the accepted fire must report its OCL failure");
+    assert_eq!(owner.host_object(target).unwrap().health.current, 100.0);
+    assert!(!owner.host_objects().registered_values().any(|object| object.template_name == FIRE_CHILD));
+}
 #[test]
 fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
     let (mut owner, source, target) = world(false, 0);
@@ -127,7 +142,7 @@ fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
     );
     // Save only at the real settled cleanup boundary. Immediate lethal Body
     // callbacks intentionally reject snapshots while destruction is pending.
-    owner.fire_temporary_weapons_for_pending_deaths();
+    owner.fire_temporary_weapons_for_pending_deaths().unwrap();
     owner.process_destroy_list();
     assert!(!owner.has_pending_object_removals());
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -270,7 +285,7 @@ fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues
         owner.frame,
         &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
     );
-    owner.apply_owned_projectileless_delayed_damage();
+    owner.apply_owned_projectileless_delayed_damage().unwrap();
     owner.tick_nested_attack_machines(&[source], owner.frame as f32 / 30.0, owner.frame);
     assert_eq!(child(&owner, FIRE_CHILD), fire);
     assert_eq!(child(&owner, DEATH_CHILD), death);
@@ -323,7 +338,7 @@ fn no_drawable_skips_muzzle_fx_but_still_runs_fire_ocl() {
         Some(owner.host_object(target).unwrap().get_position()),
         origin,
         None,
-    );
+    ).expect("fire effects succeed");
     assert!(accepted.is_some(), "accepted discharge without Drawable");
     owner.finish_accepted_weapon_discharge(accepted.unwrap());
     let fire = child(&owner, FIRE_CHILD);

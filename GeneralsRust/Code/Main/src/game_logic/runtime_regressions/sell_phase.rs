@@ -11,7 +11,7 @@ fn owned_sell_phase_finishes_without_ready_writeback() {
     let id = logic
         .create_object_for_player("SfSellPad", 0, Vec3::ZERO)
         .unwrap();
-    assert!(logic.start_sell_object(id));
+    assert!(logic.start_sell_object(id).unwrap());
     // The actual sell list retains its admission frame. Advance through
     // the CPP scaffold delay and decrement phase, never a shadow-ready log.
     // CPP BuildAssistant: 45-frame scaffold delay followed by 1/90

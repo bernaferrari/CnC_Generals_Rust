@@ -173,7 +173,7 @@ fn coupled_shadow_scud_poison_dot_ticks_on_host() {
 
     // Detonate a toxin SCUD warhead on the infantry: spawns the
     // MediumPoisonField DoT zone (host residual registry).
-    let _ = logic.apply_scud_area_at(glam::Vec3::ZERO, None, Team::GLA, true);
+    let _ = logic.apply_scud_area_at(glam::Vec3::ZERO, None, Team::GLA, true).unwrap();
     assert!(
         logic.scud_poison_zones().active_count() >= 1,
         "toxin blast must spawn the poison field zone"

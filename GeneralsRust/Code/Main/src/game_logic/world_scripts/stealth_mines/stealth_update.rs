@@ -96,7 +96,7 @@ impl GameLogic {
     }
 
     /// Run every StealthUpdate module once (C++ per-object update).
-    pub(super) fn update_stealth_update_modules(&mut self, now: u32) {
+    pub(super) fn update_stealth_update_modules(&mut self, now: u32) -> gamelogic::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -104,33 +104,34 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
-            self.update_stealth_update_module(id, now);
+            self.update_stealth_update_module(id, now)?;
         }
+        Ok(())
     }
 
-    fn update_stealth_update_module(&mut self, id: ObjectId, now: u32) {
+    fn update_stealth_update_module(&mut self, id: ObjectId, now: u32) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_radar_stealth_vision_residual::is_mine_stealth_kind_residual;
         let Some(obj) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
         let Some(data) = obj.stealth_update_data().copied() else {
-            return;
+            return Ok(());
         };
         if !obj.stealth_or_detector_update_processes() || !obj.stealth_update_awake {
-            return;
+            return Ok(());
         }
         if !obj.stealth_update_enabled {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.stealth_update_awake = false;
             }
-            return;
+            return Ok(());
         }
         // DisguisesAsTeam modules are enabled and woken by disguiseAsObject.
         let disguise_enabled =
             data.disguises_as_team && obj.stealth_update_enabled && obj.stealth_update_awake;
         let runs = !data.disguises_as_team && obj.stealth_update_runs(&data);
         if !(runs || disguise_enabled) {
-            return;
+            return Ok(());
         }
         // Mines keep the MinefieldBehavior-owned innate cloak.
         if is_mine_stealth_kind_residual(
@@ -138,10 +139,10 @@ impl GameLogic {
             obj.is_kind_of(KindOf::DemoTrap),
             obj.mine_data.is_some(),
         ) {
-            return;
+            return Ok(());
         }
         let Some(rules) = self.stealth_owner_rules(id) else {
-            return;
+            return Ok(());
         };
         // Drawable opacity pulse precedes the reveal and cloak checks
         // (StealthUpdate.cpp:622-672).
@@ -151,7 +152,7 @@ impl GameLogic {
             }
         }
         let Some(obj) = self.objects.get(&id) else {
-            return;
+            return Ok(());
         };
 
         // RevealDistanceFromTarget (StealthUpdate.cpp:675-693).
@@ -165,11 +166,11 @@ impl GameLogic {
                 });
             if close {
                 self.mark_stealth_detected(id, 0);
-                return;
+                return Ok(());
             }
         }
         if !runs {
-            return;
+            return Ok(());
         }
         // Temporary grants count awake updates, not elapsed world frames.
         let revoke = self.objects.get_mut(&id).is_some_and(|obj| {
@@ -189,10 +190,10 @@ impl GameLogic {
 
         let allowed = self.allowed_to_stealth_in_world(id, rules.owner, now);
         let Some(obj) = self.objects.get_mut(&id) else {
-            return;
+            return Ok(());
         };
         if allowed && obj.stealth_allowed_frame > now {
-            return;
+            return Ok(());
         }
         obj.apply_stealth_allowed(now, allowed, rules.stealth_delay);
         let detected = obj.detection_expires_frame > now;
@@ -200,8 +201,9 @@ impl GameLogic {
         obj.set_status_detected(detected);
         let container = if changed { obj.contained_by } else { None };
         if let Some(container) = container {
-            self.recalc_garrisons_after_occupant_detect_change(&[container]);
+            self.recalc_garrisons_after_occupant_detect_change(&[container])?;
         }
+        Ok(())
     }
 
     /// SpawnBehavior asks `allowedToStealth(child)`, not the STEALTHED bit.
@@ -354,7 +356,7 @@ mod grant_tests {
         assert!(world.host_object(transport).unwrap().innate_stealth);
 
         world.receive_stealth_grant(bike, true, 1);
-        world.update_stealth_and_detection();
+        world.update_stealth_and_detection().unwrap();
         for id in [bike, rider] {
             let object = world.host_object(id).unwrap();
             assert!(!object.innate_stealth && !object.status.stealthed);

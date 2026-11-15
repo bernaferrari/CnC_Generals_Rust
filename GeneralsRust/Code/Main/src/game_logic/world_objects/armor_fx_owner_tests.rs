@@ -422,7 +422,7 @@ fn native_residual_and_physics_armor_tails_use_their_receiving_services() {
                 DamageType::Bullet,
                 HostDeathType::Normal,
                 None,
-            ));
+            ).expect("residual damage completes"));
             one(&events, VETERAN, Some(SOURCE));
             assert!(owner.session_view.impulse.intensity > 0.);
             let mut falling = content.world();

@@ -380,7 +380,7 @@ fn owned_water_damage_completes_linked_bridge_callbacks_before_returning() {
                 .unwrap()
                 .load_map_data(map);
             let (span, first, second, _) = bridge(&mut world, Vec3::new(50.0, 5.0, 50.0));
-            assert_eq!(world.damage_owned_water_candidates(vec![span], 200.0), 1);
+            assert_eq!(world.damage_owned_water_candidates(vec![span], 200.0).unwrap(), 1);
             for id in [span, first, second] {
                 assert_eq!(world.objects[&id].health.current, 0.0);
                 assert!(world.objects[&id].status.on_die_started);
@@ -496,7 +496,7 @@ fn payload_radius_bridge_case(amount: f32) {
         amount,
         1.0,
         DamageType::Unresistable,
-    );
+    ).unwrap();
     // Only the span was directly admitted; repairable bridge husks are not
     // physically destroyed and linked recipients do not inflate strike stats.
     assert_eq!(result, (amount, 1, 0));
@@ -571,7 +571,7 @@ fn fuel_air_final_phase_finishes_linked_bridge_callbacks_before_returning() {
             world.objects.get_mut(&gas).unwrap().fuel_air_gas_slow_death = Some(data);
             world.frame = 30;
             let admitted_die = world.objects[&gas].status.on_die_started;
-            world.update_fuel_air_gas_slow_death();
+            world.update_fuel_air_gas_slow_death().unwrap();
             assert_eq!(
                 world.objects[&gas].status.on_die_started, admitted_die,
                 "FINAL destruction must not admit Object::onDie again"
@@ -828,7 +828,8 @@ fn live_mirror_delivery_case(kind: DamageType) {
                 .bridge_behavior
                 .bind_towers(other_span, [origin, ObjectId(0), ObjectId(0), ObjectId(0)]);
         }
-    });
+        Ok(())
+    }).unwrap();
     assert_eq!(
         delivered,
         [(first, 20.0), (replacement, 30.0), (span, 40.0)],
@@ -920,7 +921,7 @@ fn actual_residual_damage_finishes_linked_bridge_callbacks_before_return() {
                 HostDeathType::Normal,
                 None,
                 &mut effects
-            ));
+            ).expect("residual damage completes"));
             assert_eq!(owner.objects[&a.1].health.current, 75.0);
             assert_eq!(owner.objects[&a.2].health.current, 75.0);
             assert_eq!(owner.objects[&a.0].health.current, 150.0);
@@ -935,7 +936,7 @@ fn actual_residual_damage_finishes_linked_bridge_callbacks_before_return() {
                 HostDeathType::Normal,
                 None,
                 &mut effects
-            ));
+            ).expect("residual damage completes"));
             for id in [a.0, a.1, a.2] {
                 assert!(owner.objects[&id].status.on_die_started);
             }
@@ -949,7 +950,7 @@ fn actual_residual_damage_finishes_linked_bridge_callbacks_before_return() {
                 HostDeathType::Normal,
                 None,
                 &mut effects
-            ));
+            ).expect("residual damage completes"));
             peer.sync_host_bridge_rubble_and_scaffolds();
             for id in [b.0, b.1, b.2] {
                 assert!(!peer.objects[&id].status.on_die_started);

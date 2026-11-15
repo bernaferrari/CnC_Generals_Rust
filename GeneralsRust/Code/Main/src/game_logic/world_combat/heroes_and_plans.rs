@@ -453,7 +453,7 @@ impl GameLogic {
     /// - an AmericaParachute container (C++ onDie on the chute Object).
     ///
     /// Returns true when residual applied to at least one rider/pilot.
-    pub fn destroy_eject_parachute_midair(&mut self, id: ObjectId) -> bool {
+    pub fn destroy_eject_parachute_midair(&mut self, id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.destroy_eject_parachute_midair_with_effects(
             id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -464,7 +464,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
             HostDeathType, PILOT_FREE_FALL_DAMAGE_AUDIO, free_fall_damage_amount,
@@ -472,7 +472,7 @@ impl GameLogic {
         };
 
         let Some(obj) = self.objects.get(&id) else {
-            return false;
+            return Ok(false);
         };
         let is_chute = obj
             .template_name
@@ -480,7 +480,7 @@ impl GameLogic {
         let height = obj.get_position().y;
         let chute_parachuting = obj.is_parachuting() || is_chute;
         if !should_apply_parachute_free_fall_damage(chute_parachuting, height) {
-            return false;
+            return Ok(false);
         }
 
         // Container path: removeAllContained + FreeFallDamage each rider.
@@ -501,7 +501,7 @@ impl GameLogic {
                     rid,
                     chute_pos,
                     presentation_effects,
-                );
+                )?;
                 any |= applied;
             }
             // Kill chute residual (if not already dying).
@@ -519,7 +519,7 @@ impl GameLogic {
             if any {
                 self.car_bomb.record_airborne_parachute_free_fall();
             }
-            return any;
+            return Ok(any);
         }
 
         // Legacy pilot/rider path (no separate chute Object).
@@ -531,7 +531,7 @@ impl GameLogic {
         &mut self,
         rider_id: ObjectId,
         eject_pos: glam::Vec3,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.apply_rider_free_fall_damage_with_effects(
             rider_id,
             eject_pos,
@@ -544,19 +544,19 @@ impl GameLogic {
         rider_id: ObjectId,
         eject_pos: glam::Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_usa_pilot::{
             HostDeathType, PILOT_FREE_FALL_DAMAGE_AUDIO, free_fall_damage_amount,
             should_apply_parachute_free_fall_damage,
         };
 
         let Some(rider) = self.objects.get(&rider_id) else {
-            return false;
+            return Ok(false);
         };
         // Rider may still be parachuting from chute; height from eject pos.
         let height = eject_pos.y.max(rider.get_position().y);
         if !should_apply_parachute_free_fall_damage(true, height) {
-            return false;
+            return Ok(false);
         }
         let max_hp = rider.health.maximum.max(rider.max_health);
         let dmg = free_fall_damage_amount(max_hp);
@@ -583,9 +583,9 @@ impl GameLogic {
             );
             let _ = r;
             if !self.set_owned_object_position_with_effects(containment_actor_id, eject_pos, self.frame, presentation_effects) {
-                return false;
+                return Ok(false);
             }
-            let Some(r) = self.objects.get_mut(&containment_actor_id) else { return false };
+            let Some(r) = self.objects.get_mut(&containment_actor_id) else { return Ok(false) };
             // C++ ParachuteContain::onDie: chute gone, rider setAllowToFall + setIsInFreeFall.
             r.set_status_parachute_open(false);
             r.set_status_parachuting(false);
@@ -605,7 +605,7 @@ impl GameLogic {
                 HostDeathType::Splatted,
                 None,
                 presentation_effects,
-            );
+            )?;
             let r = self
                 .objects
                 .get_mut(&receiving_damage_id)
@@ -617,7 +617,7 @@ impl GameLogic {
             }
             killed
         } else {
-            return false;
+            return Ok(false);
         };
 
         self.usa_pilot.record_free_fall_damage();
@@ -630,7 +630,7 @@ impl GameLogic {
         if destroyed {
             self.mark_object_for_destruction_with_effects(rider_id, None, presentation_effects);
         }
-        true
+        Ok(true)
     }
 
     /// C++ `BattlePlanUpdate::setStatus` SearchAndDestroy idle loop.
@@ -1631,7 +1631,7 @@ impl GameLogic {
     }
 
     /// C++ CleanupHazardUpdate::update — drive first, then scan/spray until clean.
-    pub fn update_cleanup_area_orders(&mut self) {
+    pub fn update_cleanup_area_orders(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_cleanup_area_orders_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1640,7 +1640,7 @@ impl GameLogic {
     pub(crate) fn update_cleanup_area_orders_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_cleanup_area::{
             HOST_CLEANUP_ARRIVE_DISTANCE, HOST_CLEANUP_SCAN_RANGE,
             HOST_CLEANUP_WEAPON_ATTACK_RANGE, HOST_CLEANUP_WEAPON_DELAY_FRAMES,
@@ -1712,12 +1712,12 @@ impl GameLogic {
                         )
                         .is_none()
                     {
-                        let _ = self.apply_cleanup_area_at_with_effects(
+                        self.apply_cleanup_area_at_with_effects(
                             order.player_id,
                             hpos,
                             Some(order.caster_id),
                             presentation_effects,
-                        );
+                        )?;
                     }
                     order.next_shot_frame = frame.saturating_add(HOST_CLEANUP_WEAPON_DELAY_FRAMES);
                 }
@@ -1731,6 +1731,7 @@ impl GameLogic {
             }
         }
         self.cleanup_areas.restore_orders(keep);
+        Ok(())
     }
 
     /// Closest toxin/radiation field or enemy/neutral mine around `center`.
@@ -1777,7 +1778,7 @@ impl GameLogic {
         player_id: u32,
         location: Vec3,
         caster_id: Option<ObjectId>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.apply_cleanup_area_at_with_effects(
             player_id,
             location,
@@ -1792,7 +1793,7 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_cleanup_area::{
             CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO,
             HOST_CLEANUP_AREA_RADIUS, HostCleanupArea,
@@ -1840,7 +1841,7 @@ impl GameLogic {
         let mut mines_cleared = 0_u32;
         for mine_id in mines_to_clear {
             let clearer = caster_id.unwrap_or(ObjectId(0));
-            if self.clear_mine_internal_with_effects(mine_id, clearer, presentation_effects) {
+            if self.clear_mine_internal_with_effects(mine_id, clearer, presentation_effects)? {
                 mines_cleared = mines_cleared.saturating_add(1);
             }
         }
@@ -1879,7 +1880,7 @@ impl GameLogic {
             );
         }
 
-        true
+        Ok(true)
     }
 
     /// Spawn CleanupStreamProjectile residual (MissileAI non-seek cleanup stream).
@@ -1981,7 +1982,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_cleanup_stream_projectiles(&mut self) {
+    pub fn update_cleanup_stream_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_cleanup_stream_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -1990,7 +1991,7 @@ impl GameLogic {
     pub(crate) fn update_cleanup_stream_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_cleanup_area::{
             CLEANUP_STREAM_MISSILE_TURN_DISTANCE, HOST_CLEANUP_PROJECTILE_STREAM,
             cleanup_stream_missile_step_speed,
@@ -2099,14 +2100,15 @@ impl GameLogic {
                     continue;
                 }
             }
-            let _ = self.apply_cleanup_area_at_with_effects(
+            self.apply_cleanup_area_at_with_effects(
                 player_id,
                 pos,
                 source,
                 presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
+            )?;
+            self.mark_object_for_destruction_with_effects(id, team, presentation_effects)?;
         }
+        Ok(())
     }
 
     /// Spawn Angry Mob rock/molotov DumbProjectile Bezier residual.
@@ -2183,7 +2185,7 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_angry_mob_projectiles(&mut self) {
+    pub fn update_angry_mob_projectiles(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_angry_mob_projectiles_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -2192,7 +2194,7 @@ impl GameLogic {
     pub(crate) fn update_angry_mob_projectiles_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_angry_mob::{
             AngryMobProjectileKind, angry_mob_projectile_bezier_point,
             angry_mob_projectile_damage_at,
@@ -2274,9 +2276,10 @@ impl GameLogic {
                 intended,
                 kind,
                 presentation_effects,
-            );
+            )?;
             self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
+        Ok(())
     }
 
     pub fn honesty_angry_mob_projectile_ok(&self) -> bool {
@@ -2290,7 +2293,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_angry_mob_projectile_at_with_effects(
             impact,
             source,
@@ -2307,7 +2310,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_angry_mob::{
             ANGRY_MOB_MOLOTOV_DAMAGE_TYPE, ANGRY_MOB_MOLOTOV_DEATH_TYPE,
             ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE, AngryMobProjectileKind,
@@ -2389,7 +2392,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 let v = self
                     .objects
                     .get_mut(&receiving_damage_id)
@@ -2406,7 +2409,7 @@ impl GameLogic {
                 }
             }
         }
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     pub fn honesty_cleanup_stream_projectile_ok(&self) -> bool {
@@ -2431,7 +2434,7 @@ impl GameLogic {
         location: Vec3,
         caster_id: Option<ObjectId>,
         level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.activate_emergency_repair_with_effects(
             player_id,
             location,
@@ -2448,7 +2451,7 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
         level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         use crate::game_logic::host_emergency_repair::{
             EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS, HostEmergencyRepair,
             emergency_repair_is_ally, in_emergency_repair_radius_2d,
@@ -2522,7 +2525,7 @@ impl GameLogic {
             }
             let before = target.health.current;
             if self
-                .apply_owned_healing_with_effects(id, heal_amount, None, presentation_effects)
+                .apply_owned_healing_with_effects(id, heal_amount, None, presentation_effects)?
                 .is_none()
             {
                 continue;
@@ -2573,7 +2576,7 @@ impl GameLogic {
             presentation_effects,
         );
 
-        true
+        Ok(true)
     }
 
     /// Host GPS Scrambler residual registry (activate + honesty).

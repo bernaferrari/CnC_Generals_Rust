@@ -80,6 +80,7 @@ fn hit(world: &mut GameLogic, id: ObjectId, kind: DamageType, death: HostDeathTy
             None,
             &DamageHitContext::default(),
         )
+        .unwrap()
         .unwrap();
     assert_eq!(result.hp_lost, 0.0);
     result.destroyed()
@@ -290,6 +291,7 @@ fn inactive_die_does_not_run_active_body_score_the_kill() {
                     None,
                     &DamageHitContext::default()
                 )
+                .unwrap()
                 .unwrap()
                 .destroyed()
         );

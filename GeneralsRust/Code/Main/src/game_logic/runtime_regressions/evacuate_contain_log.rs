@@ -52,7 +52,7 @@ fn evacuate_contain_log() -> bool {
         }
     }
 
-    if !logic.evacuate_container_now(bunker, false) {
+    if !logic.evacuate_container_now(bunker, false).unwrap() {
         return false;
     }
     if logic

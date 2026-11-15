@@ -1106,7 +1106,7 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
     let max_hp = game_logic.host_object(pilot_id).unwrap().health.maximum;
     assert!(!game_logic.honesty_pilot_free_fall_damage_ok());
     assert!(
-        game_logic.destroy_eject_parachute_midair(pilot_id),
+        game_logic.destroy_eject_parachute_midair(pilot_id).unwrap(),
         "FreeFallDamage residual must apply mid-air"
     );
     assert!(game_logic.honesty_pilot_free_fall_damage_ok());
@@ -1149,7 +1149,7 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
         p.clear_eject_parachuting();
     }
     assert!(
-        !game_logic.destroy_eject_parachute_midair(pilot_id),
+        !game_logic.destroy_eject_parachute_midair(pilot_id).unwrap(),
         "ground residual must not FreeFallDamage"
     );
 }
@@ -1183,7 +1183,7 @@ fn parachute_loss_falling_damage_observes_defensive_body_scalar() {
         free_fall_damage_amount(object.health.maximum) * HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR
     };
     logic.frame = 2;
-    assert!(logic.destroy_eject_parachute_midair(rider));
+    assert!(logic.destroy_eject_parachute_midair(rider).unwrap());
     let object = logic.host_object(rider).unwrap();
     assert_eq!(object.last_damage_info_type, Some(DamageType::Falling));
     assert!((100.0 - object.health.current - expected).abs() < 0.01);

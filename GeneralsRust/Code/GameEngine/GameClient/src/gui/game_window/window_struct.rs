@@ -29,12 +29,14 @@ use super::payload::{WindowId, WindowMsgData};
 pub(crate) enum PendingWindowCallback {
     MessageBox(crate::gui::callbacks::message_box::PendingMessageBox),
     Difficulty(crate::gui::callbacks::difficulty_select::PendingDifficultySelect),
+    SkirmishStart(crate::gui::callbacks::skirmish_game_options_menu::PendingSkirmishStart),
 }
 impl PendingWindowCallback {
     fn complete(self, effects: &mut WindowEventEffects<'_>) {
         match self {
             Self::MessageBox(step) => step.complete(effects),
             Self::Difficulty(step) => step.complete(effects),
+            Self::SkirmishStart(step) => step.complete(effects),
         }
     }
 }

@@ -684,7 +684,7 @@ impl GameLogic {
     }
 
     /// C++ `SpawnBehavior::onDie` / `onDelete` SpawnedRequireSpawner kill.
-    pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) {
+    pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) -> gamelogic::GameLogicResult<()> {
         self.apply_spawned_require_spawner_on_die_with_effects(parent_id, &mut Default::default())
     }
 
@@ -692,7 +692,7 @@ impl GameLogic {
         &mut self,
         parent_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some((children, spawned_require_spawner)) = self.host_object(parent_id).map(|parent| {
             (
                 parent.spawn_behavior_children(),
@@ -700,18 +700,18 @@ impl GameLogic {
                     .is_some_and(|spec| spec.spawned_require_spawner),
             )
         }) else {
-            return;
+            return Ok(());
         };
         let epoch = self.visual_world_epoch;
         if children.is_empty() {
-            return;
+            return Ok(());
         }
         // C++ SpawnBehavior::onDie first notifies each slaved child and clears
         // its producer in m_spawnIDs order, then performs the optional kill
         // pass over that same list. Resolve each original child birth before
         // invoking its SlavedUpdate and clearing its producer.
         for (child_id, birth) in &children {
-            if self.visual_world_epoch != epoch { return; }
+            if self.visual_world_epoch != epoch { return Ok(()); }
             let still_owned_birth = self
                 .host_object(parent_id)
                 .zip(self.host_object(*child_id))
@@ -726,10 +726,10 @@ impl GameLogic {
             }
         }
         if !spawned_require_spawner {
-            return;
+            return Ok(());
         }
         for (child_id, birth) in children {
-            if self.visual_world_epoch != epoch { return; }
+            if self.visual_world_epoch != epoch { return Ok(()); }
             let live_child = self.host_object(child_id).is_some_and(|child| {
                 birth != 0 && birth == child.visual_object_generation && !child.status.effectively_dead
             });
@@ -740,13 +740,14 @@ impl GameLogic {
             // unresistable normal-death damage request through the child's
             // own Body and Die modules. Do not bypass their callbacks or force
             // physical removal when a death behavior retains the object.
-            let _ = self.apply_owned_kill_with_effects(
+            self.apply_owned_kill_with_effects(
                 child_id,
                 crate::game_logic::combat::DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                 effects,
-            );
+            )?;
         }
+        Ok(())
     }
 
     /// Create a new object for an unambiguous faction owner.  Callers that
@@ -908,33 +909,77 @@ impl GameLogic {
         owner_player_id: u32,
         position: Vec3,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        let team = self.players.get(&owner_player_id)?.team;
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(team) = self.players.get(&owner_player_id).map(|player| player.team) else {
+            return Ok(None);
+        };
         // This is a weapon spawn, not map-object ingestion. Materialize an
         // admitted projectile before the factory's map skip-list check so a
         // valid projectile name on that list remains spawnable.
         if self.receiving_module_content.is_some()
             && !self.ensure_host_spawn_template(template_name)
         {
-            return None;
+            return Ok(None);
         }
-        let id = self
-            .create_object_with_initial_team_and_ui_checked(
-                template_name,
-                team,
-                Some(owner_player_id),
-                position,
-                FactoryCreationPurpose::AtCreation,
-                None,
-                None,
-                ui,
-            )
-            .unwrap_or_else(|error| {
-                log::error!("{error}");
-                None
-            })?;
+        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
+            template_name,
+            team,
+            Some(owner_player_id),
+            position,
+            FactoryCreationPurpose::AtCreation,
+            None,
+            None,
+            ui,
+        )? else {
+            return Ok(None);
+        };
         self.apply_cash_bounty_on_object_created(id);
-        Some(id)
+        Ok(Some(id))
+    }
+
+    /// Create a weapon projectile with the same birth checks as other factory
+    /// callers; callbacks may retire or replace the object before returning.
+    pub(crate) fn create_projectile_with_birth_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        team_identity: Option<u32>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<Option<(ObjectId, (u64, u64))>, CheckedFactoryError> {
+        if self.receiving_module_content.is_some()
+            && !self.ensure_host_spawn_template(template_name)
+        {
+            return Ok(None);
+        }
+        let team_name = if let Some(identity) = team_identity {
+            let factory = self.team_factory.lock().map_err(|error| CheckedFactoryError {
+                error: gamelogic::GameLogicError::Threading(error.to_string()),
+                committed: None,
+            })?;
+            let selected = factory.find_team_by_id(identity).ok_or_else(|| CheckedFactoryError {
+                error: gamelogic::GameLogicError::Configuration(
+                    "projectile's captured Team identity is missing".into(),
+                ),
+                committed: None,
+            })?;
+            let selected = selected.read().map_err(|error| CheckedFactoryError {
+                error: gamelogic::GameLogicError::Threading(error.to_string()),
+                committed: None,
+            })?;
+            Some(selected.get_name().as_str().to_owned())
+        } else {
+            None
+        };
+        let mut birth = None;
+        let creation = self.create_object_with_initial_team_and_ui_birth_checked(
+            template_name, team, owner_player_id, position,
+            FactoryCreationPurpose::AtCreation,
+            team_identity.zip(team_name.as_deref()).map(|(id, name)| (name, id, true)),
+            None, ui, Some(&mut birth),
+        );
+        self.complete_birth_checked_creation(creation, birth)
     }
 
     /// C++ BuildAssistant::buildObjectNow's instant structure arm. Command
@@ -1805,6 +1850,8 @@ impl GameLogic {
             {
                 initial_status.under_construction = true;
             }
+            initial_status.reconstructing =
+                creation_purpose == FactoryCreationPurpose::Reconstruction;
             if let Some(catalog) = &self.armor_definitions {
                 template.armor_definitions = Some(std::sync::Arc::clone(catalog));
             }

@@ -540,7 +540,7 @@ fn run_basic_faction_flow(human_team: Team) {
         .expect("enemy command center should exist before defeat")
         .status
         .destroyed = true;
-    let victory = game_logic.evaluate_victory_condition();
+    let victory = game_logic.evaluate_victory_condition().unwrap();
     assert_eq!(
         victory,
         Some(VictoryCondition::Winner(0)),
@@ -891,7 +891,7 @@ fn mini_skirmish_playable_flow_smoke() {
             obj.status.destroyed = true;
         }
     }
-    let victory = game_logic.evaluate_victory_condition();
+    let victory = game_logic.evaluate_victory_condition().unwrap();
     assert_eq!(victory, Some(VictoryCondition::Winner(0)));
 
     let summary = game_logic.build_victory_summary(Some(0));

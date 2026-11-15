@@ -169,7 +169,7 @@ impl GameLogic {
                 amount < 0.0,
                 interpreter,
                 effects,
-            );
+            )?;
         }
         Ok(())
     }
@@ -391,7 +391,7 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn apply_owned_sell_everything(&mut self, player: u32) {
+    pub(super) fn apply_owned_sell_everything(&mut self, player: u32) -> gamelogic::GameLogicResult<()> {
         self.apply_owned_sell_everything_with_effects(player, &mut Default::default())
     }
 
@@ -399,7 +399,7 @@ impl GameLogic {
         &mut self,
         player: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let ids: Vec<ObjectId> = self
             .host_objects()
             .registered_values()
@@ -414,8 +414,9 @@ impl GameLogic {
             .map(|object| object.id)
             .collect();
         for id in ids {
-            self.start_sell_object_with_effects(id, effects);
+            self.start_sell_object_with_effects(id, effects)?;
         }
+        Ok(())
     }
 }
 

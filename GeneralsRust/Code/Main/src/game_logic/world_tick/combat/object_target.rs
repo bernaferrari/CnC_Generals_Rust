@@ -523,7 +523,7 @@ impl GameLogic {
                 .objects
                 .get(&attacker_id)
                 .map_or(Vec3::ZERO, Object::get_position);
-            let visual = self.begin_owned_weapon_effects_with_effects(
+            let visual = match self.begin_owned_weapon_effects_with_effects(
                 attacker_id,
                 slot,
                 Some(target_id),
@@ -531,10 +531,13 @@ impl GameLogic {
                 origin,
                 None,
                 effects,
-            );
+            ) {
+                Ok(visual) => visual,
+                Err(error) => return CombatShotResult::Failed(error),
+            };
             shot = CombatShotResult::Fired(slot, visual);
 
-            self.apply_combat_object_hit_with_effects(
+            if let Err(error) = self.apply_combat_object_hit_with_effects(
                 attacker_id,
                 attacker_team,
                 target_id,
@@ -543,7 +546,9 @@ impl GameLogic {
                 enemy_or_forced,
                 weapon_damage,
                 effects,
-            );
+            ) {
+                return CombatShotResult::Failed(error);
+            }
         } else if enemy_or_forced {
             // Ready weapons but out of range / cannot hit.
             // MinimumAttackRange residual: if too close, back away instead

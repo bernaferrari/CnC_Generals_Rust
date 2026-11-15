@@ -17,7 +17,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     let rider = world
         .create_object_for_player("TransportHealthRegenRider", 1, glam::Vec3::ZERO)
         .unwrap();
-    world.apply_host_damage(rider, 80.0);
+    world.apply_host_damage(rider, 80.0).unwrap();
     assert!(world.host_object_mut(carrier).unwrap().add_occupant(rider));
     world.host_object_mut(rider).unwrap().contained_by = Some(carrier);
     (world, carrier, rider)

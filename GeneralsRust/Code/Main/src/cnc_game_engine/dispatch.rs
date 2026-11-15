@@ -1399,9 +1399,9 @@ impl CnCGameEngine {
             // Snapshot stays false; publish_status ORs a real promoted capture.
             live_frame_ok: false,
             window_visible: self.runtime_host_window_visible(),
-            // Physical winit MouseInput **or** winit-equivalent inject that
-            // re-enters handle_mouse_button_input after a real gadget hit /
-            // RMB order. Not drive_os_wnd_* and not direct note_* from host cmds.
+            // Only physical window mouse events can latch menu navigation and
+            // gameplay evidence; control-file injections share dispatch but
+            // cannot satisfy these observations.
             wnd_widget_tree_nav: self.interactive_playability.wnd_menu_to_match_complete(),
             interactive_gameplay: self.interactive_playability.gameplay_complete(),
             physical_build_and_produce: self.interactive_playability.build_and_produce_complete(),

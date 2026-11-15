@@ -53,7 +53,7 @@ impl Splash {
                 skip,
                 Some(self.weapon()),
             ),
-        }
+        }.unwrap()
     }
 }
 

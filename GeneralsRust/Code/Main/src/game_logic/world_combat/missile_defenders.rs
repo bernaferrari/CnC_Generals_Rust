@@ -671,7 +671,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
         source_team: Team,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_toxin_tractor_stream_at_with_effects(
             impact,
             source,
@@ -688,7 +688,7 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
         source_team: Team,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_toxin_tractor::{
             AnthraxResidualTier, TOXIN_DAMAGE_TYPE, TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS,
             ToxinTractorSalvageTier, UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
@@ -787,7 +787,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -812,7 +812,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// C++ FireOCLAfterWeaponCooldownUpdate residual (toxin spray secondary).
@@ -900,7 +900,7 @@ impl GameLogic {
     }
 
     /// Advance Toxin Tractor poison field residual zones (medium spray + small death).
-    pub(in super::super) fn update_toxin_tractor_poison_zones(&mut self) {
+    pub(in super::super) fn update_toxin_tractor_poison_zones(&mut self) -> gamelogic::GameLogicResult<()> {
         self.update_toxin_tractor_poison_zones_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
@@ -909,7 +909,7 @@ impl GameLogic {
     pub(in super::super) fn update_toxin_tractor_poison_zones_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .registered()
@@ -949,7 +949,7 @@ impl GameLogic {
                         plan.death_type,
                         None,
                         presentation_effects,
-                    );
+                    )?;
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -977,6 +977,7 @@ impl GameLogic {
         }
 
         self.toxin_tractor.prune_expired(frame);
+        Ok(())
     }
 
     pub fn honesty_comanche_rocket_pod_projectile_ok(&self) -> bool {
@@ -987,7 +988,7 @@ impl GameLogic {
         &mut self,
         impact: Vec3,
         source: Option<ObjectId>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         self.apply_comanche_rocket_pod_area_at_with_effects(
             impact,
             source,
@@ -1000,7 +1001,7 @@ impl GameLogic {
         impact: Vec3,
         source: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, bool)> {
         use crate::game_logic::host_comanche_rocket_pods::{
             ROCKET_POD_AUDIO, ROCKET_POD_DAMAGE_TYPE, ROCKET_POD_DEATH_TYPE,
             ROCKET_POD_SECONDARY_RADIUS, is_legal_rocket_pod_splash_target,
@@ -1066,7 +1067,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1094,7 +1095,7 @@ impl GameLogic {
         // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
         // impact never spawns a second muzzle at the shooter.
 
-        (hits, any_destroyed)
+        Ok((hits, any_destroyed))
     }
 
     /// Residual Sentry Drone auto-fire: a gun-equipped Sentry acquires the
@@ -1106,18 +1107,18 @@ impl GameLogic {
         self.try_sentry_drone_residual_fire_with_effects(
             sentry_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        ).expect("receiving projectile admission failed")
     }
 
     pub(in super::super) fn try_sentry_drone_residual_fire_with_effects(
         &mut self,
         sentry_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_sentry_drone::is_legal_sentry_auto_fire_target;
 
         let Some(attacker) = self.objects.get(&sentry_id) else {
-            return;
+            return Ok(());
         };
         // The name-based residual identifies the Sentry's separate gun-upgrade
         // feature, but DeployStyle weapon authority itself comes solely from
@@ -1134,10 +1135,10 @@ impl GameLogic {
             || attacker.weapon.is_none()
             || !attacker.can_attack()
         {
-            return;
+            return Ok(());
         }
         let Some(weapon) = attacker.weapon.as_ref() else {
-            return;
+            return Ok(());
         };
 
         let team = attacker.team;
@@ -1196,7 +1197,7 @@ impl GameLogic {
         );
 
         let Some((target_id, _, _)) = best else {
-            return;
+            return Ok(());
         };
 
         // Keep an acquired target while the unpack timer runs. The regular
@@ -1225,7 +1226,7 @@ impl GameLogic {
             {}
         }
         if !self.ensure_deploy_style_ready_to_fire(sentry_id) {
-            return;
+            return Ok(());
         }
 
         if !self.fire_owned_passive_weapon_with_effects(
@@ -1234,8 +1235,8 @@ impl GameLogic {
             0,
             fire_pos,
             presentation_effects,
-        ) {
-            return;
+        )? {
+            return Ok(());
         }
         if self
             .objects
@@ -1247,6 +1248,7 @@ impl GameLogic {
 
         self.sentry_drone_residual_auto_fires =
             self.sentry_drone_residual_auto_fires.saturating_add(1);
+        Ok(())
     }
 
     /// Residual: attach Scout or Hellfire drone to a master vehicle (Humvee residual).
@@ -1515,7 +1517,7 @@ impl GameLogic {
         attacker_team: Team,
         base_weapon_damage: f32,
         attacker_id: Option<ObjectId>,
-    ) -> (u32, f32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, f32, bool)> {
         self.apply_bunker_buster_to_target_with_effects(
             target_id,
             attacker_team,
@@ -1532,7 +1534,7 @@ impl GameLogic {
         base_weapon_damage: f32,
         attacker_id: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, f32, bool) {
+    ) -> gamelogic::GameLogicResult<(u32, f32, bool)> {
         use crate::game_logic::host_bunker_buster::{
             BUNKER_BUSTER_AUDIO, BUNKER_BUSTER_HARM_AMOUNT, BUNKER_BUSTER_OCCUPANT_WEAPON,
             BUNKER_BUSTER_SHOCKWAVE_DAMAGE, BUNKER_BUSTER_SHOCKWAVE_RADIUS,
@@ -1543,7 +1545,7 @@ impl GameLogic {
 
         let (mut occupants, is_bunker, target_pos, is_tunnel, target_player) = {
             let Some(target) = self.objects.get(&target_id) else {
-                return (0, 0.0, false);
+                return Ok((0, 0.0, false));
             };
             let occ = target.contained_units();
             let bunker = is_bunker_structure_name(&target.template_name)
@@ -1594,7 +1596,7 @@ impl GameLogic {
                     .and_then(|target| target.contained_unit_ids().first().copied()) else { break };
                 let Some(rider_birth) = self.objects.get(&id).map(|rider| rider.visual_object_generation) else { break };
                 if !self.railed_remove_contained_with_effects(target_id, id, presentation_effects)
-                    .expect("rail bunker-buster removal requires its receiving services")
+                    .map_err(gamelogic::GameLogicError::Configuration)?
                 {
                     break;
                 }
@@ -1662,7 +1664,7 @@ impl GameLogic {
                     &context,
                     Some(attacker_team),
                     presentation_effects,
-                )
+                )?
                 .is_some_and(|result| result.destroyed());
             // Body/Die callbacks may reenter this owner. Never classify or
             // queue a same-number replacement using the old occupant hit.
@@ -1715,7 +1717,7 @@ impl GameLogic {
                 ),
                 None,
                 presentation_effects,
-            );
+            )?;
             if destroyed {
                 self.mark_object_for_destruction_with_effects(
                     target_id,
@@ -1737,10 +1739,10 @@ impl GameLogic {
                 weapon_slot: TemporaryWeaponSlot::Primary,
             };
             if self
-                .create_and_fire_temp_weapon_with_effects(target_id, &spec, presentation_effects)
+                .create_and_fire_temp_weapon_with_effects(target_id, &spec, presentation_effects)?
                 .is_none()
             {
-                let _ = self.apply_instant_hit_splash_at_with_effects(
+                self.apply_instant_hit_splash_at_with_effects(
                     target_pos,
                     BUNKER_BUSTER_SHOCKWAVE_DAMAGE,
                     0.0,
@@ -1751,7 +1753,7 @@ impl GameLogic {
                     target_id,
                     Some(BUNKER_BUSTER_SHOCKWAVE_WEAPON),
                     presentation_effects,
-                );
+                )?;
             }
         }
 
@@ -1767,7 +1769,7 @@ impl GameLogic {
                 .with_priority(160),
         );
 
-        (kills, structure_dmg, destroyed)
+        Ok((kills, structure_dmg, destroyed))
     }
 
     /// Apply KILL_GARRISONED residual: kill `floor(damage)` garrisoned occupants.
@@ -1778,7 +1780,7 @@ impl GameLogic {
         target_id: ObjectId,
         attacker_id: Option<ObjectId>,
         attacker_team: Team,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.flush_pending_kill_garrisoned_with_effects(
             target_id,
             attacker_id,
@@ -1793,14 +1795,14 @@ impl GameLogic {
         attacker_id: Option<ObjectId>,
         attacker_team: Team,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         let pending = self
             .objects
             .get_mut(&target_id)
             .map(|o| o.take_pending_kill_garrisoned())
             .unwrap_or(0);
         if pending == 0 {
-            return 0;
+            return Ok(0);
         }
         self.apply_kill_garrisoned_to_target_with_effects(
             target_id,
@@ -1818,7 +1820,7 @@ impl GameLogic {
         attacker_team: Team,
         damage_amount: f32,
         attacker_id: Option<ObjectId>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         self.apply_kill_garrisoned_to_target_with_effects(
             target_id,
             attacker_team,
@@ -1835,7 +1837,7 @@ impl GameLogic {
         damage_amount: f32,
         attacker_id: Option<ObjectId>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> u32 {
+    ) -> gamelogic::GameLogicResult<u32> {
         use crate::game_logic::host_bunker_buster::{
             BUNKER_BUSTER_OCCUPANT_DAMAGE, kill_garrisoned_count,
         };
@@ -1845,7 +1847,7 @@ impl GameLogic {
             .get(&target_id)
             .is_some_and(|t| !t.is_garrison_contain() || t.is_immune_to_clear_building_attacks());
         if immune {
-            return 0;
+            return Ok(0);
         }
 
         let occupants = self
@@ -1859,7 +1861,7 @@ impl GameLogic {
             .collect();
         let kill_n = kill_garrisoned_count(damage_amount, alive.len());
         if kill_n == 0 {
-            return 0;
+            return Ok(0);
         }
         let to_kill: Vec<ObjectId> = alive.into_iter().take(kill_n).collect();
 
@@ -1877,7 +1879,7 @@ impl GameLogic {
             let receiving_damage_id = occ.id;
             let receiving_damage_argument_1 =
                 BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0);
-            let _ = self.apply_residual_damage_owned_with_effects(
+            self.apply_residual_damage_owned_with_effects(
                 receiving_damage_id,
                 receiving_damage_argument_1,
                 attacker_id,
@@ -1887,7 +1889,7 @@ impl GameLogic {
                 ),
                 None,
                 presentation_effects,
-            );
+            )?;
             if !self.objects.get(&occ_id).is_some_and(|occ| {
                 occ_birth.ptr_eq(&std::sync::Arc::downgrade(&occ.visual_draw_identity_token))
             }) {
@@ -1900,7 +1902,7 @@ impl GameLogic {
             let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
             if !dead {
                 let receiving_damage_id = occ.id;
-                let _ = self.apply_residual_damage_owned_with_effects(
+                self.apply_residual_damage_owned_with_effects(
                     receiving_damage_id,
                     999_999.0,
                     attacker_id,
@@ -1910,7 +1912,7 @@ impl GameLogic {
                     ),
                     None,
                     presentation_effects,
-                );
+                )?;
             }
             let (dead, owner_pid) = {
                 let occ = self
@@ -1971,7 +1973,7 @@ impl GameLogic {
                 None,
                 presentation_effects,
             )
-            .expect("bunker buster kill XP callback must complete");
+            ?;
         }
         for (id, victim_birth) in destroy_ids {
             if !self.objects.get(&id).is_some_and(|victim| {
@@ -1992,7 +1994,7 @@ impl GameLogic {
         }
 
         self.bunker_buster.record_kill_garrisoned(kills);
-        kills
+        Ok(kills)
     }
 }
 

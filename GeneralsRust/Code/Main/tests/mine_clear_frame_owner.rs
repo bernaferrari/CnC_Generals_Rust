@@ -80,8 +80,8 @@ fn mine_clear_approach_stamps_each_receiving_world_frame() {
             .set_weapon_condition_at_frame(8, true, frame);
     }
 
-    owner.update_mines_and_demo_traps();
-    peer.update_mines_and_demo_traps();
+    owner.update_mines_and_demo_traps().unwrap();
+    peer.update_mines_and_demo_traps().unwrap();
 
     for (logic, dozer, mine, frame) in [
         (&owner, owner_dozer, owner_mine, owner_frame),

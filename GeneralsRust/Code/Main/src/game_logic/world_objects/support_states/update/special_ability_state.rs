@@ -391,11 +391,11 @@ impl GameLogic {
                 }
                 match owner_player_id {
                     Some(player_id) => {
-                        let _ = self.transfer_object_to_player_with_effects(
+                        self.transfer_object_to_player_with_effects(
                             special_target_id,
                             player_id,
                             effects,
-                        );
+                        )?;
                     }
                     None => {
                         if let Some(target) = self.objects.get_mut(&special_target_id) {
@@ -634,7 +634,7 @@ impl GameLogic {
                                 let max_hp = self.objects.get(&special_target_id).map(|target| {
                                     target.health.maximum.max(target.max_health).max(1.0)
                                 });
-                                let destroyed = max_hp.is_some_and(|max_hp| {
+                                let destroyed = if let Some(max_hp) = max_hp {
                                     self.apply_residual_damage_owned_with_effects(
                                         special_target_id,
                                         max_hp,
@@ -643,8 +643,10 @@ impl GameLogic {
                                         crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
                                         None,
                                         effects,
-                                    )
-                                });
+                                    )?
+                                } else {
+                                    false
+                                };
                                 if destroyed {
                                     self.mark_object_for_destruction_with_effects(
                                         special_target_id,
@@ -729,7 +731,7 @@ impl GameLogic {
                     let _ = self.maybe_detonate_carbomb_on_unmanned_with_effects(
                         special_target_id,
                         effects,
-                    );
+                    )?;
                 } else if let Some(target) = self.objects.get_mut(&special_target_id) {
                     target.apply_kill_pilot_unmanned_at_frame(
                         &mut self.health_events,
@@ -765,7 +767,7 @@ impl GameLogic {
                     special_target_id,
                     team,
                     effects,
-                ) {
+                )? {
                     self.hero_abilities.take_leftover_channel(object_id);
                     self.pending_special_abilities.remove(&object_id);
                     return Ok(());
@@ -836,7 +838,7 @@ impl GameLogic {
                     special_target_id,
                     team,
                     effects,
-                ) {
+                )? {
                     self.hero_abilities.take_leftover_channel(object_id);
                     self.pending_special_abilities.remove(&object_id);
                     return Ok(());
@@ -1024,11 +1026,11 @@ impl GameLogic {
                 );
                 match owner_player_id {
                     Some(player_id) => {
-                        let _ = self.transfer_object_to_player_with_effects(
+                        self.transfer_object_to_player_with_effects(
                             special_target_id,
                             player_id,
                             effects,
-                        );
+                        )?;
                     }
                     None => {
                         if let Some(target) = self.objects.get_mut(&special_target_id) {
@@ -1210,7 +1212,7 @@ impl GameLogic {
                     special_target_id,
                     team,
                     effects,
-                ) {
+                )? {
                     self.hero_abilities.take_leftover_channel(object_id);
                     self.pending_special_abilities.remove(&object_id);
                     return Ok(());

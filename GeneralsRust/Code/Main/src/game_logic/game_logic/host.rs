@@ -1647,3 +1647,31 @@ impl GameLogic {
         self.script_input_enabled
     }
 }
+
+impl GameLogic {
+    /// Rebind runtime-only missile identities after restoring the object arena.
+    pub(crate) fn rebind_missile_actor_births(&mut self) {
+        let epoch = self.visual_world_epoch;
+        let objects = &self.objects;
+        for projectile in self.combat_system.projectiles_mut() {
+            if projectile.missile_motion.is_some() {
+                let object = objects.get(&projectile.id)
+                    .expect("validated missile snapshot requires its world Object");
+                projectile.missile_actor_birth = Some((object.visual_object_generation, epoch));
+            }
+        }
+    }
+
+    pub(crate) fn validate_missile_actor_births(&self) -> Result<(), String> {
+        for projectile in self.combat_system.projectiles_snapshot() {
+            if projectile.missile_motion.is_some() {
+                let birth = self.objects.get(&projectile.id)
+                    .map(|object| (object.visual_object_generation, self.visual_world_epoch));
+                if birth.is_none() || birth != projectile.missile_actor_birth {
+                    return Err(format!("missile {:?} does not own its world Object birth", projectile.id));
+                }
+            }
+        }
+        Ok(())
+    }
+}

@@ -581,7 +581,7 @@ fn ambulance_auto_heal_residual_recovers_infantry_hp() {
     game_logic.frame = 1;
     // Several logic frames of residual AutoHeal (no command required — StartsActive).
     for _ in 0..30 {
-        game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        game_logic.update_ambulance_auto_heal(1.0 / 30.0).unwrap();
     }
 
     let after = game_logic
@@ -648,7 +648,7 @@ fn ambulance_auto_heal_residual_out_of_range_then_in_range() {
 
     // Out of residual radius (100): no heal.
     for _ in 0..15 {
-        game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        game_logic.update_ambulance_auto_heal(1.0 / 30.0).unwrap();
     }
     let mid = game_logic
         .host_object(infantry_id)
@@ -676,7 +676,7 @@ fn ambulance_auto_heal_residual_out_of_range_then_in_range() {
     // Live-clock stamp past frame 0 (C++ sole-benefactor expiration gate).
     game_logic.frame = 1;
     for _ in 0..30 {
-        game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        game_logic.update_ambulance_auto_heal(1.0 / 30.0).unwrap();
     }
     let after = game_logic
         .host_object(infantry_id)
@@ -724,7 +724,7 @@ fn ambulance_auto_heal_residual_skips_enemy_infantry() {
         .current;
 
     for _ in 0..30 {
-        game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        game_logic.update_ambulance_auto_heal(1.0 / 30.0).unwrap();
     }
     let after = game_logic
         .host_object(enemy_id)
@@ -787,7 +787,7 @@ fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
     game_logic.frame = 1;
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
 
     let unit = game_logic.host_object(unit_id).expect("unit");
@@ -860,7 +860,7 @@ fn propaganda_two_towers_heal_through_sole_benefactor_claim() {
     // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
     game_logic.frame = 1;
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-    game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+    game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     let unit = game_logic.host_object(unit_id).unwrap();
     let claimant = unit.sole_healing_benefactor;
     assert!(
@@ -918,7 +918,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
     // Out of residual radius (150): no heal / no buff.
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..15 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
@@ -943,7 +943,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
         );
     }
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-    game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+    game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
         assert!(
@@ -955,7 +955,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
         crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES,
     );
     for _ in 0..30 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
@@ -980,7 +980,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
         );
     }
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-    game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+    game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
         assert!(
@@ -991,7 +991,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
     game_logic.frame = game_logic.frame.saturating_add(
         crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES,
     );
-    game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+    game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
         assert!(
@@ -1037,7 +1037,7 @@ fn propaganda_tower_residual_skips_enemy_units() {
 
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
     let enemy = game_logic.host_object(enemy_id).expect("enemy");
     assert!(
@@ -1101,7 +1101,7 @@ fn propaganda_tower_residual_subliminal_upgrade_buff_and_faster_heal() {
     );
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
 
     let unit = game_logic.host_object(unit_id).expect("unit");
@@ -1160,7 +1160,7 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
     game_logic.frame = 1;
     game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
-        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0).unwrap();
     }
     let unit = game_logic.host_object(unit_id).expect("unit");
     assert!(unit.health.current > before);
@@ -1448,7 +1448,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
 
     // Revalidate while moving/docked: a captured or reassigned repair pad may
     // no longer service this tank even if its original RMB was legal.
-    assert!(game_logic.transfer_object_to_player(cross_faction_ally_pad, 1));
+    assert!(game_logic.transfer_object_to_player(cross_faction_ally_pad, 1).unwrap());
     game_logic
         .update_ai(&[tank_id, cross_faction_ally_pad], 1.0 / 30.0)
         .expect("receiving AI operation succeeds");
@@ -3256,7 +3256,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         logic.host_object(infantry).unwrap().contained_by,
         Some(transport)
     );
-    logic.update_owned_passenger_exit(infantry);
+    logic.update_owned_passenger_exit(infantry).unwrap();
     let infantry_after_exit = logic.host_object(infantry).expect("infantry after exit");
     assert!(
         infantry_after_exit.contained_by.is_none(),

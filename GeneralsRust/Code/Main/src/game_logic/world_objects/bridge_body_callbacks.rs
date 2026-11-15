@@ -12,7 +12,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn complete_owned_bridge_body_callbacks(
         &mut self,
         callbacks: BridgeBodyCallbacks,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.complete_owned_bridge_body_callbacks_with_effects(
             callbacks,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -23,9 +23,9 @@ impl GameLogic {
         &mut self,
         callbacks: BridgeBodyCallbacks,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         if callbacks.health_changed {
-            self.propagate_owned_bridge_body_change_with_effects(callbacks, presentation_effects);
+            self.propagate_owned_bridge_body_change_with_effects(callbacks, presentation_effects)?;
         }
         // Nested onDamage/onHealing callbacks finish first. Original ActiveBody
         // compares the live body with its captured old state after that chain.
@@ -34,10 +34,10 @@ impl GameLogic {
             .get(&callbacks.victim)
             .map(|o| o.body_damage_state)
         else {
-            return;
+            return Ok(());
         };
         if state == callbacks.old_state || self.bridge_behavior.span(callbacks.victim).is_none() {
-            return;
+            return Ok(());
         }
         self.bridge_behavior
             .note_body_state(callbacks.victim, state.ordinal());
@@ -46,15 +46,16 @@ impl GameLogic {
             callbacks.old_state.ordinal(),
             state.ordinal(),
             presentation_effects,
-        );
+        )?;
         self.update_owned_bridge_damage_states_with_effects(presentation_effects);
         if state == HostBodyDamageType::Rubble || callbacks.old_state == HostBodyDamageType::Rubble
         {
             self.host_radar_queue_terrain_refresh();
         }
+        Ok(())
     }
 
-    fn propagate_owned_bridge_body_change(&mut self, callbacks: BridgeBodyCallbacks) {
+    fn propagate_owned_bridge_body_change(&mut self, callbacks: BridgeBodyCallbacks) -> gamelogic::GameLogicResult<()> {
         self.propagate_owned_bridge_body_change_with_effects(
             callbacks,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -66,13 +67,13 @@ impl GameLogic {
     pub(in crate::game_logic) fn visit_owned_bridge_mirror_recipients(
         &mut self,
         callbacks: BridgeBodyCallbacks,
-        mut deliver: impl FnMut(&mut Self, ObjectId, f32),
-    ) {
+        mut deliver: impl FnMut(&mut Self, ObjectId, f32) -> gamelogic::GameLogicResult<()>,
+    ) -> gamelogic::GameLogicResult<()> {
         if callbacks.input_amount <= 0.0 || !callbacks.input_amount.is_finite() {
-            return;
+            return Ok(());
         }
         let Some(span) = self.bridge_behavior.span_id_for(callbacks.victim) else {
-            return;
+            return Ok(());
         };
         // CPP reads Body::getMaxHealth when this module callback starts,
         // after any earlier body callback, not when damage was admitted.
@@ -81,10 +82,10 @@ impl GameLogic {
             .get(&callbacks.victim)
             .map(|o| o.health.maximum)
         else {
-            return;
+            return Ok(());
         };
         if maximum <= 0.0 || !maximum.is_finite() {
-            return;
+            return Ok(());
         }
         let fraction = callbacks.input_amount / maximum;
         let source = callbacks.source.and_then(|id| self.objects.get(&id));
@@ -95,14 +96,14 @@ impl GameLogic {
                 || (callbacks.victim != span && o.is_kind_of(KindOf::Bridge))
         });
         if suppressed {
-            return;
+            return Ok(());
         }
         if !(0..5).any(|slot| {
             self.bridge_behavior
                 .callback_target_at(span, callbacks.victim, slot)
                 .is_some()
         }) {
-            return;
+            return Ok(());
         }
         self.bridge_behavior.record_mirror_applied();
         for slot in 0..5 {
@@ -117,30 +118,31 @@ impl GameLogic {
             let Some(maximum) = self.objects.get(&target).map(|o| o.health.maximum) else {
                 continue;
             };
-            deliver(self, target, fraction * maximum);
+            deliver(self, target, fraction * maximum)?;
         }
+        Ok(())
     }
 
     fn propagate_owned_bridge_body_change_with_effects(
         &mut self,
         callbacks: BridgeBodyCallbacks,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.visit_owned_bridge_mirror_recipients(callbacks, |owner, target, amount| {
             if callbacks.damage_type == DamageType::Healing {
-                let _ = owner.apply_owned_healing_with_effects(
+                owner.apply_owned_healing_with_effects(
                     target,
                     amount,
                     Some(callbacks.victim),
                     presentation_effects,
-                );
+                )?;
             } else {
                 let context = DamageHitContext::new(
                     owner.objects.get(&callbacks.victim),
                     None,
                     callbacks.damage_type,
                 );
-                let _ = owner.apply_owned_damage_with_effects(
+                owner.apply_owned_damage_with_effects(
                     target,
                     amount,
                     Some(callbacks.victim),
@@ -149,9 +151,10 @@ impl GameLogic {
                     None,
                     &context,
                     presentation_effects,
-                );
+                )?;
             }
-        });
+            Ok(())
+        })
     }
 
     /// Full original terrain linked-list walk. Release its borrow before
@@ -514,7 +517,7 @@ impl GameLogic {
         source: ObjectId,
         duration_frames: u32,
         frame: u32,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         self.attempt_owned_healing_from_sole_benefactor_with_effects(
             victim,
             amount,
@@ -533,24 +536,24 @@ impl GameLogic {
         duration_frames: u32,
         frame: u32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         if !self.objects.contains_key(&source) {
-            return false;
+            return Ok(false);
         }
         if !self
             .objects
             .get_mut(&victim)
             .is_some_and(|o| o.claim_healing_benefactor(source, duration_frames, frame))
         {
-            return false;
+            return Ok(false);
         }
-        let _ = self.apply_owned_healing_with_effects(
+        self.apply_owned_healing_with_effects(
             victim,
             amount,
             Some(source),
             presentation_effects,
-        );
-        true
+        )?;
+        Ok(true)
     }
 }
 

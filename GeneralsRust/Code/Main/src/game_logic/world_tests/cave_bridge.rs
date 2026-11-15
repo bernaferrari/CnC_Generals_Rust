@@ -25,7 +25,7 @@ fn create_cave(logic: &mut GameLogic, name: &str, pos: Vec3, index: i32) -> Obje
         // The generic production factory rejects neutral players. Map-owned
         // caves nevertheless have the neutral player's actual Team.
         let neutral_team = logic.host_default_team_id(3).expect("neutral team");
-        assert!(logic.set_host_object_team(cave, neutral_team));
+        assert!(logic.set_host_object_team(cave, neutral_team).unwrap());
     }
     cave
 }
