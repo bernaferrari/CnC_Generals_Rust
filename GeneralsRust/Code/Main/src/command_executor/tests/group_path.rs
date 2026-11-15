@@ -1264,7 +1264,7 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             let human_end = world
                 .pathfinding_system
                 .grid
-                .world_to_grid(*human_path.last().unwrap());
+                .world_to_grid(*human_path.points.last().unwrap());
             assert!(
                 world.pathfinding_system.grid.in_logical_extent(human_end),
                 "remote human must obey logical extent: {human_end:?}"
@@ -1286,7 +1286,7 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             let computer_end = world
                 .pathfinding_system
                 .grid
-                .world_to_grid(*computer_path.last().unwrap());
+                .world_to_grid(*computer_path.points.last().unwrap());
             assert!(
                 !world
                     .pathfinding_system
@@ -1313,7 +1313,7 @@ fn movement_extent_uses_controlling_human_not_local_presentation() {
             let no_human_end = world
                 .pathfinding_system
                 .grid
-                .world_to_grid(*no_humans.last().unwrap());
+                .world_to_grid(*no_humans.points.last().unwrap());
             assert_eq!(no_human_end, GridPos::new(15, 6));
             assert!(
                 !world

@@ -45,7 +45,7 @@ impl PathfindingSystem {
         is_crusher: bool,
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
-    ) -> Option<Vec<Vec3>> {
+    ) -> Option<PathRoute> {
         self.ensure_dynamic_obstacles(objects, ground_source);
         // Leftover find_attack_path(obj_id, surfaces, is_human): bind seeker from the attacker.
         self.bind_seeker_from_mover(objects, mover);
@@ -679,7 +679,7 @@ impl PathfindingSystem {
         goal: Vec3,
         objects: HostObjectRead<'_>,
         ground_source: &PathfindingGround<'_>,
-    ) -> Option<Vec<Vec3>> {
+    ) -> Option<PathRoute> {
         self.find_path_ex(start, goal, objects, false, None, ground_source)
     }
     /// Leftover C++ `circleClipsTallBuilding` / `circle_clips_tall_building`:

@@ -37,7 +37,7 @@ fn closest_path_equal_cost_candidates_keep_cpp_fifo_order() {
             super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
-        .expect("closest reachable path");
+        .expect("closest reachable path").points;
     let end = system
         .grid
         .world_to_grid(*path.last().expect("path endpoint"));

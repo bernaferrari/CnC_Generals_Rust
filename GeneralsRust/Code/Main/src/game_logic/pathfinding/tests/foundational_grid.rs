@@ -98,7 +98,7 @@ fn hover_aircraft_detour_around_tall_building() {
             Some(ObjectId(2)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("hover aircraft path");
+        .expect("hover aircraft path").points;
     assert!(
         path.len() > 2,
         "hover/thrust must still insert tall-building detour, got {}",
@@ -126,7 +126,7 @@ fn hover_aircraft_detour_around_tall_building() {
             Some(ObjectId(3)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("combat-drop path");
+        .expect("combat-drop path").points;
     assert_eq!(
         ignored.len(),
         2,
@@ -211,7 +211,7 @@ fn live_find_path_ex_uses_crate_astar() {
             None,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("crate A* open-field path");
+        .expect("crate A* open-field path").points;
     assert!(path.len() >= 2);
     assert!(
         sys.crate_astar.is_some(),
@@ -228,7 +228,7 @@ fn live_find_path_ex_uses_crate_astar() {
             None,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("water-costed crate path");
+        .expect("water-costed crate path").points;
     assert!(wet.len() >= 2);
     assert_eq!(
         sys.grid.cell_type(GridPos::new(5, 1)),
@@ -757,7 +757,7 @@ fn classified_bridge_layer_hops_across_river() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
-        path.as_ref().map(|p| p.len() >= 2).unwrap_or(false),
+        path.as_ref().map(|p| p.points.len() >= 2).unwrap_or(false),
         "crate A* must hop the classified deck across water"
     );
 }
@@ -1401,7 +1401,7 @@ fn crusher_plans_through_idle_crushable_cars() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("crusher must path through cars");
+        .expect("crusher must path through cars").points;
     assert!(crushed.len() >= 2);
     // C++ getRadiusAndCenter (AIPathfind.cpp:9670-9696): radius-4 cars stamp
     // ONE pathfind cell each (updatePos loops i in [x-0, x+1)). A crusher's
@@ -1446,7 +1446,7 @@ fn crusher_plans_through_idle_crushable_cars() {
             Some(ObjectId(2)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("non-crusher can detour");
+        .expect("non-crusher can detour").points;
     let walk_len: f32 = walked.windows(2).map(|w| (w[0] - w[1]).length()).sum();
     let crush_len: f32 = crushed.windows(2).map(|w| (w[0] - w[1]).length()).sum();
     // C++ allyFixedCount is a COST, not a wall (AIPathfind.cpp:5050-5060,
@@ -1516,7 +1516,7 @@ fn occupancy_allies_are_not_crush_through() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("must detour around allied cars");
+        .expect("must detour around allied cars").points;
     // C++ getRadiusAndCenter (AIPathfind.cpp:9670-9696): radius-4 allied cars
     // stamp ONE pathfind cell each. allyFixedCount is a cost, not a wall
     // (AIPathfind.cpp:5050-5060, 6281-6291) — C++ may thread the gaps between
@@ -1567,7 +1567,7 @@ fn attack_and_request_path_fail_closed_through_walls() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ) {
         assert!(
-            !crosses_wall(&sys, &p),
+            !crosses_wall(&sys, &p.points),
             "A* must not walk Impassable, path={p:?}"
         );
     }
@@ -1581,11 +1581,11 @@ fn attack_and_request_path_fail_closed_through_walls() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ) {
         assert!(
-            !crosses_wall(&sys, &p),
+            !crosses_wall(&sys, &p.points),
             "findAttackPath must not install a through-wall march, path={p:?}"
         );
         assert!(
-            !(p.len() == 2 && (p[1] - to).length() < 1.0),
+            !(p.points.len() == 2 && (p.points[1] - to).length() < 1.0),
             "must not fail-open start→goal through the wall"
         );
     }

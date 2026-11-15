@@ -67,6 +67,7 @@ fn flee(
             mover,
         )
         .expect("safe route")
+        .points
 }
 
 #[test]
@@ -195,6 +196,7 @@ fn safe_search_accepts_the_last_reachable_cell_inside_the_repulsor() {
             id,
         )
         .expect("the original accepts the last valid reachable cell")
+        .points
     };
     let expected = query(&mut peer_finder, &peer, peer_mover);
     let result = query(&mut finder, &world, mover);
@@ -225,7 +227,8 @@ fn safe_search_can_return_the_already_safe_start() {
             world.host_objects(),
             mover,
         )
-        .expect("the original builds a short path when the start is already safe");
+        .expect("the original builds a short path when the start is already safe")
+        .points;
     assert_eq!(route, vec![from]);
 }
 

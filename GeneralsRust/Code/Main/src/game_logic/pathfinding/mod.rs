@@ -16,6 +16,27 @@ use gamelogic::ai::pathfind_complete::{
 /// C++ reserves one ring slot to distinguish an empty queue from a full one.
 pub(crate) const MAX_PENDING_PATH_REQUESTS: usize = PATHFIND_QUEUE_LEN - 1;
 
+/// A path query's coordinates and their corresponding C++ PathNode layers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathRoute {
+    pub points: Vec<Vec3>,
+    pub layers: Vec<u8>,
+}
+
+impl PathRoute {
+    pub(crate) fn from_points(
+        points: Vec<Vec3>,
+        grid: &PathfindingGrid,
+        ground: &PathfindingGround<'_>,
+    ) -> Self {
+        let layers = points
+            .iter()
+            .map(|point| grid.layer_for_destination(*point, ground) as u8)
+            .collect();
+        Self { points, layers }
+    }
+}
+
 /// Host wrapper so `PathfindingSystem` can stay `Debug` while holding crate A*.
 struct HostCrateAStar {
     finder: AStarPathfinder,
@@ -878,10 +899,6 @@ pub struct PathfindingSystem {
     cumulative_cells_allocated: i32,
     /// C++ `PATHFIND_CELLS_PER_FRAME` (test-overridable).
     pathfind_cells_per_frame: i32,
-    /// Layers parallel to the most recent successful find_path result.
-    /// Host Movement copies these into `path_layers` on install so updateGoal
-    /// uses the PathNode layer instead of re-deriving from geometry.
-    last_found_path_layers: Vec<u8>,
 }
 
 #[cfg(test)]

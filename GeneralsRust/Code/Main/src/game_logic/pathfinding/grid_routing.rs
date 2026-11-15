@@ -2304,9 +2304,51 @@ impl PathfindingGrid {
         .0
     }
 
-    /// C++ `Path::optimize` / `optimizeGroundPath` using the PathNode layers
-    /// already carried from search. Geometry is not allowed to re-pick the
-    /// layer when bridge and ground heights overlap (hq-8ecpbu).
+    /// Object-bound Path::optimize, used for searched, patched and closest paths.
+    pub(super) fn optimize_path_ex(
+        &self,
+        waypoints: &[Vec3],
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
+    ) -> Vec<Vec3> {
+        self.optimize_path_ex_layered(
+            waypoints,
+            &[],
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            ground_source,
+        )
+        .0
+    }
+
+    pub(super) fn optimize_path_ex_layered(
+        &self,
+        waypoints: &[Vec3],
+        path_layers: &[u8],
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
+    ) -> (Vec<Vec3>, Vec<u8>) {
+        self.optimize_layered_impl(
+            waypoints,
+            path_layers,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            ground_source,
+            false,
+        )
+    }
+
+    /// C++ `Path::optimizeGroundPath`, retaining searched PathNode layers.
     pub fn optimize_ground_path_ex_layered(
         &self,
         waypoints: &[Vec3],
@@ -2316,6 +2358,29 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         ground_source: &PathfindingGround<'_>,
+    ) -> (Vec<Vec3>, Vec<u8>) {
+        self.optimize_layered_impl(
+            waypoints,
+            path_layers,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            ground_source,
+            true,
+        )
+    }
+
+    fn optimize_layered_impl(
+        &self,
+        waypoints: &[Vec3],
+        path_layers: &[u8],
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
+        ground_path: bool,
     ) -> (Vec<Vec3>, Vec<u8>) {
         if waypoints.len() <= 2 {
             let layers = if path_layers.len() == waypoints.len() {
@@ -2345,8 +2410,6 @@ impl PathfindingGrid {
         let mut optimized = vec![waypoints[0]];
         let mut optimized_layers = vec![layers[0] as u8];
         let mut anchor = 0usize;
-        let mut first_node = true;
-        let first_layer = layers[0];
         while anchor < waypoints.len() - 1 {
             let mut layer = layers[anchor];
             let mut cur_layer = layers[anchor];
@@ -2368,9 +2431,10 @@ impl PathfindingGrid {
                 cur_layer = layers[node_idx];
                 node_idx += 1;
             }
-            if first_node {
-                layer = first_layer;
-                first_node = false;
+            // Path::optimize pins its first visibility check to the starting
+            // layer; optimizeGroundPath deliberately does not.
+            if !ground_path && anchor == 0 {
+                layer = layers[0];
             }
             let mut found = false;
             let mut far = node_idx;
@@ -2413,17 +2477,17 @@ impl PathfindingGrid {
                 anchor += 1;
             }
         }
-        // C++ jig-jog removal: drop very short mid segments.
-        let cell = self.grid_size;
-        let thresh = cell * cell * 3.9;
-        let mut i = 0;
-        while i + 2 < optimized.len() {
-            let dx = optimized[i + 1].x - optimized[i].x;
-            let dz = optimized[i + 1].z - optimized[i].z;
-            if dx * dx + dz * dz < thresh {
-                optimized.remove(i + 1);
-                optimized_layers.remove(i + 1);
-            } else {
+        if ground_path {
+            // optimizeGroundPath alone performs the jig/jog pass.
+            let thresh = self.grid_size * self.grid_size * 3.9;
+            let mut i = 0;
+            while i + 2 < optimized.len() {
+                let dx = optimized[i + 1].x - optimized[i].x;
+                let dz = optimized[i + 1].z - optimized[i].z;
+                if dx * dx + dz * dz < thresh {
+                    optimized.remove(i + 1);
+                    optimized_layers.remove(i + 1);
+                }
                 i += 1;
             }
         }

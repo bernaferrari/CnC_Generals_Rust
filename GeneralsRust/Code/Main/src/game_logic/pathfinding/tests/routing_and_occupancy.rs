@@ -347,7 +347,7 @@ fn internal_astar_routes_infantry_and_vehicle_through_single_cell_opening() {
         );
         let end_cell = path
             .as_ref()
-            .and_then(|nodes| nodes.last())
+            .and_then(|nodes| nodes.points.last())
             .map(|end| sys.grid.world_to_grid(*end));
         (path, end_cell)
     };
@@ -886,7 +886,7 @@ fn infantry_paths_along_classified_wall() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
-        path.as_ref().map(|p| p.len() >= 2).unwrap_or(false),
+        path.as_ref().map(|p| p.points.len() >= 2).unwrap_or(false),
         "infantry A* must walk LAYER_WALL over the blocked ground"
     );
 }
@@ -1359,7 +1359,7 @@ fn human_units_stay_in_logical_extent() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     if let Some(path) = path {
-        for p in &path {
+        for p in &path.points {
             let cell = sys.grid.world_to_grid(*p);
             assert!(
                 sys.grid.in_logical_extent(cell),
@@ -1415,7 +1415,7 @@ fn dozer_hack_reaches_live_astar() {
             Some(ObjectId(1)),
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
         )
-        .expect("dozer must step through non-enemy CELL_OBSTACLE");
+        .expect("dozer must step through non-enemy CELL_OBSTACLE").points;
     assert!(path.len() >= 2);
 
     let mut inf_t = ThingTemplate::new("Ranger");
@@ -1675,7 +1675,7 @@ fn find_closest_path_walks_to_valid_cell_when_goal_impassable() {
             super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
-        .expect("closest path");
+        .expect("closest path").points;
     let end = *path.last().expect("end");
     let end_cell = sys.grid.world_to_grid(end);
     assert_ne!(end_cell, goal, "must not stand on the impassable click");
@@ -1708,7 +1708,7 @@ fn find_safe_path_stays_outside_both_repulsors() {
             super::super::standalone_path_fixture().read(),
             crate::game_logic::ObjectId(1),
         )
-        .expect("safe path");
+        .expect("safe path").points;
     let end = *path.last().expect("end");
     let d1 = (end.x - r1.x).hypot(end.z - r1.z);
     let d2 = (end.x - r2.x).hypot(end.z - r2.z);
@@ -1808,7 +1808,7 @@ fn find_attack_path_goes_around_partial_wall() {
         None,
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ) {
-        let crosses = p.windows(2).any(|w| {
+        let crosses = p.points.windows(2).any(|w| {
             let a = sys.grid.world_to_grid(w[0]);
             let b = sys.grid.world_to_grid(w[1]);
             sys.grid.cell_type(a) == PathfindCellType::Impassable
@@ -1818,7 +1818,7 @@ fn find_attack_path_goes_around_partial_wall() {
             !crosses,
             "attack A* must not step on Impassable, path={p:?}"
         );
-        let end = *p.last().unwrap();
+        let end = *p.points.last().unwrap();
         let dist = (end.x - victim.x).hypot(end.z - victim.z);
         assert!(
             dist <= 80.0 + 15.0,

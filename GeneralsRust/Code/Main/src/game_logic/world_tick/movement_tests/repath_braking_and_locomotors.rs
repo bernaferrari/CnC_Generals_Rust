@@ -2,6 +2,129 @@
 use super::*;
 
 #[test]
+fn batched_repaths_install_each_units_own_searched_layers() {
+    let mut logic = GameLogic::new();
+    logic.pathfinding_system =
+        crate::game_logic::pathfinding::PathfindingSystem::new(200.0, 120.0);
+    logic.pathfinding_system.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &PathfindingGround::Flat(0.0),
+    );
+    logic.pathfinding_system.grid.rebuild_path_zones();
+    let mut ids = Vec::new();
+    for (id, height, z, layer) in [(9635, 0.0, 45.0, 1), (9636, 20.0, 55.0, 2)] {
+        let id = ObjectId(id);
+        let mut unit = ranger_at(id.0, Vec3::new(45.0, height, z));
+        unit.pathfind_layer = layer;
+        unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        unit.requested_destination = Some(Vec3::new(115.0, height, z));
+        unit.is_final_goal = true;
+        unit.set_status_moving(true);
+        logic.objects.insert(id, unit);
+        ids.push(id);
+    }
+    logic.update_movement_locomotor_pass(&ids, 0.0).unwrap();
+    let ground = logic.objects.get(&ids[0]).unwrap();
+    let bridge = logic.objects.get(&ids[1]).unwrap();
+    assert!(ground.movement.path.len() >= 2);
+    assert_eq!(ground.movement.path.len(), bridge.movement.path.len());
+    assert_eq!(ground.movement.path_layers, vec![1; ground.movement.path.len()]);
+    assert_eq!(bridge.movement.path_layers, vec![2; bridge.movement.path.len()]);
+}
+
+#[test]
+fn appended_waypoint_keeps_existing_and_searched_bridge_layers() {
+    let mut logic = GameLogic::new();
+    logic.pathfinding_system =
+        crate::game_logic::pathfinding::PathfindingSystem::new(200.0, 120.0);
+    logic.pathfinding_system.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &PathfindingGround::Flat(0.0),
+    );
+    logic.pathfinding_system.grid.rebuild_path_zones();
+    let id = ObjectId(9637);
+    let start = Vec3::new(45.0, 20.0, 55.0);
+    let prior_goal = Vec3::new(75.0, 20.0, 55.0);
+    let waypoint = Vec3::new(115.0, 20.0, 55.0);
+    let mut unit = ranger_at(id.0, start);
+    unit.pathfind_layer = 2;
+    unit.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    unit.movement.set_path_with_layers(vec![start, prior_goal], vec![2, 2]);
+    unit.movement.target_position = Some(prior_goal);
+    unit.set_status_moving(true);
+    logic.objects.insert(id, unit);
+    assert!(logic.append_unit_waypoint(id, waypoint));
+    let unit = logic.objects.get(&id).unwrap();
+    assert!(unit.movement.path.len() >= 3);
+    assert_eq!(unit.movement.path_layers, vec![2; unit.movement.path.len()]);
+    assert_eq!(unit.movement.path.last().copied(), Some(waypoint));
+}
+
+#[test]
+fn exact_waypoint_paths_resolve_layers_in_each_receiving_world() {
+    let mut worlds = Vec::new();
+    for deck_height in [20.0, 0.0] {
+        let mut logic = GameLogic::new();
+        logic.pathfinding_system =
+            crate::game_logic::pathfinding::PathfindingSystem::new(200.0, 120.0);
+        logic.pathfinding_system.grid.stamp_bridge_deck(
+            Vec3::new(30.0, deck_height, 40.0),
+            Vec3::new(30.0, deck_height, 60.0),
+            Vec3::new(130.0, deck_height, 40.0),
+            Vec3::new(130.0, deck_height, 60.0),
+            false,
+            &PathfindingGround::Flat(0.0),
+        );
+        let id = ObjectId(9638);
+        let start = Vec3::new(45.0, 20.0, 55.0);
+        logic.objects.insert(id, ranger_at(id.0, start));
+        let mid = Vec3::new(75.0, 20.0, 55.0);
+        let goal = Vec3::new(115.0, 20.0, 55.0);
+        assert!(logic.assign_unit_path_exact(id, goal, &[start, mid]));
+        worlds.push(logic);
+    }
+    let id = ObjectId(9638);
+    assert_eq!(worlds[0].objects.get(&id).unwrap().movement.path_layers, vec![2, 2, 2]);
+    assert_eq!(worlds[1].objects.get(&id).unwrap().movement.path_layers, vec![1, 1, 1]);
+}
+
+#[test]
+fn multi_hop_search_installs_every_bridge_node_layer() {
+    let mut logic = GameLogic::new();
+    logic.pathfinding_system =
+        crate::game_logic::pathfinding::PathfindingSystem::new(200.0, 120.0);
+    logic.pathfinding_system.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &PathfindingGround::Flat(0.0),
+    );
+    logic.pathfinding_system.grid.rebuild_path_zones();
+    let id = ObjectId(9639);
+    let start = Vec3::new(45.0, 20.0, 55.0);
+    let mid = Vec3::new(75.0, 20.0, 55.0);
+    let goal = Vec3::new(115.0, 20.0, 55.0);
+    let mut unit = ranger_at(id.0, start);
+    unit.pathfind_layer = 2;
+    unit.is_final_goal = true;
+    logic.objects.insert(id, unit);
+    assert!(logic.assign_unit_path(id, goal, &[mid]));
+    let unit = logic.objects.get(&id).unwrap();
+    assert!(unit.movement.path.len() >= 3);
+    assert_eq!(unit.movement.path_layers, vec![2; unit.movement.path.len()]);
+}
+
+#[test]
 fn fast_attack_approach_and_safe_repath_wait_two_seconds() {
     let mut attack = Object::new(ThingTemplate::new("Ranger"), ObjectId(9621), Team::USA);
     attack.set_locomotor_goal_position_explicit(Vec3::new(5.0, 0.0, 0.0));

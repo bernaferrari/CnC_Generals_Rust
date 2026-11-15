@@ -72,7 +72,7 @@ fn ordinary_path_does_not_cross_rubble_without_the_surface() {
     assert!(
         blocked
             .as_ref()
-            .is_none_or(|path| path.last().is_none_or(|end| *end != goal)),
+            .is_none_or(|path| path.points.last().is_none_or(|end| *end != goal)),
         "ground-only crusher crossed the rubble barrier: {blocked:?}"
     );
     let allowed = finder
@@ -87,5 +87,5 @@ fn ordinary_path_does_not_cross_rubble_without_the_surface() {
             &ground,
         )
         .expect("rubble-capable crusher should cross");
-    assert_eq!(allowed.last().copied(), Some(goal));
+    assert_eq!(allowed.points.last().copied(), Some(goal));
 }

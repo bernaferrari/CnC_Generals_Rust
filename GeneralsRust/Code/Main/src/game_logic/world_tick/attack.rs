@@ -3222,8 +3222,10 @@ impl GameLogic {
                 .leftover_should_use_direct_path_for_line_passable_non_final_goal(
                     is_final, start, dest, loco, None,
                 ) {
-            crate::game_logic::pathfinding::PathfindingSystem::leftover_compute_quick_path_nodes(
-                start, dest,
+            self.route_for_points(
+                crate::game_logic::pathfinding::PathfindingSystem::leftover_compute_quick_path_nodes(
+                    start, dest,
+                ),
             )
         } else {
             let saved_adjust = self.pathfinding_system.adjusts_goal();
@@ -3321,12 +3323,12 @@ impl GameLogic {
             self.pathfinding_system.set_adjust_goal(saved_adjust);
             found
         };
-        if waypoints.is_empty() {
+        if waypoints.points.is_empty() {
             return false;
         }
-        let last_node = waypoints.last().copied();
+        let last_node = waypoints.points.last().copied();
         let ok = if let Some(obj) = self.objects.get_mut(&id) {
-            obj.request_path_at_frame(dest, Some(waypoints), self.frame);
+            obj.request_path_at_frame(dest, waypoints, self.frame);
             obj.path_timestamp = self.frame;
             true
         } else {

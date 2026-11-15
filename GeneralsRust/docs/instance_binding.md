@@ -61,6 +61,12 @@ integer trigger-position transition; an enclosed garrison passenger is held
 before its center-position callback. This does not establish complete
 pathfinder-event or save/load parity.
 
+Path searches return each route with its own layers rather than publishing the
+last search's layers on the pathfinder. Batched repaths, waypoint chains and
+closest-path searches therefore install their corresponding layers. Optimized
+routes still do not preserve the original node chain needed for C++ bridge
+transition and path-snapshot parity.
+
 Core OCL delivery resolves an existing transport through its creation context
 and dispatches through the borrowed AI without reacquiring it. Special-power
 dispatch releases the owner's read guard before movement initialization.

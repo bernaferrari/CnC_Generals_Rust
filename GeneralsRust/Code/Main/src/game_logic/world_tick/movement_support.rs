@@ -116,10 +116,11 @@ impl GameLogic {
             // C++ FollowPath onExit clears canPathThroughUnits. A new
             // computePath replaces the factory-exit tunnel. A failed search
             // does not.
-            if let Some(waypoints) = path {
+            if let Some(route) = path {
+                let waypoints = route.points;
+                let layers = route.layers;
                 if waypoints.len() >= 2 {
                     obj.can_path_through_units = false;
-                    let layers = self.pathfinding_system.found_path_layers().to_vec();
                     obj.movement.set_path_with_layers(waypoints, layers);
                     accepted_goal = obj.movement.path.last().copied();
 
@@ -144,7 +145,6 @@ impl GameLogic {
                     obj.can_path_through_units = false;
                     // A* found the goal cell (often start==goal after snap).
                     let dest = waypoints.last().copied().unwrap_or(target_position);
-                    let layers = self.pathfinding_system.found_path_layers().to_vec();
                     let path = vec![start_pos, dest];
                     let layers = if layers.len() == path.len() {
                         layers
@@ -408,7 +408,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         let pose_frame = self.frame;
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
-        let mut repaths: Vec<(ObjectId, Vec<Vec3>, bool)> = Vec::new();
+        let mut repaths: Vec<(ObjectId, Vec<Vec3>, Vec<u8>, bool)> = Vec::new();
         let mut concessions: Vec<(ObjectId, bool, u32, bool, f32)> = Vec::new();
         let mut yield_stuck: Vec<ObjectId> = Vec::new();
         let mut drop_paths: Vec<ObjectId> = Vec::new();
@@ -476,7 +476,7 @@ impl GameLogic {
                             id,
                         )
                     }) {
-                        repaths.push((id, path, false));
+                        repaths.push((id, path.points, path.layers, false));
                     }
                 }
             } else if obj.move_away_frames > 0 {
@@ -543,8 +543,8 @@ impl GameLogic {
                                     &ground_source,
                                 )
                             }) {
-                                Some(path) if path.len() >= 2 => {
-                                    repaths.push((id, path, false));
+                                Some(path) if path.points.len() >= 2 => {
+                                    repaths.push((id, path.points, path.layers, false));
                                     quick_retry.push((id, obj.retry_path));
                                 }
                                 _ => quick_miss.push(id),
@@ -554,7 +554,8 @@ impl GameLogic {
                             from,
                             goal,
                         );
-                            repaths.push((id, path, false));
+                            let path = self.route_for_points(path);
+                            repaths.push((id, path.points, path.layers, false));
                             quick_retry.push((id, obj.retry_path));
                         }
                     }
@@ -582,7 +583,8 @@ impl GameLogic {
                         from,
                         goal,
                     );
-                    repaths.push((id, path, false));
+                    let path = self.route_for_points(path);
+                    repaths.push((id, path.points, path.layers, false));
                 } else if self
                     .pathfinding_system
                     .leftover_should_use_direct_path_for_line_passable_non_final_goal(
@@ -597,7 +599,8 @@ impl GameLogic {
                         from,
                         goal,
                     );
-                    repaths.push((id, path, false));
+                    let path = self.route_for_points(path);
+                    repaths.push((id, path.points, path.layers, false));
                 } else if stuck
                     && !self.pathfinding_system.grid.valid_movement_position(
                         self.pathfinding_system.grid.world_to_grid(goal),
@@ -654,7 +657,7 @@ impl GameLogic {
                                 id,
                             )
                         }) {
-                            repaths.push((id, path, false));
+                            repaths.push((id, path.points, path.layers, false));
                             closest_paths.push(id);
                         } else {
                             drop_paths.push(id);
@@ -679,6 +682,7 @@ impl GameLogic {
                         self.pathfinding_system.patch_path(
                             from,
                             &original,
+                            &obj.movement.path_layers,
                             surfaces,
                             is_crusher,
                             self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
@@ -686,7 +690,7 @@ impl GameLogic {
                             &ground_source,
                         )
                     }) {
-                        Some(path) => repaths.push((id, path, true)),
+                        Some(path) => repaths.push((id, path.points, path.layers, true)),
                         None if original.is_empty() => {
                             let is_human = obj
                                 .owner_player_id
@@ -723,7 +727,7 @@ impl GameLogic {
                                     id,
                                 )
                             }) {
-                                repaths.push((id, path, false));
+                                repaths.push((id, path.points, path.layers, false));
                                 closest_paths.push(id);
                             } else {
                                 drop_paths.push(id);
@@ -788,7 +792,9 @@ impl GameLogic {
                         None
                     };
                     match found {
-                        Some(path) => repaths.push((id, path, false)),
+                        Some(path) => {
+                            repaths.push((id, path.points, path.layers, false));
+                        }
                         None => {
                             let is_human = obj
                                 .owner_player_id
@@ -825,7 +831,7 @@ impl GameLogic {
                                     id,
                                 )
                             }) {
-                                repaths.push((id, path, false));
+                                repaths.push((id, path.points, path.layers, false));
                                 closest_paths.push(id);
                             } else {
                                 drop_paths.push(id);
@@ -867,18 +873,27 @@ impl GameLogic {
                 obj.set_status_moving(false);
             }
         }
-        for (id, path, _was_stuck) in repaths {
+        for (id, mut path, mut layers, _was_stuck) in repaths {
+            let has_route = path.len() >= 2;
+            let adjusted_layer = self.objects.get(&id).and_then(|obj| {
+                if has_route && obj.ultra_accurate {
+                    obj.requested_destination.map(|dest| self.path_layer_for_point(dest))
+                } else {
+                    None
+                }
+            });
             if let Some(obj) = self.objects.get_mut(&id) {
-                if path.len() >= 2 {
-                    let mut path = path.clone();
+                if has_route {
                     if obj.ultra_accurate {
                         if let Some(dest) = obj.requested_destination {
                             if let Some(last) = path.last_mut() {
                                 *last = dest;
+                                if let (Some(layer), Some(last_layer)) = (adjusted_layer, layers.last_mut()) {
+                                    *last_layer = layer;
+                                }
                             }
                         }
                     }
-                    let layers = self.pathfinding_system.found_path_layers().to_vec();
                     obj.movement.set_path_with_layers(path, layers);
                     obj.set_locomotor_goal_position_on_path();
                     obj.movement.current_path_index = 1;
@@ -898,7 +913,7 @@ impl GameLogic {
                     obj.set_status_moving(true);
                 }
             }
-            if path.len() >= 2 {
+            if has_route {
                 let stamp = self.objects.get(&id).is_some_and(|obj| {
                     obj.is_final_goal
                         && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj)
@@ -913,7 +928,7 @@ impl GameLogic {
                     }
                 }
             }
-            if path.len() >= 2
+            if has_route
                 && self.objects.get(&id).is_some_and(|obj| {
                     crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj)
                 })

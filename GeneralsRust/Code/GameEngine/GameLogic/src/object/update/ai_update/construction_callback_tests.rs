@@ -657,11 +657,16 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
     {
         let held = receiving.write().unwrap();
         let error = Player::on_structure_construction_complete(
-            &fixture.player, None, &fixture.structure, true,
+            &fixture.player, None, &fixture.structure, false,
         ).unwrap_err();
         assert!(error.contains("cannot borrow construction pathfinder"));
         assert_eq!(cell(&held, &center_cell), Some(PathfindCellType::Clear));
         assert_eq!(cell(&other.read().unwrap(), &center_cell), Some(PathfindCellType::Clear));
+        assert_eq!(
+            fixture.player.read().unwrap().get_score_keeper().get_total_money_spent(),
+            0,
+            "a failed footprint removal must not reach the score phase"
+        );
     }
 
     // Publishing a different world must not redirect the receiving callback.

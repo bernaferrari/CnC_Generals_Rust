@@ -83,6 +83,7 @@ fn ordinary_seed_uses_receiving_world_moving_and_crushable_occupants() {
                 &PathfindingGround::Flat(0.0),
             )
             .expect("ordinary path")
+            .points
     };
     let expected = query(&mut empty);
     let moving_path = query(&mut moving);

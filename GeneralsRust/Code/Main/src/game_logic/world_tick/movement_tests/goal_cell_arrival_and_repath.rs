@@ -237,7 +237,7 @@ fn installed_path_registers_the_goal_cell() {
         ObjectId(9603),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        vec![Vec3::new(3.0, 0.0, 3.0), dest],
+        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
         false,
     ));
     let obj = logic.objects.get(&ObjectId(9603)).expect("ranger");
@@ -272,7 +272,7 @@ fn safe_path_does_not_register_a_goal_cell() {
         ObjectId(9604),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        vec![Vec3::new(3.0, 0.0, 3.0), dest],
+        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
         false,
     ));
     let obj = logic.objects.get(&ObjectId(9604)).expect("ranger");
@@ -298,7 +298,7 @@ fn non_final_path_does_not_register_a_goal_cell() {
         ObjectId(9605),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        vec![Vec3::new(3.0, 0.0, 3.0), dest],
+        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
         false,
     ));
     let obj = logic.objects.get(&ObjectId(9605)).expect("ranger");
@@ -326,7 +326,7 @@ fn waited_path_removes_the_goal_when_not_adjusting() {
         ObjectId(9608),
         Vec3::new(3.0, 0.0, 3.0),
         dest,
-        vec![Vec3::new(3.0, 0.0, 3.0), dest],
+        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::new(3.0, 0.0, 3.0), dest], layers: vec![1, 1] },
         false,
     ));
     let cell = {
@@ -520,7 +520,7 @@ fn ultra_accurate_path_ends_on_the_ordered_point() {
         id,
         Vec3::ZERO,
         ordered,
-        vec![Vec3::ZERO, snapped],
+        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::ZERO, snapped], layers: vec![1, 1] },
         true,
     ));
     {
@@ -540,7 +540,7 @@ fn ultra_accurate_path_ends_on_the_ordered_point() {
         id,
         Vec3::ZERO,
         ordered,
-        vec![Vec3::ZERO, snapped],
+        crate::game_logic::pathfinding::PathRoute { points: vec![Vec3::ZERO, snapped], layers: vec![1, 1] },
         false,
     ));
     {

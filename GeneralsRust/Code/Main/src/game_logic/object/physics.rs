@@ -1731,10 +1731,11 @@ impl Object {
     pub(crate) fn request_path_at_frame(
         &mut self,
         destination: glam::Vec3,
-        waypoints: Option<Vec<glam::Vec3>>,
+        route: crate::game_logic::pathfinding::PathRoute,
         frame: u32,
     ) {
-        self.request_path_inner(destination, waypoints, Some(frame));
+        self.request_path_inner(destination, Some(route.points), Some(frame));
+        self.movement.path_layers = route.layers;
     }
 
     fn request_path_inner(
@@ -1750,9 +1751,9 @@ impl Object {
             if wps.is_empty() {
                 wps.push(destination);
             }
-            self.movement.path = wps;
+            self.movement.set_path_coords(wps);
         } else {
-            self.movement.path = vec![destination];
+            self.movement.set_path_coords(vec![destination]);
         }
         if self.movement.path.len() >= 2 {
             // C++ AIFollowPathState::onEnter starts at index zero (the

@@ -34,7 +34,6 @@ impl PathfindingSystem {
             seeker_can_path_through_units: false,
             cumulative_cells_allocated: 0,
             pathfind_cells_per_frame: PATHFIND_CELLS_PER_FRAME,
-            last_found_path_layers: Vec::new(),
         }
     }
 
@@ -454,18 +453,6 @@ impl PathfindingSystem {
         (points, layers)
     }
 
-    /// Remember layers aligned with the coordinates just returned by find_path.
-    pub(crate) fn remember_found_path_layers(&mut self, layers: Vec<u8>) {
-        self.last_found_path_layers = layers;
-    }
-
-    pub(crate) fn take_found_path_layers(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.last_found_path_layers)
-    }
-
-    pub(crate) fn found_path_layers(&self) -> &[u8] {
-        &self.last_found_path_layers
-    }
 
     /// C++ hierarchical bridge start/end cells (AIPathfind.cpp:7595-7623).
     pub(super) fn hierarchical_bridge_jumps(&self) -> Vec<(GridCoord, GridCoord)> {
@@ -559,7 +546,7 @@ impl PathfindingSystem {
         ground_source: &PathfindingGround<'_>,
         objects: HostObjectRead<'_>,
         human_override: Option<bool>,
-    ) -> Option<Vec<Vec3>> {
+    ) -> Option<PathRoute> {
         self.sync_crate_astar();
         if let Some(is_human) = human_override {
             self.seeker_is_human = is_human;
@@ -717,11 +704,12 @@ impl PathfindingSystem {
                 ground_source,
             );
             if from_pos.x == cell_pos.x && from_pos.z == cell_pos.z {
-                self.last_found_path_layers = vec![start_layer as u8];
-                return Some(vec![cell_pos]);
+                return Some(PathRoute { points: vec![cell_pos], layers: vec![start_layer as u8] });
             }
-            self.last_found_path_layers = vec![start_layer as u8, start_layer as u8];
-            return Some(vec![from_pos, cell_pos]);
+            return Some(PathRoute {
+                points: vec![from_pos, cell_pos],
+                layers: vec![start_layer as u8, start_layer as u8],
+            });
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
@@ -860,7 +848,7 @@ impl PathfindingSystem {
         self.note_cells_allocated(examined);
         if let Some(cells) = exact_path {
             // C++ prependCells skips the terminal A* cell occupied by the
-            // unit and prepends the actual fromPos before optimizeGroundPath.
+            // unit and prepends the actual fromPos before Path::optimize.
             // Optimizing from the snapped start and replacing it afterward
             // can make the optimizer accept a segment that crosses an obstacle.
             let (mut world, mut layers) = self.crate_path_to_world_layered(
@@ -875,7 +863,7 @@ impl PathfindingSystem {
                 // fromPos keeps the search start layer (C++ prependNode layer).
                 layers.insert(0, start_layer as u8);
             }
-            let (world, layers) = self.grid.optimize_ground_path_ex_layered(
+            let (world, layers) = self.grid.optimize_path_ex_layered(
                 &world,
                 &layers,
                 surfaces,
@@ -884,8 +872,7 @@ impl PathfindingSystem {
                 crusher_level,
                 ground_source,
             );
-            self.last_found_path_layers = layers;
-            return Some(world);
+            return Some(PathRoute { points: world, layers });
         }
         // C++ Pathfinder::findPath (AIPathfind.cpp:6364-6436) returns NULL
         // when internalFindPath fails. Its caller AIUpdateInterface::computePath
@@ -893,7 +880,6 @@ impl PathfindingSystem {
         // (AIUpdate.cpp:1713-1717). Keep that fallback at the caller: doing it
         // here re-enters findClosestPath → findPath → this branch for a
         // structure-sealed target, with no state change to break the cycle.
-        self.last_found_path_layers.clear();
         None
     }
 
