@@ -267,6 +267,72 @@ fn host_synthesized_player_template(
     }
 }
 
+/// Return the resolved human start from this world's initial GameInfo, not
+/// the synthetic ReplayObserver installed as the current local player.
+fn admitted_human_camera_start(world: &GameLogic) -> Option<i32> {
+    let admission = world.initial_skirmish_admission.as_ref()?;
+    let local_slot = admission.local_slot? as usize;
+    admission.config.slots.iter()
+        .find(|slot| slot.slot_index == local_slot && slot.is_active && slot.is_human)
+        .map(|slot| slot.start_position)
+}
+
+#[cfg(feature = "game_client")]
+fn admit_challenge_player_fields(
+    world: &mut GameLogic,
+    player_id: u32,
+    start: i32,
+    color_index: i32,
+) -> Result<(), String> {
+    let lookup = |settings: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings| {
+        let color = settings.color_definitions.get(usize::try_from(color_index).ok()?)?;
+        let unpack = |rgb: u32| (((rgb >> 16) & 255) as u8, ((rgb >> 8) & 255) as u8, (rgb & 255) as u8);
+        Some((unpack(color.get_color()), unpack(color.night_color)))
+    };
+    let (day, night) = match world.multiplayer_definitions.as_deref() {
+        Some(settings) => lookup(settings),
+        None => game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(lookup),
+    }.ok_or("Challenge selected color is absent from the receiving palette")?;
+    let player = world.get_player_mut(player_id).ok_or("Challenge local player is missing")?;
+    player.start_position = start;
+    player.color_rgb = day;
+    player.color_night_rgb = night;
+    Ok(())
+}
+
+#[cfg(feature = "game_client")]
+fn resolve_challenge_slot_randomness(
+    slots: &mut [crate::skirmish_config::SkirmishSlotConfig],
+    colors: &mut [i32],
+    count: i32,
+    map: &str,
+    random: &game_engine::common::random_value::SessionRandom,
+) -> Result<(), String> {
+    if count <= 0 || slots.len() > count as usize || slots.len() != colors.len() {
+        return Err("Challenge has no available multiplayer colors".into());
+    }
+    for i in (0..colors.len()).rev() {
+        if colors[i] >= 0 && colors[i] < count
+            && colors.iter().enumerate().any(|(j, &color)| i != j && color == colors[i])
+        {
+            colors[i] = -1;
+        }
+    }
+    for i in 0..colors.len() {
+        if colors[i] < 0 || colors[i] >= count {
+            loop {
+                let color = random.next_int(0, count - 1);
+                if !colors.contains(&color) {
+                    colors[i] = color;
+                    break;
+                }
+            }
+        }
+    }
+    crate::skirmish_config::populate_random_start_position(slots, map, random);
+    Ok(())
+}
+
 /// Build Skirmish slots for a start that carried no C++ GameInfo config.
 ///
 /// Slot 0 is the local human on its requested faction; every remaining
@@ -831,6 +897,63 @@ impl CnCGameEngine {
         self.game_logic
             .admit_campaign_session(is_campaign_session, is_challenge_session);
         #[cfg(feature = "game_client")]
+        if is_challenge_session {
+            // TheChallengeGameInfo takes part in GameLogic's random color and
+            // start selection before map sides and starting units are loaded.
+            let manager = self.game_client.campaign_manager_mut();
+            let info = manager.challenge_game_info_mut()
+                .ok_or("Challenge start has no receiving GameInfo")?
+                .game_info_mut();
+            let local_slot = usize::try_from(info.get_local_slot_num())
+                .map_err(|_| "Challenge GameInfo has no local slot")?;
+            let count = self.game_logic.multiplayer_definitions.as_ref()
+                .map(|settings| settings.get_num_colors())
+                .unwrap_or_else(|| game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| settings.get_num_colors()));
+            if count <= 0 {
+                return Err("Challenge start has no multiplayer colors".into());
+            }
+            let mut slots = Vec::new();
+            let mut colors = Vec::new();
+            for index in 0..crate::ui::skirmish_menu::MAX_SLOTS {
+                let Some(slot) = info.get_slot(index) else { continue };
+                if !slot.is_occupied() { continue; }
+                if slot.get_player_template() < 0 {
+                    return Err("Challenge GameInfo has unresolved player template".into());
+                }
+                slots.push(crate::skirmish_config::SkirmishSlotConfig {
+                    slot_index: index,
+                    is_human: slot.is_human(),
+                    is_active: true,
+                    player_template: crate::skirmish_config::SkirmishPlayerTemplateSelection::Exact {
+                        template_name: String::new(),
+                        template_index: slot.get_player_template(),
+                    },
+                    faction: String::new(),
+                    color_rgb: (0, 0, 0),
+                    team: slot.get_team_number(),
+                    start_position: slot.get_start_pos(),
+                    player_name: String::new(),
+                    ai_difficulty: None,
+                });
+                colors.push(slot.get_color());
+            }
+            resolve_challenge_slot_randomness(
+                &mut slots, &mut colors, count, &map_name, &self.game_logic.logic_random,
+            )?;
+            for (slot, &color) in slots.iter().zip(&colors) {
+                if let Some(target) = info.get_slot_mut(slot.slot_index) {
+                    target.set_color(color);
+                    target.set_start_pos(slot.start_position);
+                }
+            }
+            let local_index = slots.iter().position(|slot| slot.slot_index == local_slot && slot.is_human)
+                .ok_or("Challenge local GameInfo slot is not human")?;
+            admit_challenge_player_fields(
+                &mut self.game_logic, self.current_player_id,
+                slots[local_index].start_position, colors[local_index],
+            )?;
+        }
+        #[cfg(feature = "game_client")]
         if !is_campaign_session {
             let campaign_manager = self.game_client.campaign_manager_mut();
             campaign_manager.set_campaign("");
@@ -953,9 +1076,6 @@ impl CnCGameEngine {
             error!("Match start cannot complete native presentation: {error}");
             return Ok(());
         }
-        if mode != GameMode::Shell {
-            self.snap_camera_to_local_units_if_needed();
-        }
         info!(
             "host_start_game_from_ui: transition to loaded mode {:?}",
             mode
@@ -1007,6 +1127,22 @@ impl CnCGameEngine {
         }
         Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
 
+        // The admitted GameInfo retains the original local slot even when
+        // replay installs a separate synthetic local observer.
+        let human_start = admitted_human_camera_start(&self.game_logic).or_else(|| {
+            is_challenge_session.then(|| self.game_logic.get_player(self.current_player_id))
+                .flatten()
+                .filter(|player| player.is_human)
+                .map(|player| player.start_position)
+        });
+        let player_start = human_start
+            .and_then(|start| u32::try_from(start).ok())
+            .and_then(|index| {
+                self.game_logic.cached_player_start_waypoints()?
+                    .into_iter()
+                    .find(|(candidate, _, _)| *candidate == index)
+                    .map(|(_, position, _)| glam::Vec2::new(position.x, position.y))
+            });
         let startup_camera_defaults = Self::startup_camera_defaults_for(&self.game_logic);
         // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
         let startup_camera_presentation = self
@@ -1015,19 +1151,22 @@ impl CnCGameEngine {
             .or(self.last_presentation_frame.as_deref());
         // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
         let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
-        (
-            self.game_logic.session_view.target,
-            self.game_logic.session_view.camera.camera_position,
-            self.game_logic.session_view.camera.camera_zoom,
-            self.game_logic.session_view.camera.native_camera,
-        ) = Self::bootstrap_native_camera_for_loaded_map(
+        let start_waypoint = (!in_shell_camera).then(|| {
+            Self::match_start_camera_waypoint(
+                human_start.is_some(),
+                player_start,
+                startup_camera_presentation
+                    .and_then(|frame| frame.world_env.initial_camera_position),
+            )
+        });
+        Self::initialize_match_start_camera(
+            &mut self.game_logic.session_view,
             in_shell_camera,
             self.current_player_id,
             startup_camera_defaults,
             startup_camera_presentation,
+            start_waypoint,
         );
-        self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
-        self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
         // W3DView::setCameraTransform calculates camera constraints when
         // lookAt/setZoomToDefault builds the initial pose. The match camera
         // must apply that same viewport inset before its first player scroll.
@@ -1044,137 +1183,6 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    /// Prefer a local base focus for the match camera when bootstrap aim is far
-    /// from the human force (common Lone Eagle residual).
-    ///
-    /// Do **not** average every local object — map-wide centroid pulls the camera
-    /// between bases and frustum-culls everything.
-    ///
-    /// C++ `LookAtXlat` / `W3DView::scrollBy` never snap back to own units while
-    /// the player pans. Call this only at match start / first-frame origin hitch,
-    /// never from `update_camera` during play.
-    pub(super) fn snap_camera_to_local_units_if_needed(&mut self) {
-        // Presentation-only: compute focus from snapshot, then apply camera mutably.
-        let Some(focus) = (|| {
-            let frame = self.last_presentation_frame.as_ref()?;
-            let team = frame.local_team();
-            let start_hint = frame
-                .local_team_base_position
-                .or_else(|| {
-                    frame
-                        .objects
-                        .iter()
-                        .filter(|o| o.team == team && !o.destroyed && o.is_structure)
-                        .map(|o| o.position)
-                        .next()
-                })
-                .or_else(|| {
-                    let mut sum = Vec3::ZERO;
-                    let mut n = 0u32;
-                    for o in &frame.objects {
-                        if o.team == team && !o.destroyed && o.is_structure {
-                            sum += o.position;
-                            n += 1;
-                            if n >= 8 {
-                                break;
-                            }
-                        }
-                    }
-                    (n > 0).then_some(sum / n as f32)
-                })
-                .unwrap_or(self.game_logic.session_view.target);
-
-            let mut command_center: Option<Vec3> = None;
-            let mut nearest_structure: Option<(f32, Vec3)> = None;
-            let mut nearest_mobile: Option<(f32, Vec3)> = None;
-            let mut structure_sum = Vec3::ZERO;
-            let mut structure_n = 0u32;
-
-            use crate::presentation_frame::PresentationBuildingType;
-            for o in &frame.objects {
-                if o.team != team || o.destroyed {
-                    continue;
-                }
-                let pos = o.position;
-                let d2 = {
-                    let dx = pos.x - start_hint.x;
-                    let dz = pos.z - start_hint.z;
-                    dx * dx + dz * dz
-                };
-                if o.is_structure {
-                    structure_sum += pos;
-                    structure_n += 1;
-                    let is_cc = matches!(
-                        o.building_type,
-                        Some(PresentationBuildingType::CommandCenter)
-                    ) || {
-                        let name = o.template_name.to_ascii_lowercase();
-                        name.contains("commandcenter") || name.contains("command_center")
-                    };
-                    if is_cc {
-                        match command_center {
-                            None => command_center = Some(pos),
-                            Some(prev) => {
-                                let pdx = prev.x - start_hint.x;
-                                let pdz = prev.z - start_hint.z;
-                                if d2 < pdx * pdx + pdz * pdz {
-                                    command_center = Some(pos);
-                                }
-                            }
-                        }
-                    }
-                    nearest_structure = Some(match nearest_structure {
-                        None => (d2, pos),
-                        Some((best, _)) if d2 < best => (d2, pos),
-                        Some(other) => other,
-                    });
-                } else if o.is_mobile || o.is_unit {
-                    nearest_mobile = Some(match nearest_mobile {
-                        None => (d2, pos),
-                        Some((best, _)) if d2 < best => (d2, pos),
-                        Some(other) => other,
-                    });
-                }
-            }
-
-            command_center
-                .or_else(|| nearest_structure.map(|(_, p)| p))
-                .or_else(|| {
-                    if structure_n > 0 {
-                        Some(structure_sum / structure_n as f32)
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| nearest_mobile.map(|(_, p)| p))
-        })() else {
-            return;
-        };
-
-        let dx = focus.x - self.game_logic.session_view.target.x;
-        let dz = focus.z - self.game_logic.session_view.target.z;
-        let dist_sq = dx * dx + dz * dz;
-        let looking_at_boot_origin = {
-            let tx = self.game_logic.session_view.target.x;
-            let tz = self.game_logic.session_view.target.z;
-            tx * tx + tz * tz < 80.0 * 80.0
-        };
-        let focus_is_real_base = {
-            let fx = focus.x;
-            let fz = focus.z;
-            fx * fx + fz * fz > 200.0 * 200.0
-        };
-        // If already aimed near the local base, keep bootstrap (C++ InitialCamera).
-        // Boot camera sits at the origin; never treat that as "already on the base".
-        if dist_sq < 250.0 * 250.0 && !(looking_at_boot_origin && focus_is_real_base) {
-            return;
-        }
-        // Focusing a location does not create a new map camera basis.
-        self.game_logic.session_view.target = Vec3::new(focus.x, 0.0, focus.z);
-        if let Err(error) = self.set_native_camera_transform() {
-            log::error!("camera transform: {error}");
-        }
-    }
 
     pub(super) fn apply_map_lighting(
         graphics_system: &mut GraphicsSystem,
@@ -2470,6 +2478,66 @@ mod tests {
     use game_engine::common::global_data as runtime_global_data;
     use game_engine::common::ini::INI;
     use game_engine::common::ini::ini_game_data::ensure_global_data;
+
+    #[test]
+    fn replay_start_camera_uses_recorded_human_not_synthetic_observer() {
+        let mut world = GameLogic::new();
+        let mut config = crate::skirmish_config::golden_skirmish_config("recorded.map");
+        config.slots[0].start_position = 2;
+        config.slots[1].is_human = true;
+        config.slots[1].start_position = 5;
+        world.initial_skirmish_admission = Some(Box::new(
+            crate::skirmish_config::saved_admission::SavedSkirmishAdmission {
+                config,
+                source: None,
+                local_slot: Some(1),
+                local_slot_from_client: false,
+            },
+        ));
+        world.apply_replay_observer_as_local_player();
+        assert_ne!(world.local_player_id(), Some(1));
+        assert_eq!(admitted_human_camera_start(&world), Some(5));
+        let peer = GameLogic::new();
+        assert_eq!(admitted_human_camera_start(&peer), None);
+        assert_eq!(admitted_human_camera_start(&world), Some(5));
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn challenge_random_slot_feeds_receiving_player_and_presentation() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(), "challenge_random_slot_feeds_receiving_player_and_presentation", || {
+                let mut world = GameLogic::new();
+                let mut settings = game_engine::common::ini::ini_multiplayer::MultiplayerSettings::default();
+                for (day, night) in [(0x123456, 0x112233), (0x789abc, 0x445566)] {
+                    let entry = settings.new_multiplayer_color_definition("fixture".into());
+                    entry.set_color(day);
+                    entry.set_night_color(night);
+                }
+                world.multiplayer_definitions = Some(std::sync::Arc::new(settings));
+                world.add_player(crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "Local", true));
+                world.set_logic_random_seed(55);
+                let mut oracle = game_engine::common::random_value::RandomState::default();
+                oracle.seed_random(55);
+                let expected_color = oracle.next_int(0, 1);
+                let expected_start = oracle.next_int(0, 7);
+                let mut slots = crate::skirmish_config::golden_skirmish_config("missing-challenge-map").slots;
+                slots.truncate(1);
+                slots[0].start_position = -1;
+                let mut colors = [-1];
+                resolve_challenge_slot_randomness(&mut slots, &mut colors, 2, "missing-challenge-map", &world.logic_random).unwrap();
+                assert_eq!((colors[0], slots[0].start_position), (expected_color, expected_start));
+                assert_eq!(world.logic_random.seed_words(), oracle.seed_words());
+                admit_challenge_player_fields(&mut world, 0, slots[0].start_position, colors[0]).unwrap();
+                let (day, night) = if expected_color == 0 { ((0x12, 0x34, 0x56), (0x11, 0x22, 0x33)) }
+                    else { ((0x78, 0x9a, 0xbc), (0x44, 0x55, 0x66)) };
+                let player = world.get_player(0).unwrap();
+                assert_eq!((player.start_position, player.color_rgb, player.color_night_rgb), (expected_start, day, night));
+                let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+                assert_eq!(frame.players.iter().find(|player| player.id == 0).unwrap().color_rgb, day);
+            },
+        );
+    }
 
     fn primary(
         ambient: [f32; 3],

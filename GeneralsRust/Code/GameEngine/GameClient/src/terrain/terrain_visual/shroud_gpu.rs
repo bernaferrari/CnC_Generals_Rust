@@ -281,6 +281,9 @@ impl TerrainVisualImpl {
         pass: &mut RenderPass<'_>,
         include_shoreline: bool,
     ) {
+        if self.overlay.shroud_cells.is_empty() {
+            return;
+        }
         let (Some(pipeline), Some(camera), Some(shroud)) = (
             self.shroud_gpu.water_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -306,6 +309,9 @@ impl TerrainVisualImpl {
     }
 
     fn record_shroud_tree_pass(&self, pass: &mut RenderPass<'_>) {
+        if self.overlay.shroud_cells.is_empty() {
+            return;
+        }
         let (Some(pipeline), Some(camera), Some(shroud)) = (
             self.shroud_gpu.tree_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -363,7 +369,6 @@ impl TerrainVisualImpl {
             .chain(self.bridge_meshes.iter())
             .chain(self.scorch_meshes.iter())
             .chain(self.tank_track_meshes.iter())
-            .chain(self.custom_edge_meshes.iter())
             .chain(self.prop_meshes.iter())
             .chain(self.flat_lod_meshes.iter())
             .chain(self.smudge_mesh.iter());

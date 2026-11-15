@@ -1017,12 +1017,59 @@ impl CnCGameEngine {
         }
     }
 
+    /// GameLogic::startNewGame chooses a human GameSlot's start waypoint;
+    /// otherwise it chooses InitialCameraPosition. A missing chosen waypoint
+    /// always falls back to source coordinates (50, 50).
+    pub(super) fn match_start_camera_waypoint(
+        human_slot: bool,
+        player_start: Option<Vec2>,
+        initial_camera: Option<[f32; 3]>,
+    ) -> Vec2 {
+        let selected = if human_slot {
+            player_start
+        } else {
+            initial_camera.map(Self::cpp_initial_camera_ground_focus)
+        };
+        selected.unwrap_or(Vec2::new(50.0, 50.0))
+    }
+
+    /// Install the new map's initial pose and discard the previous map's
+    /// cached view constraints before the first native transform.
+    pub(super) fn initialize_match_start_camera(
+        view: &mut crate::presentation_frame::SessionView,
+        is_shell_game: bool,
+        current_player_id: u32,
+        defaults: StartupCameraDefaults,
+        presentation: Option<&crate::presentation_frame::PresentationFrame>,
+        start_waypoint: Option<Vec2>,
+    ) {
+        view.camera.invalidate_constraints();
+        (view.target, view.camera.camera_position, view.camera.camera_zoom, view.camera.native_camera) =
+            Self::bootstrap_native_camera_with_start_waypoint(
+                is_shell_game, current_player_id, defaults, presentation, start_waypoint,
+            );
+        view.camera.camera_pitch_radians = 0.0;
+        view.camera.camera_yaw_radians = 0.0;
+    }
+
     pub(super) fn bootstrap_native_camera_for_loaded_map(
         // Wave 473: presentation freeze only — no live GameLogic dual-read.
         is_shell_game: bool,
         current_player_id: u32,
         defaults: StartupCameraDefaults,
         presentation: Option<&crate::presentation_frame::PresentationFrame>,
+    ) -> (Vec3, Vec3, f32, super::camera_height::CameraHeight) {
+        Self::bootstrap_native_camera_with_start_waypoint(
+            is_shell_game, current_player_id, defaults, presentation, None,
+        )
+    }
+
+    pub(super) fn bootstrap_native_camera_with_start_waypoint(
+        is_shell_game: bool,
+        current_player_id: u32,
+        defaults: StartupCameraDefaults,
+        presentation: Option<&crate::presentation_frame::PresentationFrame>,
+        start_waypoint: Option<Vec2>,
     ) -> (Vec3, Vec3, f32, super::camera_height::CameraHeight) {
         const DEFAULT_VIEW_WIDTH: f32 = 640.0;
         const DEFAULT_VIEW_HEIGHT: f32 = 480.0;
@@ -1064,12 +1111,14 @@ impl CnCGameEngine {
         } else {
             None
         };
-        let focus_2d = clamp_focus_to_world(Self::select_startup_camera_focus(
-            is_shell_game,
-            metadata_target,
-            team_target,
-            Vec2::new(world_center.x, world_center.z),
-        ));
+        let focus_2d = clamp_focus_to_world(start_waypoint.unwrap_or_else(|| {
+            Self::select_startup_camera_focus(
+                is_shell_game,
+                metadata_target,
+                team_target,
+                Vec2::new(world_center.x, world_center.z),
+            )
+        }));
 
         // Match C++ W3DView::lookAt(): unlike the old 2D View::lookAt(), the W3D path writes the
         // requested world coordinate directly into m_pos and builds the camera transform from that.

@@ -443,19 +443,22 @@ impl RenderPipeline {
         // C++ W3DShroud second pass: feed the frozen presentation grid into
         // the terrain shroud overlay (GameClient ST_SHROUD dest texture) so
         // the GPU shroud passes stop running on the 1x1 clear fallback.
-        // Inactive grids yield no R8 payload and leave the overlay untouched
-        // (fail-open: empty cells keep the shroud pass disabled).
+        // Missing or inactive grids must also retire the previous world's
+        // overlay; otherwise a map transition can retain stale shroud.
         #[cfg(feature = "game_client")]
-        if let Some(grid) = grid.as_ref() {
-            if let Some(r8) = self.presentation_terrain_fow_r8() {
-                if let Some(visual) = self.native_terrain.as_mut() {
+        {
+            let r8 = self.presentation_terrain_fow_r8();
+            if let Some(visual) = self.native_terrain.as_mut() {
+                if let (Some(grid), Some(r8)) = (grid.as_ref(), r8.as_ref()) {
                     visual.set_shroud_overlay_r8(
                         grid.width as i32,
                         grid.height as i32,
                         grid.cell_size,
                         grid.world_origin_xy,
-                        &r8,
+                        r8,
                     );
+                } else {
+                    visual.clear_shroud_overlay();
                 }
             }
         }

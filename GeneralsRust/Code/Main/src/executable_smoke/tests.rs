@@ -897,6 +897,85 @@ mod tests {
         assert!(snap.presentation_frame_ok);
     }
 
+    #[test]
+    fn radar_capture_compares_clear_terrain_not_black_or_lone_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("radar.png");
+        let reference = "0,0,128,128;20,20,140,150,160;30,20,140,150,160;20,30,140,150,160;30,30,140,150,160;h,50,50;h,60,50;h,50,60;h,60,60";
+        let mut image = image::RgbImage::new(128, 128);
+        image.put_pixel(20, 107, image::Rgb([140, 150, 160]));
+        image.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, reference));
+        for (x, y) in [(30, 107), (20, 97), (30, 97)] {
+            image.put_pixel(x, y, image::Rgb([140, 150, 160]));
+        }
+        image.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, reference), "uniform terrain has no image identity");
+        let solid = image::RgbImage::from_pixel(128, 128, image::Rgb([140, 150, 160]));
+        solid.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, reference), "flat fill is not the shrouded map");
+        let dark = "0,0,128,128;20,20,32,32,32;30,20,32,32,32;20,30,32,32,32;30,30,32,32,32;h,50,50;h,60,50;h,50,60;h,60,60";
+        let mut black = image::RgbImage::new(128, 128);
+        black.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, dark), "black is not dark terrain");
+        black.put_pixel(20, 107, image::Rgb([32, 32, 32]));
+        black.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, dark), "one marker is not terrain");
+        for (x, y) in [(30, 107), (20, 97), (30, 97)] {
+            black.put_pixel(x, y, image::Rgb([32, 32, 32]));
+        }
+        black.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, dark), "uniform dark pixels are unverifiable");
+        assert!(!png_minimap_on_screen_has_terrain(&path, ""));
+    }
+
+    #[test]
+    fn radar_capture_requires_observed_terrain_detail_even_inside_shroud() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("radar.png");
+        // The captured retail snow radar varies by only a few RGB levels.
+        let reference = "0,0,128,128;20,20,98,98,98;30,20,99,99,99;40,20,100,100,100;50,20,101,101,101;20,30,102,102,102;30,30,103,103,103;40,30,104,104,104;50,30,105,105,105;h,70,50;h,80,50;h,70,60;h,80,60";
+        let mut image = image::RgbImage::new(128, 128);
+        for y in 94..=110 {
+            for x in 18..=52 {
+                image.put_pixel(x, y, image::Rgb([101, 101, 101]));
+            }
+        }
+        image.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, reference), "matching flat clear patch is not terrain evidence");
+        for (x, y, color) in [(20, 107, 98), (30, 107, 99), (40, 107, 100), (50, 107, 101), (20, 97, 102), (30, 97, 103), (40, 97, 104), (50, 97, 105)] {
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    image.put_pixel((x + dx) as u32, (y + dy) as u32, image::Rgb([color, color, color]));
+                }
+            }
+        }
+        image.save(&path).unwrap();
+        assert!(png_minimap_on_screen_has_terrain(&path, reference));
+        let clear_reference = reference.split(";h,").next().unwrap();
+        for n in 1..=3 {
+            let mut sparse = clear_reference.to_owned();
+            for (u, v) in [(70, 50), (80, 50), (70, 60)].into_iter().take(n) {
+                sparse.push_str(&format!(";h,{u},{v}"));
+            }
+            assert!(png_minimap_on_screen_has_terrain(&path, &sparse), "sparse hidden probes are not a shroud mismatch");
+        }
+        // Every probe has the same 3x3 neighborhood. Selecting whichever
+        // neighboring pixel best matches its expected color would manufacture
+        // a convincing gradient although the fixed sample centers are flat.
+        for (x, y) in [(20, 107), (30, 107), (40, 107), (50, 107), (20, 97), (30, 97), (40, 97), (50, 97)] {
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let color = if dx == 0 && dy == 0 { 101 }
+                        else if (dx + dy) % 2 == 0 { 98 } else { 105 };
+                    image.put_pixel((x + dx) as u32, (y + dy) as u32, image::Rgb([color, color, color]));
+                }
+            }
+        }
+        image.save(&path).unwrap();
+        assert!(!png_minimap_on_screen_has_terrain(&path, reference), "checkerboard neighborhoods must not manufacture terrain correlation");
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn host_ok_requires_shell_wnd_when_wnd_enabled() {

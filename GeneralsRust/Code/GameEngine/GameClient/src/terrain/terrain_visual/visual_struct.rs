@@ -322,7 +322,6 @@ pub struct TerrainVisualImpl {
     polygon_water_meshes: Vec<GpuWaterPlane>,
     bib_meshes: Vec<GpuRoadMesh>,
     tank_track_meshes: Vec<GpuRoadMesh>,
-    custom_edge_meshes: Vec<GpuRoadMesh>,
     snow_mesh: Option<GpuRoadMesh>,
     snow_texture: Option<Texture>,
     snow_sampler: Option<Sampler>,

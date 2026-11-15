@@ -58,17 +58,30 @@ needs at least:
 - Win32 process / CRT host for the GeneralsMD EXE or a console driver that
   links the same GameLogic static/import libs.
 - Retail data trees (`Data/*.big`, MapsZH / Lone Eagle) resolved the same way
-  as the shipping game.
-- Whatever subsystem init `GameLogic::init` / map load currently pulls in on
-  Windows (file system, memory pools, message stream, player template INI).
-  Audio/GPU present can stay stubbed if map load + `update()` do not require
-  them; if they do, stub at the device boundary rather than rewriting
-  GameLogic.
+  as the shipping game. This checkout has retail data and the Lone Eagle map.
+- Original Win32 engine build: `GameEngine/GameEngine.dsp` is a Visual
+  Studio 6 Win32 static-library project requiring `cl.exe`, its Windows SDK
+  and the other original engine libraries. No prebuilt `GameEngine*.lib`
+  was found in this checkout. The Rust Windows CI builds Cargo targets, not
+  the original engine.
+- A Windows host, or a compatible Win32 runtime, for running the linked game.
+  The current macOS host has no `cl`, `msbuild`, MinGW compiler or Wine
+  on PATH, and no configured SSH build host.
+- Real initialized engine services used by `GameLogic::update`, including
+  display, game client, script engine, tactical view, terrain, recorder,
+  command list and message stream. These cannot be replaced with fixture data
+  and still constitute an original-engine full-match trace.
 
 ## Rust side (unchanged contract)
 
-- Keep consuming `generals.frame_trace.v2` from both producers.
-- Report the first divergent frame / state / event / RNG draw / Xfer byte.
+- `deterministic_trace_compare` consumes versioned `generals.frame_trace.v2`
+  dumps, checks the scenario name, and reports the first divergent frame and
+  field in the RNG state, commands, objects, players, events, Xfer bytes,
+  victory state or CRC. Missing diagnostic arrays and empty or unordered
+  traces are rejected. RNG state differences do not identify the first draw
+  without per-draw instrumentation in the producers.
+- Matching dumps alone do not establish their provenance. The portable fixture
+  remains fixture-only and must not be treated as a full-match oracle.
 - `port_dashboard.py` may flip `full_game_loop` only after the C++ producer
   above exists and the compare is green on a versioned retail scenario.
 

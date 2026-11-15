@@ -242,6 +242,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn loading_new_heightmap_discards_previous_world_shroud() {
+        crate::test_support::ensure_ambient_host();
+        let mut visual = TerrainVisualImpl::new();
+        visual.set_shroud_overlay_r8(2, 2, 40.0, [0.0, 0.0], &[0, 0, 0, 0]);
+        assert_eq!(visual.shroud_alpha_at_world(0.0, 0.0), 0.0);
+        visual.load_heightmap_from_data(HeightMap::new(2, 2, 255.0, 1.0), None, None).unwrap();
+        assert_eq!(visual.shroud_alpha_at_world(0.0, 0.0), 1.0);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn expired_pulse_restores_cached_gpu_mesh_after_chunk_returns_to_draw_window() {

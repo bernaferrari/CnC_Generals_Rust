@@ -2236,66 +2236,97 @@ fn smoke_drive_save_load_chain(
 
 
 
-/// Sample the on-screen radar gadget (bottom-left HUD) from a captured frame.
-/// `radar_pixels` only proves the CPU terrain texture is non-black; shroud or a
-/// missing draw can still leave the gadget black. Require enough non-black,
-/// non-uniform samples inside the radar rectangle (C++ W3DRadar::draw into the
-/// radar window).
-fn png_minimap_on_screen_has_terrain(path: &Path) -> bool {
-    let Ok(data) = fs::read(path) else {
+/// Compare actual LeftHUD pixels against this frame's clear-cell radar terrain.
+/// The reference includes the native draw rectangle and texture samples, not a
+/// fabricated revealed map; a black gadget or a lone marker cannot pass.
+fn png_minimap_on_screen_has_terrain(path: &Path, reference: &str) -> bool {
+    let Ok(data) = fs::read(path) else { return false };
+    let Ok(image) = image::load_from_memory(&data) else { return false };
+    let image = image.to_rgb8();
+    let mut entries = reference.split(';');
+    let parse = |entry: &str| -> Option<Vec<i32>> {
+        entry.split(',').map(|v| v.parse::<i32>().ok()).collect()
+    };
+    let Some(rect) = entries.next().and_then(parse).filter(|v| v.len() == 4) else {
         return false;
     };
-    let Ok(img) = image::load_from_memory(&data) else {
-        return false;
-    };
-    let rgba = img.to_rgba8();
-    let (w, h) = rgba.dimensions();
-    if w < 320 || h < 240 {
+    let (x, y, w, h) = (rect[0], rect[1], rect[2], rect[3]);
+    if x < 0 || y < 0 || w <= 0 || h <= 0
+        || x + w > image.width() as i32 || y + h > image.height() as i32
+    {
         return false;
     }
-    // ControlBar radar sits bottom-left; keep a generous rect that still avoids
-    // the money/text strip to the right of the gadget on 1280x720.
-    let x0 = (w as f32 * 0.02) as u32;
-    let y0 = (h as f32 * 0.72) as u32;
-    let x1 = (w as f32 * 0.16) as u32;
-    let y1 = (h as f32 * 0.97) as u32;
-    let mut non_black = 0u32;
-    let mut samples = 0u32;
-    let mut sum = [0u64; 3];
-    let mut sum_sq = [0u64; 3];
-    let mut buckets = std::collections::HashSet::new();
-    let mut y = y0;
-    while y < y1 {
-        let mut x = x0;
-        while x < x1 {
-            let p = rgba.get_pixel(x, y).0;
-            samples += 1;
-            if p[0] | p[1] | p[2] != 0 {
-                non_black += 1;
+    let mut checked = 0u32;
+    let mut matched = 0u32;
+    let mut hidden_checked = 0u32;
+    let mut hidden_matched = 0u32;
+    let mut expected_sum = [0i64; 3];
+    let mut observed_sum = [0i64; 3];
+    let mut expected_sq = [0i64; 3];
+    let mut observed_sq = [0i64; 3];
+    let mut cross_sum = [0i64; 3];
+    for sample in entries {
+        if let Some(hidden) = sample.strip_prefix("h,") {
+            let Some(coords) = parse(hidden).filter(|v| v.len() == 2) else { return false };
+            if !(0..128).contains(&coords[0]) || !(0..128).contains(&coords[1]) {
+                return false;
             }
-            for i in 0..3 {
-                let v = p[i] as u64;
-                sum[i] += v;
-                sum_sq[i] += v * v;
-            }
-            buckets.insert((p[0] >> 3, p[1] >> 3, p[2] >> 3));
-            x = x.saturating_add(2);
+            let px = x + ((coords[0] as f32 + 0.5) * w as f32 / 128.0) as i32;
+            let py = y + ((127.5 - coords[1] as f32) * h as f32 / 128.0) as i32;
+            let pixel = image.get_pixel(px as u32, py as u32).0;
+            hidden_checked += 1;
+            hidden_matched += u32::from(pixel.iter().all(|&channel| channel <= 12));
+            continue;
         }
-        y = y.saturating_add(2);
+        let Some(values) = parse(sample).filter(|v| v.len() == 5) else { return false };
+        let (u, v) = (values[0], values[1]);
+        if !(0..128).contains(&u) || !(0..128).contains(&v)
+            || values[2..].iter().any(|&c| !(0..=255).contains(&c))
+        {
+            return false;
+        }
+        // Radar textures use V-flipped UVs in W3DLeftHUDDraw.
+        let px = x + ((u as f32 + 0.5) * w as f32 / 128.0) as i32;
+        let py = y + ((127.5 - v as f32) * h as f32 / 128.0) as i32;
+        checked += 1;
+        // Use the same pixel-center transform for every sample. Choosing a
+        // different nearby pixel based on its expected color can manufacture
+        // correlation from an unrelated checkerboard.
+        let expected_peak = *values[2..].iter().max().unwrap_or(&0);
+        let pixel = image.get_pixel(px as u32, py as u32).0;
+        let observed_peak = i32::from(*pixel.iter().max().unwrap_or(&0));
+        if observed_peak >= (expected_peak / 2).max(16)
+            && (0..3).all(|i| (i32::from(pixel[i]) - values[i + 2]).abs() <= 48)
+        {
+            matched += 1;
+            for i in 0..3 {
+                let expected = i64::from(values[i + 2]);
+                let observed = i64::from(pixel[i]);
+                expected_sum[i] += expected;
+                observed_sum[i] += observed;
+                expected_sq[i] += expected * expected;
+                observed_sq[i] += observed * observed;
+                cross_sum[i] += expected * observed;
+            }
+        }
     }
-    if samples < 64 || non_black * 5 < samples {
-        // <20% non-black → still the empty black gadget.
-        return false;
-    }
-    let mut max_var = 0.0f64;
-    for i in 0..3 {
-        let mean = sum[i] as f64 / samples as f64;
-        let var = sum_sq[i] as f64 / samples as f64 - mean * mean;
-        max_var = max_var.max(var);
-    }
-    // Uniform fill or a single icon on black fails; retail snow/rock radar has
-    // hundreds of color buckets and material variance.
-    buckets.len() >= 24 && max_var >= 200.0
+    let shroud_shape = hidden_checked >= 4 && hidden_matched * 2 >= hidden_checked;
+    // Snow radar colors can vary by fewer than 16 levels in a legitimate
+    // capture. Check the spatial relationship to the real source instead of
+    // requiring a fixed contrast; unrelated flat fills have zero variance.
+    let count = i64::from(matched);
+    let terrain_detail = (0..3).any(|i| {
+        let source_variance = count * expected_sq[i] - expected_sum[i] * expected_sum[i];
+        let image_variance = count * observed_sq[i] - observed_sum[i] * observed_sum[i];
+        let covariance = count * cross_sum[i] - expected_sum[i] * observed_sum[i];
+        source_variance > 0 && image_variance > 0 && covariance > 0
+            && 4 * covariance * covariance >= source_variance * image_variance
+    });
+    // A matching flat patch and black shroud can be an unrelated UI fill.
+    // Without matching source and captured terrain variation, the screenshot
+    // cannot prove that the native radar terrain was drawn.
+    checked >= 8 && matched >= 8 && matched * 2 >= checked
+        && terrain_detail && (hidden_checked < 4 || shroud_shape)
 }
 
 /// Playable terrain view (upper ~65%) must show tile-level color variance.
@@ -2609,12 +2640,11 @@ fn smoke_drive_present_frame_chain(
         st.present_timing_samples = st.present_timing_samples.saturating_add(1);
     }
 
-    // Model pass items can read 0 between presents while alive-object residual
-    // still proves unit/structure meshes were collected.
+    // Only actual model pass submissions establish that the world has models.
+    // Alive objects and generic render-item counts also include invisible objects
+    // and non-model items, respectively.
     let categories_ok = st.max_terrain_chunks > 0
-        && (st.max_render_models >= 3
-            || st.max_render_alive_objects >= 3
-            || st.max_render_item_count.saturating_sub(st.max_render_ui) >= 3)
+        && st.max_render_models >= 3
         && st.max_render_ui > 0
         && st.max_render_selection > 0
         && st.max_radar_pixels > 0
@@ -2637,35 +2667,27 @@ fn smoke_drive_present_frame_chain(
         return;
     }
 
-    if !stable || !categories_ok {
-        if sit < Duration::from_secs(120) {
-            if retry_due {
-                let _ = write_control(
-                    control_path,
-                    &["view_command_center", "select_local_unit"],
-                );
-                st.commanded_at = Some(Instant::now());
-            }
-            return;
+    if (!stable || !categories_ok) && sit < Duration::from_secs(120) {
+        if retry_due {
+            let _ = write_control(
+                control_path,
+                &["view_command_center", "select_local_unit"],
+            );
+            st.commanded_at = Some(Instant::now());
         }
-        result.detail = format!(
-            "present_frame_fail; categories short; terrain={} models={} ui={} selection={} radar_pixels={} items={} selected={}",
-            st.max_terrain_chunks,
-            st.max_render_models,
-            st.max_render_ui,
-            st.max_render_selection,
-            st.max_radar_pixels,
-            st.max_render_item_count,
-            snap.selected_count
-        );
-        let _ = write_control(control_path, &["exit"]);
-        st.commanded_at = Some(Instant::now());
-        st.phase = 3;
         return;
     }
+    // Capture even a failed scene: the actual window image is essential evidence
+    // when counters are nonzero but the world is black.
 
     // Request a capture, then copy frame.png into the worktree artifacts dir.
     if st.gameplay_step < 20 {
+        // Discard the previously published frame before requesting this capture.
+        // A sticky live_frame_ok only proves that some earlier capture succeeded,
+        // not that frame.png contains the current in-game scene.
+        if let Some(parent) = control_path.parent() {
+            let _ = fs::remove_file(parent.join("frame.png"));
+        }
         let _ = write_control(control_path, &["request_capture"]);
         st.gameplay_step = 20;
         st.commanded_at = Some(Instant::now());
@@ -2712,22 +2734,40 @@ fn smoke_drive_present_frame_chain(
         } else {
             format!("capture_missing:{}", frame_src.display())
         };
+        let screenshot = Path::new(&st.present_screenshot_path);
+        let radar_image_ok = copied
+            && png_minimap_on_screen_has_terrain(screenshot, &snap.radar_capture_reference);
+        let terrain_image_ok = copied && png_terrain_view_has_retail_tile_variance(screenshot);
         let image_ok = copied
-            && !is_procedural_runtime_fallback_png(Path::new(&st.present_screenshot_path))
-            && png_lower_half_has_texture_variance(Path::new(&st.present_screenshot_path))
-            && png_minimap_on_screen_has_terrain(Path::new(&st.present_screenshot_path))
-            && png_terrain_view_has_retail_tile_variance(Path::new(&st.present_screenshot_path))
+            && !is_procedural_runtime_fallback_png(screenshot)
+            && png_lower_half_has_texture_variance(screenshot)
+            && radar_image_ok
+            && terrain_image_ok
             && (snap.live_frame_ok || st.saw_live_frame_ok);
         st.present_image_ok = image_ok;
-        if !image_ok {
+        if !image_ok || !stable || !categories_ok || !st.saw_window_visible {
             result.detail = format!(
-                "present_frame_fail; image lacks on-screen radar terrain or retail tile variance; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={}",
+                "present_frame_fail; image or scene categories short; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={} radar_image_ok={} terrain_image_ok={} radar_probe_count={} radar_reference={} alive={} fow_filtered={} frustum_culled={} model_missing={} fow=[{}] camera_pos={} camera_target={} camera_constraints={} camera_local_base={} sample_unit_pos={}",
                 st.present_screenshot_path,
                 st.max_terrain_chunks,
                 st.max_render_models,
                 st.max_render_ui,
                 st.max_render_selection,
-                st.max_radar_pixels
+                st.max_radar_pixels,
+                radar_image_ok,
+                terrain_image_ok,
+                snap.radar_capture_reference.split(';').count().saturating_sub(1),
+                snap.radar_capture_reference,
+                snap.render_alive_objects,
+                snap.render_fow_filtered,
+                snap.render_frustum_culled,
+                snap.render_model_missing,
+                snap.fow_summary,
+                snap.camera_pos,
+                snap.camera_target,
+                snap.camera_constraints,
+                snap.camera_local_base,
+                snap.sample_unit_pos
             );
             // Keep failing closed: do not latch present_frame_ok on sky-only frames.
             let _ = write_control(control_path, &["exit"]);
@@ -2767,7 +2807,7 @@ fn smoke_drive_present_frame_chain(
         );
         let _ = fs::write(&docs, body);
         result.detail = format!(
-            "present_frame_pass; window_visible={} terrain={} models={} ui={} selection={} radar_pixels={} items={} screenshot={} present_ms={:.3}",
+            "present_frame_pass; window_visible={} terrain={} models={} ui={} selection={} radar_pixels={} items={} screenshot={} present_ms={:.3} alive={} fow_filtered={} frustum_culled={} model_missing={} fow=[{}] camera_pos={} camera_target={} camera_constraints={} camera_local_base={} sample_unit_pos={}",
             st.saw_window_visible,
             st.max_terrain_chunks,
             st.max_render_models,
@@ -2776,7 +2816,17 @@ fn smoke_drive_present_frame_chain(
             st.max_radar_pixels,
             st.max_render_item_count,
             st.present_screenshot_path,
-            avg_present
+            avg_present,
+            snap.render_alive_objects,
+            snap.render_fow_filtered,
+            snap.render_frustum_culled,
+            snap.render_model_missing,
+            snap.fow_summary,
+            snap.camera_pos,
+            snap.camera_target,
+            snap.camera_constraints,
+            snap.camera_local_base,
+            snap.sample_unit_pos
         );
         let _ = write_control(control_path, &["exit"]);
         st.commanded_at = Some(Instant::now());

@@ -16,10 +16,10 @@ struct Args {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum TraceInput {
-    Dump { frames: Vec<FrameTrace> },
-    Frames(Vec<FrameTrace>),
+struct TraceInput {
+    schema: String,
+    scenario: String,
+    frames: Vec<FrameTrace>,
 }
 
 fn main() -> Result<()> {
@@ -27,10 +27,17 @@ fn main() -> Result<()> {
     let left = read_trace(&args.left)?;
     let right = read_trace(&args.right)?;
 
-    if let Some(difference) = first_trace_field_difference(&left, &right) {
+    if left.scenario != right.scenario {
+        bail!(
+            "scenario mismatch: left={:?}, right={:?}",
+            left.scenario,
+            right.scenario
+        );
+    }
+    if let Some(difference) = first_trace_field_difference(&left.frames, &right.frames) {
         bail!("{}", format_field_difference(&difference));
     }
-    println!("traces match: {} frames", left.len());
+    println!("traces match: {} frames", left.frames.len());
     Ok(())
 }
 
@@ -76,15 +83,38 @@ impl Args {
     }
 }
 
-fn read_trace(path: &Path) -> Result<Vec<FrameTrace>> {
+fn read_trace(path: &Path) -> Result<TraceInput> {
     let json = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let input: TraceInput =
-        serde_json::from_str(&json).with_context(|| format!("parsing {}", path.display()))?;
+    parse_trace(&json).with_context(|| format!("parsing {}", path.display()))
+}
 
-    Ok(match input {
-        TraceInput::Dump { frames } => frames,
-        TraceInput::Frames(frames) => frames,
-    })
+fn parse_trace(json: &str) -> Result<TraceInput> {
+    let value: serde_json::Value = serde_json::from_str(json)?;
+    if let Some(frames) = value.get("frames").and_then(serde_json::Value::as_array) {
+        for (index, frame) in frames.iter().enumerate() {
+            for field in ["players", "events", "xfer_bytes"] {
+                if frame.get(field).is_none() {
+                    bail!("frame {index} is missing required v2 field {field:?}");
+                }
+            }
+        }
+    }
+    let input: TraceInput = serde_json::from_value(value)?;
+    if input.schema != "generals.frame_trace.v2" {
+        bail!("unsupported trace schema {:?}", input.schema);
+    }
+    if input.scenario.is_empty() {
+        bail!("trace scenario must not be empty");
+    }
+    if input.frames.is_empty() {
+        bail!("trace contains no frames");
+    }
+    for pair in input.frames.windows(2) {
+        if pair[1].frame <= pair[0].frame {
+            bail!("trace frames must be strictly increasing");
+        }
+    }
+    Ok(input)
 }
 
 #[cfg(test)]
@@ -121,32 +151,40 @@ mod tests {
     #[test]
     fn parser_accepts_wrapped_trace_dump() {
         let json = serde_json::json!({
-            "schema": "generalsrust.frame_trace.v1",
+            "schema": "generals.frame_trace.v2",
             "scenario": "unit",
             "final_frame": 1,
             "frames": [empty_frame(1)]
         });
 
-        let input: TraceInput = serde_json::from_value(json).expect("wrapped trace should parse");
-        let TraceInput::Dump { frames } = input else {
-            panic!("expected wrapped dump");
-        };
-
-        assert_eq!(frames.len(), 1);
-        assert_eq!(frames[0].frame, 1);
+        let input = parse_trace(&json.to_string()).expect("wrapped trace should parse");
+        assert_eq!(input.frames.len(), 1);
+        assert_eq!(input.frames[0].frame, 1);
     }
 
     #[test]
-    fn parser_accepts_raw_frame_array() {
-        let json = serde_json::json!([empty_frame(1), empty_frame(2)]);
+    fn parser_rejects_unversioned_or_empty_traces() {
+        assert!(parse_trace(&serde_json::json!([empty_frame(1)]).to_string()).is_err());
+        for (schema, frames) in [
+            ("generals.frame_trace.v1", vec![empty_frame(1)]),
+            ("generals.frame_trace.v2", vec![]),
+            ("generals.frame_trace.v2", vec![empty_frame(1), empty_frame(1)]),
+        ] {
+            let json = serde_json::json!({
+                "schema": schema, "scenario": "unit", "frames": frames
+            });
+            assert!(parse_trace(&json.to_string()).is_err());
+        }
+    }
 
-        let input: TraceInput = serde_json::from_value(json).expect("raw trace should parse");
-        let TraceInput::Frames(frames) = input else {
-            panic!("expected raw frames");
-        };
-
-        assert_eq!(frames.len(), 2);
-        assert_eq!(frames[1].frame, 2);
+    #[test]
+    fn parser_rejects_incomplete_v2_frame() {
+        let mut frame = serde_json::to_value(empty_frame(1)).unwrap();
+        frame.as_object_mut().unwrap().remove("events");
+        let json = serde_json::json!({
+            "schema": "generals.frame_trace.v2", "scenario": "unit", "frames": [frame]
+        });
+        assert!(parse_trace(&json.to_string()).is_err());
     }
 
     #[test]

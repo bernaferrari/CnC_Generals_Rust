@@ -1,6 +1,44 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+/// Apply an explicitly requested host faction to the actual receiving lobby
+/// before Start snapshots GameInfo. Without this the UI's Random selection
+/// silently overrides `faction=USA`.
+#[cfg(feature = "game_client")]
+fn set_host_skirmish_faction(
+    setup: &mut game_client::gui::skirmish_setup::SkirmishSetup,
+    definitions: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    faction: &str,
+) -> Result<(), String> {
+    let faction = faction.trim();
+    let name = if faction.eq_ignore_ascii_case("usa") || faction.eq_ignore_ascii_case("america") {
+        "FactionAmerica"
+    } else if faction.eq_ignore_ascii_case("china") {
+        "FactionChina"
+    } else if faction.eq_ignore_ascii_case("gla") {
+        "FactionGLA"
+    } else {
+        return Err(format!("unsupported host skirmish faction: {faction}"));
+    };
+    let index = definitions.find_template_index(name)
+        .and_then(|index| i32::try_from(index).ok())
+        .ok_or_else(|| format!("receiving player template is missing: {name}"))?;
+    let info = setup.game_info_mut().game_info_mut();
+    let local_ip = info.get_local_ip();
+    fn unique(mut slots: impl Iterator<Item = usize>) -> Option<usize> {
+        let first = slots.next()?;
+        slots.next().is_none().then_some(first)
+    }
+    let slot = unique((0..game_client::MAX_SLOTS)
+        .filter(|&slot| info.get_slot(slot).is_some_and(|entry| entry.is_player_by_ip(local_ip))))
+        .or_else(|| unique((0..game_client::MAX_SLOTS)
+            .filter(|&slot| info.get_slot(slot).is_some_and(|entry| entry.is_human()))))
+        .ok_or("host skirmish local human slot is ambiguous")?;
+    info.get_slot_mut(slot).ok_or("host skirmish local slot disappeared")?
+        .set_player_template(index);
+    Ok(())
+}
+
 impl CnCGameEngine {
     pub(super) fn runtime_host_cmd_open_skirmish_menu(
         &mut self,
@@ -276,6 +314,13 @@ impl CnCGameEngine {
                             amount,
                         );
                     }
+                }
+                if let Some(faction) = args.get("faction") {
+                    let definitions = self.game_logic.player_template_definitions.as_ref()
+                        .ok_or("receiving world has no player template definitions")?;
+                    let setup_handle = self.game_client.skirmish_setup();
+                    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
+                    set_host_skirmish_faction(&mut setup, definitions, faction)?;
                 }
                 wnd_start_ok = self.with_receiving_menu_effects(|effects| {
                     game_client::gui::callbacks::drive_os_wnd_skirmish_start_like_cpp(effects)
@@ -597,6 +642,20 @@ impl CnCGameEngine {
             .cloned()
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
+        #[cfg(feature = "game_client")]
+        if mode == GameMode::Skirmish {
+            if let Some(faction) = args.get("faction") {
+                let definitions = self.game_logic.player_template_definitions.as_ref()
+                    .ok_or("receiving world has no player template definitions")?;
+                let setup_handle = self.game_client.skirmish_setup();
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
+                if (0..game_client::MAX_SLOTS).any(|slot| {
+                    setup.game_info().game_info().get_slot(slot).is_some_and(|entry| entry.is_human())
+                }) {
+                    set_host_skirmish_faction(&mut setup, definitions, faction)?;
+                }
+            }
+        }
         // Prefer live client skirmish setup (WND path); else golden 2-slot host config.
         let skirmish = if matches!(mode, GameMode::Skirmish) {
             #[cfg(feature = "game_client")]
@@ -739,5 +798,30 @@ impl CnCGameEngine {
         } else {
             "click_start_game_loading_maps_missing".into()
         };
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+mod faction_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_faction_updates_receiving_gameinfo_not_peer() {
+        let definitions = crate::skirmish_config::lobby_definition_tests::slot_definitions();
+        let expected = definitions.find_template_index("FactionAmerica").unwrap() as i32;
+        let mut owner = game_client::gui::skirmish_setup::SkirmishSetup::default();
+        let mut peer = game_client::gui::skirmish_setup::SkirmishSetup::default();
+        for setup in [&mut owner, &mut peer] {
+            let info = setup.game_info_mut().game_info_mut();
+            let ip = info.get_local_ip();
+            let slot = info.get_slot_mut(0).unwrap();
+            slot.set_state(game_client::SlotState::Player, "Player".into(), ip);
+            slot.set_player_template(-1);
+        }
+        set_host_skirmish_faction(&mut owner, &definitions, "USA").unwrap();
+        assert_eq!(owner.game_info().game_info().get_slot(0).unwrap().get_player_template(), expected);
+        assert_eq!(peer.game_info().game_info().get_slot(0).unwrap().get_player_template(), -1);
+        assert!(set_host_skirmish_faction(&mut owner, &definitions, "invalid").is_err());
+        assert_eq!(owner.game_info().game_info().get_slot(0).unwrap().get_player_template(), expected);
     }
 }

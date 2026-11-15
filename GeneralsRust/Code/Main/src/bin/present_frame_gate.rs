@@ -46,13 +46,13 @@ fn main() {
         })
         .unwrap_or(900);
     let Some(retail) = retail_root() else {
-        eprintln!("present_frame_gate: SKIP retail missing");
-        std::process::exit(0);
+        eprintln!("present_frame_gate: FAIL retail missing");
+        std::process::exit(1);
     };
     let mut options = SmokeOptions::for_retail(&retail);
     if !lone_eagle_map_on_disk(&options) {
-        eprintln!("present_frame_gate: SKIP Lone Eagle missing");
-        std::process::exit(0);
+        eprintln!("present_frame_gate: FAIL Lone Eagle missing");
+        std::process::exit(1);
     }
     let shot = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../artifacts/present_frame_lone_eagle.png");
@@ -71,8 +71,8 @@ fn main() {
     let r = run_present_skirmish_frame(Duration::from_secs(timeout), &options);
     println!("{}", format_executable_smoke_report(&r));
     if r.status == "binary_missing" {
-        eprintln!("present_frame_gate: SKIP binary_missing — {}", r.detail);
-        std::process::exit(0);
+        eprintln!("present_frame_gate: FAIL binary_missing — {}", r.detail);
+        std::process::exit(1);
     }
     if no_window(&r) {
         eprintln!(
@@ -86,6 +86,7 @@ fn main() {
         && !detail.contains("present_frame_fail")
         && detail.contains("present_frame_pass");
     let pass = r.executable_host_ok
+        && r.window_visible
         && r.reached_ingame
         && r.gameplay_cmd_ok
         && r.render_items_stable_ok

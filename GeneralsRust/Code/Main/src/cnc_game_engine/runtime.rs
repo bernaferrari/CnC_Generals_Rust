@@ -95,8 +95,11 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) render_selection: u32,
     pub(super) render_model_missing: u32,
     pub(super) render_frustum_culled: u32,
+    pub(super) fow_summary: String,
     /// Non-black RGBA samples in the 128x128 W3DRadar terrain texture.
     pub(super) radar_pixels: u32,
+    /// Native radar terrain samples and actual LeftHUD draw rectangle.
+    pub(super) radar_capture_reference: String,
     /// Last present execute total ms (diagnostic).
     pub(super) present_ms: f32,
     pub(super) present_collect_ms: f32,
@@ -106,6 +109,8 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) render_frame_stats: String,
     pub(super) camera_pos: String,
     pub(super) camera_target: String,
+    pub(super) camera_constraints: String,
+    pub(super) camera_local_base: String,
     pub(super) sample_unit_pos: String,
     /// Physical OS window outer origin X (diagnostic clicker aim). Headless = 0.
     pub(super) window_outer_x: i32,
@@ -404,7 +409,9 @@ impl RuntimeHostBridge {
             render_selection: 0,
             render_model_missing: 0,
             render_frustum_culled: 0,
+            fow_summary: String::new(),
             radar_pixels: 0,
+            radar_capture_reference: String::new(),
             present_ms: 0.0,
             present_collect_ms: 0.0,
             present_terrain_ms: 0.0,
@@ -412,6 +419,8 @@ impl RuntimeHostBridge {
             render_frame_stats: String::new(),
             camera_pos: String::new(),
             camera_target: String::new(),
+            camera_constraints: String::new(),
+            camera_local_base: String::new(),
             sample_unit_pos: String::new(),
             window_outer_x: 0,
             window_outer_y: 0,
@@ -596,7 +605,9 @@ impl RuntimeHostBridge {
             "render_frustum_culled={}\n",
             snapshot.render_frustum_culled
         ));
+        payload.push_str(&format!("fow_summary={}\n", snapshot.fow_summary));
         payload.push_str(&format!("radar_pixels={}\n", snapshot.radar_pixels));
+        payload.push_str(&format!("radar_capture_reference={}\n", snapshot.radar_capture_reference));
         payload.push_str(&format!("present_ms={:.3}\n", snapshot.present_ms));
         payload.push_str(&format!(
             "present_collect_ms={:.3}\n",
@@ -613,6 +624,8 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("render_frame_stats={}\n", snapshot.render_frame_stats));
         payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
         payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
+        payload.push_str(&format!("camera_constraints={}\n", snapshot.camera_constraints));
+        payload.push_str(&format!("camera_local_base={}\n", snapshot.camera_local_base));
         payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));
         payload.push_str(&format_clicker_aim_status(
             snapshot.window_outer_x,

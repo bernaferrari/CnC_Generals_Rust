@@ -48,7 +48,15 @@ struct StatusSnap {
     render_alive_objects: u32,
     render_fow_filtered: u32,
     render_frustum_culled: u32,
+    render_model_missing: u32,
+    fow_summary: String,
+    camera_pos: String,
+    camera_target: String,
+    camera_constraints: String,
+    camera_local_base: String,
+    sample_unit_pos: String,
     radar_pixels: u32,
+    radar_capture_reference: String,
     present_ms: f32,
     present_collect_ms: f32,
     present_terrain_ms: f32,
@@ -196,9 +204,17 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "render_frustum_culled" => {
                 snap.render_frustum_culled = v.trim().parse().unwrap_or(0);
             }
+            "render_model_missing" => snap.render_model_missing = v.trim().parse().unwrap_or(0),
+            "fow_summary" => snap.fow_summary = v.trim().to_string(),
+            "camera_pos" => snap.camera_pos = v.trim().to_string(),
+            "camera_target" => snap.camera_target = v.trim().to_string(),
+            "camera_constraints" => snap.camera_constraints = v.trim().to_string(),
+            "camera_local_base" => snap.camera_local_base = v.trim().to_string(),
+            "sample_unit_pos" => snap.sample_unit_pos = v.trim().to_string(),
             "radar_pixels" => {
                 snap.radar_pixels = v.trim().parse().unwrap_or(0);
             }
+            "radar_capture_reference" => snap.radar_capture_reference = v.trim().to_string(),
             "present_ms" => {
                 snap.present_ms = v.trim().parse().unwrap_or(0.0);
             }

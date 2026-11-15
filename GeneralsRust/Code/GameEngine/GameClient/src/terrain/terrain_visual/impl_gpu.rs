@@ -2517,13 +2517,46 @@ impl TerrainVisualImpl {
         let Some(height_map) = self.height_map.as_ref() else {
             return ExtraBlendDrawMesh::default();
         };
-        height_map.build_extra_blend_draw_mesh_for_window(
+        let mut mesh = height_map.build_extra_blend_draw_mesh_for_window(
             &self.extra_blend_tile_positions,
             self.draw_origin_x,
             self.draw_origin_y,
             self.draw_width,
             self.draw_height,
-        )
+        );
+        for vertices in mesh.vertices.chunks_exact_mut(6) {
+            let origin = vertices.iter().fold([f32::INFINITY; 2], |p, v| {
+                [p[0].min(v.position[0]), p[1].min(v.position[2])]
+            });
+            let (x, y) = height_map_cell_at_world(
+                height_map, origin[0] + height_map.scale * 0.5,
+                origin[1] + height_map.scale * 0.5,
+            );
+            let index = height_map.get_extra_blend_tile_index(x, y);
+            let Some(blend) = usize::try_from(index).ok()
+                .and_then(|index| height_map.blended_tiles.get(index)) else { continue };
+            let tile = blend.blend_ndx as i16;
+            let cliff = class_tile_stretched(height_map, &self.source_tile_classes, x, y, tile);
+            let mut flip = cpp_blend_corner_alpha(blend).1;
+            if cliff {
+                let h0 = height_map.get_raw_height(x, y) as i32;
+                let h1 = height_map.get_raw_height(x + 1, y) as i32;
+                let h2 = height_map.get_raw_height(x + 1, y + 1) as i32;
+                let h3 = height_map.get_raw_height(x, y + 1) as i32;
+                flip |= (h0 - h2).abs() > (h1 - h3).abs();
+            }
+            let mut corners = [vertices[0]; 4];
+            for &vertex in vertices.iter() {
+                let fx = if vertex.position[0] > origin[0] { 1.0 } else { 0.0 };
+                let fy = if vertex.position[2] > origin[1] { 1.0 } else { 0.0 };
+                corners[cell_corner(fx, fy)] = vertex;
+            }
+            let order = if flip { [1, 3, 0, 1, 2, 3] } else { [0, 2, 3, 0, 1, 2] };
+            for (vertex, corner) in vertices.iter_mut().zip(order) {
+                *vertex = corners[corner];
+            }
+        }
+        mesh
     }
 
     fn extra_blend_mesh_to_terrain_vertices(
@@ -2555,12 +2588,6 @@ impl TerrainVisualImpl {
                     lighting.ambient,
                 );
                 color[3] = vertex.color[3];
-                color = Self::bake_terrain_vertex_dynamic_light(
-                    vertex.position,
-                    [normal.x, normal.y, normal.z],
-                    color,
-                    &self.dynamic_lights,
-                );
                 let mut uv = vertex.tex_coords;
                 let mut slot = 0;
                 if let Some(hm) = self.height_map.as_ref() {
@@ -3170,14 +3197,27 @@ fn authored_cell_flip(
     blend: Option<&crate::terrain::textures::BlendTileInfo>,
 ) -> bool {
     let flip = blend.is_some_and(|blend| cpp_blend_corner_alpha(blend).1);
-    if cliff_info_for_tile(hm, classes, x, y, tile).is_some_and(|info| info.flip) {
-        let h0 = hm.get_raw_height(x, y) as i32;
-        let h1 = hm.get_raw_height(x + 1, y) as i32;
-        let h2 = hm.get_raw_height(x + 1, y + 1) as i32;
-        let h3 = hm.get_raw_height(x, y + 1) as i32;
-        (h0 - h2).abs() > (h1 - h3).abs()
-    } else {
-        flip
+    let stretched = class_tile_stretched(hm, classes, x, y, tile);
+    if !stretched {
+        return flip;
+    }
+    let h0 = hm.get_raw_height(x, y) as i32;
+    let h1 = hm.get_raw_height(x + 1, y) as i32;
+    let h2 = hm.get_raw_height(x + 1, y + 1) as i32;
+    let h3 = hm.get_raw_height(x, y + 1) as i32;
+    (h0 - h2).abs() > (h1 - h3).abs()
+}
+
+/// Whether getUVForTileIndex returned TRUE, rather than merely having
+/// produced UV coordinates. A missing source class cannot be stretched.
+fn class_tile_stretched(hm: &HeightMap, classes: &[TerrainSourceTileClass], x: i32, y: i32, tile: i16) -> bool {
+    let packed = ((tile as i32 >> 2).max(0)) as u32;
+    if texture_class_index_from_ndx(packed, classes).is_none() {
+        return false;
+    }
+    match cliff_info_for_tile(hm, classes, x, y, tile) {
+        Some(info) => info.flip,
+        None => hm.get_uv_for_tile_index((y * hm.width as i32 + x) as usize, tile, false).stretched,
     }
 }
 
@@ -3224,24 +3264,74 @@ fn class_uv_for_tile(
             1.0 + interpolate([info.v0, info.v1, info.v2, info.v3]) * factor,
         ];
     }
+    let packed = ((tile as i32 >> 2).max(0)) as u32;
+    let class = texture_class_index_from_ndx(packed, classes).and_then(|i| classes.get(i));
     let uv = hm.get_uv_for_tile_index((y * hm.width as i32 + x) as usize, tile, false);
-    let interpolate = |v: [f32; 4]| {
-        v[0] * (1.0 - fx) * (1.0 - fy)
-            + v[1] * fx * (1.0 - fy)
-            + v[2] * fx * fy
-            + v[3] * (1.0 - fx) * fy
+    let (mut u, mut v) = if class.is_some() {
+        (uv.u, uv.v)
+    } else {
+        // No source class: C++ exits before the old cliff adjustment.
+        let ou = if tile & 1 != 0 { 0.5 } else { 0.0 };
+        let ov = if tile & 2 != 0 { 0.0 } else { 0.5 };
+        ([ou, ou + 0.5, ou + 0.5, ou], [ov + 0.5, ov + 0.5, ov, ov])
     };
-    let mut result = [interpolate(uv.u), interpolate(uv.v)];
-    if !uv.stretched {
-        let packed = ((tile as i32 >> 2).max(0)) as u32;
-        if let Some(class) = texture_class_index_from_ndx(packed, classes).and_then(|i| classes.get(i)) {
-            let width = class.width.max(1);
-            let index = (packed as i32 - class.first_tile).max(0);
-            result[0] = (result[0] + (index % width) as f32) / width as f32;
-            result[1] = (result[1] + (width - 1 - (index / width).min(width - 1)) as f32) / width as f32;
+    if let Some(class) = class {
+        let width = class.width.max(1);
+        let index = (packed as i32 - class.first_tile).max(0);
+        let column = (index % width) as f32;
+        let row = (width - 1 - (index / width).min(width - 1)) as f32;
+        for corner in 0..4 {
+            u[corner] = (u[corner] + column) / width as f32;
+            v[corner] = (v[corner] + row) / width as f32;
+        }
+        if uv.stretched {
+            // The one-high/one-low branch uses the *whole class* V span,
+            // not the 32-pixel quarter-tile span used by HeightMap's UVs.
+            let heights = [
+                hm.get_raw_height(x, y) as i32,
+                hm.get_raw_height(x + 1, y) as i32,
+                hm.get_raw_height(x + 1, y + 1) as i32,
+                hm.get_raw_height(x, y + 1) as i32,
+            ];
+            let min = *heights.iter().min().unwrap();
+            let max = *heights.iter().max().unwrap();
+            let delta = max - min;
+            let below = heights.iter().filter(|&&h| h < min + (2 * delta + 1) / 3).count();
+            let above = heights.iter().filter(|&&h| h > min + (delta + 1) / 3).count();
+            let extreme = if below == 1 || above > below {
+                Some(min)
+            } else if above == 1 || below > above {
+                Some(max)
+            } else {
+                None
+            };
+            if let Some(extreme) = extreme {
+                let corner = heights.iter().position(|&h| h == extreme).unwrap();
+                let scale = gamelogic::common::types::MAP_HEIGHT_SCALE
+                    / gamelogic::common::types::MAP_XY_FACTOR;
+                let divisor = (4.0 / (delta as f32 * scale)).clamp(1.0, 4.0);
+                let ov = if tile & 2 != 0 { 0.0 } else { 0.5 };
+                let n_v = (row + ov) / width as f32;
+                let x_v = (row + ov + 0.5) / width as f32;
+                v[corner] = if corner < 2 { n_v + 1.0 / divisor } else { x_v - 1.0 / divisor };
+            }
+            // WorldHeightMap::getUVForTileIndex shifts the entire stretched
+            // quad back inside its source class, preserving its shape.
+            let below = v.iter().fold(0.0f32, |shift, &value| shift.max(-value));
+            for value in &mut v { *value += below; }
+            let right = u.iter().fold(0.0f32, |shift, &value| shift.max(value - 1.0));
+            let top = v.iter().fold(0.0f32, |shift, &value| shift.max(value - 1.0));
+            for value in &mut u { *value -= right; }
+            for value in &mut v { *value -= top; }
         }
     }
-    result
+    let interpolate = |values: [f32; 4]| {
+        values[0] * (1.0 - fx) * (1.0 - fy)
+            + values[1] * fx * (1.0 - fy)
+            + values[2] * fx * fy
+            + values[3] * (1.0 - fx) * fy
+    };
+    [interpolate(u), interpolate(v)]
 }
 
 /// UV of a cell vertex in its texture class's source image: the cell's
@@ -3264,31 +3354,10 @@ fn cell_class_uv(
     let fx = (position[0] / scale + hm.border_size as f32 - ix as f32).clamp(-0.5, 1.5);
     let fy = (position[1] / scale + hm.border_size as f32 - iy as f32).clamp(-0.5, 1.5);
     let index = (iy * hm.width as i32 + ix) as usize;
-    if let Some(&tile) = hm.tile_ndxes.get(index) {
-        if cliff_info_for_tile(hm, classes, ix, iy, tile).is_some() {
-            return class_uv_for_tile(hm, classes, ix, iy, tile, fx, fy);
-        }
+    match hm.tile_ndxes.get(index) {
+        Some(&tile) => class_uv_for_tile(hm, classes, ix, iy, tile, fx, fy),
+        None => hm.cell_uv(ix, iy, fx, fy),
     }
-    let (uv, stretched) = hm.cell_uv_with_stretch(ix, iy, fx, fy);
-    if stretched {
-        return uv;
-    }
-    let packed = hm.get_packed_terrain_tile_at_world(center[0], center[1]);
-    let Some(class) = texture_class_index_from_ndx(packed, classes).and_then(|i| classes.get(i))
-    else {
-        return uv;
-    };
-    let width = class.width.max(1);
-    let tile = (i32::try_from(packed).unwrap_or(0) - class.first_tile).max(0);
-    // C++ updateTileTexturePositions places class tile (i, j) at
-    // y = yOrigin + (width - j - 1) * TILE_PIXEL_EXTENT: row 0 is the bottom
-    // row of the class block, so moving north (j + 1) moves up the texture.
-    let (column, row) = (
-        (tile % width) as f32,
-        (width - 1 - (tile / width).min(width - 1)) as f32,
-    );
-    let width = width as f32;
-    [(uv[0] + column) / width, (uv[1] + row) / width]
 }
 
 fn bound_texture_id_for_source_tile(
@@ -3594,6 +3663,76 @@ mod splat_texture_class_tests {
 #[cfg(test)]
 mod cpp_blend_corner_alpha_tests {
     use super::*;
+
+    #[test]
+    fn legacy_stretched_cliff_keeps_source_tile_and_height_diagonal() {
+        let mut hm = HeightMap::new(2, 2, 255.0, 1.0);
+        hm.adjust_cliff_textures = true;
+        hm.tile_ndxes[0] = 4;
+        hm.set_raw_height(1, 1, 100);
+        let classes = [TerrainSourceTileClass {
+            first_tile: 0, num_tiles: 4, width: 2, name: "Cliff".into(),
+        }];
+
+        // C++ adjusts the high corner, retains the source tile's atlas
+        // origin, and flips when |h0-h2| > |h1-h3|.
+        assert!(authored_cell_flip(&hm, &classes, 0, 0, 4, None));
+        assert_eq!(cell_class_uv(&hm, &classes, [0.5, 0.5], [0.0, 0.0]), [0.5, 1.0]);
+        assert_eq!(class_uv_for_tile(&hm, &classes, 0, 0, 4, 1.0, 1.0), [0.75, 0.0]);
+        // A missing class does not run the old stretch or change the split.
+        assert!(!authored_cell_flip(&hm, &[], 0, 0, 4, None));
+        assert_eq!(class_uv_for_tile(&hm, &[], 0, 0, 4, 1.0, 1.0), [0.5, 0.5]);
+        hm.adjust_cliff_textures = false;
+        assert!(!authored_cell_flip(&hm, &classes, 0, 0, 4, None));
+    }
+
+    #[test]
+    fn legacy_cliff_one_low_corner_is_shifted_back_inside_class() {
+        let mut hm = HeightMap::new(2, 2, 255.0, 1.0);
+        hm.adjust_cliff_textures = true;
+        hm.tile_ndxes[0] = 4;
+        for (x, y) in [(1, 0), (1, 1), (0, 1)] {
+            hm.set_raw_height(x, y, 100);
+        }
+        let classes = [TerrainSourceTileClass {
+            first_tile: 0, num_tiles: 4, width: 2, name: "Cliff".into(),
+        }];
+        // Whole-class V extent is 1; the low corner moves to 1.75 and
+        // the entire quad is translated down by 0.75.
+        assert_eq!(class_uv_for_tile(&hm, &classes, 0, 0, 4, 0.0, 0.0), [0.5, 1.0]);
+        assert_eq!(class_uv_for_tile(&hm, &classes, 0, 0, 4, 1.0, 0.0), [0.75, 0.25]);
+        assert_eq!(class_uv_for_tile(&hm, &classes, 0, 0, 4, 1.0, 1.0), [0.75, 0.0]);
+        assert!(authored_cell_flip(&hm, &classes, 0, 0, 4, None));
+    }
+
+    #[test]
+    fn extra_blend_cliff_uses_matching_class_for_its_triangle_split() {
+        crate::test_support::ensure_ambient_host();
+        let mut hm = HeightMap::new(3, 3, 255.0, 1.0);
+        hm.adjust_cliff_textures = true;
+        hm.set_raw_height(1, 1, 100);
+        hm.cliff_info.push(crate::terrain::TCliffInfo {
+            tile_index: 0, flip: true, ..Default::default()
+        });
+        hm.cliff_info_ndxes[0] = 1;
+        let mut blend = crate::terrain::textures::BlendTileInfo::new();
+        blend.blend_ndx = 4; // different tile in the same authored cliff class
+        blend.horiz = 1;
+        hm.blended_tiles = vec![crate::terrain::textures::BlendTileInfo::new(), blend];
+        hm.extra_blend_tile_ndxes[0] = 1;
+        let mut visual = TerrainVisualImpl::new();
+        visual.load_heightmap_from_data(hm, None, None).unwrap();
+        visual.source_tile_classes = vec![TerrainSourceTileClass {
+            first_tile: 0, num_tiles: 4, width: 2, name: "Cliff".into(),
+        }];
+        let mesh = visual.build_extra_blend_draw_mesh();
+        let positions: Vec<_> = mesh.vertices.iter()
+            .map(|v| [v.position[0], v.position[2]]).collect();
+        assert_eq!(positions, vec![
+            [1.0, 0.0], [0.0, 1.0], [0.0, 0.0],
+            [1.0, 0.0], [1.0, 1.0], [0.0, 1.0],
+        ]);
+    }
 
     #[test]
     fn authored_cliff_uv_uses_class_coordinates_for_base_and_blend_tiles() {

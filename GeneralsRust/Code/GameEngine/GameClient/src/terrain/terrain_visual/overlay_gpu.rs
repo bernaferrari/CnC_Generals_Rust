@@ -110,6 +110,16 @@ impl TerrainVisualImpl {
         self.overlay.shroud_cells = vec![255u8; (width as usize).saturating_mul(height as usize)];
     }
 
+    /// Remove the previous world's projected shroud. An inactive presentation
+    /// snapshot has no shroud pass and must not reuse a prior map's texture.
+    pub fn clear_shroud_overlay(&mut self) {
+        self.overlay.shroud_cells.clear();
+        self.overlay.shroud_width = 0;
+        self.overlay.shroud_height = 0;
+        self.overlay.shroud_cell_size = 0.0;
+        self.overlay.shroud_origin = [0.0; 2];
+    }
+
     /// Bulk-replace the shroud overlay from a presentation R8 payload.
     ///
     /// Live feed path (per presentation frame, `RenderPipeline::
@@ -137,7 +147,11 @@ impl TerrainVisualImpl {
         let same_size = self.overlay.shroud_width == width
             && self.overlay.shroud_height == height
             && self.overlay.shroud_cells.len() == expected;
-        if same_size && self.overlay.shroud_cells.as_slice() == &data[..expected] {
+        if same_size
+            && self.overlay.shroud_cell_size == cell_size.max(1.0)
+            && self.overlay.shroud_origin == origin
+            && self.overlay.shroud_cells.as_slice() == &data[..expected]
+        {
             // Identical payload: nothing to rebake, nothing to re-upload.
             return;
         }
@@ -838,92 +852,6 @@ impl TerrainVisualImpl {
                 .collect();
     }
 
-    fn upload_custom_edge_meshes(&mut self) {
-        let Some(device) = self.device.as_ref() else {
-            self.custom_edge_meshes.clear();
-            return;
-        };
-        let Some(height_map) = self.height_map.as_ref() else {
-            self.custom_edge_meshes.clear();
-            return;
-        };
-        let scale = if height_map.scale.abs() > f32::EPSILON {
-            height_map.scale
-        } else {
-            MAP_XY
-        };
-        let border = height_map.border_size as f32;
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        let max_x = height_map.width.saturating_sub(1) as i32;
-        let max_y = height_map.height.saturating_sub(1) as i32;
-        for j in 0..max_y {
-            for i in 0..max_x {
-                let blend = height_map.get_blend_tile_index(i, j);
-                if blend <= 0 {
-                    continue;
-                }
-                let info = height_map
-                    .blended_tiles
-                    .get(blend as usize)
-                    .or_else(|| height_map.extra_blended_tiles.get(blend as usize));
-                let Some(info) = info else {
-                    continue;
-                };
-                if info.custom_blend_edge_class < 0 {
-                    continue;
-                }
-                let x0 = (i as f32 - border) * scale;
-                let z0 = (j as f32 - border) * scale;
-                let x1 = ((i + 1) as f32 - border) * scale;
-                let z1 = ((j + 1) as f32 - border) * scale;
-                let p0 = height_map.world_height_at_index(i as u32, j as u32);
-                let p1 = height_map.world_height_at_index((i + 1) as u32, j as u32);
-                let p2 = height_map.world_height_at_index((i + 1) as u32, (j + 1) as u32);
-                let p3 = height_map.world_height_at_index(i as u32, (j + 1) as u32);
-                let uv = height_map.get_uv_data(i, j, false);
-                let base = vertices.len() as u32;
-                let corners = [
-                    ([x0, p0, z0], [uv.u[0], uv.v[0]]),
-                    ([x1, p1, z0], [uv.u[1], uv.v[1]]),
-                    ([x1, p2, z1], [uv.u[2], uv.v[2]]),
-                    ([x0, p3, z1], [uv.u[3], uv.v[3]]),
-                ];
-                for (pos, tex) in corners {
-                    vertices.push(OverlayGpuVertex {
-                        position: pos,
-                        color: [1.0, 1.0, 1.0],
-                        tex_coords: tex,
-                        road_width: 1.0,
-                        diffuse: 0x80ff_ffff,
-                    });
-                }
-                if uv.flip {
-                    indices.extend_from_slice(&[
-                        base + 1,
-                        base + 3,
-                        base,
-                        base + 1,
-                        base + 2,
-                        base + 3,
-                    ]);
-                } else {
-                    indices.extend_from_slice(&[
-                        base,
-                        base + 2,
-                        base + 3,
-                        base,
-                        base + 1,
-                        base + 2,
-                    ]);
-                }
-            }
-        }
-        self.custom_edge_meshes =
-            Self::upload_overlay_mesh(device, "Custom Edging", &vertices, &indices)
-                .into_iter()
-                .collect();
-    }
 
     fn upload_snow_mesh(
         &mut self,
@@ -1116,7 +1044,6 @@ impl TerrainVisualImpl {
         let extra: Vec<&GpuRoadMesh> = self
             .tank_track_meshes
             .iter()
-            .chain(self.custom_edge_meshes.iter())
             .chain(self.prop_meshes.iter())
             .chain(self.flat_lod_meshes.iter())
             .chain(self.smudge_mesh.iter())
@@ -1181,7 +1108,6 @@ impl TerrainVisualImpl {
         self.upload_bib_meshes();
         self.upload_prop_meshes();
         self.upload_tank_track_meshes();
-        self.upload_custom_edge_meshes();
         self.upload_smudge_mesh();
         self.upload_flat_lod_meshes();
         self.overlay.overlays_dirty = false;
@@ -1619,5 +1545,14 @@ mod overlay_gpu_tests {
         // Undersized payload is rejected: previous overlay state retained.
         visual.set_shroud_overlay_r8(4, 4, 40.0, [0.0, 0.0], &[0u8; 3]);
         assert_eq!(visual.shroud_alpha_at_world(0.0, 0.0), 64.0 / 255.0);
+
+        // Identical pixels can represent a different world projection.
+        visual.set_shroud_overlay_r8(2, 2, 20.0, [100.0, 0.0], &[0, 255, 0, 255]);
+        visual.set_shroud_overlay_r8(2, 2, 20.0, [80.0, 0.0], &[0, 255, 0, 255]);
+        assert_eq!(visual.shroud_alpha_at_world(100.0, 0.0), 1.0);
+        visual.clear_shroud_overlay();
+        assert_eq!(visual.shroud_alpha_at_world(80.0, 0.0), 1.0);
+        visual.set_shroud_overlay_r8(2, 2, 20.0, [80.0, 0.0], &[0, 255, 0, 255]);
+        assert_eq!(visual.shroud_alpha_at_world(80.0, 0.0), 0.0);
     }
 }

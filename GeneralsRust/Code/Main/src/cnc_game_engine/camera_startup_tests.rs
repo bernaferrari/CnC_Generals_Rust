@@ -125,6 +125,68 @@ fn native_startup_defaults() -> super::StartupCameraDefaults {
 }
 
 #[test]
+fn match_start_camera_uses_selected_waypoint_or_cpp_fallback_per_world() {
+    let mut campaign = native_startup_frame(&[]);
+    campaign.world_env.initial_camera_position = Some([17.0, 23.0, 900.0]);
+    let mut replay = native_startup_frame(&[]);
+    replay.world_env.initial_camera_position = None;
+
+    let bootstrap = |frame: &crate::presentation_frame::PresentationFrame,
+                     human: bool,
+                     start: Option<glam::Vec2>| {
+        let waypoint = CnCGameEngine::match_start_camera_waypoint(
+            human, start, frame.world_env.initial_camera_position,
+        );
+        CnCGameEngine::bootstrap_native_camera_with_start_waypoint(
+            false, 0, native_startup_defaults(), Some(frame), Some(waypoint),
+        )
+    };
+    let (campaign_target, _, _, campaign_owner) = bootstrap(&campaign, false, None);
+    let (replay_target, _, _, _) = bootstrap(&replay, false, None);
+    let (player_target, _, _, _) = bootstrap(&campaign, true, Some(glam::Vec2::new(31.0, 41.0)));
+    let (missing_start_target, _, _, _) = bootstrap(&campaign, true, None);
+    assert_eq!(campaign_target, glam::Vec3::new(17.0, 0.0, 23.0));
+    assert_eq!(replay_target, glam::Vec3::new(50.0, 0.0, 50.0));
+    assert_eq!(player_target, glam::Vec3::new(31.0, 0.0, 41.0));
+    assert_eq!(missing_start_target, glam::Vec3::new(50.0, 0.0, 50.0));
+    let (campaign_again, _, _, owner_again) = bootstrap(&campaign, false, None);
+    assert_eq!(campaign_again, campaign_target);
+    assert_eq!(owner_again.desired(), campaign_owner.desired());
+}
+
+#[test]
+fn match_start_replaces_shell_constraint_cache_without_changing_peer() {
+    let mut view = crate::presentation_frame::SessionView::default();
+    view.camera.rebuild_projection();
+    view.target = glam::Vec3::new(800.0, 0.0, 800.0);
+    let shell = (glam::Vec3::ZERO, glam::Vec3::new(1750.0, 0.0, 1750.0));
+    view.set_camera_transform(shell, &mut |_| unreachable!()).unwrap();
+    let shell_bounds = view.camera.constraint_bounds().unwrap();
+    assert!(shell_bounds.z_max < 1750.0);
+    let mut peer = crate::presentation_frame::SessionView::default();
+    peer.camera.rebuild_projection();
+    peer.target = glam::Vec3::new(800.0, 0.0, 800.0);
+    peer.set_camera_transform(shell, &mut |_| unreachable!()).unwrap();
+    let peer_bounds = peer.camera.constraint_bounds();
+
+    let mut map = native_startup_frame(&[]);
+    map.world_env.world_max = [3500.0, 0.0, 3500.0];
+    let requested = glam::Vec2::new(1910.2, 3034.6);
+    CnCGameEngine::initialize_match_start_camera(
+        &mut view, false, 0, native_startup_defaults(), Some(&map), Some(requested),
+    );
+    assert!(view.camera.constraint_bounds().is_none());
+    view.set_camera_transform(
+        (glam::Vec3::ZERO, glam::Vec3::new(3500.0, 0.0, 3500.0)),
+        &mut |_| unreachable!(),
+    ).unwrap();
+    assert_eq!(view.target.x, requested.x);
+    assert_eq!(view.target.z, requested.y);
+    assert!(view.camera.constraint_bounds().unwrap().z_max > requested.y);
+    assert_eq!(peer.camera.constraint_bounds(), peer_bounds);
+}
+
+#[test]
 fn native_startup_retains_fixed_map_basis_default_goal_and_enabled_owner() {
     use super::camera_height::{HeightRules, HeightStep};
     let frame = native_startup_frame(&[(2, 2, 208), (6, 6, 255)]);

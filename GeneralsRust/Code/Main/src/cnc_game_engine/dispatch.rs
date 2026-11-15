@@ -1074,6 +1074,78 @@ impl CnCGameEngine {
             .map(str::to_string);
     }
 
+    /// Samples of the actual radar terrain at clear cells, with the receiving
+    /// LeftHUD draw rectangle. Capture verification can compare real pixels
+    /// without assuming that a newly started player has explored 20% of a map.
+    #[cfg(feature = "game_client")]
+    fn runtime_radar_capture_reference(&self) -> String {
+        use game_engine::common::system::radar::{radar_draw_positions, CellShroudStatus};
+        use std::fmt::Write;
+        let radar = self.game_logic.radar();
+        if !radar.is_radar_shown() {
+            return "radar_not_shown".into();
+        }
+        let Some((x, y, width, height)) = self.game_client.window_manager_owner()
+            .with_manager_ref(|manager| {
+                let window = manager.find_window_by_name("ControlBar.wnd:LeftHUD")?;
+                let window = window.try_borrow().ok()?;
+                if window.is_hidden() { return None; }
+                let (x, y) = window.get_screen_position();
+                let (width, height) = window.get_size();
+                Some((x, y, width, height))
+            }) else { return "left_hud_unavailable".into() };
+        if width <= 2 || height <= 2 {
+            return "left_hud_empty".into();
+        }
+        let (ul, lr) = radar_draw_positions(x + 1, y + 1, width - 2, height - 2, radar.map_extent());
+        if lr.x <= ul.x || lr.y <= ul.y {
+            return "radar_extent_empty".into();
+        }
+        let terrain = radar.get_terrain_texture();
+        let grid = radar.get_shroud_grid();
+        const SIDE: usize = 128;
+        if terrain.len() < SIDE * SIDE * 4 || grid.len() < SIDE * SIDE {
+            return "radar_layers_unavailable".into();
+        }
+        let mut reference = format!("{},{},{},{}", ul.x, ul.y, lr.x - ul.x, lr.y - ul.y);
+        let mut samples = 0;
+        'clear_samples: for iy in (2..SIDE - 2).step_by(3) {
+            for ix in (2..SIDE - 2).step_by(3) {
+                if !(-1..=1).all(|dy| (-1..=1).all(|dx| {
+                    let index = ((iy as isize + dy) as usize) * SIDE + (ix as isize + dx) as usize;
+                    grid[index] == CellShroudStatus::Clear
+                })) {
+                    continue;
+                }
+                let p = (iy * SIDE + ix) * 4;
+                if terrain[p].max(terrain[p + 1]).max(terrain[p + 2]) < 32 {
+                    continue;
+                }
+                let _ = write!(reference, ";{},{},{},{},{}", ix, iy, terrain[p], terrain[p + 1], terrain[p + 2]);
+                samples += 1;
+                if samples == 64 { break 'clear_samples; }
+            }
+        }
+        // A uniformly colored terrain is valid. Its shroud boundary provides
+        // independent image identity and rejects an unrelated solid HUD fill.
+        for iy in (4..SIDE - 4).step_by(12) {
+            for ix in (4..SIDE - 4).step_by(12) {
+                if (-2..=2).all(|dy| (-2..=2).all(|dx| {
+                    let index = ((iy as isize + dy) as usize) * SIDE + (ix as isize + dx) as usize;
+                    grid[index] == CellShroudStatus::Shrouded
+                })) {
+                    let _ = write!(reference, ";h,{},{}", ix, iy);
+                }
+            }
+        }
+        reference
+    }
+
+    #[cfg(not(feature = "game_client"))]
+    fn runtime_radar_capture_reference(&self) -> String {
+        String::new()
+    }
+
     pub(super) fn take_runtime_host_pending_capture(&mut self) -> bool {
         let pending = self.runtime_host_pending_capture;
         self.runtime_host_pending_capture = false;
@@ -1349,6 +1421,23 @@ impl CnCGameEngine {
             render_selection: self.render_pipeline.debug_last_selection_indicators() as u32,
             render_model_missing: self.render_pipeline.debug_last_model_missing() as u32,
             render_frustum_culled: self.render_pipeline.debug_last_frustum_culled() as u32,
+            fow_summary: self.render_pipeline.presentation_frame().map_or_else(
+                || "no_frame".to_owned(),
+                |frame| {
+                    let grid = &frame.fow_grid;
+                    let mut counts = [0usize; 3];
+                    for &cell in &grid.cells {
+                        if let Some(count) = counts.get_mut(cell as usize) {
+                            *count += 1;
+                        }
+                    }
+                    format!(
+                        "player:{} active:{} size:{}x{} hidden:{} fogged:{} clear:{}",
+                        frame.local_player_id, grid.active, grid.width, grid.height,
+                        counts[0], counts[1], counts[2]
+                    )
+                },
+            ),
             radar_pixels: {
                 let tex = self.game_logic.radar().get_terrain_texture();
                 let mut n = 0u32;
@@ -1359,6 +1448,7 @@ impl CnCGameEngine {
                 }
                 n
             },
+            radar_capture_reference: self.runtime_radar_capture_reference(),
             present_ms: self.render_pipeline.debug_last_present_ms(),
             present_collect_ms: self.render_pipeline.debug_last_collect_ms(),
             present_terrain_ms: self.render_pipeline.debug_last_terrain_ms(),
@@ -1376,6 +1466,12 @@ impl CnCGameEngine {
                 self.game_logic.session_view.target.y,
                 self.game_logic.session_view.target.z
             ),
+            camera_constraints: self.game_logic.session_view.camera.constraint_bounds()
+                .map(|bounds| format!("{:.1},{:.1},{:.1},{:.1}", bounds.x_min, bounds.x_max, bounds.z_min, bounds.z_max))
+                .unwrap_or_else(|| "none".to_owned()),
+            camera_local_base: self.game_logic.player_command_center_position(self.current_player_id)
+                .map(|pos| format!("{:.1},{:.1},{:.1}", pos.x, pos.y, pos.z))
+                .unwrap_or_else(|| "none".to_owned()),
             sample_unit_pos,
             window_outer_x,
             window_outer_y,

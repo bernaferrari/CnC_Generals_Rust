@@ -63,6 +63,7 @@ impl TerrainVisualImpl {
         self.chunk_manager.set_config(self.config.clone());
         self.chunk_manager
             .load_heightmap(&heightmap, &self.config)?;
+        self.clear_shroud_overlay();
         self.height_map = Some(heightmap);
         self.ranked_source_tile_classes = None;
         self.reset_draw_area_state();
@@ -117,6 +118,7 @@ impl TerrainVisualImpl {
         // Initialize chunk system with heightmap data
         self.chunk_manager
             .load_heightmap(&heightmap, &self.config)?;
+        self.clear_shroud_overlay();
 
         self.height_map = Some(heightmap);
         self.ranked_source_tile_classes = None;

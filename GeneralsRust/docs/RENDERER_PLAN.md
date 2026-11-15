@@ -39,9 +39,21 @@ indices now reach terrain UV/flip generation, gated by the receiving world's
 `AdjustCliffTextures` setting. Focused parsing, UV and cache tests pass; the
 inspected Lone Eagle capture was unchanged, so it does not verify visible cliff
 coverage. Ordered terrain binding batches now cover more than 16 authored
-classes (`b520a7871`), including extra-blend GPU readback. Missing-texture and
-legacy cliff adjustments, full extra-blend fidelity, a C++ image comparison
-and wasm remain unverified.
+classes (`b520a7871`), including extra-blend GPU readback. Legacy stretched
+cliffs now retain their source tile within the class texture and use the
+height-selected diagonal; extra-blend cliff splits use the matching authored
+class and static diffuse, as in `WorldHeightMap.cpp` and `HeightMap.cpp`.
+The fabricated custom-edge road-texture overlay was removed: the original draw
+is behind the undefined `TEST_CUSTOM_EDGING` switch. Seven cliff and 13
+extra-blend focused cases pass. Missing-texture behavior, full extra-blend
+fidelity, a C++ image comparison and wasm remain unverified.
+
+Terrain map replacement and inactive FOW snapshots now clear retained shroud
+cells; unchanged pixels with a changed world projection update that projection.
+The map-replacement and overlay-feed regressions pass. A black Lone Eagle
+capture exposed stale shell-map camera constraints; match startup now invalidates
+them. A subsequent windowed retail capture showed terrain, models and radar and
+passed the frame gate; it is not a C++ visual comparison.
 
 The shared TGA decoder normalizes both horizontal and vertical origins in
 place, rejects truncated or invalid palettes, and expands 16-bit colors without

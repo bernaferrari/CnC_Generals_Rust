@@ -79,7 +79,6 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.polygon_water_meshes.clear();
         self.bib_meshes.clear();
         self.tank_track_meshes.clear();
-        self.custom_edge_meshes.clear();
         self.snow_mesh = None;
         self.smudge_mesh = None;
         self.flat_lod_meshes.clear();

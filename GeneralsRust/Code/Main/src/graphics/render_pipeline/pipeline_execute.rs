@@ -432,8 +432,10 @@ impl RenderPipeline {
             if let Err(e) = self.refresh_minimap_terrain_base() {
                 error!("Failed to refresh minimap terrain base: {}", e);
             }
-
-            // Update minimap FOW texture before rendering UI
+        }
+        if render_world_scene {
+            // Feed the current world's shroud even for shell transitions so an
+            // earlier map cannot leave an overlay on the replacement terrain.
             if let Err(e) = self.update_minimap_fow_texture() {
                 error!("Failed to update minimap FOW texture: {}", e);
             }

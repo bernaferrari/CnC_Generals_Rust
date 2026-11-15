@@ -1119,7 +1119,11 @@ fn smoke_phase_skirmish_menu_open(
             .unwrap_or(true);
     if ready {
         // Prefer real SkirmishMenu Start button click residual.
-        let click = format!("click_skirmish_start|map={}", map.replace('|', "/"));
+        let click = if st.present_frame_goal {
+            format!("click_skirmish_start|faction=USA|map={}", map.replace('|', "/"))
+        } else {
+            format!("click_skirmish_start|map={}", map.replace('|', "/"))
+        };
         let _ = write_control(&control_path, &[click.as_str()]);
         st.commanded_at = Some(Instant::now());
         st.phase = 1;

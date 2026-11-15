@@ -273,7 +273,6 @@ impl TerrainVisualImpl {
             polygon_water_meshes: Vec::new(),
             bib_meshes: Vec::new(),
             tank_track_meshes: Vec::new(),
-            custom_edge_meshes: Vec::new(),
             snow_mesh: None,
             snow_texture: None,
             snow_sampler: None,
