@@ -148,6 +148,30 @@ impl ObjectCreationList {
         )
     }
 
+    /// Execute in list order with the exact source handle, without holding its
+    /// object lock across nuggets that mutate that same source.
+    pub fn create_with_owner_handle(
+        &self,
+        ctx: &CreationContext<'_>,
+        owner: &Arc<RwLock<Object>>,
+        primary: &Coord3D,
+        secondary: &Coord3D,
+        angle: Option<Real>,
+        create_owner: Bool,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        let mut first = None;
+        for nugget in &self.nuggets {
+            let created = nugget.create_with_owner_handle(
+                ctx, owner, primary, secondary, angle, create_owner, lifetime_frames,
+            );
+            if first.is_none() {
+                first = created;
+            }
+        }
+        first
+    }
+
     /// Create objects with angle and create-owner flag.
     /// Matches C++ call sites that pass both angle and createOwner.
     pub fn create_with_angle_and_owner_flag(

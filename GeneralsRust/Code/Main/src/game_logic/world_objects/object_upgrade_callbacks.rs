@@ -605,15 +605,10 @@ impl GameLogic {
                         )?
                     };
                     if let Some(new_id) = created {
-                        if let Some(object) = self.objects.get_mut(&new_id) {
-                            object.set_transform_matrix_with_effects_and_pose_owners(
-                                transform,
-                                self.frame,
-                                &mut presentation_effects
-                                    .reborrow_for_object(&mut self.partition_manager),
-                                &self.host_trigger_world,
-                                &self.team_factory,
-                            );
+                        if self.set_owned_object_transform_with_effects(
+                            new_id, transform, self.frame, presentation_effects,
+                        ) {
+                            let Some(object) = self.objects.get_mut(&new_id) else { return Ok(()) };
                             object.status.under_construction = false;
                         }
                         self.replace_grant_command_upgrades

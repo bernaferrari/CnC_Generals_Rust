@@ -38,6 +38,8 @@ pub(in crate::game_logic) enum ContactStep<S, T> {
 }
 pub(in crate::game_logic) enum StampContact {
     Start(f32),
+    AfterGroundPosition { impact_vy: f32, was_airborne: bool, old_y: f32 },
+    AfterStickPosition,
     AfterGroundCollide(f32),
     AfterFall,
     Grounded,
@@ -78,6 +80,7 @@ pub(in crate::game_logic) struct StunLanding {
 }
 pub(in crate::game_logic) enum StunContact {
     Start,
+    AfterAirPosition(StunTail),
     AfterBounce(StunLanding),
     AfterLandingPosition(StunLanding),
     AfterGroundCollide(StunLanding),
@@ -259,7 +262,7 @@ impl Object {
         killed: bool,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StampContact, ()> {
-        self.step_stamp_contact_with_effects(state, killed, 0, None, &mut Default::default(), audio)
+        self.step_stamp_contact_with_effects(state, killed, 0, None, None, &mut Default::default(), audio)
     }
     pub(in crate::game_logic) fn step_stamp_contact_with_effects(
         &mut self,
@@ -267,6 +270,7 @@ impl Object {
         _killed: bool,
         frame: u32,
         locomotors: Option<&LocomotorStore>,
+        trigger_position: Option<(i32, i32)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StampContact, ()> {
@@ -284,6 +288,15 @@ impl Object {
                     }
                     self.invalidate_velocity_magnitude();
                     pos.y = ground_y;
+                    if let Some(trigger_position) = trigger_position {
+                        let reaction = self.prepare_owned_position_tree_reaction(
+                            pos, frame, effects, trigger_position,
+                        );
+                        return ContactStep::PositionFx {
+                            reaction,
+                            next: StampContact::AfterGroundPosition { impact_vy, was_airborne, old_y },
+                        };
+                    }
                     self.set_position_with_effects(pos, frame, effects);
                     self.allow_to_fall = false;
                     if was_airborne && !self.immune_to_falling_damage {
@@ -300,6 +313,7 @@ impl Object {
                         false,
                         frame,
                         locomotors,
+                        trigger_position,
                         effects,
                         audio,
                     );
@@ -309,9 +323,32 @@ impl Object {
                         1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
                 } else if self.stick_to_ground && !self.allow_to_fall {
                     pos.y = ground_y;
+                    if let Some(trigger_position) = trigger_position {
+                        let reaction = self.prepare_owned_position_tree_reaction(
+                            pos, frame, effects, trigger_position,
+                        );
+                        return ContactStep::PositionFx {
+                            reaction,
+                            next: StampContact::AfterStickPosition,
+                        };
+                    }
                     self.set_position_with_effects(pos, frame, effects);
                 }
             }
+            StampContact::AfterGroundPosition { impact_vy, was_airborne, old_y } => {
+                self.allow_to_fall = false;
+                if was_airborne && !self.immune_to_falling_damage {
+                    self.record_bounce_land(old_y);
+                    return ContactStep::GroundCollide {
+                        next: StampContact::AfterGroundCollide(impact_vy),
+                    };
+                }
+                return self.step_stamp_contact_with_effects(
+                    StampContact::Grounded, false, frame, locomotors,
+                    trigger_position, effects, audio,
+                );
+            }
+            StampContact::AfterStickPosition => {}
             StampContact::AfterGroundCollide(impact_vy) => {
                 if let Some(request) = self.prepare_fall_damage(impact_vy) {
                     return ContactStep::Damage {
@@ -325,6 +362,7 @@ impl Object {
                     false,
                     frame,
                     locomotors,
+                    trigger_position,
                     effects,
                     audio,
                 );
@@ -337,6 +375,7 @@ impl Object {
                     false,
                     frame,
                     locomotors,
+                    trigger_position,
                     effects,
                     audio,
                 );
@@ -376,6 +415,7 @@ impl Object {
             killed,
             0,
             None,
+            None,
             &mut Default::default(),
             audio,
         )
@@ -386,6 +426,7 @@ impl Object {
         killed: bool,
         frame: u32,
         locomotors: Option<&LocomotorStore>,
+        trigger_position: Option<(i32, i32)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<MotionContact, bool> {
@@ -513,7 +554,11 @@ impl Object {
                 }
                 let mut transform = self.get_transform_matrix();
                 transform.w_axis = new_pos.extend(1.0);
-                let reaction = self.prepare_transform_tree_reaction(transform, frame, effects);
+                let reaction = if let Some(trigger_position) = trigger_position {
+                    self.prepare_owned_transform_tree_reaction(transform, frame, effects, trigger_position)
+                } else {
+                    self.prepare_transform_tree_reaction(transform, frame, effects)
+                };
                 let next = MotionContact::AfterPosition {
                     ground_y,
                     new_pos,
@@ -622,7 +667,7 @@ impl Object {
         killed: bool,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StunContact, ()> {
-        self.step_stun_contact_with_effects(state, killed, 0, None, &mut Default::default(), audio)
+        self.step_stun_contact_with_effects(state, killed, 0, None, None, &mut Default::default(), audio)
     }
     pub(in crate::game_logic) fn step_stun_contact_with_effects(
         &mut self,
@@ -630,6 +675,7 @@ impl Object {
         killed: bool,
         frame: u32,
         _locomotors: Option<&LocomotorStore>,
+        trigger_position: Option<(i32, i32)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> ContactStep<StunContact, ()> {
@@ -714,9 +760,24 @@ impl Object {
                                 next: StunContact::AfterBounce(data),
                             };
                         }
-                        return self.continue_stun_landing(data, frame, effects);
+                        return self.continue_stun_landing(data, frame, effects, trigger_position);
                     } else {
                         pos.y = new_y;
+                        if let Some(trigger_position) = trigger_position {
+                            let mut transform = self.get_transform_matrix();
+                            transform.w_axis = pos.extend(1.0);
+                            let reaction = self.prepare_owned_transform_tree_reaction(
+                                transform, frame, effects, trigger_position,
+                            );
+                            self.sync_shock_up_from_transform();
+                            return ContactStep::PositionFx {
+                                reaction,
+                                next: StunContact::AfterAirPosition(StunTail {
+                                    already_ground: already_on_ground,
+                                    was_airborne: was_significantly_airborne,
+                                }),
+                            };
+                        }
                         self.set_position_keep_rotation_with_effects(pos, frame, effects);
                         self.shock_was_airborne = true;
                         self.set_status_disabled_freefall(true);
@@ -733,12 +794,17 @@ impl Object {
                     was_airborne: was_significantly_airborne,
                 })
             }
+            StunContact::AfterAirPosition(tail) => {
+                self.shock_was_airborne = true;
+                self.set_status_disabled_freefall(true);
+                self.finish_stun_ground(tail)
+            }
             StunContact::AfterBounce(mut data) => {
                 self.finish_stun_kill(killed, frame, audio);
                 if killed {
                     data.bounce = 0.0;
                 }
-                self.continue_stun_landing(data, frame, effects)
+                self.continue_stun_landing(data, frame, effects, trigger_position)
             }
             StunContact::AfterLandingPosition(data) => self.finish_stun_landing_position(data),
             StunContact::AfterGroundCollide(data) => {
@@ -810,6 +876,7 @@ impl Object {
         mut data: StunLanding,
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_position: Option<(i32, i32)>,
     ) -> ContactStep<StunContact, ()> {
         data.pos.y = data.ground_y;
         // CPP PhysicsUpdate628 keeps mtx by value across handleBounce's
@@ -817,7 +884,11 @@ impl Object {
         // the current afterBounceMatrix. XZ is intentionally not reread here.
         let mut matrix = self.get_transform_matrix();
         matrix.w_axis = data.pos.extend(1.0);
-        let reaction = self.prepare_transform_tree_reaction(matrix, frame, effects);
+        let reaction = if let Some(trigger_position) = trigger_position {
+            self.prepare_owned_transform_tree_reaction(matrix, frame, effects, trigger_position)
+        } else {
+            self.prepare_transform_tree_reaction(matrix, frame, effects)
+        };
         self.sync_shock_up_from_transform();
         ContactStep::PositionFx {
             reaction,
@@ -885,6 +956,7 @@ impl crate::game_logic::GameLogic {
             bool,
             u32,
             Option<&LocomotorStore>,
+            Option<(i32, i32)>,
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
             &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
@@ -908,6 +980,7 @@ impl crate::game_logic::GameLogic {
             bool,
             u32,
             Option<&LocomotorStore>,
+            Option<(i32, i32)>,
             &mut crate::game_logic::ScriptPresentationEffects<'_>,
             &mut crate::game_logic::ObjectAudio<'_>,
         ) -> ContactStep<S, T>,
@@ -930,6 +1003,9 @@ impl crate::game_logic::GameLogic {
                 return Ok(None);
             }
             let frame = self.frame;
+            let trigger_position = self.host_trigger_world.lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .object_integer_position(id.0);
             let next = step(
                 self.objects
                     .get_mut(&id)
@@ -938,6 +1014,7 @@ impl crate::game_logic::GameLogic {
                 killed,
                 frame,
                 self.locomotor_definitions.receiving(),
+                Some(trigger_position),
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );

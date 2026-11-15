@@ -522,15 +522,7 @@ impl GameLogic {
         {
             return Ok(Some(charge_id));
         }
-        if let Some(charge) = self.objects.get_mut(&charge_id) {
-            charge.set_position_with_effects_and_pose_owners(
-                position,
-                self.frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
-        }
+        self.set_owned_object_position_with_effects(charge_id, position, self.frame, effects);
         if !self.object_birth_matches(target_id, &target_birth)
             || !self.spawn_identity_matches(charge_id, charge_birth.0, charge_birth.1)
         {
@@ -699,15 +691,7 @@ impl GameLogic {
             // newObject (and its factory callbacks) returns. Re-read the
             // planter between pose operations because pose callbacks can run.
             let initial_position = self.objects.get(&planter_id)?.get_position();
-            if let Some(charge) = self.objects.get_mut(&bid) {
-                charge.set_position_with_effects_and_pose_owners(
-                    initial_position,
-                    self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-            } else {
+            if !self.set_owned_object_position_with_effects(bid, initial_position, self.frame, effects) {
                 return None;
             }
             if !self.object_birth_matches(structure_id, &target_birth)
@@ -793,15 +777,7 @@ impl GameLogic {
         if !self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
             return None;
         }
-        if let Some(charge) = self.objects.get_mut(&bid) {
-            charge.set_position_with_effects_and_pose_owners(
-                position,
-                self.frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
-        } else {
+        if !self.set_owned_object_position_with_effects(bid, position, self.frame, effects) {
             return None;
         }
         // Position callbacks can reenter too. Match C++'s order: target status
@@ -899,15 +875,7 @@ impl GameLogic {
             moves.push((cid, glam::Vec3::new(p.x, p.y + STICKY_OFFSET_Y, p.z)));
         }
         for (cid, pos) in moves {
-            if let Some(o) = self.objects.get_mut(&cid) {
-                o.set_position_with_effects_and_pose_owners(
-                    pos,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-            }
+            self.set_owned_object_position_with_effects(cid, pos, tree_move_frame, effects);
         }
         for cid in destroy {
             self.destroy_booby_trap_special_object_with_effects(cid, effects);
@@ -1480,11 +1448,8 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 let p = o.get_position();
                 let v = o.movement.velocity;
-                o.set_position_with_effects(
-                    p + v,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                self.set_owned_object_position_with_effects(id, p + v, tree_move_frame, effects);
             }
         }
     }
@@ -2703,11 +2668,11 @@ impl GameLogic {
         )?;
         let expires = self.frame.saturating_add(FLARE_LIFETIME_FRAMES.max(1));
         if let Some(o) = self.objects.get_mut(&fid) {
-            o.set_position_with_effects(
-                origin,
-                tree_move_frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-            );
+            let _ = o;
+            if !self.set_owned_object_position_with_effects(fid, origin, tree_move_frame, effects) {
+                return None;
+            }
+            let o = self.objects.get_mut(&fid)?;
             o.set_orientation_with_partition_owner(ori, &mut self.partition_manager);
             o.movement.velocity += vel;
             o.invalidate_velocity_magnitude();
@@ -2783,11 +2748,8 @@ impl GameLogic {
                 let v = o.movement.velocity;
                 let mut p = o.get_position();
                 p += v * dt;
-                o.set_position_with_effects(
-                    p,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                self.set_owned_object_position_with_effects(id, p, tree_move_frame, effects);
             }
         }
         let due: Vec<(ObjectId, Option<ObjectId>)> = self

@@ -55,6 +55,17 @@ Long-term, delete SCOPED_ACTIVE / ACTIVE_STACK call sites by passing
 ownership-through-the-engine). Until then, publish for the duration of a call
 batch with `with_*` helpers.
 
+Main pose changes pass the receiving pathfinder through movement, containment,
+creation and restore callbacks. Position occupancy is updated at the original
+integer trigger-position transition; an enclosed garrison passenger is held
+before its center-position callback. This does not establish complete
+pathfinder-event or save/load parity.
+
+Core OCL delivery resolves an existing transport through its creation context
+and dispatches through the borrowed AI without reacquiring it. Special-power
+dispatch releases the owner's read guard before movement initialization.
+Native Core object birth and scheduled payload delivery remain separate gaps.
+
 ## Client presentation migrations
 
 Contained-selection flashes are queued and drained by the receiving

@@ -1342,15 +1342,13 @@ impl GameLogic {
                 if let Some(angle) = apply_ori {
                     obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
                 }
+                let _ = obj;
                 if let Some(p) = apply_pos {
-                    obj.set_position_with_effects_and_pose_owners(
-                        p,
-                        tree_move_frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
+                    if !self.set_owned_object_position_with_effects(gid, p, tree_move_frame, effects) {
+                        continue;
+                    }
                 }
+                let Some(obj) = self.objects.get_mut(&gid) else { continue };
                 let p = obj.get_position();
                 let team = obj.team;
                 if let Some(wg) = obj.wave_guide_data.as_mut() {

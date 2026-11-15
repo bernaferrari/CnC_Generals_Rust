@@ -1001,15 +1001,12 @@ impl GameLogic {
         )?;
         let mut ground_position = position;
         ground_position.y = self.terrain_height_at(position).unwrap_or(position.y);
+        self.objects.get_mut(&id)?.producer_id = Some(producer_id);
+        if !self.set_owned_object_position_with_effects(id, ground_position, self.frame, ui) {
+            return None;
+        }
         {
             let object = self.objects.get_mut(&id)?;
-            object.producer_id = Some(producer_id);
-            object.set_position_with_partition_owner(
-                ground_position,
-                self.frame,
-                ui,
-                &mut self.partition_manager,
-            );
             object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
         }
         self.movement_events.record(

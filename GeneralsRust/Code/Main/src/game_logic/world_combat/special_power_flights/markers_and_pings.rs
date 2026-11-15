@@ -464,13 +464,8 @@ impl GameLogic {
                 let mut p = o.get_position();
                 p.x += dx;
                 p.z += dz;
-                o.set_position_with_effects_and_pose_owners(
-                    p,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+                let _ = o;
+                self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects);
             }
         }
 

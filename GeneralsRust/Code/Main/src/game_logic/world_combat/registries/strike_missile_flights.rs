@@ -95,11 +95,11 @@ impl GameLogic {
                 let launch_fx = tick.launch_fx;
                 let ignition_fx = tick.ignition_fx;
                 drop(data);
-                o.set_position_with_effects(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.movement.velocity = vel;
                 if vel.length_squared() > 1e-6 {
                     let yaw = vel.z.atan2(vel.x);
@@ -292,11 +292,11 @@ impl GameLogic {
                 let new_pos = tick.pos;
                 let vel = tick.vel;
                 drop(data);
-                o.set_position_with_effects(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.movement.velocity = vel;
                 if vel.length_squared() > 1e-6 {
                     o.set_orientation_with_partition_owner(
@@ -541,13 +541,11 @@ impl GameLogic {
             };
             let (new_pos, vel, at_exit) = data.tick_transport(pos);
             drop(data);
-            o.set_position_with_effects_and_pose_owners(
-                new_pos,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = o;
+            if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                continue;
+            }
+            let Some(o) = self.objects.get_mut(&id) else { continue };
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation_with_partition_owner(
@@ -658,11 +656,10 @@ impl GameLogic {
                 }
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(
-                    p,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects) {
+                    continue;
+                }
                 p
             };
             if pos.y <= 5.0 {
@@ -900,13 +897,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects_and_pose_owners(
-                new_pos,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = o;
+            if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                continue;
+            }
+            let Some(o) = self.objects.get_mut(&id) else { continue };
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation_with_partition_owner(
@@ -972,11 +967,11 @@ impl GameLogic {
                 }
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(
-                    p,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get(&id) else { continue };
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {

@@ -582,6 +582,21 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     ) -> Option<&mut dyn DeliverPayloadAIUpdateInterface> {
         None
     }
+    /// Dispatch delivery without reacquiring an already borrowed parent AI.
+    fn start_deliver_payload(
+        &mut self,
+        _move_to_pos: &Coord3D,
+        _target_pos: &Coord3D,
+        _data: &crate::object::update::ai_update::deliver_payload_data::DeliverPayloadData,
+    ) -> bool {
+        false
+    }
+
+    /// Dispatch the authored delivery data without reacquiring the parent AI.
+    fn start_deliver_payload_via_module_data(&mut self, _move_to_pos: &Coord3D) -> bool {
+        false
+    }
+
     fn ignore_obstacle(
         &mut self,
         _obj_id: Option<ObjectID>,

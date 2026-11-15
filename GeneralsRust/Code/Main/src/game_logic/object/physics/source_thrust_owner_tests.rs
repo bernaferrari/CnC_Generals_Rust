@@ -195,7 +195,7 @@ fn source_thrust_continuation_rereads_current_physics_velocity_after_orientation
     actor.movement.velocity = glam::Vec3::new(0., 30., 30.);
     let goal = actor.get_position() + glam::Vec3::X * 1000.;
     let mut step =
-        actor.prepare_thrust_step(goal, 99999., 30., 0, false, 0., &mut Default::default());
+        actor.prepare_thrust_step(goal, 99999., 30., 0, false, 0., None, &mut Default::default());
     let (direction, acceleration, max_speed) = step.force.expect("source thrust force condition");
     if let Some(reaction) = step.reaction.take() {
         assert!(!reaction.has_tree_fx());

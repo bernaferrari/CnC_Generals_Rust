@@ -98,13 +98,8 @@ pub trait AssaultTransportAIUpdateInterface: Send + Sync {
 }
 
 pub trait DeliverPayloadAIUpdateInterface: Send + Sync {
-    fn deliver_payload(
-        &mut self,
-        move_to_pos: &Coord3D,
-        target_pos: &Coord3D,
-        data: &DeliverPayloadData,
-    );
-    fn deliver_payload_via_module_data(&mut self, move_to_pos: &Coord3D);
+    fn get_target_pos(&self) -> &Coord3D;
+    fn get_move_to_pos(&self) -> &Coord3D;
     fn is_delivering_payload(&self) -> Bool;
     fn is_allowed_to_respond_to_ai_commands(&self) -> Bool;
 }

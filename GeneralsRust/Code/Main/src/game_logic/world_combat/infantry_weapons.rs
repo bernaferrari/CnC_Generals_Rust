@@ -736,13 +736,11 @@ impl GameLogic {
             // Preferred altitude residual.
             let mut p = g.get_position();
             p.y = plan.spawn_pos.y;
-            g.set_position_with_effects_and_pose_owners(
-                p,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = g;
+            if !self.set_owned_object_position_with_effects(gunship_id, p, self.frame, presentation_effects) {
+                return None;
+            }
+            let g = self.objects.get_mut(&gunship_id)?;
             // C++ SpectreGunshipUpdate::initiateIntent: INSERTING, doors CLOSING,
             // afterburners on, panic loco, overridable reticle dest.
             g.set_special_power_overridable_destination(
@@ -878,13 +876,11 @@ impl GameLogic {
                 players,
                 presentation_effects,
             );
-            o.set_position_with_effects_and_pose_owners(
-                tick.pos,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = o;
+            if !self.set_owned_object_position_with_effects(id, tick.pos, self.frame, presentation_effects) {
+                continue;
+            }
+            let Some(o) = self.objects.get_mut(&id) else { continue };
             o.movement.velocity = tick.vel;
             if tick.vel.length_squared() > 1.0e-6 {
                 o.set_orientation_with_partition_owner(
@@ -1100,11 +1096,11 @@ impl GameLogic {
                 // Non-neutron projectiles: smart-bomb course residual.
                 let mut p = o.get_position();
                 p.y = p.y.max(80.0);
-                o.set_position_with_effects(
-                    p,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects) {
+                    return None;
+                }
+                let o = self.objects.get_mut(&id)?;
                 let _ = o.set_smart_bomb_target(secondary);
                 let dx = secondary.x - primary.x;
                 let dz = secondary.z - primary.z;
@@ -1525,13 +1521,10 @@ impl GameLogic {
             if deliver.start_at_preferred_height {
                 let mut pos = p;
                 pos.y = pos.y.max(120.0);
-                t.set_position_with_effects_and_pose_owners(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+                let _ = t;
+                if !self.set_owned_object_position_with_effects(transport_id, pos, self.frame, presentation_effects) {
+                    return None;
+                }
             }
         }
 
@@ -1607,15 +1600,12 @@ impl GameLogic {
                     edge,
                     plan.target_coord,
                 );
+            let yaw = flight.dir_z.atan2(flight.dir_x);
+            let _ = flight;
+            if !self.set_owned_object_position_with_effects(transport_id, edge, self.frame, presentation_effects) {
+                return None;
+            }
             if let Some(t) = self.objects.get_mut(&transport_id) {
-                t.set_position_with_effects_and_pose_owners(
-                    edge,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-                let yaw = flight.dir_z.atan2(flight.dir_x);
                 t.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             }
         }
@@ -1996,11 +1986,10 @@ impl GameLogic {
             if let Some(np) = h.tick(pos, hat.max(0.0)) {
                 // Only apply when clearly above threshold (tick already gates).
                 if hat >= SMART_BOMB_SIGNIFICANTLY_ABOVE_TERRAIN {
-                    obj.set_position_with_effects(
-                        np,
-                        self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    );
+                    let _ = obj;
+                    if !self.set_owned_object_position_with_effects(id, np, self.frame, presentation_effects) {
+                        continue;
+                    }
                     self.smart_bomb_target_homing_reg.record_steer();
                 }
             }
@@ -2717,13 +2706,7 @@ impl GameLogic {
         }
 
         for (id, np) in position_updates {
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.set_position_with_effects(
-                    np,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
+            self.set_owned_object_position_with_effects(id, np, self.frame, presentation_effects);
         }
 
         for pos in crack_events {

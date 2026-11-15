@@ -1212,15 +1212,7 @@ impl GameLogic {
         if (angle_deg - prev_angle_deg).abs() > 0.01 {
             let frame = self.frame;
             for pid in occupants {
-                if let Some(p) = self.objects.get_mut(&pid) {
-                    p.set_position_with_effects_and_pose_owners(
-                        pos,
-                        frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
-                }
+                self.set_owned_object_position_with_effects(pid, pos, frame, presentation_effects);
             }
         }
     }

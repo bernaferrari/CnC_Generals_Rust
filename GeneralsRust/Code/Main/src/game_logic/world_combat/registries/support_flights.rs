@@ -129,16 +129,15 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects_and_pose_owners(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.movement.velocity = new_pos - pos;
                 o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
             }
+            let Some(o) = self.objects.get_mut(&id) else { continue };
             if !dest_off_map && dist <= LEAFLET_DELIVERY_DISTANCE * 0.5 {
                 let team = o.team;
                 let producer = o.producer_id.unwrap_or(id);
@@ -222,18 +221,16 @@ impl GameLogic {
             }
             let mut p = o.get_position();
             p.y += o.movement.velocity.y;
-            o.set_position_with_effects(
-                p,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-            );
+            let _ = o;
+            if !self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects) {
+                continue;
+            }
             if p.y <= 5.0 {
                 p.y = p.y.max(0.0);
-                o.set_position_with_effects(
-                    p,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                if !self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.movement.velocity = Vec3::ZERO;
                 o.leaflet_container = false;
             }
@@ -370,16 +367,15 @@ impl GameLogic {
                 let step = speed.min(dist);
                 new_pos.x += dx / dist * step;
                 new_pos.z += dz / dist * step;
-                o.set_position_with_effects_and_pose_owners(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.movement.velocity = new_pos - pos;
                 o.set_orientation_with_partition_owner(dz.atan2(dx), &mut self.partition_manager);
             }
+            let Some(o) = self.objects.get_mut(&id) else { continue };
             if !dest_off_map && dist <= PARADROP_DELIVERY_DISTANCE {
                 let team = o.team;
                 let owner_player_id = o.owner_player_id;
@@ -452,11 +448,10 @@ impl GameLogic {
             if o.movement.velocity.y < -2.0 {
                 o.movement.velocity.y = -2.5;
             }
-            o.set_position_with_effects(
-                p,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-            );
+            let _ = o;
+            if !self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects) {
+                continue;
+            }
             if p.y <= 5.0 {
                 destroy.push(id);
             }
@@ -630,13 +625,11 @@ impl GameLogic {
             if should_drop {
                 o.kill_delivery_radius_decal();
             }
-            o.set_position_with_effects_and_pose_owners(
-                new_pos,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = o;
+            if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                continue;
+            }
+            let Some(o) = self.objects.get_mut(&id) else { continue };
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation_with_partition_owner(
@@ -694,11 +687,11 @@ impl GameLogic {
                 };
                 let mut p = o.get_position();
                 p.y += o.movement.velocity.y;
-                o.set_position_with_effects(
-                    p,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, p, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get(&id) else { continue };
                 let is_moab = o.template_name == "MOAB" || o.template_name.contains("MOAB");
                 (p, o.producer_id, o.team, is_moab)
             };

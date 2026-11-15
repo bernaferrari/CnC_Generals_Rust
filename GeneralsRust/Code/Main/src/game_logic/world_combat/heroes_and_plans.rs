@@ -581,15 +581,11 @@ impl GameLogic {
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            {}
-            r.set_position_with_effects_and_pose_owners(
-                eject_pos,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
-            {}
+            let _ = r;
+            if !self.set_owned_object_position_with_effects(containment_actor_id, eject_pos, self.frame, presentation_effects) {
+                return false;
+            }
+            let Some(r) = self.objects.get_mut(&containment_actor_id) else { return false };
             // C++ ParachuteContain::onDie: chute gone, rider setAllowToFall + setIsInFreeFall.
             r.set_status_parachute_open(false);
             r.set_status_parachuting(false);
@@ -2056,11 +2052,11 @@ impl GameLogic {
             let new_pos = pos + vel;
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, new_pos, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.cleanup_stream_travelled += step;
                 o.cleanup_stream_aim = Some([aim.x, aim.y, aim.z]);
                 o.set_orientation_with_partition_owner(
@@ -2098,11 +2094,10 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.cleanup_stream_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                    continue;
+                }
             }
             let _ = self.apply_cleanup_area_at_with_effects(
                 player_id,
@@ -2250,12 +2245,8 @@ impl GameLogic {
             let elapsed = frame.saturating_sub(launch);
             let t = (elapsed as f32 / flight as f32).clamp(0.0, 1.0);
             let pos = angry_mob_projectile_bezier_point(from, aim, t, kind);
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+            if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                continue;
             }
             if elapsed >= flight {
                 impact.push((id, source, intended, aim, kind));
@@ -2272,11 +2263,10 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.angry_mob_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                    continue;
+                }
             }
             let _ = self.apply_angry_mob_projectile_at_with_effects(
                 pos,

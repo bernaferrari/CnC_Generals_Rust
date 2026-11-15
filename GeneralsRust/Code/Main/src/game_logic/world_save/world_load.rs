@@ -44,12 +44,8 @@ impl GameLogic {
         for ((object_id, _), (_, x, y, z)) in
             spawned_object_ids.iter().copied().zip(grounded_positions)
         {
-            if let Some(object) = self.objects.get_mut(&object_id) {
-                object.set_position_with_effects(
-                    Vec3::new(x, y, z),
-                    frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
+            if self.set_owned_object_position_with_effects(object_id, Vec3::new(x, y, z), frame, effects) {
+                let Some(object) = self.objects.get_mut(&object_id) else { continue };
                 // y is world height after grounding; residual height sample = y when terrain present.
                 object.set_ground_height_residual(y, true);
                 {}

@@ -633,14 +633,10 @@ impl GameLogic {
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
                 hunter.target = None;
-                hunter.set_position_with_effects_and_pose_owners(
-                    position,
-                    self.frame,
-                    &mut ui.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-                {}
+                let _ = hunter;
+                if !self.set_owned_object_position_with_effects(containment_actor_id, position, self.frame, ui) {
+                    continue;
+                }
             }
 
             if let Some(outpost) = self.objects.get_mut(&outpost_id) {
@@ -793,14 +789,10 @@ impl GameLogic {
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
                 guard.target = None;
-                guard.set_position_with_effects_and_pose_owners(
-                    position,
-                    self.frame,
-                    &mut ui.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-                {}
+                let _ = guard;
+                if !self.set_owned_object_position_with_effects(containment_actor_id, position, self.frame, ui) {
+                    continue;
+                }
             }
 
             if let Some(crawler) = self.objects.get_mut(&crawler_id) {
@@ -885,14 +877,11 @@ impl GameLogic {
                 unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
-                unit.set_position_with_effects_and_pose_owners(
-                    crawler_pos + offset,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-                {}
+                let _ = unit;
+                if !self.set_owned_object_position_with_effects(occ_id, crawler_pos + offset, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(unit) = self.objects.get_mut(&occ_id) else { continue };
                 let containment_actor_id = unit.id;
                 Self::set_owned_containment_in_parts(
                     &mut self.objects,

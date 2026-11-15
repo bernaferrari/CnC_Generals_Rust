@@ -1494,6 +1494,13 @@ impl HostTriggerWorld {
         self.current_frame
     }
 
+    /// C++ Object::m_iPos, initially zero until a qualifying movement.
+    pub fn object_integer_position(&self, object_id: u32) -> (i32, i32) {
+        self.objects
+            .get(&object_id)
+            .map_or((0, 0), |state| (state.i_x, state.i_y))
+    }
+
     /// Update the host mirror owned by one Main `GameLogic` world.
     ///
     /// The native `Object` implementation owns its own trigger slots. This

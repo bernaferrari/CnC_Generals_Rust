@@ -740,16 +740,9 @@ impl GameLogic {
             .and_then(|gid| self.objects.get(&gid).map(|g| g.get_position()));
         if ultra_snap {
             let frame = self.frame;
-            self.objects
-                .get_mut(&id)
-                .unwrap()
-                .set_position_with_effects_and_pose_owners(
-                    goal,
-                    frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+            if !self.set_owned_object_position_with_effects(id, goal, frame, effects) {
+                return;
+            }
         }
         self.apply_arrival_goal_snap(id, Some(goal));
         let deadline = self.guard_initial_scan_deadline(false);

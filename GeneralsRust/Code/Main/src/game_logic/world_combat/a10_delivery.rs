@@ -126,18 +126,19 @@ impl GameLogic {
                         if let Some(payload) = self.objects.get_mut(&payload_id) {
                             payload.producer_id = Some(id);
                             payload.a10_strike_missile = true;
-                            payload.set_position_with_effects(
-                                drop - velocity,
-                                self.frame,
-                                &mut presentation_effects
-                                    .reborrow_for_object(&mut self.partition_manager),
-                            );
-                            payload.set_orientation_with_partition_owner(
-                                yaw,
-                                &mut self.partition_manager,
-                            );
-                            payload.movement.velocity = velocity;
-                            let _ = payload.set_smart_bomb_target(target);
+                            let _ = payload;
+                            if self.set_owned_object_position_with_effects(
+                                payload_id, drop - velocity, self.frame, presentation_effects,
+                            ) {
+                                if let Some(payload) = self.objects.get_mut(&payload_id) {
+                                    payload.set_orientation_with_partition_owner(
+                                        yaw,
+                                        &mut self.partition_manager,
+                                    );
+                                    payload.movement.velocity = velocity;
+                                    let _ = payload.set_smart_bomb_target(target);
+                                }
+                            }
                         }
                     } else {
                         // Do not leave an unconfigured actor when a callback
@@ -324,24 +325,15 @@ impl GameLogic {
                 .a10_strike_flight_reg
                 .delivery_for_missile(id)
                 .expect("admitted A10 missile has a receiving delivery");
-            let Some((position, _producer, _team)) = self
-                .objects
-                .get_mut(&id)
-                .filter(|object| {
-                    same_actor(object) && object.a10_strike_missile && object.is_alive()
-                })
-                .map(|object| {
-                    let position = object.get_position() + object.movement.velocity;
-                    object.set_position_with_effects(
-                        position,
-                        self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    );
-                    (position, object.producer_id, object.team)
-                })
+            let Some(position) = self.objects.get(&id)
+                .filter(|object| same_actor(object) && object.a10_strike_missile && object.is_alive())
+                .map(|object| object.get_position() + object.movement.velocity)
             else {
                 continue;
             };
+            if !self.set_owned_object_position_with_effects(id, position, self.frame, presentation_effects) {
+                continue;
+            }
             if position.y <= 5.0 {
                 let epicenter = Vec3::new(position.x, 0.0, position.z);
                 let (damage, hits, destroyed) = self.apply_radius_damage_from_source_with_effects(

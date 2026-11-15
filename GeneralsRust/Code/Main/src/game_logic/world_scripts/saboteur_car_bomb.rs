@@ -441,15 +441,8 @@ impl GameLogic {
                 if let Some(chute) = self.objects.get(&cid) {
                     let cp = chute.get_position();
                     let open = chute.is_parachute_open();
-                    if let Some(r) = self.objects.get_mut(&pilot_id) {
-                        r.set_position_with_effects_and_pose_owners(
-                            cp,
-                            self.frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            &self.host_trigger_world,
-                            &self.team_factory,
-                        );
-                        {}
+                    if self.set_owned_object_position_with_effects(pilot_id, cp, self.frame, effects) {
+                        let Some(r) = self.objects.get_mut(&pilot_id) else { return };
                         if open && !r.is_parachute_open() {
                             r.open_eject_parachute();
                         }
@@ -550,14 +543,11 @@ impl GameLogic {
             if landed {
                 p.y = ground;
             }
-            obj.set_position_with_effects_and_pose_owners(
-                p,
-                self.frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
-            {}
+            let _ = obj;
+            if !self.set_owned_object_position_with_effects(pilot_id, p, self.frame, effects) {
+                return;
+            }
+            let Some(obj) = self.objects.get_mut(&pilot_id) else { return };
             if let Some((np, nr, npr, nrr)) = sway {
                 obj.status.parachute_pitch = np;
                 obj.status.parachute_roll = nr;
@@ -583,15 +573,8 @@ impl GameLogic {
                 .map(|c| c.contained_units())
                 .unwrap_or_default();
             for rid in ids {
-                if let Some(r) = self.objects.get_mut(&rid) {
-                    r.set_position_with_effects_and_pose_owners(
-                        land_pos,
-                        self.frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
-                    {}
+                if self.set_owned_object_position_with_effects(rid, land_pos, self.frame, effects) {
+                    let Some(r) = self.objects.get_mut(&rid) else { continue };
                     if open && !r.is_parachute_open() {
                         r.open_eject_parachute();
                     }
@@ -629,15 +612,13 @@ impl GameLogic {
                         self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
-                    {}
-                    r.set_position_with_effects_and_pose_owners(
-                        land_pos,
-                        self.frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
-                    {}
+                    let _ = r;
+                    if !self.set_owned_object_position_with_effects(
+                        containment_actor_id, land_pos, self.frame, effects,
+                    ) {
+                        continue;
+                    }
+                    let Some(r) = self.objects.get_mut(&containment_actor_id) else { continue };
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
                     r.set_status_masked(false);

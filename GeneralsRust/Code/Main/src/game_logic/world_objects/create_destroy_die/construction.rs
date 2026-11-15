@@ -369,18 +369,11 @@ impl GameLogic {
             // Power is activated on completion, not bought with the scaffold.
             player.withdraw_construction_money(cost.supplies, &mut self.economy_events);
         }
+        if !self.set_owned_object_position_with_effects(id, position, self.frame, ui) {
+            return Ok(None);
+        }
         {
-            let object = (match self.objects.get_mut(&id) {
-                Some(value) => value,
-                None => return Ok(None),
-            });
-            object.set_position_with_effects_and_pose_owners(
-                position,
-                self.frame,
-                &mut ui.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let Some(object) = self.objects.get_mut(&id) else { return Ok(None) };
             object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
         }
         // DozerAIUpdate.cpp:1692-1702: flatten, snap, then path admission.

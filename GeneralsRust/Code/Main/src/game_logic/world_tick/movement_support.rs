@@ -2638,10 +2638,14 @@ impl GameLogic {
                                 }
                             }
 
-                            let reaction = obj.prepare_position_tree_reaction(
+                            let trigger_position = self.host_trigger_world.lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .object_integer_position(id.0);
+                            let reaction = obj.prepare_owned_position_tree_reaction(
                                 new_position,
                                 pose_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                trigger_position,
                             );
                             let _ = obj;
                             let _ = flight_terrain;
@@ -2683,10 +2687,14 @@ impl GameLogic {
                                 let posed = obj.get_position();
                                 let entry_target = posed + (target_pos - current_pos);
                                 let cheated = obj.braking_cheat_step(posed, entry_target, dt);
-                                let reaction = obj.prepare_position_tree_reaction(
+                                let trigger_position = self.host_trigger_world.lock()
+                                    .unwrap_or_else(|error| error.into_inner())
+                                    .object_integer_position(id.0);
+                                let reaction = obj.prepare_owned_position_tree_reaction(
                                     cheated,
                                     pose_frame,
                                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                    trigger_position,
                                 );
                                 let _ = obj;
                                 let _ = flight_terrain;
@@ -2725,10 +2733,14 @@ impl GameLogic {
                                             obj.movement.velocity.z * dt,
                                         )
                                 };
-                                let reaction = obj.prepare_position_tree_reaction(
+                                let trigger_position = self.host_trigger_world.lock()
+                                    .unwrap_or_else(|error| error.into_inner())
+                                    .object_integer_position(id.0);
+                                let reaction = obj.prepare_owned_position_tree_reaction(
                                     stepped,
                                     pose_frame,
                                     &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                    trigger_position,
                                 );
                                 let _ = obj;
                                 let _ = flight_terrain;
@@ -3078,10 +3090,14 @@ impl GameLogic {
                         }
                     } else {
                         if let Some(position) = leftover_settle_final_position_on_object(obj) {
-                            let reaction = obj.prepare_position_tree_reaction(
+                            let trigger_position = self.host_trigger_world.lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .object_integer_position(id.0);
+                            let reaction = obj.prepare_owned_position_tree_reaction(
                                 position,
                                 pose_frame,
                                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                trigger_position,
                             );
                             let _ = obj;
                             let _ = flight_terrain;

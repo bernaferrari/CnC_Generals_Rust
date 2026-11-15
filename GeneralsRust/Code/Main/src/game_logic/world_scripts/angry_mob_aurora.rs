@@ -1844,11 +1844,11 @@ impl GameLogic {
             };
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    pos + vel,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, pos + vel, tree_move_frame, effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.set_orientation_with_partition_owner(
                     vel.z.atan2(vel.x),
                     &mut self.partition_manager,
@@ -1870,12 +1870,14 @@ impl GameLogic {
             // Snap to aim residual and mark dead; detonation is mission-timer driven.
             if let Some(o) = self.objects.get_mut(&id) {
                 if let Some(a) = o.aurora_bomb_aim {
-                    o.set_position_with_effects(
-                        glam::Vec3::new(a[0], a[1], a[2]),
-                        tree_move_frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    );
+                    let _ = o;
+                    if !self.set_owned_object_position_with_effects(
+                        id, glam::Vec3::new(a[0], a[1], a[2]), tree_move_frame, effects,
+                    ) {
+                        continue;
+                    }
                 }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 {

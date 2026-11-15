@@ -460,98 +460,30 @@ impl DeliverPayloadAIUpdate {
         self.accepting_commands
     }
 
-    fn ai_move_to_position(&self, pos: &Coord3D) {
-        // Wave 352: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        let _ =
-            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    ai.ai_move_to_position(pos, false, CommandSourceType::FromAi);
-                }
-            });
+    fn move_with_ai(ai: &mut dyn AIUpdateInterface, pos: &Coord3D) {
+        let mut command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::MoveToPosition,
+            CommandSourceType::FromAi,
+        );
+        command.pos = *pos;
+        let _ = ai.execute_command(&command);
     }
 
-    fn ai_set_allow_invalid_position(&self, allow: Bool) {
-        // Wave 352: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        let _ =
-            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    ai.set_allow_invalid_position(allow);
-                }
-            });
-    }
-
-    fn ai_set_ultra_accurate(&self, ultra: Bool) {
-        // Wave 352: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        let _ =
-            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    ai.set_ultra_accurate(ultra);
-                }
-            });
-    }
-
-    fn ai_is_moving(&self) -> bool {
-        // Wave 352: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.owner_id, |owner_guard| {
-                owner_guard.get_ai_update_interface().map(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|guard| guard.is_moving())
-                        .unwrap_or(false)
-                })
-            })
-            .flatten()
-            .unwrap_or(false)
-    }
-
-    fn ai_is_idle(&self) -> bool {
-        // Wave 352: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.owner_id, |owner_guard| {
-                owner_guard.get_ai_update_interface().map(|ai| ai.is_idle())
-            })
-            .flatten()
-            .unwrap_or(false)
-    }
-
-    fn calc_min_turn_radius(&self, time_to_travel: Option<&mut Real>) -> Real {
-        // Wave 352: empty dual-world → 999999.0.
+    fn calc_min_turn_radius(
+        &self,
+        ai: &dyn AIUpdateInterface,
+        time_to_travel: Option<&mut Real>,
+    ) -> Real {
         if dual_world_registry_unavailable() {
             return 999999.0;
         }
 
         let owner = TheGameLogic::find_object_by_id(self.owner_id);
-        let (body, ai) = {
-            let Some(owner_guard) = owner.as_ref().and_then(|obj| obj.read().ok()) else {
-                return 999999.0;
-            };
-            (
-                owner_guard.get_body_module(),
-                owner_guard.get_ai_update_interface(),
-            )
-        };
-        let (Some(body), Some(ai)) = (body, ai) else {
+        let body = owner
+            .as_ref()
+            .and_then(|obj| obj.read().ok())
+            .and_then(|owner| owner.get_body_module());
+        let Some(body) = body else {
             return 999999.0;
         };
         let Ok(body_guard) = body.lock() else {
@@ -642,40 +574,32 @@ impl DeliverPayloadAIUpdate {
     fn update_state(&mut self, ai: &mut dyn AIUpdateInterface) {
         match self.state {
             DeliverPayloadState::Approach => match self.update_approach(ai) {
-                StateReturnType::Success => self.enter_state(DeliverPayloadState::Delivering),
-                StateReturnType::Failure => {
-                    self.enter_state(DeliverPayloadState::ConsiderNewApproach)
-                }
+                StateReturnType::Success => self.enter_state(ai, DeliverPayloadState::Delivering),
+                StateReturnType::Failure => self.enter_state(ai, DeliverPayloadState::ConsiderNewApproach),
                 _ => {}
             },
             DeliverPayloadState::Delivering => match self.update_delivering() {
-                StateReturnType::Success => self.enter_state(DeliverPayloadState::HeadOffMap),
-                StateReturnType::Failure => {
-                    self.enter_state(DeliverPayloadState::ConsiderNewApproach)
-                }
+                StateReturnType::Success => self.enter_state(ai, DeliverPayloadState::HeadOffMap),
+                StateReturnType::Failure => self.enter_state(ai, DeliverPayloadState::ConsiderNewApproach),
                 _ => {}
             },
             DeliverPayloadState::ConsiderNewApproach => {
                 if self.is_off_map() {
-                    self.enter_state(DeliverPayloadState::RecoverFromOffMap);
+                    self.enter_state(ai, DeliverPayloadState::RecoverFromOffMap);
                 } else {
-                    match self.update_consider_new_approach() {
-                        StateReturnType::Success => self.enter_state(DeliverPayloadState::Approach),
-                        StateReturnType::Failure => {
-                            self.enter_state(DeliverPayloadState::HeadOffMap)
-                        }
+                    match self.update_consider_new_approach(ai) {
+                        StateReturnType::Success => self.enter_state(ai, DeliverPayloadState::Approach),
+                        StateReturnType::Failure => self.enter_state(ai, DeliverPayloadState::HeadOffMap),
                         _ => {}
                     }
                 }
             }
             DeliverPayloadState::RecoverFromOffMap => match self.update_recover_from_off_map() {
-                StateReturnType::Success => self.enter_state(DeliverPayloadState::Approach),
-                StateReturnType::Failure => self.enter_state(DeliverPayloadState::Approach),
+                StateReturnType::Success | StateReturnType::Failure => self.enter_state(ai, DeliverPayloadState::Approach),
                 _ => {}
             },
             DeliverPayloadState::HeadOffMap => match self.update_head_off_map() {
-                StateReturnType::Success => self.enter_state(DeliverPayloadState::CleanUp),
-                StateReturnType::Failure => self.enter_state(DeliverPayloadState::CleanUp),
+                StateReturnType::Success | StateReturnType::Failure => self.enter_state(ai, DeliverPayloadState::CleanUp),
                 _ => {}
             },
             DeliverPayloadState::CleanUp => {
@@ -685,28 +609,24 @@ impl DeliverPayloadAIUpdate {
         }
     }
 
-    fn enter_state(&mut self, new_state: DeliverPayloadState) {
-        self.exit_state(self.state);
+    fn enter_state(&mut self, ai: &mut dyn AIUpdateInterface, new_state: DeliverPayloadState) {
+        self.exit_state(ai, self.state);
         self.state = new_state;
-        self.enter_state_impl(new_state);
+        self.enter_state_impl(ai, new_state);
     }
 
-    fn enter_state_impl(&mut self, state: DeliverPayloadState) {
+    fn enter_state_impl(&mut self, ai: &mut dyn AIUpdateInterface, state: DeliverPayloadState) {
         match state {
-            DeliverPayloadState::Approach => {
-                self.enter_approach();
-            }
-            DeliverPayloadState::Delivering => {
-                self.enter_delivering();
-            }
+            DeliverPayloadState::Approach => Self::move_with_ai(ai, &self.move_to_pos),
+            DeliverPayloadState::Delivering => self.enter_delivering(),
             DeliverPayloadState::ConsiderNewApproach => {
-                let _ = self.enter_consider_new_approach();
+                let _ = self.enter_consider_new_approach(ai);
             }
             DeliverPayloadState::RecoverFromOffMap => {
-                let _ = self.enter_recover_from_off_map();
+                let _ = self.enter_recover_from_off_map(ai);
             }
             DeliverPayloadState::HeadOffMap => {
-                let _ = self.enter_head_off_map();
+                let _ = self.enter_head_off_map(ai);
             }
             DeliverPayloadState::CleanUp => {
                 let _ = self.enter_cleanup();
@@ -714,17 +634,13 @@ impl DeliverPayloadAIUpdate {
         }
     }
 
-    fn exit_state(&mut self, state: DeliverPayloadState) {
+    fn exit_state(&mut self, ai: &mut dyn AIUpdateInterface, state: DeliverPayloadState) {
         if state == DeliverPayloadState::Delivering {
             self.exit_delivering();
         }
-        if state == DeliverPayloadState::ConsiderNewApproach {
-            self.ai_set_allow_invalid_position(true);
+        if state == DeliverPayloadState::ConsiderNewApproach && !dual_world_registry_unavailable() {
+            let _ = ai.set_allow_invalid_position(true);
         }
-    }
-
-    fn enter_approach(&mut self) {
-        self.ai_move_to_position(&self.move_to_pos);
     }
 
     fn update_approach(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
@@ -736,11 +652,11 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Success;
         }
 
-        if !self.ai_is_moving() {
-            if self.ai_is_idle() {
+        if !dual_world_registry_unavailable() && !ai.is_moving() {
+            if ai.is_idle() {
                 return StateReturnType::Failure;
             }
-            self.ai_move_to_position(&self.move_to_pos);
+            Self::move_with_ai(ai, &self.move_to_pos);
         }
 
         StateReturnType::Continue
@@ -1111,7 +1027,7 @@ impl DeliverPayloadAIUpdate {
         });
     }
 
-    fn enter_consider_new_approach(&mut self) -> StateReturnType {
+    fn enter_consider_new_approach(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
         // Wave 352: empty dual-world → Continue.
         if dual_world_registry_unavailable() {
             return StateReturnType::Continue;
@@ -1122,7 +1038,7 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Failure;
         }
 
-        let min_turn_radius = self.calc_min_turn_radius(None);
+        let min_turn_radius = self.calc_min_turn_radius(ai, None);
         let min_reapproach_dist = min_turn_radius * 2.2;
 
         let owner = TheGameLogic::find_object_by_id(self.owner_id);
@@ -1138,32 +1054,34 @@ impl DeliverPayloadAIUpdate {
             0.0,
         );
 
-        self.ai_move_to_position(&re_approach_point);
-        self.ai_set_allow_invalid_position(true);
+        drop(owner_guard);
+        Self::move_with_ai(ai, &re_approach_point);
+        let _ = ai.set_allow_invalid_position(true);
 
         StateReturnType::Continue
     }
 
-    fn update_consider_new_approach(&self) -> StateReturnType {
-        if !self.ai_is_moving() {
+    fn update_consider_new_approach(&self, ai: &dyn AIUpdateInterface) -> StateReturnType {
+        if !ai.is_moving() {
             return StateReturnType::Success;
         }
         StateReturnType::Continue
     }
 
-    fn enter_recover_from_off_map(&mut self) -> StateReturnType {
+    fn enter_recover_from_off_map(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
         // Wave 352: empty dual-world → Continue.
         if dual_world_registry_unavailable() {
             return StateReturnType::Continue;
         }
 
-        let _ =
-            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                self.ai_move_to_position(owner_guard.get_position());
-            });
+        let pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| *owner.get_position());
+        if let Some(pos) = pos {
+            Self::move_with_ai(ai, &pos);
+        }
 
         let mut time_to_travel = 0.0;
-        let _ = self.calc_min_turn_radius(Some(&mut time_to_travel));
+        let _ = self.calc_min_turn_radius(ai, Some(&mut time_to_travel));
         self.re_entry_frame =
             TheGameLogic::get_frame() + time_to_travel.ceil().max(0.0) as UnsignedInt;
 
@@ -1235,7 +1153,7 @@ impl DeliverPayloadAIUpdate {
         StateReturnType::Success
     }
 
-    fn enter_head_off_map(&mut self) -> StateReturnType {
+    fn enter_head_off_map(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
         // Wave 352: empty dual-world → Continue.
         if dual_world_registry_unavailable() {
             return StateReturnType::Continue;
@@ -1273,9 +1191,9 @@ impl DeliverPayloadAIUpdate {
         exit_coord.y += dir_y * huge_dist;
 
         drop(owner_guard);
-        self.ai_set_allow_invalid_position(true);
-        self.ai_set_ultra_accurate(true);
-        self.ai_move_to_position(&exit_coord);
+        let _ = ai.set_allow_invalid_position(true);
+        let _ = ai.set_ultra_accurate(true);
+        Self::move_with_ai(ai, &exit_coord);
 
         self.accepting_commands = false;
 
@@ -1458,16 +1376,16 @@ impl DeliverPayloadAIUpdate {
     }
 }
 
-impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
-    fn deliver_payload(
+impl DeliverPayloadAIUpdate {
+    fn initialize_delivery(
         &mut self,
         move_to_pos: &Coord3D,
         target_pos: &Coord3D,
         data: &DeliverPayloadData,
-    ) {
+    ) -> bool {
         // Wave 352: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
-            return;
+            return false;
         }
 
         self.move_to_pos = *move_to_pos;
@@ -1522,10 +1440,23 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
                 }
             });
 
-        self.enter_state_impl(DeliverPayloadState::Approach);
+        true
     }
 
-    fn deliver_payload_via_module_data(&mut self, move_to_pos: &Coord3D) {
+    /// Start while the enclosing AI is already borrowed by the caller.
+    pub(crate) fn deliver_payload_with_ai(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+        move_to_pos: &Coord3D,
+        target_pos: &Coord3D,
+        data: &DeliverPayloadData,
+    ) {
+        if self.initialize_delivery(move_to_pos, target_pos, data) {
+            Self::move_with_ai(ai, move_to_pos);
+        }
+    }
+
+    fn delivery_module_data(&self) -> DeliverPayloadData {
         let mut dp_data = DeliverPayloadData::default();
         let data_guard = self.module_data.read();
         let data = data_guard.downcast_ref::<DeliverPayloadAIUpdateModuleData>().expect("DeliverPayload data type");
@@ -1538,7 +1469,26 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
         dp_data.delivery_decal_radius = data.delivery_decal_radius;
         drop(data_guard);
 
-        self.deliver_payload(move_to_pos, move_to_pos, &dp_data);
+        dp_data
+    }
+
+    pub(crate) fn deliver_payload_via_module_data_with_ai(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+        move_to_pos: &Coord3D,
+    ) {
+        let data = self.delivery_module_data();
+        self.deliver_payload_with_ai(ai, move_to_pos, move_to_pos, &data);
+    }
+}
+
+impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
+    fn get_target_pos(&self) -> &Coord3D {
+        DeliverPayloadAIUpdate::get_target_pos(self)
+    }
+
+    fn get_move_to_pos(&self) -> &Coord3D {
+        DeliverPayloadAIUpdate::get_move_to_pos(self)
     }
 
     fn is_delivering_payload(&self) -> Bool {

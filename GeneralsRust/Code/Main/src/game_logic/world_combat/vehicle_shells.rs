@@ -484,11 +484,11 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.movement.velocity = vel;
                 let p = o.get_position();
-                o.set_position_with_effects(
-                    p + vel,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, p + vel, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 o.tomahawk_missile_travelled += step;
                 o.set_orientation_with_partition_owner(
                     vel.z.atan2(vel.x),
@@ -514,11 +514,10 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.tomahawk_missile_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                    continue;
+                }
             }
             let _ = self.apply_tomahawk_residual_at_with_effects(
                 pos,
@@ -1503,11 +1502,11 @@ impl GameLogic {
             let pos = fire_base_shell_bezier_point(from, aim, t);
             if let Some(o) = self.objects.get_mut(&id) {
                 let prev = o.get_position();
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                    continue;
+                }
+                let Some(o) = self.objects.get_mut(&id) else { continue };
                 let d = pos - prev;
                 if d.length_squared() > 1.0e-6 {
                     o.set_orientation_with_partition_owner(
@@ -1531,11 +1530,10 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.fire_base_shell_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                    continue;
+                }
             }
             let _ = self.apply_fire_base_residual_at_with_effects(
                 pos,

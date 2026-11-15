@@ -780,11 +780,8 @@ impl ScriptActionDispatcher<'_> {
 
                 if is_transport_template {
                     if let Ok(mut ai) = ai_arc.lock() {
-                        let mut used_deliver_payload = false;
-                        if let Some(dp) = ai.get_deliver_payload_ai_update_interface() {
-                            dp.deliver_payload_via_module_data(&destination);
-                            used_deliver_payload = true;
-                        }
+                        let used_deliver_payload =
+                            ai.start_deliver_payload_via_module_data(&destination);
 
                         if !used_deliver_payload {
                             let _ =

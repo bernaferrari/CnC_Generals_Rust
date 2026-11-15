@@ -388,14 +388,18 @@ impl GameLogic {
                 {
                     let transform =
                         self.objects.get(&id).unwrap().get_transform_matrix() * firepoint;
+                    let trigger_position = self.host_trigger_world.lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .object_integer_position(rider.0);
                     let reaction = self
                         .objects
                         .get_mut(&rider)
                         .unwrap()
-                        .prepare_transform_tree_reaction(
+                        .prepare_owned_transform_tree_reaction(
                             transform,
                             self.frame,
                             &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            trigger_position,
                         );
                     self.complete_owned_position_reaction(rider, reaction, effects)
                 } else {

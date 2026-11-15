@@ -183,7 +183,7 @@ impl Object {
         }
     }
 
-    fn apply_jet_death_phase(
+    pub(in crate::game_logic) fn apply_jet_death_phase(
         &mut self,
         ev: crate::game_logic::host_jet_slow_death::HostJetDeathPhaseEvent,
     ) {
@@ -367,22 +367,6 @@ impl Object {
         )
     }
 
-    pub(crate) fn tick_helicopter_slow_death_with_effects_and_team_factory(
-        &mut self,
-        current_frame: u32,
-        terrain_height: f32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
-        team_factory: &gamelogic::team::TeamFactoryHandle,
-    ) -> bool {
-        self.tick_helicopter_slow_death_with_owner(
-            current_frame,
-            terrain_height,
-            effects,
-            Some(trigger_world),
-            Some(team_factory),
-        )
-    }
 
     fn tick_helicopter_slow_death_with_owner(
         &mut self,

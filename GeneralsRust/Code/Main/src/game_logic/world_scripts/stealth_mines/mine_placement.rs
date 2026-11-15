@@ -470,13 +470,8 @@ impl GameLogic {
             return;
         }
         let spawn = md.set_scoot_parms(start, dest, ground_y);
-        obj.set_position_with_effects_and_pose_owners(
-            spawn,
-            tree_move_frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
-            &self.host_trigger_world,
-            &self.team_factory,
-        );
+        let _ = obj;
+        self.set_owned_object_position_with_effects(mine_id, spawn, tree_move_frame, effects);
     }
 
     /// C++ MinefieldBehavior::update scoot integrate.
@@ -506,13 +501,8 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     if let Some(next) = md.tick_scoot(pos, ground_y) {
-                        obj.set_position_with_effects_and_pose_owners(
-                            next,
-                            tree_move_frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            &self.host_trigger_world,
-                            &self.team_factory,
-                        );
+                        let _ = obj;
+                        self.set_owned_object_position_with_effects(id, next, tree_move_frame, effects);
                     }
                 }
             }
@@ -753,13 +743,10 @@ impl GameLogic {
                 if let Some(start) = producer_pos {
                     if let Some(md) = obj.mine_data.as_mut() {
                         let spawn = md.set_scoot_parms(start, position, dest_ground);
-                        obj.set_position_with_effects_and_pose_owners(
-                            spawn,
-                            tree_move_frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            &self.host_trigger_world,
-                            &self.team_factory,
-                        );
+                        let _ = obj;
+                        if !self.set_owned_object_position_with_effects(id, spawn, tree_move_frame, effects) {
+                            return None;
+                        }
                     }
                 }
             }

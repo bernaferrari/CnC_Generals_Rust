@@ -187,12 +187,8 @@ impl GameLogic {
             let elapsed = frame.saturating_sub(launch);
             let t = (elapsed as f32 / flight as f32).clamp(0.0, 1.0);
             let pos = technical_cannon_shell_bezier_point(from, aim, t);
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+            if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                continue;
             }
             if elapsed >= flight {
                 impact.push((id, source, intended, aim));
@@ -209,11 +205,10 @@ impl GameLogic {
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
                 o.technical_cannon_shell_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(id, pos, self.frame, presentation_effects) {
+                    continue;
+                }
             }
             let _ = self.apply_technical_residual_at_with_effects(
                 pos,

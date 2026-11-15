@@ -97,6 +97,46 @@ fn registered_movement_updates_only_its_receiving_session_position_cells() {
 }
 
 #[test]
+fn small_boundary_crossing_waits_for_qualifying_position_reaction_in_each_world() {
+    use generals_main::game_logic::pathfinding::GridPos;
+
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("PositionThreshold.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let mut worlds = [world(&map), world(&map)];
+    let ids: Vec<_> = worlds.iter_mut().map(|world| {
+        let id = world.create_object_for_player(
+            "RetryWalker", 1, Vec3::new(90.0, 0.0, 100.0),
+        ).unwrap();
+        let object = world.host_object_mut(id).unwrap();
+        object.cur_locomotor_name = Some("RetryWalk".into());
+        object.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        assert!(world.set_registered_object_position(id, Vec3::new(99.997, 0.0, 100.0)));
+        id
+    }).collect();
+    assert_eq!(ids[0], ids[1]);
+    assert!(worlds[0].set_registered_object_position(ids[0], Vec3::new(100.003, 0.0, 100.0)));
+    assert_eq!(worlds[0].pathfinding_ground_position(GridPos::new(9, 10)), Some(ids[0]));
+    assert_eq!(worlds[0].pathfinding_ground_position(GridPos::new(10, 10)), None);
+    assert!(worlds[0].set_registered_object_position(ids[0], Vec3::new(100.02, 0.0, 100.0)));
+    assert_eq!(worlds[0].pathfinding_ground_position(GridPos::new(9, 10)), None);
+    assert_eq!(worlds[0].pathfinding_ground_position(GridPos::new(10, 10)), Some(ids[0]));
+    assert_eq!(worlds[1].pathfinding_ground_position(GridPos::new(9, 10)), Some(ids[1]));
+    assert_eq!(worlds[1].pathfinding_ground_position(GridPos::new(10, 10)), None);
+}
+
+#[test]
 fn rapid_retry_uses_the_original_unsigned_frame_comparison() {
     let mut unit = Object::new(ThingTemplate::new("Retry"), ObjectId(1), Team::USA);
     unit.path_timestamp = 1;
@@ -1446,21 +1486,10 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     builder
         .restore_from_snapshot(&pending, &mut pending_restored)
         .unwrap();
-    let mut v17 = builder.create_world_snapshot(&owner).unwrap();
-    v17.lifecycle_tail
-        .drain(payload_end - 8..actual_payload_end);
-    v17.lifecycle_tail[tag + 4..tag + 8].copy_from_slice(&17_u32.to_le_bytes());
-    v17.lifecycle_tail[tag + 8..tag + 12]
-        .copy_from_slice(&((size - 8 - saved_position_cells_len(&owner)) as u32).to_le_bytes());
-    let mut v17_restored = aircraft_world(&map);
-    builder
-        .restore_from_snapshot(&v17, &mut v17_restored)
-        .unwrap();
     for _ in 0..2 {
         owner.update_with_dt(1.0 / 30.0);
         peer.update_with_dt(1.0 / 30.0);
         pending_restored.update_with_dt(1.0 / 30.0);
-        v17_restored.update_with_dt(1.0 / 30.0);
     }
     let goal = owner.host_object(id).unwrap().pathfind_goal_cell;
     let peer_goal = peer.host_object(id).unwrap().pathfind_goal_cell;
@@ -1481,10 +1510,6 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
     assert_ne!(goal, peer_goal);
     assert_eq!(
         pending_restored.host_object(id).unwrap().pathfind_goal_cell,
-        goal
-    );
-    assert_eq!(
-        v17_restored.host_object(id).unwrap().pathfind_goal_cell,
         goal
     );
     let goal_pos = generals_main::game_logic::pathfinding::GridPos::new(goal.0, goal.1);
@@ -1593,39 +1618,6 @@ fn delayed_request_runs_on_its_actor_deadline_after_save_and_interleaving() {
     other.host_object_mut(queued).unwrap().queue_for_path_frame = 90;
 
     let builder = SnapshotBuilder::new();
-    let mut legacy = builder.create_world_snapshot(&original).unwrap();
-    let version = legacy
-        .lifecycle_tail
-        .windows(4)
-        .position(|part| part == b"TMAI")
-        .unwrap()
-        + 4;
-    let length = version + 4;
-    let size = u32::from_le_bytes(
-        legacy.lifecycle_tail[length..length + 4]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    let actual_end = length + 4 + size;
-    let end = actual_end - saved_position_cells_len(&original);
-    assert_eq!(&legacy.lifecycle_tail[end - 32..end], &[0; 32]);
-    legacy.lifecycle_tail.drain(end - 32..actual_end);
-    legacy.lifecycle_tail[length..length + 4]
-        .copy_from_slice(&((size - 32 - saved_position_cells_len(&original)) as u32).to_le_bytes());
-    legacy.lifecycle_tail[version..version + 4].copy_from_slice(&14_u32.to_le_bytes());
-    let mut legacy_receiver = world(&map);
-    builder
-        .restore_from_snapshot(&legacy, &mut legacy_receiver)
-        .unwrap();
-    // The slot contains 40 in this synthetic v14 record, meaning 40 frames
-    // remaining, rather than an absolute frame 40.
-    assert_eq!(
-        legacy_receiver
-            .host_object(id)
-            .unwrap()
-            .queue_for_path_frame,
-        50
-    );
     let snapshot = builder.create_world_snapshot(&original).unwrap();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)

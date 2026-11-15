@@ -126,6 +126,29 @@ pub trait ObjectCreationNugget: Send + Sync {
         self.create_with_angle(ctx, primary_obj, primary, secondary, angle, lifetime_frames)
     }
 
+    /// Invoke this nugget using the canonical owner handle. Implementations
+    /// that mutate the owner release their read lease before doing so.
+    fn create_with_owner_handle(
+        &self,
+        ctx: &CreationContext<'_>,
+        owner: &Arc<RwLock<Object>>,
+        primary: &Coord3D,
+        secondary: &Coord3D,
+        angle: Option<Real>,
+        create_owner: Bool,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        let owner = owner.read().ok()?;
+        match angle {
+            Some(angle) => self.create_with_angle_and_owner_flag(
+                ctx, Some(&owner), primary, secondary, angle, create_owner, lifetime_frames,
+            ),
+            None => self.create_with_owner_flag(
+                ctx, Some(&owner), primary, secondary, create_owner, lifetime_frames,
+            ),
+        }
+    }
+
     /// Downcast helper for parse/create inspection (INI tests, typed field checks).
     fn as_any(&self) -> &dyn Any;
 }
@@ -1459,6 +1482,10 @@ mod tests {
     }
 
     impl ThingFactoryContext for TestFactory {
+        fn find_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+            crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        }
+
         fn find_template(&self, name: &str) -> Option<Arc<dyn crate::common::ThingTemplate>> {
             Some(Arc::new(DefaultThingTemplate::new(name.to_string())))
         }

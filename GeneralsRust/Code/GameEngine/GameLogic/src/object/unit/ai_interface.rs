@@ -1334,6 +1334,29 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::get_deliver_payload_ai_update_interface(self)
     }
 
+    fn start_deliver_payload(
+        &mut self,
+        move_to_pos: &Coord3D,
+        target_pos: &Coord3D,
+        data: &crate::object::update::ai_update::deliver_payload_data::DeliverPayloadData,
+    ) -> bool {
+        let Some(mut delivery) = self.runtime.components.deliver_payload_ai.take() else {
+            return false;
+        };
+        delivery.deliver_payload_with_ai(self, move_to_pos, target_pos, data);
+        self.runtime.components.deliver_payload_ai = Some(delivery);
+        true
+    }
+
+    fn start_deliver_payload_via_module_data(&mut self, move_to_pos: &Coord3D) -> bool {
+        let Some(mut delivery) = self.runtime.components.deliver_payload_ai.take() else {
+            return false;
+        };
+        delivery.deliver_payload_via_module_data_with_ai(self, move_to_pos);
+        self.runtime.components.deliver_payload_ai = Some(delivery);
+        true
+    }
+
     fn ai_guard_object(
         &mut self,
         target_id: ObjectID,

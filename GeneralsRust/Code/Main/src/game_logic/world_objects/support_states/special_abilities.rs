@@ -1369,11 +1369,11 @@ impl GameLogic {
         }
         if let Some(sid) = special_object_id {
             if let Some(o) = self.objects.get_mut(&sid) {
-                o.set_position_with_effects(
-                    from,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
+                let _ = o;
+                if !self.set_owned_object_position_with_effects(sid, from, tree_move_frame, effects) {
+                    return found;
+                }
+                let Some(o) = self.objects.get_mut(&sid) else { return found };
                 let extra = if o.missile_defender_laser_beam {
                     crate::game_logic::host_missile_defender::LASER_GUIDED_BEAM_LIFETIME_FRAMES
                 } else {

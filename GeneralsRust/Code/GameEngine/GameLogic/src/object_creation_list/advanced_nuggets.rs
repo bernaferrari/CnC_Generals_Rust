@@ -100,6 +100,20 @@ pub struct DeliverPayloadFormationPose {
     pub orient: Real,
 }
 
+enum DeliverySource<'a> {
+    Borrowed(&'a Object),
+    Handle(&'a Arc<RwLock<Object>>),
+}
+
+impl DeliverySource<'_> {
+    fn with<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        match self {
+            Self::Borrowed(object) => Some(f(object)),
+            Self::Handle(object) => object.read().ok().map(|object| f(&object)),
+        }
+    }
+}
+
 impl DeliverPayloadNugget {
     /// Calculate formation offset vectors (CCW and CW perpendicular to approach)
     /// Matches C++ ObjectCreationList.cpp:271-298
@@ -221,60 +235,22 @@ impl DeliverPayloadNugget {
             orient,
         }
     }
-}
 
-impl ObjectCreationNugget for DeliverPayloadNugget {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn create_without_secondary(
-        &self,
-        _ctx: &CreationContext<'_>,
-        _primary_obj: Option<&Object>,
-        _primary: &Coord3D,
-        _angle: Real,
-        _lifetime_frames: UnsignedInt,
-    ) -> CreationResult {
-        None
-    }
-
-    fn create_with_angle(
+    fn create_delivery(
         &self,
         ctx: &CreationContext<'_>,
-        primary_obj: Option<&Object>,
-        primary: &Coord3D,
-        secondary: &Coord3D,
-        _angle: Real,
-        lifetime_frames: UnsignedInt,
-    ) -> CreationResult {
-        self.create_with_owner_flag(ctx, primary_obj, primary, secondary, true, lifetime_frames)
-    }
-
-    fn create_with_owner_flag(
-        &self,
-        ctx: &CreationContext<'_>,
-        primary_obj: Option<&Object>,
+        source: DeliverySource<'_>,
         primary: &Coord3D,
         secondary: &Coord3D,
         create_owner: Bool,
-        _lifetime_frames: UnsignedInt,
     ) -> CreationResult {
-        // Wave 445: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
-        let Some(primary_object) = primary_obj else {
-            return None;
-        };
-
-        // Get owner team
-        let Some(owner_arc) = primary_object
-            .with_controlling_player(|p| p.get_default_team())
-            .flatten()
-        else {
-            return None;
-        };
+        let (primary_id, owner_arc) = source.with(|object| {
+            (object.get_id(), object.with_controlling_player(|p| p.get_default_team()).flatten())
+        })?;
+        let owner_arc = owner_arc?;
 
         let mut first_transport: Option<Arc<RwLock<Object>>> = None;
 
@@ -325,7 +301,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                 if let Ok(mut transport_write) = transport.write() {
                     let _ = transport_write.set_position(&start_pos);
                     let _ = transport_write.set_orientation(orient);
-                    transport_write.set_producer(Some(primary_object));
+                    source.with(|object| transport_write.set_producer(Some(object)))?;
                     transport_write
                         .set_script_status(ObjectScriptStatusBit::ScriptTargetable, true);
                 }
@@ -348,18 +324,21 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                 transport
             } else {
                 // Use primary object as transport
-                let Some(transport) = OBJECT_REGISTRY.get_object(primary_object.get_id()) else {
-                    return None;
-                };
-                transport
+                match &source {
+                    DeliverySource::Handle(owner) => Arc::clone(owner),
+                    DeliverySource::Borrowed(_) => ctx.thing_factory.find_object(primary_id)?,
+                }
             };
 
             // Notify special power tracking
-            let creator = if formation_index == 0 { primary_object.get_id() } else { INVALID_ID };
-            if create_owner {
-                set_special_power_creator(&transport, creator);
+            let creator = if formation_index == 0 { primary_id } else { INVALID_ID };
+            if !create_owner {
+                match &source {
+                    DeliverySource::Borrowed(object) => object.set_special_power_completion_creator(creator),
+                    DeliverySource::Handle(_) => set_special_power_creator(&transport, creator),
+                }
             } else {
-                primary_object.set_special_power_completion_creator(creator);
+                set_special_power_creator(&transport, creator);
             }
 
             // C++ only applies max-speed / deliverPayload / height / payload when the
@@ -422,18 +401,17 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                 }
             }
 
-            if let Ok(transport_read) = transport.read() {
-                if let Some(ai) = transport_read.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        if let Some(deliver_ai) = ai_guard.get_deliver_payload_ai_update_interface()
-                        {
-                            let mut delivery_data = self.data.clone();
-                            if formation_index > 0 {
-                                delivery_data.delivery_decal_radius = 0.0;
-                            }
-                            deliver_ai.deliver_payload(&move_to_pos, &target_pos, &delivery_data);
-                        }
+            let ai = transport
+                .read()
+                .ok()
+                .and_then(|transport_read| transport_read.get_ai_update_interface());
+            if let Some(ai) = ai {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    let mut delivery_data = self.data.clone();
+                    if formation_index > 0 {
+                        delivery_data.delivery_decal_radius = 0.0;
                     }
+                    ai_guard.start_deliver_payload(&move_to_pos, &target_pos, &delivery_data);
                 }
             }
 
@@ -484,7 +462,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                     }
 
                     if formation_index == 0 && payload_index == 0 {
-                        set_special_power_creator(&payload_obj, primary_object.get_id());
+                        set_special_power_creator(&payload_obj, primary_id);
                     } else {
                         set_special_power_creator(&payload_obj, INVALID_ID);
                     }
@@ -503,7 +481,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                             }
 
                             if formation_index == 0 && payload_index == 0 {
-                                set_special_power_creator(&container, primary_object.get_id());
+                                set_special_power_creator(&container, primary_id);
                             } else {
                                 set_special_power_creator(&container, INVALID_ID);
                             }
@@ -561,6 +539,73 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
         }
 
         first_transport
+    }
+}
+
+impl ObjectCreationNugget for DeliverPayloadNugget {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn create_without_secondary(
+        &self,
+        _ctx: &CreationContext<'_>,
+        _primary_obj: Option<&Object>,
+        _primary: &Coord3D,
+        _angle: Real,
+        _lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        None
+    }
+
+    fn create_with_angle(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary_obj: Option<&Object>,
+        primary: &Coord3D,
+        secondary: &Coord3D,
+        _angle: Real,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        self.create_with_owner_flag(ctx, primary_obj, primary, secondary, true, lifetime_frames)
+    }
+
+    fn create_with_owner_flag(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary_obj: Option<&Object>,
+        primary: &Coord3D,
+        secondary: &Coord3D,
+        create_owner: Bool,
+        _lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        let source = DeliverySource::Borrowed(primary_obj?);
+        self.create_delivery(ctx, source, primary, secondary, create_owner)
+    }
+
+    fn create_with_angle_and_owner_flag(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary_obj: Option<&Object>,
+        primary: &Coord3D,
+        secondary: &Coord3D,
+        _angle: Real,
+        create_owner: Bool,
+        _lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        self.create_delivery(ctx, DeliverySource::Borrowed(primary_obj?), primary, secondary, create_owner)
+    }
+
+    fn create_with_owner_handle(
+        &self,
+        ctx: &CreationContext<'_>,
+        owner: &Arc<RwLock<Object>>,
+        primary: &Coord3D,
+        secondary: &Coord3D,
+        _angle: Option<Real>,
+        create_owner: Bool,
+        _lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        self.create_delivery(ctx, DeliverySource::Handle(owner), primary, secondary, create_owner)
     }
 }
 
@@ -795,6 +840,157 @@ mod tests {
     use std::sync::Mutex;
 
     #[test]
+    fn ocl_owner_delivery_starts_actual_ai_without_relocking_or_touching_peer() {
+        use crate::object::unit::{UnitAIUpdate, UnitAiComponents};
+        use crate::object::update::ai_update::deliver_payload_ai_update::{
+            DeliverPayloadAIUpdate, DeliverPayloadAIUpdateModuleData,
+        };
+        use crate::object::special_powers::ocl_special_power::{
+            OCLCreateLocType, OclSpecialPower, OclSpecialPowerModuleData,
+        };
+        use crate::system::engine_stores::{EngineStores, with_active_stores};
+        use game_engine::common::thing::module::ModuleDataHandle;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        // Bound the test itself: a recursive AI or owner lock must fail rather
+        // than indefinitely block the entire test process.
+        let (done, result) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let first_world = Arc::new(EngineStores::new_for_world());
+            let second_world = Arc::new(EngineStores::new_for_world());
+            let make_owner = |world: &Arc<EngineStores>| {
+                with_active_stores(world, || {
+                    let team = Arc::new(RwLock::new(Team::new("delivery".into(), 17)));
+                    team.write().unwrap().set_controlling_player_id(Some(0));
+                    let mut player = crate::player::Player::new(0);
+                    player.set_default_team(Some(team.clone()));
+                    world.services().players().write().unwrap()
+                        .add_player(Arc::new(RwLock::new(player)));
+                    let mut owner = Object::new_test(41, 100.0);
+                    owner.bind_pathfinding_owner(world).unwrap();
+                    owner.bind_owner_world_for_test(world.services());
+                    owner.set_team(Some(team)).unwrap();
+                    let owner = Arc::new(RwLock::new(owner));
+                    let mut delivery_data = DeliverPayloadAIUpdateModuleData::default();
+                    delivery_data.base.set_locomotor_set_entries(
+                        crate::common::LocomotorSetType::Normal,
+                        vec![AsciiString::from("DeliveryTestLoco")],
+                    );
+                    world.services().locomotor_store().register_template(
+                        crate::locomotor::LocomotorTemplate::new("DeliveryTestLoco".to_string()),
+                    );
+                    let ai_data = delivery_data.base.clone();
+                    let delivery = DeliverPayloadAIUpdate::new(ModuleDataHandle::new(delivery_data), 41);
+                    let mut runtime = UnitAIUpdate::new_for_object(
+                        41,
+                        &owner,
+                        UnitAiComponents {
+                            supply_truck_ai: None,
+                            chinook_ai: None,
+                            jet_ai: None,
+                            worker_ai: None,
+                            dozer_ai: None,
+                            #[cfg(feature = "allow_surrender")]
+                            pow_truck_ai: None,
+                            railed_transport_ai: None,
+                            hack_internet_ai: None,
+                            assault_transport_ai: None,
+                            deliver_payload_ai: Some(delivery),
+                            transport_ai: None,
+                            deploy_style_ai: None,
+                            wander_ai: None,
+                        },
+                    );
+                    runtime.apply_ai_update_module_data(&ai_data);
+                    let mut has_locomotor = false;
+                    runtime.with_cur_locomotor(&mut |_| has_locomotor = true);
+                    assert!(has_locomotor, "delivery must exercise an active locomotor");
+                    let ai = Arc::new(Mutex::new(runtime));
+                    let interface: Arc<Mutex<dyn AIUpdateInterface>> = ai.clone();
+                    owner.write().unwrap().set_ai_update_interface(Some(interface));
+                    crate::helpers::TheGameLogic::register_object(owner.clone()).unwrap();
+                    (owner, ai)
+                })
+            };
+            let (first, first_ai) = make_owner(&first_world);
+            let (_second, second_ai) = make_owner(&second_world);
+            let target = Coord3D::new(240.0, 130.0, 0.0);
+            let mut ocl = crate::object_creation_list::ObjectCreationList::new();
+            let mut nugget = DeliverPayloadNugget::default();
+            nugget.data.drop_delay = 6;
+            nugget.data.max_attempts = 3;
+            ocl.add_nugget(Arc::new(nugget));
+            for world in [&first_world, &second_world] {
+                with_active_stores(world, || {
+                    crate::object_creation_list::store::ensure_default_object_creation_lists_loaded();
+                    crate::helpers::TheObjectCreationListStore::register_object_creation_list(
+                        "OCL_DeliveryBorrowTest",
+                        ocl.clone(),
+                    );
+                });
+            }
+            let mut power_data = OclSpecialPowerModuleData::default();
+            power_data.default_ocl = AsciiString::from("OCL_DeliveryBorrowTest");
+            power_data.create_loc = OCLCreateLocType::UseOwnerObject;
+            let power = OclSpecialPower::new(0, 41, ModuleDataHandle::new(power_data));
+            with_active_stores(&first_world, || {
+                let before = second_ai.lock().unwrap();
+                assert_eq!(before.get_current_command(), None);
+                drop(before);
+                power.do_special_power_at_location(&target, 0.0).unwrap();
+            });
+            {
+                let mut ai = first_ai.lock().unwrap();
+                assert_eq!(ai.get_current_command(), Some(crate::ai::AiCommandType::MoveToPosition));
+                let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();
+                assert!(delivery.is_delivering_payload());
+                assert_eq!(*delivery.get_move_to_pos(), target);
+                assert_eq!(*delivery.get_target_pos(), target);
+            }
+            {
+                let mut ai = second_ai.lock().unwrap();
+                assert_eq!(ai.get_current_command(), None);
+                assert!(!ai.get_deliver_payload_ai_update_interface().unwrap().is_delivering_payload());
+            }
+            let peer_target = Coord3D::new(320.0, 410.0, 0.0);
+            with_active_stores(&second_world, || {
+                power.do_special_power_at_location(&peer_target, 0.0).unwrap();
+            });
+            {
+                let mut ai = second_ai.lock().unwrap();
+                assert_eq!(ai.get_current_command(), Some(crate::ai::AiCommandType::MoveToPosition));
+                let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();
+                assert!(delivery.is_delivering_payload());
+                assert_eq!(*delivery.get_move_to_pos(), peer_target);
+                assert_eq!(*delivery.get_target_pos(), peer_target);
+            }
+            {
+                let mut ai = first_ai.lock().unwrap();
+                let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();
+                assert!(delivery.is_delivering_payload());
+                assert_eq!(*delivery.get_target_pos(), target);
+            }
+            let owner_pos = *first.read().unwrap().get_position();
+            with_active_stores(&first_world, || power.do_special_power().unwrap());
+            {
+                let mut ai = first_ai.lock().unwrap();
+                let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();
+                assert_eq!(*delivery.get_target_pos(), owner_pos);
+            }
+            {
+                let mut ai = second_ai.lock().unwrap();
+                let delivery = ai.get_deliver_payload_ai_update_interface().unwrap();
+                assert_eq!(*delivery.get_target_pos(), peer_target);
+            }
+            done.send(()).unwrap();
+        });
+        result.recv_timeout(Duration::from_secs(10))
+            .expect("actual OCL delivery blocked or its worker failed");
+        worker.join().unwrap();
+    }
+
+    #[test]
     fn completion_creator_uses_the_actual_transport_not_a_same_id_peer() {
         use crate::object::die::{
             DieModuleWrapper, SpecialPowerCompletionDie, SpecialPowerCompletionDieModuleData,
@@ -865,6 +1061,9 @@ mod tests {
 
     struct TestFactory;
     impl ThingFactoryContext for TestFactory {
+        fn find_object(&self, _id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+            None
+        }
         fn find_template(&self, _name: &str) -> Option<Arc<dyn crate::common::ThingTemplate>> {
             None
         }

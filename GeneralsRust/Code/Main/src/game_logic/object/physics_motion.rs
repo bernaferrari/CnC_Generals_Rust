@@ -385,46 +385,16 @@ impl Object {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.apply_parachute_building_bounce_out_with_owner(
-            other_center,
-            us_radius,
-            frame,
-            effects,
-            None,
-            None,
-        );
+        let pos = self.parachute_bounce_position(other_center, us_radius);
+        self.set_position_with_effects(pos, frame, effects);
+        self.scrub_velocity_2d(0.0);
     }
 
-    pub(crate) fn apply_parachute_building_bounce_out_with_effects_and_team_factory(
-        &mut self,
+    pub(in crate::game_logic) fn parachute_bounce_position(
+        &self,
         other_center: glam::Vec3,
         us_radius: f32,
-        frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
-        team_factory: &gamelogic::team::TeamFactoryHandle,
-    ) {
-        self.apply_parachute_building_bounce_out_with_owner(
-            other_center,
-            us_radius,
-            frame,
-            effects,
-            Some(trigger_world),
-            Some(team_factory),
-        );
-    }
-
-    fn apply_parachute_building_bounce_out_with_owner(
-        &mut self,
-        other_center: glam::Vec3,
-        us_radius: f32,
-        frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: Option<
-            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
-        >,
-        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-    ) {
+    ) -> glam::Vec3 {
         use crate::game_logic::host_partition_collision_physics_residual::parachute_bounce_out_distance;
         let us = self.get_position();
         let mut dx = other_center.x - us.x;
@@ -439,20 +409,7 @@ impl Object {
         let mut pos = us;
         pos.x -= bounce * dx / dist;
         pos.z -= bounce * dz / dist;
-        if let (Some(trigger_world), Some(team_factory)) = (trigger_world, team_factory) {
-            self.set_position_with_effects_and_pose_owners(
-                pos,
-                frame,
-                effects,
-                trigger_world,
-                team_factory,
-            );
-        } else if let Some(team_factory) = team_factory {
-            self.set_position_with_effects_and_team_factory(pos, frame, effects, team_factory);
-        } else {
-            self.set_position_with_effects(pos, frame, effects);
-        }
-        self.scrub_velocity_2d(0.0);
+        pos
     }
 
     /// C++ immobile collide stiffness bounce residual on velocity.

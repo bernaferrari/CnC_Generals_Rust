@@ -148,6 +148,10 @@ impl LiveCreationFixture {
 }
 
 impl ThingFactoryContext for LiveCreationFixture {
+    fn find_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+        LiveThingFactoryContext.find_object(id)
+    }
+
     fn find_template(&self, name: &str) -> Option<Arc<dyn ThingTemplate>> {
         LiveThingFactoryContext.find_template(name)
     }

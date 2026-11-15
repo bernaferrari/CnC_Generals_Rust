@@ -963,16 +963,13 @@ impl GameLogic {
                 }
                 bounce_id
             };
-            let pose_frame = self.frame;
-            if let Some(bounce) = self.objects.get_mut(&bounce_id) {
-                bounce.apply_parachute_building_bounce_out_with_effects_and_team_factory(
-                    imm_center,
-                    us_radius,
-                    pose_frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+            if let Some(bounce) = self.objects.get(&bounce_id) {
+                let position = bounce.parachute_bounce_position(imm_center, us_radius);
+                if self.set_owned_object_position_with_effects(bounce_id, position, self.frame, presentation_effects) {
+                    if let Some(bounce) = self.objects.get_mut(&bounce_id) {
+                        bounce.scrub_velocity_2d(0.0);
+                    }
+                }
             }
             return true;
         }
@@ -1420,16 +1417,20 @@ impl GameLogic {
             }
             _ => self.surface_ht_at(position).unwrap_or(raw),
         };
+        let trigger_position = self.host_trigger_world.lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .object_integer_position(id.0);
         let object = self
             .objects
             .get_mut(&id)
             .expect("observations do not run callbacks");
         let step = object.prepare_behavior_z(surface, goal_y, highest, frame);
         let reaction = step.position.map(|position| {
-            object.prepare_position_tree_reaction(
+            object.prepare_owned_position_tree_reaction(
                 position,
                 frame,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                trigger_position,
             )
         });
         // The registered object is never taken out. Release its bounded loan
@@ -1449,6 +1450,9 @@ impl GameLogic {
         surface_y: f32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        let trigger_position = self.host_trigger_world.lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .object_integer_position(id.0);
         let Some(object) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1460,6 +1464,7 @@ impl GameLogic {
             frame,
             braking,
             surface_y,
+            Some(trigger_position),
             &mut effects.reborrow_for_object(&mut self.partition_manager),
         );
         if let Some(reaction) = step.reaction.take() {
@@ -1488,6 +1493,29 @@ impl GameLogic {
         let Some(object) = self.objects.get_mut(&id) else {
             return false;
         };
+        if object.loco_appearance == LocomotorAppearance::Wings {
+            object.begin_loco_maintain_appearance(frame);
+            let Some((desired, speed)) = object.prepare_wings_maintain(frame) else {
+                return true;
+            };
+            let _ = object;
+            let dt = dt.max(1.0 / 30.0);
+            if self.rotate_owned_towards_position_with_effects(id, desired, dt, frame, effects).is_none() {
+                return false;
+            }
+            let Some(object) = self.objects.get_mut(&id) else { return false };
+            object.apply_forward_speed_force(speed, dt, frame);
+            let mut position = object.get_position();
+            position.x += object.movement.velocity.x * dt;
+            position.z += object.movement.velocity.z * dt;
+            let _ = object;
+            if !self.set_owned_object_position_with_effects(id, position, frame, effects) {
+                return false;
+            }
+            let Some(object) = self.objects.get_mut(&id) else { return false };
+            object.movement.target_position = None;
+            return true;
+        }
         if object.loco_appearance != LocomotorAppearance::Thrust {
             object.loco_maintain_appearance_with_team_factory(
                 dt,

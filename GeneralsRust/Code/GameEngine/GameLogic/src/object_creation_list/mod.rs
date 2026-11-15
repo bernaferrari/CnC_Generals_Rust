@@ -52,6 +52,8 @@ pub trait GameLogicContext {
 /// constructors and callbacks; a team lock guard must not cross this boundary.
 pub trait ThingFactoryContext {
     fn find_template(&self, name: &str) -> Option<Arc<dyn ThingTemplate>>;
+    /// Resolve an existing object in the same world as this factory.
+    fn find_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>>;
     fn new_object(
         &self,
         template: Arc<dyn ThingTemplate>,
@@ -90,6 +92,10 @@ impl GameLogicContext for LiveGameLogicContext {
 pub struct LiveThingFactoryContext;
 
 impl ThingFactoryContext for LiveThingFactoryContext {
+    fn find_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+    }
+
     fn find_template(&self, name: &str) -> Option<Arc<dyn ThingTemplate>> {
         crate::helpers::TheThingFactory::find_template(name)
     }
@@ -198,6 +204,26 @@ pub fn live_creation_context() -> CreationContext<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn existing_object_lookup_uses_the_driving_world() {
+        use crate::object::registry::OBJECT_REGISTRY;
+        use crate::system::engine_stores::{new_for_world, with_active_stores};
+
+        let first_world = new_for_world();
+        let second_world = new_for_world();
+        let first = Arc::new(RwLock::new(Object::new_test(73, 100.0)));
+        let second = Arc::new(RwLock::new(Object::new_test(73, 100.0)));
+        with_active_stores(&first_world, || OBJECT_REGISTRY.register_object(73, &first));
+        with_active_stores(&second_world, || OBJECT_REGISTRY.register_object(73, &second));
+
+        for (world, expected) in [(&first_world, &first), (&second_world, &second), (&first_world, &first)] {
+            with_active_stores(world, || {
+                let actual = live_creation_context().thing_factory.find_object(73).unwrap();
+                assert!(Arc::ptr_eq(&actual, expected));
+            });
+        }
+    }
 
     #[test]
     fn test_module_structure() {

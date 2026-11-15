@@ -936,14 +936,11 @@ impl GameLogic {
                             unit.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            unit.set_position_with_effects_and_pose_owners(
-                                pos + offset,
-                                tree_move_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                                &self.host_trigger_world,
-                                &self.team_factory,
-                            );
-                            {}
+                            let _ = unit;
+                            if !self.set_owned_object_position_with_effects(uid, pos + offset, tree_move_frame, effects) {
+                                continue;
+                            }
+                            let Some(unit) = self.objects.get_mut(&uid) else { continue };
                             unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));

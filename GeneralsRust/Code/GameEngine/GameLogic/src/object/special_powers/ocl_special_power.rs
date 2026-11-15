@@ -294,32 +294,21 @@ impl OclSpecialPower {
                 above
             }
         };
+        drop(owner_guard);
 
         // Execute the OCL
         let ctx = crate::object_creation_list::live_creation_context();
         let create_owner = Self::create_owner_flag_for_create_loc(create_loc);
 
-        let result = if create_owner {
-            ocl.create_with_angle(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                angle,
-                0,
-            )
-        } else {
-            // C++ USE_OWNER_OBJECT passes createOwner=false.
-            ocl.create_with_angle_and_owner_flag(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                angle,
-                false,
-                0,
-            )
-        };
+        let result = ocl.create_with_owner_handle(
+            &ctx,
+            &owner,
+            &creation_coord,
+            &target_coord,
+            Some(angle),
+            create_owner,
+            0,
+        );
 
         if let Some(created) = result {
             log::debug!(
@@ -405,11 +394,12 @@ impl OclSpecialPower {
             return Ok(());
         };
         let pos = *owner_guard.get_position();
+        drop(owner_guard);
 
         let ctx = crate::object_creation_list::live_creation_context();
         // C++ ObjectCreationList::create(..., false) — createOwner=false so
         // DeliverPayload reuses the firing object instead of spawning a transport.
-        let _ = ocl.create_with_owner_flag(&ctx, Some(&*owner_guard), &pos, &pos, false, 0);
+        let _ = ocl.create_with_owner_handle(&ctx, &owner, &pos, &pos, None, false, 0);
         Ok(())
     }
 

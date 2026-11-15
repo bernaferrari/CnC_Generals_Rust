@@ -808,13 +808,11 @@ impl GameLogic {
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
             p.target = drop_target;
-            p.set_position_with_effects_and_pose_owners(
-                hover,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = p;
+            if !self.set_owned_object_position_with_effects(pid, hover, self.frame, presentation_effects) {
+                return false;
+            }
+            let Some(p) = self.objects.get_mut(&pid) else { return false };
             let dest = glam::Vec3::new(hover.x, dest_y, hover.z);
             p.movement.path.clear();
             p.movement.current_path_index = 0;
@@ -923,13 +921,11 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&pid) {
             let mut p = obj.get_position();
             p.y = new_y;
-            obj.set_position_with_effects_and_pose_owners(
-                p,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = obj;
+            if !self.set_owned_object_position_with_effects(pid, p, self.frame, presentation_effects) {
+                return;
+            }
+            let Some(obj) = self.objects.get_mut(&pid) else { return };
             obj.movement.velocity = glam::Vec3::new(0.0, -speed, 0.0);
             obj.status.rappel_target_is_bldg = target_is_bldg;
             obj.status.rappel_dest_y = dest_y;
@@ -1140,6 +1136,7 @@ impl GameLogic {
             .get(&bldg_id)
             .map(|c| c.is_enclosing_garrison_container())
             .unwrap_or(true);
+        let garrison = self.objects.get(&bldg_id).is_some_and(Object::is_garrison_contain);
         if let Some(obj) = self.objects.get_mut(&pid) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
@@ -1159,15 +1156,18 @@ impl GameLogic {
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
             obj.target = Some(bldg_id);
-            if enclosing {
-                obj.set_position_with_effects_and_pose_owners(
-                    container_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
+            // GarrisonContain::onContaining sets HELD before its enclosing
+            // setPosition; updatePos then removes rather than restamps a rider.
+            if garrison {
+                obj.set_status_disabled_held(true);
             }
+            let _ = obj;
+            if enclosing && !self.set_owned_object_position_with_effects(
+                pid, container_pos, self.frame, presentation_effects,
+            ) {
+                return;
+            }
+            let Some(obj) = self.objects.get_mut(&pid) else { return };
             obj.set_ai_state(
                 AIState::Garrisoned,
                 self.frame,
@@ -1211,13 +1211,11 @@ impl GameLogic {
         end.z -= 20.0;
         end.y = self.terrain_height_at(end).unwrap_or(end.y);
         if let Some(obj) = self.objects.get_mut(&pid) {
-            obj.set_position_with_effects_and_pose_owners(
-                start,
-                self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
-            );
+            let _ = obj;
+            if !self.set_owned_object_position_with_effects(pid, start, self.frame, presentation_effects) {
+                return;
+            }
+            let Some(obj) = self.objects.get_mut(&pid) else { return };
             obj.set_orientation_with_partition_owner(exit_angle, &mut self.partition_manager);
             obj.movement.path = vec![start, end];
             obj.movement.current_path_index = 1;

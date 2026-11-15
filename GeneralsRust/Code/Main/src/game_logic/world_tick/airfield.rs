@@ -2698,14 +2698,19 @@ impl GameLogic {
                 return false;
             };
             let was_parked = jet.is_parked_at_airfield() || jet.contained_by.is_some();
-            let af = jet.takeoff_from_airfield_parking_with_operation_and_team_factory(
+            let (af, takeoff_position) = jet.prepare_airfield_takeoff(
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
-                &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
-                &self.host_trigger_world,
-                &self.team_factory,
             );
+            let _ = jet;
+            if let Some(position) = takeoff_position {
+                if !self.set_owned_object_position_with_effects(
+                    jet_id, position, self.frame, &mut Default::default(),
+                ) {
+                    return false;
+                }
+            }
+            let Some(jet) = self.objects.get_mut(&jet_id) else { return false };
             let containment_actor_id = jet.id;
             Self::set_owned_containment_in_parts(
                 &mut self.objects,

@@ -200,6 +200,19 @@ impl Object {
         self.prepare_position_reaction(old_position, frame, effects, true)
     }
 
+    pub(in crate::game_logic) fn prepare_owned_position_tree_reaction(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_position: (i32, i32),
+    ) -> PositionReaction {
+        let old_position = self.install_position_with_partition_context(position, effects, None);
+        self.prepare_position_reaction_with_integer_position(
+            old_position, frame, effects, true, Some(trigger_position),
+        )
+    }
+
     /// C++ Thing::setTransformMatrix reaches Object::reactToTransformChange.
     /// Physics may retain pitch/roll while changing translation.
     pub fn set_transform_matrix(&mut self, transform: Mat4) {
@@ -313,9 +326,28 @@ impl Object {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         collect_tree_fx: bool,
     ) -> PositionReaction {
+        self.prepare_position_reaction_with_integer_position(
+            old_position, frame, effects, collect_tree_fx, None,
+        )
+    }
+
+    fn prepare_position_reaction_with_integer_position(
+        &self,
+        old_position: Vec3,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        collect_tree_fx: bool,
+        trigger_position: Option<(i32, i32)>,
+    ) -> PositionReaction {
         let position = self.get_position();
-        let changed = old_position.x as i32 != position.x as i32
-            || old_position.z as i32 != position.z as i32;
+        let changed = if let Some((x, z)) = trigger_position {
+            let delta = (position - old_position).abs();
+            (delta.x > 0.01 || delta.y > 0.01 || delta.z > 0.01)
+                && (x != position.x as i32 || z != position.z as i32)
+        } else {
+            old_position.x as i32 != position.x as i32
+                || old_position.z as i32 != position.z as i32
+        };
         let skip = self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert);
         let trigger = changed && !skip;
         #[cfg(feature = "game_client")]
@@ -426,6 +458,20 @@ impl Object {
         let old_position =
             self.install_transform_matrix_with_partition_context(transform, effects, None);
         self.prepare_position_reaction(old_position, frame, effects, true)
+    }
+
+    pub(in crate::game_logic) fn prepare_owned_transform_tree_reaction(
+        &mut self,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        trigger_position: (i32, i32),
+    ) -> PositionReaction {
+        let old_position =
+            self.install_transform_matrix_with_partition_context(transform, effects, None);
+        self.prepare_position_reaction_with_integer_position(
+            old_position, frame, effects, true, Some(trigger_position),
+        )
     }
 
     /// Immutable authored and derived Thing facts; cannot mutate this Object's pose.
@@ -1669,17 +1715,31 @@ impl crate::game_logic::GameLogic {
     pub fn set_registered_object_transform(&mut self, id: ObjectId, transform: Mat4) -> bool {
         let frame = self.frame;
         let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+        self.set_owned_object_transform_with_effects(id, transform, frame, &mut effects)
+    }
+
+    pub(in crate::game_logic) fn set_owned_object_transform_with_effects(
+        &mut self,
+        id: ObjectId,
+        transform: Mat4,
+        frame: u32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let trigger_position = self.host_trigger_world.lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .object_integer_position(id.0);
         let reaction = {
             let Some(object) = self.objects.get_mut(&id) else {
                 return false;
             };
-            object.prepare_transform_tree_reaction(
+            object.prepare_owned_transform_tree_reaction(
                 transform,
                 frame,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                trigger_position,
             )
         };
-        self.complete_owned_position_reaction(id, reaction, &mut effects)
+        self.complete_owned_position_reaction(id, reaction, effects)
     }
 
     pub(crate) fn set_registered_object_position_with_effects(
@@ -1827,14 +1887,18 @@ impl crate::game_logic::GameLogic {
         frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        let trigger_position = self.host_trigger_world.lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .object_integer_position(id.0);
         let reaction = {
             let Some(object) = self.objects.get_mut(&id) else {
                 return false;
             };
-            object.prepare_position_tree_reaction(
+            object.prepare_owned_position_tree_reaction(
                 position,
                 frame,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                trigger_position,
             )
         };
         self.complete_owned_position_reaction(id, reaction, effects)

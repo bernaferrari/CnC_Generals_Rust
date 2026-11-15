@@ -135,15 +135,7 @@ impl GameLogic {
         }
 
         for (charge_id, pos) in moves {
-            if let Some(obj) = self.objects.get_mut(&charge_id) {
-                obj.set_position_with_effects_and_pose_owners(
-                    pos,
-                    tree_move_frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-            }
+            self.set_owned_object_position_with_effects(charge_id, pos, tree_move_frame, effects);
             self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
         }
         for (charge_id, _pos) in pings {
@@ -207,15 +199,7 @@ impl GameLogic {
                 })
                 .unwrap_or(0.0);
             if let Some(pos) = self.booby_trap.immobile_follow_pos(sid, ground_y) {
-                if let Some(obj) = self.objects.get_mut(&cid) {
-                    obj.set_position_with_effects_and_pose_owners(
-                        pos,
-                        tree_move_frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
-                        &self.host_trigger_world,
-                        &self.team_factory,
-                    );
-                }
+                self.set_owned_object_position_with_effects(cid, pos, tree_move_frame, effects);
             }
         }
         let ping_ids: Vec<(ObjectId, ObjectId, u32)> = self

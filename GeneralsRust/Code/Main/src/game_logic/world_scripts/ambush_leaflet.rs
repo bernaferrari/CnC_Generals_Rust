@@ -204,13 +204,12 @@ impl GameLogic {
                         let mut p = obj.get_position();
                         if p.y < 80.0 {
                             p.y = 120.0;
-                            obj.set_position_with_effects(
-                                p,
-                                self.frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
-                            );
-                            {}
+                            let _ = obj;
+                            if !self.set_owned_object_position_with_effects(id, p, self.frame, effects) {
+                                continue;
+                            }
                         }
+                        let Some(obj) = self.objects.get_mut(&id) else { continue };
                         obj.apply_eject_parachuting();
                     }
                     if self.set_parachute_override_destination(id, plan.target_position) {

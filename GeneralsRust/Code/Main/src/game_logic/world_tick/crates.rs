@@ -1564,10 +1564,30 @@ impl GameLogic {
             let Some(bus) = self.objects.get_mut(bus_id) else {
                 continue;
             };
-            bus.advance_battle_bus_throw_with_effects(
-                frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-            );
+            let throw = bus.battle_bus_body.as_ref().and_then(|body| {
+                if !body.is_in_first_death || body.throw_vz.abs() <= 0.001 {
+                    return None;
+                }
+                let pos = bus.get_position();
+                let ground = bus.ground_height;
+                let mut y = pos.y + body.throw_vz;
+                let mut velocity = body.throw_vz - 0.5;
+                if velocity < 0.0 && y <= ground {
+                    y = ground;
+                    velocity = 0.0;
+                }
+                Some((glam::Vec3::new(pos.x, y.max(ground), pos.z), velocity))
+            });
+            let _ = bus;
+            if let Some((position, velocity)) = throw {
+                if !self.set_owned_object_position_with_effects(*bus_id, position, frame, presentation_effects) {
+                    continue;
+                }
+                if let Some(body) = self.objects.get_mut(bus_id).and_then(|bus| bus.battle_bus_body.as_mut()) {
+                    body.throw_vz = velocity;
+                }
+            }
+            let Some(bus) = self.objects.get_mut(bus_id) else { continue };
             #[cfg(feature = "game_client")]
             let (_landed, empty_kill) = Self::with_object_fx_services(
                 &mut self.session_view,

@@ -1850,6 +1850,39 @@ impl Object {
         true
     }
 
+    pub(in crate::game_logic) fn prepare_wings_maintain(&mut self, frame: u32) -> Option<(glam::Vec3, f32)> {
+        self.physics_turning = PhysicsTurningType::TurnNone;
+        if !self.is_motive(frame) || !self.is_above_terrain() {
+            return None;
+        }
+        let maintain = self.maintain_pos?;
+        let mut radius = self.circling_radius;
+        if radius.abs() < 1.0e-4 {
+            radius = self.calc_min_turn_radius();
+        }
+        let us = self.get_position();
+        let dx = maintain.x - us.x;
+        let dz = maintain.z - us.z;
+        let mut angle = if dx * dx + dz * dz < 1.0e-6 {
+            self.get_orientation()
+        } else {
+            (-dz).atan2(dx)
+        };
+        let mut aim = std::f32::consts::PI - std::f32::consts::PI / 8.0;
+        if radius < 0.0 {
+            radius = -radius;
+            aim = -aim;
+        }
+        angle += aim;
+        let desired = glam::Vec3::new(
+            maintain.x + angle.cos() * radius, maintain.y,
+            maintain.z - angle.sin() * radius,
+        );
+        let speed = self.min_speed.max(0.0);
+        self.movement.target_position = Some(desired);
+        Some((desired, speed))
+    }
+
     /// C++ maintainCurrentPositionWings residual — circle around maintain pos.
     pub fn maintain_position_wings(&mut self, dt: f32, frame: u32) {
         self.maintain_position_wings_with_effects(dt, frame, &mut Default::default())
@@ -1872,41 +1905,9 @@ impl Object {
         >,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
-        self.physics_turning = PhysicsTurningType::TurnNone;
-        // C++ maintainCurrentPositionWings: isMotive() && isAboveTerrain().
-        if !self.is_motive(frame) || !self.is_above_terrain() {
-            return;
-        }
-        let Some(maintain) = self.maintain_pos else {
+        let Some((desired, spd)) = self.prepare_wings_maintain(frame) else {
             return;
         };
-        let mut turn_radius = self.circling_radius;
-        if turn_radius.abs() < 1.0e-4 {
-            turn_radius = self.calc_min_turn_radius();
-        }
-        let us = self.get_position();
-        let dx = maintain.x - us.x;
-        let dz = maintain.z - us.z;
-        let mut angle = if dx * dx + dz * dz < 1.0e-6 {
-            self.get_orientation()
-        } else {
-            (-dz).atan2(dx) // host facing convention for direction to maintain
-        };
-        // C++ aimDir = PI - PI/8
-        let mut aim_dir = std::f32::consts::PI - std::f32::consts::PI / 8.0;
-        if turn_radius < 0.0 {
-            turn_radius = -turn_radius;
-            aim_dir = -aim_dir;
-        }
-        angle += aim_dir;
-        let desired = glam::Vec3::new(
-            maintain.x + angle.cos() * turn_radius,
-            maintain.y,
-            maintain.z + (-angle.sin()) * turn_radius, // match host dir xz from angle
-        );
-        // C++ moveTowardsPositionWings(..., m_template->m_minSpeed).
-        let spd = self.min_speed.max(0.0);
-        self.movement.target_position = Some(desired);
         let (_t, _rel) = self.rotate_towards_position_with_team_factory_context(
             desired,
             dt,
@@ -1997,6 +1998,7 @@ impl Object {
             frame,
             braking_status,
             surface_y,
+            None,
             effects,
         );
         if let Some(reaction) = step.reaction {
@@ -2016,6 +2018,7 @@ impl Object {
         frame: u32,
         braking_status: bool,
         surface_y: f32,
+        trigger_position: Option<(i32, i32)>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> ThrustStep {
         let mut reaction = None;
@@ -2094,11 +2097,14 @@ impl Object {
                         basis.transform_point3(us),
                         basis.transform_vector3(actual),
                     );
-                    reaction = Some(self.prepare_transform_tree_reaction(
-                        basis * source * basis,
-                        frame,
-                        effects,
-                    ));
+                    let transform = basis * source * basis;
+                    reaction = Some(if let Some(trigger_position) = trigger_position {
+                        self.prepare_owned_transform_tree_reaction(
+                            transform, frame, effects, trigger_position,
+                        )
+                    } else {
+                        self.prepare_transform_tree_reaction(transform, frame, effects)
+                    });
                     self.sync_shock_up_from_transform();
                 }
             }
@@ -2156,7 +2162,7 @@ impl Object {
     }
 
     /// Apply forward motive force to close speedDelta (C++ legs/other residual).
-    pub(super) fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32, frame: u32) {
+    pub(in crate::game_logic) fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32, frame: u32) {
         let actual = self.forward_speed_2d();
         // When moving backwards residual, treat signed speed.
         let actual = if self.moving_backwards {
@@ -2550,10 +2556,14 @@ impl crate::game_logic::GameLogic {
     ) -> Option<(PhysicsTurningType, f32)> {
         let plan = self.objects.get(&id)?.plan_loco_pivot(goal, max_turn);
         if let Some(transform) = plan.transform {
-            let reaction = self.objects.get_mut(&id)?.prepare_transform_tree_reaction(
+            let trigger_position = self.host_trigger_world.lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .object_integer_position(id.0);
+            let reaction = self.objects.get_mut(&id)?.prepare_owned_transform_tree_reaction(
                 transform,
                 frame,
                 &mut effects.reborrow_for_object(&mut self.partition_manager),
+                trigger_position,
             );
             if !self.complete_owned_position_reaction(id, reaction, effects) {
                 return None;

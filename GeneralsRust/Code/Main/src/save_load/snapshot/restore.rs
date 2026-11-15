@@ -1639,17 +1639,14 @@ impl SnapshotBuilder {
             used.insert(resource_id);
 
             {
-                let Some((resource_obj, partition)) =
-                    game_logic.host_object_and_partition_mut(resource_id)
-                else {
+                if !game_logic.set_registered_object_position_with_effects(
+                    resource_id, depot.position, 0, &mut Default::default(),
+                ) {
+                    continue;
+                }
+                let Some(resource_obj) = game_logic.host_object_mut(resource_id) else {
                     continue;
                 };
-                resource_obj.set_position_with_partition_owner(
-                    depot.position,
-                    0,
-                    &mut Default::default(),
-                    partition,
-                );
                 resource_obj.set_stored_supplies(depot.amount);
                 if resource_obj.object_type != ObjectType::Supply
                     && (resource_obj.is_kind_of(KindOf::Resource)

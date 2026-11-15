@@ -3,6 +3,58 @@
 use crate::game_logic::{AIState, GameLogic, KindOf, ThingTemplate};
 
 #[test]
+fn rappel_garrison_holds_rider_before_center_pose_in_each_world() {
+    use crate::fixture_content::{admit_fixture_content, FixtureObject};
+    use crate::game_logic::pathfinding::{GridPos, PathfindingSystem};
+    use crate::game_logic::{Player, Team};
+    use glam::Vec3;
+
+    let setup = || {
+        let mut world = GameLogic::new();
+        admit_fixture_content(
+            &mut world,
+            &[
+                FixtureObject::new("RappelPositionRider")
+                    .kind_of("INFANTRY SELECTABLE")
+                    .health(100.0)
+                    .walker(),
+                FixtureObject::new("RappelPositionBunker")
+                    .kind_of("STRUCTURE")
+                    .health(1000.0)
+                    .module("Behavior = GarrisonContain Cargo\n ContainMax = 5\n AllowInsideKindOf = INFANTRY\nEnd"),
+            ],
+            &[],
+        );
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        world.pathfinding_system = PathfindingSystem::new(400.0, 400.0);
+        world.pathfinding_system.map_ready = true;
+        let building = world.create_object(
+            "RappelPositionBunker", Team::USA, Vec3::new(100.0, 0.0, 100.0),
+        ).unwrap();
+        let rider = world.create_object(
+            "RappelPositionRider", Team::USA, Vec3::new(30.0, 0.0, 100.0),
+        ).unwrap();
+        let actor = world.host_object_mut(rider).unwrap();
+        actor.cur_locomotor_name = Some("ground".into());
+        actor.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        assert!(world.set_registered_object_position(rider, Vec3::new(40.0, 0.0, 100.0)));
+        (world, building, rider)
+    };
+    let (mut world, building, rider) = setup();
+    let (mut peer, peer_building, peer_rider) = setup();
+    assert_eq!((building, rider), (peer_building, peer_rider));
+    assert_eq!(world.pathfinding_ground_position(GridPos::new(4, 10)), Some(rider));
+    world.rappel_add_to_contain(rider, building);
+    assert!(world.host_object(rider).unwrap().status.disabled_held);
+    assert_eq!(world.host_object(rider).unwrap().get_position(), Vec3::new(100.0, 0.0, 100.0));
+    assert_eq!(world.pathfinding_ground_position(GridPos::new(4, 10)), None);
+    assert_eq!(world.pathfinding_ground_position(GridPos::new(10, 10)), None);
+    assert_eq!(peer.pathfinding_ground_position(GridPos::new(4, 10)), Some(peer_rider));
+    peer.rappel_add_to_contain(peer_rider, peer_building);
+    assert_eq!(peer.pathfinding_ground_position(GridPos::new(10, 10)), None);
+}
+
+#[test]
 fn garrison_exit_occupant_via_door_bursts_from_center() {
     let mut logic = GameLogic::new();
     let mut bunker_t = ThingTemplate::new("GARR_DOOR");

@@ -1244,47 +1244,23 @@ impl Object {
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        self.takeoff_from_airfield_parking_with_operation_owner(
-            audio,
-            operation_frame,
-            operation_effects,
-            None,
-            None,
-        )
+        let (af, position) = self.prepare_airfield_takeoff(audio, operation_frame);
+        if let Some(position) = position {
+            self.set_position_with_effects(position, operation_frame, operation_effects);
+        }
+        af
     }
 
-    pub(crate) fn takeoff_from_airfield_parking_with_operation_and_team_factory(
+    pub(in crate::game_logic) fn prepare_airfield_takeoff(
         &mut self,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         operation_frame: u32,
-        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
-        team_factory: &gamelogic::team::TeamFactoryHandle,
-    ) -> Option<ObjectId> {
-        self.takeoff_from_airfield_parking_with_operation_owner(
-            audio,
-            operation_frame,
-            operation_effects,
-            Some(trigger_world),
-            Some(team_factory),
-        )
-    }
-
-    fn takeoff_from_airfield_parking_with_operation_owner(
-        &mut self,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
-        operation_frame: u32,
-        operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        trigger_world: Option<
-            &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
-        >,
-        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-    ) -> Option<ObjectId> {
+    ) -> (Option<ObjectId>, Option<glam::Vec3>) {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
-            return None;
+            return (None, None);
         }
         if self.ai_state() != AIState::Docked && self.contained_by.is_none() {
-            return None;
+            return (None, None);
         }
         let af = self.contained_by.take();
         // C++ JetAIUpdate.cpp:259-260 / :725-726 takeoff PRECISE_Z_POS + ULTRA_ACCURATE.
@@ -1301,27 +1277,10 @@ impl Object {
             let mut pos = self.get_position();
             if pos.y < PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT {
                 pos.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-                if let (Some(trigger_world), Some(team_factory)) = (trigger_world, team_factory) {
-                    self.set_position_with_effects_and_pose_owners(
-                        pos,
-                        operation_frame,
-                        operation_effects,
-                        trigger_world,
-                        team_factory,
-                    );
-                } else if let Some(team_factory) = team_factory {
-                    self.set_position_with_effects_and_team_factory(
-                        pos,
-                        operation_frame,
-                        operation_effects,
-                        team_factory,
-                    );
-                } else {
-                    self.set_position_with_effects(pos, operation_frame, operation_effects);
-                }
+                return (af, Some(pos));
             }
         }
-        af
+        (af, None)
     }
 
     pub fn can_attack(&self) -> bool {

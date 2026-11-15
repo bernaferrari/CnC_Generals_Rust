@@ -448,15 +448,25 @@ impl GameLogic {
                             .map(|j| j.is_active())
                             .unwrap_or(false)
                     {
-                        topple_kill = obj.tick_jet_slow_death_with_effects(
-                            self.frame,
-                            0.0,
-                            &mut presentation_effects
-                                .reborrow_for_object(&mut self.partition_manager),
-                        );
-                        final_death_destroy = topple_kill;
+                        let pos = obj.get_position();
+                        let ori = obj.get_orientation();
+                        let jet = obj.jet_slow_death.as_mut().unwrap();
+                        let (dy, d_roll, done) = jet.tick(self.frame, pos.y.max(0.0));
+                        let event = jet.take_pending_effects();
+                        let mut position = pos;
+                        position.y = (position.y + dy).max(0.0);
+                        let _ = obj;
+                        if !self.set_owned_object_position_with_effects(object_id, position, self.frame, presentation_effects) {
+                            continue;
+                        }
+                        let Some(obj) = self.objects.get_mut(&object_id) else { continue };
+                        obj.set_orientation_with_effects(ori + d_roll, &mut presentation_effects.reborrow_for_object(&mut self.partition_manager));
+                        obj.apply_jet_death_phase(event);
+                        topple_kill = done;
+                        final_death_destroy = done;
                     }
                 }
+                let Some(obj) = self.objects.get_mut(&object_id) else { continue };
                 // Wave 773: under coupled shadow, HelicopterSlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Helicopter completion drain.
                 {
@@ -468,17 +478,24 @@ impl GameLogic {
                             .map(|h| h.is_active())
                             .unwrap_or(false)
                     {
-                        topple_kill = obj.tick_helicopter_slow_death_with_effects_and_team_factory(
-                            self.frame,
-                            0.0,
-                            &mut presentation_effects
-                                .reborrow_for_object(&mut self.partition_manager),
-                            &self.host_trigger_world,
-                            &self.team_factory,
-                        );
-                        final_death_destroy = topple_kill;
+                        let pos = obj.get_position();
+                        let ori = obj.get_orientation();
+                        let helicopter = obj.helicopter_slow_death.as_mut().unwrap();
+                        let (dx, dy, dz, dori, done, _) = helicopter.tick(self.frame, pos.y.max(0.0));
+                        let event = helicopter.take_pending_effects();
+                        let position = glam::Vec3::new(pos.x + dx, (pos.y + dy).max(0.0), pos.z + dz);
+                        let _ = obj;
+                        if !self.set_owned_object_position_with_effects(object_id, position, self.frame, presentation_effects) {
+                            continue;
+                        }
+                        let Some(obj) = self.objects.get_mut(&object_id) else { continue };
+                        obj.set_orientation_with_effects(ori + dori, &mut presentation_effects.reborrow_for_object(&mut self.partition_manager));
+                        obj.apply_heli_death_phase(event);
+                        topple_kill = done;
+                        final_death_destroy = done;
                     }
                 }
+                let Some(obj) = self.objects.get_mut(&object_id) else { continue };
                 // Wave 774: under coupled shadow, SlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Slow completion drain.
                 {

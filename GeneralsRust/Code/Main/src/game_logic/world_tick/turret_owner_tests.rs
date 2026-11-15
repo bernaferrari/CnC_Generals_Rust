@@ -44,6 +44,41 @@ fn receiving_world() -> (GameLogic, ObjectId) {
     (world, owner)
 }
 
+#[test]
+fn turret_containment_pose_updates_only_receiving_world_path_cells() {
+    use crate::game_logic::pathfinding::{GridPos, PathfindingSystem};
+    use glam::Vec3;
+
+    let setup = || {
+        let (mut world, carrier) = receiving_world();
+        world.pathfinding_system = PathfindingSystem::new(400.0, 400.0);
+        world.pathfinding_system.map_ready = true;
+        let passenger = world
+            .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(30.0, 0.0, 100.0))
+            .unwrap();
+        {
+            let rider = world.host_object_mut(passenger).unwrap();
+            rider.cur_locomotor_name = Some("ground".into());
+            rider.locomotor_surfaces = gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+        }
+        assert!(world.set_registered_object_position(carrier, Vec3::new(100.0, 0.0, 100.0)));
+        assert!(world.set_registered_object_position(passenger, Vec3::new(40.0, 0.0, 100.0)));
+        world.host_object_mut(carrier).unwrap().occupants.push(passenger);
+        world.host_object_mut(carrier).unwrap().turret_ai.turret_angle_deg = 30.0;
+        (world, carrier, passenger)
+    };
+    let (mut world, carrier, passenger) = setup();
+    let (mut peer, peer_carrier, peer_passenger) = setup();
+    assert_eq!((carrier, passenger), (peer_carrier, peer_passenger));
+    world.apply_turret_rotate_fx(carrier, 0.0, &mut Default::default());
+    assert_eq!(world.pathfinding_ground_position(GridPos::new(4, 10)), None);
+    assert_eq!(world.pathfinding_ground_position(GridPos::new(10, 10)), Some(passenger));
+    assert_eq!(peer.pathfinding_ground_position(GridPos::new(4, 10)), Some(passenger));
+    assert_eq!(peer.pathfinding_ground_position(GridPos::new(10, 10)), None);
+    peer.apply_turret_rotate_fx(peer_carrier, 0.0, &mut Default::default());
+    assert_eq!(peer.pathfinding_ground_position(GridPos::new(10, 10)), Some(passenger));
+}
+
 fn admit_sweep(world: &mut GameLogic, owner: ObjectId, frame: u32, sweep: f32) {
     world.frame = frame;
     world.set_turret_target_position(owner, Some(glam::Vec3::new(20.0, 0.0, 0.0)));
